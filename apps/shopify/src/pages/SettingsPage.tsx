@@ -1,6 +1,5 @@
 import {
   Badge,
-  Banner,
   BlockStack,
   Button,
   Card,
@@ -15,7 +14,9 @@ import {
   Toast,
 } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
+import { ErrorBanner } from '../components/ErrorBanner';
 import { apiFetch, apiFetchResponse } from '../lib/api';
+import { type ClassifiedError, classifyError } from '../lib/errors';
 import type {
   ShopifyMe,
   ShopifyShopperListItem,
@@ -62,7 +63,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ClassifiedError | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [shoppers, setShoppers] = useState<ShopifyShopperListItem[] | null>(null);
 
@@ -75,7 +76,7 @@ export default function SettingsPage() {
         setLoading(false);
       })
       .catch((err) => {
-        setError((err as Error).message);
+        setError(classifyError(err));
         setLoading(false);
       });
   }, []);
@@ -89,7 +90,7 @@ export default function SettingsPage() {
     apiFetch<{ items: ShopifyShopperListItem[] }>('/v1/shopify/shoppers')
       .then((res) => setShoppers(res.items))
       .catch((err) => {
-        setError((err as Error).message);
+        setError(classifyError(err));
         // Without this the list stays null and IndexTable's `loading={!shoppers}`
         // spins forever behind the error banner. An empty list is the honest
         // rendering: we have nothing to show, and the banner says why.
@@ -107,7 +108,7 @@ export default function SettingsPage() {
       });
       setToastMessage('Limits saved.');
     } catch (err) {
-      setError((err as Error).message);
+      setError(classifyError(err));
     } finally {
       setSaving(false);
     }
@@ -150,7 +151,7 @@ export default function SettingsPage() {
       anchor.remove();
       URL.revokeObjectURL(href);
     } catch (err) {
-      setError((err as Error).message);
+      setError(classifyError(err));
     } finally {
       setExporting(false);
     }
@@ -167,11 +168,7 @@ export default function SettingsPage() {
     <Page title="Settings">
       <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab}>
         <BlockStack gap="400">
-          {error && (
-            <Banner tone="critical" onDismiss={() => setError(null)}>
-              {error}
-            </Banner>
-          )}
+          <ErrorBanner error={error} onRetry={load} onDismiss={() => setError(null)} />
 
           {selectedTab === 0 && (
             <>

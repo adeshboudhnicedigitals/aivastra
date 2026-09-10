@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
+  bigserial,
   boolean,
   index,
   integer,
@@ -133,5 +135,42 @@ export const merchantCatalogItems = pgTable(
     uniqueIndex('merchant_catalog_items_merchant_source_job_unique')
       .on(t.merchantId, t.sourceJobId)
       .where(sql`${t.sourceJobId} is not null`),
+  ],
+);
+
+/**
+ * ADVISORY ONLY, same contract as shopify_widget_events (packages/db/src/
+ * schema/shopify.ts): no credit decision, limit check, or authorization read
+ * may ever consult this table. `type` is client-reported and forgeable by
+ * anyone who can open devtools -- it exists purely to feed the WordPress
+ * plugin's Analytics card (GET /v1/dev/analytics) and its own event sender
+ * (POST /v1/dev/widget-event, widget-key scoped, called from
+ * wordpress-plugin/assets/widget.js running in the shopper's browser).
+ */
+export const merchantWidgetEvents = pgTable(
+  'merchant_widget_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    merchantId: uuid('merchant_id')
+      .notNull()
+      .references(() => merchants.id, { onDelete: 'cascade' }),
+    // Generated and persisted in the shopper's browser localStorage by
+    // widget.js -- how a future funnel step could join events to the same
+    // person. Nullable: an older widget build sends none.
+    clientId: text('client_id'),
+    productId: bigint('product_id', { mode: 'number' }), // WooCommerce post ID
+    // button_click | upload | result_view | add_to_cart | share
+    type: text('type').notNull(),
+    device: text('device'), // 'mobile' | 'desktop'
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('merchant_widget_events_merchant_time_idx').on(t.merchantId, t.createdAt),
+    index('merchant_widget_events_merchant_type_time_idx').on(t.merchantId, t.type, t.createdAt),
+    index('merchant_widget_events_merchant_product_time_idx').on(
+      t.merchantId,
+      t.productId,
+      t.createdAt,
+    ),
   ],
 );

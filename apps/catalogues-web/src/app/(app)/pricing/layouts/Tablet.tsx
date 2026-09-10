@@ -6,7 +6,14 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { CouponModal } from '../CouponModal';
 import { GstinConfirmModal } from '../GstinConfirmModal';
 import { PaymentResultModal } from '../PaymentResultModal';
-import { COUNTRIES, FLAGS, PLAN_FEATURES, PLAN_META, TRYON_FEATURES } from '../use-pricing-data';
+import {
+  CATALOGUE_PLAN_META,
+  COUNTRIES,
+  FLAGS,
+  PLAN_FEATURES,
+  TRYON_FEATURES,
+  TRYON_PLAN_META,
+} from '../use-pricing-data';
 import type { PricingLayoutProps } from './types';
 
 export function Tablet(props: PricingLayoutProps): React.ReactElement {
@@ -46,6 +53,12 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
     setCheckoutGstin,
     closeGstinModal,
     confirmGstinAndPay,
+    renewingUnlimitedPlan,
+    startRenewUnlimitedPlan,
+    renewUnlimitedPlanConfirmOpen,
+    closeRenewUnlimitedPlanConfirm,
+    confirmRenewUnlimitedPlan,
+    unlimitedRenewalPricePaise,
     banner,
   } = props;
 
@@ -55,7 +68,7 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
       <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
         <TopBar
           title="Pricing & Plan"
-          subtitle="Create professional fashion catalogues without photoshoots, models, or editing headaches."
+          subtitle="Flexible pricing designed for fashion brands, retailers, and enterprises of every size."
           right={
             <div ref={countryRef} style={{ position: 'relative', flexShrink: 0 }}>
               <button
@@ -91,18 +104,25 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                 <ChevronDown size={14} />
               </button>
               {showCountry && (
+                // TopBar's own bar clips overflow for its text-truncation
+                // children, which also clips a plain position:absolute
+                // dropdown anchored inside it — fixed positioning (anchored
+                // off the button's live rect, same approach as UserMenu's
+                // popup) escapes that ancestor clip instead.
                 <div
                   style={{
-                    position: 'absolute',
-                    top: 44,
-                    right: 0,
+                    position: 'fixed',
+                    top: (countryRef.current?.getBoundingClientRect().bottom ?? 60) + 4,
+                    right: countryRef.current
+                      ? window.innerWidth - countryRef.current.getBoundingClientRect().right
+                      : 24,
                     width: 200,
                     background: C.white,
                     border: `1px solid ${C.border}`,
                     borderRadius: 8,
                     boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
                     overflow: 'hidden',
-                    zIndex: 10,
+                    zIndex: 100,
                   }}
                 >
                   {COUNTRIES.map((c) => (
@@ -141,7 +161,16 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
 
       {/* Current Plan Banner */}
       {(() => {
-        const { planName, balance, planCredits, pct, activatedDate } = banner;
+        const {
+          planName,
+          pct,
+          activatedDate,
+          isUnlimited,
+          usageLabel,
+          usageValue,
+          usageTotal,
+          footerText,
+        } = banner;
 
         return (
           <div
@@ -230,19 +259,19 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                   letterSpacing: '0.3px',
                 }}
               >
-                Credits Remaining
+                {usageLabel}
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
                 <span style={{ fontSize: 40, fontWeight: 800, color: '#ffffff', lineHeight: 1 }}>
-                  {balance.toLocaleString('en-IN')}
+                  {usageValue.toLocaleString('en-IN')}
                 </span>
-                {planCredits !== null && (
+                {usageTotal !== null && (
                   <span style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', marginLeft: 2 }}>
-                    /{planCredits.toLocaleString('en-IN')}
+                    /{usageTotal.toLocaleString('en-IN')}
                   </span>
                 )}
               </div>
-              {planCredits !== null && (
+              {usageTotal !== null && (
                 <div
                   style={{
                     height: 8,
@@ -263,8 +292,34 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                 </div>
               )}
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', lineHeight: '16px' }}>
-                Credits are shared across AI Catalogue Generation and AI Virtual Tryon.
+                {footerText}
               </div>
+              {isUnlimited && (
+                <button
+                  type="button"
+                  onClick={startRenewUnlimitedPlan}
+                  disabled={renewingUnlimitedPlan}
+                  style={{
+                    marginTop: 4,
+                    padding: '10px 16px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: C.white,
+                    color: C.pink,
+                    fontFamily: 'inherit',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: renewingUnlimitedPlan ? 'not-allowed' : 'pointer',
+                    opacity: renewingUnlimitedPlan ? 0.7 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {renewingUnlimitedPlan ? 'Processing…' : 'Renew'}
+                </button>
+              )}
             </div>
           </div>
         );
@@ -402,8 +457,8 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                   />
                 ))
               : cataloguePlans.map((plan, idx) => {
-                  // biome-ignore lint/style/noNonNullAssertion: PLAN_META has entries for every plan index
-                  const meta = PLAN_META[idx] ?? PLAN_META[0]!;
+                  // biome-ignore lint/style/noNonNullAssertion: CATALOGUE_PLAN_META has entries for every plan index
+                  const meta = CATALOGUE_PLAN_META[idx] ?? CATALOGUE_PLAN_META[0]!;
                   const features = PLAN_FEATURES[idx] ?? PLAN_FEATURES[0];
                   const accent = meta.accent;
                   const highlighted = plan.isHighlighted;
@@ -710,8 +765,8 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
                   />
                 ))
               : tryonPlans.map((plan, idx) => {
-                  // biome-ignore lint/style/noNonNullAssertion: PLAN_META has entries for every plan index
-                  const meta = PLAN_META[idx] ?? PLAN_META[0]!;
+                  // biome-ignore lint/style/noNonNullAssertion: TRYON_PLAN_META has entries for every plan index
+                  const meta = TRYON_PLAN_META[idx] ?? TRYON_PLAN_META[0]!;
                   const features = TRYON_FEATURES;
                   const accent = meta.accent;
                   const highlighted = plan.isHighlighted;
@@ -1042,6 +1097,19 @@ export function Tablet(props: PricingLayoutProps): React.ReactElement {
           displayTotal={displayTotal}
           onClose={closeGstinModal}
           onPay={confirmGstinAndPay}
+        />
+      )}
+
+      {renewUnlimitedPlanConfirmOpen && (
+        <GstinConfirmModal
+          plan={{ basePaise: unlimitedRenewalPricePaise ?? 0 }}
+          gstin={checkoutGstin}
+          setGstin={setCheckoutGstin}
+          displayBase={displayBase}
+          displayTax={displayTax}
+          displayTotal={displayTotal}
+          onClose={closeRenewUnlimitedPlanConfirm}
+          onPay={confirmRenewUnlimitedPlan}
         />
       )}
     </div>

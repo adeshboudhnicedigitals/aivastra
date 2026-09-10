@@ -1,7 +1,15 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { X as CloseIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CheckIcon, ImagePlusIcon, SparkleIcon, SpinnerIcon, XIcon } from '@/components/icons';
+import {
+  CheckIcon,
+  ImagePlusIcon,
+  SparkleIcon,
+  SpinnerIcon,
+  XIcon,
+  YoutubeIcon,
+} from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ErrorState } from '@/components/ui/error-state';
@@ -12,6 +20,7 @@ import { api } from '@/lib/api';
 import { BREAKPOINTS } from '@/lib/breakpoints';
 import { ApiError } from '@/lib/errors';
 import { isSupportedImageBytes } from '@/lib/image-validation';
+import { extractYoutubeId } from '@/lib/youtube';
 import { BatchMode } from './batch/batch-mode';
 import { type GenerationJob, GenerationPanel } from './generation-panel';
 import { PreviewPanel } from './preview-panel';
@@ -26,6 +35,7 @@ interface GarmentType {
   label: string;
   thumbnailUrl?: string | null;
   instructionImageUrl?: string | null;
+  tutorialVideoUrl?: string | null;
   requiresLowerUpload: boolean;
   upperUploadLabel?: string | null;
   lowerUploadLabel?: string | null;
@@ -199,25 +209,35 @@ const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
   Shopify: { src: `${BASE}/assets/platform-logos/shopify-logo.svg`, h: 20 },
 };
 const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9'];
+// Defaults only — matches ASPECT_DIMENSIONS in packages/types/src/jobs.ts as of the
+// 2688 long-edge bump (2026-09-08, including 4:5). The admin can override
+// 1:1/2:3/3:4/4:5 at runtime (Settings → System → Aspect Ratio Sizes); this table is
+// only the fallback used before that config loads (see effectiveAspectPx/
+// effectiveAspectDims below) or if it's never been touched. 9:16 and 16:9 aren't in
+// ASPECT_DIMENSIONS server-side, so they're always these fixed values regardless of
+// admin config.
 const ASPECT_DIMS: Record<string, string> = {
-  '1:1': '2048 × 2048 px',
-  '2:3': '1365 × 2048 px',
-  '3:4': '1331 × 1774 px',
-  '4:5': '1375 × 1718 px',
-  '9:16': '1152 × 2048 px',
-  '16:9': '2048 × 1152 px',
+  '1:1': '2688 × 2688 px',
+  '2:3': '1792 × 2688 px',
+  '3:4': '2016 × 2688 px',
+  '4:5': '2150 × 2688 px',
+  '9:16': '1512 × 2688 px',
+  '16:9': '2688 × 1512 px',
 };
 const ASPECT_PX: Record<string, { w: number; h: number }> = {
-  '1:1': { w: 2048, h: 2048 },
-  '2:3': { w: 1365, h: 2048 },
-  '3:4': { w: 1331, h: 1774 },
-  '4:5': { w: 1375, h: 1718 },
+  '1:1': { w: 2688, h: 2688 },
+  '2:3': { w: 1792, h: 2688 },
+  '3:4': { w: 2016, h: 2688 },
+  '4:5': { w: 2150, h: 2688 },
 };
+// Mirrors the server-authoritative resolutionFromDims in packages/types/src/jobs.ts
+// (>3000 → 4K, >1200 → 2K) — must use the same thresholds or this display badge/estimate
+// would disagree with what the server actually charges.
 function resolutionFromOutputDims(w: number, h: number): 'HD' | '2K' | '4K' {
   const longer = Math.max(w, h);
-  if (longer <= 1440) return 'HD';
-  if (longer <= 2048) return '2K';
-  return '4K';
+  if (longer > 3000) return '4K';
+  if (longer > 1200) return '2K';
+  return 'HD';
 }
 
 /**
@@ -477,6 +497,7 @@ export default function StudioPage(): React.ReactElement {
   const { data: resolutionConfigData } = useQuery<{
     resolutions: Record<string, { enabled: boolean; creditCost: number }>;
     maxOutputPx: number;
+    aspectDimensions?: Record<string, { width: number; height: number }>;
   }>({
     queryKey: ['resolution-configs'],
     queryFn: () => api.get('/v1/config/resolutions'),
@@ -488,8 +509,31 @@ export default function StudioPage(): React.ReactElement {
     '4K': { enabled: true, creditCost: 40 },
   };
   // Admin-configured platform ceiling (Settings → Max Output Resolution) — falls back
-  // to 2048 only until the query resolves, never as a silent permanent cap.
-  const maxOutputPx = resolutionConfigData?.maxOutputPx ?? 2048;
+  // to 2560 only until the query resolves, never as a silent permanent cap.
+  const maxOutputPx = resolutionConfigData?.maxOutputPx ?? 2560;
+  // Admin-configured per-ratio output dims (Settings → System → Aspect Ratio Sizes)
+  // override the hardcoded ASPECT_PX/ASPECT_DIMS defaults above for the 4 ratios that
+  // are actually in ASPECT_DIMENSIONS server-side (9:16/16:9 aren't, so those two
+  // always fall back to the hardcoded table). Falls back entirely until the query
+  // resolves, same as maxOutputPx above.
+  const effectiveAspectPx: Record<string, { w: number; h: number }> = {
+    ...ASPECT_PX,
+    ...Object.fromEntries(
+      Object.entries(resolutionConfigData?.aspectDimensions ?? {}).map(([ratio, d]) => [
+        ratio,
+        { w: d.width, h: d.height },
+      ]),
+    ),
+  };
+  const effectiveAspectDims: Record<string, string> = {
+    ...ASPECT_DIMS,
+    ...Object.fromEntries(
+      Object.entries(resolutionConfigData?.aspectDimensions ?? {}).map(([ratio, d]) => [
+        ratio,
+        `${d.width} × ${d.height} px`,
+      ]),
+    ),
+  };
 
   // Custom dimension validation — computed at component level so handleSubmit and
   // canGenerate can both reference them without re-deriving inside the render IIFE.
@@ -513,7 +557,7 @@ export default function StudioPage(): React.ReactElement {
         ? { w: customWNum, h: customHNum }
         : null;
     }
-    const d = ASPECT_PX[effectiveAspect];
+    const d = effectiveAspectPx[effectiveAspect];
     return d ?? null;
   })();
   const resolution: 'HD' | '2K' | '4K' | null = outputDims
@@ -525,6 +569,7 @@ export default function StudioPage(): React.ReactElement {
     const cfg = BRAND_CONFIG[p];
     if (cfg) setAspect(cfg.default);
   };
+  const [tutorialModalOpen, setTutorialModalOpen] = useState(false);
   const [garmentFile, setGarmentFile] = useState<File | null>(null);
   const garmentPreviewUrl = useMemo(
     () => (garmentFile ? URL.createObjectURL(garmentFile) : ''),
@@ -697,11 +742,17 @@ export default function StudioPage(): React.ReactElement {
     }
   }, [qc, showToast]);
 
-  const { data: creditsData } = useQuery<{ balance: number }>({
+  const { data: creditsData } = useQuery<{
+    balance: number;
+    unlimitedPlan?: { status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none' } | null;
+  }>({
     queryKey: ['credits'],
     queryFn: () => api.get('/v1/credits'),
   });
   const userCredits = creditsData?.balance ?? 0;
+  const isUnlimitedPlan =
+    creditsData?.unlimitedPlan?.status === 'active' ||
+    creditsData?.unlimitedPlan?.status === 'expiring_soon';
 
   const { data: garmentTypes } = useQuery<{ items: GarmentType[] }>({
     queryKey: ['garmentTypes', gender],
@@ -2053,6 +2104,7 @@ export default function StudioPage(): React.ReactElement {
                 resolution ? RESOLUTION_COSTS[resolution] : (resolutionConfig.HD?.creditCost ?? 25)
               }
               balance={userCredits}
+              unlimited={isUnlimitedPlan}
               onDirtyChange={setBatchDirty}
             />
           ) : (
@@ -2217,6 +2269,29 @@ export default function StudioPage(): React.ReactElement {
                   title={hasMultipleUploadBoxes ? 'Upload Garment Images' : 'Upload Garment Image'}
                   subtitle="Upload a clean flat lay garment image"
                   stepNumber={3}
+                  right={
+                    selectedGarmentType?.tutorialVideoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setTutorialModalOpen(true)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          color: C.text,
+                          fontSize: hasMultipleUploadBoxes ? 11 : 12,
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <YoutubeIcon size={18} />
+                        Watch Demo Video
+                      </button>
+                    )
+                  }
                 />
                 <div
                   style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}
@@ -3028,6 +3103,13 @@ export default function StudioPage(): React.ReactElement {
                   </div>
                 </div>
               </section>
+
+              {tutorialModalOpen && selectedGarmentType?.tutorialVideoUrl && (
+                <TutorialVideoModal
+                  youtubeUrl={selectedGarmentType.tutorialVideoUrl}
+                  onClose={() => setTutorialModalOpen(false)}
+                />
+              )}
 
               {/* ── Model ── */}
               <section className="studio-section-card" style={sectionCardStyle}>
@@ -4435,7 +4517,7 @@ export default function StudioPage(): React.ReactElement {
                 {/* ── Dimension hint ── */}
                 {aspect !== 'custom' && (
                   <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
-                    {ASPECT_DIMS[aspect]}
+                    {effectiveAspectDims[aspect]}
                   </div>
                 )}
               </section>
@@ -4563,11 +4645,14 @@ export default function StudioPage(): React.ReactElement {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-                      {creditCost} credits required
+                      {isUnlimitedPlan ? 'Monthly plan' : `${creditCost} credits required`}
                     </span>
                     <span style={{ fontSize: 12, color: C.mid }}>
-                      You have {userCredits} credits (
-                      {creditCost > 0 ? Math.floor(userCredits / creditCost) : 0} generations)
+                      {isUnlimitedPlan
+                        ? 'Unlimited generations'
+                        : `You have ${userCredits} credits (${
+                            creditCost > 0 ? Math.floor(userCredits / creditCost) : 0
+                          } generations)`}
                     </span>
                   </div>
                 </div>
@@ -5124,5 +5209,103 @@ export default function StudioPage(): React.ReactElement {
         </div>
       )}
     </>
+  );
+}
+
+// Plays the admin-pasted garment-type tutorial link inline. Only the extracted video
+// ID (never the raw pasted URL) reaches the iframe `src`, matching the pattern in
+// app/(app)/tutorials/page.tsx.
+function TutorialVideoModal({ youtubeUrl, onClose }: { youtubeUrl: string; onClose: () => void }) {
+  const videoId = extractYoutubeId(youtubeUrl);
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismisses modal
+    <div
+      role="presentation"
+      onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose();
+      }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.6)',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+        boxSizing: 'border-box',
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Watch Demo Video"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={() => {}}
+        style={{
+          position: 'relative',
+          width: 'min(720px, 100%)',
+          aspectRatio: '16/9',
+          background: '#000',
+          borderRadius: 12,
+          overflow: 'hidden',
+        }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 1,
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            background: 'rgba(0,0,0,0.6)',
+            border: 'none',
+            color: C.white,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <CloseIcon size={16} />
+        </button>
+        {videoId ? (
+          <iframe
+            width="100%"
+            height="100%"
+            // origin is required by some videos' embed player to validate the
+            // requesting site — omitting it is a common cause of YouTube's
+            // "Error 153: video player configuration error" even when embedding
+            // is allowed for the video. See app/(app)/tutorials/page.tsx.
+            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&origin=${encodeURIComponent(window.location.origin)}`}
+            title="Watch Demo Video"
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            style={{ position: 'absolute', inset: 0 }}
+          />
+        ) : (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: C.white,
+              fontSize: 13,
+            }}
+          >
+            Couldn't load this video.
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

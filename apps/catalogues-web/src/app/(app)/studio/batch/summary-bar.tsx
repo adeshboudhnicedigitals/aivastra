@@ -6,6 +6,7 @@ export function SummaryBar({
   totalJobs,
   creditCost,
   balance,
+  unlimited,
   maxBatchJobs,
   invalidRowCount,
   aspectSupported,
@@ -16,6 +17,8 @@ export function SummaryBar({
   totalJobs: number;
   creditCost: number;
   balance: number | null;
+  /** Active unlimited plan — skips the balance gate entirely, same as the server-side bypass. */
+  unlimited?: boolean;
   maxBatchJobs: number;
   invalidRowCount: number;
   /**
@@ -40,7 +43,7 @@ export function SummaryBar({
         ? 'Add at least one pose'
         : totalJobs > maxBatchJobs
           ? `Over the ${maxBatchJobs}-image limit`
-          : balance !== null && balance < creditCost
+          : !unlimited && balance !== null && balance < creditCost
             ? `Need ${creditCost} credits, you have ${balance}`
             : null;
 
@@ -61,7 +64,7 @@ export function SummaryBar({
     >
       <span style={{ color: C.mid, fontSize: 13 }}>
         {rowCount} rows · {totalJobs} images · {creditCost} credits
-        {balance !== null ? ` · balance ${balance}` : ''}
+        {unlimited ? ' · balance unlimited' : balance !== null ? ` · balance ${balance}` : ''}
       </span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         {blockedReason && <span style={{ color: C.danger, fontSize: 13 }}>{blockedReason}</span>}

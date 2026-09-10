@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 #
 # Staging-only app config — separate Partner Dashboard app record from both the
-# production "AiVastra" app (shopify.app.toml) and the local-dev "AiVastra Dev"
+# production "AI Vastra" app (shopify.app.toml) and the local-dev "AI Vastra Dev"
 # app (shopify.app.dev.toml). Points at staging-admin.aivastra.com, which is
 # where /shopify-admin, /admin/, and /v1/ actually live per the vhost split
 # documented in docs/staging-runbook.md — staging-app.aivastra.com serves only
@@ -10,7 +10,7 @@
 # staging` from this directory.
 
 client_id = "b8098c4cd5deecfbe6b637090b650036"
-name = "AiVastra Staging"
+name = "AI Vastra Staging"
 application_url = "https://staging-admin.aivastra.com/shopify-admin/embedded"
 embedded = true
 

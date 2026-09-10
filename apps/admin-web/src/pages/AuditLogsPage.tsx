@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Icon } from '../components/Icons';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 interface AuditLogItem {
@@ -35,7 +37,7 @@ type ActionRiskTier = 'destructive' | 'sensitive' | 'default';
 // Destructive: undoes or removes something. Sensitive: changes who can do what,
 // or moves credits/money. Everything else (create/patch/reassign/...) is routine.
 function actionRiskTier(action: string): ActionRiskTier {
-  if (/\.(delete|revoke|erase|ban)$/.test(action)) return 'destructive';
+  if (/(\.|_)(delete|delete_\w+|revoke|erase|ban)$/.test(action)) return 'destructive';
   if (/\.(update_role|drain|deduct)$/.test(action)) return 'sensitive';
   return 'default';
 }
@@ -96,13 +98,23 @@ function humanizeActionFallback(action: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+function snapshotLabel(snapshot: Record<string, unknown> | null): string | undefined {
+  const label = snapshot?.label ?? snapshot?.title ?? snapshot?.name ?? snapshot?.companyName;
+  return typeof label === 'string' && label.length > 0 ? label : undefined;
+}
+
 // One plain-English sentence per action, written for a non-technical reader
 // (a manager checking "what happened," not an engineer reading a log line).
-// `who` is the resolved resource label (an email, a worker name, ...) —
-// falls back to the resourceType so the sentence still reads if a label
-// couldn't be resolved (e.g. the record was later deleted).
+// `who` prefers the label captured in the event's own before/after snapshot —
+// a permanent record — over the live resourceLabel join, which goes stale (or
+// falls back to resourceType) the moment the underlying row is deleted, even
+// for older events that predate the deletion.
 function describeAction(log: AuditLogItem): string {
-  const who = log.resourceLabel ?? log.resourceType.replace(/_/g, ' ');
+  const who =
+    snapshotLabel(log.after) ??
+    snapshotLabel(log.before) ??
+    log.resourceLabel ??
+    log.resourceType.replace(/_/g, ' ');
   const after = log.after ?? {};
   const amount = typeof after.amount === 'number' ? after.amount : undefined;
   const role = typeof after.role === 'string' ? after.role : undefined;
@@ -144,6 +156,111 @@ function describeAction(log: AuditLogItem): string {
       return `Reassigned workflow "${who}"`;
     case 'workflow.delete':
       return `Deleted workflow "${who}"`;
+    case 'face.create':
+      return `Added face "${who}"`;
+    case 'face.update':
+      return `Updated face "${who}"`;
+    case 'face.delete':
+      return `Deleted face "${who}"`;
+    case 'background.create':
+      return `Added background "${who}"`;
+    case 'background.update':
+      return `Updated background "${who}"`;
+    case 'background.delete':
+      return `Deleted background "${who}"`;
+    case 'background.bulk_update':
+      return 'Bulk-updated backgrounds';
+    case 'pose.create':
+      return `Added pose "${who}"`;
+    case 'pose.update':
+      return `Updated pose "${who}"`;
+    case 'pose.delete':
+      return `Deleted pose "${who}"`;
+    case 'pose.bulk_workflow_update':
+      return 'Bulk-assigned a workflow to poses';
+    case 'pose.bulk_rename':
+      return 'Bulk-renamed poses';
+    case 'sample_video.create':
+      return `Added sample video "${who}"`;
+    case 'sample_video.update':
+      return `Updated sample video "${who}"`;
+    case 'sample_video.delete':
+      return `Deleted sample video "${who}"`;
+    case 'saree_style.create':
+      return `Added saree style "${who}"`;
+    case 'saree_style.update':
+      return `Updated saree style "${who}"`;
+    case 'garment_type.create':
+      return `Added garment type "${who}"`;
+    case 'garment_type.update':
+      return `Updated garment type "${who}"`;
+    case 'garment_type.delete':
+      return `Deleted garment type "${who}"`;
+    case 'catalog_item.create':
+      return `Added catalog item "${who}"`;
+    case 'catalog_item.update':
+      return `Updated catalog item "${who}"`;
+    case 'catalog_item.delete':
+      return `Deleted catalog item "${who}"`;
+    case 'catalog_item.bulk_update':
+      return 'Bulk-updated catalog items';
+    case 'catalog_category.create':
+      return `Added catalog category "${who}"`;
+    case 'catalog_category.update':
+      return `Updated catalog category "${who}"`;
+    case 'catalog_category.delete':
+      return `Deleted catalog category "${who}"`;
+    case 'catalogue_template.create':
+      return `Added catalogue template "${who}"`;
+    case 'catalogue_template.update':
+      return `Updated catalogue template "${who}"`;
+    case 'catalogue_template.delete':
+      return `Deleted catalogue template "${who}"`;
+    case 'catalogue_template.update_looks':
+      return `Updated the looks for catalogue template "${who}"`;
+    case 'jobs.delete_assets': {
+      const deleted = Array.isArray(after.deleted) ? (after.deleted as string[]) : [];
+      const jobRef = log.resourceId ? `#${log.resourceId.slice(0, 8)}` : 'a job';
+      return deleted.length > 0
+        ? `Deleted job assets (${deleted.join(', ')}) for job ${jobRef}`
+        : `Deleted job assets for job ${jobRef}`;
+    }
+    case 'asset.restore':
+      return 'Restored an asset from the recycle bin';
+    case 'asset.permanent_delete':
+      return 'Permanently deleted an asset';
+    case 'asset.bulk_import':
+      return 'Bulk-imported assets from a ZIP';
+    case 'config.update':
+      return 'Updated system configuration';
+    case 'config.app_video_update':
+      return 'Updated the app intro video';
+    case 'credit_plan.create':
+      return `Added credit plan "${who}"`;
+    case 'credit_plan.update':
+      return `Updated credit plan "${who}"`;
+    case 'credit_plan.delete':
+      return `Deleted credit plan "${who}"`;
+    case 'merchant.create':
+      return `Added merchant "${who}"`;
+    case 'merchant.update':
+      return `Updated merchant "${who}"`;
+    case 'merchant.credit_grant':
+      return amount !== undefined
+        ? `Granted ${amount} credits to merchant "${who}"`
+        : `Granted credits to merchant "${who}"`;
+    case 'saree_workflow.create':
+      return `Added saree workflow "${who}"`;
+    case 'saree_workflow.delete':
+      return `Deleted saree workflow "${who}"`;
+    case 'saree_settings.update':
+      return 'Updated saree settings';
+    case 'held_jobs.release': {
+      const released = typeof after.released === 'number' ? after.released : undefined;
+      return released !== undefined
+        ? `Released ${released} held bulk-flat job(s)`
+        : 'Released held bulk-flat jobs';
+    }
     default:
       return `${humanizeActionFallback(log.action)} — ${who}`;
   }
@@ -232,14 +349,72 @@ const ACTION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'workflow.update', label: 'Workflow updated' },
   { value: 'workflow.reassign', label: 'Workflow reassigned' },
   { value: 'workflow.delete', label: 'Workflow deleted' },
+  { value: 'face.create', label: 'Face added' },
+  { value: 'face.update', label: 'Face updated' },
+  { value: 'face.delete', label: 'Face deleted' },
+  { value: 'background.create', label: 'Background added' },
+  { value: 'background.update', label: 'Background updated' },
+  { value: 'background.delete', label: 'Background deleted' },
+  { value: 'pose.create', label: 'Pose added' },
+  { value: 'pose.update', label: 'Pose updated' },
+  { value: 'pose.delete', label: 'Pose deleted' },
+  { value: 'sample_video.create', label: 'Sample video added' },
+  { value: 'sample_video.update', label: 'Sample video updated' },
+  { value: 'sample_video.delete', label: 'Sample video deleted' },
+  { value: 'saree_style.create', label: 'Saree style added' },
+  { value: 'saree_style.update', label: 'Saree style updated' },
+  { value: 'garment_type.create', label: 'Garment type added' },
+  { value: 'garment_type.update', label: 'Garment type updated' },
+  { value: 'garment_type.delete', label: 'Garment type deleted' },
+  { value: 'catalog_item.create', label: 'Catalog item added' },
+  { value: 'catalog_item.update', label: 'Catalog item updated' },
+  { value: 'catalog_item.delete', label: 'Catalog item deleted' },
+  { value: 'catalog_category.create', label: 'Catalog category added' },
+  { value: 'catalog_category.update', label: 'Catalog category updated' },
+  { value: 'catalog_category.delete', label: 'Catalog category deleted' },
+  { value: 'catalogue_template.create', label: 'Catalogue template added' },
+  { value: 'catalogue_template.update', label: 'Catalogue template updated' },
+  { value: 'catalogue_template.delete', label: 'Catalogue template deleted' },
+  { value: 'jobs.delete_assets', label: 'Job assets deleted' },
+  { value: 'asset.restore', label: 'Asset restored' },
+  { value: 'asset.permanent_delete', label: 'Asset permanently deleted' },
+  { value: 'asset.bulk_import', label: 'Assets bulk-imported' },
+  { value: 'config.update', label: 'System config updated' },
+  { value: 'config.app_video_update', label: 'App intro video updated' },
+  { value: 'credit_plan.create', label: 'Credit plan added' },
+  { value: 'credit_plan.update', label: 'Credit plan updated' },
+  { value: 'credit_plan.delete', label: 'Credit plan deleted' },
+  { value: 'merchant.create', label: 'Merchant added' },
+  { value: 'merchant.update', label: 'Merchant updated' },
+  { value: 'merchant.credit_grant', label: 'Merchant credits granted' },
+  { value: 'saree_workflow.create', label: 'Saree workflow added' },
+  { value: 'saree_workflow.delete', label: 'Saree workflow deleted' },
+  { value: 'saree_settings.update', label: 'Saree settings updated' },
+  { value: 'held_jobs.release', label: 'Held jobs released' },
 ];
 
 const RESOURCE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'job', label: 'Jobs' },
   { value: 'worker', label: 'Workers' },
   { value: 'workflow', label: 'Workflows' },
   { value: 'user', label: 'Users' },
   { value: 'admin_user', label: 'Team members' },
   { value: 'user_credits', label: 'Credits' },
+  { value: 'face', label: 'Faces' },
+  { value: 'background', label: 'Backgrounds' },
+  { value: 'pose', label: 'Poses' },
+  { value: 'sample_video', label: 'Sample videos' },
+  { value: 'saree_style', label: 'Saree styles' },
+  { value: 'garment_type', label: 'Garment types' },
+  { value: 'catalog_item', label: 'Lower garments & shoes' },
+  { value: 'catalog_category', label: 'Catalog categories' },
+  { value: 'catalogue_template', label: 'Catalogue templates' },
+  { value: 'asset', label: 'Assets (general)' },
+  { value: 'system_config', label: 'System config' },
+  { value: 'credit_plan', label: 'Credit plans' },
+  { value: 'merchant', label: 'Merchants' },
+  { value: 'saree_workflow', label: 'Saree workflows' },
+  { value: 'saree_settings', label: 'Saree settings' },
 ];
 
 export default function AuditLogsPage({ toast }: Props) {
@@ -271,13 +446,8 @@ export default function AuditLogsPage({ toast }: Props) {
       if (resourceTypeFilter.trim()) params.set('resourceType', resourceTypeFilter.trim());
       if (resourceIdFilter.trim()) params.set('resourceId', resourceIdFilter.trim());
       if (actorFilter.trim()) params.set('actorUserId', actorFilter.trim());
-      if (startDateFilter) params.set('startDate', new Date(startDateFilter).toISOString());
-      if (endDateFilter) {
-        // End-of-day so the picked date is inclusive.
-        const end = new Date(endDateFilter);
-        end.setHours(23, 59, 59, 999);
-        params.set('endDate', end.toISOString());
-      }
+      if (startDateFilter) params.set('startDate', startDateFilter);
+      if (endDateFilter) params.set('endDate', endDateFilter);
 
       const data = await apiFetch<AuditLogsResponse>(`/admin/audit-logs?${params.toString()}`);
       setLogs(data.items);
@@ -330,210 +500,280 @@ export default function AuditLogsPage({ toast }: Props) {
     }
   };
 
+  const hasActiveFilters = Boolean(
+    actionFilter ||
+      resourceTypeFilter ||
+      resourceIdFilter ||
+      actorFilter ||
+      startDateFilter ||
+      endDateFilter,
+  );
+
+  const clearAllFilters = () => {
+    setActionFilter('');
+    setResourceTypeFilter('');
+    setResourceIdFilter('');
+    setActorFilter('');
+    setActorFilterLabel('');
+    setStartDateFilter('');
+    setEndDateFilter('');
+    setPage(1);
+  };
+
   return (
-    <div className="page-container">
-      <div className="page-header" style={{ marginBottom: '1.25rem' }}>
+    <>
+      <div className="page-head">
         <div>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 600, margin: 0 }}>Team Activity</h1>
-          <p style={{ color: 'var(--muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-            A permanent record of what your team has done in this admin panel — it can't be edited
-            or deleted, even by an admin.
+          <h1>Team Activity</h1>
+          <p className="lede">
+            {loading ? 'Loading…' : `${total.toLocaleString()} logged events`} — a record of actions
+            made through the admin panel. Direct database access is not captured here.
           </p>
+        </div>
+        <div className="head-tools">
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => void fetchLogs()}
+            disabled={loading}
+            title="Refresh activity logs"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                animation: loading ? 'spin 0.8s linear infinite' : 'none',
+              }}
+            >
+              <Icon.Refresh />
+            </span>
+            Refresh
+          </button>
         </div>
       </div>
 
       {/* Filter Bar */}
-      <div
-        style={{
-          display: 'flex',
-          gap: '0.75rem',
-          flexWrap: 'wrap',
-          marginBottom: '0.75rem',
-          alignItems: 'center',
-        }}
-      >
-        <select
-          value={actionFilter}
-          onChange={(e) => {
-            setActionFilter(e.target.value);
-            setPage(1);
-          }}
-          className="input"
-          style={{ flex: '0 1 200px', width: 'auto' }}
-        >
-          <option value="">All activity</option>
-          {ACTION_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={resourceTypeFilter}
-          onChange={(e) => {
-            setResourceTypeFilter(e.target.value);
-            setPage(1);
-          }}
-          className="input"
-          style={{ flex: '0 1 170px', width: 'auto' }}
-        >
-          <option value="">All categories</option>
-          {RESOURCE_TYPE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.375rem',
-            fontSize: '0.75rem',
-            flex: '0 0 auto',
-          }}
-        >
-          From
-          <input
-            type="date"
-            value={startDateFilter}
-            onChange={(e) => {
-              setStartDateFilter(e.target.value);
+      <div className="filter-card" style={{ marginBottom: 16 }}>
+        <div className="filter-row">
+          {/* Action Filter */}
+          <SearchableSelect
+            options={ACTION_OPTIONS.map((opt) => ({ id: opt.value, label: opt.label }))}
+            value={actionFilter}
+            onChange={(v) => {
+              setActionFilter(v);
               setPage(1);
             }}
-            className="input"
-            style={{ width: 'auto' }}
+            emptyLabel="All activity"
+            ariaLabel="Filter by Activity"
           />
-        </label>
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.375rem',
-            fontSize: '0.75rem',
-            flex: '0 0 auto',
-          }}
-        >
-          To
-          <input
-            type="date"
-            value={endDateFilter}
-            onChange={(e) => {
-              setEndDateFilter(e.target.value);
-              setPage(1);
-            }}
-            className="input"
-            style={{ width: 'auto' }}
-          />
-        </label>
-        <button
-          type="button"
-          onClick={() => {
-            setActionFilter('');
-            setResourceTypeFilter('');
-            setResourceIdFilter('');
-            setActorFilter('');
-            setActorFilterLabel('');
-            setStartDateFilter('');
-            setEndDateFilter('');
-            setPage(1);
-          }}
-          className="btn btn--secondary"
-          style={{ height: '36px', flex: '0 0 auto' }}
-        >
-          Reset
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((v) => !v)}
-          className="btn btn--secondary"
-          style={{ height: '36px', flex: '0 0 auto', marginLeft: 'auto' }}
-        >
-          {showAdvanced ? 'Hide ID lookup' : 'Look up by ID'}
-        </button>
-      </div>
 
-      {showAdvanced && (
-        <div
-          style={{
-            display: 'flex',
-            gap: '0.75rem',
-            flexWrap: 'wrap',
-            marginBottom: '0.75rem',
-            padding: '0.75rem',
-            background: 'var(--bg-subtle)',
-            borderRadius: '6px',
-          }}
-        >
-          <input
-            type="text"
-            placeholder="Record ID..."
-            value={resourceIdFilter}
-            onChange={(e) => {
-              setResourceIdFilter(e.target.value);
+          {/* Category Filter */}
+          <SearchableSelect
+            options={RESOURCE_TYPE_OPTIONS.map((opt) => ({ id: opt.value, label: opt.label }))}
+            value={resourceTypeFilter}
+            onChange={(v) => {
+              setResourceTypeFilter(v);
               setPage(1);
             }}
-            className="input"
-            style={{ flex: '0 1 220px', width: 'auto' }}
+            emptyLabel="All categories"
+            ariaLabel="Filter by Category"
           />
-          <input
-            type="text"
-            placeholder="Team member ID..."
-            value={actorFilter}
-            onChange={(e) => {
-              setActorFilter(e.target.value);
-              setActorFilterLabel('');
-              setPage(1);
-            }}
-            className="input"
-            style={{ flex: '0 1 220px', width: 'auto' }}
-          />
-        </div>
-      )}
 
-      {actorFilter && (
-        <div
-          style={{
-            marginBottom: '1rem',
-            fontSize: '0.8125rem',
-            color: 'var(--muted)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-          }}
-        >
-          Showing only: <strong>{actorFilterLabel || actorFilter}</strong>
+          {/* Date Range Picker */}
+          <div className="filter-date-group">
+            <span className="date-lbl">Date:</span>
+            <input
+              type="date"
+              value={startDateFilter}
+              onChange={(e) => {
+                setStartDateFilter(e.target.value);
+                setPage(1);
+              }}
+              title="Start date"
+            />
+            <span className="date-lbl" style={{ opacity: 0.6 }}>
+              to
+            </span>
+            <input
+              type="date"
+              value={endDateFilter}
+              onChange={(e) => {
+                setEndDateFilter(e.target.value);
+                setPage(1);
+              }}
+              title="End date"
+            />
+          </div>
+
+          {/* Advanced / ID Lookup Toggle Button */}
           <button
             type="button"
-            className="btn btn--sm btn--secondary"
-            onClick={() => {
-              setActorFilter('');
-              setActorFilterLabel('');
-              setPage(1);
+            onClick={() => setShowAdvanced((v) => !v)}
+            className={`filter-toggle-btn ${showAdvanced || resourceIdFilter || actorFilter ? 'active' : ''}`}
+          >
+            <Icon.Search />
+            {showAdvanced ? 'Hide ID lookup' : 'Look up by ID'}
+          </button>
+
+          {/* Clear Filters Button */}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="btn sm ghost"
+              style={{ marginLeft: 'auto' }}
+            >
+              <Icon.Close /> Clear filters
+            </button>
+          )}
+        </div>
+
+        {/* ID Lookup Drawer/Row */}
+        {showAdvanced && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 10,
+              flexWrap: 'wrap',
+              paddingTop: 8,
+              borderTop: '1px solid var(--border)',
             }}
           >
-            Clear
-          </button>
-        </div>
-      )}
+            <input
+              type="text"
+              placeholder="Filter by Record / Resource ID…"
+              value={resourceIdFilter}
+              onChange={(e) => {
+                setResourceIdFilter(e.target.value);
+                setPage(1);
+              }}
+              className="filter-input"
+              style={{ flex: '1 1 240px' }}
+            />
+            <input
+              type="text"
+              placeholder="Filter by Team Member User ID…"
+              value={actorFilter}
+              onChange={(e) => {
+                setActorFilter(e.target.value);
+                setActorFilterLabel('');
+                setPage(1);
+              }}
+              className="filter-input"
+              style={{ flex: '1 1 240px' }}
+            />
+          </div>
+        )}
 
-      {/* Table */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        {/* Active Filter Chips */}
+        {hasActiveFilters && (
+          <div className="filter-chips-row">
+            <span style={{ color: 'var(--muted)', fontSize: 11.5, marginRight: 2 }}>Active:</span>
+            {actorFilter && (
+              <span className="filter-chip">
+                Team member: <strong>{actorFilterLabel || actorFilter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setActorFilter('');
+                    setActorFilterLabel('');
+                    setPage(1);
+                  }}
+                  title="Remove actor filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {actionFilter && (
+              <span className="filter-chip">
+                Activity:{' '}
+                <strong>
+                  {ACTION_OPTIONS.find((o) => o.value === actionFilter)?.label || actionFilter}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setActionFilter('');
+                    setPage(1);
+                  }}
+                  title="Remove activity filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {resourceTypeFilter && (
+              <span className="filter-chip">
+                Category:{' '}
+                <strong>
+                  {RESOURCE_TYPE_OPTIONS.find((o) => o.value === resourceTypeFilter)?.label ||
+                    resourceTypeFilter}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setResourceTypeFilter('');
+                    setPage(1);
+                  }}
+                  title="Remove category filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {(startDateFilter || endDateFilter) && (
+              <span className="filter-chip">
+                Date:{' '}
+                <strong>
+                  {startDateFilter || 'Any'} → {endDateFilter || 'Today'}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setStartDateFilter('');
+                    setEndDateFilter('');
+                    setPage(1);
+                  }}
+                  title="Remove date filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {resourceIdFilter && (
+              <span className="filter-chip">
+                Record ID: <strong>{resourceIdFilter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setResourceIdFilter('');
+                    setPage(1);
+                  }}
+                  title="Remove record ID filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop Table View */}
+      <div className="desktop-only table-wrap">
+        <table>
           <thead>
-            <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-subtle)' }}>
-              <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem' }}>
-                WHEN
-              </th>
-              <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem' }}>
-                TEAM MEMBER
-              </th>
-              <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.75rem' }}>
-                WHAT HAPPENED
-              </th>
-              <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '0.75rem' }}>
-                DETAILS
-              </th>
+            <tr>
+              <th style={{ width: 160 }}>When</th>
+              <th style={{ width: 220 }}>Team Member</th>
+              <th>What Happened</th>
+              <th style={{ textAlign: 'right', width: 140 }}>Details</th>
             </tr>
           </thead>
           <tbody>
@@ -559,17 +799,17 @@ export default function AuditLogsPage({ toast }: Props) {
               logs.map((log) => {
                 const isExpanded = expandedLogId === log.id;
                 return (
-                  <tr key={log.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <tr key={log.id}>
                     <td
                       style={{
-                        padding: '0.75rem 1rem',
-                        fontSize: '0.8125rem',
+                        fontSize: 12.5,
                         whiteSpace: 'nowrap',
+                        color: 'var(--muted)',
                       }}
                     >
                       {formatDate(log.createdAt)}
                     </td>
-                    <td style={{ padding: '0.75rem 1rem', fontSize: '0.8125rem' }}>
+                    <td>
                       <button
                         type="button"
                         onClick={() =>
@@ -578,32 +818,33 @@ export default function AuditLogsPage({ toast }: Props) {
                             log.actorEmail ?? log.actorDisplayName ?? log.actorUserId,
                           )
                         }
-                        title="Filter to this actor"
+                        title="Filter to this team member"
                         style={{
                           background: 'none',
                           border: 'none',
                           padding: 0,
                           fontWeight: 500,
-                          color: 'inherit',
+                          color: 'var(--ink)',
                           cursor: 'pointer',
                           textDecoration: 'underline',
                           textDecorationStyle: 'dotted',
+                          fontSize: 13,
                         }}
                       >
                         {log.actorEmail ?? log.actorDisplayName ?? log.actorUserId}
                       </button>
-                      <div>
-                        <span className="badge" style={{ fontSize: '0.6875rem', marginTop: '2px' }}>
+                      <div style={{ marginTop: 2 }}>
+                        <span className="badge" style={{ fontSize: 10.5 }}>
                           {log.actorRole}
                         </span>
                       </div>
                     </td>
-                    <td style={{ padding: '0.75rem 1rem', fontSize: '0.875rem' }}>
+                    <td>
                       {(() => {
                         const tier = actionRiskTier(log.action);
                         const style = RISK_TIER_STYLE[tier];
                         return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             {tier !== 'default' && (
                               <span
                                 title={
@@ -613,15 +854,15 @@ export default function AuditLogsPage({ toast }: Props) {
                                 }
                                 style={{
                                   display: 'inline-block',
-                                  width: '8px',
-                                  height: '8px',
+                                  width: 8,
+                                  height: 8,
                                   borderRadius: '50%',
                                   background: style.ink,
                                   flexShrink: 0,
                                 }}
                               />
                             )}
-                            <span>{describeAction(log)}</span>
+                            <span style={{ fontSize: 13.5 }}>{describeAction(log)}</span>
                           </div>
                         );
                       })()}
@@ -634,27 +875,32 @@ export default function AuditLogsPage({ toast }: Props) {
                             background: 'none',
                             border: 'none',
                             padding: 0,
-                            marginTop: '2px',
+                            marginTop: 3,
                             cursor: 'pointer',
                             color: 'var(--muted)',
-                            fontSize: '0.6875rem',
+                            fontSize: 11,
+                            fontFamily: 'var(--mono)',
                           }}
                         >
                           Record ID: {log.resourceId.slice(0, 8)}…
                         </button>
                       )}
                     </td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                      {log.before || log.after ? (
+                    <td style={{ textAlign: 'right' }}>
+                      {log.before ||
+                      log.after ||
+                      log.ipAddress ||
+                      log.userAgent ||
+                      log.requestId ? (
                         <button
                           type="button"
-                          className="btn btn--sm btn--secondary"
+                          className="btn sm ghost"
                           onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
                         >
                           {isExpanded ? 'Hide Details' : 'View Details'}
                         </button>
                       ) : (
-                        <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>—</span>
+                        <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
                       )}
                     </td>
                   </tr>
@@ -665,76 +911,326 @@ export default function AuditLogsPage({ toast }: Props) {
         </table>
       </div>
 
-      {/* Expanded Modal / Details for selected log */}
-      {expandedLogId && (
-        <div
-          style={{
-            marginTop: '1rem',
-            padding: '1rem',
-            background: 'var(--bg-subtle)',
-            borderRadius: '6px',
-            border: '1px solid var(--border)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-            <h3 style={{ fontSize: '0.875rem', fontWeight: 600, margin: 0 }}>What Changed</h3>
-            <button
-              type="button"
-              className="btn btn--sm btn--secondary"
-              onClick={() => setExpandedLogId(null)}
-            >
-              Close
-            </button>
+      {/* Mobile & Tablet Card View */}
+      <div className="mobile-only" style={{ gap: 10 }}>
+        {loading ? (
+          <div
+            className="card"
+            style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}
+          >
+            Loading activity…
           </div>
-          {(() => {
-            const item = logs.find((l) => l.id === expandedLogId);
-            if (!item) return null;
-            const diff = computeDiff(item.before, item.after);
-            if (diff.length === 0) {
-              return (
-                <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', margin: 0 }}>
-                  Nothing else to show for this event.
-                </p>
-              );
-            }
+        ) : logs.length === 0 ? (
+          <div
+            className="card"
+            style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}
+          >
+            Nothing found for these filters.
+          </div>
+        ) : (
+          logs.map((log) => {
+            const isMobileExpanded = expandedLogId === log.id;
+            const tier = actionRiskTier(log.action);
+            const style = RISK_TIER_STYLE[tier];
+            const diff = isMobileExpanded ? computeDiff(log.before, log.after) : [];
             return (
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {diff.map((row) => {
-                  const style = DIFF_ROW_STYLE[row.status];
-                  return (
-                    <li
-                      key={row.key}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: '0.5rem',
-                        padding: '0.5rem 0.625rem',
-                        marginBottom: '0.375rem',
-                        background: style.bg,
-                        borderRadius: '4px',
-                        fontSize: '0.8125rem',
-                      }}
+              <div
+                key={log.id}
+                className="card"
+                style={{
+                  padding: '12px 14px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--r)',
+                  background: 'var(--surface)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                {/* Header row: WHEN and TEAM MEMBER name */}
+                <div
+                  onClick={() => setExpandedLogId(isMobileExpanded ? null : log.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
+                      minWidth: 0,
+                      flex: 1,
+                    }}
+                  >
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}
                     >
                       <span
                         style={{
-                          display: 'inline-block',
-                          width: '8px',
-                          height: '8px',
-                          borderRadius: '50%',
-                          background: style.ink,
-                          marginTop: '5px',
-                          flexShrink: 0,
+                          fontWeight: 600,
+                          fontSize: 13.5,
+                          color: 'var(--ink)',
+                          wordBreak: 'break-word',
                         }}
-                      />
-                      <span style={{ color: style.ink }}>{describeFieldChange(row)}</span>
-                    </li>
-                  );
-                })}
-              </ul>
+                      >
+                        {log.actorEmail ?? log.actorDisplayName ?? log.actorUserId}
+                      </span>
+                      <span className="badge" style={{ fontSize: 10 }}>
+                        {log.actorRole}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                      {formatDate(log.createdAt)}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      color: 'var(--muted)',
+                      transform: isMobileExpanded ? 'rotate(90deg)' : 'none',
+                      transition: 'transform 0.15s ease',
+                    }}
+                  >
+                    <Icon.Chevron />
+                  </div>
+                </div>
+
+                {/* Expanded Section: Displays WHAT HAPPENED when clicked */}
+                {isMobileExpanded && (
+                  <div
+                    style={{
+                      paddingTop: 10,
+                      borderTop: '1px solid var(--border)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {tier !== 'default' && (
+                        <span
+                          title={
+                            tier === 'destructive'
+                              ? 'This removed access, data, or a resource'
+                              : 'This changed permissions or credits'
+                          }
+                          style={{
+                            display: 'inline-block',
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            background: style.ink,
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
+                        {describeAction(log)}
+                      </span>
+                    </div>
+
+                    {log.resourceId && (
+                      <button
+                        type="button"
+                        onClick={() => void navigator.clipboard.writeText(log.resourceId ?? '')}
+                        title="Click to copy record ID"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          color: 'var(--muted)',
+                          fontSize: 11,
+                          fontFamily: 'var(--mono)',
+                          textAlign: 'left',
+                        }}
+                      >
+                        Record ID: {log.resourceId}
+                      </button>
+                    )}
+
+                    {/* What Changed Diff */}
+                    {(log.before || log.after) && diff.length > 0 && (
+                      <div style={{ marginTop: 4 }}>
+                        <span
+                          style={{
+                            fontSize: 11.5,
+                            fontWeight: 600,
+                            color: 'var(--muted)',
+                            display: 'block',
+                            marginBottom: 4,
+                          }}
+                        >
+                          What Changed:
+                        </span>
+                        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                          {diff.map((row) => {
+                            const rowStyle = DIFF_ROW_STYLE[row.status];
+                            return (
+                              <li
+                                key={row.key}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'flex-start',
+                                  gap: 8,
+                                  padding: '5px 8px',
+                                  marginBottom: 4,
+                                  background: rowStyle.bg,
+                                  borderRadius: 4,
+                                  fontSize: 12,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: '50%',
+                                    background: rowStyle.ink,
+                                    marginTop: 5,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <span style={{ color: rowStyle.ink }}>
+                                  {describeFieldChange(row)}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    )}
+
+                    {(log.ipAddress || log.userAgent || log.requestId) && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 2,
+                          marginTop: 4,
+                          fontSize: 11,
+                          color: 'var(--muted)',
+                          fontFamily: 'var(--mono)',
+                        }}
+                      >
+                        {log.ipAddress && <span>IP: {log.ipAddress}</span>}
+                        {log.requestId && <span>Request: {log.requestId}</span>}
+                        {log.userAgent && (
+                          <span style={{ wordBreak: 'break-all' }}>Agent: {log.userAgent}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             );
-          })()}
-        </div>
-      )}
+          })
+        )}
+      </div>
+
+      {/* Expanded Modal / Details for selected log (Desktop) */}
+      <div className="desktop-only">
+        {expandedLogId && (
+          <div
+            className="card"
+            style={{
+              marginTop: 14,
+              padding: 16,
+              background: 'var(--surface-2)',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                marginBottom: 8,
+                alignItems: 'center',
+              }}
+            >
+              <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>What Changed</h3>
+              <button type="button" className="btn sm ghost" onClick={() => setExpandedLogId(null)}>
+                <Icon.Close /> Close
+              </button>
+            </div>
+            {(() => {
+              const item = logs.find((l) => l.id === expandedLogId);
+              if (!item) return null;
+              const diff = computeDiff(item.before, item.after);
+              const hasMetadata = item.ipAddress || item.userAgent || item.requestId;
+              return (
+                <>
+                  {diff.length === 0 ? (
+                    <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: 0 }}>
+                      Nothing else to show for this event.
+                    </p>
+                  ) : (
+                    <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 12px' }}>
+                      {diff.map((row) => {
+                        const style = DIFF_ROW_STYLE[row.status];
+                        return (
+                          <li
+                            key={row.key}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: 8,
+                              padding: '6px 10px',
+                              marginBottom: 4,
+                              background: style.bg,
+                              borderRadius: 4,
+                              fontSize: 12.5,
+                            }}
+                          >
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                width: 7,
+                                height: 7,
+                                borderRadius: '50%',
+                                background: style.ink,
+                                marginTop: 5,
+                                flexShrink: 0,
+                              }}
+                            />
+                            <span style={{ color: style.ink }}>{describeFieldChange(row)}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  {hasMetadata && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '4px 16px',
+                        paddingTop: diff.length > 0 ? 8 : 0,
+                        borderTop: diff.length > 0 ? '1px solid var(--border)' : 'none',
+                        fontSize: 11.5,
+                        color: 'var(--muted)',
+                        fontFamily: 'var(--mono)',
+                      }}
+                    >
+                      {item.ipAddress && <span>IP: {item.ipAddress}</span>}
+                      {item.requestId && <span>Request: {item.requestId}</span>}
+                      {item.userAgent && (
+                        <span style={{ wordBreak: 'break-all' }}>Agent: {item.userAgent}</span>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        )}
+      </div>
 
       {/* Pagination */}
       {totalPages > 1 && (
@@ -743,27 +1239,27 @@ export default function AuditLogsPage({ toast }: Props) {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginTop: '1rem',
+            marginTop: 14,
           }}
         >
-          <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>
+          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
             Showing {logs.length} of {total} events
           </span>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <button
               type="button"
-              className="btn btn--sm btn--secondary"
+              className="btn sm ghost"
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
               Previous
             </button>
-            <span style={{ padding: '0.25rem 0.5rem', fontSize: '0.8125rem' }}>
+            <span style={{ padding: '0 8px', fontSize: 12.5, color: 'var(--muted)' }}>
               Page {page} of {totalPages}
             </span>
             <button
               type="button"
-              className="btn btn--sm btn--secondary"
+              className="btn sm ghost"
               disabled={page >= totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
@@ -772,6 +1268,6 @@ export default function AuditLogsPage({ toast }: Props) {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

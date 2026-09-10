@@ -7,10 +7,9 @@ import { apiErrorMessage, apiFetch } from '../../lib/data';
 // *charged* is a different risk class from config that changes what they
 // *receive*, so only the credit figures below are tunable.
 const PACKS = [
-  { id: 'pack_10', label: 'Starter', priceUsd: 10 },
-  { id: 'pack_25', label: 'Growth', priceUsd: 25 },
-  { id: 'pack_50', label: 'Pro', priceUsd: 50 },
-  { id: 'pack_100', label: 'Enterprise', priceUsd: 100 },
+  { id: 'pack_10', label: 'Silver', priceUsd: 10 },
+  { id: 'pack_25', label: 'Gold', priceUsd: 25 },
+  { id: 'pack_100', label: 'Platinum', priceUsd: 100 },
 ] as const;
 
 type PackId = (typeof PACKS)[number]['id'];
@@ -19,7 +18,6 @@ type PackCredits = Record<PackId, { credits: number; autorefillCredits: number }
 const DEFAULT_PACK_CREDITS: PackCredits = {
   pack_10: { credits: 800, autorefillCredits: 880 },
   pack_25: { credits: 2250, autorefillCredits: 2475 },
-  pack_50: { credits: 4800, autorefillCredits: 5280 },
   pack_100: { credits: 10000, autorefillCredits: 11000 },
 };
 
@@ -107,11 +105,12 @@ export default function ShopifyCreditsTab({ toast }: Props) {
           <>
             <div style={{ marginTop: 24, marginBottom: 8 }}>
               <div className="setting-lbl" style={{ marginBottom: 4 }}>
-                Shopify Free Trial
+                Shopify Email Bonus
               </div>
               <div className="setting-desc" style={{ marginBottom: 12 }}>
-                Credits granted once, automatically, the first time a Shopify store links to an
-                AiVastra account — before the merchant buys any credit pack. This is the free tier.
+                Credits granted once when a store owner confirms their contact email from the
+                Dashboard popup — before the merchant buys any credit pack. This is the only free
+                tier; nothing is granted automatically at install anymore.
               </div>
               <div
                 style={{
@@ -130,7 +129,7 @@ export default function ShopifyCreditsTab({ toast }: Props) {
                     className="input"
                     type="number"
                     min={0}
-                    max={1000}
+                    max={99999}
                     style={{ width: 80, textAlign: 'right' }}
                     value={shopifyTrialCredits}
                     disabled={saving}
@@ -218,7 +217,7 @@ export default function ShopifyCreditsTab({ toast }: Props) {
                   saving ||
                   !Number.isInteger(shopifyTrialCredits) ||
                   shopifyTrialCredits < 0 ||
-                  shopifyTrialCredits > 1000 ||
+                  shopifyTrialCredits > 99999 ||
                   PACKS.some((pack) =>
                     (['credits', 'autorefillCredits'] as const).some((field) => {
                       const value = packCredits[pack.id][field];

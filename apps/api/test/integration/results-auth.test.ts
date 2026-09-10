@@ -8,6 +8,9 @@ import { type Containers, startContainers } from '../helpers/containers.js';
 describe('results auth unification', () => {
   let c: Containers;
   let app: TestApp;
+  // /results/login is rate-limited to 5/min; each call below needs its own
+  // remoteAddress so tests don't collide on the same limiter bucket.
+  let nextTestClient = 1;
 
   beforeAll(async () => {
     c = await startContainers();
@@ -43,6 +46,7 @@ describe('results auth unification', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/results/login',
+      remoteAddress: `127.0.0.${nextTestClient++}`,
       payload: { email: 'support-admin@x.com', password },
     });
 
@@ -64,6 +68,7 @@ describe('results auth unification', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/results/login',
+      remoteAddress: `127.0.0.${nextTestClient++}`,
       payload: { email: 'regular-user@x.com', password },
     });
 
@@ -96,6 +101,7 @@ describe('results auth unification', () => {
     const res1 = await app.inject({
       method: 'POST',
       url: '/results/login',
+      remoteAddress: `127.0.0.${nextTestClient++}`,
       payload: { email: 'flip-status-admin@x.com', password },
     });
     expect(res1.statusCode).toBe(200);
@@ -110,9 +116,98 @@ describe('results auth unification', () => {
     const res2 = await app.inject({
       method: 'POST',
       url: '/results/login',
+      remoteAddress: `127.0.0.${nextTestClient++}`,
       payload: { email: 'flip-status-admin@x.com', password },
     });
     expect(res2.statusCode).toBe(403);
     expect(res2.json().error.message).toBe('admin access required');
+  });
+
+  it('authenticates against admin_users.passwordHash, not the customer password, when the two diverge', async () => {
+    const adminPassword = 'admin-password-1';
+    const customerPassword = 'customer-password-2';
+
+    const [user] = await app.db
+      .insert(schema.users)
+      .values({
+        email: 'diverged-admin@x.com',
+        passwordHash: await hashPassword(customerPassword),
+        displayName: 'Diverged Admin',
+        emailVerified: true,
+      })
+      .returning();
+
+    await app.db.insert(schema.adminUsers).values({
+      userId: user.id,
+      role: 'ADMIN',
+      status: 'active',
+      passwordHash: await hashPassword(adminPassword),
+    });
+
+    const withAdminPassword = await app.inject({
+      method: 'POST',
+      url: '/results/login',
+      remoteAddress: `127.0.0.${nextTestClient++}`,
+      payload: { email: 'diverged-admin@x.com', password: adminPassword },
+    });
+    expect(withAdminPassword.statusCode).toBe(200);
+
+    const withCustomerPassword = await app.inject({
+      method: 'POST',
+      url: '/results/login',
+      remoteAddress: `127.0.0.${nextTestClient++}`,
+      payload: { email: 'diverged-admin@x.com', password: customerPassword },
+    });
+    expect(withCustomerPassword.statusCode).toBe(401);
+  });
+
+  it('does not leak admin status via response code when the password is wrong for a non-active account', async () => {
+    // No admin_users row at all — under the vulnerable ordering, the status check
+    // (`!admin`) fires unconditionally and returns 403 without ever inspecting the
+    // password. The fix must verify the password first, so a wrong password here
+    // returns 401 — indistinguishable from a wrong password against a nonexistent email.
+    await app.db.insert(schema.users).values({
+      email: 'non-admin-wrong-pw@x.com',
+      passwordHash: await hashPassword('correct-password'),
+      displayName: 'Non Admin',
+      emailVerified: true,
+    });
+
+    const res1 = await app.inject({
+      method: 'POST',
+      url: '/results/login',
+      remoteAddress: `127.0.0.${nextTestClient++}`,
+      payload: { email: 'non-admin-wrong-pw@x.com', password: 'wrong-password' },
+    });
+    expect(res1.statusCode).toBe(401);
+    expect(res1.json().error.message).toBe('invalid credentials');
+
+    // A non-active admin row — same failure mode: `admin.status !== 'active'` must not
+    // fire before the password is checked.
+    const [user2] = await app.db
+      .insert(schema.users)
+      .values({
+        email: 'rejected-admin-wrong-pw@x.com',
+        passwordHash: await hashPassword('correct-password'),
+        displayName: 'Rejected Admin',
+        emailVerified: true,
+      })
+      .returning();
+
+    await app.db.insert(schema.adminUsers).values({
+      userId: user2.id,
+      role: 'ADMIN',
+      status: 'rejected',
+      passwordHash: await hashPassword('correct-password'),
+    });
+
+    const res2 = await app.inject({
+      method: 'POST',
+      url: '/results/login',
+      remoteAddress: `127.0.0.${nextTestClient++}`,
+      payload: { email: 'rejected-admin-wrong-pw@x.com', password: 'wrong-password' },
+    });
+    expect(res2.statusCode).toBe(401);
+    expect(res2.json().error.message).toBe('invalid credentials');
   });
 });

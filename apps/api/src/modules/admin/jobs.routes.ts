@@ -4,9 +4,14 @@ import { aliasedTable, and, count, desc, eq, gte, ilike, lte, or, sql } from 'dr
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { verifyPassword } from '../auth/service.js';
 import { refund } from '../credits/ledger.js';
+import { refundStoreAndMarkCancelled } from '../credits/shopify-ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
+import { releaseStoreDailySlot } from '../shopify/limits.js';
+import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
+import { jobDurationSecondsSql } from './job-duration.js';
 import { jobTypeSql } from './job-type.js';
 import {
   describeJobsExportFilters,
@@ -40,7 +45,93 @@ const JobsQuery = z.object({
   // navigate here with via router state and must keep working unchanged.
   createdFrom: z.string().optional(),
   createdTo: z.string().optional(),
+  // Generation duration range (completedAt - startedAt), in whole seconds —
+  // the admin UI accepts minutes or seconds and converts to seconds client-side.
+  durationMinSec: z.coerce.number().min(0).optional(),
+  durationMaxSec: z.coerce.number().min(0).optional(),
 });
+
+const DELETE_ASSETS_TARGETS = ['result', 'person'] as const;
+type DeleteAssetsTarget = (typeof DELETE_ASSETS_TARGETS)[number];
+
+const DeleteAssetsBody = z.object({
+  password: z.string().min(1),
+  targets: z.array(z.enum(DELETE_ASSETS_TARGETS)).min(1),
+});
+
+const TERMINAL_JOB_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED'] as const;
+
+/**
+ * Tell a storefront shopper their try-on was cancelled.
+ *
+ * The channel must match the one `shopifyCustomerRoutes`' SSE handler
+ * subscribes to (`sse:events:store:{storeId}`), and the payload shape must
+ * match what `transitionJob` publishes, since the widget parses both with the
+ * same code. Swallows its own errors: a Redis blip must not fail an admin
+ * cancel whose refund has already committed.
+ */
+/**
+ * Give a cancelled store-billed job its daily-cap slot back.
+ *
+ * An admin cancel means the try-on never ran, so it must stop counting against
+ * the merchant's self-configured ceiling — the same reasoning as the
+ * dispatcher's failure path (see apps/dispatcher/src/shopify/store-cap.ts).
+ * The key was pinned onto job_inputs.params at creation; a job without one
+ * (uncapped store, or created before this shipped) is a no-op.
+ *
+ * Never throws: the refund has already committed by the time this runs, and a
+ * Redis blip must not turn a successful cancel into a 500.
+ */
+async function releaseCapSlotForJob(
+  app: FastifyInstance,
+  jobId: string,
+  params: unknown,
+): Promise<void> {
+  const capKey = (params as { storeCapKey?: unknown } | null)?.storeCapKey;
+  if (typeof capKey !== 'string' || capKey.length === 0) return;
+  try {
+    await releaseStoreDailySlot(app.redis, capKey, jobId);
+  } catch (err) {
+    app.log.error(
+      { err, jobId, capKey },
+      'store daily cap slot release failed — slot stays reserved until the 48h key expiry',
+    );
+  }
+}
+
+async function publishStoreCancelled(
+  app: FastifyInstance,
+  shopifyStoreId: string,
+  jobId: string,
+): Promise<void> {
+  try {
+    await app.redis.publish(
+      `sse:events:store:${shopifyStoreId}`,
+      JSON.stringify({ jobId, userId: '', type: 'STATUS', status: 'CANCELLED' }),
+    );
+  } catch (err) {
+    app.log.warn({ err, jobId, shopifyStoreId }, 'shopify cancel SSE publish failed');
+  }
+}
+
+/**
+ * Deletes one R2 object if a key is given. Never throws — a failed delete is
+ * reported via `ok: false` so the caller can decide whether to null the
+ * corresponding DB pointer (never null a pointer whose object is still there).
+ */
+async function purgeKeyIfPresent(
+  app: FastifyInstance,
+  key: string | null | undefined,
+): Promise<{ ok: boolean; shouldClear: boolean }> {
+  if (!key) return { ok: true, shouldClear: false };
+  try {
+    await app.storage.deleteObject(key);
+    return { ok: true, shouldClear: true };
+  } catch (err) {
+    app.log.warn({ err, key }, 'admin delete-assets: object delete failed');
+    return { ok: false, shouldClear: false };
+  }
+}
 
 export async function adminJobsRoutes(app: FastifyInstance) {
   const R = requirePermission('jobs.read');
@@ -75,11 +166,23 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     const query =
       // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
       req.query as any;
-    const { page, pageSize, status, search, date, jobType, workerId, createdFrom, createdTo } =
-      query;
+    const {
+      page,
+      pageSize,
+      status,
+      search,
+      date,
+      jobType,
+      workerId,
+      createdFrom,
+      createdTo,
+      durationMinSec,
+      durationMaxSec,
+    } = query;
 
     const conditions: ReturnType<typeof eq>[] = [];
     if (status) conditions.push(eq(schema.jobs.status, status));
+    if (workerId) conditions.push(eq(schema.jobs.workerId, workerId));
     if (date) {
       // Postgres exact date match for UTC createdAt
       conditions.push(sql`${schema.jobs.createdAt}::date = ${date}::date` as ReturnType<typeof eq>);
@@ -87,15 +190,36 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     if (jobType) {
       conditions.push(sql`${jobTypeSql()} = ${jobType}` as ReturnType<typeof eq>);
     }
-    if (workerId) conditions.push(eq(schema.jobs.workerId, workerId));
-    if (createdFrom) conditions.push(gte(schema.jobs.createdAt, new Date(createdFrom)));
-    if (createdTo) conditions.push(lte(schema.jobs.createdAt, new Date(createdTo)));
+    const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+    if (createdFrom) {
+      const fromInclusive = new Date(
+        DATE_ONLY.test(createdFrom) ? `${createdFrom}T00:00:00.000Z` : createdFrom,
+      );
+      conditions.push(gte(schema.jobs.createdAt, fromInclusive));
+    }
+    if (createdTo) {
+      const toInclusive = new Date(
+        DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo,
+      );
+      conditions.push(lte(schema.jobs.createdAt, toInclusive));
+    }
+    if (durationMinSec != null) {
+      conditions.push(
+        sql`${jobDurationSecondsSql()} >= ${durationMinSec}` as ReturnType<typeof eq>,
+      );
+    }
+    if (durationMaxSec != null) {
+      conditions.push(
+        sql`${jobDurationSecondsSql()} <= ${durationMaxSec}` as ReturnType<typeof eq>,
+      );
+    }
     if (search) {
       conditions.push(
         or(
           ilike(sql`${schema.jobs.id}::text`, `%${search}%`),
           ilike(schema.users.email, `%${search}%`),
           ilike(schema.users.username, `%${search}%`),
+          ilike(schema.shopifyStores.shopEmail, `%${search}%`),
         ) as ReturnType<typeof eq>,
       );
     }
@@ -108,6 +232,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .from(schema.jobs)
       .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .leftJoin(schema.shopifyStores, eq(schema.shopifyStores.id, schema.jobs.shopifyStoreId))
       .where(where);
 
     const rows = await app.db
@@ -116,6 +241,8 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         status: schema.jobs.status,
         userId: schema.jobs.userId,
         userEmail: schema.users.email,
+        shopEmail: schema.shopifyStores.shopEmail,
+        shopDomain: schema.shopifyStores.shopDomain,
         workerId: schema.jobs.workerId,
         priority: schema.jobs.priority,
         creditsCharged: schema.jobs.creditsCharged,
@@ -124,6 +251,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         createdAt: schema.jobs.createdAt,
         startedAt: schema.jobs.startedAt,
         completedAt: schema.jobs.completedAt,
+        // Non-null = this job was created by the regenerate flow, not a fresh
+        // submission — surfaced in the table as a "Regenerated" badge.
+        parentJobId: schema.jobs.parentJobId,
         faceLabel: schema.modelFaces.label,
         faceThumbnailKey: schema.modelFaces.thumbnailKey,
         backgroundLabel: schema.modelBackgrounds.label,
@@ -136,6 +266,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .from(schema.jobs)
       .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .leftJoin(schema.shopifyStores, eq(schema.shopifyStores.id, schema.jobs.shopifyStoreId))
       .leftJoin(schema.modelFaces, eq(schema.modelFaces.id, schema.jobInputs.faceId))
       .leftJoin(
         schema.modelBackgrounds,
@@ -185,6 +316,8 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           status: schema.jobs.status,
           userId: schema.jobs.userId,
           userEmail: schema.users.email,
+          shopEmail: schema.shopifyStores.shopEmail,
+          shopDomain: schema.shopifyStores.shopDomain,
           workerId: schema.jobs.workerId,
           priority: schema.jobs.priority,
           creditsCharged: schema.jobs.creditsCharged,
@@ -193,9 +326,12 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           createdAt: schema.jobs.createdAt,
           startedAt: schema.jobs.startedAt,
           completedAt: schema.jobs.completedAt,
+          parentJobId: schema.jobs.parentJobId,
           faceLabel: schema.modelFaces.label,
           backgroundLabel: schema.modelBackgrounds.label,
-          poseLabel: schema.modelPoseAssets.displayName,
+          poseLabel: sql<
+            string | null
+          >`coalesce(${schema.modelPoseAssets.displayName}, ${schema.modelPoseAssets.label})`,
           hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
           hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
           jobType: jobTypeSql(),
@@ -220,6 +356,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .from(schema.jobs)
         .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
         .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(schema.shopifyStores, eq(schema.shopifyStores.id, schema.jobs.shopifyStoreId))
         .leftJoin(schema.modelFaces, eq(schema.modelFaces.id, schema.jobInputs.faceId))
         .leftJoin(
           schema.modelBackgrounds,
@@ -255,6 +392,15 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .orderBy(desc(schema.jobEvents.createdAt))
         .limit(50);
 
+      // Pulled out to a top-level field so the admin UI doesn't need to parse
+      // the raw event log just to show why this regeneration happened.
+      const regenerateReason =
+        (
+          events.find((e) => e.eventType === 'REGENERATE_REASON')?.payload as
+            | { reason?: string }
+            | undefined
+        )?.reason ?? null;
+
       const pu = async (key: string | null | undefined) =>
         key ? (await app.storage.presignGet(key, 3600)).url : undefined;
 
@@ -276,15 +422,36 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         row.customerPhotoKey ??
         undefined;
 
-      // For tryon-direct jobs the workflow comes from params.workflowTemplateId, not pose join
-      let workflowLabel = row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null;
-      if (!workflowLabel && typeof params.workflowTemplateId === 'string') {
+      // Precedence for "what workflow actually ran":
+      //   1. job_inputs.params.workflowTemplateId — snapshotted at job-creation time for job
+      //      types that pin it there (catalog w/ resolved config, tryon-direct, saree, shopify,
+      //      kiosk/widget, dev-API).
+      //   2. The most recent COMFY_DISPATCH job_events row's payload.workflowTemplateId —
+      //      merchant-catalog and bare saree-mannequin jobs deliberately omit the params
+      //      snapshot so the dispatcher can re-resolve garmentType.mannequinWorkflowTemplateId
+      //      fresh at dispatch time (late-binding config lets an admin fix land before a queued
+      //      job runs). The dispatcher logs whatever it actually resolved into this event on
+      //      every dispatch path (apps/dispatcher/src/job/processor.ts), so it's an equally
+      //      authoritative historical record — just not on job_inputs.
+      //   3. The live pose/garment-config join — only meaningful for a job that never reached
+      //      dispatch (QUEUED/HELD/failed pre-dispatch), where "what would run now" is the only
+      //      sensible thing to show.
+      const dispatchEvent = events.find((e) => e.eventType === 'COMFY_DISPATCH');
+      const dispatchedWorkflowTemplateId =
+        (dispatchEvent?.payload as { workflowTemplateId?: string } | undefined)
+          ?.workflowTemplateId ?? null;
+      const resolvedWorkflowTemplateId =
+        (typeof params.workflowTemplateId === 'string' ? params.workflowTemplateId : null) ??
+        dispatchedWorkflowTemplateId;
+      let workflowLabel: string | null = null;
+      if (resolvedWorkflowTemplateId) {
         const [wt] = await app.db
           .select({ label: schema.workflowTemplates.label })
           .from(schema.workflowTemplates)
-          .where(eq(schema.workflowTemplates.id, params.workflowTemplateId));
+          .where(eq(schema.workflowTemplates.id, resolvedWorkflowTemplateId));
         workflowLabel = wt?.label ?? null;
       }
+      workflowLabel ??= row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null;
 
       return {
         ...row,
@@ -302,6 +469,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         jobParams: undefined,
         customerPhotoKey: undefined,
         workflowLabel,
+        regenerateReason,
         defaultWorkflowLabel: undefined,
         overrideWorkflowLabel: undefined,
         inputImages: {
@@ -323,12 +491,39 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .select({
         id: schema.jobs.id,
         userId: schema.jobs.userId,
+        shopifyStoreId: schema.jobs.shopifyStoreId,
         creditsCharged: schema.jobs.creditsCharged,
+        params: schema.jobInputs.params,
       })
       .from(schema.jobs)
+      // LEFT, not INNER: a job with no inputs row must still be flushed and
+      // refunded; only its cap slot is lost.
+      .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
       .where(eq(schema.jobs.status, 'QUEUED'));
 
     if (queued.length === 0) return { flushed: 0 };
+
+    // Store-billed jobs first, one transaction each. They carry no userId, so
+    // the user-ledger refund below skips them entirely — before this branch a
+    // flush cancelled every queued Shopify job without returning a single
+    // credit. refundStoreAndMarkCancelled claims the status transition itself,
+    // so it has to run before the bulk UPDATE moves the row out from under its
+    // guard.
+    for (const j of queued) {
+      if (!j.shopifyStoreId) continue;
+      const { compensated } = await refundStoreAndMarkCancelled(
+        app.db,
+        j.shopifyStoreId,
+        j.creditsCharged,
+        j.id,
+        'REFUND_ADMIN_CANCEL',
+        'ADMIN_FLUSH',
+      );
+      if (compensated) {
+        await releaseCapSlotForJob(app, j.id, j.params);
+        await publishStoreCancelled(app, j.shopifyStoreId, j.id);
+      }
+    }
 
     await app.db
       .update(schema.jobs)
@@ -384,6 +579,37 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
       if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
       if (['COMPLETED', 'CANCELLED'].includes(job.status)) return { ok: true };
+
+      // Store-billed Shopify job: no userId, so the user-ledger refund below
+      // would silently skip it and leave the merchant paying for a generation
+      // that never ran. The helper does the status flip and the refund in one
+      // transaction, unlike the user path below — worth it here because a
+      // cancel can race the dispatcher's own terminal transition.
+      if (job.shopifyStoreId) {
+        const { compensated } = await refundStoreAndMarkCancelled(
+          app.db,
+          job.shopifyStoreId,
+          job.creditsCharged,
+          id,
+          'REFUND_ADMIN_CANCEL',
+          'ADMIN_CANCEL',
+        );
+        // Only announce a transition we actually made. The storefront widget
+        // holds an open SSE stream kept alive by 15s heartbeats, so without
+        // this it waits out its full 6-minute deadline before telling the
+        // shopper anything. Best-effort, after the transaction: a dropped
+        // publish costs the shopper that wait, never the refund.
+        if (compensated) {
+          const [inputs] = await app.db
+            .select({ params: schema.jobInputs.params })
+            .from(schema.jobInputs)
+            .where(eq(schema.jobInputs.jobId, id));
+          await releaseCapSlotForJob(app, id, inputs?.params);
+          await publishStoreCancelled(app, job.shopifyStoreId, id);
+        }
+        return { ok: true };
+      }
+
       await app.db
         .update(schema.jobs)
         .set({ status: 'CANCELLED', errorCode: 'ADMIN_CANCEL' })
@@ -392,6 +618,110 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         await refund(app.db, job.userId, job.creditsCharged, id, 'REFUND_ADMIN_CANCEL');
       }
       return { ok: true };
+    },
+  );
+
+  app.post(
+    '/admin/jobs/:id/delete-assets',
+    {
+      preHandler: requirePermission('jobs.delete_assets'),
+      schema: { params: z.object({ id: z.string().uuid() }), body: DeleteAssetsBody },
+    },
+    async (req) => {
+      // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
+      const { id } = req.params as any;
+      const { password, targets: rawTargets } = req.body as z.infer<typeof DeleteAssetsBody>;
+      const targets = [...new Set(rawTargets)] as DeleteAssetsTarget[];
+
+      const [caller] = await app.db
+        .select({ passwordHash: schema.users.passwordHash })
+        .from(schema.users)
+        .where(eq(schema.users.id, req.userId));
+      if (!caller?.passwordHash || !(await verifyPassword(caller.passwordHash, password))) {
+        throw new AppError('FORBIDDEN', 403, 'incorrect password');
+      }
+
+      const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
+      if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
+      if (!(TERMINAL_JOB_STATUSES as readonly string[]).includes(job.status)) {
+        throw new AppError('BAD_STATE', 409, 'job must be COMPLETED, FAILED, or CANCELLED');
+      }
+
+      const [output] = await app.db
+        .select({
+          resultKey: schema.jobOutputs.resultKey,
+          thumbnailKey: schema.jobOutputs.thumbnailKey,
+        })
+        .from(schema.jobOutputs)
+        .where(eq(schema.jobOutputs.jobId, id));
+      const [inputRow] = await app.db
+        .select({ params: schema.jobInputs.params })
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, id));
+      const paramsBefore = (inputRow?.params ?? {}) as Record<string, unknown>;
+      const paramsPersonKey =
+        typeof paramsBefore.personKey === 'string' ? paramsBefore.personKey : null;
+
+      const before = {
+        requestedTargets: targets,
+        hadResult: !!output?.resultKey,
+        hadThumbnail: !!output?.thumbnailKey,
+        hadCustomerPhotoKey: !!job.customerPhotoKey,
+        hadParamsPersonKey: !!paramsPersonKey,
+      };
+
+      const deleted: DeleteAssetsTarget[] = [];
+      const outputPatch: { resultKey?: null; thumbnailKey?: null } = {};
+      let clearCustomerPhoto = false;
+      let clearParamsPersonKey = false;
+
+      if (targets.includes('result')) {
+        const r = await purgeKeyIfPresent(app, output?.resultKey);
+        const t = await purgeKeyIfPresent(app, output?.thumbnailKey);
+        if (r.shouldClear) outputPatch.resultKey = null;
+        if (t.shouldClear) outputPatch.thumbnailKey = null;
+        if (r.ok && t.ok) deleted.push('result');
+      }
+
+      if (targets.includes('person')) {
+        const c = await purgeKeyIfPresent(app, job.customerPhotoKey);
+        const p = await purgeKeyIfPresent(app, paramsPersonKey);
+        if (c.shouldClear) clearCustomerPhoto = true;
+        if (p.shouldClear) clearParamsPersonKey = true;
+        if (c.ok && p.ok) deleted.push('person');
+      }
+
+      await app.db.transaction(async (tx) => {
+        if (Object.keys(outputPatch).length > 0) {
+          await tx
+            .update(schema.jobOutputs)
+            .set(outputPatch)
+            .where(eq(schema.jobOutputs.jobId, id));
+        }
+        if (clearCustomerPhoto) {
+          await tx
+            .update(schema.jobs)
+            .set({ customerPhotoKey: null })
+            .where(eq(schema.jobs.id, id));
+        }
+        if (clearParamsPersonKey) {
+          await tx
+            .update(schema.jobInputs)
+            .set({ params: sql`${schema.jobInputs.params} - 'personKey'` })
+            .where(eq(schema.jobInputs.jobId, id));
+        }
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole ?? '' },
+          action: 'jobs.delete_assets',
+          resourceType: 'job',
+          resourceId: id,
+          before,
+          after: { deleted },
+          request: req,
+        });
+      });
+
+      return { ok: deleted.length === targets.length, deleted };
     },
   );
 

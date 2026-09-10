@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import { EditDrawer } from './EditDrawer';
+import { SearchableSelect } from './SearchableSelect';
 import { Switch } from './Switch';
 
 export type FieldDef =
@@ -269,18 +270,12 @@ export function UploadModal({
               />
             )}
             {f.type === 'select' && (
-              <select
-                className="select"
+              <SearchableSelect
+                options={f.options.map((o) => ({ id: o.value, label: o.label }))}
                 value={values[f.name] as string}
                 disabled={busy}
-                onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
-              >
-                {f.options.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setValues((prev) => ({ ...prev, [f.name]: v }))}
+              />
             )}
             {f.type === 'number' && (
               <input

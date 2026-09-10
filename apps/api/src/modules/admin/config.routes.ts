@@ -1,9 +1,11 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  ConfirmWordpressPluginBody,
   DEFAULT_MAX_BATCH_JOBS,
   DEFAULT_MAX_QUEUE_DEPTH,
   PresignAppVideoBody,
+  PresignWordpressPluginBody,
   SystemConfigBody,
 } from '@aivastra/types';
 import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-orm';
@@ -16,9 +18,11 @@ import {
   DEFAULT_SELLER_CONFIG,
   DEFAULT_SHOPIFY_TRIAL_CONFIG,
   DEFAULT_TRYON_CONFIG,
+  mergeAspectDimensions,
 } from '../../lib/resolution-config.js';
 import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
 import { CREDIT_PACKS } from '../shopify/packs.js';
+import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
 const KEY = 'config:system';
@@ -31,6 +35,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     return {
       resolutions: cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG,
       maxOutputPx: cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX,
+      aspectDimensions: mergeAspectDimensions(cfg.aspectDimensions),
     };
   });
 
@@ -50,6 +55,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     const cfg = raw ? JSON.parse(raw) : {};
     cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
     cfg.maxOutputPx = cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX;
+    cfg.aspectDimensions = mergeAspectDimensions(cfg.aspectDimensions);
     cfg.maxBatchJobs = cfg.maxBatchJobs ?? DEFAULT_MAX_BATCH_JOBS;
     cfg.maxQueueDepth = cfg.maxQueueDepth ?? DEFAULT_MAX_QUEUE_DEPTH;
     cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
@@ -91,7 +97,35 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
-      const next = { ...cur, ...(req.body as Record<string, unknown>) };
+      const body = req.body as Record<string, unknown>;
+      const next = { ...cur, ...body };
+      // aspectDimensions is a nested per-ratio record — a submitted body may
+      // legitimately carry only the ratios the admin actually edited (see
+      // mergeAspectDimensions's doc comment), so it must be merged key-wise
+      // over the previously stored value rather than replaced wholesale, or
+      // every ratio missing from this PATCH would silently revert to default.
+      if (body.aspectDimensions) {
+        next.aspectDimensions = {
+          ...mergeAspectDimensions(
+            cur.aspectDimensions as Record<string, { width: number; height: number }> | undefined,
+          ),
+          ...(body.aspectDimensions as Record<string, { width: number; height: number }>),
+        };
+      }
+      // System config lives in Redis, not Postgres, so there's no row for a
+      // failed audit insert to roll back — write the audit record first and
+      // only apply the Redis change once it succeeds, so a config change can
+      // never land without a Team Activity entry for who made it.
+      await app.db.transaction(async (tx) => {
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'config.update',
+          resourceType: 'system_config',
+          before: cur,
+          after: next,
+          request: req,
+        });
+      });
       await app.redis.set(KEY, JSON.stringify(next));
       return next;
     },
@@ -116,11 +150,24 @@ export async function adminConfigRoutes(app: FastifyInstance) {
   app.post(
     '/admin/config/app-video/confirm',
     { preHandler: requirePermission('config.manage') },
-    async () => {
+    async (req) => {
       const key = keys.appVideo();
       const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
       const updatedAt = new Date().toISOString();
-      cur.appVideo = { key, updatedAt };
+      const before = cur.appVideo ?? null;
+      const after = { key, updatedAt };
+      await app.db.transaction(async (tx) => {
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'config.app_video_update',
+          resourceType: 'system_config',
+          resourceId: 'app_video',
+          before,
+          after,
+          request: req,
+        });
+      });
+      cur.appVideo = after;
       await app.redis.set(KEY, JSON.stringify(cur));
       return { videoUrl: await appVideoUrl(app, key), updatedAt };
     },
@@ -136,6 +183,129 @@ export async function adminConfigRoutes(app: FastifyInstance) {
   app.get('/v1/config/app-video', async () => {
     const cfg = await readAppVideoConfig(app, KEY);
     return { videoUrl: cfg ? await appVideoUrl(app, cfg.key) : null };
+  });
+
+  // ── WordPress plugin release (self-hosted update feed for direct-share
+  // installs — the wp.org-listed build carries no update-checker code at all,
+  // since WordPress core owns updates for a listed slug; see
+  // wordpress-plugin/includes/class-update-checker.php) ─────────────────────
+
+  app.post(
+    '/admin/config/wordpress-plugin/presign',
+    {
+      preHandler: requirePermission('config.manage'),
+      schema: { body: PresignWordpressPluginBody },
+    },
+    async (req) => {
+      const { version, contentType } = req.body as { version: string; contentType: string };
+      const key = keys.wordpressPluginZip(version);
+      const { url } = await app.storage.presignPut(key, contentType, 20_000_000, 300);
+      return { uploadUrl: url, key };
+    },
+  );
+
+  app.post(
+    '/admin/config/wordpress-plugin/confirm',
+    {
+      preHandler: requirePermission('config.manage'),
+      schema: { body: ConfirmWordpressPluginBody },
+    },
+    async (req) => {
+      const { version, changelog, requiresAtLeast, testedUpTo, requiresPhp } = req.body as {
+        version: string;
+        changelog: string;
+        requiresAtLeast: string;
+        testedUpTo: string;
+        requiresPhp: string;
+      };
+      const key = keys.wordpressPluginZip(version);
+      const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
+      const updatedAt = new Date().toISOString();
+      const before = cur.wordpressPlugin ?? null;
+      const after = {
+        version,
+        key,
+        changelog,
+        requiresAtLeast,
+        testedUpTo,
+        requiresPhp,
+        updatedAt,
+      };
+      await app.db.transaction(async (tx) => {
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'config.wordpress_plugin_update',
+          resourceType: 'system_config',
+          resourceId: 'wordpress_plugin',
+          before,
+          after,
+          request: req,
+        });
+      });
+      cur.wordpressPlugin = after;
+      await app.redis.set(KEY, JSON.stringify(cur));
+      return after;
+    },
+  );
+
+  app.get(
+    '/admin/config/wordpress-plugin',
+    { preHandler: requirePermission('config.read') },
+    async () => {
+      const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
+      return cur.wordpressPlugin ?? null;
+    },
+  );
+
+  // Public — polled by the vendored Plugin Update Checker (PUC) library in
+  // direct-share installs. Response shape is PUC's documented "JSON metadata"
+  // format (name/version/download_url/sections/requires/tested/requires_php) —
+  // do not rename these fields, PUC parses them literally.
+  app.get('/v1/wordpress-plugin/update-info', async (req) => {
+    const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
+    const release = cur.wordpressPlugin as
+      | {
+          version: string;
+          changelog: string;
+          requiresAtLeast: string;
+          testedUpTo: string;
+          requiresPhp: string;
+          updatedAt: string;
+        }
+      | undefined;
+    if (!release) {
+      return { name: 'Ai Vastra Try-On' };
+    }
+    return {
+      name: 'Ai Vastra Try-On',
+      version: release.version,
+      // req.hostname strips the port (Fastify docs) — harmless on prod's
+      // standard-port domain, but silently wrong on staging (:4100) or local
+      // dev (:4000). req.headers.host carries the port when non-default and
+      // still respects X-Forwarded-Host via trustProxy.
+      download_url: `${req.protocol}://${req.headers.host}/v1/wordpress-plugin/download`,
+      sections: { changelog: release.changelog },
+      requires: release.requiresAtLeast,
+      tested: release.testedUpTo,
+      requires_php: release.requiresPhp,
+      last_updated: release.updatedAt,
+    };
+  });
+
+  // Public — the download_url served above always points here rather than at a
+  // presigned R2/MinIO URL directly, because PUC (and WordPress's own update
+  // check) may cache the update-info response for hours; a presigned URL signed
+  // at that check time could easily have expired by the time someone actually
+  // clicks "Update now". Redirecting through this stable endpoint means the
+  // signature is always minted fresh, at the moment of download.
+  app.get('/v1/wordpress-plugin/download', async (_req, reply) => {
+    const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
+    const release = cur.wordpressPlugin as { key: string } | undefined;
+    if (!release) {
+      return reply.code(404).send({ error: 'No WordPress plugin release configured' });
+    }
+    const { url } = await app.storage.presignGet(release.key, 300);
+    return reply.redirect(url, 302);
   });
 
   app.get('/admin/stats', { preHandler: requirePermission('config.read') }, async (req) => {

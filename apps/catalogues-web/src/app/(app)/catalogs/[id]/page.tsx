@@ -13,14 +13,20 @@ import {
   TrashIcon,
   XIcon,
 } from '@/components/icons';
+import { SupportModal } from '@/components/SupportModal';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { PremiumSelect } from '@/components/ui/premium-select';
+import { ZoomableImage } from '@/components/ZoomableImage';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
-import { downloadErrorMessage } from '@/lib/errors';
-import { GOOGLE_DRIVE_ENABLED } from '@/lib/feature-flags';
+import { ApiError, downloadErrorMessage } from '@/lib/errors';
+import { GOOGLE_DRIVE_ENABLED, REGENERATE_ENABLED } from '@/lib/feature-flags';
+
+const REGENERATE_LIMIT_SUPPORT_MESSAGE =
+  "I've used all 5 free regenerations for today and would like help getting more.";
 
 async function concurrentPool<T>(
   fns: Array<() => Promise<T>>,
@@ -52,6 +58,8 @@ interface Job {
   watermark: boolean;
   watermarkVersion?: number;
   assetKind?: string;
+  alreadyDownloaded?: boolean;
+  parentJobId?: string | null;
 }
 interface CatalogueDetail {
   catalogueId: string;
@@ -61,6 +69,10 @@ interface CatalogueDetail {
 }
 
 const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED'];
+
+// Mirrors FREE_REGENERATE_DAILY_LIMIT in apps/api/src/modules/jobs/regenerate.ts —
+// display-only copy; the actual cap is enforced server-side.
+const FREE_REGENERATE_DAILY_LIMIT = 5;
 
 // [min%, max%, durationMs] for each non-terminal stage
 const STAGE_RANGES: Record<string, [number, number, number]> = {
@@ -148,12 +160,14 @@ function ImageCard({
   queuePosition,
   garmentUrl,
   onZoom,
+  onRegenerate,
 }: {
   job: Job;
   catalogueId: string;
   queuePosition: number;
   garmentUrl?: string | null;
   onZoom: (data: { url: string; job: Job }) => void;
+  onRegenerate: (jobId: string) => void;
 }) {
   const isCompleted = job.status === 'COMPLETED';
   const isFailed = job.status === 'FAILED';
@@ -297,6 +311,8 @@ function ImageCard({
                 width={768}
                 height={1024}
                 loading="lazy"
+                draggable={false}
+                onContextMenu={(e) => e.preventDefault()}
                 onError={(e) => {
                   // Presigned URL expired — invalidate so next render re-fetches
                   e.currentTarget.style.display = 'none';
@@ -308,6 +324,9 @@ function ImageCard({
                   height: '100%',
                   objectFit: 'cover',
                   objectPosition: 'top center',
+                  WebkitTouchCallout: 'none',
+                  WebkitUserSelect: 'none',
+                  userSelect: 'none',
                 }}
               />
             ) : (
@@ -457,8 +476,10 @@ function ImageCard({
           style={{
             padding: '8px 10px',
             display: 'flex',
+            flexWrap: 'wrap',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 6,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -493,7 +514,7 @@ function ImageCard({
               })}
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
             {TERMINAL.includes(job.status) && (
               <button
                 type="button"
@@ -546,7 +567,14 @@ function ImageCard({
                     if (downloading) return;
                     setDownloading(true);
                     try {
-                      const res = await fetch(result.url);
+                      // Real download signal — POST /download (not the cached result.url)
+                      // both refreshes the presigned URL and stamps downloadedAt
+                      // server-side, which disables this job's regenerate option.
+                      const { url } = await api.post<{ url: string }>(
+                        `/v1/jobs/${job.id}/download`,
+                        {},
+                      );
+                      const res = await fetch(url);
                       if (!res.ok) throw new Error(downloadErrorMessage(res.status));
                       const blob = await res.blob();
                       const objectUrl = URL.createObjectURL(blob);
@@ -557,6 +585,7 @@ function ImageCard({
                       a.click();
                       a.remove();
                       URL.revokeObjectURL(objectUrl);
+                      qc.invalidateQueries({ queryKey: ['catalogue', catalogueId] });
                     } catch (e) {
                       alert(
                         e instanceof Error
@@ -585,6 +614,28 @@ function ImageCard({
                 >
                   {downloading ? <SpinnerIcon size={14} /> : <DownloadIcon size={16} />}
                 </button>
+                {REGENERATE_ENABLED && !job.alreadyDownloaded && (
+                  <button
+                    type="button"
+                    onClick={() => onRegenerate(job.id)}
+                    title="Regenerate"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      height: 28,
+                      padding: '0 10px',
+                      borderRadius: 8,
+                      background: 'linear-gradient(135deg, var(--c-pink), var(--c-amber))',
+                      color: '#fff',
+                      border: 'none',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Regenerate
+                  </button>
+                )}
                 {GOOGLE_DRIVE_ENABLED && (
                   <button
                     type="button"
@@ -644,6 +695,13 @@ export default function CataloguePage({
   const [driveProgress, setDriveProgress] = useState<{ done: number; total: number } | null>(null);
   const [driveErr, setDriveErr] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const regeneratingRef = useRef(false);
+  const [reasonModalJobId, setReasonModalJobId] = useState<string | null>(null);
+  const [regenerateReason, setRegenerateReason] = useState('');
+  const [showRegenerateLimitModal, setShowRegenerateLimitModal] = useState(false);
+  // Reasons configured on the job's workflow, fetched fresh each time the
+  // modal opens — always ends with a fixed "Other" the client appends itself.
+  const [reasonOptions, setReasonOptions] = useState<string[]>([]);
   const zoomDialogRef = useRef<HTMLDivElement>(null);
   const zoomTriggerRef = useRef<HTMLElement | null>(null);
 
@@ -741,32 +799,42 @@ export default function CataloguePage({
     ),
   );
 
+  // A regenerate creates a new job pointing back via parentJobId rather than
+  // mutating the original — every count/list/action below should treat the
+  // superseded parent as gone, not as a second copy of the same look.
+  const visibleJobs = useMemo(() => {
+    const all = data?.jobs ?? [];
+    return all.filter((job) => !all.some((other) => other.parentJobId === job.id));
+  }, [data?.jobs]);
+
   // Ordered queue positions — oldest QUEUED job = position 1
   const queuedIds = useMemo(
     () =>
-      (data?.jobs ?? [])
+      visibleJobs
         .filter((j) => j.status === 'QUEUED')
         .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
         .map((j) => j.id),
-    [data?.jobs],
+    [visibleJobs],
   );
 
-  const completedCount = data?.jobs.filter((j) => j.status === 'COMPLETED').length ?? 0;
-  const total = data?.jobs.length ?? 0;
+  const completedCount = visibleJobs.filter((j) => j.status === 'COMPLETED').length;
+  const total = visibleJobs.length;
 
   async function handleDownloadAll() {
     if (!data || downloading) return;
-    const completed = data.jobs.filter((j) => j.status === 'COMPLETED');
+    const completed = visibleJobs.filter((j) => j.status === 'COMPLETED');
     if (completed.length === 0) return;
     setDownloading(true);
     setDownloadErr(null);
 
     try {
-      // Phase 1: fetch all presigned URLs in parallel (fast API calls, no network to R2)
+      // Phase 1: fetch all presigned URLs in parallel (fast API calls, no network to R2).
+      // POST /download (not GET /result) is the real download signal — it stamps
+      // downloadedAt server-side, which disables each job's regenerate option.
       const urlResults = await Promise.allSettled(
         completed.map((job) =>
           api
-            .get<{ url: string; expiresIn: number }>(`/v1/jobs/${job.id}/result`)
+            .post<{ url: string; expiresIn: number }>(`/v1/jobs/${job.id}/download`, {})
             .then((res) => ({ jobId: job.id, url: res.url, expiresIn: res.expiresIn })),
         ),
       );
@@ -817,6 +885,7 @@ export default function CataloguePage({
           `${failures} of ${completed.length} image${completed.length !== 1 ? 's' : ''} failed to download.`,
         );
       }
+      qc.invalidateQueries({ queryKey: ['catalogue', id] });
     } catch {
       setDownloadErr('Download failed. Please try again.');
     } finally {
@@ -855,16 +924,52 @@ export default function CataloguePage({
     }
   }
 
-  async function handleRegenerate(jobId: string) {
-    if (regenerating) return;
-    setRegenerating(true);
+  async function openReasonModal(jobId: string) {
+    setReasonModalJobId(jobId);
+    setRegenerateReason('');
+    setReasonOptions([]);
     try {
-      await api.post(`/v1/jobs/${jobId}/regenerate`, {});
+      const { reasons } = await api.get<{ reasons: string[] }>(
+        `/v1/jobs/${jobId}/regenerate-reasons`,
+      );
+      setReasonOptions(reasons);
+    } catch {
+      // No configured reasons is a normal outcome (falls back to "Other" only)
+      // — don't block opening the modal over this.
+      setReasonOptions([]);
+    }
+  }
+
+  async function handleRegenerate(jobId: string, reason: string) {
+    // Synchronous lock — `regenerating` state alone updates too late to stop a
+    // second click landing before the button re-renders as disabled.
+    if (regeneratingRef.current) return;
+    regeneratingRef.current = true;
+    setRegenerating(true);
+    // One key per confirmed click, sent as Idempotency-Key: a duplicate/retried
+    // request for this exact click reuses the cached result instead of
+    // creating (and charging/refunding) a second job.
+    const idempotencyKey = crypto.randomUUID();
+    try {
+      await api.post(
+        `/v1/jobs/${jobId}/regenerate`,
+        { reason },
+        { headers: { 'Idempotency-Key': idempotencyKey } },
+      );
       qc.invalidateQueries({ queryKey: ['catalogue', id] });
       setZoom(null);
+      setReasonModalJobId(null);
+      setRegenerateReason('');
     } catch (e) {
-      alert((e as Error).message || 'Failed to regenerate. Check if you have enough credits.');
+      if (e instanceof ApiError && e.code === 'FREE_REGENERATE_LIMIT') {
+        setReasonModalJobId(null);
+        setRegenerateReason('');
+        setShowRegenerateLimitModal(true);
+      } else {
+        alert((e as Error).message || 'Failed to regenerate. Check if you have enough credits.');
+      }
     } finally {
+      regeneratingRef.current = false;
       setRegenerating(false);
     }
   }
@@ -1045,7 +1150,7 @@ export default function CataloguePage({
         )}
         {data && (
           <div className="catalogue-detail-grid">
-            {data.jobs.map((job) => (
+            {visibleJobs.map((job) => (
               <ImageCard
                 key={job.id}
                 job={job}
@@ -1053,6 +1158,7 @@ export default function CataloguePage({
                 queuePosition={queuedIds.indexOf(job.id) + 1}
                 garmentUrl={data.garmentUrl}
                 onZoom={setZoom}
+                onRegenerate={openReasonModal}
               />
             ))}
           </div>
@@ -1101,25 +1207,14 @@ export default function CataloguePage({
           >
             <XIcon size={20} />
           </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          {/* biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible */}
-          <img
-            src={zoom.url}
-            alt=""
-            style={{
-              maxWidth: '100%',
-              maxHeight: '100%',
-              objectFit: 'contain',
-              borderRadius: 8,
-              transform: zoomVisible ? 'translateX(0)' : 'translateX(100%)',
-              transition: 'transform 300ms ease-out',
-              pointerEvents: 'none',
-            }}
-          />
-          {zoom.job.assetKind === 'WATERMARKED' && data?.currentPlanWatermark === false && (
+          <ZoomableImage src={zoom.url} visible={zoomVisible} variant="slide" />
+          {REGENERATE_ENABLED && zoom.job.status === 'COMPLETED' && !zoom.job.alreadyDownloaded && (
             <button
               type="button"
-              onClick={() => handleRegenerate(zoom.job.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                openReasonModal(zoom.job.id);
+              }}
               disabled={regenerating}
               style={{
                 position: 'absolute',
@@ -1140,10 +1235,108 @@ export default function CataloguePage({
               }}
             >
               {regenerating ? <SpinnerIcon size={16} /> : null}
-              Regenerate without Watermark
+              Regenerate
             </button>
           )}
         </div>
+      )}
+
+      {REGENERATE_ENABLED && reasonModalJobId && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Regenerate reason"
+          onClick={() => !regenerating && setReasonModalJobId(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.6)',
+            zIndex: 1100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(420px, 100%)',
+              background: C.card,
+              borderRadius: 14,
+              padding: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>
+              Why regenerate this image?
+            </h3>
+            <p style={{ margin: 0, fontSize: 12.5, color: C.light, lineHeight: 1.5 }}>
+              You get {FREE_REGENERATE_DAILY_LIMIT} free regenerations a day. Once this image is
+              downloaded it can no longer be regenerated.
+            </p>
+            <PremiumSelect
+              ariaLabel="Reason for regenerating"
+              value={regenerateReason}
+              onChange={(v) => setRegenerateReason(String(v))}
+              options={reasonOptions.map((r) => ({ value: r, label: r }))}
+              disabled={regenerating}
+              placeholder="Select a reason…"
+              fullWidth
+              height={40}
+              fontSize={13}
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setReasonModalJobId(null)}
+                disabled={regenerating}
+                style={{
+                  padding: '10px 18px',
+                  borderRadius: 8,
+                  background: 'transparent',
+                  color: C.light,
+                  border: `1px solid ${C.border}`,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={regenerating || !regenerateReason}
+                onClick={() => handleRegenerate(reasonModalJobId, regenerateReason)}
+                style={{
+                  padding: '10px 18px',
+                  borderRadius: 8,
+                  background: 'linear-gradient(135deg, var(--c-pink), var(--c-amber))',
+                  color: 'white',
+                  border: 'none',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: regenerating || !regenerateReason ? 'not-allowed' : 'pointer',
+                  opacity: regenerating || !regenerateReason ? 0.6 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                {regenerating ? <SpinnerIcon size={16} /> : null}
+                Regenerate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {REGENERATE_ENABLED && showRegenerateLimitModal && (
+        <SupportModal
+          initialMessage={REGENERATE_LIMIT_SUPPORT_MESSAGE}
+          onClose={() => setShowRegenerateLimitModal(false)}
+        />
       )}
 
       {downloadErr && (

@@ -3,8 +3,13 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
 import { hashPassword } from './modules/auth/service.js';
+import { startUserLowCreditAlertScheduler } from './modules/credits/low-credit-alert-scheduler.js';
+import { startUnlimitedPlanReminderScheduler } from './modules/credits/unlimited-plan-scheduler.js';
 import { startAlertScheduler } from './modules/shopify/alert-scheduler.js';
+import { startAutorefillReconciler } from './modules/shopify/autorefill-reconciler.js';
 import { startCollectionResyncScheduler } from './modules/shopify/collections-resync-scheduler.js';
+import { startRedactionRetryScheduler } from './modules/shopify/gdpr-retry-scheduler.js';
+import { startProductResyncScheduler } from './modules/shopify/products-resync-scheduler.js';
 import { startSyncConsumer } from './modules/shopify/sync-consumer.js';
 import { startUploadSweeper } from './modules/uploads/sweeper.js';
 import { buildServer } from './server.js';
@@ -23,8 +28,13 @@ await app.listen({ port: env.API_PORT, host: '0.0.0.0' });
 
 startSyncConsumer(app);
 startCollectionResyncScheduler(app);
+startProductResyncScheduler(app);
 startUploadSweeper(app);
 startAlertScheduler(app);
+startAutorefillReconciler(app);
+startRedactionRetryScheduler(app);
+startUserLowCreditAlertScheduler(app);
+startUnlimitedPlanReminderScheduler(app);
 
 if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
   const [existing] = await app.db

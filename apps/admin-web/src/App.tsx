@@ -176,6 +176,8 @@ export default function App() {
         search?: string;
         date?: string;
         jobId?: string;
+        fromUserId?: string;
+        userId?: string;
       },
     ) => {
       navigate(`/${_page}`, { state: _filter });
@@ -224,8 +226,6 @@ export default function App() {
         onCloseMobile={() => setMobileNavOpen(false)}
       />
       {mobileNavOpen && (
-        // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop closes drawer
-        // biome-ignore lint/a11y/noStaticElementInteractions: backdrop closes drawer
         <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />
       )}
       <div className="main">

@@ -20,6 +20,17 @@ type Props = {
   fontSize?: number;
   placeholder?: string;
   disabled?: boolean;
+  // Every color below defaults to the app's theme-reactive `C` tokens, which flip with
+  // dark mode. Callers on a surface with a hardcoded light design (e.g. tryon-library-app's
+  // `LIGHT` theme) must override these, or the trigger/popup render with light-mode-only
+  // backgrounds while the text still switches to its dark-mode (near-white) color —
+  // invisible text on a light field.
+  textColor?: string;
+  mutedColor?: string;
+  popupBackground?: string;
+  popupBorder?: string;
+  selectedColor?: string;
+  hoverBackground?: string;
 };
 
 export function PremiumSelect({
@@ -34,6 +45,12 @@ export function PremiumSelect({
   fontSize = 12.5,
   placeholder,
   disabled = false,
+  textColor = C.text,
+  mutedColor = C.mid,
+  popupBackground = C.card,
+  popupBorder = C.border,
+  selectedColor = C.pink,
+  hoverBackground = 'var(--c-merchant-hover)',
 }: Props) {
   const [open, setOpen] = useState(false);
   const [hoverIdx, setHoverIdx] = useState<number>(-1);
@@ -170,7 +187,7 @@ export function PremiumSelect({
           fontFamily: 'inherit',
           fontSize,
           fontWeight: 600,
-          color: disabled ? C.light : C.text,
+          color: disabled ? C.light : textColor,
           cursor: disabled ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.7 : 1,
           transition: 'background-color .12s',
@@ -181,7 +198,7 @@ export function PremiumSelect({
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
-            color: current ? C.text : C.mid,
+            color: current ? textColor : mutedColor,
             fontWeight: current ? 600 : 500,
           }}
         >
@@ -229,8 +246,8 @@ export function PremiumSelect({
               minWidth: popupRect.width,
               maxHeight: 240,
               overflowY: 'auto',
-              background: C.card,
-              border: `1px solid ${C.border}`,
+              background: popupBackground,
+              border: `1px solid ${popupBorder}`,
               borderRadius: 8,
               boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
               zIndex: 1200,
@@ -263,8 +280,8 @@ export function PremiumSelect({
                     borderRadius: 5,
                     fontSize: 12.5,
                     fontWeight: isSelected ? 600 : 500,
-                    color: isSelected ? C.pink : C.text,
-                    background: isHovered ? 'var(--c-merchant-hover)' : 'transparent',
+                    color: isSelected ? selectedColor : textColor,
+                    background: isHovered ? hoverBackground : 'transparent',
                     cursor: 'pointer',
                     transition: 'background-color .08s, color .08s',
                     whiteSpace: 'nowrap',

@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, desc, eq, gte, ilike, inArray, lte } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ilike, inArray, lte, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requirePermission } from './guard.js';
@@ -9,6 +9,23 @@ import { requirePermission } from './guard.js';
 // human-readable label per resourceType with one batched lookup query each,
 // rather than a fragile cross-type SQL join.
 const USER_SHAPED_RESOURCE_TYPES = new Set(['user', 'admin_user', 'user_credits']);
+
+// Asset resourceTypes whose row has a plain `label` (or label-shaped) text
+// column — one batched lookup per type, same reasoning as workers/workflows above.
+// biome-ignore lint/suspicious/noExplicitAny: each table has a different column shape; only `.id` and the named label column are ever read, both generically below
+const LABEL_TABLE_BY_RESOURCE_TYPE: Record<string, { table: any; labelCol: string }> = {
+  face: { table: schema.modelFaces, labelCol: 'label' },
+  background: { table: schema.modelBackgrounds, labelCol: 'label' },
+  pose: { table: schema.modelPoseAssets, labelCol: 'label' },
+  sample_video: { table: schema.sampleVideos, labelCol: 'title' },
+  saree_style: { table: schema.sareeMannequinStyles, labelCol: 'label' },
+  garment_type: { table: schema.garmentSubcategories, labelCol: 'label' },
+  catalog_item: { table: schema.catalogItems, labelCol: 'label' },
+  catalogue_template: { table: schema.catalogueTemplates, labelCol: 'label' },
+  credit_plan: { table: schema.creditPlans, labelCol: 'name' },
+  merchant: { table: schema.merchants, labelCol: 'companyName' },
+  saree_workflow: { table: schema.workflowTemplates, labelCol: 'label' },
+};
 
 async function resolveResourceLabels(
   app: FastifyInstance,
@@ -48,8 +65,24 @@ async function resolveResourceLabels(
     for (const wf of workflows) labels.set(wf.id, wf.label || wf.id);
   }
 
+  for (const [resourceType, { table, labelCol }] of Object.entries(LABEL_TABLE_BY_RESOURCE_TYPE)) {
+    const ids = rows
+      .filter((r) => r.resourceType === resourceType && r.resourceId)
+      .map((r) => r.resourceId as string);
+    if (ids.length === 0) continue;
+    const assetRows = await app.db
+      .select({ id: table.id, labelValue: table[labelCol] })
+      .from(table)
+      .where(inArray(table.id, ids));
+    for (const r of assetRows as Array<{ id: string; labelValue: string | null }>) {
+      labels.set(r.id, r.labelValue || r.id);
+    }
+  }
+
   return labels;
 }
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 const AuditLogsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -76,14 +109,30 @@ export async function adminAuditRoutes(app: FastifyInstance) {
       const { page, pageSize, actorUserId, action, resourceType, resourceId, startDate, endDate } =
         query;
 
-      const conditions = [];
+      const conditions = [
+        // Routine self-service credential sync, not team-facing activity —
+        // excluded from Team Activity by request, though the row itself still
+        // gets written (accountability for who touched an admin's credentials
+        // stays in the DB, just off the default feed).
+        ne(schema.auditLogs.action, 'admin_users.sync_password'),
+      ];
 
       if (actorUserId) conditions.push(eq(schema.auditLogs.actorUserId, actorUserId));
       if (action) conditions.push(ilike(schema.auditLogs.action, `%${action}%`));
       if (resourceType) conditions.push(eq(schema.auditLogs.resourceType, resourceType));
       if (resourceId) conditions.push(eq(schema.auditLogs.resourceId, resourceId));
-      if (startDate) conditions.push(gte(schema.auditLogs.createdAt, new Date(startDate)));
-      if (endDate) conditions.push(lte(schema.auditLogs.createdAt, new Date(endDate)));
+      if (startDate) {
+        const fromInclusive = new Date(
+          DATE_ONLY.test(startDate) ? `${startDate}T00:00:00.000Z` : startDate,
+        );
+        conditions.push(gte(schema.auditLogs.createdAt, fromInclusive));
+      }
+      if (endDate) {
+        const toInclusive = new Date(
+          DATE_ONLY.test(endDate) ? `${endDate}T23:59:59.999Z` : endDate,
+        );
+        conditions.push(lte(schema.auditLogs.createdAt, toInclusive));
+      }
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 

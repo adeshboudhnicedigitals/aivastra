@@ -17,9 +17,14 @@ export async function createSareeJob(
   app: FastifyInstance,
   userId: string,
   body: z.infer<typeof CreateSareeJobRequest>,
+  opts?: {
+    /** Set only by regenerateJob within today's free allowance — see createJob's
+     *  matching option for why this is a genuine zero, not charge-then-refund. */
+    waiveCost?: boolean;
+  },
 ) {
   const { garmentKey } = body;
-  const COST = await getTryonCreditCost(app);
+  const COST = opts?.waiveCost ? 0 : await getTryonCreditCost(app);
 
   // 1. Ownership + existence + size check on the user-uploaded saree.
   await assertOwnsUploadKey(app, userId, garmentKey);
@@ -32,7 +37,10 @@ export async function createSareeJob(
 
   // 3. Must be an active saree workflow.
   const [wf] = await app.db
-    .select({ id: schema.workflowTemplates.id })
+    .select({
+      id: schema.workflowTemplates.id,
+      version: schema.workflowTemplates.version,
+    })
     .from(schema.workflowTemplates)
     .where(
       and(
@@ -72,13 +80,14 @@ export async function createSareeJob(
         source: JOB_SOURCE.SAREE,
       })
       .returning();
-    await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
+    if (COST > 0) await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
     await tx.insert(schema.jobInputs).values({
       jobId: newJob.id,
       upperGarmentKey: garmentKey,
       params: {
         modelKey: settings.modelImageKey,
         workflowTemplateId: wf.id,
+        dispatchTemplateVersion: wf.version,
         kind: 'saree',
       },
     });

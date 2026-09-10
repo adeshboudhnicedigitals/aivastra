@@ -1,24 +1,19 @@
-import { type DB, schema } from '@aivastra/db';
+import type { DB, schema } from '@aivastra/db';
 import { ASPECT_DIMENSIONS } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
 import { resizeToMax } from './resize-to-max.js';
+import { resolveWorkflowTemplateVersion } from './resolve-template-version.js';
 
 type WorkflowNode = { inputs: Record<string, unknown>; class_type: string; _meta?: unknown };
 type Workflow = Record<string, WorkflowNode>;
 
 // ── Template loading ──────────────────────────────────────────────────────
-// No caching here — admin can edit a template's JSON/node mappings at any time,
-// and a stale in-memory copy would silently keep patching jobs with old prompt
-// defaults. This is one indexed SELECT per job, negligible next to GPU gen time.
 
 async function loadWorkflow(
   db: DB,
   workflowTemplateId: string,
+  snapshotVersion: number | null | undefined,
 ): Promise<typeof schema.workflowTemplates.$inferSelect> {
-  const [record] = await db
-    .select()
-    .from(schema.workflowTemplates)
-    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+  const record = await resolveWorkflowTemplateVersion(db, workflowTemplateId, snapshotVersion);
 
   if (!record) {
     throw new Error(`Workflow template "${workflowTemplateId}" not found in database`);
@@ -163,6 +158,18 @@ export function applyWorkflowPatch(
       ? { width: inputs.outputWidth, height: inputs.outputHeight }
       : null;
   const enumDims = inputs.aspectRatio ? (ASPECT_DIMENSIONS[inputs.aspectRatio] ?? null) : null;
+  if (!customDims && enumDims) {
+    // Every current job-creation path snapshots outputWidth/outputHeight before
+    // enqueue, so this fallback firing means an older/unresolved job reached the
+    // dispatcher — it renders at the hardcoded ASPECT_DIMENSIONS default, silently
+    // ignoring any admin override set via PATCH /admin/config aspectDimensions
+    // (the dispatcher has no route to that live config). Logged so a mismatch
+    // between expected and actual output size is traceable, not just mysterious.
+    log?.warn(
+      `patchWorkflow: workflow "${tmpl.slug}" job has no pre-resolved outputWidth/outputHeight — ` +
+        `falling back to hardcoded ASPECT_DIMENSIONS["${inputs.aspectRatio}"], which ignores any admin-configured override`,
+    );
+  }
   const outputDims = customDims ?? enumDims;
 
   // Dual-size-group templates. Latent group (max-width/max-height) is derived from the
@@ -228,16 +235,18 @@ export interface PatchedWorkflow {
 }
 
 /**
- * Loads the workflow template from the DB (with 5-min TTL cache), deep-clones
- * the JSON, and delegates to applyWorkflowPatch.
+ * Loads the workflow template from the DB — the live row, or a specific
+ * archived version if `snapshotVersion` no longer matches the live template's
+ * current version — deep-clones the JSON, and delegates to applyWorkflowPatch.
  */
 export async function patchWorkflow(
   inputs: WorkflowInputs,
   db: DB,
   log?: PatchLog,
+  snapshotVersion?: number | null,
 ): Promise<PatchedWorkflow> {
-  const tmpl = await loadWorkflow(db, inputs.workflowTemplateId);
-  const workflow = JSON.parse(JSON.stringify(tmpl.jsonContent)) as Workflow;
+  const tmpl = await loadWorkflow(db, inputs.workflowTemplateId, snapshotVersion);
+  const workflow = structuredClone(tmpl.jsonContent) as Workflow;
   const prompt = applyWorkflowPatch(workflow, tmpl, inputs, log);
   return { prompt, resultNodeId: tmpl.resultNodeId };
 }

@@ -25,6 +25,13 @@ source. Some traps that have actually bitten:
 | Whether tests cover something | run them | the presence of a test file |
 | Applied migrations | `drizzle.__drizzle_migrations` | the journal alone |
 
+**GPU workers are a separate system.** The 7 GPU VPSs run ComfyUI only — no code from this repo
+is installed on them, and nothing CI builds is deployed to them. The dispatcher reaches them over a
+Cloudflare tunnel, and the only record of one here is a `workers` row. Their profiling, runbook,
+per-box inventory and ComfyUI authoring rules live in the **`aivastra-gpu`** repo. What stays here
+is the template ↔ patcher contract: `workflow_templates.jsonContent` is this repo's data and
+`apps/dispatcher/src/workflow/patcher.ts` breaks if node IDs drift.
+
 **State that lives outside the repo.** A large share of this system's behaviour
 is configured in dashboards no deploy touches: Shopify Partner Dashboard (app
 handle, per-plan prices, trial days, welcome/redirect URLs, plan descriptions per
@@ -70,6 +77,28 @@ and migration-conflict resolution: `docs/version-control.md`.
 like the surrounding file. This codebase comments the *why* — especially the
 non-obvious constraint that motivated a line — and that convention is worth
 continuing.
+
+**UI dropdowns.** Never ship a raw, browser-default `<select>` for a new or
+changed dropdown — use a styled, accessible dropdown for the app you're in:
+- `apps/catalogues-web` — use `PremiumSelect`
+  (`src/components/ui/premium-select.tsx`): portal-rendered popup, keyboard
+  nav, theme-reactive via the `C` tokens. Already adopted in 5+ places,
+  including `catalogs/[id]/page.tsx`'s regenerate-reason picker. The one
+  exception is `catalogs/[id]/preview/templates.tsx`'s quantity `<select>` —
+  that file renders pixel-faithful mockups of real marketplace listing pages
+  (`AmazonMobileTemplate` et al.), so its `<select>` is deliberately styled to
+  match Amazon's own chrome, not Aivastra's. Don't "fix" that one.
+- `apps/shopify` — use Polaris's `Select`/`Combobox`, never a raw `<select>`;
+  Polaris *is* this app's design system.
+- `apps/admin-web` — use `SearchableSelect`
+  (`src/components/SearchableSelect.tsx`): input-as-trigger with built-in
+  type-to-filter search, `id`/`label` options, `emptyLabel` for a placeholder
+  option. All 42 raw `<select>`s across the app were migrated to it; there
+  should be none left.
+- `wordpress-plugin` (plain PHP/CSS, no JS framework) — a JS widget library is
+  disproportionate here; style the native `<select>` itself (custom arrow,
+  border, radius, focus ring matching the `--aivastra-*` tokens) rather than
+  leaving it as unstyled browser chrome.
 
 **Report honestly.** If tests fail, show the output. If you skipped a step, say
 so. Don't claim something works because the code looks right; claim it when you
@@ -133,7 +162,10 @@ explicitly reactivates it.
 ```
 apps/api               Fastify REST API — auth, credits, catalog, jobs, admin
 apps/dispatcher        Redis Stream consumer — the only process that talks to GPU workers
-apps/chatbot           Fastify + WS support chatbot — LangGraph, HITL, pgvector RAG
+apps/chatbot           Fastify + WS support-ticket system — no LLM in the answering path (agent/*
+                       kept on disk but unwired), every message becomes/continues a human-agent
+                       ticket. pgvector RAG (chatbot_qna/chatbot_embeddings/ingest) still present,
+                       currently unused — kept for possible future agent-assist reuse
 apps/catalogues-web    Next.js 15 — user-facing UI (pkg name @aivastra/web)
 apps/admin-web         Vite + React SPA — internal admin panel (pkg name @aivastra/admin)
 apps/shopify           Vite + React + Polaris — embedded Shopify admin SPA
@@ -184,6 +216,8 @@ pnpm db:migrate          # apply migrations to DATABASE_URL
 | `pnpm db:generate` / `pnpm db:migrate` | drizzle-kit generate / apply |
 | `pnpm db:seed`, `pnpm seed:model-images`, `pnpm seed:garment-types`, `pnpm seed:contacts` | seed helpers — check `package.json` for the current set |
 | `make shopify-deploy` / `make shopify-deploy-staging` | publish app config + theme extension to Partner Dashboard |
+| `make export-prod-snapshot` | operator, VPS-only — regenerate the encrypted production snapshot developers pull from (`docs/local-dev-snapshot-runbook.md`) |
+| `make sync-prod-snapshot` | developer — pull the latest production snapshot into your local dev stack (destructive; replaces local DB + MinIO bucket) |
 
 `pnpm --filter @aivastra/api test` does **not** run integration tests — a
 "No test files found" result for an integration pattern means you used the wrong
@@ -200,25 +234,44 @@ tree — so deploy from a checkout that contains the commit you intend to ship.
 Three services with a hard boundary at the Redis Stream:
 
 1. **api** — auth, credits, catalog reads, job creation. Validates catalog IDs →
-   atomic credit deduct (`UPDATE WHERE balance > 0`) → writes `jobs` row → `XADD`.
+   atomic credit deduct (`UPDATE WHERE balance >= amount`) → writes `jobs` row → `XADD`.
    Never talks to ComfyUI.
 2. **dispatcher** — the only process that talks to GPU workers. `XREADGROUP` →
    selects a healthy IDLE worker → clones and patches the versioned workflow
    template with R2 keys → posts to ComfyUI `/prompt` over Cloudflare Tunnel →
-   listens on the ComfyUI websocket for progress → uploads the result to R2 →
+   polls ComfyUI's `/history/{promptId}` endpoint every 3s for progress (a deliberate
+   choice over the websocket — see the comment in `apps/dispatcher/src/comfyui/progress.ts`)
+   → uploads the result to R2 →
    updates Postgres + publishes SSE → `XACK`. Refunds credits in the same
    Postgres transaction on terminal failure (max 2 attempts).
 3. **web / admin / shopify** — browsers upload garments **direct to R2 via
    presigned URL** (bypassing api), then POST job metadata and open SSE for
    progress.
 
-Worker connectivity: each ComfyUI VPS runs `cloudflared`; no inbound ports. The
-health monitor probes `/system_stats` every 15s and sets `worker:health:{id}`
-with a 30s TTL — expired means unhealthy means no routing.
+Worker connectivity: **unverified — do not rely on the description below.** This
+file long stated that each ComfyUI VPS runs `cloudflared` with no inbound ports.
+Direct measurement on 2026-08-30 contradicts that on both boxes we can reach
+(gpu1, gpu3): `cloudflared` is inactive with zero processes, while `0.0.0.0:80`,
+`:443` and `:8443` are bound and a `comfyui-auth.service` is running. What
+actually terminates those ports has not been confirmed, so no replacement claim
+is made here. Establish it before depending on it — tracked in `aivastra-gpu`
+(`boxes/gpu1.md`, `boxes/gpu3.md`). The health monitor probes `/system_stats`
+every 15s and sets `worker:health:{id}` with a 30s TTL — expired means unhealthy
+means no routing.
 
 Job input model: 1 user-uploaded garment + `faceId` + `backgroundId` + `poseId`
 (all admin-curated) + optional `lowerCatalogId` / `shoeCatalogId`. Every ID must
 resolve to an active row before credits are deducted.
+
+Most job-creation paths snapshot `workflowTemplateId` into `job_inputs.params` so later admin
+inspection shows what actually ran. Merchant-catalog jobs and bare saree-mannequin step-1 jobs
+(no `secondGarmentKey`) deliberately don't — omitting the snapshot is what lets the dispatcher
+re-resolve the garment type's mannequin workflow **fresh at dispatch time**, so an admin fixing a
+misconfigured workflow has that fix apply to a job that's still queued, not just future ones. For
+these, the historical record instead lives in the job's most recent `COMFY_DISPATCH` `job_events`
+row (`payload.workflowTemplateId`) — every dispatch path writes one
+(`apps/dispatcher/src/job/processor.ts`) — which `GET /admin/jobs/:id` falls back to before ever
+trusting today's live pose/garment-config join.
 
 ### Adding a GPU worker
 
@@ -298,14 +351,44 @@ reprovision (`apps/api/src/plugins/shopify-auth.ts`).
 which the SPA turns into one-click reauth that repairs the row. Rotating that key
 puts every store into that state at once.
 
-**Billing is Shopify App Pricing** (formerly Managed Pricing): Shopify hosts the
-plan picker and sends **no webhooks**, so subscription state must be polled via
-Admin GraphQL `currentAppInstallation.activeSubscriptions` — by the hourly
-scheduler and by the post-approval redirect. Grants are idempotent on
-`external_ref`. Two traps: the Admin API exposes only the plan's display `name`
-(no handle), so the strings in `billing-plans.ts` must match Partner Dashboard
-exactly; and `AppSubscription.test` is `true` for every development store, gated
-by `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` (off in production).
+**Billing is prepaid credit packs, not a subscription plan.** There is no
+hosted plan picker and no recurring plan. `CREDIT_PACKS` (`packs.ts`) defines
+the packs; buying one is a **one-time charge** via Admin GraphQL
+`appPurchaseOneTimeCreate`, and the merchant is returned through
+`/v1/shopify/billing/purchase/return` → `/confirm` (`purchase.ts`,
+`purchase.routes.ts`). Credits land in `shopify_store_credits` /
+`shopify_credit_ledger`, never in a user's balance.
+
+**Auto-refill is the only recurring piece**, and it is opt-in: enrolment
+creates a usage-based `appSubscriptionCreate` with a merchant-approved monthly
+ceiling, and each refill is an `appUsageRecordCreate` against that
+subscription's *line item* (`autorefill.ts`, `autorefill-client.ts`, routes
+under `/v1/shopify/billing/autorefill`). The store's `autorefill_*` columns are
+the only subscription state on `shopify_stores`.
+
+Shopify **does** send billing webhooks here, and they are registered per-shop:
+`app_purchases_one_time/update`, `app_subscriptions/update`, and
+`app_subscriptions/approaching_capped_amount` (`webhook.routes.ts`). The charge
+id is the only field trusted off the payload — status is always re-fetched
+live, exactly as the confirm route does.
+
+Traps worth knowing:
+
+- Grants are idempotent on `external_ref` (`shopify_pack:{chargeId}`,
+  `shopify_autorefill:{recordId}`), which is what makes a replayed webhook and
+  the merchant's own confirm visit safe to race.
+- `observed.test` is `true` for every development store. Test charges still
+  grant — refusing outright once failed App Store review — but only on a real
+  partner development store and only up to `TEST_GRANT_LIMIT`, under the
+  distinct ledger reasons `SHOPIFY_PACK_TEST` / `SHOPIFY_AUTOREFILL_TEST`.
+  `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` lifts the bound; it is off in production.
+- `createUsageRecord` can **throw** rather than return a failure, leaving the
+  purchase row `PENDING`. The partial unique index
+  `shopify_credit_purchases_one_pending_autorefill` then blocks every later
+  refill for that store, so `autorefill-reconciler.ts` replays the charge under
+  its original idempotency key to settle it. Never resolve such a row by
+  marking it `FAILED`: a later refill would mint a new idempotency key and
+  could double-charge a charge Shopify had actually accepted.
 
 **Theme extension** (`apps/shopify-extension/extensions/tryon-theme-extension`)
 ships one **app block** (`blocks/tryon-button.liquid`, `target: "section"`) that
@@ -320,6 +403,20 @@ tags, so placeholder attributes are present and CSS must set the real size.
 `PATCH /v1/shopify/widget-config`. Postgres (`shopify_stores.settings.widget`) is
 authoritative; the metafield is a cache, and a failed mirror surfaces as
 `synced: false`.
+
+**Product routing (baskets) is not one default template for every product.**
+Baskets are `shopify_funnel_templates`, each pointing at a `workflow_templates`
+row. `shopify_funnel_rules` routes products to a basket by condition
+(product type / vendor / tags / collections); `store_id NULL` means the rule is
+an Aivastra-authored **global** rule, a non-null `store_id` means it's the
+merchant's own. Per-store suppression of a global rule lives in
+`shopify_store_disabled_funnel_rules`. Precedence — manual per-product pin →
+the store's own rules → global rules → the default basket — lives in **exactly
+one place**, `apps/api/src/modules/shopify/funnel-resolution.ts`
+(`resolveBasketFrom`); every caller (try-on creation, the merchant product
+list, the Routing page counts) goes through it rather than re-deriving the
+rule. The resolved basket's `workflowTemplateId` is still pinned into
+`job_inputs.params` at enqueue, same as every other job-creation path.
 
 ---
 
@@ -370,7 +467,7 @@ catalogs, `params` JSONB), `job_outputs`, `job_events`.
 **Merchant & widget** — `merchants` (one per user; no balance of its own —
 merchant spend draws from `user_credits`), `merchant_payments`, `kiosk_devices`.
 
-**Shopify** — `shopify_stores` (encrypted tokens, plan/subscription state),
+**Shopify** — `shopify_stores` (encrypted tokens, auto-refill subscription state),
 `shopify_store_credits` + `shopify_credit_ledger` (stores bill themselves; not
 the linked user), `shopify_shoppers`, `shopify_catalog_jobs`,
 `shopify_widget_events` (append-only storefront interaction log, advisory only —
@@ -406,8 +503,30 @@ template determines which inputs that pose supports.
 | `merchant/` | merchant self-serve (API key regen, webhook config, credits) |
 | `kiosk/` | `/v1/kiosk/*` — device-authed customer-facing tryon |
 | `support/`, `backgrounds/`, `dev/` | contact form; user-uploaded backgrounds; public API-key-authed developer API |
-| `shopify/` | install/token exchange, merchant `/me` + `/settings` + `/shoppers`, catalog generate/publish, widget-config + republish, onboarding (theme-editor deep link), product sync, customer job creation, billing confirm + scheduler, GDPR webhooks, `/customer/event`, `/analytics` |
-| `admin/` | full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree + Shopify settings |
+| `shopify/` | install/token exchange, merchant `/me` + `/settings` + `/shoppers`, catalog generate/publish, widget-config + republish, onboarding (theme-editor deep link), product sync, customer job creation, credit-pack purchase + auto-refill enrolment, GDPR + billing webhooks, `/customer/event`, `/analytics` |
+| `admin/` | full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree + Shopify settings, prod-snapshot (SUPER_ADMIN-only status/download for the local-dev snapshot's DB dump — `docs/local-dev-snapshot-runbook.md`) |
+
+### Background loops in the api process
+
+Started in `apps/api/src/main.ts` **after** `app.listen(...)` — not in
+`server.ts`, so they are invisible to anyone reading the route wiring alone,
+and they do not run in tests (which build the app via `buildTestApp`). Each is
+`setInterval` + a re-entrancy guard, and each exports its tick function so a
+test can drive one pass directly.
+
+| Loop | Interval | Purpose |
+|---|---|---|
+| `startSyncConsumer` | continuous | Redis `shopify:sync` stream → product/collection sync |
+| `startCollectionResyncScheduler` | 1h | re-syncs collection membership |
+| `startUploadSweeper` | 1h | deletes uploads orphaned >24h |
+| `startAlertScheduler` | 1h | low-store-credit merchant emails |
+| `startAutorefillReconciler` | 15m | settles auto-refill purchase rows stranded `PENDING` by a thrown charge |
+| `startRedactionRetryScheduler` | 30m | finishes GDPR erasures whose object deletes failed |
+| `startUserLowCreditAlertScheduler` | 1h | low-credit emails for platform users |
+
+The dispatcher runs its own, separately: the stuck-job sweeper and the
+`XPENDING` recovery pass (`apps/dispatcher/src/stream/`).
+
 
 ---
 
@@ -474,9 +593,12 @@ hangs on streaming responses.
 - `packages/db/src/index.ts` exports `* as schema` — never add a duplicate
   `schema` re-export. Import `@aivastra/db` as `workspace:*`, never by relative
   path into `packages/`.
-- Shopify credit grants are idempotent on `external_ref`, and the stored cycle
-  marker advances only when a grant was actually possible — otherwise an unbilled
-  cycle is silently marked seen and the merchant never receives those credits.
+- Shopify credit grants are idempotent on `external_ref` — that is what lets a
+  replayed billing webhook race the merchant's own confirm visit without
+  double-granting. A stranded `PENDING` auto-refill purchase is settled by
+  replaying its charge under the row's original idempotency key, never by
+  marking it `FAILED`: a later refill would mint a new key and could
+  double-charge one Shopify had actually accepted.
 - `shopify_widget_events` is advisory only. Never read it for a credit, limit, or
   authorization decision.
 - No schema or data changes against production. See "Production safety" above.
@@ -497,8 +619,7 @@ hangs on streaming responses.
 | `WORKER_API_KEY` | dispatcher |
 | `PIXVERSE_*`, `VIDEO_CONCURRENCY` | dispatcher (catalog video lane) |
 | `SHOPIFY_API_KEY` / `_SECRET` / `_APP_URL` / `_SCOPES` / `_TOKEN_ENC_KEY` | api |
-| `SHOPIFY_APP_HANDLE` + `VITE_SHOPIFY_APP_HANDLE` | builds the hosted plan-picker URL; the `VITE_` one is the functional half (build arg) |
-| `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` | api — grants credits for Shopify *test* charges. Accepts only the literal `'true'` (deliberately not `z.coerce.boolean()`, which turns `'false'` into `true`). Off in production |
+| `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` | api — lifts the `TEST_GRANT_LIMIT` bound on credits granted for Shopify *test* charges (development stores grant up to that bound regardless). Accepts only the literal `'true'` (deliberately not `z.coerce.boolean()`, which turns `'false'` into `true`). Off in production |
 | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_BASE_PATH` | catalogues-web (build time) |
 | `VITE_API_BASE_URL`, `VITE_SHOPIFY_API_KEY`, `VITE_CHATBOT_URL` | SPAs (build time) |
 
@@ -516,7 +637,8 @@ self-hosted MinIO, not Cloudflare R2 — see Stack above.
 | Job creation (credit + enqueue) | `apps/api/src/modules/jobs/create.ts` |
 | Auth routes / service / plugin | `apps/api/src/modules/auth/routes.ts`, `service.ts`, `apps/api/src/plugins/auth.ts` |
 | Shopify session + provisioning | `apps/api/src/plugins/shopify-auth.ts`, `modules/shopify/token.ts` |
-| Shopify billing | `modules/shopify/billing.ts`, `billing-plans.ts`, `billing-scheduler.ts`, `subscription-client.ts` |
+| Shopify billing | `modules/shopify/packs.ts`, `purchase.ts`, `purchase.routes.ts` |
+| Shopify auto-refill | `modules/shopify/autorefill.ts`, `autorefill-client.ts`, `autorefill.routes.ts`, `autorefill-reconciler.ts` |
 | DB factory + schema re-export | `packages/db/src/index.ts` |
 | Shared Zod types | `packages/types/src/*.ts` |
 | Storage provider + keys | `packages/storage/src/r2.ts`, `keys.ts` |
@@ -527,6 +649,7 @@ self-hosted MinIO, not Cloudflare R2 — see Stack above.
 | Shopify app config | `apps/shopify-extension/shopify.app.toml` (+ `.staging.toml`, `.dev.toml`) |
 | CI / deploy | `.github/workflows/ci.yml`, `scripts/ci/detect-affected.mts` |
 | Design doc | `docs/virtual-tryon-system-design.md` |
+| GPU workers (separate repo) | `aivastra-gpu` — profiling, runbook, per-box inventory, ComfyUI authoring rules |
 | Version control rules | `docs/version-control.md` |
 | Open findings | `docs/audits/open-findings.md` |
 

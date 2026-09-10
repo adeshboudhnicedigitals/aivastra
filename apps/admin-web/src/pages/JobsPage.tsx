@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { JobTypeBadge } from '../components/JobTypeBadge';
 import { KV } from '../components/KV';
 import { Pager } from '../components/Pager';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAdminJobStream } from '../hooks/use-admin-job-stream';
-import { apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
-import type { Job } from '../types';
+import { ApiError, apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
+import type { Job, JobStatus } from '../types';
 
 const PAGE_SIZE = 25;
 
@@ -20,6 +21,8 @@ const FILTERS = [
   { k: 'FAILED', l: 'Failed' },
   { k: 'CANCELLED', l: 'Cancelled' },
 ] as const;
+
+const TERMINAL_JOB_STATUSES: JobStatus[] = ['COMPLETED', 'FAILED', 'CANCELLED'];
 
 type FilterKey = 'all' | 'QUEUED' | 'GENERATING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
@@ -44,6 +47,59 @@ interface JobDetail extends Job {
   events?: JobEvent[];
   inputImages?: InputImages;
   workflowLabel?: string | null;
+  regenerateReason?: string | null;
+}
+
+/** Platform user email, falling back to the Shopify merchant's contact email for shopify-sourced jobs. */
+function jobContactEmail(j: Job): string | null {
+  return j.userEmail ?? j.shopEmail ?? null;
+}
+
+/** Small corner toggle overlaid on an asset thumbnail — the click target for delete-selection, kept separate from the thumbnail's own click-to-view-full-size link. */
+function AssetSelectBadge({
+  selected,
+  onToggle,
+  size = 22,
+}: {
+  selected: boolean;
+  onToggle: () => void;
+  size?: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={selected}
+      title={selected ? 'Selected for deletion — click to unselect' : 'Select for deletion'}
+      style={{
+        position: 'absolute',
+        top: 6,
+        right: 6,
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        border: `1px solid ${selected ? 'var(--danger)' : 'var(--border-strong)'}`,
+        background: selected ? 'var(--danger)' : 'var(--bg)',
+        color: selected ? 'var(--bg)' : 'var(--muted)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        padding: 0,
+        lineHeight: 0,
+      }}
+    >
+      {selected ? <Icon.Check /> : null}
+    </button>
+  );
+}
+
+/** Converts a duration filter input (in the selected unit) to whole seconds for the API. */
+function toDurationSeconds(value: string, unit: 'seconds' | 'minutes'): number | undefined {
+  if (value === '') return undefined;
+  const n = Number(value);
+  if (Number.isNaN(n) || n < 0) return undefined;
+  return unit === 'minutes' ? n * 60 : n;
 }
 
 function EventRow({ ev }: { ev: JobEvent }) {
@@ -137,15 +193,21 @@ function EventRow({ ev }: { ev: JobEvent }) {
 }
 
 interface Props {
-  onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
+  onNav: (
+    _page: string,
+    _filter?: { page: string; filter?: string; userId?: string; jobId?: string },
+  ) => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
 import { useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
-export default function JobsPage({ onNav: _onNav, toast }: Props) {
+export default function JobsPage({ onNav, toast }: Props) {
   const location = useLocation();
+  const { hasPermission } = useAuth();
   const requestedJobId = (location.state as { jobId?: string })?.jobId;
+  const requestedFromUserId = (location.state as { fromUserId?: string })?.fromUserId;
   const [filter, setFilter] = useState<FilterKey>(
     (location.state as { filter?: FilterKey })?.filter || 'all',
   );
@@ -157,6 +219,9 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const [workerFilter, setWorkerFilter] = useState<string>('');
   const [createdFrom, setCreatedFrom] = useState<string>('');
   const [createdTo, setCreatedTo] = useState<string>('');
+  const [durationMin, setDurationMin] = useState<string>('');
+  const [durationMax, setDurationMax] = useState<string>('');
+  const [durationUnit, setDurationUnit] = useState<'seconds' | 'minutes'>('seconds');
   const [jobTypeOptions, setJobTypeOptions] = useState<string[]>([]);
   const [workerOptions, setWorkerOptions] = useState<{ id: string; label: string }[]>([]);
   const [page, setPage] = useState(0);
@@ -171,14 +236,34 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
   const [actioning, setActioning] = useState(false);
   const [confirmFlush, setConfirmFlush] = useState(false);
+  const [deleteAssetsTargets, setDeleteAssetsTargets] = useState<Set<'result' | 'person'>>(
+    new Set(),
+  );
+  const [deleteAssetsOpen, setDeleteAssetsOpen] = useState(false);
+  const [deleteAssetsPassword, setDeleteAssetsPassword] = useState('');
+  const [deleteAssetsError, setDeleteAssetsError] = useState<string | null>(null);
+  const [deletingAssets, setDeletingAssets] = useState(false);
   const [flushing, setFlushing] = useState(false);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
-  const [isNavOpen, setIsNavOpen] = useState(false);
   const [expandedSubTabsMap, setExpandedSubTabsMap] = useState<
     Record<string, 'input' | 'output' | 'events' | null>
   >({});
   const [jobDetailsMap, setJobDetailsMap] = useState<Record<string, JobDetail>>({});
   const [exportingXlsx, setExportingXlsx] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [menuOpen]);
 
   const toggleMobileJobExpand = async (j: Job) => {
     const willExpand = expandedJobId !== j.id;
@@ -205,6 +290,10 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         if (workerFilter) params.set('workerId', workerFilter);
         if (createdFrom) params.set('createdFrom', createdFrom);
         if (createdTo) params.set('createdTo', createdTo);
+        const durationMinSec = toDurationSeconds(durationMin, durationUnit);
+        const durationMaxSec = toDurationSeconds(durationMax, durationUnit);
+        if (durationMinSec != null) params.set('durationMinSec', String(durationMinSec));
+        if (durationMaxSec != null) params.set('durationMaxSec', String(durationMaxSec));
         const data = await apiFetch<{ items: Job[]; total: number }>(`/admin/jobs?${params}`);
         setJobs(data.items);
         setTotal(data.total);
@@ -219,7 +308,20 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         if (!silent) setLoading(false);
       }
     },
-    [page, filter, dateFilter, query, jobTypeFilter, workerFilter, createdFrom, createdTo, toast],
+    [
+      page,
+      filter,
+      dateFilter,
+      query,
+      jobTypeFilter,
+      workerFilter,
+      createdFrom,
+      createdTo,
+      durationMin,
+      durationMax,
+      durationUnit,
+      toast,
+    ],
   );
 
   useEffect(() => {
@@ -249,6 +351,12 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       cancelled = true;
     };
   }, [requestedJobId, toast]);
+
+  useEffect(() => {
+    setDeleteAssetsTargets(new Set());
+    setDeleteAssetsOpen(false);
+    setDeleteAssetsPassword('');
+  }, [detail?.id]);
 
   // Filter dropdown options — fetched once, not tied to the jobs list itself.
   useEffect(() => {
@@ -328,6 +436,14 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     setCreatedTo(v);
     setPage(0);
   };
+  const handleDurationMin = (v: string) => {
+    setDurationMin(v);
+    setPage(0);
+  };
+  const handleDurationMax = (v: string) => {
+    setDurationMax(v);
+    setPage(0);
+  };
   const handleExportXlsx = async () => {
     setExportingXlsx(true);
     try {
@@ -339,6 +455,10 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       if (workerFilter) params.set('workerId', workerFilter);
       if (createdFrom) params.set('createdFrom', createdFrom);
       if (createdTo) params.set('createdTo', createdTo);
+      const durationMinSec = toDurationSeconds(durationMin, durationUnit);
+      const durationMaxSec = toDurationSeconds(durationMax, durationUnit);
+      if (durationMinSec != null) params.set('durationMinSec', String(durationMinSec));
+      if (durationMaxSec != null) params.set('durationMaxSec', String(durationMaxSec));
       const blob = await apiFetchBlob(`/admin/jobs/export.xlsx?${params}`);
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -357,14 +477,6 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     } finally {
       setExportingXlsx(false);
     }
-  };
-  const hasExtraFilters = !!(jobTypeFilter || workerFilter || createdFrom || createdTo);
-  const clearExtraFilters = () => {
-    setJobTypeFilter('');
-    setWorkerFilter('');
-    setCreatedFrom('');
-    setCreatedTo('');
-    setPage(0);
   };
 
   const sorted = [...jobs].sort((a, b) => {
@@ -453,6 +565,60 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     }
   };
 
+  const handleDeleteAssets = async () => {
+    if (!detail || deleteAssetsTargets.size === 0) return;
+    setDeletingAssets(true);
+    setDeleteAssetsError(null);
+    try {
+      const res = await apiFetch<{ ok: boolean; deleted: ('result' | 'person')[] }>(
+        `/admin/jobs/${detail.id}/delete-assets`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            password: deleteAssetsPassword,
+            targets: Array.from(deleteAssetsTargets),
+          }),
+        },
+      );
+      const labels = res.deleted.map((t) => (t === 'result' ? 'Result image' : 'Person image'));
+      toast({ title: labels.length > 0 ? `Deleted: ${labels.join(', ')}` : 'Nothing to delete' });
+      setDeleteAssetsOpen(false);
+      setDeleteAssetsPassword('');
+      setDeleteAssetsTargets(new Set());
+      void openDetail(detail);
+    } catch (e) {
+      // Wrong password is the one failure the admin can fix by retrying in
+      // place — surfaced inline on the modal itself, not just a toast, since
+      // it's the modal's own submit that failed. Every other error (404/409/500)
+      // closes the dialog since retrying with the same input won't help, and
+      // refetches the job so a stale selection doesn't linger against
+      // asset/status state that may have changed server-side.
+      if (e instanceof ApiError && e.status === 403) {
+        setDeleteAssetsError('Incorrect password. Please try again.');
+      } else {
+        toast({
+          kind: 'error',
+          title: 'Delete failed',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
+        setDeleteAssetsOpen(false);
+        setDeleteAssetsPassword('');
+        void openDetail(detail);
+      }
+    } finally {
+      setDeletingAssets(false);
+    }
+  };
+
+  const toggleDeleteTarget = (target: 'result' | 'person', checked: boolean) => {
+    setDeleteAssetsTargets((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(target);
+      else next.delete(target);
+      return next;
+    });
+  };
+
   const fmtDuration = (j: Job) => {
     if (!j.startedAt || !j.completedAt) return null;
     const ms = new Date(j.completedAt).getTime() - new Date(j.startedAt).getTime();
@@ -463,14 +629,34 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
 
   if (detail) {
     const j = detail;
+    const canDeleteAssets =
+      hasPermission('jobs.delete_assets') && TERMINAL_JOB_STATUSES.includes(j.status);
+    const selectedAssetLabels = Array.from(deleteAssetsTargets)
+      .map((t) => (t === 'result' ? 'Result image' : 'Person image'))
+      .join(', ');
     return (
       <>
         <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
         <div className="page-head">
           <div>
-            <button className="btn ghost" onClick={() => setDetail(null)}>
-              <Icon.Back /> Back to jobs
-            </button>
+            {requestedFromUserId && requestedJobId === j.id ? (
+              <button
+                className="btn ghost"
+                onClick={() =>
+                  onNav('users', {
+                    page: 'users',
+                    userId: requestedFromUserId,
+                    jobId: requestedJobId,
+                  })
+                }
+              >
+                <Icon.Back /> Back to user
+              </button>
+            ) : (
+              <button className="btn ghost" onClick={() => setDetail(null)}>
+                <Icon.Back /> Back to jobs
+              </button>
+            )}
             <h1
               style={{
                 marginTop: 8,
@@ -483,7 +669,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               {j.id}
             </h1>
             <p className="lede">
-              {j.userEmail ?? j.userId} &middot; Created {fmtTs(j.createdAt)}
+              {jobContactEmail(j) ?? j.userId} &middot; Created {fmtTs(j.createdAt)}
             </p>
           </div>
           <div className="head-tools">
@@ -529,7 +715,8 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         ) : (
           <>
             <div className="kv-grid-2-col" style={{ marginBottom: 20 }}>
-              <KV k="User" v={j.userEmail ?? '—'} />
+              <KV k="User" v={jobContactEmail(j) ?? '—'} />
+              {j.shopDomain && <KV k="Shop" v={j.shopDomain} />}
               <KV k="Job Type" v={<JobTypeBadge jobType={j.jobType} />} />
               <KV k="Status" v={<StatusBadge status={j.status} />} />
               <KV k="Credits charged" v={String(j.creditsCharged)} />
@@ -545,6 +732,25 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               <KV k="Duration" v={fmtDuration(j) ?? '—'} />
               {j.attempts != null && <KV k="Attempts" v={String(j.attempts)} />}
               {j.errorCode && <KV k="Error code" v={j.errorCode} />}
+              <KV
+                k="Origin"
+                v={
+                  j.parentJobId ? (
+                    <span style={{ color: 'var(--warn, #b8860b)', fontWeight: 600 }}>
+                      Regenerated
+                    </span>
+                  ) : (
+                    'Original generation'
+                  )
+                }
+              />
+              {j.parentJobId && (
+                <KV
+                  k="Regenerated from"
+                  v={<code style={{ fontSize: 12 }}>{j.parentJobId}</code>}
+                />
+              )}
+              {j.parentJobId && <KV k="Regenerate reason" v={j.regenerateReason ?? '—'} />}
             </div>
 
             {j.outputUrl && (
@@ -553,9 +759,53 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                   <h3>Output</h3>
                 </div>
                 <div className="card-body">
-                  <a href={j.outputUrl} target="_blank" rel="noreferrer" className="link">
-                    View output <Icon.ExternalLink />
-                  </a>
+                  {(() => {
+                    const resultSelected = deleteAssetsTargets.has('result');
+                    return (
+                      <div
+                        style={{
+                          position: 'relative',
+                          display: 'inline-block',
+                          borderRadius: 8,
+                          border: `1px solid ${resultSelected ? 'var(--danger-border)' : 'var(--border)'}`,
+                          background: resultSelected ? 'var(--danger-soft)' : 'transparent',
+                          padding: 6,
+                        }}
+                      >
+                        <a
+                          href={j.outputUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ display: 'block' }}
+                        >
+                          {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
+                          <img
+                            src={j.outputUrl}
+                            alt="Result"
+                            style={{
+                              display: 'block',
+                              maxWidth: 280,
+                              maxHeight: 240,
+                              width: '100%',
+                              objectFit: 'contain',
+                              borderRadius: 6,
+                              background: 'var(--bg)',
+                              cursor: 'zoom-in',
+                            }}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        </a>
+                        {canDeleteAssets && (
+                          <AssetSelectBadge
+                            selected={resultSelected}
+                            onToggle={() => toggleDeleteTarget('result', !resultSelected)}
+                          />
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )}
@@ -566,6 +816,11 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                   <h3>Input Images</h3>
                 </div>
                 <div className="card-body">
+                  {canDeleteAssets && (
+                    <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px' }}>
+                      Only the person's uploaded photo can be deleted.
+                    </p>
+                  )}
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                     {(
                       [
@@ -580,42 +835,63 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                     ).map(({ key, label }) => {
                       const url = j.inputImages?.[key];
                       if (!url) return null;
+                      const isPersonSelectable = key === 'person' && canDeleteAssets;
+                      const personSelected = key === 'person' && deleteAssetsTargets.has('person');
                       return (
-                        <a
-                          key={key}
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ textDecoration: 'none', textAlign: 'center' }}
-                        >
-                          {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
-                          <img
-                            src={url}
-                            alt={label}
+                        <div key={key} style={{ textAlign: 'center' }}>
+                          <div
                             style={{
-                              width: 96,
-                              height: 96,
-                              objectFit: 'cover',
+                              position: 'relative',
+                              display: 'inline-block',
                               borderRadius: 8,
-                              border: '1px solid var(--border)',
-                              display: 'block',
-                              cursor: 'zoom-in',
+                              border: `1px solid ${personSelected ? 'var(--danger-border)' : 'transparent'}`,
+                              background: personSelected ? 'var(--danger-soft)' : 'transparent',
+                              padding: personSelected ? 3 : 0,
                             }}
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
+                          >
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ display: 'block' }}
+                            >
+                              {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
+                              <img
+                                src={url}
+                                alt={label}
+                                style={{
+                                  width: 96,
+                                  height: 96,
+                                  objectFit: 'cover',
+                                  borderRadius: 8,
+                                  border: '1px solid var(--border)',
+                                  display: 'block',
+                                  cursor: 'zoom-in',
+                                }}
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            </a>
+                            {isPersonSelectable && (
+                              <AssetSelectBadge
+                                selected={personSelected}
+                                onToggle={() => toggleDeleteTarget('person', !personSelected)}
+                              />
+                            )}
+                          </div>
                           <span
                             style={{
                               fontSize: 11,
-                              color: 'var(--muted)',
+                              fontWeight: personSelected ? 600 : 400,
+                              color: personSelected ? 'var(--danger-ink)' : 'var(--muted)',
                               marginTop: 4,
                               display: 'block',
                             }}
                           >
                             {label}
                           </span>
-                        </a>
+                        </div>
                       );
                     })}
                   </div>
@@ -698,568 +974,649 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
             </div>
           </div>
         )}
+
+        {canDeleteAssets && deleteAssetsTargets.size > 0 && !deleteAssetsOpen && (
+          <div
+            style={{
+              position: 'fixed',
+              left: '50%',
+              bottom: 24,
+              transform: 'translateX(-50%)',
+              zIndex: 40,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              padding: '10px 12px 10px 18px',
+              borderRadius: 999,
+              background: 'var(--danger-soft)',
+              border: '1px solid var(--danger-border)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+            }}
+          >
+            <span style={{ fontSize: 13, color: 'var(--danger-ink)', fontWeight: 600 }}>
+              {deleteAssetsTargets.size} asset{deleteAssetsTargets.size > 1 ? 's' : ''} selected
+              <span style={{ fontWeight: 400 }}> — {selectedAssetLabels}</span>
+            </span>
+            <button
+              className="btn sm ghost"
+              onClick={() => setDeleteAssetsTargets(new Set())}
+              title="Clear selection"
+            >
+              Clear
+            </button>
+            <button
+              className="btn sm danger"
+              onClick={() => {
+                setDeleteAssetsError(null);
+                setDeleteAssetsOpen(true);
+              }}
+            >
+              <Icon.Trash /> Delete
+            </button>
+          </div>
+        )}
+
+        {deleteAssetsOpen && (
+          <div
+            className="modal-overlay"
+            onClick={() => {
+              if (!deletingAssets) {
+                setDeleteAssetsOpen(false);
+                setDeleteAssetsPassword('');
+                setDeleteAssetsError(null);
+              }
+            }}
+          >
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Delete job assets?</h3>
+              </div>
+              <div className="modal-body">
+                <p style={{ marginBottom: 8 }}>You're about to permanently delete:</p>
+                <ul style={{ margin: '0 0 12px', paddingLeft: 20 }}>
+                  {Array.from(deleteAssetsTargets).map((t) => (
+                    <li key={t} style={{ fontSize: 13 }}>
+                      {t === 'result' ? 'Result image' : "Person's uploaded photo"}
+                    </li>
+                  ))}
+                </ul>
+                <p style={{ marginBottom: 12, fontSize: 13, color: 'var(--muted)' }}>
+                  This cannot be undone. The job record and its configuration are not affected.
+                </p>
+                <label
+                  style={{ display: 'block', fontSize: 13, marginBottom: 6, color: 'var(--muted)' }}
+                >
+                  Confirm your admin password
+                </label>
+                <input
+                  className="input"
+                  type="password"
+                  value={deleteAssetsPassword}
+                  onChange={(e) => {
+                    setDeleteAssetsPassword(e.target.value);
+                    if (deleteAssetsError) setDeleteAssetsError(null);
+                  }}
+                  placeholder="Password"
+                  style={{ width: '100%' }}
+                  autoFocus
+                />
+                {deleteAssetsError && (
+                  <p style={{ color: 'var(--danger-ink)', fontSize: 12, marginTop: 6 }}>
+                    {deleteAssetsError}
+                  </p>
+                )}
+              </div>
+              <div className="modal-foot">
+                <button
+                  className="btn ghost"
+                  disabled={deletingAssets}
+                  onClick={() => {
+                    setDeleteAssetsOpen(false);
+                    setDeleteAssetsPassword('');
+                    setDeleteAssetsError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn danger"
+                  disabled={deletingAssets || !deleteAssetsPassword}
+                  onClick={() => void handleDeleteAssets()}
+                >
+                  <Icon.Trash /> {deletingAssets ? 'Deleting…' : 'Delete assets'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </>
     );
   }
 
+  const hasAnyFilter = Boolean(
+    filter !== 'all' ||
+      dateFilter ||
+      query ||
+      jobTypeFilter ||
+      workerFilter ||
+      createdFrom ||
+      createdTo ||
+      durationMin ||
+      durationMax,
+  );
+
+  const clearAllFilters = () => {
+    setFilter('all');
+    setDateFilter(null);
+    setQuery('');
+    setJobTypeFilter('');
+    setWorkerFilter('');
+    setCreatedFrom('');
+    setCreatedTo('');
+    setDurationMin('');
+    setDurationMax('');
+    setPage(0);
+  };
+
   return (
     <>
       <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-      {/* Desktop header & tools */}
-      <div className="desktop-only">
-        <div className="page-head">
-          <div>
-            <h1>Jobs</h1>
-            <p className="lede">
-              {loading ? '…' : total.toLocaleString()} jobs &middot; Monitor and manage try-on jobs.
-            </p>
-          </div>
-          <div className="head-tools">
-            <div className="search">
-              <Icon.Search />
-              <input
-                placeholder="Search by job ID or user email…"
-                value={query}
-                onChange={(e) => handleSearch(e.target.value)}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span
-                className="sub"
-                style={{ fontSize: 13, whiteSpace: 'nowrap', color: 'var(--muted)' }}
-              >
-                Sort by:
-              </span>
-              <select
-                value={`${sortKey}-${sortDir}`}
-                onChange={(e) => {
-                  const [key, dir] = e.target.value.split('-');
-                  setSortKey(key as keyof Job);
-                  setSortDir(dir as SortDir);
-                }}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--ink)',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                <option value="createdAt-desc">Newest Created</option>
-                <option value="createdAt-asc">Oldest Created</option>
-                <option value="userEmail-asc">User Email (A-Z)</option>
-                <option value="userEmail-desc">User Email (Z-A)</option>
-                <option value="creditsCharged-desc">Credits (High-Low)</option>
-                <option value="creditsCharged-asc">Credits (Low-High)</option>
-                <option value="status-asc">Status</option>
-              </select>
-            </div>
-
-            {confirmFlush ? (
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Cancel all queued jobs?</span>
-                <button
-                  className="btn sm danger"
-                  onClick={() => void flushQueue()}
-                  disabled={flushing}
-                >
-                  {flushing ? 'Flushing…' : 'Confirm'}
-                </button>
-                <button className="btn sm ghost" onClick={() => setConfirmFlush(false)}>
-                  No
-                </button>
-              </div>
-            ) : (
-              <button className="btn sm ghost" onClick={() => setConfirmFlush(true)}>
-                Flush queue
-              </button>
-            )}
-            <button
-              className="btn sm ghost"
-              onClick={() => void handleExportXlsx()}
-              disabled={exportingXlsx}
-            >
-              <Icon.Download /> {exportingXlsx ? 'Exporting…' : 'Download Excel'}
-            </button>
-            <button
-              className="btn sm ghost"
-              onClick={() => void load()}
-              disabled={loading}
-              title="Refresh"
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-            >
-              <span
-                style={{
-                  display: 'inline-block',
-                  animation: loading ? 'spin 0.8s linear infinite' : 'none',
-                }}
-              >
-                <Icon.Refresh />
-              </span>
-              Refresh
-            </button>
-          </div>
+      {/* Top page header */}
+      <div className="page-head">
+        <div>
+          <h1>Jobs</h1>
+          <p className="lede">
+            {loading ? 'Loading…' : `${total.toLocaleString()} jobs`} — real-time generation queue,
+            worker allocation &amp; processing history.
+          </p>
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <div className="tabs" style={{ marginBottom: 0 }}>
-            {FILTERS.map((f) => (
+        <div className="head-tools" style={{ flexWrap: 'wrap' }}>
+          {confirmFlush ? (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Cancel all queued jobs?</span>
               <button
-                key={f.k}
-                className={`tab ${filter === f.k ? 'active' : ''}`}
-                onClick={() => handleFilter(f.k)}
+                className="btn sm danger"
+                onClick={() => void flushQueue()}
+                disabled={flushing}
               >
-                {f.l}
+                {flushing ? 'Flushing…' : 'Confirm Flush'}
               </button>
-            ))}
-          </div>
-          {dateFilter && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span
-                className="badge"
-                style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}
-              >
-                Date: {dateFilter}
-              </span>
-              <button
-                className="btn sm ghost"
-                onClick={() => {
-                  setDateFilter(null);
-                  setPage(0);
-                }}
-                style={{ padding: '4px 8px' }}
-              >
-                Clear
+              <button className="btn sm ghost" onClick={() => setConfirmFlush(false)}>
+                Cancel
               </button>
             </div>
-          )}
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            marginBottom: 16,
-            flexWrap: 'wrap',
-          }}
-        >
-          <select
-            value={jobTypeFilter}
-            onChange={(e) => handleJobTypeFilter(e.target.value)}
-            style={{
-              padding: '6px 12px',
-              borderRadius: 6,
-              border: '1px solid var(--border)',
-              background: 'var(--surface)',
-              color: 'var(--ink)',
-              fontSize: 13,
-              cursor: 'pointer',
-              outline: 'none',
-            }}
-          >
-            <option value="">All Job Types</option>
-            {jobTypeOptions.map((jt) => (
-              <option key={jt} value={jt}>
-                {jt}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={workerFilter}
-            onChange={(e) => handleWorkerFilter(e.target.value)}
-            style={{
-              padding: '6px 12px',
-              borderRadius: 6,
-              border: '1px solid var(--border)',
-              background: 'var(--surface)',
-              color: 'var(--ink)',
-              fontSize: 13,
-              cursor: 'pointer',
-              outline: 'none',
-            }}
-          >
-            <option value="">All Workers</option>
-            {workerOptions.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.label || w.id}
-              </option>
-            ))}
-          </select>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span className="sub" style={{ fontSize: 13, color: 'var(--muted)' }}>
-              Created:
-            </span>
-            <input
-              type="datetime-local"
-              value={createdFrom}
-              onChange={(e) => handleCreatedFrom(e.target.value)}
-              style={{
-                padding: '5px 8px',
-                borderRadius: 6,
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--ink)',
-                fontSize: 13,
-              }}
-            />
-            <span style={{ fontSize: 13, color: 'var(--muted)' }}>to</span>
-            <input
-              type="datetime-local"
-              value={createdTo}
-              onChange={(e) => handleCreatedTo(e.target.value)}
-              style={{
-                padding: '5px 8px',
-                borderRadius: 6,
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--ink)',
-                fontSize: 13,
-              }}
-            />
-            <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-              (applies to Download Excel)
-            </span>
-          </div>
-
-          {hasExtraFilters && (
-            <button className="btn sm ghost" onClick={clearExtraFilters}>
-              Clear filters
+          ) : (
+            <button
+              className="btn ghost sm"
+              onClick={() => setConfirmFlush(true)}
+              title="Cancel all pending jobs in queue and refund credits"
+            >
+              Flush queue
             </button>
           )}
+          <button
+            className="btn ghost"
+            onClick={() => void load()}
+            disabled={loading}
+            title="Refresh jobs list"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                animation: loading ? 'spin 0.8s linear infinite' : 'none',
+              }}
+            >
+              <Icon.Refresh />
+            </span>
+            Refresh
+          </button>
         </div>
       </div>
 
-      {/* Mobile/Tablet single vertical bar header */}
-      <div className="mobile-only" style={{ marginBottom: 20 }}>
+      {/* Main Filter Toolbar Card */}
+      <div className="filter-card" style={{ marginBottom: 16 }}>
+        {/* Status Pills Strip */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            marginBottom: 12,
+            gap: 10,
+            flexWrap: 'wrap',
           }}
         >
-          <h1 style={{ margin: 0 }}>Jobs</h1>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              className="btn sm ghost"
-              onClick={() => void handleExportXlsx()}
-              disabled={exportingXlsx}
-              title="Download Excel"
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+          <div className="segmented-control" role="tablist">
+            {FILTERS.map((f) => {
+              const isActive = filter === f.k;
+              return (
+                <button
+                  key={f.k}
+                  type="button"
+                  className={`segmented-btn ${isActive ? 'active' : ''}`}
+                  onClick={() => handleFilter(f.k)}
+                >
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      display: 'inline-block',
+                      background:
+                        f.k === 'all'
+                          ? 'var(--accent)'
+                          : f.k === 'QUEUED'
+                            ? 'var(--warn)'
+                            : f.k === 'GENERATING'
+                              ? 'var(--info)'
+                              : f.k === 'COMPLETED'
+                                ? 'var(--success)'
+                                : f.k === 'FAILED'
+                                  ? 'var(--danger)'
+                                  : 'var(--muted)',
+                    }}
+                  />
+                  {f.l}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
+              className="sub"
+              style={{ fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}
             >
-              <Icon.Download />
-            </button>
-            <button
-              className="btn sm ghost"
-              onClick={() => void load()}
-              disabled={loading}
-              title="Refresh"
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-            >
-              <span
-                style={{
-                  display: 'inline-block',
-                  animation: loading ? 'spin 0.8s linear infinite' : 'none',
-                }}
-              >
-                <Icon.Refresh />
-              </span>
-              Refresh
-            </button>
+              Sort by:
+            </span>
+            <SearchableSelect
+              options={[
+                { id: 'createdAt-desc', label: 'Newest Created' },
+                { id: 'createdAt-asc', label: 'Oldest Created' },
+                { id: 'userEmail-asc', label: 'User Email (A-Z)' },
+                { id: 'userEmail-desc', label: 'User Email (Z-A)' },
+                { id: 'creditsCharged-desc', label: 'Credits (High-Low)' },
+                { id: 'creditsCharged-asc', label: 'Credits (Low-High)' },
+                { id: 'status-asc', label: 'Status' },
+              ]}
+              value={`${sortKey}-${sortDir}`}
+              onChange={(v) => {
+                const [key, dir] = v.split('-');
+                setSortKey(key as keyof Job);
+                setSortDir(dir as SortDir);
+              }}
+              style={{ height: 32, fontSize: 12.5 }}
+            />
           </div>
         </div>
 
-        <div style={{ position: 'relative' }}>
-          <button
-            type="button"
-            onClick={() => setIsNavOpen(!isNavOpen)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '14px 20px',
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              cursor: 'pointer',
-              textAlign: 'left',
-              color: 'var(--ink)',
-              fontSize: 15,
-              fontWeight: 600,
-              boxShadow: 'var(--shadow-sm)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: 'var(--accent)',
-                }}
-              />
-              Jobs — {FILTERS.find((f) => f.k === filter)?.l || 'All'}
-            </div>
-            <span
-              style={{
-                color: 'var(--muted-2)',
-                transform: isNavOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                transition: 'transform 0.2s',
-                display: 'inline-flex',
-              }}
-            >
-              <Icon.Chevron />
-            </span>
-          </button>
-
-          {isNavOpen && (
-            <>
-              <div
-                onClick={() => setIsNavOpen(false)}
-                style={{
-                  position: 'fixed',
-                  inset: 0,
-                  zIndex: 99,
-                  background: 'transparent',
-                }}
-              />
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 6px)',
-                  left: 0,
-                  right: 0,
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  boxShadow: 'var(--shadow-lg)',
-                  zIndex: 100,
-                  padding: '12px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 12,
-                  maxHeight: '400px',
-                  overflowY: 'auto',
-                }}
+        {/* Search and Options Row */}
+        <div className="filter-row" style={{ paddingTop: 4 }}>
+          {/* Search Box */}
+          <div className="filter-search-box">
+            <Icon.Search />
+            <input
+              placeholder="Search by Job ID or user email…"
+              value={query}
+              onChange={(e) => handleSearch(e.target.value)}
+            />
+            {query && (
+              <button
+                type="button"
+                className="filter-clear-btn"
+                onClick={() => handleSearch('')}
+                title="Clear search"
               >
-                {/* Search input starting with Search */}
-                <div className="search" style={{ width: '100%' }}>
-                  <Icon.Search />
-                  <input
-                    placeholder="Search jobs..."
-                    value={query}
-                    onChange={(e) => handleSearch(e.target.value)}
-                  />
-                </div>
+                <Icon.Close />
+              </button>
+            )}
+          </div>
 
-                {/* Sort dropdown */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Sort by:
-                  </span>
-                  <select
-                    value={`${sortKey}-${sortDir}`}
-                    onChange={(e) => {
-                      const [key, dir] = e.target.value.split('-');
-                      setSortKey(key as keyof Job);
-                      setSortDir(dir as SortDir);
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-2)',
-                      color: 'var(--ink)',
-                      fontSize: 13,
-                    }}
-                  >
-                    <option value="createdAt-desc">Newest Created</option>
-                    <option value="createdAt-asc">Oldest Created</option>
-                    <option value="userEmail-asc">User Email (A-Z)</option>
-                    <option value="userEmail-desc">User Email (Z-A)</option>
-                    <option value="creditsCharged-desc">Credits (High-Low)</option>
-                    <option value="creditsCharged-asc">Credits (Low-High)</option>
-                    <option value="status-asc">Status</option>
-                  </select>
-                </div>
-
-                {/* Filter options one by one */}
-                <div
+          {/* Options Menu Button & Popover */}
+          <div ref={menuRef} className="filter-popover-wrapper">
+            <button
+              type="button"
+              className={`filter-toggle-btn ${menuOpen || jobTypeFilter || workerFilter || createdFrom || createdTo || durationMin || durationMax ? 'active' : ''}`}
+              onClick={() => setMenuOpen(!menuOpen)}
+              title="Filter options and export"
+            >
+              <Icon.Filter />
+              <span>Options</span>
+              {(jobTypeFilter ||
+                workerFilter ||
+                createdFrom ||
+                createdTo ||
+                durationMin ||
+                durationMax) && (
+                <span
                   style={{
-                    borderTop: '1px solid var(--border)',
-                    paddingTop: 8,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 4,
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: 'var(--accent)',
+                    display: 'inline-block',
                   }}
-                >
+                />
+              )}
+            </button>
+
+            {menuOpen && (
+              <div className="filter-popover-menu">
+                {/* 1. Job Type Filter */}
+                <div>
                   <span
-                    className="sub"
-                    style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
                   >
-                    Filter Status:
+                    Job Type
                   </span>
-                  {FILTERS.map((f) => (
-                    <button
-                      key={f.k}
-                      type="button"
-                      onClick={() => {
-                        handleFilter(f.k);
-                        setIsNavOpen(false);
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '10px 14px',
-                        background: filter === f.k ? 'var(--bg-2)' : 'none',
-                        border: 'none',
-                        borderRadius: 6,
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        fontSize: 14,
-                        fontWeight: filter === f.k ? 600 : 400,
-                        color: filter === f.k ? 'var(--accent)' : 'var(--ink)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: '50%',
-                          background: filter === f.k ? 'var(--accent)' : 'transparent',
-                          display: 'inline-block',
-                        }}
-                      />
-                      {f.l}
-                    </button>
-                  ))}
+                  <SearchableSelect
+                    options={jobTypeOptions.map((jt) => ({ id: jt, label: jt }))}
+                    value={jobTypeFilter}
+                    onChange={handleJobTypeFilter}
+                    emptyLabel="All Job Types"
+                    style={{ width: '100%', height: 32, fontSize: 12.5 }}
+                  />
                 </div>
 
-                {/* Job type / worker / created-at range */}
-                <div
-                  style={{
-                    borderTop: '1px solid var(--border)',
-                    paddingTop: 8,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                  }}
-                >
-                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Job Type:
-                  </span>
-                  <select
-                    value={jobTypeFilter}
-                    onChange={(e) => handleJobTypeFilter(e.target.value)}
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 2. Worker Pool Filter */}
+                <div>
+                  <span
                     style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-2)',
-                      color: 'var(--ink)',
-                      fontSize: 13,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
                     }}
                   >
-                    <option value="">All Job Types</option>
-                    {jobTypeOptions.map((jt) => (
-                      <option key={jt} value={jt}>
-                        {jt}
-                      </option>
-                    ))}
-                  </select>
-
-                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Worker:
+                    Worker Pool
                   </span>
-                  <select
+                  <SearchableSelect
+                    options={workerOptions.map((w) => ({ id: w.id, label: w.label || w.id }))}
                     value={workerFilter}
-                    onChange={(e) => handleWorkerFilter(e.target.value)}
+                    onChange={handleWorkerFilter}
+                    emptyLabel="All Workers"
+                    style={{ width: '100%', height: 32, fontSize: 12.5 }}
+                  />
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 3. Created Date & Time Range */}
+                <div>
+                  <span
                     style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-2)',
-                      color: 'var(--ink)',
-                      fontSize: 13,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
                     }}
                   >
-                    <option value="">All Workers</option>
-                    {workerOptions.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.label || w.id}
-                      </option>
-                    ))}
-                  </select>
-
-                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Created from:
+                    Created Date Range
                   </span>
-                  <input
-                    type="datetime-local"
-                    value={createdFrom}
-                    onChange={(e) => handleCreatedFrom(e.target.value)}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>From:</span>
+                      <input
+                        type="datetime-local"
+                        className="filter-input"
+                        value={createdFrom}
+                        onChange={(e) => handleCreatedFrom(e.target.value)}
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>To:</span>
+                      <input
+                        type="datetime-local"
+                        className="filter-input"
+                        value={createdTo}
+                        onChange={(e) => handleCreatedTo(e.target.value)}
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 4. Duration Filter */}
+                <div>
+                  <span
                     style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-2)',
-                      color: 'var(--ink)',
-                      fontSize: 13,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
                     }}
-                  />
-
-                  <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Created to:
+                  >
+                    Generation Duration
                   </span>
-                  <input
-                    type="datetime-local"
-                    value={createdTo}
-                    onChange={(e) => handleCreatedTo(e.target.value)}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>Min:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        className="filter-input"
+                        value={durationMin}
+                        onChange={(e) => handleDurationMin(e.target.value)}
+                        placeholder="0"
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>Max:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        className="filter-input"
+                        value={durationMax}
+                        onChange={(e) => handleDurationMax(e.target.value)}
+                        placeholder="Any"
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                    <SearchableSelect
+                      options={[
+                        { id: 'seconds', label: 'Seconds' },
+                        { id: 'minutes', label: 'Minutes' },
+                      ]}
+                      value={durationUnit}
+                      onChange={(v) => {
+                        setDurationUnit(v as 'seconds' | 'minutes');
+                        setPage(0);
+                      }}
+                      style={{ width: '100%', height: 32, fontSize: 12.5 }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 5. Download Excel */}
+                <div>
+                  <span
                     style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-2)',
-                      color: 'var(--ink)',
-                      fontSize: 13,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
                     }}
-                  />
-                  <span className="sub" style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    Applies to Download Excel too
+                  >
+                    Export Data
                   </span>
-
-                  {hasExtraFilters && (
-                    <button
-                      type="button"
-                      className="btn sm ghost"
-                      onClick={clearExtraFilters}
-                      style={{ width: '100%' }}
-                    >
-                      Clear filters
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    onClick={() => {
+                      void handleExportXlsx();
+                      setMenuOpen(false);
+                    }}
+                    disabled={exportingXlsx}
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    title="Download Excel export"
+                  >
+                    <Icon.Download /> {exportingXlsx ? 'Exporting…' : 'Export Excel'}
+                  </button>
                 </div>
               </div>
-            </>
+            )}
+          </div>
+
+          {/* Clear Filters Button */}
+          {hasAnyFilter && (
+            <button
+              type="button"
+              className="btn sm ghost"
+              onClick={clearAllFilters}
+              style={{ marginLeft: 'auto' }}
+            >
+              <Icon.Close /> Clear filters
+            </button>
           )}
         </div>
+
+        {/* Active Filter Chips */}
+        {hasAnyFilter && (
+          <div className="filter-chips-row">
+            <span style={{ color: 'var(--muted)', fontSize: 11.5, marginRight: 2 }}>Active:</span>
+            {filter !== 'all' && (
+              <span className="filter-chip">
+                Status: <strong>{FILTERS.find((f) => f.k === filter)?.l || filter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => handleFilter('all')}
+                  title="Remove status filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {query && (
+              <span className="filter-chip">
+                Search: <strong>"{query}"</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => handleSearch('')}
+                  title="Remove search query"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {jobTypeFilter && (
+              <span className="filter-chip">
+                Type: <strong>{jobTypeFilter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => handleJobTypeFilter('')}
+                  title="Remove job type filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {workerFilter && (
+              <span className="filter-chip">
+                Worker:{' '}
+                <strong>
+                  {workerOptions.find((w) => w.id === workerFilter)?.label || workerFilter}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => handleWorkerFilter('')}
+                  title="Remove worker filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {(createdFrom || createdTo) && (
+              <span className="filter-chip">
+                Created:{' '}
+                <strong>
+                  {createdFrom || 'Anytime'} → {createdTo || 'Now'}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setCreatedFrom('');
+                    setCreatedTo('');
+                    setPage(0);
+                  }}
+                  title="Remove created date filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {(durationMin || durationMax) && (
+              <span className="filter-chip">
+                Duration:{' '}
+                <strong>
+                  {durationMin || '0'}
+                  {durationUnit === 'minutes' ? 'm' : 's'} → {durationMax || 'Any'}
+                  {durationMax ? (durationUnit === 'minutes' ? 'm' : 's') : ''}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setDurationMin('');
+                    setDurationMax('');
+                    setPage(0);
+                  }}
+                  title="Remove duration filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {dateFilter && (
+              <span className="filter-chip">
+                Day: <strong>{dateFilter}</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setDateFilter(null);
+                    setPage(0);
+                  }}
+                  title="Remove day filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -1291,6 +1648,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                   <Th k="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
                     Created
                   </Th>
+                  <th>Duration</th>
                   <th></th>
                 </tr>
               </thead>
@@ -1303,10 +1661,26 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       </span>
                     </td>
                     <td>
-                      <span className="semi">{j.userEmail ?? '—'}</span>
+                      <span className="semi">{jobContactEmail(j) ?? '—'}</span>
+                      {j.shopDomain && (
+                        <div className="sub" style={{ fontSize: 11 }}>
+                          {j.shopDomain}
+                        </div>
+                      )}
                     </td>
                     <td>
-                      <JobTypeBadge jobType={j.jobType} />
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <JobTypeBadge jobType={j.jobType} />
+                        {j.parentJobId && (
+                          <span
+                            className="badge"
+                            title="Created by regenerating another job"
+                            style={{ fontSize: 10, color: 'var(--warn, #b8860b)' }}
+                          >
+                            Regen
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <StatusBadge status={j.status} />
@@ -1322,6 +1696,11 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                     <td>
                       <span className="mono sub" style={{ fontSize: 11 }}>
                         {new Date(j.createdAt).toLocaleString()}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="mono sub" style={{ fontSize: 11 }}>
+                        {fmtDuration(j) ?? '—'}
                       </span>
                     </td>
                     <td>
@@ -1359,7 +1738,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                 {sorted.length === 0 && (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={10}
                       style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
                     >
                       No jobs found.
@@ -1429,7 +1808,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                             fontWeight: 600,
                           }}
                         >
-                          {j.userEmail ?? 'No user email'}
+                          {jobContactEmail(j) ?? 'No user email'}
                         </div>
                         <div
                           className="sub"
@@ -1501,7 +1880,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                           }}
                         >
                           <span style={{ color: 'var(--muted)' }}>User Mail</span>
-                          <span className="semi">{j.userEmail ?? '—'}</span>
+                          <span className="semi">{jobContactEmail(j) ?? '—'}</span>
                         </div>
                         <div
                           style={{
@@ -1513,6 +1892,20 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                           <span style={{ color: 'var(--muted)' }}>Job Type</span>
                           <JobTypeBadge jobType={j.jobType} />
                         </div>
+                        {j.parentJobId && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <span style={{ color: 'var(--muted)' }}>Origin</span>
+                            <span style={{ color: 'var(--warn, #b8860b)', fontWeight: 600 }}>
+                              Regenerated
+                            </span>
+                          </div>
+                        )}
                         <div
                           style={{
                             display: 'flex',

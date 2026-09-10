@@ -96,7 +96,11 @@ function GenderPicker({ onSelect }: { onSelect: (category: Category) => void }) 
 // into a category the credit breakdown isn't relevant, so this unmounts along
 // with GenderPicker rather than living in ScreenHeader (empty on that screen).
 function CreditSummaryBar() {
-  const { data: me } = useQuery<{ balance: number; used: number }>({
+  const { data: me } = useQuery<{
+    balance: number;
+    used: number;
+    unlimitedPlan?: { status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none' } | null;
+  }>({
     queryKey: ['catalog-app-me'],
     queryFn: () => api.get('/v1/merchant/me'),
     retry: false,
@@ -104,6 +108,8 @@ function CreditSummaryBar() {
 
   const available = me?.balance ?? 0;
   const used = me?.used ?? 0;
+  const isUnlimitedPlan =
+    me?.unlimitedPlan?.status === 'active' || me?.unlimitedPlan?.status === 'expiring_soon';
 
   return (
     // Floating card, not an edge-to-edge flush bar — inset on all sides and
@@ -136,7 +142,7 @@ function CreditSummaryBar() {
           </span>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: LIGHT.text, lineHeight: 1.2 }}>
-              {available}
+              {isUnlimitedPlan ? 'Monthly' : available}
             </div>
             <div style={{ fontSize: 11, color: LIGHT.mid }}>Credits Available</div>
           </div>

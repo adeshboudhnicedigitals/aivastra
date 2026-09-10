@@ -23,6 +23,7 @@ import { atomicDeductStore, refundStoreAndMarkFailed } from '../credits/shopify-
 import { resolveEffectiveEnabled } from './activation.js';
 import { runRefill } from './autorefill.js';
 import { mintAccountLinkCode } from './customer-auth.js';
+import { resolveBasket } from './funnel-resolution.js';
 import {
   checkShopperLimits,
   type LimitRefusal,
@@ -31,6 +32,7 @@ import {
   ShopperLimitRaceRefusal,
 } from './limits.js';
 import { resolveShopper } from './shopper.js';
+import { formatResetTime, windowEnd } from './store-day.js';
 
 const SLOT_RELEASE_MAX_ATTEMPTS = 3;
 const SLOT_RELEASE_RETRY_DELAY_MS = 100;
@@ -52,13 +54,15 @@ function sleep(ms: number): Promise<void> {
  * (a refusal or a compensated failure).
  */
 async function releaseSlotWithRetry(
-  slot: { release: () => Promise<void> },
+  slot: { release: (jobId: string) => Promise<void> },
   log: FastifyBaseLogger,
-  jobId?: string,
+  jobId: string,
 ): Promise<void> {
   for (let attempt = 1; attempt <= SLOT_RELEASE_MAX_ATTEMPTS; attempt++) {
     try {
-      await slot.release();
+      // Retrying is safe even if a previous attempt actually landed and only
+      // its reply was lost — the release is idempotent per jobId.
+      await slot.release(jobId);
       return;
     } catch (err) {
       if (attempt === SLOT_RELEASE_MAX_ATTEMPTS) {
@@ -137,6 +141,16 @@ async function recordRefusal(
 }
 
 function writeSseHeaders(reply: FastifyReply): void {
+  // reply.raw.writeHead() below bypasses Fastify's own reply pipeline
+  // entirely, so anything set via reply.header() — notably @fastify/cors's
+  // Access-Control-Allow-Origin, computed in its onRequest hook — never
+  // reaches the socket unless copied over here first. Without this, the
+  // browser gets a 200 with no CORS header and blocks the shopper's
+  // cross-origin widget from reading the stream. setHeader (not writeHead)
+  // so these merge with, rather than fight, the headers below.
+  for (const [key, value] of Object.entries(reply.getHeaders())) {
+    if (value !== undefined) reply.raw.setHeader(key, value);
+  }
   reply.raw.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -162,31 +176,6 @@ async function requireStoreHasCredits(
   if (!credits || credits.balance < jobCost) {
     throw new AppError('INSUFFICIENT_CREDITS', 402, 'insufficient credits');
   }
-}
-
-/**
- * The workflow every Shopify try-on runs. Resolved here, at creation, and pinned
- * onto job_inputs.params so the dispatcher never has to look it up again — and so
- * an admin promoting a different default mid-flight cannot change the workflow
- * under a job whose credits are already deducted.
- *
- * Returning null means no active default is configured at all, which is a system
- * misconfiguration rather than anything the merchant did. The caller refuses the
- * job before deducting credits: enqueueing would burn a credit and produce a
- * FAILED row with NO_WORKFLOW_CONFIGURED for something no merchant can fix.
- */
-async function resolveWorkflowTemplateId(app: FastifyInstance): Promise<string | null> {
-  const [row] = await app.db
-    .select({ workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId })
-    .from(schema.shopifyFunnelTemplates)
-    .where(
-      and(
-        eq(schema.shopifyFunnelTemplates.isDefault, true),
-        eq(schema.shopifyFunnelTemplates.isActive, true),
-      ),
-    )
-    .limit(1);
-  return row?.workflowTemplateId ?? null;
 }
 
 /**
@@ -248,9 +237,8 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
     async (req) => {
       const storeId = req.shopifyStoreId as string;
       const { contentType, contentLength } = req.body as ShopifyCustomerPresignRequest;
-      if (!contentType.startsWith('image/')) {
-        throw new AppError('VALIDATION', 400, 'Content type must be image/*');
-      }
+      // contentType is validated against AssetContentType by the route schema —
+      // no manual check needed here.
       // No image extension on the key — Cloudflare's Hotlink Protection pattern-matches
       // image extensions in the path regardless of method and false-positives this
       // presigned PUT/OPTIONS as an image hotlink. Content-Type is passed separately
@@ -334,6 +322,11 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       }
       const maxCustomerPhotoBytes = await getUploadLimitBytes(app, 'shopifyCustomerPhotoMaxBytes');
       if (photoHead.contentLength > maxCustomerPhotoBytes) {
+        // BAD_UPLOAD at 413 here, 400 above: matches the same code covering
+        // both "file missing/corrupt" and "file too large" used identically
+        // across upload-ownership.ts, merchant/upload-guard.ts,
+        // merchant/upload-sessions.routes.ts, admin/demo-upload-guard.ts —
+        // an established convention, not something to diverge from here.
         throw new AppError(
           'BAD_UPLOAD',
           413,
@@ -367,20 +360,21 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           .send({ message: 'This product is not available for try-on right now.' });
       }
 
-      const workflowTemplateId = await resolveWorkflowTemplateId(app);
-      if (!workflowTemplateId) {
-        // error, not warn: after the funnel removal this can only mean no active
-        // default template exists, which is ours to fix, not the merchant's. The
-        // shopper still sees the same soft message as a disabled product — no
-        // internal state leaks to the storefront.
+      const resolvedBasket = await resolveBasket(app, storeId, garment);
+      if (!resolvedBasket) {
+        // No basket resolved AND no active default exists — a system
+        // misconfiguration, not anything the merchant did. Refuse here, before
+        // the deduct: enqueueing would burn a credit and produce a FAILED row
+        // with NO_WORKFLOW_CONFIGURED that no merchant can fix.
         app.log.error(
           { storeId, shopifyProductId, garmentId: garment.id },
-          'shopify try-on blocked before enqueue: no active default funnel template is configured',
+          'shopify try-on blocked before enqueue: no basket resolved and no active default',
         );
         return reply
           .code(202)
           .send({ message: 'This product is not available for try-on right now.' });
       }
+      const workflowTemplateId = resolvedBasket.workflowTemplateId;
 
       // Deployed widget versions did not send clientId. They still receive the
       // store cap, while shopper-specific limits wait until an identity exists.
@@ -413,9 +407,11 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       const slot = await reserveStoreDailySlot(app, store);
       if (!slot.ok) {
         await recordRefusal(app, storeId, 'store_limit', clientId ?? null, shopifyProductId);
-        return reply
-          .code(202)
-          .send({ reason: 'store_limit', message: "Try-on isn't available right now." });
+        const resetAt = windowEnd(store.ianaTimezone, 'day');
+        return reply.code(202).send({
+          reason: 'store_limit',
+          message: `Try-on isn't available right now. Come back ${formatResetTime(store.ianaTimezone, resetAt)}.`,
+        });
       }
 
       const jobId = randomUUID();
@@ -456,6 +452,14 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
               // than re-resolving — a default promoted mid-flight can't change the
               // workflow under a job whose credits are already deducted.
               workflowTemplateId,
+              dispatchTemplateVersion: resolvedBasket.workflowTemplateVersion,
+              // Same reasoning as workflowTemplateId: pinned at creation rather
+              // than recomputed later. The dispatcher refunds this job's credits
+              // if the generation fails, and has to give the store's daily-cap
+              // slot back too — for the day the job was created, which it cannot
+              // safely derive once the store's local midnight has passed. Null
+              // when the store has no cap configured.
+              storeCapKey: slot.capKey,
             },
           });
           await atomicDeductStore(tx as never, storeId, jobCost, jobId);
@@ -496,7 +500,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           // Only the store slot (reserved before the transaction) needs
           // releasing. The event insert happens after the rollback too, so a
           // failed write can never be undone by it.
-          await releaseSlotWithRetry(slot, app.log);
+          await releaseSlotWithRetry(slot, app.log, jobId);
           await recordRefusal(app, storeId, err.refusal.reason, clientId ?? null, shopifyProductId);
           return reply.code(202).send(err.refusal);
         }
@@ -577,6 +581,60 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         errorCode: job.errorCode,
         resultUrl: job.resultKey ? (await app.storage.presignGet(job.resultKey, 3600)).url : null,
       };
+    },
+  );
+
+  // The theme block always renders the button/modal markup — Liquid has no
+  // access to our Postgres activation state, only Shopify's own data and shop
+  // metafields, and we don't sync per-product metafields. So tryon-widget.js
+  // calls this on load and hides the whole widget when the answer is false,
+  // rather than the button rendering unconditionally and only soft-declining
+  // at submit time (which is all that gated it before this route existed).
+  // No rate limit here (unlike presign/preview/jobs above): it's a cheap
+  // read-only lookup fired once per storefront product-page view, and those
+  // three share one 60/min-per-store bucket that a per-page-load check would
+  // blow through immediately on any moderately busy store.
+  registerProxied(
+    app,
+    'get',
+    '/products/:shopifyProductId/enabled',
+    { preHandler: app.requireShopifyStoreKey },
+    async (req) => {
+      const storeId = req.shopifyStoreId as string;
+      const store = req.shopifyStoreRow as typeof schema.shopifyStores.$inferSelect;
+      const { shopifyProductId } = req.params as { shopifyProductId: string };
+      const productId = Number(shopifyProductId);
+      if (!Number.isInteger(productId)) {
+        throw new AppError('BAD_REQUEST', 400, 'invalid product id');
+      }
+
+      const [garment] = await app.db
+        .select({
+          enabled: schema.shopifyProductGarments.enabled,
+          excluded: schema.shopifyProductGarments.excluded,
+        })
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, productId),
+          ),
+        )
+        .limit(1);
+
+      // Not-yet-synced products have no individual/exclusion state of their
+      // own yet — fall through to whatever mode + collection membership say,
+      // same as resolveEffectiveEnabled does for a garment that exists.
+      const enabled = await resolveEffectiveEnabled(app, store, {
+        shopifyProductId: productId,
+        enabled: garment?.enabled ?? false,
+        excluded: garment?.excluded ?? false,
+      });
+
+      // Piggybacks on this call because it's the first request the widget makes
+      // on init (see the comment above this route). true only when the env var
+      // is exactly 'true' — see SHOPIFY_WIDGET_VERBOSE in env.ts.
+      return { enabled, verboseErrors: app.env.SHOPIFY_WIDGET_VERBOSE === true };
     },
   );
 

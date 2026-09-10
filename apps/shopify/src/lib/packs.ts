@@ -4,7 +4,7 @@
 // If these numbers drift from the API's, the API wins, and the merchant sees
 // the API's figure in their balance.
 export interface PackDisplay {
-  id: 'pack_10' | 'pack_25' | 'pack_50' | 'pack_100';
+  id: 'pack_10' | 'pack_25' | 'pack_100';
   label: string;
   priceUsd: number;
   credits: number;
@@ -27,7 +27,7 @@ export interface PackDisplay {
 export const PACK_DISPLAY: PackDisplay[] = [
   {
     id: 'pack_10',
-    label: 'Starter',
+    label: 'Silver',
     priceUsd: 10,
     credits: 800,
     autorefillCredits: 880,
@@ -35,7 +35,7 @@ export const PACK_DISPLAY: PackDisplay[] = [
   },
   {
     id: 'pack_25',
-    label: 'Growth',
+    label: 'Gold',
     priceUsd: 25,
     credits: 2250,
     autorefillCredits: 2475,
@@ -43,16 +43,8 @@ export const PACK_DISPLAY: PackDisplay[] = [
     bestValue: true,
   },
   {
-    id: 'pack_50',
-    label: 'Pro',
-    priceUsd: 50,
-    credits: 4800,
-    autorefillCredits: 5280,
-    tryOns: 960,
-  },
-  {
     id: 'pack_100',
-    label: 'Enterprise',
+    label: 'Platinum',
     priceUsd: 100,
     credits: 10000,
     autorefillCredits: 11000,

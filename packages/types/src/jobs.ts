@@ -8,12 +8,17 @@ export const RESOLUTION_COSTS = {
 
 export type Resolution = keyof typeof RESOLUTION_COSTS;
 
-/** Canonical output pixel dimensions per aspect ratio — matches patcher.ts ASPECT_DIMENSIONS. */
+/**
+ * Canonical output pixel dimensions per aspect ratio — matches patcher.ts ASPECT_DIMENSIONS.
+ * Raised to a 2688 long edge (2026-09-08), including 4:5, which stayed out of the prior
+ * 2560 bump but is now aligned with the rest. Long edge stays under the 3000px
+ * resolutionFromDims threshold below, so these still price at the 2K tier, not 4K.
+ */
 export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
-  '1:1': { width: 2048, height: 2048 },
-  '2:3': { width: 1365, height: 2048 },
-  '3:4': { width: 1331, height: 1774 },
-  '4:5': { width: 1375, height: 1718 },
+  '1:1': { width: 2688, height: 2688 },
+  '2:3': { width: 1792, height: 2688 },
+  '3:4': { width: 2016, height: 2688 },
+  '4:5': { width: 2150, height: 2688 },
 };
 
 /** Derive the server-authoritative resolution tier from actual output pixel dimensions. */
@@ -160,6 +165,17 @@ export function computePixverseVideoCost(
 export const CreateSimpleTryonRequest = z.object({
   personKey: z.string().regex(INPUT_GARMENT_KEY),
   sourceJobId: z.string().uuid(),
+});
+
+/** A reason is mandatory before a regenerate request fires — see regenerateJob. */
+export const RegenerateJobRequest = z.object({
+  reason: z.string().min(1).max(300),
+});
+
+/** Reason labels configured for the job's resolved workflow template, plus a
+ *  fixed trailing "Other" the client always offers — see getRegenerateReasons. */
+export const RegenerateReasonsResponse = z.object({
+  reasons: z.array(z.string()),
 });
 
 export const CreateCatalogVideoJobRequest = z

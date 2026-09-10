@@ -8,16 +8,20 @@ import {
   CreateSimpleTryonRequest,
   CreateTryOnJobRequest,
   JOB_SOURCE,
+  RegenerateJobRequest,
+  RegenerateReasonsResponse,
   SareeConfigResponse,
 } from '@aivastra/types';
-import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getMaxBatchJobs } from '../../lib/batch-config.js';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { withIdempotency } from '../../lib/idempotency.js';
+import { sendReportReceivedEmail } from '../../lib/mailer.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { reopenResolvedTicket, setSubjectFromFirstMessage } from '../../lib/tickets.js';
 import { getSareeSettings } from '../saree/settings.js';
 import {
   createCatalogVideoJob,
@@ -28,7 +32,7 @@ import {
 import { createBatchJobs } from './createBatch.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
-import { regenerateJob } from './regenerate.js';
+import { getRegenerateReasons, regenerateJob } from './regenerate.js';
 import { sseHandler, userStreamHandler } from './sse.js';
 
 export async function jobsRoutes(app: FastifyInstance) {
@@ -156,15 +160,41 @@ export async function jobsRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get(
+    '/v1/jobs/:id/regenerate-reasons',
+    {
+      preHandler: app.requireUser,
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        response: { 200: RegenerateReasonsResponse },
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const reasons = await getRegenerateReasons(app, req.userId, id);
+      return { reasons };
+    },
+  );
+
   app.post(
     '/v1/jobs/:id/regenerate',
     {
       preHandler: app.requireUser,
-      schema: { params: z.object({ id: z.string().uuid() }) },
+      schema: { params: z.object({ id: z.string().uuid() }), body: RegenerateJobRequest },
     },
     async (req, reply) => {
       const { id } = req.params as { id: string };
-      const result = await regenerateJob(app, req.userId, id);
+      const { reason } = req.body as z.infer<typeof RegenerateJobRequest>;
+      // Same protection every other job-creation route has: a repeated click
+      // (or a retried request) carrying the same Idempotency-Key returns the
+      // cached result instead of creating — and charging/refunding — a second job.
+      const result = await withIdempotency(
+        app,
+        'jobs',
+        req.userId,
+        req.headers['idempotency-key'] as string | undefined,
+        () => regenerateJob(app, req.userId, id, reason),
+      );
       reply.code(201);
       return result;
     },
@@ -445,6 +475,28 @@ export async function jobsRoutes(app: FastifyInstance) {
             // always set on these jobs) and stops working once sourceJobId becomes
             // optional for the upload path. Exclude by kind explicitly instead.
             sql`${schema.jobInputs.params}->>'kind' is distinct from 'video'`,
+            // This gallery is for the account's own first-party catalog/try-on work —
+            // exclude jobs created through an external channel (WordPress plugin,
+            // Shopify widget, a merchant's own integration, or the public dev API).
+            // Those still bill the same userId/user_credits (merchants are 1:1 with
+            // users), so without this filter every storefront shopper's try-on click
+            // shows up mixed into the merchant's own curated catalog gallery.
+            // source is nullable (legacy jobs predate source tracking) — NOT IN
+            // against a NULL column evaluates to NULL/excluded in SQL, so the NULL
+            // case is kept explicitly rather than silently dropping those jobs.
+            or(
+              isNull(schema.jobs.source),
+              notInArray(schema.jobs.source, [
+                JOB_SOURCE.WORDPRESS_TRYON,
+                JOB_SOURCE.API_TRYON,
+                JOB_SOURCE.API_CATALOG,
+                JOB_SOURCE.API_SAREE_MANNEQUIN,
+                JOB_SOURCE.MERCHANT_TRYON,
+                JOB_SOURCE.MERCHANT_CATALOG,
+                JOB_SOURCE.MERCHANT_CATALOG_SAREE_MANNEQUIN,
+                JOB_SOURCE.SHOPIFY,
+              ]),
+            ),
             ...(batchId ? [eq(schema.jobs.batchId, batchId)] : []),
           ),
         )
@@ -516,6 +568,7 @@ export async function jobsRoutes(app: FastifyInstance) {
           job: schema.jobs,
           assetKind: schema.jobOutputs.assetKind,
           watermarkVersion: schema.jobOutputs.watermarkVersion,
+          downloadedAt: schema.jobOutputs.downloadedAt,
         })
         .from(schema.jobs)
         .innerJoin(schema.jobInputs, eq(schema.jobs.id, schema.jobInputs.jobId))
@@ -535,6 +588,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         ...r.job,
         assetKind: r.assetKind,
         watermarkVersion: r.watermarkVersion,
+        alreadyDownloaded: r.downloadedAt != null,
       }));
 
       // All jobs in a catalogue share the same aspectRatio and garment (set once at creation).
@@ -797,11 +851,58 @@ export async function jobsRoutes(app: FastifyInstance) {
     },
   );
 
+  // POST /v1/jobs/:id/download — the real "I'm downloading this" signal, deliberately
+  // separate from GET /result above. /result is called constantly just to display or
+  // zoom a result (studio panel, catalogue grid, preview page all fetch it on render),
+  // so stamping downloadedAt there would mark almost every image "downloaded" the
+  // instant it's shown, defeating the regenerate-disabled-after-download rule. Only
+  // the frontend's actual download buttons call this endpoint.
+  app.post(
+    '/v1/jobs/:id/download',
+    {
+      preHandler: app.requireUser,
+      schema: { params: z.object({ id: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [job] = await app.db
+        .select()
+        .from(schema.jobs)
+        .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
+      if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
+      if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
+
+      const [output] = await app.db
+        .select({ resultKey: schema.jobOutputs.resultKey })
+        .from(schema.jobOutputs)
+        .where(eq(schema.jobOutputs.jobId, id));
+      const r2Key = output?.resultKey ?? keys.output(id);
+      const { url, expiresIn } = await app.storage.presignGet(r2Key, 3600);
+
+      // First download wins — never overwrite an earlier timestamp.
+      await app.db
+        .update(schema.jobOutputs)
+        .set({ downloadedAt: sql`coalesce(${schema.jobOutputs.downloadedAt}, now())` })
+        .where(eq(schema.jobOutputs.jobId, id));
+
+      return { url, expiresIn };
+    },
+  );
+
   app.get(
     '/v1/jobs/:id/thumbnail',
     {
       preHandler: app.requireUser,
       schema: { params: z.object({ id: z.string().uuid() }) },
+      // Its own, higher bucket rather than sharing the global 200/min (server.ts) —
+      // this endpoint is fetched once per thumbnail rendered (the catalog-video
+      // wizard's image picker, the catalogue detail page's per-job grid), so a
+      // page with many images legitimately bursts far more requests than typical
+      // API traffic. A long-history account opening such a page could otherwise
+      // exhaust the whole per-IP budget — including for unrelated routes like
+      // /v1/uploads/presign — before the user does anything. See docs/progress.md,
+      // "catalog-video rate-limit incident".
+      config: { rateLimit: { max: 300, timeWindow: '1 minute' } },
     },
     async (req) => {
       const { id } = req.params as { id: string };
@@ -1007,7 +1108,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         }),
       },
     },
-    async (req, reply) => {
+    async (req) => {
       const body = req.body as {
         name: string;
         email: string;
@@ -1015,15 +1116,96 @@ export async function jobsRoutes(app: FastifyInstance) {
         source?: string;
         message?: string;
       };
-      await app.db.insert(schema.contactRequests).values({
-        userId: req.userId,
-        name: body.name,
-        email: body.email,
-        phone: body.phone,
-        source: body.source ?? null,
-        message: body.message ?? null,
-      });
-      reply.code(204).send();
+
+      // Same counter and window the chatbot WS `message` frame handler uses
+      // (apps/chatbot/src/ws/gateway.ts) — deliberately the same Redis key, so a
+      // user can't outrun the WS limit by switching to the form.
+      const rlKey = `chatbot:rl:${req.userId}`;
+      const n = await app.redis.incr(rlKey);
+      if (n === 1) await app.redis.expire(rlKey, 30);
+      if (n > 10) throw new AppError('RATE_LIMITED', 429, 'slow down');
+
+      const [existing] = await app.db
+        .select()
+        .from(schema.chatbotConversations)
+        .where(
+          and(
+            eq(schema.chatbotConversations.userId, req.userId),
+            sql`${schema.chatbotConversations.status} <> 'CLOSED'`,
+          ),
+        );
+      let convId: string;
+      let isNew = false;
+      if (existing) {
+        convId = existing.id;
+        if (existing.status === 'RESOLVED') {
+          await reopenResolvedTicket(app, convId);
+        }
+      } else {
+        const [created] = await app.db
+          .insert(schema.chatbotConversations)
+          .values({ userId: req.userId, source: 'contact_us' })
+          .onConflictDoNothing()
+          .returning();
+        if (created) {
+          convId = created.id;
+          isNew = true;
+        } else {
+          const [winner] = await app.db
+            .select()
+            .from(schema.chatbotConversations)
+            .where(
+              and(
+                eq(schema.chatbotConversations.userId, req.userId),
+                sql`${schema.chatbotConversations.status} <> 'CLOSED'`,
+              ),
+            );
+          convId = winner.id;
+        }
+      }
+
+      const content =
+        body.message?.trim() || `Contact request from ${body.name} (${body.email}, ${body.phone})`;
+      await setSubjectFromFirstMessage(app, convId, content);
+      const [msgRow] = await app.db
+        .insert(schema.chatbotMessages)
+        .values({ conversationId: convId, role: 'user', senderId: req.userId, content })
+        .returning();
+      await app.db
+        .update(schema.chatbotConversations)
+        .set({ lastMessageAt: new Date() })
+        .where(eq(schema.chatbotConversations.id, convId));
+
+      await app.redis.publish(
+        `chatbot:conv:${convId}`,
+        JSON.stringify({
+          type: 'message',
+          message: {
+            id: msgRow.id,
+            conversationId: convId,
+            role: 'user',
+            senderId: req.userId,
+            content,
+            attachmentKey: null,
+            attachmentType: null,
+            createdAt: msgRow.createdAt.toISOString(),
+          },
+        }),
+      );
+      if (isNew) {
+        await app.redis.publish('chatbot:queue', JSON.stringify({ type: 'queue_update' }));
+      }
+
+      // Contact Us collects name/email/phone as free-form fields — this may not
+      // be the account's own email — so the acknowledgment goes to whatever the
+      // caller submitted, same as the original contact_requests-era handler.
+      try {
+        await sendReportReceivedEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, body.email);
+      } catch (err) {
+        app.log.error({ err }, 'Failed to send report-received acknowledgment email');
+      }
+
+      return { ticketId: convId };
     },
   );
 

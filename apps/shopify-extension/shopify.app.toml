@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "771a0258b180063d6015e4f5f8f1f586"
-name = "AiVastra"
+name = "AI Vastra"
 # Must be the embedded SPA's entry point, NOT /v1/shopify/auth. Shopify appends
 # the host/id_token params App Bridge needs to whatever URL it opens here, and
 # pointing this at the OAuth endpoint instead would send every app open through a

@@ -1,4 +1,5 @@
 import {
+  ASPECT_DIMENSIONS,
   computePixverseVideoCost,
   PIXVERSE_VIDEO_COST,
   type PixverseQuality,
@@ -22,7 +23,31 @@ export const DEFAULT_RESOLUTION_CONFIG: Record<
   '4K': { enabled: true, creditCost: RESOLUTION_COSTS['4K'] },
 };
 
-export const DEFAULT_MAX_OUTPUT_PX = 2048;
+export const DEFAULT_MAX_OUTPUT_PX = 2688;
+
+// Re-exported under a DEFAULT_ name for symmetry with the other DEFAULT_*_CONFIG
+// constants in this file — the underlying object is unchanged. Only resizes an
+// existing ratio; mergeAspectDimensions() below deliberately ignores any key an
+// admin PATCH sends that isn't already one of these, since the fixed set of
+// ratios is also baked into the Studio UI and the dispatcher's node patching.
+export const DEFAULT_ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> =
+  ASPECT_DIMENSIONS;
+
+/**
+ * Merges an admin override (partial — only the ratios actually edited) over the
+ * hardcoded default, one ratio at a time, so editing one ratio in the admin
+ * panel never has to carry every other ratio's dims along with it.
+ */
+export function mergeAspectDimensions(
+  override?: Record<string, { width: number; height: number }>,
+): Record<string, { width: number; height: number }> {
+  return Object.fromEntries(
+    Object.keys(DEFAULT_ASPECT_DIMENSIONS).map((ratio) => [
+      ratio,
+      override?.[ratio] ?? DEFAULT_ASPECT_DIMENSIONS[ratio],
+    ]),
+  );
+}
 
 export const DEFAULT_TRYON_CONFIG: { creditCost: number } = {
   creditCost: SIMPLE_TRYON_COST,
@@ -95,6 +120,26 @@ export async function getMaxOutputPx(app: FastifyInstance): Promise<number> {
     return typeof max === 'number' ? max : DEFAULT_MAX_OUTPUT_PX;
   } catch {
     return DEFAULT_MAX_OUTPUT_PX;
+  }
+}
+
+/**
+ * Reads the admin-configured output pixel dimensions for one aspect ratio from
+ * the same `config:system` Redis key. Falls back to the hardcoded
+ * ASPECT_DIMENSIONS default if nothing is stored yet, the entry is malformed,
+ * or the ratio isn't one of the fixed set (see DEFAULT_ASPECT_DIMENSIONS).
+ */
+export async function getAspectDimensions(
+  app: FastifyInstance,
+  aspectRatio: string,
+): Promise<{ width: number; height: number } | undefined> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const dims = cfg.aspectDimensions?.[aspectRatio];
+    return dims ?? DEFAULT_ASPECT_DIMENSIONS[aspectRatio];
+  } catch {
+    return DEFAULT_ASPECT_DIMENSIONS[aspectRatio];
   }
 }
 
@@ -178,9 +223,9 @@ export async function getPixverseVideoCreditCost(
 }
 
 /**
- * Reads the admin-configured number of free trial credits granted once,
- * automatically, when a Shopify store first links to an AiVastra account
- * (see grantShopifyTrialCredits in modules/shopify/purchase.ts). Falls back to
+ * Reads the admin-configured number of free credits granted once when a
+ * store owner confirms their contact email from the Dashboard popup (see
+ * grantShopifyEmailBonus in modules/shopify/purchase.ts). Falls back to
  * DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits if nothing is stored yet, or the
  * entry is missing/malformed.
  */

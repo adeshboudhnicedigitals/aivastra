@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, count, eq, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 export interface EffectiveEnablementInput {
@@ -77,4 +77,62 @@ export async function resolveEffectiveEnabled(
     inEnabledCollection,
     inExcludedCollection,
   });
+}
+
+/** EXISTS predicate: is the garment row's product in any collection in `set`? */
+function inCollectionSetSql(
+  set: typeof schema.shopifyEnabledCollections | typeof schema.shopifyExcludedCollections,
+) {
+  return sql`exists (
+    select 1
+    from ${schema.shopifyCollectionProducts} cp
+    join ${set} s
+      on s.store_id = cp.store_id
+     and s.shopify_collection_id = cp.shopify_collection_id
+    where cp.store_id = ${schema.shopifyProductGarments.storeId}
+      and cp.shopify_product_id = ${schema.shopifyProductGarments.shopifyProductId}
+  )`;
+}
+
+/**
+ * How many synced products currently have try-on effectively on.
+ *
+ * This is the one place the activation rule is expressed as SQL rather than
+ * through `computeEffectiveEnabled`, and it lives here — beside the function it
+ * mirrors — so the two are read and changed together. Per-row use of
+ * `resolveEffectiveEnabled` would be two queries per product, which a
+ * catalog-sized store turns into thousands on a single Manage page load.
+ *
+ * The mirroring is not left to reviewer discipline: an integration test seeds
+ * every combination of the five inputs in both modes and asserts this count
+ * equals the number `computeEffectiveEnabled` returns true for, so any drift
+ * between the two fails the build.
+ */
+export async function countEffectivelyEnabled(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+): Promise<number> {
+  const mode = store.settings.activation?.mode ?? 'selective';
+
+  const [row] = await app.db
+    .select({ value: count() })
+    .from(schema.shopifyProductGarments)
+    .where(
+      and(
+        eq(schema.shopifyProductGarments.storeId, store.id),
+        // Exclusion wins first, exactly as in computeEffectiveEnabled.
+        eq(schema.shopifyProductGarments.excluded, false),
+        sql`not ${inCollectionSetSql(schema.shopifyExcludedCollections)}`,
+        // Global short-circuits to enabled; selective falls back to the
+        // individual flag or membership of an enabled collection.
+        mode === 'global'
+          ? undefined
+          : or(
+              eq(schema.shopifyProductGarments.enabled, true),
+              inCollectionSetSql(schema.shopifyEnabledCollections),
+            ),
+      ),
+    );
+
+  return row?.value ?? 0;
 }

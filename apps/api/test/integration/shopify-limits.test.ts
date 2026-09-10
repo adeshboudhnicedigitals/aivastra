@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { reserveStoreDailySlot } from '../../src/modules/shopify/limits.js';
+import { refundStoreAndMarkCancelled } from '../../src/modules/credits/shopify-ledger.js';
+import { releaseStoreDailySlot, reserveStoreDailySlot } from '../../src/modules/shopify/limits.js';
 import { storeDayKey } from '../../src/modules/shopify/store-day.js';
 import { buildTestApp } from '../helpers/api.js';
 import { startContainers } from '../helpers/containers.js';
@@ -160,7 +161,7 @@ describe('shopify shopper limits', () => {
 
     expect(res.statusCode).toBe(202);
     expect(res.json().reason).toBe('store_limit');
-    expect(res.json().message).toBe("Try-on isn't available right now.");
+    expect(res.json().message).toMatch(/^Try-on isn't available right now\. Come back .+\.$/);
 
     const [credits] = await app.db
       .select()
@@ -604,18 +605,24 @@ describe('shopify shopper limits', () => {
     expect(slot.ok).toBe(true);
     if (!slot.ok) throw new Error('expected a reserved slot');
 
-    const realDecr = app.redis.decr.bind(app.redis);
-    app.redis.decr = (async () => {
-      throw new Error('redis decrement failed');
-    }) as typeof app.redis.decr;
+    const jobId = randomUUID();
+    // The release is a Lua script now, not a bare DECR — numkeys 2 is the
+    // release (counter + per-job marker); the reservation script passes 1.
+    const realEval = app.redis.eval.bind(app.redis);
+    app.redis.eval = (async (...args: unknown[]) => {
+      if (args[1] === 2) throw new Error('redis release failed');
+      // biome-ignore lint/suspicious/noExplicitAny: passthrough to the real variadic signature
+      return (realEval as any)(...args);
+    }) as typeof app.redis.eval;
     try {
-      await expect(slot.release()).rejects.toThrow('redis decrement failed');
+      await expect(slot.release(jobId)).rejects.toThrow('redis release failed');
     } finally {
-      app.redis.decr = realDecr;
+      app.redis.eval = realEval;
     }
-
-    await slot.release();
-    await slot.release();
+    // The throwing attempt must not have claimed the marker, or the real
+    // release below would be swallowed as a duplicate.
+    await slot.release(jobId);
+    await slot.release(jobId);
     expect(await app.redis.get(counterKey)).toBe('0');
   });
 
@@ -666,10 +673,10 @@ describe('shopify shopper limits', () => {
 
   it('recovers store quota via bounded route-level retries after transient release failures', async () => {
     // Regression for finding #3 (fix round 1): the route used to call
-    // slot.release() exactly once. A single transient DECR failure
+    // slot.release() exactly once. A single transient release failure
     // permanently leaked the reserved slot until the 48h key expiry. The
     // route now retries the (already-idempotent) release closure up to 3
-    // times — this forces the first two DECR calls to fail and asserts the
+    // times — this forces the first two release calls to fail and asserts the
     // counter is restored anyway, without the test itself retrying anything.
     await seedDefaultFunnelTemplate();
     const owner = await seedOwner(100);
@@ -684,13 +691,18 @@ describe('shopify shopper limits', () => {
       throw new Error('redis down');
     }) as typeof app.redis.xadd;
 
-    const realDecr = app.redis.decr.bind(app.redis);
-    let decrCalls = 0;
-    app.redis.decr = (async (key: string) => {
-      decrCalls += 1;
-      if (decrCalls <= 2) throw new Error('transient decrement failure');
-      return realDecr(key);
-    }) as typeof app.redis.decr;
+    const realEval = app.redis.eval.bind(app.redis);
+    let releaseCalls = 0;
+    app.redis.eval = (async (...args: unknown[]) => {
+      if (args[1] !== 2) {
+        // biome-ignore lint/suspicious/noExplicitAny: passthrough to the real variadic signature
+        return (realEval as any)(...args);
+      }
+      releaseCalls += 1;
+      if (releaseCalls <= 2) throw new Error('transient release failure');
+      // biome-ignore lint/suspicious/noExplicitAny: passthrough to the real variadic signature
+      return (realEval as any)(...args);
+    }) as typeof app.redis.eval;
 
     try {
       const failed = await createJob(store, {
@@ -699,7 +711,7 @@ describe('shopify shopper limits', () => {
         clientId: randomUUID(),
       });
       expect.soft(failed.statusCode).toBe(503);
-      expect.soft(decrCalls).toBe(3);
+      expect.soft(releaseCalls).toBe(3);
 
       const [job] = await app.db
         .select()
@@ -715,7 +727,7 @@ describe('shopify shopper limits', () => {
       expect.soft(credits.balance).toBe(100);
     } finally {
       app.redis.xadd = realXadd;
-      app.redis.decr = realDecr;
+      app.redis.eval = realEval;
     }
 
     // Quota recovered without the test manually retrying — the very next
@@ -750,5 +762,150 @@ describe('shopify shopper limits', () => {
       clientId,
     });
     expect(res.statusCode).toBe(201);
+  });
+  // ── Gap 4: a failed try-on must stop consuming the merchant's daily cap ──
+  //
+  // The cap is a merchant-configured ceiling on their own spend ("once this
+  // many try-ons have run today"). A generation that failed did not run and is
+  // refunded, so keeping its slot charged the merchant nothing and still ended
+  // their day early. It also left the store cap disagreeing with the
+  // per-shopper cap, which has always excluded FAILED jobs.
+
+  it('pins the cap key onto the job so a later failure can find it', async () => {
+    await seedDefaultFunnelTemplate();
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    await seedGarment(store.id, 5310);
+    await setLimits(store.id, { storeDailyCap: 5 });
+    const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
+
+    const res = await createJob(store, {
+      customerPhotoKey: photo,
+      shopifyProductId: 5310,
+      clientId: randomUUID(),
+    });
+    expect(res.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, JSON.parse(res.body).jobId));
+    // Recorded at creation, not recomputed later: a job created at 23:59 and
+    // failed at 00:01 has to give its slot back to the day it was created.
+    expect((inputs.params as { storeCapKey?: string }).storeCapKey).toBe(
+      `shopify:cap:store:${store.id}:${storeDayKey(null)}`,
+    );
+  });
+
+  it('records no cap key when the store is uncapped', async () => {
+    await seedDefaultFunnelTemplate();
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    await seedGarment(store.id, 5311);
+    await setLimits(store.id, { perShopperCap: 5 });
+    const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
+
+    const res = await createJob(store, {
+      customerPhotoKey: photo,
+      shopifyProductId: 5311,
+      clientId: randomUUID(),
+    });
+    expect(res.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, JSON.parse(res.body).jobId));
+    expect((inputs.params as { storeCapKey?: string | null }).storeCapKey).toBeNull();
+  });
+
+  it('releases a slot exactly once per job, however many times it is asked', async () => {
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    await setLimits(store.id, { storeDailyCap: 3 });
+    const [configured] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    const counterKey = `shopify:cap:store:${store.id}:${storeDayKey(null)}`;
+
+    const a = await reserveStoreDailySlot(app, configured);
+    const b = await reserveStoreDailySlot(app, configured);
+    if (!a.ok || !b.ok) throw new Error('expected reserved slots');
+    expect(await app.redis.get(counterKey)).toBe('2');
+
+    const jobA = randomUUID();
+    // A redelivered stream message, a sweeper racing the processor, and an
+    // admin cancel racing a GPU failure can all drive this for one job.
+    expect(await releaseStoreDailySlot(app.redis, counterKey, jobA)).toBe(true);
+    expect(await releaseStoreDailySlot(app.redis, counterKey, jobA)).toBe(false);
+    expect(await releaseStoreDailySlot(app.redis, counterKey, jobA)).toBe(false);
+    expect(await app.redis.get(counterKey)).toBe('1');
+
+    // A different job releases its own slot independently.
+    expect(await releaseStoreDailySlot(app.redis, counterKey, randomUUID())).toBe(true);
+    expect(await app.redis.get(counterKey)).toBe('0');
+  });
+
+  it('never drives the counter negative once the day key has expired', async () => {
+    const store = await seedStore(null);
+    const counterKey = `shopify:cap:store:${store.id}:${storeDayKey(null)}`;
+    await app.redis.del(counterKey);
+
+    // DECR on a missing key would create it at -1, which hands the next
+    // store-day free slots on top of its cap.
+    expect(await releaseStoreDailySlot(app.redis, counterKey, randomUUID())).toBe(false);
+    expect(await app.redis.get(counterKey)).toBeNull();
+
+    await app.redis.set(counterKey, '0');
+    expect(await releaseStoreDailySlot(app.redis, counterKey, randomUUID())).toBe(false);
+    expect(await app.redis.get(counterKey)).toBe('0');
+  });
+
+  it('gives the slot back when an admin cancels a store-billed job', async () => {
+    await seedDefaultFunnelTemplate();
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    await seedGarment(store.id, 5312);
+    await setLimits(store.id, { storeDailyCap: 1 });
+    const counterKey = `shopify:cap:store:${store.id}:${storeDayKey(null)}`;
+    const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
+
+    const res = await createJob(store, {
+      customerPhotoKey: photo,
+      shopifyProductId: 5312,
+      clientId: randomUUID(),
+    });
+    expect(res.statusCode).toBe(201);
+    expect(await app.redis.get(counterKey)).toBe('1');
+
+    const jobId = JSON.parse(res.body).jobId as string;
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    const capKey = (inputs.params as { storeCapKey: string }).storeCapKey;
+
+    // Stands in for the admin cancel route's own compensation step.
+    await refundStoreAndMarkCancelled(
+      app.db,
+      store.id,
+      1,
+      jobId,
+      'REFUND_ADMIN_CANCEL',
+      'ADMIN_CANCEL',
+    );
+    await releaseStoreDailySlot(app.redis, capKey, jobId);
+
+    expect(await app.redis.get(counterKey)).toBe('0');
+
+    // The whole point: the merchant's cap-of-1 store can serve another shopper
+    // instead of being dark for the rest of the day over a try-on that never ran.
+    const retry = await createJob(store, {
+      customerPhotoKey: photo,
+      shopifyProductId: 5312,
+      clientId: randomUUID(),
+    });
+    expect(retry.statusCode).toBe(201);
   });
 });

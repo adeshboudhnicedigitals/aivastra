@@ -6,7 +6,11 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
-import { sendPasswordResetEmail, sendVerificationEmail } from '../../lib/mailer.js';
+import {
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+  sendWelcomeEmail,
+} from '../../lib/mailer.js';
 import { resolveMerchantStatus } from '../merchant/status.js';
 import { resolveCampaignId } from './campaign.js';
 import { parseAcceptedAudiences, verifyGoogleIdToken } from './google-id-token.js';
@@ -1016,7 +1020,17 @@ export async function authRoutes(app: FastifyInstance) {
       const identity = await verifyGoogleIdToken(idToken, audiences);
 
       const freeCredits = await resolveFreeCredits(app.db);
-      const userId = await app.db.transaction((tx) => upsertGoogleUser(tx, identity, freeCredits));
+      const { userId, isNewUser } = await app.db.transaction((tx) =>
+        upsertGoogleUser(tx, identity, freeCredits),
+      );
+
+      if (isNewUser) {
+        try {
+          await sendWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, identity.email);
+        } catch (err) {
+          app.log.error({ err }, 'Failed to send welcome email');
+        }
+      }
 
       const [user] = await app.db
         .select({
@@ -1268,10 +1282,20 @@ export async function authRoutes(app: FastifyInstance) {
       const { token } = req.query as { token: string };
       const userId = await app.redis.getdel(`email:verify:${token}`);
       if (!userId) throw new AppError('INVALID_OR_EXPIRED_TOKEN', 400, 'invalid or expired token');
-      await app.db
+      const [verifiedUser] = await app.db
         .update(schema.users)
         .set({ emailVerified: true })
-        .where(eq(schema.users.id, userId));
+        .where(eq(schema.users.id, userId))
+        .returning({ email: schema.users.email });
+
+      try {
+        if (verifiedUser?.email) {
+          await sendWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, verifiedUser.email);
+        }
+      } catch (err) {
+        app.log.error({ err }, 'Failed to send welcome email');
+      }
+
       return createSessionTokens(app, userId, reply, 200);
     },
   );

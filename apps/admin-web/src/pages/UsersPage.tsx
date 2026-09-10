@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { KV } from '../components/KV';
@@ -13,6 +14,9 @@ import { apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
 import type { CreditLedgerEntry, CreditPlan, User } from '../types';
 
 const PAGE_SIZE = 20;
+// Sentinel planFilter value meaning "any plan except free" — sent to the API
+// as excludeFree=true rather than tier=<slug>, since it isn't a real plan slug.
+const PAID_PLAN_FILTER = '__paid__';
 
 const EMPTY_GRANT_MERCHANT_FORM = {
   companyName: '',
@@ -51,21 +55,60 @@ function userLabel(u: {
 function userContact(u: { email: string | null; username: string | null }) {
   return u.email ?? (u.username ? `@${u.username}` : '\u2014');
 }
+function hasActiveUnlimitedPlan(u: Pick<User, 'unlimitedPlan'>) {
+  return u.unlimitedPlan?.status === 'active' || u.unlimitedPlan?.status === 'expiring_soon';
+}
+
+interface JobPreviewInputImages {
+  person?: string;
+  face?: string;
+  background?: string;
+  pose?: string;
+  upper?: string;
+  lower?: string;
+  shoe?: string;
+}
+interface JobPreview {
+  id: string;
+  status: string;
+  jobType?: string;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  outputUrl?: string;
+  inputImages?: JobPreviewInputImages;
+}
+
+function fmtJobPreviewDuration(j: JobPreview): string | null {
+  if (!j.startedAt || !j.completedAt) return null;
+  const ms = new Date(j.completedAt).getTime() - new Date(j.startedAt).getTime();
+  return `${(ms / 1000).toFixed(1)}s`;
+}
 
 interface Props {
   onNav: (
     _page: string,
-    _filter?: { page: string; filter?: string; search?: string; jobId?: string },
+    _filter?: {
+      page: string;
+      filter?: string;
+      search?: string;
+      jobId?: string;
+      fromUserId?: string;
+    },
   ) => void;
   toast: (t: { kind?: 'error' | 'warning' | 'success'; title: string; body?: string }) => void;
 }
 
 export default function UsersPage({ onNav, toast }: Props) {
+  const location = useLocation();
+  const requestedUserId = (location.state as { userId?: string })?.userId;
+  const requestedJobId = (location.state as { jobId?: string })?.jobId;
   const { role: myRole } = useAuth();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
   const [merchantsOnly, setMerchantsOnly] = useState(false);
   const [showBanned, setShowBanned] = useState(false);
+  const [planFilter, setPlanFilter] = useState('');
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof User>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -92,6 +135,15 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [selectedMaxDevices, setSelectedMaxDevices] = useState('1');
   const [deviceLimitSaving, setDeviceLimitSaving] = useState(false);
   const [editingAccountField, setEditingAccountField] = useState<'plan' | 'devices' | null>(null);
+  const [unlimitedPlanForm, setUnlimitedPlanForm] = useState<{
+    startAt: string;
+    endAt: string;
+    note: string;
+    priceRupees: string;
+    queueStream: 'priority' | 'normal' | 'low';
+  } | null>(null);
+  const [savingUnlimitedPlan, setSavingUnlimitedPlan] = useState(false);
+  const [revokingUnlimitedPlan, setRevokingUnlimitedPlan] = useState(false);
   const [showGrantMerchant, setShowGrantMerchant] = useState(false);
   const [grantMerchantForm, setGrantMerchantForm] = useState(EMPTY_GRANT_MERCHANT_FORM);
   const [grantingMerchant, setGrantingMerchant] = useState(false);
@@ -110,10 +162,27 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [creditActivity, setCreditActivity] = useState<CreditLedgerEntry[]>([]);
   const [creditActivityLoading, setCreditActivityLoading] = useState(false);
   const [showAllCreditActivity, setShowAllCreditActivity] = useState(false);
+  const [jobPreviewId, setJobPreviewId] = useState<string | null>(null);
+  const [jobPreview, setJobPreview] = useState<JobPreview | null>(null);
+  const [jobPreviewLoading, setJobPreviewLoading] = useState(false);
   const [exportFrom, setExportFrom] = useState('');
   const [exportTo, setExportTo] = useState('');
   const [exportSortDir, setExportSortDir] = useState<'asc' | 'desc'>('desc');
   const [exportingFormat, setExportingFormat] = useState<'pdf' | 'xlsx' | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [menuOpen]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -122,6 +191,10 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (query) params.set('search', query);
       if (merchantsOnly) params.set('merchant', 'true');
       if (showBanned) params.set('showBanned', 'true');
+      if (exportFrom) params.set('createdFrom', exportFrom);
+      if (exportTo) params.set('createdTo', exportTo);
+      if (planFilter === PAID_PLAN_FILTER) params.set('excludeFree', 'true');
+      else if (planFilter) params.set('tier', planFilter);
       const data = await apiFetch<{ items: User[]; total: number }>(`/admin/users?${params}`);
       setUsers(data.items);
       setTotal(data.total);
@@ -134,7 +207,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [page, query, merchantsOnly, showBanned, toast]);
+  }, [page, query, merchantsOnly, showBanned, exportFrom, exportTo, planFilter, toast]);
 
   useEffect(() => {
     load();
@@ -166,6 +239,8 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (showBanned) params.set('showBanned', 'true');
       if (exportFrom) params.set('createdFrom', exportFrom);
       if (exportTo) params.set('createdTo', exportTo);
+      if (planFilter === PAID_PLAN_FILTER) params.set('excludeFree', 'true');
+      else if (planFilter) params.set('tier', planFilter);
       const blob = await apiFetchBlob(`/admin/users/export.${format}?${params}`);
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -225,6 +300,28 @@ export default function UsersPage({ onNav, toast }: Props) {
     [toast],
   );
 
+  const openJobPreview = useCallback(
+    async (jobId: string) => {
+      setJobPreviewId(jobId);
+      setJobPreview(null);
+      setJobPreviewLoading(true);
+      try {
+        const full = await apiFetch<JobPreview>(`/admin/jobs/${jobId}`);
+        setJobPreview(full);
+      } catch (e) {
+        toast({
+          kind: 'error',
+          title: 'Failed to load job details',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
+        setJobPreviewId(null);
+      } finally {
+        setJobPreviewLoading(false);
+      }
+    },
+    [toast],
+  );
+
   const openDetail = async (u: User) => {
     setDetail(u);
     setSelectedTier(u.tier);
@@ -250,6 +347,41 @@ export default function UsersPage({ onNav, toast }: Props) {
     }
   };
 
+  useEffect(() => {
+    if (!requestedUserId) return;
+    let cancelled = false;
+    setDetailLoading(true);
+    Promise.all([
+      apiFetch<User>(`/admin/users/${requestedUserId}`),
+      loadCreditActivity(requestedUserId),
+    ])
+      .then(([full]) => {
+        if (cancelled) return;
+        setDetail(full);
+        setSelectedTier(full.tier);
+        setSelectedMaxDevices(String(full.maxActiveDevices ?? 1));
+        setShowAllCreditActivity(false);
+        // Landed here via the job popup's "Go to job" link + the job page's
+        // "Back to user" — reopen the same popup instead of just the bare
+        // user detail, so the trip back feels like a round-trip, not a reset.
+        if (requestedJobId) void openJobPreview(requestedJobId);
+      })
+      .catch((e) => {
+        if (!cancelled)
+          toast({
+            kind: 'error',
+            title: 'Failed to load user detail',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedUserId, requestedJobId, loadCreditActivity, openJobPreview, toast]);
+
   const openAdjustCredits = () => {
     if (!detail) return;
     setGrantUserId(detail.id);
@@ -263,6 +395,91 @@ export default function UsersPage({ onNav, toast }: Props) {
     setGrantMode('grant');
     setGrantAmount('');
     setGrantReason('');
+  };
+
+  const openUnlimitedPlanEditor = () => {
+    if (!detail) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const plan = detail.unlimitedPlan;
+    const hasActive =
+      plan && plan.status !== 'none' && plan.status !== 'revoked' && plan.status !== 'expired';
+    setUnlimitedPlanForm({
+      startAt: hasActive && plan?.startAt ? plan.startAt.slice(0, 10) : today,
+      endAt:
+        hasActive && plan?.endAt
+          ? plan.endAt.slice(0, 10)
+          : new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10),
+      note: (hasActive && plan?.note) || '',
+      priceRupees: hasActive && plan?.pricePaise != null ? String(plan.pricePaise / 100) : '',
+      queueStream: (hasActive && plan?.queueStream) || 'normal',
+    });
+  };
+
+  const closeUnlimitedPlanEditor = () => setUnlimitedPlanForm(null);
+
+  const handleGrantUnlimitedPlan = async () => {
+    if (!detail || !unlimitedPlanForm) return;
+    setSavingUnlimitedPlan(true);
+    try {
+      const updated = await apiFetch<NonNullable<User['unlimitedPlan']>>(
+        `/admin/users/${detail.id}/unlimited-plan`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            startAt: new Date(unlimitedPlanForm.startAt).toISOString(),
+            endAt: new Date(unlimitedPlanForm.endAt).toISOString(),
+            note: unlimitedPlanForm.note.trim() || undefined,
+            pricePaise: Math.round((parseFloat(unlimitedPlanForm.priceRupees) || 0) * 100),
+            queueStream: unlimitedPlanForm.queueStream,
+          }),
+        },
+      );
+      setDetail((prev) => (prev ? { ...prev, unlimitedPlan: updated } : null));
+      setUsers((prev) =>
+        prev.map((u) => (u.id === detail.id ? { ...u, unlimitedPlan: updated } : u)),
+      );
+      toast({ title: 'Monthly plan saved' });
+      closeUnlimitedPlanEditor();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to save monthly plan',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setSavingUnlimitedPlan(false);
+    }
+  };
+
+  const handleRevokeUnlimitedPlan = async () => {
+    if (!detail) return;
+    setRevokingUnlimitedPlan(true);
+    try {
+      await apiFetch(`/admin/users/${detail.id}/unlimited-plan/revoke`, { method: 'POST' });
+      const cleared = {
+        status: 'none' as const,
+        startAt: null,
+        endAt: null,
+        daysRemaining: null,
+        note: null,
+        pricePaise: null,
+        queueStream: null,
+      };
+      setDetail((prev) => (prev ? { ...prev, unlimitedPlan: cleared } : null));
+      setUsers((prev) =>
+        prev.map((u) => (u.id === detail.id ? { ...u, unlimitedPlan: cleared } : u)),
+      );
+      toast({ title: 'Monthly plan revoked' });
+      closeUnlimitedPlanEditor();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to revoke monthly plan',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setRevokingUnlimitedPlan(false);
+    }
   };
 
   const openPlanEditor = () => {
@@ -765,23 +982,22 @@ export default function UsersPage({ onNav, toast }: Props) {
               </button>
             )}
             {isSuperAdmin && u.adminRole !== 'SUPER_ADMIN' && (u.isAdmin || u.hasPassword) && (
-              <select
-                className="input"
+              <SearchableSelect
+                options={[
+                  { id: 'NONE', label: 'Not admin' },
+                  { id: 'ADMIN', label: 'Admin' },
+                  { id: 'MODERATOR', label: 'Moderator' },
+                  { id: 'SUPPORT', label: 'Support' },
+                ]}
                 value={u.isAdmin ? (u.adminRole ?? 'ADMIN') : 'NONE'}
                 disabled={adminActioning}
-                onChange={(e) => {
-                  const next = e.target.value;
+                onChange={(next) => {
                   if (next === 'NONE') void revokeAdminRole(u);
                   else void assignAdminRole(u, next);
                 }}
-                title="Admin role"
+                ariaLabel="Admin role"
                 style={{ width: 'auto', height: 36 }}
-              >
-                <option value="NONE">Not admin</option>
-                <option value="ADMIN">Admin</option>
-                <option value="MODERATOR">Moderator</option>
-                <option value="SUPPORT">Support</option>
-              </select>
+              />
             )}
             {!u.isAdmin && (
               <button className="btn danger" onClick={() => setConfirmSuspend(u.id)}>
@@ -814,13 +1030,74 @@ export default function UsersPage({ onNav, toast }: Props) {
                   Change plan <Icon.Chevron />
                 </div>
               </button>
-              <button className="stat" onClick={openAdjustCredits} title="Adjust credits">
+              {u.unlimitedPlan &&
+              (u.unlimitedPlan.status === 'active' ||
+                u.unlimitedPlan.status === 'expiring_soon') ? (
+                <button
+                  className="stat"
+                  onClick={openUnlimitedPlanEditor}
+                  title="Manage monthly plan"
+                >
+                  <div className="lbl">
+                    <Icon.Coin /> Credit balance
+                  </div>
+                  <div className="val">
+                    Monthly{' '}
+                    <span
+                      className={`badge ${u.unlimitedPlan.status === 'expiring_soon' ? 'warn' : 'success'} dot`}
+                    >
+                      {u.unlimitedPlan.daysRemaining} day
+                      {u.unlimitedPlan.daysRemaining === 1 ? '' : 's'} left
+                    </span>
+                  </div>
+                  <div className="delta">
+                    Manage monthly plan <Icon.Chevron />
+                  </div>
+                </button>
+              ) : (
+                <button className="stat" onClick={openAdjustCredits} title="Adjust credits">
+                  <div className="lbl">
+                    <Icon.Coin /> Credit balance
+                  </div>
+                  <div className="val">{u.balance.toLocaleString()}</div>
+                  <div className="delta">
+                    Adjust credits <Icon.Chevron />
+                  </div>
+                </button>
+              )}
+              <button
+                className="stat"
+                onClick={openUnlimitedPlanEditor}
+                title="Grant or manage a monthly plan"
+              >
                 <div className="lbl">
-                  <Icon.Coin /> Credit balance
+                  <Icon.Credit /> Monthly plan
                 </div>
-                <div className="val">{u.balance.toLocaleString()}</div>
+                <div className="val">
+                  {u.unlimitedPlan && u.unlimitedPlan.status !== 'none' ? (
+                    <span
+                      className={`badge dot ${
+                        u.unlimitedPlan.status === 'active'
+                          ? 'success'
+                          : u.unlimitedPlan.status === 'expiring_soon'
+                            ? 'warn'
+                            : 'danger'
+                      }`}
+                    >
+                      {u.unlimitedPlan.status === 'active' && 'Active'}
+                      {u.unlimitedPlan.status === 'expiring_soon' && 'Expiring soon'}
+                      {u.unlimitedPlan.status === 'expired' && 'Expired'}
+                      {u.unlimitedPlan.status === 'revoked' && 'Revoked'}
+                    </span>
+                  ) : (
+                    'None'
+                  )}
+                </div>
                 <div className="delta">
-                  Adjust credits <Icon.Chevron />
+                  {u.unlimitedPlan && u.unlimitedPlan.status !== 'none'
+                    ? 'Manage'
+                    : 'Grant monthly plan'}{' '}
+                  <Icon.Chevron />
                 </div>
               </button>
               <button
@@ -1020,10 +1297,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                                   className="mono sub"
                                   style={{ cursor: 'pointer' }}
                                   title="Open job details"
-                                  onClick={() => {
-                                    const jobId = l.jobId as string;
-                                    onNav('jobs', { page: 'jobs', search: jobId, jobId });
-                                  }}
+                                  onClick={() => void openJobPreview(l.jobId as string)}
                                 >
                                   {l.jobId.slice(0, 8)}&hellip;
                                 </span>
@@ -1075,6 +1349,166 @@ export default function UsersPage({ onNav, toast }: Props) {
               />
             </div>
           </EditDrawer>
+        )}
+
+        {jobPreviewId && (
+          <div
+            className="modal-overlay"
+            onClick={() => {
+              setJobPreviewId(null);
+              setJobPreview(null);
+            }}
+          >
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3 style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>
+                  Job {jobPreviewId.slice(0, 8)}&hellip;
+                </h3>
+                {jobPreview && (
+                  <span style={{ marginLeft: 'auto' }}>
+                    <StatusBadge status={jobPreview.status} />
+                  </span>
+                )}
+              </div>
+              <div className="modal-body">
+                {jobPreviewLoading ? (
+                  <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading&hellip;</p>
+                ) : jobPreview ? (
+                  <>
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 20,
+                        marginBottom: 14,
+                        fontSize: 12.5,
+                        color: 'var(--muted)',
+                      }}
+                    >
+                      <span>Created {new Date(jobPreview.createdAt).toLocaleString()}</span>
+                      <span>Duration {fmtJobPreviewDuration(jobPreview) ?? '—'}</span>
+                    </div>
+                    {jobPreview.outputUrl && (
+                      <div className="card" style={{ marginBottom: 14 }}>
+                        <div className="card-head">
+                          <h3>Output</h3>
+                        </div>
+                        <div className="card-body">
+                          <a
+                            href={jobPreview.outputUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="link"
+                          >
+                            View output <Icon.ExternalLink />
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                    {jobPreview.inputImages &&
+                      Object.values(jobPreview.inputImages).some(Boolean) && (
+                        <div className="card">
+                          <div className="card-head">
+                            <h3>Input Images</h3>
+                          </div>
+                          <div className="card-body">
+                            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                              {(
+                                [
+                                  { key: 'person', label: 'Person' },
+                                  { key: 'face', label: 'Face (ComfyUI)' },
+                                  { key: 'background', label: 'Background (ComfyUI)' },
+                                  { key: 'pose', label: 'Pose' },
+                                  { key: 'upper', label: 'Upper Garment' },
+                                  { key: 'lower', label: 'Lower Garment' },
+                                  { key: 'shoe', label: 'Shoes' },
+                                ] as { key: keyof JobPreviewInputImages; label: string }[]
+                              ).map(({ key, label }) => {
+                                const url = jobPreview.inputImages?.[key];
+                                if (!url) return null;
+                                return (
+                                  <div key={key} style={{ textAlign: 'center' }}>
+                                    <a
+                                      href={url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      style={{ textDecoration: 'none' }}
+                                    >
+                                      {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
+                                      <img
+                                        src={url}
+                                        alt={label}
+                                        style={{
+                                          width: 96,
+                                          height: 96,
+                                          objectFit: 'cover',
+                                          borderRadius: 8,
+                                          border: '1px solid var(--border)',
+                                          display: 'block',
+                                          cursor: 'zoom-in',
+                                        }}
+                                        onError={(e) => {
+                                          (e.target as HTMLImageElement).style.display = 'none';
+                                        }}
+                                      />
+                                      <span
+                                        style={{
+                                          fontSize: 11,
+                                          color: 'var(--muted)',
+                                          marginTop: 4,
+                                          display: 'block',
+                                        }}
+                                      >
+                                        {label}
+                                      </span>
+                                    </a>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    {!jobPreview.outputUrl &&
+                      (!jobPreview.inputImages ||
+                        !Object.values(jobPreview.inputImages).some(Boolean)) && (
+                        <p style={{ color: 'var(--muted)', fontSize: 13 }}>
+                          No input or output images for this job.
+                        </p>
+                      )}
+                  </>
+                ) : (
+                  <p style={{ color: 'var(--muted)', fontSize: 13 }}>Job not found.</p>
+                )}
+              </div>
+              <div className="modal-foot">
+                {detail && (
+                  <button
+                    className="btn ghost"
+                    style={{ marginRight: 'auto' }}
+                    onClick={() =>
+                      onNav('jobs', {
+                        page: 'jobs',
+                        search: jobPreviewId,
+                        jobId: jobPreviewId,
+                        fromUserId: detail.id,
+                      })
+                    }
+                  >
+                    Go to job <Icon.ExternalLink />
+                  </button>
+                )}
+                <button
+                  className="btn ghost"
+                  onClick={() => {
+                    setJobPreviewId(null);
+                    setJobPreview(null);
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {confirmSuspend && (
@@ -1288,6 +1722,158 @@ export default function UsersPage({ onNav, toast }: Props) {
           </EditDrawer>
         )}
 
+        {unlimitedPlanForm && (
+          <EditDrawer
+            onClose={closeUnlimitedPlanEditor}
+            title={`Monthly plan — ${userLabel(u)}`}
+            width="min(480px, calc(100vw - 40px))"
+            saving={savingUnlimitedPlan}
+            onSave={handleGrantUnlimitedPlan}
+            saveLabel={
+              savingUnlimitedPlan
+                ? 'Saving…'
+                : u.unlimitedPlan && u.unlimitedPlan.status !== 'none'
+                  ? 'Save changes'
+                  : 'Grant monthly plan'
+            }
+            saveDisabled={
+              savingUnlimitedPlan ||
+              !unlimitedPlanForm.startAt ||
+              !unlimitedPlanForm.endAt ||
+              unlimitedPlanForm.endAt <= unlimitedPlanForm.startAt
+            }
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <p className="hint">
+                No credit balance is used for this plan — the user's job spend bypasses their credit
+                balance entirely for the dates below.
+              </p>
+              <div className="field">
+                <label>Start date</label>
+                <input
+                  className="input"
+                  type="date"
+                  value={unlimitedPlanForm.startAt}
+                  onChange={(e) =>
+                    setUnlimitedPlanForm((f) => (f ? { ...f, startAt: e.target.value } : f))
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>End date</label>
+                <input
+                  className="input"
+                  type="date"
+                  value={unlimitedPlanForm.endAt}
+                  onChange={(e) =>
+                    setUnlimitedPlanForm((f) => (f ? { ...f, endAt: e.target.value } : f))
+                  }
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 14 }}>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Price (₹)</label>
+                  <div style={{ position: 'relative' }}>
+                    <span
+                      style={{
+                        position: 'absolute',
+                        left: 12,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        fontSize: 14,
+                        color: 'var(--muted)',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      ₹
+                    </span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={unlimitedPlanForm.priceRupees}
+                      placeholder="e.g. 5000"
+                      style={{ paddingLeft: 26 }}
+                      onChange={(e) =>
+                        setUnlimitedPlanForm((f) => (f ? { ...f, priceRupees: e.target.value } : f))
+                      }
+                    />
+                  </div>
+                  <p className="hint">
+                    Negotiated price for this user — charged again on every renewal. Not billed
+                    automatically; no GST invoice is generated.
+                  </p>
+                </div>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Job Queue Priority</label>
+                  <select
+                    className="input"
+                    value={unlimitedPlanForm.queueStream}
+                    onChange={(e) =>
+                      setUnlimitedPlanForm((f) =>
+                        f
+                          ? { ...f, queueStream: e.target.value as 'priority' | 'normal' | 'low' }
+                          : f,
+                      )
+                    }
+                  >
+                    <option value="priority">1st — Priority (jobs processed first)</option>
+                    <option value="normal">2nd — Normal</option>
+                    <option value="low">3rd — Low (processed last)</option>
+                  </select>
+                </div>
+              </div>
+              <div className="field">
+                <label>Note</label>
+                <textarea
+                  className="input"
+                  value={unlimitedPlanForm.note}
+                  onChange={(e) =>
+                    setUnlimitedPlanForm((f) => (f ? { ...f, note: e.target.value } : f))
+                  }
+                  placeholder="e.g. negotiated bargain deal, invoiced offline"
+                  rows={3}
+                />
+              </div>
+              {u.unlimitedPlan &&
+                (u.unlimitedPlan.status === 'active' ||
+                  u.unlimitedPlan.status === 'expiring_soon') && (
+                  <button
+                    type="button"
+                    className="btn danger"
+                    disabled={revokingUnlimitedPlan}
+                    onClick={handleRevokeUnlimitedPlan}
+                  >
+                    {revokingUnlimitedPlan ? 'Revoking…' : 'Revoke monthly plan'}
+                  </button>
+                )}
+              {u.unlimitedPlan?.charges && u.unlimitedPlan.charges.length > 0 && (
+                <div className="field">
+                  <label>Charge history</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {u.unlimitedPlan.charges.map((c) => (
+                      <div
+                        key={c.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          fontSize: 12,
+                          color: 'var(--muted)',
+                        }}
+                      >
+                        <span style={{ textTransform: 'capitalize' }}>{c.chargeType}</span>
+                        <span>₹{(c.pricePaise / 100).toLocaleString('en-IN')}</span>
+                        <span>{new Date(c.chargedAt).toLocaleDateString('en-IN')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </EditDrawer>
+        )}
+
         {showGrantMerchant && (
           <EditDrawer
             onClose={() => setShowGrantMerchant(false)}
@@ -1452,6 +2038,19 @@ export default function UsersPage({ onNav, toast }: Props) {
     );
   }
 
+  const hasActiveFilters = Boolean(
+    query || merchantsOnly || showBanned || exportFrom || exportTo || planFilter,
+  );
+  const clearFilters = () => {
+    setQuery('');
+    setMerchantsOnly(false);
+    setShowBanned(false);
+    setExportFrom('');
+    setExportTo('');
+    setPlanFilter('');
+    setPage(0);
+  };
+
   return (
     <>
       <div className="page-head">
@@ -1463,53 +2062,429 @@ export default function UsersPage({ onNav, toast }: Props) {
           </p>
         </div>
         <div className="head-tools">
-          <div className="search">
+          <button className="btn primary" onClick={openCreateUser}>
+            <Icon.Plus /> Create User
+          </button>
+        </div>
+      </div>
+
+      <div className="filter-card" style={{ marginBottom: 16 }}>
+        <div className="filter-row">
+          {/* User Segment Tabs */}
+          <div className="segmented-control" role="tablist">
+            <button
+              type="button"
+              className={`segmented-btn ${!merchantsOnly ? 'active' : ''}`}
+              onClick={() => {
+                setMerchantsOnly(false);
+                setPage(0);
+              }}
+            >
+              All users
+              <span className="badge-count">{total.toLocaleString()}</span>
+            </button>
+            <button
+              type="button"
+              className={`segmented-btn ${merchantsOnly ? 'active' : ''}`}
+              onClick={() => {
+                setMerchantsOnly(true);
+                setPage(0);
+              }}
+            >
+              Merchants
+            </button>
+          </div>
+
+          {/* Search Box */}
+          <div className="filter-search-box">
             <Icon.Search />
             <input
               placeholder="Search by name, email, or username…"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
             />
+            {query && (
+              <button
+                type="button"
+                className="filter-clear-btn"
+                onClick={() => handleSearch('')}
+                title="Clear search"
+              >
+                <Icon.Close />
+              </button>
+            )}
           </div>
-          <button
-            className="btn ghost"
-            onClick={() => handleExport('pdf')}
-            disabled={exportingFormat !== null}
-          >
-            <Icon.Download /> {exportingFormat === 'pdf' ? 'Exporting…' : 'Download PDF'}
-          </button>
-          <button
-            className="btn ghost"
-            onClick={() => handleExport('xlsx')}
-            disabled={exportingFormat !== null}
-          >
-            <Icon.Download /> {exportingFormat === 'xlsx' ? 'Exporting…' : 'Download Excel'}
-          </button>
-          <button className="btn" onClick={openCreateUser}>
-            <Icon.Plus /> Create User
-          </button>
-        </div>
-      </div>
 
-      <div className="tabs">
-        <button
-          className={`tab ${!merchantsOnly ? 'active' : ''}`}
-          onClick={() => {
-            setMerchantsOnly(false);
-            setPage(0);
-          }}
-        >
-          All users
-        </button>
-        <button
-          className={`tab ${merchantsOnly ? 'active' : ''}`}
-          onClick={() => {
-            setMerchantsOnly(true);
-            setPage(0);
-          }}
-        >
-          Merchants
-        </button>
+          {/* Options Menu Button & Popover */}
+          <div ref={menuRef} className="filter-popover-wrapper">
+            <button
+              type="button"
+              className={`filter-toggle-btn ${menuOpen || showBanned || exportFrom || exportTo || planFilter ? 'active' : ''}`}
+              onClick={() => setMenuOpen(!menuOpen)}
+              title="Filters & Export options"
+            >
+              <Icon.Filter />
+              <span>Options</span>
+              {(showBanned || exportFrom || exportTo || planFilter) && (
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: 'var(--accent)',
+                    display: 'inline-block',
+                  }}
+                />
+              )}
+            </button>
+
+            {menuOpen && (
+              <div className="filter-popover-menu">
+                {/* 1. Joined Date Filter */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Joined Date Range
+                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>From:</span>
+                      <input
+                        type="date"
+                        className="filter-input"
+                        value={exportFrom}
+                        onChange={(e) => {
+                          setExportFrom(e.target.value);
+                          setPage(0);
+                        }}
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 40 }}>To:</span>
+                      <input
+                        type="date"
+                        className="filter-input"
+                        value={exportTo}
+                        onChange={(e) => {
+                          setExportTo(e.target.value);
+                          setPage(0);
+                        }}
+                        style={{ flex: 1, height: 32, fontSize: 12 }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 2. Plan Filter */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Plan
+                  </span>
+                  <SearchableSelect
+                    options={[
+                      { id: PAID_PLAN_FILTER, label: 'Any paid plan' },
+                      ...tierOptions.map((slug) => ({ id: slug, label: slug })),
+                    ]}
+                    value={planFilter}
+                    onChange={(v) => {
+                      setPlanFilter(v);
+                      setPage(0);
+                    }}
+                    emptyLabel="All plans"
+                    style={{ width: '100%', height: 32, fontSize: 12.5 }}
+                  />
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 3. Show Suspended/Deleted Users */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    User Status
+                  </span>
+                  <button
+                    type="button"
+                    className={`filter-toggle-btn ${showBanned ? 'active' : ''}`}
+                    onClick={() => {
+                      setShowBanned(!showBanned);
+                      setPage(0);
+                    }}
+                    style={{
+                      width: '100%',
+                      justifyContent: 'flex-start',
+                      height: 32,
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: showBanned ? 'var(--accent)' : 'var(--muted)',
+                        display: 'inline-block',
+                      }}
+                    />
+                    Show suspended/deleted
+                  </button>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* 4. Export Data (PDF & Excel) */}
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: 'var(--muted)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                      }}
+                    >
+                      Export Data
+                    </span>
+                    <SearchableSelect
+                      options={[
+                        { id: 'desc', label: 'Newest first' },
+                        { id: 'asc', label: 'Oldest first' },
+                      ]}
+                      value={exportSortDir}
+                      onChange={(v) => setExportSortDir(v as 'asc' | 'desc')}
+                      style={{ height: 24, fontSize: 11 }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={() => {
+                        handleExport('pdf');
+                        setMenuOpen(false);
+                      }}
+                      disabled={exportingFormat !== null}
+                      style={{ flex: 1, justifyContent: 'center' }}
+                      title="Download PDF report"
+                    >
+                      <Icon.Download /> {exportingFormat === 'pdf' ? 'Exporting…' : 'PDF'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={() => {
+                        handleExport('xlsx');
+                        setMenuOpen(false);
+                      }}
+                      disabled={exportingFormat !== null}
+                      style={{ flex: 1, justifyContent: 'center' }}
+                      title="Download Excel spreadsheet"
+                    >
+                      <Icon.Download /> {exportingFormat === 'xlsx' ? 'Exporting…' : 'Excel'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Clear Filters Button */}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              className="btn sm ghost"
+              onClick={clearFilters}
+              style={{ marginLeft: 'auto' }}
+            >
+              <Icon.Close /> Clear filters
+            </button>
+          )}
+        </div>
+
+        {/* Active Filter Chips */}
+        {hasActiveFilters && (
+          <div className="filter-chips-row">
+            <span style={{ color: 'var(--muted)', fontSize: 11.5, marginRight: 2 }}>Active:</span>
+            {query && (
+              <span className="filter-chip">
+                Search: <strong>"{query}"</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => handleSearch('')}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {merchantsOnly && (
+              <span className="filter-chip">
+                Filter: <strong>Merchants only</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setMerchantsOnly(false);
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {showBanned && (
+              <span className="filter-chip">
+                Status: <strong>Suspended/deleted only</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setShowBanned(false);
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {(exportFrom || exportTo) && (
+              <span className="filter-chip">
+                Joined:{' '}
+                <strong>
+                  {exportFrom || 'Any'} → {exportTo || 'Today'}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setExportFrom('');
+                    setExportTo('');
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {planFilter && (
+              <span className="filter-chip">
+                Plan:{' '}
+                <strong style={{ textTransform: 'capitalize' }}>
+                  {planFilter === PAID_PLAN_FILTER ? 'Any paid plan' : planFilter}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setPlanFilter('');
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Bulk Selection Actions Bar */}
+        {(() => {
+          const pagedUserIds = sorted.map((u) => u.id);
+          const pageSelected =
+            pagedUserIds.length > 0 && pagedUserIds.every((id) => selectedUserIds.includes(id));
+          return (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                paddingTop: 8,
+                borderTop: '1px solid var(--border)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <button
+                type="button"
+                className="btn sm ghost"
+                onClick={() => {
+                  setSelectedUserIds((prev) =>
+                    pageSelected
+                      ? prev.filter((id) => !pagedUserIds.includes(id))
+                      : [...new Set([...prev, ...pagedUserIds])],
+                  );
+                }}
+              >
+                {pageSelected ? 'Deselect page' : 'Select page'}
+              </button>
+              {selectedUserIds.length > 0 && (
+                <>
+                  <span
+                    className="badge accent"
+                    style={{ fontSize: 12, padding: '3px 10px', fontWeight: 600 }}
+                  >
+                    {selectedUserIds.length} user{selectedUserIds.length > 1 ? 's' : ''} selected
+                  </span>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    onClick={() => setSelectedUserIds([])}
+                  >
+                    Clear selection
+                  </button>
+                  {isSuperAdmin && (
+                    <button
+                      type="button"
+                      className="btn sm danger"
+                      onClick={() => setShowBulkDeleteConfirm(true)}
+                      style={{ marginLeft: 'auto' }}
+                    >
+                      <Icon.Trash /> Delete selected ({selectedUserIds.length})
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {loading ? (
@@ -1518,119 +2493,6 @@ export default function UsersPage({ onNav, toast }: Props) {
         </p>
       ) : (
         <>
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              alignItems: 'center',
-              padding: '10px 0',
-              marginBottom: 4,
-              flexWrap: 'wrap',
-            }}
-          >
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 13,
-                color: 'var(--muted)',
-                cursor: 'pointer',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={showBanned}
-                onChange={(e) => {
-                  setShowBanned(e.target.checked);
-                  setPage(0);
-                }}
-              />
-              Show suspended/deleted
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="sub" style={{ fontSize: 13, color: 'var(--muted)' }}>
-                Joined:
-              </span>
-              <input
-                type="date"
-                value={exportFrom}
-                onChange={(e) => setExportFrom(e.target.value)}
-                style={{
-                  padding: '5px 8px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--ink)',
-                  fontSize: 13,
-                }}
-              />
-              <span style={{ fontSize: 13, color: 'var(--muted)' }}>to</span>
-              <input
-                type="date"
-                value={exportTo}
-                onChange={(e) => setExportTo(e.target.value)}
-                style={{
-                  padding: '5px 8px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--ink)',
-                  fontSize: 13,
-                }}
-              />
-              <select
-                value={exportSortDir}
-                onChange={(e) => setExportSortDir(e.target.value as 'asc' | 'desc')}
-                style={{
-                  padding: '5px 8px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--ink)',
-                  fontSize: 13,
-                }}
-              >
-                <option value="desc">Newest first</option>
-                <option value="asc">Oldest first</option>
-              </select>
-              <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                (applies to Download PDF/Excel)
-              </span>
-            </div>
-            {(() => {
-              const pagedUserIds = sorted.map((u) => u.id);
-              const pageSelected =
-                pagedUserIds.length > 0 && pagedUserIds.every((id) => selectedUserIds.includes(id));
-              return (
-                <button
-                  className="btn sm ghost"
-                  onClick={() => {
-                    setSelectedUserIds((prev) =>
-                      pageSelected
-                        ? prev.filter((id) => !pagedUserIds.includes(id))
-                        : [...new Set([...prev, ...pagedUserIds])],
-                    );
-                  }}
-                >
-                  {pageSelected ? 'Deselect page' : 'Select page'}
-                </button>
-              );
-            })()}
-            {selectedUserIds.length > 0 && (
-              <>
-                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-                  {selectedUserIds.length} selected
-                </span>
-                {isSuperAdmin && (
-                  <button className="btn sm danger" onClick={() => setShowBulkDeleteConfirm(true)}>
-                    Delete selected ({selectedUserIds.length})
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-
           <div className="desktop-only table-wrap">
             <table>
               <thead>
@@ -1743,9 +2605,17 @@ export default function UsersPage({ onNav, toast }: Props) {
                       )}
                     </td>
                     <td>
-                      <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {u.balance.toLocaleString()}
-                      </span>
+                      {hasActiveUnlimitedPlan(u) ? (
+                        <span
+                          className={`badge dot ${u.unlimitedPlan?.status === 'expiring_soon' ? 'warn' : 'success'}`}
+                        >
+                          Monthly
+                        </span>
+                      ) : (
+                        <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {u.balance.toLocaleString()}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <span className="mono" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -1844,7 +2714,11 @@ export default function UsersPage({ onNav, toast }: Props) {
                     >
                       <span style={{ textTransform: 'capitalize' }}>{u.tier}</span>
                       <span>&middot;</span>
-                      <span className="mono">{u.balance.toLocaleString()} credits</span>
+                      {hasActiveUnlimitedPlan(u) ? (
+                        <span className="mono">Monthly</span>
+                      ) : (
+                        <span className="mono">{u.balance.toLocaleString()} credits</span>
+                      )}
                     </div>
                   </div>
                 </div>

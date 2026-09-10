@@ -1,3 +1,322 @@
+> **Moved 2026-08-29:** the GPU audit report, optimisation runbook, ComfyUI authoring rules and
+> benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
+> with this one. The dated entries below are kept as history of the work.
+
+## 2026-09-10 — Dev API: merchant-uploaded custom backgrounds for catalog/generate
+
+- **Ask:** the internal bulk-try-on tool (a `/v1/dev/*` API-key caller) needed to mix a
+  client-specific custom background into `POST /v1/dev/catalog/generate`, alongside the
+  admin-curated face/pose/lower/shoe slugs — previously every axis but `garment` was
+  slug-only. Scoped down from a broader "custom image for every axis" proposal to just
+  background, since it's the axis with no rights/consent question and no workflow
+  node-mapping eligibility logic like lower/shoe have.
+- **Design:** a merchant IS a user (`merchants.userId`), and `createJob`'s existing
+  background validation (`apps/api/src/modules/jobs/create.ts:466-492`) already accepts
+  any `scope='user'` `model_backgrounds` row whose `userId` matches the `userId` passed
+  into `createJob` — which for the dev catalog route is `req.merchantUserId`. So storing
+  dev-uploaded backgrounds as `scope='user', userId=merchantUserId` (reusing the existing
+  `keys.userBackground` R2 key builder as-is) validates end-to-end with **zero schema
+  migration**. A confirmed background's own UUID doubles as its public slug — it already
+  satisfies `PUBLIC_SLUG`'s regex, so no `publicApiSlug` generation was needed either.
+- **Built:**
+  - `apps/api/src/modules/backgrounds/normalize.ts` — extracted the shared
+    validate/normalize/store pipeline out of `backgrounds/routes.ts` (used by both the
+    platform-user `/v1/backgrounds/mine/*` routes and the new dev routes).
+  - `apps/api/src/modules/dev/backgrounds.routes.ts` — new
+    `GET/POST/DELETE /v1/dev/backgrounds*` (list, presign, confirm, delete), API-key
+    auth (`requireApiKey` + `requireDevScope('full')`), scoped by `merchantUserId`. Byte
+    cap uses the existing admin-tunable `devApiMaxBytes` config (not a new hardcoded
+    constant); a `MAX_ACTIVE_DEV_BACKGROUNDS = 200` soft cap guards against unbounded
+    storage growth since uploads cost no credits.
+  - `apps/api/src/modules/dev/resolve-slugs.ts` — `resolveCatalogSelection` takes an
+    optional `merchantUserId` and merges the caller's own active backgrounds into the
+    slug-pick pool for `looks[].background`, via a small **uncached** query kept
+    deliberately outside the Redis-cached `getCatalogOptions` (that cache's key has no
+    tenant dimension — adding one would explode the key space for a low-cardinality
+    per-merchant set).
+  - Deliberately did NOT merge merchant backgrounds into `GET /v1/dev/catalog/options`:
+    that route's ETag/304 caching is keyed only on the shared cache generation, which a
+    background upload doesn't bump — merging in tenant data there would let a stale
+    `If-None-Match` wrongly 304 and hide a caller's own new upload. `POST
+    /v1/dev/backgrounds/confirm`'s response already returns the id/slug to use directly,
+    so this wasn't required.
+- **Tests:** `apps/api/test/dev-backgrounds.test.ts` (8 new) — upload round-trip,
+  cross-merchant 403 on confirm / 404 on delete, oversized-upload rejection, and three
+  `catalog/generate` resolution cases (own upload resolves; another merchant's id is
+  `BAD_SLUG`; a soft-deleted one is `BAD_SLUG`). Re-ran `dev-catalog.test.ts`,
+  `backgrounds-mine.test.ts`, and `jobs-create-background-ownership.test.ts` to confirm
+  the `normalize.ts` extraction didn't regress the platform-user path — all pass.
+- **Not done / explicitly out of scope:** the broader proposal (custom face/lower/shoe
+  images too) was scoped down to background only, per explicit ask. No rights/consent
+  attestation flag was needed since background carries no likeness question.
+
+## 2026-09-10 — Fix download button tooltip hidden in catalogues sticky toolbar
+
+- **Issue:** The download button tooltip in `apps/catalogues-web` on the `/catalogs` page was partially cut off and hidden beneath the top bar (`TopBar`) and the scroll container boundary. Additionally, the tooltip arrow triangle direction was inverted (pointing into the tooltip box rather than toward the target element).
+- **Cause:**
+  1. The toolbar (`catalogues-sticky-toolbar`) sits at `top: 0` inside `.catalogues-page-wrapper` (`overflow-y: auto`). Tooltips in the toolbar were configured with `position="top"`, which placed them above the top bound of `.catalogues-page-wrapper`, clipping them under `overflow-y: auto` and the `TopBar`.
+  2. The download button is on the far-right edge of the toolbar; centering a wide tooltip on the 56px button caused the right side of the tooltip to push against or overflow the right viewport boundary.
+  3. In `apps/catalogues-web/src/components/ui/tooltip.tsx`, the CSS border logic for the arrow triangle had `borderTop` and `borderBottom` inverted: `position === 'top'` was setting `borderBottom` (pointing up into the box) instead of `borderTop` (pointing down to the button), and vice versa.
+- **Fix:**
+  1. Updated `apps/catalogues-web/src/components/ui/tooltip.tsx`:
+     - Fixed arrow triangle borders so `position === 'top'` sets `borderTop` (pointing down) and `position === 'bottom'` sets `borderBottom` (pointing up).
+     - Added `align?: 'start' | 'center' | 'end'` support (defaults to `'center'`), allowing right-aligned (`align="end"`) and left-aligned (`align="start"`) tooltips with matching arrow offsets.
+  2. Updated `apps/catalogues-web/src/app/(app)/catalogs/page.tsx`:
+     - Changed toolbar tooltips (normal mode download button, normal mode Select All, selection mode download button, selection mode Select All, and clear selection) to use `position="bottom"` so they render cleanly below the sticky toolbar.
+     - Added `align="end"` to the download button tooltips to prevent right-edge container overflow.
+- **Verification:** Verified with `pnpm --filter @aivastra/web typecheck` and `pnpm --filter @aivastra/web build`.
+
+## 2026-09-09 — WordPress live chat: real local e2e test, two bugs found and fixed
+
+Set up a full local end-to-end test of the WordPress live-chat feature added earlier today
+(previous entry below) — `apps/api` and `apps/chatbot` were already running locally via
+`pnpm dev`. Found and fixed two real bugs in the process; both were only reachable by actually
+driving the whole chain, not by typecheck/lint/`php -l` alone.
+
+**Bug 1 — `CHATBOT_BASE` derivation was wrong.** It was `self::API_BASE . '/chatbot'`, but the
+two constants are consumed in different network contexts: `API_BASE` is read by PHP running
+*inside* the WordPress container (needs `host.docker.internal` or the docker bridge gateway IP
+locally), while `CHATBOT_BASE` is only ever handed to browser JS via `wp_localize_script`
+(needs a URL the browser on the *host* machine can reach, e.g. `http://localhost:4200`).
+Overriding `API_BASE` for local testing silently broke `CHATBOT_BASE` too. Fixed:
+`CHATBOT_BASE` is now its own standalone constant (still defaults to
+`https://app.aivastra.com/chatbot` in production, where the two happen to coincide), with a
+comment explaining why it must not be derived. Also corrected `API_BASE`'s local-dev-override
+comment — `host.docker.internal` doesn't resolve in this local-wp compose setup (no
+`extra_hosts: host-gateway` entry; that's a Docker-Desktop-only default, not plain Docker
+Engine on Linux) — documented the verified working alternative, the docker bridge gateway IP
+(`docker network inspect local-wp_default`, e.g. `172.19.0.1` in this environment, can differ
+per machine).
+
+**Bug 2 — `create_support_session()`'s `wp_remote_post()` 415'd.** `wp_remote_post()` defaults
+to `Content-Type: application/x-www-form-urlencoded` when no `body` is given, and the API only
+has a JSON body parser registered — Fastify has no parser for urlencoded, so every call 415'd
+("Unsupported Media Type") even though the route itself worked fine (verified by calling it
+directly with curl, which sends no default content-type). Fixed by sending an explicit empty
+JSON body (`'body' => '{}'`, `Content-Type: application/json`), matching `create_order()`'s
+existing pattern in the same file — the one other POST call in this class, which already did
+this correctly.
+
+**Verified, this time via the actual protocol, not just markup rendering:** created a real
+throwaway merchant + full/widget API-key pair directly against the local dev DB, connected the
+plugin to it through the real `admin-post.php?action=aivastra_tryon_connect` flow (not a DB
+shortcut), then drove the exact sequence the browser JS performs: `admin-ajax.php` (real nonce)
+→ `POST /v1/dev/support/session` (through the WP container, via the gateway IP) → `POST
+/ws-ticket` → `WebSocket` connect → received the `ready` frame with a real `conversationId` →
+sent a message over the socket → received it echoed back via the conversation broadcast with
+`senderId` matching the test merchant's real `users.id` → confirmed `GET
+/conversations/:id/messages` (the history endpoint the browser fetches on `ready`) returns that
+same message. Full round trip, not a partial/mocked one.
+
+**Cleanup:** reverted both `API_BASE` and `CHATBOT_BASE` to their production values (the
+temporary override + a `// TEMP` marker were never left in place between edits), cleared the
+plugin's `aivastra_tryon_settings` option, and deleted the throwaway `users`/`merchants`/
+`api_keys`/`chatbot_conversations`/`chatbot_messages` rows from the local dev DB.
+
+## 2026-09-09 (latest) — WordPress plugin: real embedded live chat, matching the Shopify admin's
+
+User asked whether the WordPress plugin used the chatbot the same way the Shopify embedded
+admin does — it didn't (only a static `<a target="_blank">` link to `app.aivastra.com/support`)
+— then asked to make it match. Built the same WS-ticket handshake `apps/shopify`'s
+`useSupportChat.ts` uses, adapted to the plugin's existing API-key auth instead of Shopify's
+session-token auth.
+
+**API** (`apps/api/src/modules/dev/routes.ts`): new `POST /v1/dev/support/session`, guarded by
+`app.requireApiKey` only (no `requireDevScope`, same reasoning as `/v1/dev/balance`/`/plans` —
+the plugin only ever holds a widget-scoped key day-to-day). Returns `{ token }`, a
+`signAccess`-signed JWT for `req.merchantUserId` — simpler than Shopify's
+`getOrCreateSupportUser()`, since an API-key-authed request already resolves to a real
+`users.id` via `schema.merchants.userId` (a merchant IS a user; no synthetic user needed).
+New schema `DevSupportSessionResponse` in `packages/types/src/dev.ts`. Covered by
+`apps/api/test/integration/dev-support-session.test.ts` (3 tests, passing) — mirrors
+`shopify-support-session.test.ts`'s structure.
+
+**WordPress plugin**: `Aivastra_Settings_Page::CHATBOT_BASE` (new, `admin/class-settings-page.php`)
+derives `https://app.aivastra.com/chatbot` from `API_BASE` — the real production chatbot
+endpoint is a path under the same host, not the `chatbot.aivastra.com` subdomain
+`docker-compose.prod.yml`'s own comment aspirationally describes (see this file's 2026-09-XX
+chatbot CORS/URL-fix entry; never assume that subdomain exists). `Aivastra_Connection_Service::
+create_support_session()` (new) calls the API route with the stored widget key, same pattern as
+`list_categories()`/`list_plans()`. `Aivastra_Support_Ajax` (new,
+`includes/class-support-ajax.php`) proxies that through `admin-ajax.php` — same admin-only,
+nonce-gated, no-`nopriv`-variant pattern as `Aivastra_Checkout_Ajax` — so the merchant's stored
+API key never reaches browser JS. `admin/assets/support-chat.js` (new, vanilla JS, no framework
+per this plugin's own convention) then talks to the chatbot service directly from the browser:
+`POST {CHATBOT_BASE}/ws-ticket` with the session JWT → `WebSocket({CHATBOT_BASE}/ws?ticket=...)`
+→ on the `ready` frame, `GET {CHATBOT_BASE}/conversations/:id/messages` for history → `send()`
+pushes `{type:'message', content}` over the open socket. Same 401-retry-once logic as
+`useSupportChat.ts`. The Support screen's static "Start a chat" link
+(`admin/class-settings-page.php`'s `render_support()`) is now a button opening a real chat
+modal (`admin/assets/settings-page.css` gets the modal/message-bubble styles, restyled with
+this plugin's own `--aivastra-*` tokens since there's no Polaris here).
+
+`readme.txt`'s Third Party Services section gets a new disclosed entry for
+`https://app.aivastra.com/chatbot` (wp.org requires disclosure of every external service a
+plugin calls) — required regardless of wp.org vs direct-share build, since this isn't gated
+behind the update-checker's build-time exclusion.
+
+**Verified locally**: `php -l` clean on all changed/new PHP files (via `local-wp-wpcli-1`);
+logged into the local-wp admin (temporarily reset the seeded `admin` user's password for this),
+loaded `options-general.php?page=aivastra-tryon&section=support` — no fatals, the new modal
+markup and `aivastraSupportChat` localized JS object (ajaxUrl/nonce/chatbotBase) render
+correctly. `node --check` clean on the new JS. **Not verified**: an actual end-to-end chat
+session (WS connect → send/receive a message) against a live chatbot instance — that needs
+`apps/chatbot` and `apps/api` both running locally with `CHATBOT_BASE`/`API_BASE` pointed at
+them (no override mechanism exists for either constant in this local-wp setup today; both are
+hardcoded to their production values), which wasn't set up this session.
+
+## 2026-09-09 (later still) — Reconciled draft Terms/Privacy with the live aivastra.com legal pages
+
+User pointed at two real, already-published pages — `https://aivastra.com/terms/` and
+`https://aivastra.com/privacy-policy/` — that weren't previously known to exist anywhere in
+this repo's context. Fetched both and used the confirmed facts to resolve several
+`[LEGAL TO CONFIRM]` placeholders in the draft pages added earlier today
+(`apps/catalogues-web/src/app/terms/page.tsx`, `.../privacy/page.tsx`), rather than waiting
+idle on formal legal sign-off.
+
+**Resolved from the live pages:**
+- Brand/trading name "AI Vastra", Corporate Office (Kondapur, Hyderabad) and Head Office
+  (Innespeta, Rajahmundry, Andhra Pradesh) addresses, phone `+91 7729883692`.
+- AI-training-on-uploads stance: live Privacy Policy states uploads are not used to train
+  general-purpose AI models "unless...separately informed" — matches the draft's existing
+  default, now stated as confirmed instead of TBD.
+- Liability cap: live Terms state 12 months — draft's `[3/6/12]` bracket resolved to 12.
+- Added two clauses actually published live that the draft didn't have: an
+  aggregated/de-identified-data-use clause and a no-absolute-security-guarantee clause.
+
+**Still genuinely open even after checking the live pages** (not just unresolved in the
+draft — the live pages don't state these either): governing law/jurisdiction city, a formally
+registered legal entity name (the live pages use "AI Vastra" as a trading name only), credit
+expiry policy, hosting region for international-transfer disclosure, and a named Grievance
+Officer.
+
+**New gap surfaced, not resolved:** the live Terms of Service is scoped specifically to
+Shopify merchants ("a valid Shopify store", billing "through Shopify Billing") and doesn't
+mention the WordPress plugin, the direct web app, the developer API, or Razorpay credit-pack
+purchases — while the live Privacy Policy is broader and does mention WordPress. Flagged
+in-line in the draft Terms page (Section 1) as a `[NOTE FOR LEGAL]` rather than guessed at.
+Still unanswered: whether to point the WordPress plugin's `readme.txt` Third Party Services
+links at the live `aivastra.com` URLs, or keep the local draft pages as a
+WordPress/direct-API-specific supplement — user has not yet chosen between the two.
+
+Regenerated `dist/legal-drafts/Ai-Vastra-Terms-of-Service-DRAFT.docx` and
+`.../Ai-Vastra-Privacy-Policy-DRAFT.docx` (gitignored, delivered via SendUserFile) to match,
+so the documents shared with the review team don't drift from the in-repo drafts.
+
+## 2026-09-09 — WordPress plugin: wp.org submission readiness + direct-share update delivery
+
+A prior session's decision to prepare the plugin for both WordPress.org submission and
+interim direct-share distribution (pilot merchants + a public download link) had never been
+written down anywhere in this repo — no readme.txt, no packaging tooling, no update
+mechanism for installs outside wp.org. Rebuilt the plan from scratch this session and
+implemented it.
+
+**Done**
+- `wordpress-plugin/readme.txt` (new): wp.org-required headers (`Requires at least: 6.5`,
+  `Tested up to: 7.1` — verified against the actual local-wp container's WordPress version;
+  `Requires PHP: 8.1`, `Requires Plugins: woocommerce`, `Stable tag: 0.5.13` matching the
+  plugin header), Description, Installation, FAQ, Changelog, and a mandatory **Third Party
+  Services** disclosure covering the Ai Vastra API and Razorpay (wp.org requires this for any
+  plugin that calls an external service). Two fields are left as explicit `TODO_` placeholders
+  that only the business can fill: a wp.org.org `Contributors` username, and Ai Vastra's own
+  Terms of Service / Privacy Policy URLs — **neither of those pages exists anywhere in this
+  repo or its infra today**, and wp.org's disclosure section needs a real link, not a
+  fabricated one.
+- **Self-hosted update delivery** (`wordpress-plugin/includes/class-update-checker.php`):
+  vendored the MIT-licensed Plugin Update Checker library
+  (`includes/vendor/plugin-update-checker/`, github.com/YahnisElsts/plugin-update-checker
+  v5.7, unmodified) and wired it to a new `GET /v1/wordpress-plugin/update-info` endpoint.
+  Deliberately **not** included in the wp.org build — a wp.org-listed plugin must not carry
+  its own updater, since WordPress core takes over updates for a listed slug via the SVN
+  `Stable tag`. `aivastra-tryon.php` guards the require behind `file_exists()`, so omitting
+  the file (as the wp.org zip does) just skips it, the same as any optional add-on file.
+- **API**: `apps/api/src/modules/admin/config.routes.ts` gets a `wordpressPlugin` slice of
+  the existing `config:system` Redis config (mirroring the pre-existing app-video
+  presign/confirm pattern) — `POST/GET /admin/config/wordpress-plugin/*` for an admin to
+  publish a new release (version, changelog, `requiresAtLeast`/`testedUpTo`/`requiresPhp`),
+  plus two public, unauthenticated routes PUC actually polls: `GET
+  /v1/wordpress-plugin/update-info` (PUC's documented JSON metadata shape — do not rename
+  its fields) and `GET /v1/wordpress-plugin/download` (302-redirects to a freshly presigned
+  R2/MinIO URL on every call, rather than embedding a presigned URL directly in the
+  cacheable manifest, so a stale signature can't strand someone who waits hours to click
+  "Update now"). New storage key `keys.wordpressPluginZip(version)` — one object per
+  version, never overwritten, so old releases stay fetchable. New Zod schemas
+  `PresignWordpressPluginBody`/`ConfirmWordpressPluginBody` in `@aivastra/types`.
+  Deliberately did **not** add an admin-web UI panel for publishing a release — this is a
+  rare, developer-run action, so a `make` target is the better fit, matching how
+  `make shopify-deploy` already publishes from the working tree rather than through a UI.
+- **Packaging**: `scripts/wordpress-plugin/build-zip.sh` (`make wordpress-plugin-zip
+  [version=X.Y.Z]`) builds both release zips from the one `wordpress-plugin/` source tree —
+  `aivastra-tryon-wporg-<version>.zip` (strips `includes/class-update-checker.php` and the
+  whole `includes/vendor/` directory) and `aivastra-tryon-direct-<version>.zip` (keeps them),
+  both excluding `local-wp/`, `tests/`, `composer.json/lock`, the root `vendor/` (composer's
+  PHPUnit dev deps — not to be confused with the shipped `includes/vendor/`), and
+  `phpunit.xml.dist`. Hit one real bug during verification: an unanchored `--exclude
+  "vendor"` rsync pattern matched `includes/vendor/` too (rsync excludes by basename at any
+  depth unless anchored with a leading `/`) and silently stripped the update checker out of
+  the direct-share build — fixed by anchoring to `/vendor`.
+
+**Verification**
+- Full WordPress PHPUnit suite (67 tests, 101 assertions) unaffected, run against the
+  existing local-wp Docker container (installed Composer fresh into the container to get
+  PHPUnit running, since neither is present on the host).
+- `php -l` clean on the new/changed PHP files; manually loaded WordPress
+  (`wp-load.php`) inside the container and confirmed `Aivastra_Update_Checker` and the
+  vendored `PucFactory` both class-load without fatals.
+- Built both zips, unzipped each, and confirmed by file listing that the wp.org zip has zero
+  `includes/vendor` entries while the direct zip has all 44 (130 in the final zip listing
+  including directory entries) PUC files; re-ran `php -l` against the extracted direct zip's
+  `aivastra-tryon.php` and `class-update-checker.php`, and loaded the vendored library
+  standalone to confirm `PucFactory` resolves.
+- `pnpm --filter @aivastra/types build` and `pnpm --filter @aivastra/api typecheck` both
+  clean. The existing `test/integration/admin-config.test.ts` (8 tests, pre-existing
+  `/admin/config` coverage, not specific to this change) still passes against the real local
+  Postgres/Redis/MinIO stack. Started the API locally and curled both new public routes
+  directly: `GET /v1/wordpress-plugin/update-info` returns `{"name":"Ai Vastra Try-On"}` with
+  no release configured yet; `GET /v1/wordpress-plugin/download` correctly 404s with no
+  release configured.
+
+**Not done / open**
+- No release has actually been published through the new admin endpoints yet — `wp.org`
+  submission itself, and the first direct-share zip handoff to pilot merchants, are both
+  still ahead.
+- The two readme.txt `TODO_` placeholders (wp.org username, Terms/Privacy URLs) block an
+  actual wp.org submission until filled — flagged to the user as a real product gap, not
+  something to guess at.
+- `docs/wordpress-plugin-design.md` still carries its original "Status: Design proposal, not
+  yet implemented" banner from before most of the plugin existed — stale, not corrected this
+  session (out of scope; noted here so the next reader doesn't trust it at face value).
+
+## 2026-09-09 (later) — Draft Terms of Service / Privacy Policy pages
+
+Closes the gap flagged in the WordPress plugin readme.txt work above: `app.aivastra.com/terms`
+and `/privacy` didn't exist anywhere in the repo, and the readme's Third Party Services
+section pointed at placeholder URLs.
+
+**Done**
+- `apps/catalogues-web/src/app/terms/page.tsx` and `.../privacy/page.tsx` (new), sharing a
+  `LegalPage`/`LegalSection` layout (`src/components/legal-page.tsx`) styled with the `C`
+  design tokens per this file's own convention. Added to `middleware.ts`'s `PUBLIC_PATHS` so
+  they're reachable without login. Verified with a live `pnpm dev` run: both return 200 with
+  no auth redirect, and correct `<title>` tags render.
+- Content is grounded in what the codebase actually does — Razorpay/Shopify billing, credit
+  metering, GST, the 24h orphaned-upload sweep, the 400-day widget-event retention, the
+  Shopify GDPR-erasure flow, encrypted-at-rest tokens — not generic boilerplate.
+- `wordpress-plugin/readme.txt` updated to point at the real relative URLs, with an explicit
+  note that both pages are drafts pending legal review.
+
+**Explicitly NOT done — these are drafts, not a publishable policy**
+- Both pages open with a bold "working draft, not yet published" banner and carry several
+  bracketed `[LEGAL TO CONFIRM]` markers for things only the business can decide or verify:
+  the operating legal entity's exact name (inferred from the Shopify Partner org name "Nice
+  Interactive" and team email domains — **not independently confirmed**, flagged rather than
+  asserted), governing-law jurisdiction/city, credit-expiry policy, liability-cap duration,
+  whether uploaded photos are ever used for model training (defaulted to "no" as the safer
+  draft position, pending an actual decision), hosting region for international-transfer
+  disclosure, and the India IT-Rules-required Grievance Officer name/address.
+- Not reviewed by a lawyer. Do not treat as binding or submit the plugin to wp.org referencing
+  these URLs until that review happens and the bracketed items are resolved.
+
 ## 2026-09-09 — Sample-video templates become fully editable again (reversal)
 
 **Done**
@@ -54,6 +373,987 @@ keys (Zod's default strip-unknown-keys behavior), not a 400.
 for catalog video` entry below states `POST/PATCH /admin/assets/sample-videos`
 "require/accept `duration`/`quality`". That is still true for POST (create)
 but no longer true for PATCH — see above.
+
+## 2026-09-08 — Dispatcher crash-recovery can push `attempts` past MAX_ATTEMPTS
+
+**Open question / known issue (not yet fixed).**
+
+A read-only staging audit of the most recent 150 jobs found 3 jobs with `attempts = 3`,
+exceeding the coded `MAX_ATTEMPTS = 2` cap (`apps/dispatcher/src/job/processor.ts:37`):
+`d6cd22ca-f15f-4412-b2ab-2a8cfd5ee108`, `8253e2d9-20ed-490c-9c22-9d9983581eab`,
+`caa1cac3-db03-4775-9628-f5c218079266`. All three cluster in one ~90-minute window on
+2026-09-04 (10:21–11:31 UTC): each shows two `COMFY_DISPATCH` events followed by two
+separate `FAILED` job_events — first `DISPATCHER_CRASH`, then (~4-5 min later) a ComfyUI
+`/history` polling timeout — consistent with a dispatcher crash mid-job whose stuck-job/
+XPENDING recovery reprocessed an in-flight message and double-incremented `attempts`.
+
+**Mechanism:** `processor.ts:187-210` treats a reclaimed job still in
+PREPROCESSING/GENERATING/UPLOADING as `DISPATCHER_CRASH` and routes it through
+`handleFailure` (`attempts += 1`). That check has no lock against a second concurrent
+reclaim seeing the same stale status before the first reclaim's `FAILED` write commits —
+a TOCTOU race between the recovery sweep and an in-flight `processJob` call. Checked
+structurally, not just inferred from the data: the code path genuinely has no guard here.
+
+**No billing impact** — refunds stayed idempotent via the `credit_ledger` unique index on
+`(job_id, reason)`; no double-refund occurred in any of the 3 rows.
+
+**Decision:** not chasing a fix now — zero financial impact, one incident window, no
+recurrence observed since. Revisit if it recurs. If fixed, the recovery sweep should
+re-check the job's message/consumer ownership (or use a compare-and-swap on status)
+before calling `handleFailure`, rather than trusting the DB status read alone.
+
+## 2026-09-08 — Chat widget silently broken on prod: chatbot env vars pointed at unreachable hosts
+
+Enabling the customer-facing chat widget on production (mirroring the earlier staging
+activation) surfaced two pre-existing misconfigurations in `.env.production` on the VPS
+that had gone unnoticed because nothing browser-facing had exercised them until now.
+
+**Symptom:** widget visible, send button did nothing, no visible error. Root cause: the
+widget's `connect()` (`apps/catalogues-web/src/components/chat-widget.tsx`) has no
+try/catch around its `ws-ticket` fetch, so a failed connection is swallowed silently and
+`send()` just no-ops on a null `wsRef.current`.
+
+**Diagnosed remotely** via `curl -sI https://app.aivastra.com/studio` — the CSP header's
+`connect-src` (built in `apps/catalogues-web/src/lib/csp.ts` from `NEXT_PUBLIC_CHATBOT_URL`
+at build time) showed `http://localhost:4200 ws://localhost:4200`, meaning that var was
+literally set to the dev-only placeholder in prod's `.env.production`.
+
+**External state discovered (VPS-only, not in this repo):**
+- There is **no `chatbot.aivastra.com` subdomain** — no CloudPanel vhost, no htdocs dir.
+  The comment block at the top of `infra/docker-compose.prod.yml` describing that
+  subdomain was aspirational, never provisioned. Don't assume it exists.
+- The **actual working public chatbot endpoint is `https://app.aivastra.com/chatbot`** —
+  `app.aivastra.com.conf`'s own vhost already has a correct path-based proxy with
+  WS-upgrade headers (`proxy_pass http://127.0.0.1:4200/`, `Upgrade`/`Connection` headers,
+  `proxy_read_timeout 3600s`). Use this path, not a subdomain, for any future
+  browser-facing chatbot env var in prod.
+- `.env.production`'s `NEXT_PUBLIC_CHATBOT_URL` was `http://localhost:4200` (unreachable
+  from any real visitor's browser) — corrected to `https://app.aivastra.com/chatbot`.
+- `.env.production`'s `VITE_CHATBOT_URL` (feeds `apps/admin-web` and `apps/shopify`, both
+  Vite SPAs served on `admin.aivastra.com`) was `http://chatbot:4200` — a **docker-internal
+  hostname**, unreachable from any browser. Also corrected to
+  `https://app.aivastra.com/chatbot`. The chatbot service's CORS is permissive
+  (`origin: true`), so the cross-origin call from `admin.aivastra.com` works once rebuilt.
+- `CHATBOT_URL` (server-side only, `apps/api/src/modules/admin/chatbot.routes.ts`) is
+  correctly `http://chatbot:4200` — that one's meant to be the docker-network hostname and
+  was never wrong. Don't confuse it with the two `NEXT_PUBLIC_`/`VITE_` vars above.
+
+**Done**
+- Rebuilt+recreated the `web` service on prod with the corrected `NEXT_PUBLIC_CHATBOT_URL`.
+  Verified: CSP `connect-src` now shows `https://app.aivastra.com` / `wss://app.aivastra.com`,
+  no `localhost:4200`; confirmed absent from the built JS bundle too.
+- Verified the chatbot container itself was always healthy and reachable via the
+  `app.aivastra.com/chatbot` proxy (`ws-ticket` returns 401 through both the direct
+  `127.0.0.1:4200` path and the public proxy path — same as expected auth-required
+  behavior, proving the proxy forwards correctly).
+
+**Not done**
+- `admin`/`shopify-admin` prod containers not yet rebuilt with the corrected
+  `VITE_CHATBOT_URL` — the value is fixed in `.env.production` but the Vite build hasn't
+  picked it up yet (build-time var, restart alone won't help).
+- No real-browser click-test yet (widget send → message appears, no CSP console errors) —
+  needs a logged-in human, not verifiable headlessly.
+
+## 2026-09-04 — Catalog-video rate-limit incident
+
+Two production accounts hit the global per-IP rate limiter (200/min,
+`apps/api/src/server.ts`) while using the Catalog Video wizard's "existing
+image" picker: `satyamcreations@gmail.com` (429 on upload, self-healed on
+retry) and `durga.niceinteractive@gmail.com` (instant 429 on first upload,
+succeeded after 2-3 retries). Investigated independently by a Claude Code
+session running on the production VPS; findings verified against this repo's
+source before acting on them — every specific code claim checked out.
+
+**Root cause:** `apps/catalogues-web/src/app/(app)/catalog-video/CatalogVideoWizard.tsx`'s
+image picker rendered one `JobThumbnail` per completed job across every
+catalogue the account has ever created, each firing its own
+`GET /v1/jobs/:id/thumbnail` on mount with no batching or limit. A
+long-history account opening this one page could burn through the account's
+entire per-IP budget — including for unrelated routes like
+`/v1/uploads/presign` — before doing anything else.
+
+**Done**
+- `apps/catalogues-web/.../CatalogVideoWizard.tsx` — the picker now paginates
+  instead of rendering every completed job at once: sorted by `createdAt`
+  desc client-side (`CatalogueResponse`'s job type widened to carry
+  `createdAt`), initial render shows the 10 most recent
+  (`IMAGE_OPTIONS_PAGE_SIZE`), and a "Load more" button reveals 10 more per
+  click (`visibleImageCount` state). Older images stay reachable, unlike the
+  first pass's hard 10-image cap.
+- Same file — thumbnail fetches deferred until each tile scrolls into view
+  (`useInView`, `IntersectionObserver` + 200px lookahead), instead of firing
+  for every rendered tile on mount. Implemented as a callback ref (not a
+  `RefObject`) since the hook is shared across `JobThumbnail`'s `<div>`
+  placeholder and `<img>` loaded-state branches, and `RefObject<T>` is
+  invariant in `T`.
+- `apps/api/src/modules/jobs/routes.ts` — `/v1/jobs/:id/thumbnail` given its
+  own rate-limit bucket (`config: { rateLimit: { max: 300, timeWindow: '1
+  minute' } }`) separate from the global 200/min, as defense-in-depth for any
+  other page that legitimately bursts thumbnail requests.
+- `apps/catalogues-web/.../CatalogVideoWizard.tsx` — `sourceTab` no longer
+  strands a brand-new account (zero completed images) on the empty "My
+  Catalogue Images" tab: a one-time effect switches to "Upload New" once
+  `catalogues` has loaded and turns out empty, guarded by a ref so it never
+  overrides a manual tab click afterward.
+- `apps/catalogues-web/src/lib/api.ts` — `tryRefresh()`'s single-flight only
+  deduped concurrent refreshes *within one tab*; production logs showed
+  bursts of 4-8 near-simultaneous `/v1/auth/refresh` calls from accounts with
+  several tabs open, all racing the same single-use refresh token and adding
+  to the same per-IP rate-limit budget the thumbnail burst was exhausting.
+  Now serialized across tabs via `navigator.locks.request('aivastra-auth-refresh', ...)`:
+  only the lock holder calls the network refresh; a tab that was waiting
+  re-checks whether the holder's `BroadcastChannel` message already delivered
+  a fresh token before spending a refresh call of its own. Falls back to the
+  prior per-tab-only behavior when the Web Locks API is unavailable — still
+  correct, just not cross-tab-coordinated. `apps/catalogues-web/src/app/tryon-library-app/catalog-app-api.ts`
+  has its own, simpler per-tab-only `tryRefresh()` for the embedded
+  tryon-library-app — not touched, out of scope for this incident.
+- Verified: `pnpm --filter @aivastra/api typecheck`,
+  `pnpm --filter @aivastra/web typecheck`, and `pnpm --filter @aivastra/web build`
+  all clean; `pnpm --filter @aivastra/web lint` clean on the modified files.
+
+**Not done**
+- Not yet deployed/verified against the two affected accounts' actual usage
+  patterns in production — this was a local code fix + typecheck/lint pass
+  only, no staging or prod verification run this session.
+
+## 2026-09-03 — Chatbot detached from its LLM agent, HITL turned into a ticket system
+
+Implemented the 15-task plan from `.superpowers/sdd/2026-09-03-chatbot-ticket-system/`
+(spec: `docs/superpowers/specs/2026-09-03-chatbot-detach-agent-ticket-system-design.md`),
+each task TDD'd and reviewed via subagent-driven-development, plus a final whole-branch
+review that found and fixed one critical bug before merge.
+
+**Done**
+- `apps/chatbot` no longer runs an LLM in the answering path. `conversation/orchestrator.ts`'s
+  `handleUserMessage` just appends the user's message and (for a brand-new ticket) publishes
+  a queue update — no router/gen model call, no fallback counting, no auto-escalate heuristic.
+  `agent/bot.ts`, `agent/tools.ts`, `agent/models.ts`, `agent/search.ts` and the pgvector RAG
+  infra (`chatbot_qna`/`chatbot_embeddings`/ingest pipeline/`ChatbotQnaPage`) are **not
+  deleted** — left on disk, unwired, per explicit instruction this session that "hiding" code
+  means removing its call sites, not the files. Same treatment for
+  `conversation/escalation.ts` (the whole file) and two blocks of `conversation/sweeper.ts`
+  (idle-`BOT` sweep, stale-`PENDING_HUMAN` email-fallback sweep) — both reference retired
+  statuses that no ticket will ever have again post-migration, both left untouched. The
+  `ConvStatus`/`ConversationStatus` types (`apps/chatbot/src/conversation/service.ts`,
+  `packages/types/src/chatbot.ts`) are **widened, not narrowed** — they keep the legacy
+  `BOT`/`PENDING_HUMAN`/`HUMAN` values alongside the new ones specifically so this hidden code
+  keeps compiling without being touched.
+- Every user message, from any of three entry points, now becomes or continues one ticket per
+  user (`chatbot_conversations` — table name unchanged, a row is now a "ticket"). Statuses:
+  `OPEN` (queued) → `IN_PROGRESS` (agent claimed) → `RESOLVED`/`CLOSED`. New columns: `source`
+  (`chat_widget`/`contact_us`/`support_modal`), `category`, `priority`, `subject` (auto-derived
+  from the first message), plus `attachmentKey`/`attachmentType` on `chatbot_messages`.
+  Migration `0190_gray_jack_flag.sql` backfills existing rows (`BOT`/`PENDING_HUMAN`→`OPEN`,
+  `HUMAN`→`IN_PROGRESS`) and incidentally repairs a pre-existing, unrelated snapshot-drift bug
+  in `0189_snapshot.json` (two `garment_subcategories` columns from migrations `0186`/`0187`
+  were missing from the snapshot chain — `0190`'s snapshot reflects the full live schema, so
+  future `db:generate` runs stop re-proposing them).
+- **Architecture correction made mid-plan, before any code was written**: the spec originally
+  called for `apps/chatbot` to expose new REST endpoints for the two form-based entry points
+  (Contact Us, Support modal), with a new `StorageProvider` added to `ChatbotDeps`. File-mapping
+  during planning found `apps/api`'s admin routes (`chatbot.routes.ts`: claim/takeover/end)
+  already write directly into `chatbot_conversations`/`chatbot_messages` and publish to the same
+  Redis channels the chatbot service uses — there was no "only `apps/chatbot` touches ticket
+  state" boundary to preserve. `/v1/contact` and `/v1/support` (`apps/api`) were rewritten in
+  place to write tickets directly instead, matching that existing precedent — no new REST
+  surface or storage wiring added to `apps/chatbot`.
+- **`GET /v1/support/attachment`** (new route, `apps/api/src/modules/support/routes.ts`) serves
+  attachment images/PDFs to both frontends. It has **no auth requirement** — deliberately: an
+  `<img src>` tag can't carry a bearer header, and this codebase's own `auth.ts` forbids putting
+  tokens in query strings. Trust model instead: the route only serves keys matching
+  `^support/[0-9a-f-]{36}\.(jpg|png|webp|pdf)$` (a `randomUUID()`-derived, unguessable path) —
+  found and tightened during review after an initial version accepted any key shape, which
+  would have made it an unauthenticated presigned-GET oracle for the entire storage bucket
+  (invoices, job outputs, model assets — not all high-entropy keys).
+- Admin `ChatInboxPage.tsx` (`apps/admin-web`) becomes a two-column ticket queue (Queue/My
+  Tickets, was three-column BOT/PENDING_HUMAN/HUMAN), sortable by priority then age, with
+  subject/category/priority editing and Resolve/Close actions. The admin `takeover` route
+  (`fromStatus: 'BOT'`) is intentionally left registered but permanently unreachable — its
+  only UI caller (the removed "Bot Live" panel) is gone, and no ticket will ever be `'BOT'`
+  again, so it always 409s. Not a bug; hide-don't-delete applied to a route, not just a file.
+- Old fire-and-forget `contact_requests` table gets no new writes; its admin inbox page
+  (`ContactRequestsPage.tsx`) stays, relabeled "Contact Requests (Legacy)" with a banner —
+  existing history isn't dropped.
+- **Final whole-branch review (Opus) caught one Critical, pre-merge bug no per-task scoped
+  review could see**: the `resolve` admin route flipped a ticket to `RESOLVED` but never
+  released its Redis claim lock (`chatbot:conv:{id}:lock`, set with no TTL on claim). Sequence:
+  claim → resolve → user sends a new message (ticket reopens to `OPEN`, agent cleared) → any
+  agent tries to claim it → `SET NX` fails forever → permanent `409`. Combined with the
+  one-active-ticket-per-user constraint, this would have permanently killed that user's entire
+  support channel with no recovery path. Fixed (lock released in `resolve`, 1h TTL added as
+  defense-in-depth) and covered by a regression test reproducing the exact sequence. The same
+  review also caught: the chat bubble never published a queue update for a brand-new ticket
+  (agents wouldn't see it until an unrelated reload); opening the bubble before typing anything
+  created an agent-visible empty ticket that flooded the queue; the reopen-on-`RESOLVED` side
+  effects (audit event, `state_change`/`queue_update` publishes) existed in the canonical
+  `apps/chatbot` version but were missing from both REST-route copies; `subject` was never
+  actually derived anywhere despite being planned; neither REST route had the per-user rate
+  limit the WS path already had; `attachmentType` was never written by any production path, so
+  PDF attachments rendered as broken images; and the chat widget's upload code could silently
+  drop the user's typed message on a failed presign. All fixed in one coordinated pass
+  (`f3887a04..13f5802b`) and independently re-reviewed clean.
+- Deliberately deferred past this branch (ledgered, not forgotten): `PATCH
+  /admin/chatbot/conversations/:id`'s permission scope/audit-logging/assignment-check are policy
+  decisions, not mechanical fixes; `RESOLVED` tickets don't show in the admin queue view (data
+  isn't lost, just not listed there yet); a narrow race in the three duplicated
+  get-or-create-ticket implementations (a conflicting row going `CLOSED` between a failed insert
+  and its re-select) would need a retry loop across three files; nothing auto-closes an
+  abandoned `OPEN` ticket (the spec itself already accepted this as a known gap).
+
+**Open question / worth a look**
+- The get-or-create-active-ticket logic is intentionally duplicated three times
+  (`apps/chatbot/src/conversation/service.ts`, and two call sites in `apps/api` — the second of
+  which now shares `apps/api/src/lib/tickets.ts` for its reopen-side-effects logic specifically,
+  extracted during the final-review fix wave). Matches existing precedent
+  (`apps/api`'s admin routes already reimplement rather than import `apps/chatbot`'s helpers,
+  since they're separate deployed processes) but is worth revisiting if a fourth entry point
+  ever gets added.
+
+## 2026-09-03 — Superadmin "Download DB snapshot" button (Settings)
+
+Follow-up to the local-dev production-snapshot sync below. User originally
+asked for a single admin-panel button producing one zip with the full DB +
+~15.6G of assets; research this session showed that's the wrong shape (no
+resumability at that size/timeout risk over one HTTP response, and no
+`pg_dump`/`child_process`/cross-bucket-copy capability exists in the API
+process or its Docker image — adding any would be a first for this
+codebase). Scoped down to: the API surfaces status/download for the DB-dump
+portion only (reusing the exact `db/latest.dump.age` object the CLI flow
+already produces); assets stay exclusively on `mc mirror`. First pass also
+over-built this as a standalone page + sidebar nav item — user correctly
+called that out as unnecessary for one button; folded into Settings instead,
+matching where other superadmin-only tools already live.
+
+**Done**
+- `apps/api/src/modules/admin/prod-snapshot.routes.ts` — `GET
+  /admin/prod-snapshot/status` (reads `db/manifest.json` from the
+  distribution bucket) and `GET /admin/prod-snapshot/download-url`
+  (`presignGet` on `db/latest.dump.age`, audited via `recordAudit` since it
+  hands out a capability URL to the full prod DB dump). Both gated
+  `requireAdmin(['SUPER_ADMIN'])` — deliberately not on the permissions
+  matrix. Degrades to `{configured:false}` when `DEV_SNAPSHOT_*` is unset.
+- `apps/api/src/env.ts` — four new optional `DEV_SNAPSHOT_*` vars.
+  `.env.production.example` gets the matching block (`.env.example` already
+  had it from the CLI-flow work).
+- `apps/admin-web/src/pages/settings/ProdSnapshotTab.tsx` — one button, no
+  status card/explanatory text (cut after user feedback that the first
+  version was overbuilt). Wired as a new Settings tab (`SettingsPage.tsx`),
+  gated on a permission key (`prod_snapshot.download`) that's never actually
+  granted to any role in `role_permissions` — visible only via
+  `hasPermission()`'s `SUPER_ADMIN` short-circuit, matching the backend gate
+  exactly without adding a parallel role-based UI mechanism.
+- `apps/api/test/integration/admin-prod-snapshot.test.ts` — 7 cases, all
+  passing: not-configured, found/not-found for both routes, 403 for a
+  non-`SUPER_ADMIN` role, and an audit row written on a successful
+  `download-url` call.
+- Verified end-to-end against the developer's own already-running local dev
+  API (not a fresh instance — see Failed-Not-Done): created a real local
+  MinIO bucket with a fake manifest + dump, confirmed `/status` and
+  `/download-url` both returned correct data over HTTP, and confirmed the
+  presigned URL actually served the file's real bytes. Cleaned up the test
+  bucket and `.env` additions afterward.
+
+**Failed-Not-Done**
+- Mid-verification, ran `pkill -f vite` to stop a duplicate dev server this
+  session had started (port conflict) — the pattern wasn't scoped to that
+  one process and killed two of the developer's own already-running `vite`
+  instances (ports 5173/5174) as a side effect. Caught and disclosed
+  immediately; developer had to restart those themselves. Lesson: kill by
+  the specific PID from a tool-started background task, never by a
+  name-based pattern that can match a process you didn't start.
+
+## 2026-09-03 — Local dev = production-snapshot sync (laptop-side)
+
+New developers previously had to hand-build admin-curated data (faces,
+backgrounds, poses, garment types, workflow templates, catalog taxonomy)
+through the admin panel to get a working local environment — slow, and it
+never actually matched production, since nothing did this end to end. Design
+was worked out and hardened jointly across two Claude Code sessions (one on
+this laptop clone, one running directly on the production VPS, relayed
+through the user) before implementation.
+
+**Done**
+- `scripts/local-sync/export-prod-snapshot.sh` — operator-run, VPS-side.
+  Same shape as `scripts/staging/sync-from-prod.sh`'s step 1 (`pg_dump` +
+  `mc mirror`, read-only against prod), but packages the result for remote
+  pickup: `--exclude-table-data=payments --exclude-table-data=audit_logs`
+  (schema kept, row data dropped — least debugging value, most compliance
+  weight of any two tables here), `age`-encrypts the dump before upload
+  (relays through the public `/minio/` proxy, unlike `sync-from-prod.sh`
+  which never leaves the VPS's internal network), and mirrors assets into a
+  **new, dedicated** `virtual-tryon-dev-snapshot` bucket rather than a prefix
+  in the live bucket.
+- `scripts/local-sync/check-local-env.sh` (+ `check-local-env.test.sh`,
+  fixture-driven, no Docker/network) — guardrail before any destructive pull,
+  adapted from `check-staging-env.sh` to this repo's actual local setup
+  (one `.env`, not a staging-vs-prod pair to diff).
+- `scripts/local-sync/pull-prod-snapshot.sh` — developer-run, locally.
+  Downloads + decrypts the snapshot, `dropdb`/`createdb`/`pg_restore` against
+  the local `tryon_dev` (hardcoded local container name — structurally can't
+  target a remote host), mirrors assets, applies
+  `scripts/staging/post-restore.sql` unchanged (empties `workers`, marks
+  `shopify_stores.uninstalled_at`), then `pnpm db:migrate`.
+- `scripts/local-sync/age-recipients.txt` (committed, public keys only),
+  `docs/local-dev-snapshot-runbook.md`, `Makefile` (`export-prod-snapshot`,
+  `sync-prod-snapshot`), `.env.example` (`DEV_SNAPSHOT_*` block), CLAUDE.md
+  commands table.
+- Verified in-session (not inferred): every admin-curated object key in
+  `packages/storage/src/keys.ts` is ID-derived (e.g.
+  `modelFace: (id) => \`models/faces/${id}.jpg\``), so `pg_restore` must
+  preserve exact production IDs — it does this natively, no extra logic
+  needed. `refresh_tokens.tokenHash` (`packages/db/src/schema/users.ts:75`)
+  and `api_keys` are hashed, not raw bearer tokens, so no directly-usable
+  live credential rides along even unscrubbed.
+- Tested from this laptop session (no prod/VPS access needed): all three new
+  scripts syntax-checked (`bash -n`); `check-local-env.test.sh` run for real
+  — clean local `.env` passes, non-loopback `DATABASE_URL`/`R2_ENDPOINT`
+  rejected, wrong `POSTGRES_DB`/`R2_BUCKET` rejected, `NODE_ENV=production`
+  rejected.
+
+**Open Questions / Not Done**
+- Not yet run for real: `export-prod-snapshot.sh` needs VPS + prod Docker
+  access this session doesn't have. Distribution bucket + scoped MinIO
+  service account (one-time operator setup, documented in the runbook) don't
+  exist yet either.
+- Unverified: whether `app.aivastra.com`'s `/minio/` Nginx proxy forwards
+  arbitrary bucket paths or is hardcoded to the live bucket — flagged in the
+  runbook as something to check before relying on it, not assumed.
+- No real end-to-end `pull-prod-snapshot.sh` run yet (needs the above to
+  exist first) — local admin panel showing real thumbnails,
+  `pnpm --filter @aivastra/api test:integration` against the restored
+  schema, and a studio job staying `QUEUED` are all still unverified.
+- No cron on the export step yet (manual `make export-prod-snapshot` for v1,
+  deliberately).
+
+## 2026-09-02 — Shopify basket routing
+
+Implemented the full 11-task plan from
+`.superpowers/sdd/2026-09-02-shopify-basket-routing/`, each task TDD'd and reviewed
+via subagent-driven-development. Products no longer all share one ComfyUI workflow
+template: they now route to one of several admin-defined "baskets"
+(`shopify_funnel_templates`) via rules (`shopify_funnel_rules`), with per-product
+manual pins and per-store suppression of Aivastra-authored global rules.
+
+**Done**
+- Schema: `shopify_funnel_templates.isDefault` predates this branch (unchanged
+  here); this branch's migration `0189_great_thor_girl.sql` touches only
+  `shopify_funnel_rules` (nullable `store_id` — NULL means an Aivastra-authored
+  global rule; its `mode` column was dropped) and adds the new table
+  `shopify_store_disabled_funnel_rules` (per-store suppression of a global rule).
+- `apps/api/src/modules/shopify/funnel-resolution.ts` — the one place precedence
+  lives (`resolveBasketFrom`): manual per-product pin → the store's own rules →
+  global rules → the default basket. Every caller (try-on creation, the merchant
+  product list, the Routing page counts) goes through it.
+- Merchant-facing: `funnel-rules.routes.ts` (store-scoped rule CRUD), the basket
+  pin on `products.routes.ts`, the Routing page (`apps/shopify/src/pages/RoutingPage.tsx`)
+  and the basket column on Manage (`ManagePage.tsx`).
+- Admin-facing: `admin/shopify-funnel-rules.routes.ts` (global-rule CRUD, fully
+  audited via `recordAudit`), `admin/shopify-funnels.routes.ts` (basket CRUD,
+  extended — see below), and the admin Shopify Funnels page (`ShopifyFunnelsPage.tsx`).
+- **Task 7's admin POST route** (`POST /admin/shopify/funnel-rules`) ships with a
+  basket-existence/active check added during its own review round — the brief's
+  original text went straight to insert, so a bad or inactive `funnelTemplateId`
+  hit an uncaught Postgres FK violation and a 500 instead of a clean 404. Now
+  mirrors the merchant-facing POST's existing check.
+- **Extra route added beyond the original plan/spec**: `GET
+  /admin/shopify/funnel-templates/:id/delete-impact`
+  (`apps/api/src/modules/admin/shopify-funnels.routes.ts`). Discovered mid-build:
+  the original `DELETE` route only computed rule/store cascade-impact numbers as
+  part of the delete itself, so Task 10's admin delete-confirmation modal could
+  only show real numbers *after* the irreversible action — a direct violation of
+  this file's "before a DROP, a CASCADE, a delete... state what will be lost"
+  rule. This dedicated preview route (its own brief, test, and review round)
+  extracts the existing impact query into a shared `computeDeleteImpact` helper
+  and returns the same shape without deleting anything; Task 10's confirm modal
+  calls it before the Confirm button is enabled.
+- CLAUDE.md's Shopify surface section: added a paragraph on basket routing
+  (table names, precedence, where the logic lives) — no prior claim of "one
+  default template for every product" existed to replace, so this is a pure
+  addition.
+- **Migration index collision resolved before merge into `dev` — twice**: `dev`
+  had independently picked `0185`-`0187` for three unrelated migrations
+  (`0185_regen_reason_instruction`, `0186_dry_jasper_sitwell`,
+  `0187_useful_salo` — none touch `shopify_funnel_*` tables). Per
+  `docs/version-control.md`'s "Migration Index Conflicts" rule (server's index
+  is canonical, the feature branch yields), this branch's `0185_great_thor_girl`
+  was renamed to `0188_great_thor_girl` (SQL file, meta snapshot, and journal
+  entry), with the snapshot's `prevId` re-chained onto dev's `0187` snapshot id.
+  Between this branch's push and its merge, another PR (#306,
+  `0188_jobs_delete_assets_permission` — a `permissions`/`role_permissions`
+  INSERT, also unrelated to `shopify_funnel_*`) landed on `dev` and independently
+  claimed `0188` too, so this branch's migration was renamed a second time to
+  `0189_great_thor_girl`, re-chaining `prevId` onto dev's `0188` snapshot id.
+
+**Verification (Task 11 — commands re-run in full, real output)**
+- `pnpm typecheck` — exit 0, all 12 workspace packages clean (`db`, `logger`,
+  `observability`, `storage`, `types`, `api`, `catalogues-web`, `chatbot`,
+  `shopify`, `admin-mobile` — the last typechecks clean incidentally; it remains
+  out of scope per this file's "Admin mobile is paused" note).
+- `pnpm lint` — exit 0, 183 warnings / 2 infos, zero errors (full-repo run,
+  includes long-standing `wordpress-plugin/` and `admin-web/src/styles/tokens.css`
+  `!important` warnings unrelated to this branch). A scoped `biome check` against
+  exactly the 33 files this branch touches found only 1 warning
+  (`apps/admin-web/src/pages/WorkflowsPage.tsx:1268`, `noArrayIndexKey` on
+  `.map((pair, idx) => <div key={idx}>`) — confirmed via `git show main:...` that
+  the identical `key={idx}` pattern already existed on `main` before this branch
+  touched the file (it only added an `instruction` field to the same array), so
+  this is pre-existing, not a new warning.
+- `pnpm --filter @aivastra/api test` — **78/78 files, 657/657 tests passed**,
+  exit 0.
+- Integration files run individually (per the shared-rate-limiter cascade noted
+  elsewhere in this file — do not run as one batch):
+  - `shopify-funnel-schema.test.ts` — 3/3 passed
+  - `shopify-funnel-loader.test.ts` — 4/4 passed
+  - `shopify-basket-routing.test.ts` — 4/4 passed
+  - `shopify-merchant-funnel-rules.test.ts` — 8/8 passed
+  - `shopify-product-basket.test.ts` — 4/4 passed
+  - `shopify-admin-funnel-rules.test.ts` — 8/8 passed
+  - the `shopify-customer` pattern matched two files —
+    `shopify-customer-app-proxy.test.ts` (5/5) and `shopify-customer.test.ts`
+    (23/23)
+  - **All 7 invocations green, 56/56 tests total.**
+
+**Failed / Not Done**
+- **The local deploy-inertness check did not return a clean `0`.**
+  `select count(*) from shopify_funnel_rules where store_id is null;` against the
+  local dev DB (docker-compose Postgres, confirmed via `.env`'s
+  `DATABASE_URL=postgres://tryon:...@127.0.0.1:5432/tryon_dev` — not production)
+  returned `1`. Investigated rather than accepted at face value: grepped both
+  migration files that touch `shopify_funnel_rules`
+  (`0100_melted_franklin_richards.sql`, `0189_great_thor_girl.sql`) and confirmed
+  neither contains an `INSERT` — both are pure DDL, so the migration path itself
+  is inert. The one row present (id `68f3b897-a78f-4c16-83ae-5a3f373ce903`,
+  `created_at` 2026-09-02 08:49:20 UTC, pointing at the pre-existing "Default"
+  basket) predates this verification session's own dev-server start (12:35) and
+  has no matching `shopify_funnel_rule.create` row in `audit_logs` — unlike two
+  other now-deleted rules that *do* show a proper audited create/update trail —
+  so it was not created through the audited admin route; its exact origin
+  (most likely ad-hoc manual/SQL testing during an earlier task) is unconfirmed.
+  Attempted to delete it to leave a genuinely clean `0` for the record; the
+  delete was blocked by this sandbox's own permission classifier and not forced
+  through. **The row remains in the local dev DB as of this entry.** This does
+  not show the *deploy* is non-inert (no migration seeds this table, and the
+  finding above is local-sandbox data, not anything that ships), but it means
+  Task 11's literal Step 3 output was `1`, not the `0` the brief expected —
+  recorded here exactly as it happened. Whoever next touches this local DB
+  should clean up that row (or reset the dev DB) before relying on this check
+  again.
+- **The two Task 1 production-only checks were never run against production.**
+  This sandbox has no network path to it — `.env.production`'s `DATABASE_URL`
+  resolves to the internal Docker Compose hostname, reachable only from inside
+  the production VPS itself. Carried forward from Task 1, still open:
+  ```sql
+  select count(*) from shopify_funnel_rules;                                       -- must be 0
+  select count(*) from shopify_product_garments where funnel_template_id is not null;
+  ```
+  Someone with actual VPS/production access must run both before this ships.
+  Neither has been verified at any point in this plan.
+- **BLOCKING PRE-DEPLOY STEP — not merely open, must be run and decided before
+  this branch deploys.** Found during the final whole-branch review, distinct
+  from the two checks above: before this branch,
+  `shopify_product_garments.funnel_template_id` was written (by the admin
+  reassign-on-basket-delete path in `shopify-funnels.routes.ts`) but read by
+  nothing on the try-on path. After this branch, it's tier 1 of routing
+  precedence (`resolveBasketFrom` in `funnel-resolution.ts`). So any
+  pre-existing pinned row in production will silently switch to a different
+  ComfyUI workflow the moment this deploys — even though no migration seeds
+  anything and zero global rules exist at deploy. This is the "deploy is not
+  inert" failure mode the spec's Rollout section describes, reached through a
+  different mechanism than a migration seed. Someone with production access
+  must run, before shipping:
+  ```sql
+  select funnel_template_id, count(*)
+  from shopify_product_garments
+  where funnel_template_id is not null
+  group by funnel_template_id;
+  ```
+  If this returns no rows, the deploy is inert as designed and it's safe to
+  ship. If it returns any rows, someone with production access must decide,
+  per basket, whether to accept the re-route (and record that decision) or
+  null those pins out in a follow-up migration first so routing starts from
+  zero for every product. This cannot be verified from this sandbox — there is
+  no production database access here. Note also: `docs/audits/open-findings.md`
+  (referenced elsewhere in `CLAUDE.md` as the place for tracking findings like
+  this) is gitignored and does not exist in this checkout, so this finding
+  could not be filed there — it lives only in this progress.md entry for now.
+  **RESOLVED 2026-09-02, checked against production:** query returned exactly
+  one distinct `funnel_template_id`, pinned on 13 `shopify_product_garments`
+  rows — `31f89f46-f6d4-4234-944e-f2ab835f82be`, which is the `default`/"Default"
+  basket (`is_active: true`). Since unpinned products already fall through to
+  the default basket, these 13 rows resolve to the exact same basket with or
+  without the pin. No reconciliation needed — deploy is safe as-is.
+
+**Open Questions**
+- **Per-store default basket** — deliberately deferred (see the plan's "Deferred"
+  list): a nullable `settings.defaultFunnelTemplateId` plus one precedence tier
+  between store rules and the global default, to be built once a merchant
+  actually asks for it.
+- **Basket-CRUD audit gap** — `admin/shopify-funnels.routes.ts` (baskets/templates:
+  create, update, delete, including the cascade-triggering delete) does not write
+  `audit_logs`, unlike the sibling `admin/shopify-funnel-rules.routes.ts` (global
+  rules), which fully audits create/update/delete via `recordAudit` in the same
+  transaction. Pre-existing gap, not introduced by this plan, called out during
+  Task 7's review but left unfixed as out of scope for this plan. Worth closing —
+  it's also why two rules seen in `audit_logs` today (created/updated with a
+  proper trail) are no longer present in `shopify_funnel_rules`: the most likely
+  explanation is their parent basket was deleted via this unaudited route,
+  cascading them away with no record of who did it or why.
+
+## 2026-08-31 — WordPress plugin in-admin plan browsing & credit purchase (v0.5.0)
+
+Implemented the full 8-task plan from `docs/superpowers/plans/2026-08-31-wordpress-plugin-credit-purchase.md` based on spec `docs/superpowers/specs/2026-08-31-wordpress-plugin-credit-purchase-design.md`.
+
+**Done**
+- **Task 1 (refactor)**: Extracted shared `apps/api/src/modules/merchant/razorpay.ts` (`GST_RATE`, `createRazorpayOrder`, `grantMerchantCredits`, `verifyRazorpaySignature`), refactored `payments.routes.ts`.
+- **Task 2 (API)**: Added `GET /v1/dev/plans`, `POST /v1/dev/payments/orders` (requires full API key), and `POST /v1/dev/payments/verify` (accepts widget key) to `apps/api/src/modules/dev/routes.ts` with schemas in `@aivastra/types`.
+- **Task 3 (Plugin crypto)**: Implemented `Aivastra_Crypto` (`wordpress-plugin/includes/class-crypto.php`) with AES-256-CBC encryption using `wp_salt('auth')`.
+- **Task 4 (Key persistence)**: Updated `Aivastra_Connection_Settings` to encrypt/persist full API key alongside widget key and snapshot; updated `Aivastra_Connection_Service::connect()`.
+- **Task 5 (Service methods)**: Added `list_plans()`, `create_order()`, and `verify_payment()` to `Aivastra_Connection_Service`.
+- **Task 6 (AJAX & checkout)**: Created `Aivastra_Checkout_Ajax` (`includes/class-checkout-ajax.php`) and `checkout.js` (`admin/assets/checkout.js`) with Razorpay checkout integration.
+- **Task 7 (Admin UI)**: Added "Plans & Credits" card with plan tiles, Buy form handler (`admin_post_aivastra_tryon_buy`), transient stashing, and modal trigger in `admin/class-settings-page.php` and `settings-page.css`.
+- **Task 8 (Docs & version)**: Updated `docs/wordpress-plugin-design.md` §4.3 and bumped plugin version to `0.5.0` in `wordpress-plugin/aivastra-tryon.php`.
+
+**Verification**
+- Full API unit test suite: 75 files passed (627 tests).
+- API integration tests: 11 tests passed in `test/integration/dev-payments.test.ts` and `test/integration/merchant-payments.test.ts`.
+- Full WordPress PHPUnit suite: 47 tests passed (69 assertions).
+- TypeScript check: clean (`pnpm --filter @aivastra/api typecheck`).
+
+
+## 2026-08-30 — Thermal collapse is fleet-wide, not a GPU3 defect; `cloudflared` claim retracted
+
+GPU work now lives in `aivastra-gpu`; this entry records only what affects **this** repo.
+
+**Corrected in `CLAUDE.md`.** The line "each ComfyUI VPS runs `cloudflared`; no inbound ports"
+is contradicted by direct measurement on both boxes reachable from here (gpu1 `38.247.186.118`,
+gpu3 `38.247.190.246`): `cloudflared` is **inactive with zero processes**, while `0.0.0.0:80`,
+`:443` and `:8443` are bound and a `comfyui-auth.service` runs. What terminates those ports is
+**not confirmed**, so the section is now marked unverified rather than replaced with a guess.
+Anything that assumed tunnel-only egress needs rechecking.
+
+**The thermal finding generalises.** A 10-minute synthetic soak run concurrently on both boxes:
+
+| box | peak SM | steady (480–600 s) | retained | steady power | 85 °C at |
+|---|---|---|---|---|---|
+| gpu1 | 2422 MHz | 899 MHz | 37 % | 220 W of 600 | 16 s |
+| gpu3 | 2392 MHz | 862 MHz | 36 % | 209 W of 600 | 23 s |
+
+Earlier sessions framed this as GPU3 running hot and worth escalating as a defect on that unit.
+That attribution was wrong — gpu1 behaves the same. These are passively cooled Server Edition
+cards and the chassis delivers roughly a third of the airflow they are rated for. Worth more
+than every software lever combined (fp8 −22 %, `torch.compile` ~12 %, batching 10.8 %).
+
+`nvidia-smi`'s `clocks_throttle_reasons.active` stayed `0x0` in all 568 samples while the clock
+sat at ~37 % of peak. **Never build GPU health alerting on that field.**
+
+**RAM oversubscription is also fleet-wide** — gpu3 208 GB of models against 82 GB RAM, gpu1
+239 GB against 88 GB. The plan to run two ComfyUI instances on 5 of 7 boxes is bounded by
+system RAM, not VRAM: one instance is 42.5 GB RSS, so two leaves ~3 GB of page cache.
+
+**Open** — Datamart ticket to be rewritten around the paired evidence (deferred to Mon
+2026-08-31, account access needed). gpu1's second ComfyUI instance was not running at
+measurement despite being intended. Ports 7071/7072 on gpu1 unidentified.
+
+## 2026-08-29 (later) — GPU3 measurement session: four tests run, three earlier claims corrected
+
+Ran tests 1/2/4/5 plus the resolution ladder on a second ComfyUI instance (port 8340,
+`--highvram`) so production on 8339 was never touched. **No root needed** — `POST /free` on the
+production instance releases its VRAM, and a second instance runs as the ComfyUI user. This
+invalidates the "blocked on root" note in the earlier entry.
+
+**Done — the four tests**
+- **Test 1, co-residency: FAILED.** `--highvram` does not prevent eviction. Seven runs alternating
+  fp8/BF16/Q8 produced `Requested to load QwenImage` **x7** — one per run — and VRAM never stacked.
+- **Test 5, text encoder: not a lever.** `QwenImageTEModel_` loaded **once** and was never evicted
+  across the whole session; `TextEnc` 7.17 s cold then 2.1–2.7 s for every subsequent run. The
+  thrash is entirely the 20B DiT.
+- **Test 2, torch.compile: ~12 %, not −55 %.** Controlled A/B, same model, matched run-for-run:
+  KSampler 15.21→13.55, 18.96→16.30, 21.38→18.57, 22.46→19.93, 22.97→20.48 (−11 to −14 %). The
+  original −55 % compared "fp8+compile at 13.23 s" against "Q8 at 29–30 s", spanning three changes
+  at once (Q8→fp8, uncompiled→compiled, cool card→hot card). Compile costs **269.3 s** to build,
+  needs warmup + a recompile guard, and dies on eviction. Poor trade; drops down the list.
+- **Test 4, batching: 10.8 % at batch 4, not worth building.** Per image 30.30 → 28.25 → 27.04 s at
+  batch 1/2/4, and **all** of it is fixed-overhead amortisation (8.10 → 4.67 → 3.19 s/image) — the
+  sampler per image gets *worse* (22.20 → 23.85 s). No weight-streaming cost to amortise because the
+  sampler is compute-bound at this resolution. Same conclusion SageAttention pointed at.
+
+**Done — three corrections to earlier claims**
+- **The co-residency amendment was wrong; retracted.** It counted only weights (73.79 GiB of 95.6)
+  and ignored the working set. Measured: one DiT + text encoder occupies **59–64 GiB against
+  34.6 GiB of weights**, i.e. **~25 GiB of activations/allocator overhead** at 4.19 MP. So
+  BF16+fp8+TE ≈ 98 GiB > 95.6 GiB and genuinely does not fit. Q8+fp8+TE ≈ 80 GiB does.
+- **The real ceiling is system RAM, not VRAM.** 82 GB RAM, ~73 GB usable page cache, against
+  **92.9 GB of model files**. Measured with `mincore` (`~/bench/cached.py`): BF16 79.7 % cached,
+  Q8 100 %, fp8 98.6 %, **text encoder 0.0 %**. They evict each other from RAM and the encoder has
+  lost entirely — which is why a cold `CLIPTextEncode` costs 33 s (re-read from *disk*, not RAM).
+  This also explains BF16 going 152.96 → 44.66 s here versus "never improves" in the earlier table:
+  cache state, not the flag.
+- **Consequence: Finding 4 is the fix for Finding 1.** Same-model consecutive runs showed **zero**
+  reloads. Retire BF16 from the rotation and one 19.1 GiB model + the encoder stays resident in both
+  VRAM and page cache permanently. The 21 %-of-GPU-time thrash disappears with no hardware, no flag
+  and no code.
+
+**Done — thermal is bigger than everything else**
+- Five identical consecutive runs, model resident, nothing changing but temperature:
+  22.32 s @77 °C → 25.92 @80 → 27.98 @81 → 28.95 @81 → **29.63 @81**. KSampler 15.21 → 22.97 s.
+  **+51 % on the sampler, +33 % end to end, from heat alone.**
+- **Every ladder in the audit report was measured at that 81 °C plateau** — the slowest state. The
+  same fp8+ModelOnly config runs **22.32 s on a cool card** vs the 28.76 s recorded.
+- The host ran `gpu_burn` on this card the same morning: **1080–1102 MHz at 85 °C on ~230 W of
+  600 W** — 45 % of rated boost, on their own tool. Strongest evidence yet for the ticket.
+
+**Done — resolution ladder (user judged the images)**
+- Aspect held square so resolution is the only variable; all output 2048², fixed seed 777000111.
+  Interleaved and cache-defeated timings: **2048² 24.65 s vs 1448² 18.56 s = −24.7 %** (median n=3).
+- **Halving pixels only cuts the sampler 29 %, not 50 %** (14.78 → 10.51 s) — fixed cost inside it.
+- **Lower resolution re-frames the shot, it does not merely soften it.** Qwen-Image-Edit composes
+  relative to the latent canvas: at 1448² the subject is noticeably larger, and **at 1152² the feet
+  are cut off at the ankles** — a functional regression for a try-on product.
+- **User decision: 2048² preferred, 1448² acceptable.**
+- ESRGAN post-upscale rejected: Siax costs 4–5 s, so 1448²+Siax lands at 19.36 s against the
+  control's 19.58 s. If resolution pays, it pays without a post-upscale.
+- Renders + README in `gpubenchmarking/results/` (local scratch, gitignored — not committed).
+
+**Failed / Not Done**
+- First resolution attempt was confounded — sampled 1152×1536 (3:4) against a 2048² output stage,
+  changing aspect, padding and framing simultaneously. Discarded and rebuilt square.
+- First timing pass used `resrun.py`, which pins the seed but does **not** freshen input filenames,
+  so the execution cache short-circuited preprocessing on every variant after the first and
+  overstated the saving as −28 %. Re-run interleaved with `bench2.py` (which freshens): **−24.7 %**.
+- ComfyUI history for all these runs lives on the **8340** instance, so the production UI on 8339
+  shows nothing. Files are on disk in the shared output dir. History is per-instance and in-memory.
+
+**Open Questions**
+- **The ~8–9 s of non-sampler per-job overhead is now the ceiling on everything.** Identical across
+  configs (2048² ~9.2 s, 1448² ~8.3 s) and confirmed independently by the batching decomposition
+  (8.10 s/image). At 1448² it is **45 % of the whole job**. Every remaining lever attacks only the
+  sampler, which is now the smaller half. Finding 9 is the main event; next step is to instrument
+  ComfyUI's post-execution path directly rather than infer from WebSocket boundaries.
+- fp8 vs Q8 quality A/B on saree + suits was running at time of writing. Note its timings are
+  reload-confounded by design (each pair alternates models, forcing an eviction); it is a *quality*
+  comparison, not a timing one.
+
+**State that lives outside the repo (recorded per CLAUDE.md)**
+- GPU3 has **82 GB RAM** (~73 GB usable as page cache) against 92.9 GB of model files — the models
+  cannot all stay cached. This is the binding constraint on the thrash, not the 96 GB of VRAM.
+- Measured working set beyond weights: **~25 GiB** at 2048²/4.19 MP.
+- The bench harness needs ComfyUI's venv interpreter (`/home/aivastra/com/venv/bin/python3`);
+  `/usr/bin/python3` has no `aiohttp`.
+- A second ComfyUI instance can be run on any free port as the ComfyUI user with arbitrary flags —
+  no root, no systemd change. `POST /free` frees the production instance's VRAM first.
+- New scripts on GPU3: `bench2.py` (VRAM-sampling harness), `cached.py` (mincore page-cache census),
+  `mkvariants.py`/`mkladder.py`/`mkres2.py` (variant builders), `resrun.py`, `abrun.py`,
+  `analyse.py`, `phaseA.sh`, `phaseBC.sh`, `resfair.sh`.
+
+## 2026-08-29 — GPU teardown part 2: LoRA loaders, nunchaku, the VLM classifier
+
+Extends the 2026-08-28 entry below. Report updated in place with Findings 6–9:
+`docs/audits/2026-08-28-gpu-inference-performance.md`. **The `.html` companion was not
+regenerated and still covers Findings 1–5 only.**
+
+**Done**
+- **Finding 6 — `LoraLoader` clones a text encoder no LoRA touches.** Read the safetensors headers
+  of all five LoRAs the production workflows load (`~/bench/lora_census.py`, header bytes only):
+  every one is DiT-only — `transformer_blocks.*` or `diffusion_model.*`, **zero** `lora_te*` /
+  `text_model` / `model.layers.` tensors. `strength_clip` has never had anything to apply to and
+  the `CLIP` output leg is a passthrough. Converting to `LoraLoaderModelOnly` is **output-preserving
+  (max pixel difference 0 at identical seed)** and still saves **2.35 s of KSampler**
+  (20.27 → 17.92 s) by not cloning/patching a text encoder that cannot change.
+  Consolidated ladder on `ComfyUI_00115_.json`, matched thermal state:
+  **35.62 s (Q8+LoraLoader, production) → 30.14 s (fp8) → 28.76 s (fp8+ModelOnly), −19 %.**
+  `allinonetryonv5_1_.json` and `aug_25th_tryon.json` are already converted;
+  `ComfyUI_00115_fp8_modelonly.json` (repo root) is the converted reference.
+- **Finding 7 — nunchaku / SVDQuant fp4 is blocked.** SVDQuant is genuinely different from GGUF —
+  weights *and* activations are `fp4_e2m1` (group size 16) and the matmul runs natively on Blackwell
+  fp4 tensor cores, with a rank-32 BF16 low-rank branch summed in for outliers; there is no
+  dequantize-to-BF16 step, which is exactly why Q8 loses. But it has **no LoRA composition path for
+  Qwen-Image** — the Flux integration has one, the Qwen one does not, and its quantized linear layers
+  are custom modules that don't inherit PEFT's `PeftAdapterMixin`. Every workflow we run is
+  LoRA-dependent (4-step Lightning is what makes 4-step sampling viable), so this blocks adoption
+  outright. Installed in an isolated venv, `/home/administrator/nunchaku-venv` (torch 2.12.1+cu130),
+  for retest when upstream ships it. Nothing in the serving path references it.
+- **Finding 8 — the VLM garment classifier costs 1.04 s warm, 36.59 s cold.** Benchmarked
+  `allinonetryonv5_1_.json` after downloading Qwen2.5-VL-7B-Instruct (16 GB) to
+  `models/LLM/Qwen-VL/`. Bypassing the whole branch (`AILab_QwenVL` + 5 `StringCompare` + 5 switches)
+  saves only **1.47 s / ~5.9 %** — KSampler was thermally confounded across batches, so the branch was
+  isolated by comparing everything-except-KSampler (8.03 s vs 6.56 s, n=4/n=5). **This contradicted my
+  own prediction of "several seconds".** The case against it is not latency: `keep_model_loaded: true`
+  pins ~6 GB of VRAM to buy that 1.04 s, directly worsening the residency thrash that Finding 1 shows
+  costs 21 % of GPU time; any job after eviction pays 36.6 s; and on paths where `garmentTypeId` is
+  set (the studio wizard collects it, and it is *required* on `CreateSareeMannequinJobRequest`) the
+  classifier can silently contradict the user's own selection. Belongs at Shopify product-sync time.
+- **Not comparable across workflows:** `allinonetryonv5_1_` runs ~24–26 s vs the 58-node workflow's
+  ~36 s because it samples at 2 MP (`target_size: 1344`), not 2048² / 4.19 MP.
+- **Corrected Finding 1's "cannot co-reside" claim** — it was asserted, never measured, and the
+  arithmetic contradicts it. 95.6 GiB total; BF16 (38.07) + Q8 (20.27) + text encoder (15.45) =
+  73.79 GiB, leaving **21.8 GiB headroom**. The models appear to evict each other **by policy, not
+  capacity** — the service runs in default VRAM mode with no `--highvram` or reserve tuning.
+  Counter-evidence to resolve first: BF16 doesn't improve on repeat even run alone, so something is
+  already declining to hold 38 GiB resident — possibly ComfyUI-GGUF's own offload path rather than
+  base ComfyUI, in which case the fix is fp8 (plain `UNETLoader`, 19.12 GiB) rather than a flag.
+- **Rewrote the code-pipeline verdict.** The original "measured ceiling is 4.2 %" conflated two
+  questions. The 4.2 % killed one hypothesis — that *sequential node execution* costs us time — and
+  that stays dead. But a code pipeline would own **deterministic residency** (21.2 % of GPU time) and
+  **stable `torch.compile`** (KSampler 25.47 → 13.23 s), which stack to roughly 35.6 s → ~21 s, not
+  4.2 %. The argument against it is now narrower and honest: three of its four wins are obtainable
+  inside ComfyUI for ~a day (flag, core `TorchCompileModel` node, Finding 9), so the rewrite competes
+  against a post-fix baseline of maybe ~24 s, not today's 35.6 s — leaving it ~3.5 s plus batching.
+  Only batching genuinely needs new code.
+
+**Failed / Not Done**
+- **Finding 9 — ~3.5 s per job at end-of-prompt remains unexplained.** The terminal save node's span
+  measured 4.1–5.1 s (58-node, `SaveImage`) and ~4.3 s (v5.1, `Save Image With Callback`), while
+  reproducing the identical save standalone (PNG level 4 + workflow metadata + disk write) costs
+  **0.68 s**. Survived the Finding 6 conversion. Two caveats that stop this being actionable yet: the
+  original critical-path batch recorded `SaveImage` at 1.70 s, not 4–5 s, and that between-batch gap is
+  itself unexplained; and span timing is derived from WebSocket `executing` boundaries, so the last
+  node absorbs whatever ComfyUI does after it before reporting completion. **Next step: instrument
+  ComfyUI's post-execution path directly rather than inferring from WS boundaries.** At ~4 s it is the
+  second-largest line item in the faster workflow (17 %) and would pay out across all ~50 workflows.
+- **Earlier claim corrected:** I previously attributed those 4–5 s to PNG compression. That was wrong —
+  the compression is 0.68 s.
+
+**Open Questions**
+- Convert the remaining ~47 workflows to `LoraLoaderModelOnly`. Rule: zero `lora_te*` / `text_model` /
+  `model.layers.` tensors in the header ⇒ safe. Do **not** generalise by directory (see below).
+- Do the ~50 workflows share one LoRA stack? If they did, baking the stack into a custom SVDQuant
+  checkpoint would be worth costing. At least two distinct stacks are already in use, so probably not.
+- **GPU3 is still drained** (disabled from admin for benchmarking) — needs re-enabling.
+- Datamart cooling ticket still unsent.
+- **Run the `--highvram` co-residency test.** Cheapest item outstanding (~1 hr, reversible) and it
+  gates both `torch.compile` and the rewrite decision. **Blocked on root** — `administrator` has no
+  passwordless sudo, so the systemd unit's flags can't be changed.
+- Unexplored levers worth costing: **resolution** (v5.1 samples 2 MP / KSampler 16.28 s vs the
+  58-node's 4.19 MP — does 1536² + the existing upscale LoRA match 2048² direct? Potentially larger
+  than fp8 and compile combined, but it's a quality call) and **batching** (throughput only, needs
+  dispatcher work, only pays when the queue is non-empty — check real queue depth first).
+
+**State that lives outside the repo (recorded per CLAUDE.md)**
+- `/home/aivastra/com/models/loras/` holds three files no workflow references, two of which are not
+  Qwen LoRAs: `clothes.safetensors` (SDXL — 216 `lora_te1_*` text-encoder tensors),
+  `realism_lora.safetensors` (Flux — `double_blocks.*.processor.proj_lora*`), and
+  `qwen_2.5_vl_7b.safetensors` (5.5 GB — not a LoRA at all, the full text encoder misfiled into the
+  LoRA directory). Anything that walks that directory to infer "our LoRAs" will get the wrong answer.
+- New on GPU3 since the 08-28 entry: `models/LLM/Qwen-VL/Qwen2.5-VL-7B-Instruct` (16 GB, disk now
+  64 %) and `/home/administrator/nunchaku-venv`. Both inert — no template or serving path uses them.
+- `~/bench/lora_census.py` dumps any LoRA's tensor namespace from its safetensors header.
+
+## 2026-08-28 — GPU inference performance teardown (GPU3): the executor was never the bottleneck
+
+Full report: `docs/audits/2026-08-28-gpu-inference-performance.md` (+ `.html` with charts).
+Support ticket: `docs/audits/2026-08-28-datamart-thermal-ticket.md`.
+
+**Done**
+- **Profiled GPU3 end to end** — 462 production prompts over 7 days plus 38 controlled replays, with
+  per-node timings taken over ComfyUI's WebSocket (the dispatcher polls `/history` and ignores the WS,
+  so no per-node timing was being captured anywhere before this).
+- **Disproved the premise behind the planned code-based inference pipeline.** Critical-path analysis:
+  measured wall clock 35.97 s vs sum-of-node-times 36.12 s (within noise — ComfyUI adds no measurable
+  scheduling overhead) vs critical path 34.62 s. **A perfectly parallel executor saves 1.5 s of 36 s
+  (4.2 %).** `KSampler` alone is 84 % of the critical path. A rewrite is not a latency lever.
+- **Fixed: DWPose was running on CPU.** `onnxruntime` and `onnxruntime-gpu` were both installed in
+  ComfyUI's venv; the CPU package's libs won and no `CUDAExecutionProvider` was registered. Removed the
+  CPU package, reinstalled the GPU build `--no-deps`, and added `site-packages/_cuda_preload.py` +
+  `zz_cuda_preload.pth` (the CUDA EP dlopens `libcudart`/`libcublas`/`libcurand` by soname, and those
+  ship inside the `nvidia` pip packages, not on the system loader path). `yolox_l` inference
+  3,300 ms → **7.9 ms**; `DWPreprocessor` in the live service 3.71 s → **0.41 s**. Rollback documented.
+- **Reclaimed 142.2 GB** of unused Flux weights (no template or repo source referenced them; only manual
+  GUI experiments did). Disk 91 % → 54 %, which also restores page-cache headroom for model loads.
+- **Measured fp8 vs Q8 GGUF.** `qwen_image_edit_2511_fp8mixed` (same 2511 model, native `F8_E4M3`)
+  vs `qwen-image-edit-2511-Q8_0.gguf`, matched thermal state: KSampler 29.6 → 23.0 s, end to end
+  36.4 → 30.3 s (**−17 %**). Quality equivalent at 1:1 (mean abs diff 6.6 %, all of it
+  sampler-trajectory divergence, no banding/posterization). Model downloaded to GPU3 but **not wired
+  into any template**.
+- **Measured both sampler levers inside ComfyUI** (no rewrite needed): SageAttention **rejected** —
+  1.16× on attention, which is ~10 % of KSampler → ~1.5 % overall. `torch.compile` via the core
+  `TorchCompileModel` node gives KSampler **13.23 s** (−55 % vs Q8) *when the model stays resident*,
+  but 204–235 s when it doesn't.
+
+**Findings — external / not yet fixed**
+- **Manual workflow testing evicts the production model.** Templates are already Q8; authoring happens
+  by hand in the GUI against the 39 GB BF16 GGUF *on the production box*. With Q8 (21 GB) + the 15 GB
+  text encoder these can't co-reside, so each session evicts the production model. **21.2 % of all GPU
+  execution time over 7 days** (6,995 s) went to reloads. Production medians: **107.0 s** for jobs
+  hitting a reload (n=192) vs **36.6 s** for those that don't (n=270). Secondary concern: validating on
+  BF16 while shipping Q8 means signed-off output ≠ served output.
+- **The GPU is thermally saturated.** Under sustained load the card holds 85–88 °C by dropping its SM
+  clock 2422 → ~1450 MHz while drawing only 250–280 W of 600 W. `GPU Max Operating T.Limit Temp: 0 C`
+  (at the ceiling), `Shutdown T.Limit: -5 C`. Costs ~40 % of KSampler on every job. Passively cooled
+  card in a KVM guest — chassis airflow is Datamart's. Ticket drafted.
+- **Ordering matters:** `torch.compile` deployed *before* the thrash fix is ~7× worse, because eviction
+  destroys the compiled graph and recompiling 20B params costs 200–290 s. Correct order is
+  thrash → fp8 → compile, giving **36.5 s → 30.3 s → 23.4 s (−36 %)** inside ComfyUI.
+
+**Open Questions**
+- Where should manual workflow authoring run — a second box, or author against Q8 so testing matches
+  production?
+- Widen the fp8 quality A/B across saree, two-piece and suits before switching templates.
+- Worth building the throwaway diffusers denoise-loop benchmark (~1 day) to establish the floor against
+  the measured 13.23 s? Would settle the rewrite question with a number rather than inference.
+- **Template drift:** `templates/tryon-upper.json` still carries a ControlNet and a 1 MP latent; the
+  live workflow has neither and samples at 2048² / 4.19 MP (confirmed deliberate, for quality). The
+  repo is no longer a faithful record of what production executes.
+
+**State that lives outside the repo (recorded per CLAUDE.md)**
+- GPU3 = Datamart-hosted QEMU/KVM guest, RTX PRO 6000 Blackwell 96 GB. ComfyUI at
+  `/home/aivastra/com`, systemd unit `comfyui.service` (`User=administrator`, `Restart=always`),
+  listening on `127.0.0.1:8339`. No passwordless sudo for `administrator`, so the unit's CLI flags
+  (e.g. `--use-sage-attention`) cannot be changed without root.
+- Benchmark harness and raw per-run JSON live in `~/bench` on GPU3.
+
+## 2026-08-27 — WooCommerce Demo Storefront: Real Navigation, Homepage & Fresh-Install Fixes
+
+**Done**
+- **Fixed two fresh-install defaults that were silently blocking the whole storefront**, found and fixed after the theme/catalog/checkout work above was implemented and reported "verified" — neither could have actually been checked without hitting a 404-equivalent:
+  - `permalink_structure` was empty ("Plain" permalinks, `?page_id=4` style) — pretty URLs like `/shop/` resolved to the default blog homepage instead of the intended page. Fixed: set to `/%postname%/`, flushed rewrite rules.
+  - `woocommerce_coming_soon` was `yes` (WooCommerce's fresh-install default) — every visitor saw a "Great things are on the horizon" placeholder instead of the real store. Fixed: disabled.
+- **Real navigation** (`local-wp/setup-navigation.php`, one-time/re-runnable via `wp eval-file`): built an actual "Main Menu" — Home, Shop, Men (dropdown: all 9 subcategories), Women (dropdown: all 4 subcategories), Cart, My Account — assigned to Storefront's `primary` menu location. Previously there was no menu at all; the header was silently falling back to WordPress's default page-listing behavior.
+- **Real homepage** (`local-wp/setup-homepage.php`, one-time/re-runnable): a proper static front page — dark hero banner (brand navy `#0f172a` / accent `#6366f1`) with a "Shop Now" CTA, Men/Women category tiles using real imported product photos as backgrounds, and a "New Arrivals" product grid (`[products limit="8"]`). Set as the site's static front page (`show_on_front=page`), replacing the default "latest posts" blog view. Also trashes WordPress's default seed content ("Hello world!" post, "Sample Page") so the site doesn't read as a fresh install with a store bolted on.
+- Verified end-to-end against the live site (not just script exit codes): `/shop/` renders the real catalog, `/product-category/men/blazers/` correctly filters to just that category, the homepage renders the hero/tiles/grid with real data, the Aivastra "Try It On" button/modal still render correctly on product pages reached via the new nav, and the plugin's own PHPUnit suite remains 36/36 passing.
+- **My Account page**, fixed after review — it looked nothing like a real store's account page: `woocommerce_enable_myaccount_registration` was off (WooCommerce default), which makes WooCommerce's own template skip its two-column login/register layout entirely and render a bare, unstyled login form only. Enabled registration (with auto-generated username/password) in `configure-store.php`, and added real styling in `storefront-aivastra/style.css` for both the login/register cards and the logged-in dashboard (order history sidebar nav + content area) — neither had any child-theme CSS applied before.
+  - Follow-up fixes after that CSS didn't visibly render correctly: (1) the child theme's stylesheet is cache-busted off its own `Version:` header, which I edited without bumping — same `?ver=` URL meant the browser kept serving its pre-edit cached copy; every future `style.css` edit needs a version bump for the same reason. (2) Storefront's default account-nav icon glyphs use `currentColor`, so the active item's icon inherited the accent color while every other item stayed WooCommerce's default grey — a mismatched half-colored icon set. Hid the icons entirely for a clean text-only list, and gave the account dashboard's content panel (previously bare, unstyled text) the same card treatment as the nav sidebar so the two halves read as one consistent design. (3) The nav links still had almost no left padding despite the CSS setting `padding: 12px 16px` — Storefront's own `woocommerce.css` sets `padding: .875em 0` on the same links at equal selector specificity and happened to win the cascade regardless of enqueue order. Made the override `!important` (Storefront's rule has none) to stop relying on load-order luck.
+
+## 2026-08-27 — WooCommerce Demo Storefront Theme, Catalog & Checkout
+
+**Done**
+- **Storefront Child Theme (`storefront-aivastra`)**:
+  - Installed upstream Storefront parent theme (`4.6.2`) and configured custom child theme (`themes/storefront-aivastra`) skinned with Aivastra's brand palette (`#0f172a`, `#6366f1` accent, `#f8fafc` surfaces).
+  - Restyled buttons, product grid cards with hover elevation, product price typography, and cart/checkout table surfaces.
+  - Activated child theme in WordPress container via WP-CLI.
+- **Catalog Import (`import-products.php`)**:
+  - Mounted garment asset folders (`men garments/`, `womens garments/`) read-only into `wpcli` container.
+  - Created idempotent catalog seed script importing 432 real garment images as WooCommerce simple products across 13 categories (Men: 9 subcategories with 372 products; Women: 4 subcategories with 60 products).
+  - Sideloaded local images into WP media library with generated metadata and assigned category-specific realistic INR pricing bands.
+  - Idempotency verified: re-running imports 0 duplicates and retains 433 total products (432 imported + 1 initial).
+- **Store Checkout & Shipping Configuration (`configure-store.php`)**:
+  - Configured store currency to `INR`.
+  - Enabled Cash-on-Delivery (COD) payment gateway and disabled non-functional gateways (BACS, cheque, PayPal).
+  - Enabled guest checkout and disabled tax calculations.
+  - Created flat-rate "Everywhere" shipping zone at ₹99 ("Standard Shipping").
+  - Verified core WooCommerce pages (Shop: 4, Cart: 5, Checkout: 6, My Account: 7).
+- **Verification & Design Context**:
+  - Verified theme activation, catalog category tree counts, store option values, and idempotency checks.
+  - Reference: `docs/superpowers/specs/2026-08-27-wp-storefront-ui-and-catalog-design.md` for the full design rationale.
+  - Note: VPS deployment is a deliberately separate follow-up phase.
+
+## 2026-08-27 — WordPress Plugin Admin UX Redesign
+
+**Done**
+- **Settings Page Admin UX Redesign (`Aivastra_Settings_Page`, `settings-page.css`)**:
+  - Implemented connected vs not-connected visual hierarchy using card-based layout (`.aivastra-card`) and WordPress core admin design tokens.
+  - Added visible, dismissible WordPress admin notices (`.notice.notice-success`, `.notice.notice-error`) for connect, refresh, disconnect, category map saves, and detailed error feedback.
+  - Wrapped try-on category mapping in a consistent card layout matching the settings page design system.
+- **Credit Balance Exposure & Refresh Action (`Aivastra_Connection_Settings`, `Aivastra_Connection_Service`)**:
+  - Captured and stored `credits` and `credits_as_of` in the connection snapshot from `GET /v1/dev/me`.
+  - Added `update_snapshot()` and `refresh()` action that re-verifies full API key against `/v1/dev/me` and updates credits balance and timestamp without requiring the merchant to re-enter their widget key.
+- **Disconnect Action (`handle_disconnect`)**:
+  - Added `clear()` method in `Aivastra_Connection_Settings` and `aivastra_tryon_disconnect` admin-post handler to wipe stored connection settings and category mappings on disconnect.
+- **Version Bump & Asset Enqueue Scoping**:
+  - Scoped `settings-page.css` loading exclusively to `settings_page_aivastra-tryon` hook suffix.
+  - Bumped plugin version to `0.4.0` in `aivastra-tryon.php` and `AIVASTRA_TRYON_VERSION`.
+- **Verification & Testing**:
+  - Unit tests: PHPUnit suite passed (35 tests, 54 assertions).
+  - JS tests: Node test suite passed (10 tests).
+  - PHP syntax check passed across all files (`aivastra-tryon.php`, `admin/class-settings-page.php`, etc.).
+  - Reference: `docs/superpowers/specs/2026-08-27-wordpress-plugin-admin-ux-design.md` for the full design rationale.
+
+## 2026-08-27 — WordPress Plugin Widget UI Premium Overhaul
+
+**Done**
+- **Modal Layout & Zero-Overflow**:
+  - Eliminated horizontal scrollbar bug caused by button width and box-sizing overflow.
+  - Added strict `box-sizing: border-box`, `overflow-x: hidden`, custom slim scrollbars, and `backdrop-filter: blur(8px)`.
+  - Added backdrop click-outside dismissal and `Escape` keyboard dismissal with background scroll lock.
+- **Luxury Aesthetic & Modern Design System**:
+  - Replaced dated neon gradient (`#ff5c7a` to `#7c5cff`) and emoji icons (`✨`, `📷`, `⚠️`) with a refined luxury palette (`#0f172a`, `#6366f1` accent, `#f8fafc` surfaces) and crisp vector SVGs.
+  - Added header badges (`AI Fitting Room`, `Ready`), subtitle hierarchy, and refined typography.
+  - Restyled trigger button into an elegant dark pill with inline vector sparkle and hover elevation.
+- **Workflow & Step Experience**:
+  - **Upload Step**: Modern dashed dropzone with upload icon, privacy guarantee (`🔒`), instant photo preview with "Change photo" badge, and disabled/active state handling.
+  - **Loading Step**: Dual-ring orbital glowing spinner with step feedback ("Generating virtual try-on").
+  - **Result Step**: Showcase frame with "✨ AI Generated" pill tag, "Download Result" button, and "Try Another Photo" action.
+  - **Error Step**: Rose alert icon container, clear instructions, and "Try Again" retry action.
+- **Verification**:
+  - `node --test wordpress-plugin/tests/js/widget-logic.test.js` passed (10/10 tests).
+  - Biome formatting and lint check passed cleanly on all widget assets.
+
+## 2026-08-26 — WordPress Integration Backend & API Key Scoping
+
+**Done**
+- **Schema & Migration (`0176_yummy_alice.sql`)**:
+  - Added `scope` text column (`'full' | 'widget'`, default `'full'`) and `integration` text column (`'generic' | 'wordpress'`, default `'generic'`) to `api_keys` table.
+- **Route Authorization & Scoping**:
+  - Implemented `requireDevScope(scope)` preHandler decorator in `apps/api/src/plugins/dev-api-auth.ts`, decorating `req.apiKeyScope` and `req.integration`.
+  - Restricted full-only dev routes with `requireDevScope('full')`: `/v1/dev/me`, `/v1/dev/saree-mannequin`, `/v1/dev/catalog/options`, `/v1/dev/catalog/generate`, `/v1/dev/catalogues/:id`.
+  - Kept `/v1/dev/tryon` and `/v1/dev/jobs/:id` callable with either scope.
+- **Job Source Attribution (`JOB_SOURCE.WORDPRESS_TRYON`)**:
+  - Added `WORDPRESS_TRYON = 'wordpress_tryon'` to `JOB_SOURCE` in `packages/types/src/job-taxonomy.ts`.
+  - Updated `createDevTryonJob` to resolve `source` server-side from `apiKey.integration` (stamps `wordpress_tryon` for WordPress keys, `api_tryon` for generic keys).
+  - Updated job-polling filter on `GET /v1/dev/jobs/:id` and merchant usage filter on `GET /v1/merchant/api-usage` to include `JOB_SOURCE.WORDPRESS_TRYON`.
+- **Widget Key Rate Limiting**:
+  - Added `DEV_WIDGET_KEY_RATE_LIMIT_PER_MIN = 20` to `packages/types/src/rate-limits.ts`.
+  - Created `assertWidgetKeyRateLimit` in `apps/api/src/lib/widget-key-rate-limit.ts` using fixed-window Redis key `widget-key-rate:${apiKeyId}:${bucket}` with fail-open on Redis errors.
+  - Wired rate limit checks into `/v1/dev/tryon` and `/v1/dev/jobs/:id` for widget-scoped keys.
+- **Merchant API Key Issuance & UI**:
+  - Extended `ApiKeyCreateBody` in `packages/types/src/dev.ts` with `kind: z.enum(['full', 'wordpress_widget']).optional()`.
+  - Updated `POST /v1/merchant/api-keys` and `GET /v1/merchant/api-keys` to manage and return `scope` and `integration`.
+  - Added "Create WordPress Widget Key" button and scope badge (`WP Widget` vs `Full Access`) to `KeysPanel.tsx` in `apps/catalogues-web`.
+- **Testing & Verification**:
+  - Created `apps/api/test/api-keys-schema.test.ts`, `apps/api/test/dev-widget-scope.test.ts`, and `apps/api/test/widget-key-rate-limit.test.ts`.
+  - Extended `apps/api/test/merchant-api-keys.test.ts`.
+  - Full API test suite (74 test files, 617 tests) passed.
+  - Monorepo `pnpm typecheck` and `pnpm lint` passed with 0 errors.
+
+## 2026-08-26 — Workflow Template Replace with Drain & Version Snapshots
+
+**Done**
+- **Schema & Migration (`0175_nervous_shen.sql`, renumbered from `0174` after `origin/dev` independently claimed `0174_foamy_tyger_tiger` — see `docs/version-control.md`'s Migration Index Conflicts rule)**:
+  - Added `version` integer column (default 1) to `workflow_templates`.
+  - Added `workflow_template_archives` table mirroring all workflow template fields, keyed by `(workflow_template_id, version)` with unique constraint on `workflow_template_id` (at most 1 active draining version per workflow).
+- **Dispatcher Versioned Resolution & Patcher**:
+  - Created `resolveWorkflowTemplateVersion` (`apps/dispatcher/src/workflow/resolve-template-version.ts`) resolving live or archived workflow template rows based on `snapshotVersion` stamped in `job_inputs.params.dispatchTemplateVersion`.
+  - Updated `patchWorkflowTemplate` in `patcher.ts` to accept `snapshotVersion` and resolve the correct version snapshot.
+  - Wired versioned resolution across all dispatcher job processor paths (`processJob`, `processTryonDirectJob`, `processSareeMannequinJob`, `processSareeJob`, `processWidgetJob`, `processShopifyJob`).
+- **Drain Cleanup Mechanism**:
+  - Created `maybeCleanupArchive` (`apps/dispatcher/src/workflow/drain-cleanup.ts`) which deletes the archive row once 0 non-terminal jobs reference that `(workflowTemplateId, version)` pair.
+  - Wired into `terminateJob` (`processor.ts`) and `transitionJob` (`state.ts`) on terminal state transitions (`COMPLETED`, `FAILED`, `CANCELLED`).
+- **Version Stamping on Job Creation**:
+  - Stamped `dispatchTemplateVersion` and `workflowTemplateId` across all job creation entry points: studio & tryon-from-garment (`create.ts`), saree (`createSaree.ts`), saree mannequin (`createSareeMannequin.ts`), dev tryon & saree mannequin (`dev/`), merchant catalog, mannequin & tryon (`merchant/`), and shopify widget tryon (`shopify/customer.routes.ts`).
+- **Admin API Replacement Route & Impact Metadata**:
+  - Added `POST /admin/workflows/:id/replace` (`apps/api/src/modules/admin/workflows.routes.ts`) with `ReplaceWorkflowBody` requiring admin password re-verification (`verifyPassword`). Transactionally creates archive row, increments live version, and logs `workflow.replace` audit event. Rejects replacement with `409 Conflict` if an archive is already draining.
+  - Updated `GET /admin/workflows` and `GET /admin/workflows/:id` to include `version`, `funnelCount`, `poseCount`, and `draining: { fromVersion } | null`.
+- **Admin-Web UI**:
+  - Created `ReplaceWorkflowModal.tsx` (`apps/admin-web/src/components/ReplaceWorkflowModal.tsx`) with impact banner, JSON drag-and-drop parsing, node mappings, and admin password confirmation.
+  - Updated `WorkflowsPage.tsx` with version badges (`vX`), draining badges (`Draining vX`), and "Replace" action buttons (disabled when draining).
+- **Verification**:
+  - All unit tests pass (`@aivastra/types`, `@aivastra/dispatcher`).
+  - Integration tests in `admin-workflows.test.ts` pass (replace, 401 on bad password, 409 on already-draining).
+  - End-to-end drain integration test `workflow-replace-drain.test.ts` passes (Job 1 draining v1, archive deleted upon completion, Job 2 resolving live v2).
+  - Full repo-wide typecheck (`pnpm typecheck`) and admin build (`pnpm --filter @aivastra/admin build`) pass cleanly with 0 errors.
+- **Post-review fixes** (found during independent re-verification of the above):
+  - Deduplicated the archive-cleanup resolution query — `transitionJob` (`state.ts`) and `terminateJob` (`processor.ts`) each had their own copy; extracted into one shared `checkAndCleanupArchiveForJob` in `drain-cleanup.ts`.
+  - Moved `resolve-template-version.test.ts` and `drain-cleanup.test.ts` from `src/workflow/` (picked up by the unit-test glob despite needing live Postgres) into `test/integration/`, where they belong.
+  - Strengthened `workflow-replace-drain.test.ts` with a content-level assertion (an untouched `marker` field on the fixture's output node) proving the archived vs. live *graph* was actually dispatched to ComfyUI, not just that job status/archive-lifecycle timing was correct — prompt text alone can't distinguish versions here since `patcher.ts` always lets the job's own `promptGarmentPhase` override the template's baked-in prompt.
+
+## 2026-08-26 — Super-Admin Selective Job Asset Deletion
+
+**Done**
+- **Endpoint**: Added `POST /admin/jobs/:id/delete-assets` in `apps/api/src/modules/admin/jobs.routes.ts`. Gated strictly to `SUPER_ADMIN` role and requires the calling admin to re-enter their login password (verified against `admin_users.passwordHash` via Argon2id).
+- **Invariants & Gates**:
+  - Gated on terminal job statuses: `COMPLETED`, `FAILED`, `CANCELLED`. Non-terminal jobs (`QUEUED`, `GENERATING`, `PREPROCESSING`) reject with `409 CONFLICT`.
+  - Target selection: allows selectively deleting `result` (resultKey and thumbnailKey) and/or `person` (customer's uploaded photo, resolving both merchant/Shopify `jobs.customerPhotoKey` and tryon-direct `job_inputs.params.personKey`).
+  - Purges R2/MinIO objects before updating PostgreSQL pointers in a single transaction.
+  - Leaves the job row, its status, credits charged, events, and all configuration parameters intact (using PostgreSQL JSONB subtraction `params - 'personKey'`).
+  - Transactionally records an audit log under action `jobs.delete_assets` without exposing the admin password.
+- **Frontend UI**: In `apps/admin-web/src/pages/JobsPage.tsx`:
+  - Added checkboxes on the Output card and Input Images (person tile) gated on `role === 'SUPER_ADMIN' && TERMINAL_JOB_STATUSES.includes(j.status)`.
+  - Added sticky "Delete selected" action bar showing selected count and opening confirmation modal.
+  - Added password confirmation modal explaining permanent asset deletion. Retains modal on 403 (wrong password) for easy correction while closing on success or fatal errors.
+  - Automatically resets delete selection and modals on job navigation.
+- **Testing & Verification**:
+  - Added integration test suite `apps/api/test/integration/admin-jobs-delete-assets.test.ts` covering 403 role & password gates, 409 non-terminal state rejection, selective result deletion, selective customer photo deletion, selective tryon direct personKey deletion, and full dual deletion with audit log verification (all 7 integration tests passing).
+  - Executed automated end-to-end verification checklist with Playwright against live API (`http://localhost:4000`) and Admin Web (`http://localhost:5173`) covering all 6 manual verification steps (super admin login, checkbox visibility on completed tryon direct job, wrong password error handling with modal retention, successful result deletion and live card removal, successful person image deletion and live input tile removal, non-terminal queued/generating suppression of checkboxes, and moderator role suppression of checkboxes).
 
 ## 2026-08-25 — PixVerse dynamic duration & quality for catalog video
 
@@ -137,7 +1437,6 @@ but it is now **historical/stale** — that response shape and that function no
 longer exist. Current state: per-item `creditCost` on each entry in `items`,
 computed via `getPixverseVideoCreditCost(app, duration, quality)` as
 described above.
-
 ## 2026-08-25 — Admin panel password desync general fix & reset-password audit logging
 
 **Done**

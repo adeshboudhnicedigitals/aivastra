@@ -936,7 +936,7 @@ function CataloguesPageInner(): React.ReactElement {
                   }}
                 >
                   <span>{selected.size} selected</span>
-                  <Tooltip tip={downloading ? 'Download in progress' : undefined} position="top">
+                  <Tooltip tip={downloading ? 'Download in progress' : undefined} position="bottom">
                     <button
                       type="button"
                       onClick={clearSelection}
@@ -969,7 +969,7 @@ function CataloguesPageInner(): React.ReactElement {
                         ? 'No catalogues to select'
                         : undefined
                   }
-                  position="top"
+                  position="bottom"
                 >
                   <button
                     type="button"
@@ -1012,7 +1012,8 @@ function CataloguesPageInner(): React.ReactElement {
                         ? 'Select completed catalogues to download'
                         : undefined
                   }
-                  position="top"
+                  position="bottom"
+                  align="end"
                 >
                   <button
                     type="button"
@@ -1457,7 +1458,7 @@ function CataloguesPageInner(): React.ReactElement {
                 <div className="cat-filter-wrapper">
                   <Tooltip
                     tip={filtered.length === 0 ? 'No catalogues to select' : undefined}
-                    position="top"
+                    position="bottom"
                   >
                     <button
                       type="button"
@@ -1477,7 +1478,7 @@ function CataloguesPageInner(): React.ReactElement {
                 </div>
 
                 {/* download (inactive in normal mode) */}
-                <Tooltip tip="Select images to download" position="top">
+                <Tooltip tip="Select images to download" position="bottom" align="end">
                   <button
                     type="button"
                     disabled

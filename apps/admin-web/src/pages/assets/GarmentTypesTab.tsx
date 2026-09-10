@@ -299,6 +299,47 @@ export function GarmentTypesTab() {
     }
   };
 
+  // Deletes the underlying pose asset itself (soft delete → recycle bin), same
+  // endpoint the Pose Assets tab uses — this is NOT scoped to the current garment
+  // type, since a pose asset is shared across every garment type that maps to it.
+  const deletePoseAsset = async (poseAssetId: string) => {
+    const prevConfigs = poseConfigs;
+    setPoseConfigs((prev) => prev.filter((p) => p.id !== poseAssetId));
+    try {
+      await apiFetch(`/admin/assets/pose-assets/${poseAssetId}`, { method: 'DELETE' });
+      toast({ title: 'Pose moved to recycle bin' });
+    } catch (e) {
+      setPoseConfigs(prevConfigs);
+      toast({
+        kind: 'error',
+        title: 'Failed to delete pose',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  };
+
+  const deletePoseAssets = async (poseAssetIds: string[]) => {
+    if (poseAssetIds.length === 0) return;
+    const prevConfigs = poseConfigs;
+    setPoseConfigs((prev) => prev.filter((p) => !poseAssetIds.includes(p.id)));
+    try {
+      const res = await apiFetch<{ deleted: number }>('/admin/assets/pose-assets', {
+        method: 'DELETE',
+        body: JSON.stringify({ ids: poseAssetIds }),
+      });
+      toast({
+        title: `${res.deleted} pose${res.deleted !== 1 ? 's' : ''} moved to recycle bin`,
+      });
+    } catch (e) {
+      setPoseConfigs(prevConfigs);
+      toast({
+        kind: 'error',
+        title: 'Bulk delete failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  };
+
   const doDelete = async () => {
     if (!confirmDelete) return;
     const { id, label } = confirmDelete;
@@ -410,6 +451,8 @@ export function GarmentTypesTab() {
             }
             onSaveDefaultPose={saveDefaultPose}
             savingDefaultPose={savingDefaultPose}
+            onDelete={deletePoseAsset}
+            onBulkDelete={deletePoseAssets}
           />
         </>
       )}
@@ -932,24 +975,24 @@ export function GarmentTypesTab() {
           </div>
           <div className="field">
             <label>Gender</label>
-            <select
-              className="select"
+            <SearchableSelect
+              options={[
+                { id: 'men', label: 'Men' },
+                { id: 'women', label: 'Women' },
+                { id: 'boys', label: 'Boys' },
+                { id: 'girls', label: 'Girls' },
+              ]}
               value={subcatForm.genderSlug}
               disabled={subcatSaving}
-              onChange={(e) => {
-                const genderSlug = e.target.value as GenderSlug;
+              onChange={(v) => {
+                const genderSlug = v as GenderSlug;
                 setSubcatForm((f) => ({
                   ...f,
                   genderSlug,
                   sortOrder: nextSortOrderFor(genderSlug),
                 }));
               }}
-            >
-              <option value="men">Men</option>
-              <option value="women">Women</option>
-              <option value="boys">Boys</option>
-              <option value="girls">Girls</option>
-            </select>
+            />
           </div>
           <div className="field">
             <label>
@@ -1851,6 +1894,8 @@ interface PoseConfigsPanelProps {
   onToggleActive: (poseAssetId: string, isActive: boolean) => Promise<void>;
   onSaveDefaultPose: (garmentTypeId: string, poseAssetId: string | null) => Promise<void>;
   savingDefaultPose: boolean;
+  onDelete: (poseAssetId: string) => Promise<void>;
+  onBulkDelete: (poseAssetIds: string[]) => Promise<void>;
 }
 
 function PoseConfigsPanel({
@@ -1863,13 +1908,24 @@ function PoseConfigsPanel({
   onToggleActive,
   onSaveDefaultPose,
   savingDefaultPose,
+  onDelete,
+  onBulkDelete,
 }: PoseConfigsPanelProps) {
   const [editing, setEditing] = useState<PoseGarmentConfig | null>(null);
   const [editWorkflow, setEditWorkflow] = useState('');
   const [editGarmentPrompt, setEditGarmentPrompt] = useState('');
+  // Off by default: the textarea then just previews the assigned workflow's live
+  // default prompt and Save persists null, so this pose keeps tracking future edits
+  // to that workflow's prompt. Only flipping this on pins editGarmentPrompt as a
+  // permanent override — pinning must be a conscious choice, never a side effect of
+  // picking a workflow (see the prompt-inheritance bug this was built to fix).
+  const [editPromptOverrideEnabled, setEditPromptOverrideEnabled] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkWorkflow, setBulkWorkflow] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   // '' = all workflows, 'none' = poses with no workflow assigned (override or default), else a workflow id
   const [workflowFilter, setWorkflowFilter] = useState('');
 
@@ -1900,16 +1956,17 @@ function PoseConfigsPanel({
     if (!bulkWorkflow || selectedIds.length === 0) return;
     setBulkSaving(true);
     try {
-      // Follow the selected workflow's own default prompt — same convention as the
-      // pose-asset-level bulk-workflow route — so applying a workflow in bulk doesn't
-      // leave a stale prompt (or a mismatched one inherited from whatever was there before).
-      const wf = workflows.find((w) => w.id === bulkWorkflow);
+      // Always inherit (null) rather than snapshotting the selected workflow's current
+      // default prompt — pinning a prompt is a conscious per-pose choice made through
+      // the edit modal's "Custom prompt" toggle, never a side effect of a bulk workflow
+      // assignment. This also means later edits to the workflow's prompt keep applying
+      // to every pose assigned here in bulk.
       await Promise.all(
         selectedIds.map((id) => {
           const item = items.find((i) => i.id === id);
           return onSave(sub.id, id, {
             workflowTemplateId: bulkWorkflow,
-            promptGarmentPhase: wf?.defaultGarmentPhasePrompt || null,
+            promptGarmentPhase: null,
             promptFacePhase: null,
             isActive: item?.config?.isActive ?? null,
           });
@@ -1956,24 +2013,62 @@ function PoseConfigsPanel({
     }
   };
 
+  const doDeleteSingle = async () => {
+    if (!confirmDeleteId) return;
+    const id = confirmDeleteId;
+    setConfirmDeleteId(null);
+    setDeletingId(id);
+    try {
+      await onDelete(id);
+      setSelectedIds((prev) => prev.filter((x) => x !== id));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const doBulkDelete = async () => {
+    setConfirmBulkDelete(false);
+    if (selectedIds.length === 0) return;
+    setBulkSaving(true);
+    try {
+      await onBulkDelete(selectedIds);
+      clearSelection();
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
   const openEdit = (item: PoseGarmentConfig) => {
+    const workflowId = item.config?.workflowTemplateId ?? '';
+    const wf = workflowId ? workflows.find((w) => w.id === workflowId) : null;
     setEditing(item);
-    setEditWorkflow(item.config?.workflowTemplateId ?? '');
-    // Pre-fill with override if set, else inherit pose default so user edits from it
-    setEditGarmentPrompt(item.config?.promptGarmentPhase ?? item.defaultPromptGarmentPhase ?? '');
+    setEditWorkflow(workflowId);
+    // A pinned override already exists iff promptGarmentPhase is non-null — reopen
+    // with the toggle reflecting that, not just whatever text happens to be there.
+    setEditPromptOverrideEnabled(!!item.config?.promptGarmentPhase);
+    setEditGarmentPrompt(
+      item.config?.promptGarmentPhase ??
+        wf?.defaultGarmentPhasePrompt ??
+        item.defaultPromptGarmentPhase ??
+        '',
+    );
   };
 
   const closeEdit = () => {
     setEditing(null);
     setEditWorkflow('');
     setEditGarmentPrompt('');
+    setEditPromptOverrideEnabled(false);
   };
 
   const doSave = async () => {
     if (!editing) return;
     await onSave(sub.id, editing.id, {
       workflowTemplateId: editWorkflow || null,
-      promptGarmentPhase: editGarmentPrompt || null,
+      // Toggle off means "inherit" — save null regardless of what's in the
+      // (read-only preview) textarea so this pose keeps following the assigned
+      // workflow's live prompt instead of freezing today's snapshot of it.
+      promptGarmentPhase: editPromptOverrideEnabled ? editGarmentPrompt || null : null,
       promptFacePhase: null,
       // This modal only edits workflow/prompt — preserve whatever active override
       // (if any) is already set via the card's Switch, rather than clearing it.
@@ -2010,23 +2105,19 @@ function PoseConfigsPanel({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <select
-            className="select"
-            style={{ fontSize: 12, padding: '3px 8px', height: 30 }}
+          <SearchableSelect
+            options={[
+              ...(hasUnassignedPose ? [{ id: 'none', label: 'No workflow assigned' }] : []),
+              ...usedWorkflowOptions.map((w) => ({ id: w.id, label: w.label })),
+            ]}
+            style={{ fontSize: 12, height: 30 }}
             value={workflowFilter}
-            onChange={(e) => {
-              setWorkflowFilter(e.target.value);
+            emptyLabel="Filter: all workflows"
+            onChange={(v) => {
+              setWorkflowFilter(v);
               clearSelection();
             }}
-          >
-            <option value="">Filter: all workflows</option>
-            {hasUnassignedPose && <option value="none">No workflow assigned</option>}
-            {usedWorkflowOptions.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.label}
-              </option>
-            ))}
-          </select>
+          />
           <button
             className="btn sm ghost"
             onClick={
@@ -2080,6 +2171,13 @@ function PoseConfigsPanel({
                 onClick={() => void applyBulkClearOverride()}
               >
                 {bulkSaving ? 'Clearing…' : 'Clear override'}
+              </button>
+              <button
+                className="btn sm danger"
+                disabled={bulkSaving}
+                onClick={() => setConfirmBulkDelete(true)}
+              >
+                <Icon.Trash /> Delete ({selectedIds.length})
               </button>
               <button className="btn sm ghost" onClick={clearSelection} disabled={bulkSaving}>
                 Clear
@@ -2247,11 +2345,70 @@ function PoseConfigsPanel({
                     <Icon.Edit /> Set workflow
                   </button>
                 </div>
+                <button
+                  className="btn danger"
+                  style={{ width: '100%', marginTop: 4, fontSize: 11, padding: '3px 0' }}
+                  disabled={deletingId === item.id}
+                  onClick={() => setConfirmDeleteId(item.id)}
+                >
+                  <Icon.Trash /> {deletingId === item.id ? 'Deleting…' : 'Move to recycle bin'}
+                </button>
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Delete single pose confirm */}
+      {confirmDeleteId && (
+        <div className="modal-overlay" onClick={() => setConfirmDeleteId(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Move to recycle bin</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Move this pose to the recycle bin? It will disappear from every garment type it's
+                mapped to, not just {sub.label} — you can restore it later.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmDeleteId(null)}>
+                Cancel
+              </button>
+              <button className="btn danger" onClick={() => void doDeleteSingle()}>
+                <Icon.Trash /> Move to recycle bin
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk delete confirm */}
+      {confirmBulkDelete && (
+        <div className="modal-overlay" onClick={() => setConfirmBulkDelete(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Move {selectedIds.length} poses to recycle bin</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Move <strong>{selectedIds.length} selected poses</strong> to the recycle bin? They
+                will disappear from every garment type they're mapped to, not just {sub.label} — you
+                can restore them later.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmBulkDelete(false)}>
+                Cancel
+              </button>
+              <button className="btn danger" onClick={() => void doBulkDelete()}>
+                <Icon.Trash /> Move to recycle bin ({selectedIds.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit override modal */}
       {editing && (
@@ -2271,14 +2428,16 @@ function PoseConfigsPanel({
               disabled={savingId === editing.id}
               onChange={(newId) => {
                 setEditWorkflow(newId);
-                // Always follow the newly selected workflow's own default prompt — same
-                // convention as the pose-asset-level edit modal — so switching workflows
-                // here doesn't keep sending the previous workflow's prompt text. Admin can
-                // still hand-edit the textarea below before saving to customize further.
-                const wf = newId ? workflows.find((w) => w.id === newId) : null;
-                setEditGarmentPrompt(
-                  wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
-                );
+                // While the override toggle is off, this textarea is just a live preview
+                // of the newly-selected workflow's own default prompt — nothing is pinned
+                // until the admin explicitly turns "Custom prompt" on. When it's already on,
+                // leave the admin's own text alone; switching workflows shouldn't clobber it.
+                if (!editPromptOverrideEnabled) {
+                  const wf = newId ? workflows.find((w) => w.id === newId) : null;
+                  setEditGarmentPrompt(
+                    wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
+                  );
+                }
               }}
               emptyLabel={`Use default (${
                 editing.defaultWorkflowTemplateId
@@ -2289,21 +2448,46 @@ function PoseConfigsPanel({
               placeholder="— search workflow —"
             />
             <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
-              Changing this updates the prompt below to that workflow's own default — edit it after
-              to customize further.
+              This pose keeps following the assigned workflow's own prompt as it changes over time,
+              unless you pin a custom prompt below.
             </span>
           </div>
           <div className="field">
-            <label>Positive prompt</label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <label style={{ margin: 0 }}>Positive prompt</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>Custom prompt</span>
+                <Switch
+                  checked={editPromptOverrideEnabled}
+                  disabled={savingId === editing.id}
+                  onChange={(checked) => {
+                    setEditPromptOverrideEnabled(checked);
+                    if (!checked) {
+                      // Snap the preview back to whatever's actually live right now —
+                      // the admin may have edited the textarea before turning this off.
+                      const wf = editWorkflow ? workflows.find((w) => w.id === editWorkflow) : null;
+                      setEditGarmentPrompt(
+                        wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
+                      );
+                    }
+                  }}
+                />
+              </div>
+            </div>
             <textarea
               className="input"
               rows={10}
-              placeholder="Inherited from pose"
+              placeholder="Inherited from workflow"
               value={editGarmentPrompt}
-              disabled={savingId === editing.id}
+              disabled={!editPromptOverrideEnabled || savingId === editing.id}
               onChange={(e) => setEditGarmentPrompt(e.target.value)}
               style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
             />
+            <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+              {editPromptOverrideEnabled
+                ? 'Pinned — future edits to the workflow prompt will not affect this pose.'
+                : 'Read-only preview of the assigned workflow’s live default prompt.'}
+            </span>
           </div>
           {editing.config && (
             <button

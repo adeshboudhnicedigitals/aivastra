@@ -1,7 +1,7 @@
 # Aivastra — Makefile shortcuts
 # Requires: pnpm, docker, node >=20
 
-.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev shopify-deploy-staging shopify-dev shopify-dev-dev
+.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev shopify-deploy-staging shopify-dev shopify-dev-dev export-prod-snapshot sync-prod-snapshot wordpress-plugin-zip
 
 setup:
 	cp .env.example .env
@@ -73,6 +73,19 @@ db-migrate:
 seed-catalog:
 	pnpm seed:catalog
 
+# Regenerate the production snapshot developers pull from. Operator-run, on
+# the VPS only -- needs docker exec access to aivastra-prod-postgres and the
+# distribution bucket's scoped credentials. See docs/local-dev-snapshot-runbook.md.
+export-prod-snapshot:
+	bash scripts/local-sync/export-prod-snapshot.sh
+
+# Pull the latest production snapshot into your local dev stack. Destructive:
+# drops and recreates the local Postgres database and mirrors MinIO objects.
+# Requires pnpm docker:up first and the DEV_SNAPSHOT_* vars in .env filled in
+# -- see docs/local-dev-snapshot-runbook.md.
+sync-prod-snapshot:
+	bash scripts/local-sync/pull-prod-snapshot.sh
+
 shopify-deploy:
 	cd apps/shopify-extension && npx shopify app deploy --allow-updates
 
@@ -86,7 +99,7 @@ shopify-deploy-dev:
 shopify-deploy-staging:
 	cd apps/shopify-extension && npx shopify app deploy --config staging --allow-updates
 
-# Runs `shopify app dev` against shopify.app.toml (prod "AiVastra" app, org Nice
+# Runs `shopify app dev` against shopify.app.toml (prod "AI Vastra" app, org Nice
 # Interactive). app_home resolves to the already-registered prod URL
 # (app.aivastra.com) -- this hits the PRODUCTION backend/DB, not local, even
 # though it installs on a dev store. Use for real end-to-end billing tests
@@ -94,7 +107,7 @@ shopify-deploy-staging:
 shopify-dev:
 	cd apps/shopify-extension && npx shopify app dev
 
-# Runs `shopify app dev` against shopify.app.dev.toml (separate "AiVastra Dev"
+# Runs `shopify app dev` against shopify.app.dev.toml (separate "AI Vastra Dev"
 # Partner Dashboard app). Needs the local API running (pnpm --filter
 # @aivastra/api dev, port 4000) and an ngrok tunnel on the reserved domain
 # (ngrok http 4000 --domain=wispy-plaza-mullets.ngrok-free.dev) live first, or
@@ -127,3 +140,9 @@ prod-logs:
 
 prod-ps:
 	$(PROD_COMPOSE) ps
+
+# Builds both WordPress plugin release zips (wp.org submission + direct-share
+# with the self-hosted update checker) into dist/wordpress-plugin/. Pass
+# version=X.Y.Z to override the version read from aivastra-tryon.php.
+wordpress-plugin-zip:
+	bash scripts/wordpress-plugin/build-zip.sh $(version)

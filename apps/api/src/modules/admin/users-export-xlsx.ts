@@ -21,6 +21,7 @@ const COLUMNS: Column[] = [
   { header: 'Joined', width: 14 },
   { header: 'Credits', width: 12 },
   { header: 'Jobs', width: 10 },
+  { header: 'Last Activity', width: 16 },
   { header: 'Status', width: 12 },
 ];
 
@@ -73,9 +74,13 @@ export async function renderUsersExportXlsx(
       row.createdAt,
       row.balance,
       row.totalJobs,
+      row.lastJobAt ? new Date(row.lastJobAt) : 'No activity',
       row.isBanned ? 'Suspended' : 'Active',
     ]);
     excelRow.getCell(8).numFmt = 'dd mmm yyyy';
+    if (row.lastJobAt) {
+      excelRow.getCell(11).numFmt = 'dd mmm yyyy';
+    }
     if (row.isBanned) {
       excelRow.font = { color: { argb: DANGER } };
     }

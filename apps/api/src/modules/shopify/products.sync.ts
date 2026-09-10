@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, notInArray, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
@@ -83,6 +83,29 @@ const ONE_PRODUCT = `
   }
 `;
 
+// id-only, no nested fields — the query cost is trivial, so this can page at
+// 250 instead of the 25 the full sync uses (that page size is bounded by the
+// nested collections(25) cost, which this query doesn't have). Used only to
+// build the "still exists on Shopify" id set for reconciliation — see
+// reconcileDeletedProducts. Not filtered by status, same as PRODUCTS_PAGE, so
+// a product Shopify still has in any state (active/draft/archived) is never
+// mistaken for deleted.
+const PRODUCT_IDS_PAGE = `
+  query ProductIdsPage($cursor: String) {
+    products(first: 250, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes { id }
+    }
+  }
+`;
+
+interface ProductIdsPageData {
+  products: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    nodes: Array<{ id: string }>;
+  };
+}
+
 interface GraphQLProductNode {
   id: string;
   title: string;
@@ -163,14 +186,18 @@ async function upsertGarment(
   return row;
 }
 
-/** Records a failed sync for a product we couldn't even fetch from Shopify
- *  (deleted, wrong API scope, deprecated REST resource, etc.) — no product
- *  data is available, so title/productType/tags/vendor/collections stay null. */
+/** Records a failed (or, for a confirmed-gone product, deleted) sync for a
+ *  product we couldn't fetch from Shopify — no product data is available, so
+ *  title/productType/tags/vendor/collections stay null. Upserts rather than
+ *  requiring an existing row, so this also covers a product that's never been
+ *  synced before (e.g. a shopper's on-demand try-on of an ID that turns out to
+ *  already be gone from Shopify). */
 async function upsertGarmentFailure(
   app: FastifyInstance,
   storeId: string,
   productId: number,
   failedReason: string,
+  status: 'failed' | 'deleted' = 'failed',
 ): Promise<void> {
   const r2Key = `shopify-garments/${storeId}/${productId}/garment.jpg`;
   await upsertGarment(
@@ -179,13 +206,48 @@ async function upsertGarmentFailure(
     productId,
     r2Key,
     '',
-    'failed',
+    status,
     null,
     null,
     null,
     null,
     failedReason,
   );
+}
+
+/**
+ * Reconciliation backstop for the products/delete webhook (see
+ * webhook.routes.ts): marks every non-deleted shopify_product_garments row
+ * for this store that is NOT in `liveProductIds` as deleted. Deletion has
+ * exactly one other trigger — that webhook — which is registered once at
+ * install/reauth with registration failures only logged, and even a
+ * successfully-registered subscription can still have one delivery dropped
+ * with nothing to notice. Called from both the 'reconcile' branch (a cheap
+ * id-only hourly sweep, see startProductResyncScheduler) and the full-sync
+ * branch (which already has the complete live id set as a side effect of
+ * paginating every product, so no extra Shopify calls are needed there).
+ *
+ * liveProductIds must be the store's COMPLETE current catalog, not a partial
+ * page — an empty array is treated as "Shopify has zero products for this
+ * store" and marks everything deleted, not as "nothing to reconcile".
+ */
+async function reconcileDeletedProducts(
+  app: FastifyInstance,
+  storeId: string,
+  liveProductIds: number[],
+): Promise<void> {
+  await app.db
+    .update(schema.shopifyProductGarments)
+    .set({ status: 'deleted' })
+    .where(
+      and(
+        eq(schema.shopifyProductGarments.storeId, storeId),
+        sql`${schema.shopifyProductGarments.status} <> 'deleted'`,
+        liveProductIds.length > 0
+          ? notInArray(schema.shopifyProductGarments.shopifyProductId, liveProductIds)
+          : sql`true`,
+      ),
+    );
 }
 
 export async function syncProduct(
@@ -390,15 +452,22 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
     }
 
     if (!node) {
-      app.log.warn(
+      // Shopify's products(...) query (and this single-product lookup) is
+      // never filtered by status, so "not found" reliably means gone, not
+      // merely draft/archived — same confirmation the products/delete webhook
+      // acts on. Mark it deleted rather than 'failed' so it self-corrects the
+      // same stale-row problem the reconciliation sweep exists for, instead of
+      // sitting under a "failed to sync" count that never clears.
+      app.log.info(
         { storeId: store.id, productId: task.shopifyProductId },
-        'shopify product not found during sync',
+        'shopify product not found during sync — marking deleted',
       );
       await upsertGarmentFailure(
         app,
         store.id,
         task.shopifyProductId,
         'product not found on Shopify',
+        'deleted',
       );
       return;
     }
@@ -407,10 +476,38 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
     return;
   }
 
+  if (task.mode === 'reconcile') {
+    // Cheap backstop for the products/delete webhook: pull just the ids
+    // Shopify currently has (no image/collection fields, so this can page at
+    // 250 and skips all the R2 image work a full sync does) and mark anything
+    // else deleted. See startProductResyncScheduler — this runs hourly for
+    // every store with synced products, independent of whether any webhook
+    // ever fired.
+    let cursor: string | null = null;
+    const liveProductIds: number[] = [];
+    do {
+      const data: ProductIdsPageData = await shopifyGraphQL<ProductIdsPageData>(
+        shop,
+        token,
+        PRODUCT_IDS_PAGE,
+        { cursor },
+        { onUnauthorized },
+      );
+      for (const node of data.products.nodes) {
+        liveProductIds.push(numericIdFromGid(node.id));
+      }
+      cursor = data.products.pageInfo.hasNextPage ? data.products.pageInfo.endCursor : null;
+      if (cursor) await new Promise((r) => setTimeout(r, 300)); // throttle
+    } while (cursor);
+    await reconcileDeletedProducts(app, store.id, liveProductIds);
+    return;
+  }
+
   // Full sync, 25 products a page. Page size is bounded by Shopify's calculated
   // query cost (1000 per query): products(25) with a nested collections(25) is
   // roughly 25 + 25×25 = 650.
   let cursor: string | null = null;
+  const liveProductIds: number[] = [];
   do {
     // onUnauthorized reassigns the outer `token`: a full sync of a large catalog
     // outlives the one-hour token, and this runs unattended with no merchant
@@ -423,9 +520,17 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
       { onUnauthorized },
     );
     for (const node of data.products.nodes) {
-      await syncProduct(app, store.id, toShopifyProduct(node));
+      const product = toShopifyProduct(node);
+      liveProductIds.push(product.id);
+      await syncProduct(app, store.id, product);
     }
     cursor = data.products.pageInfo.hasNextPage ? data.products.pageInfo.endCursor : null;
     if (cursor) await new Promise((r) => setTimeout(r, 500)); // throttle
   } while (cursor);
+  // Every product this pass saw was just upserted above; anything already in
+  // the DB that wasn't seen no longer exists on Shopify. Runs on every full
+  // sync, including the merchant's manual "Sync now" button, so a deletion
+  // that was missed by the webhook is caught the moment they click it, not
+  // just on the next hourly reconcile tick.
+  await reconcileDeletedProducts(app, store.id, liveProductIds);
 }

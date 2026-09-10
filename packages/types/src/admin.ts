@@ -12,6 +12,21 @@ export const BulkGrantBody = z.object({
   reason: z.string().min(1).max(200),
 });
 export const DeductCreditsBody = GrantCreditsBody;
+export const GrantUnlimitedPlanBody = z
+  .object({
+    startAt: z.string().datetime(),
+    endAt: z.string().datetime(),
+    note: z.string().max(500).optional(),
+    // Negotiated, per-user price — no fixed SKU, so this is set on every
+    // grant/renewal rather than looked up from a plan. 0 is a valid price
+    // (e.g. a promotional grant).
+    pricePaise: z.number().int().nonnegative().max(100_000_000).default(0),
+    queueStream: z.enum(['priority', 'normal', 'low']).default('normal'),
+  })
+  .refine((v) => new Date(v.endAt) > new Date(v.startAt), {
+    message: 'endAt must be after startAt',
+    path: ['endAt'],
+  });
 export const UpdateUserBody = z.object({
   tier: z.string().min(1).max(64).optional(),
   maxActiveDevices: z.number().int().min(1).max(50).optional(),
@@ -134,6 +149,20 @@ export const SystemConfigBody = z.object({
     )
     .optional(),
   merchantCatalogAspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).optional(),
+  // Admin-configurable canonical output pixel dimensions per aspect ratio (resize an
+  // existing ratio's long edge without a code deploy — see mergeAspectDimensions in
+  // apps/api/src/lib/resolution-config.ts). Only these 4 keys are recognized; they
+  // must stay in sync with ASPECT_DIMENSIONS in packages/types/src/jobs.ts, since
+  // that's what a value here overrides.
+  aspectDimensions: z
+    .record(
+      z.enum(['1:1', '2:3', '3:4', '4:5']),
+      z.object({
+        width: z.number().int().min(256).max(4096),
+        height: z.number().int().min(256).max(4096),
+      }),
+    )
+    .optional(),
   tryon: z
     .object({
       creditCost: z.number().int().positive().max(1_000),
@@ -160,7 +189,7 @@ export const SystemConfigBody = z.object({
     .optional(),
   shopify: z
     .object({
-      trialCredits: z.number().int().min(0).max(1000).optional(),
+      trialCredits: z.number().int().min(0).max(99999).optional(),
       packCredits: z
         .object({
           pack_10: z
@@ -170,12 +199,6 @@ export const SystemConfigBody = z.object({
             })
             .partial(),
           pack_25: z
-            .object({
-              credits: z.number().int().positive().max(1_000_000),
-              autorefillCredits: z.number().int().positive().max(1_000_000),
-            })
-            .partial(),
-          pack_50: z
             .object({
               credits: z.number().int().positive().max(1_000_000),
               autorefillCredits: z.number().int().positive().max(1_000_000),
@@ -366,6 +389,21 @@ export const PresignAppVideoBody = z.object({
   contentType: z.literal('video/mp4'),
 });
 
+// ── WordPress plugin release (self-hosted update feed for direct-share installs) ──
+
+export const PresignWordpressPluginBody = z.object({
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, 'Version must be semver (e.g. 0.6.0)'),
+  contentType: z.literal('application/zip'),
+});
+
+export const ConfirmWordpressPluginBody = z.object({
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, 'Version must be semver (e.g. 0.6.0)'),
+  changelog: z.string().min(1).max(5000),
+  requiresAtLeast: z.string().min(1).max(20),
+  testedUpTo: z.string().min(1).max(20),
+  requiresPhp: z.string().min(1).max(20),
+});
+
 // ── Workflow template schemas ─────────────────────────────────────────────
 
 export const CreateWorkflowBody = z
@@ -379,7 +417,14 @@ export const CreateWorkflowBody = z
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
     workflowType: z
-      .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input'])
+      .enum([
+        'regular',
+        'tryon',
+        'saree_step1',
+        'saree_step1_two_input',
+        'two_stage',
+        'regeneration',
+      ])
       .default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
@@ -407,8 +452,57 @@ export const CreateWorkflowBody = z
     tryonGarmentNodeId: z.string().min(1).optional(),
     tryonGarmentNodeId2: z.string().min(1).optional(),
     tryonOutputNodeId: z.string().min(1).optional(),
+    // Two-stage workflow fields (required when workflowType = 'two_stage'). Stage 2's
+    // prompt pair reuses facePhasePromptNode (negative) / garmentPhasePromptNode
+    // (positive) above — same convention as tryon/saree — so only stage 1 needs its
+    // own dedicated fields.
+    stage1PositivePromptNode: z.string().min(1).optional(),
+    stage1NegativePromptNode: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
+    // Only the two prompt-node fields are Zod-required here — tryonPersonNodeId
+    // and tryonOutputNodeId are auto-detected from the workflow JSON (with a
+    // fallback-then-throw in extractWorkflowInsertFields), same as the tryon
+    // branch below, but the prompt nodes are explicit admin-set inputs.
+    if (val.workflowType === 'regeneration') {
+      for (const field of ['facePhasePromptNode', 'garmentPhasePromptNode'] as const) {
+        if (!val[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required for regeneration workflows`,
+          });
+        }
+      }
+      return;
+    }
+    if (val.workflowType === 'two_stage') {
+      for (const field of [
+        'faceNodeId',
+        'poseNodeId',
+        'bgNodeId',
+        'facePhasePromptNode',
+        'garmentPhasePromptNode',
+        'stage1PositivePromptNode',
+        'stage1NegativePromptNode',
+      ] as const) {
+        if (!val[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required for two_stage workflows`,
+          });
+        }
+      }
+      if ((val.upperNodeIds?.length ?? 0) === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['upperNodeIds'],
+          message: 'garment node is required for two_stage workflows',
+        });
+      }
+      return;
+    }
     if (
       val.workflowType === 'tryon' ||
       val.workflowType === 'saree_step1' ||
@@ -457,9 +551,18 @@ export const CreateWorkflowBody = z
     }
   });
 
+export const ReplaceWorkflowBody = z.intersection(
+  CreateWorkflowBody,
+  z.object({
+    password: z.string().min(1, 'password is required to replace a workflow'),
+  }),
+);
+
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
-  workflowType: z.enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input']).optional(),
+  workflowType: z
+    .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage', 'regeneration'])
+    .optional(),
 });
 
 export const UpdateWorkflowBody = z.object({
@@ -491,25 +594,84 @@ export const UpdateWorkflowBody = z.object({
   resultNodeId: z.string().min(1).nullable().optional(),
   facePhasePromptNode: z.string().min(1).optional(),
   garmentPhasePromptNode: z.string().min(1).optional(),
+  stage1PositivePromptNode: z.string().min(1).optional(),
+  stage1NegativePromptNode: z.string().min(1).optional(),
   // Prompt TEXT (not which node holds it — see facePhasePromptNode/garmentPhasePromptNode
   // above for that). No .min(1) here on purpose: emptiness rules differ per field and are
   // enforced in the route handler (garmentPhasePrompt must be non-empty, facePhasePrompt may
   // be empty).
   garmentPhasePrompt: z.string().optional(),
   facePhasePrompt: z.string().optional(),
-  // KSampler settings — found by class_type scan, not a stored node-id column (every
-  // real workflow has exactly one KSampler). steps<1 means no generation happens;
-  // denoise is bounded to its defined semantic range [0,1]; cfg has no fixed ceiling
-  // since it varies by model/LoRA.
-  ksamplerSteps: z.number().int().min(1).optional(),
-  ksamplerCfg: z.number().min(0).optional(),
-  ksamplerDenoise: z.number().min(0).max(1).optional(),
+  // Admin-curated (reason -> alternate prompt) pairs offered on regenerate —
+  // same graph, different prompt text chosen by the reason the user picked.
+  // A blank prompt is valid and deliberate: it means "no override configured
+  // yet" for that reason, so regenerateJob() falls back to rerunning the
+  // original prompt (see DEFAULT_REGENERATION_REASON_PROMPTS below, which
+  // ships every new/not-yet-configured workflow with 5 reasons and blank
+  // prompts).
+  // Prompt has no length cap — these are often a full original prompt plus
+  // added corrective clauses, which can run well past a short user-hint's
+  // length; reason is a short label shown verbatim in the reason picker.
+  // `instruction` overrides the same reason-prompt node's separate
+  // `instruction` input (see TextEncodeQwenImageEditPlusPro's `instruction`
+  // widget in regen.json) — same "blank = no override, rerun the workflow's
+  // own baked-in instruction" convention as `prompt`. Optional/defaulted so
+  // existing rows saved before this field existed still parse.
+  regenerationReasonPrompts: z
+    .array(
+      z.object({
+        reason: z.string().min(1).max(100),
+        prompt: z.string(),
+        instruction: z.string().default(''),
+      }),
+    )
+    .max(50)
+    .optional(),
+  // Same TEXT vs node-id-column distinction as above, for two_stage's own stage-1
+  // pair. stage1PositivePrompt must be non-empty (same reason as garmentPhasePrompt);
+  // stage1NegativePrompt may be empty (same as facePhasePrompt).
+  stage1PositivePrompt: z.string().optional(),
+  stage1NegativePrompt: z.string().optional(),
+  // KSampler settings — targeted by node ID rather than "the" KSampler, since a
+  // workflow can have more than one (two_stage: build-person + dress-garment each
+  // have their own). steps<1 means no generation happens; denoise is bounded to its
+  // defined semantic range [0,1]; cfg has no fixed ceiling since it varies by
+  // model/LoRA; seed has no ceiling either (ComfyUI accepts any non-negative int).
+  ksamplerOverrides: z
+    .array(
+      z.object({
+        nodeId: z.string().min(1),
+        steps: z.number().int().min(1).optional(),
+        cfg: z.number().min(0).optional(),
+        denoise: z.number().min(0).max(1).optional(),
+        seed: z.number().int().min(0).optional(),
+      }),
+    )
+    .optional(),
   // Tryon workflow node IDs
   tryonPersonNodeId: z.string().min(1).nullable().optional(),
   tryonGarmentNodeId: z.string().min(1).nullable().optional(),
   tryonGarmentNodeId2: z.string().min(1).nullable().optional(),
   tryonOutputNodeId: z.string().min(1).nullable().optional(),
 });
+
+// Seeded onto every newly-created workflow template (POST /admin/workflows
+// only — never on /replace, which must never overwrite an already-curated
+// list) so the regenerate reason picker is never empty for a brand-new
+// workflow. Blank prompts mean "no override yet"; an admin fills them in
+// later from the workflow's edit screen. Existing pre-this-feature workflows
+// were backfilled once via migration 0178_seed_default_regen_reasons.
+export const DEFAULT_REGENERATION_REASON_PROMPTS: {
+  reason: string;
+  prompt: string;
+  instruction: string;
+}[] = [
+  { reason: 'Multiple body parts', prompt: '', instruction: '' },
+  { reason: 'Nudity', prompt: '', instruction: '' },
+  { reason: 'Draping issue', prompt: '', instruction: '' },
+  { reason: 'Additional assets', prompt: '', instruction: '' },
+  { reason: 'Texture issue', prompt: '', instruction: '' },
+];
 
 export const ReassignWorkflowBody = z.object({
   targetWorkflowId: z.string().uuid(),
@@ -648,6 +810,12 @@ export const PatchGarmentTypeBody = z.object({
   defaultShoeCatalogId: z.string().uuid().nullable().optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
+  // Distinct from instructionImageKey above — see the schema column comment
+  // (packages/db/src/schema/models.ts) for why the two are separate uploads.
+  tryonLibraryInstructionImageKey: z.string().nullable().optional(),
+  // Any youtu.be/watch/embed form — extractYoutubeId (catalogues-web) derives the
+  // video ID for embedding, so no stricter shape is enforced here.
+  tutorialVideoUrl: z.string().trim().max(500).url().nullable().optional(),
   defaultPoseId: z.string().uuid().nullable().optional(),
   requiresMannequinStep: z.boolean().optional(),
   mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
@@ -660,6 +828,9 @@ export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,
 });
 export const PresignGarmentTypeInstructionBody = z.object({
+  contentType: AssetContentType,
+});
+export const PresignGarmentTypeTryonLibraryInstructionBody = z.object({
   contentType: AssetContentType,
 });
 

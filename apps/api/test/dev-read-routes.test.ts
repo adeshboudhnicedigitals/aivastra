@@ -158,3 +158,21 @@ describe('GET /v1/dev/me', () => {
     expect(body.credits).toBe(42);
   });
 });
+
+describe('GET /v1/dev/balance', () => {
+  it('returns the credit balance for a full-scoped key', async () => {
+    const body = await (await get('/v1/dev/balance')).json();
+    expect(body.credits).toBe(42);
+  });
+
+  it('returns the credit balance for a widget-scoped key (unlike /v1/dev/me)', async () => {
+    const m = await createTestMerchant(app, { balance: 7 });
+    const { key: widgetKey } = await createTestApiKey(app, m.merchantId, { scope: 'widget' });
+    const body = await (await get('/v1/dev/balance', widgetKey)).json();
+    expect(body.credits).toBe(7);
+  });
+
+  it('requires a key', async () => {
+    expect((await fetch(`${base}/v1/dev/balance`)).status).toBe(401);
+  });
+});

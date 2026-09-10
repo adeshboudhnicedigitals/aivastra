@@ -1,10 +1,17 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { outputLines, renderSummary } from './detect-affected.mts';
 import type { DetectResult } from './lib/classify.mts';
+
+// node_modules/.bin/tsx is a POSIX shell shim (`#!/bin/sh`) with no Windows
+// entry point of its own — spawning it directly via execFileSync (no shell)
+// throws ENOENT on Windows. tsx's actual CLI is a plain Node ESM script, so
+// running it through `node <cli.mjs>` works identically on every platform.
+const tsxCli = createRequire(import.meta.url).resolve('tsx/cli');
 
 const baseResult: DetectResult = {
   schemaVersion: 1,
@@ -86,7 +93,7 @@ describe('CLI end to end', () => {
     const headSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
     const beforeSha = execFileSync('git', ['rev-parse', 'HEAD~1'], { encoding: 'utf8' }).trim();
 
-    execFileSync('node_modules/.bin/tsx', ['scripts/ci/detect-affected.mts', '--out', outJson], {
+    execFileSync(process.execPath, [tsxCli, 'scripts/ci/detect-affected.mts', '--out', outJson], {
       env: {
         ...process.env,
         GITHUB_EVENT_NAME: 'push',

@@ -3,7 +3,6 @@ import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
 import { keys } from '@aivastra/storage';
 import {
-  ASPECT_DIMENSIONS,
   type CreateCatalogVideoJobRequest,
   type CreateSimpleTryonRequest,
   type CreateTryOnJobRequest,
@@ -22,6 +21,7 @@ import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { assertQueueCapacity } from '../../lib/queue-capacity-config.js';
 import {
+  getAspectDimensions,
   getMaxOutputPx,
   getPixverseVideoCreditCost,
   getResolutionCreditCost,
@@ -29,6 +29,7 @@ import {
 } from '../../lib/resolution-config.js';
 import { assertGarmentObjectValid, assertOwnsUploadKey } from '../../lib/upload-ownership.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
+import { getActiveUnlimitedPlan } from '../credits/unlimited-plan.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { promptGuard } from './sanitize.js';
 
@@ -115,7 +116,7 @@ export async function resolveQueueRouting(
   app: FastifyInstance,
   userId: string,
 ): Promise<QueueRouting> {
-  const [[planRow], [creditsRow]] = await Promise.all([
+  const [[planRow], [creditsRow], unlimitedPlan] = await Promise.all([
     app.db
       .select({
         queueStream: schema.creditPlans.queueStream,
@@ -128,7 +129,23 @@ export async function resolveQueueRouting(
       .select({ balance: schema.userCredits.balance })
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, userId)),
+    getActiveUnlimitedPlan(app.db, userId),
   ]);
+
+  // An active unlimited plan sets its own queue priority, independent of
+  // tier — and unlike the tier-driven path below, is never downgraded for
+  // lack of balance: an unlimited-plan user has no balance to check in the
+  // first place (see atomicDeduct's bypass, apps/api/src/modules/credits/ledger.ts).
+  // Watermark stays tier-derived either way — granting this plan was
+  // deliberately scoped to balance + queue priority only, not watermarking.
+  if (unlimitedPlan) {
+    const queueStream = unlimitedPlan.queueStream;
+    return {
+      queueStream,
+      priority: queueStream === 'priority',
+      watermark: planRow?.watermark ?? false,
+    };
+  }
 
   const rawQueueStream: string = planRow?.queueStream ?? 'normal';
   const hasBalance = (creditsRow?.balance ?? 0) > 0;
@@ -180,6 +197,7 @@ export interface TryonPlanCache {
   garmentTypes: Map<string, boolean>;
   maxOutputPx?: number;
   resolutionCosts: Map<string, number>;
+  aspectDimensions: Map<string, { width: number; height: number }>;
 }
 
 export function createTryonPlanCache(): TryonPlanCache {
@@ -190,6 +208,7 @@ export function createTryonPlanCache(): TryonPlanCache {
     catalogItems: new Map(),
     garmentTypes: new Map(),
     resolutionCosts: new Map(),
+    aspectDimensions: new Map(),
   };
 }
 
@@ -228,6 +247,10 @@ export async function resolveTryonPlan(
     resolvedUpperGarmentKey: string | null;
     trustedGarmentKeys?: Set<string>;
     cache?: TryonPlanCache;
+    /** Set only by regenerateJob to force the same workflow's alternate positive
+     *  prompt — see the params-merge at the end of the looks_ map below. Never
+     *  derived from client input. */
+    paramsOverride?: Record<string, unknown>;
   },
 ): Promise<TryonPlan> {
   const {
@@ -239,31 +262,44 @@ export async function resolveTryonPlan(
     thirdGarmentKey,
     shoeCatalogId,
   } = body.inputs;
-  const aspectRatio: string | undefined = body.aspectRatio;
+  const aspectRatio: string = body.aspectRatio;
   const platform: string | undefined = body.platform;
   const resolvedUpperGarmentKey = opts.resolvedUpperGarmentKey ?? undefined;
 
   // S1: compute cost server-side from actual output dims — never trust client's `resolution`.
   const customW = body.params?.outputWidth;
   const customH = body.params?.outputHeight;
-  const requestedDims =
-    customW && customH
-      ? { width: customW, height: customH }
-      : (ASPECT_DIMENSIONS[body.aspectRatio] ?? { width: 2048, height: 2048 });
-  // Platform-wide resolution ceiling — admin-configured, not per-workflow (see
-  // getMaxOutputPx). Only downscale, and only the long edge exceeding it; the
-  // dispatcher patches the workflow with whatever dims land in job_inputs.params,
-  // so this is the single enforcement point.
-  const maxOutputPx =
-    opts.cache?.maxOutputPx ??
-    (await (async () => {
-      const value = await getMaxOutputPx(app);
-      if (opts.cache) opts.cache.maxOutputPx = value;
-      return value;
-    })());
+  const isCustomDims = !!(customW && customH);
+  const requestedDims = isCustomDims
+    ? { width: customW, height: customH }
+    : (opts.cache?.aspectDimensions.get(aspectRatio) ??
+      (await (async () => {
+        const dims = (await getAspectDimensions(app, aspectRatio)) ?? {
+          width: 2688,
+          height: 2688,
+        };
+        opts.cache?.aspectDimensions.set(aspectRatio, dims);
+        return dims;
+      })()));
+  // Platform-wide resolution ceiling — admin-configured (see getMaxOutputPx) —
+  // only applies to a custom user-typed width/height (Studio's "custom" aspect
+  // option). The named-ratio table above is itself admin-curated (Settings →
+  // System → Aspect Ratio Sizes) and is already the intended output size, so
+  // it's never second-guessed here: clamping it would silently shrink exactly
+  // what the admin just configured for that ratio. Only fetched for the custom
+  // path — every named-ratio job would otherwise pay for a config read+parse
+  // whose result is never used (ceiling only ever gates isCustomDims below).
+  const maxOutputPx = isCustomDims
+    ? (opts.cache?.maxOutputPx ??
+      (await (async () => {
+        const value = await getMaxOutputPx(app);
+        if (opts.cache) opts.cache.maxOutputPx = value;
+        return value;
+      })()))
+    : undefined;
   const requestedLongEdge = Math.max(requestedDims.width, requestedDims.height);
   const outputDims =
-    requestedLongEdge > maxOutputPx
+    isCustomDims && maxOutputPx !== undefined && requestedLongEdge > maxOutputPx
       ? requestedDims.width >= requestedDims.height
         ? {
             width: maxOutputPx,
@@ -291,6 +327,7 @@ export async function resolveTryonPlan(
   let requiresMannequinStep = false;
   let sareeStep2: {
     workflowTemplateId: string | null;
+    version: number | null;
     upperNodeIds: string[] | null;
     lowerNodeId: string | null;
     shoeNodeId: string | null;
@@ -305,6 +342,7 @@ export async function resolveTryonPlan(
         sareeStep2LowerNodeId: schema.workflowTemplates.lowerNodeId,
         sareeStep2ShoeNodeId: schema.workflowTemplates.shoeNodeId,
         sareeStep2SizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+        sareeStep2Version: schema.workflowTemplates.version,
       })
       .from(schema.garmentSubcategories)
       .leftJoin(
@@ -316,6 +354,7 @@ export async function resolveTryonPlan(
     if (requiresMannequinStep) {
       sareeStep2 = {
         workflowTemplateId: gtRow?.sareeStep2WorkflowTemplateId ?? null,
+        version: gtRow?.sareeStep2Version ?? null,
         upperNodeIds: gtRow?.sareeStep2UpperNodeIds ?? null,
         lowerNodeId: gtRow?.sareeStep2LowerNodeId ?? null,
         shoeNodeId: gtRow?.sareeStep2ShoeNodeId ?? null,
@@ -559,6 +598,7 @@ export async function resolveTryonPlan(
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+            version: schema.workflowTemplates.version,
           })
           .from(schema.catalogueTemplateSubcategories)
           .innerJoin(
@@ -619,6 +659,7 @@ export async function resolveTryonPlan(
           return {
             poseId,
             workflowTemplateId: row.workflowTemplateId,
+            version: row.version,
             promptGarmentPhase: row.promptGarmentPhase,
             upperNodeIds: row.upperNodeIds,
             lowerNodeId: row.lowerNodeId,
@@ -635,12 +676,14 @@ export async function resolveTryonPlan(
     .select({
       poseId: schema.modelPoseAssets.id,
       defaultWorkflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+      defaultWorkflowVersion: defaultWorkflow.version,
       defaultUpperNodeIds: defaultWorkflow.upperNodeIds,
       defaultLowerNodeId: defaultWorkflow.lowerNodeId,
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
       defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
       configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
       configIsActive: schema.poseGarmentConfigs.isActive,
+      overrideWorkflowVersion: overrideWorkflow.version,
       overrideUpperNodeIds: overrideWorkflow.upperNodeIds,
       overrideLowerNodeId: overrideWorkflow.lowerNodeId,
       overrideShoeNodeId: overrideWorkflow.shoeNodeId,
@@ -678,6 +721,7 @@ export async function resolveTryonPlan(
     ? distinctPoseIds.map((poseId) => ({
         poseId,
         workflowTemplateId: sareeStep2?.workflowTemplateId ?? null,
+        version: sareeStep2?.version ?? null,
         promptGarmentPhase: null,
         upperNodeIds: sareeStep2?.upperNodeIds ?? [],
         lowerNodeId: sareeStep2?.lowerNodeId ?? null,
@@ -688,6 +732,8 @@ export async function resolveTryonPlan(
       poseWorkflowRows.map((r) => ({
         poseId: r.poseId,
         workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
+        version:
+          r.configWorkflowTemplateId != null ? r.overrideWorkflowVersion : r.defaultWorkflowVersion,
         promptGarmentPhase: null,
         upperNodeIds:
           r.configWorkflowTemplateId != null
@@ -744,9 +790,11 @@ export async function resolveTryonPlan(
       promptGarmentPhase: pw?.promptGarmentPhase ?? null,
       params: {
         ...(body.params ?? {}),
-        // Always the clamped, server-computed dims — whether derived from the
-        // aspect-ratio enum or a custom request, this is what the dispatcher
-        // patches the workflow with. Never let a raw pre-maxOutputPx value through.
+        dispatchTemplateVersion: pw?.version ?? null,
+        ...(pw?.workflowTemplateId ? { workflowTemplateId: pw.workflowTemplateId } : {}),
+        // Always the server-computed dims — the admin-curated aspect-ratio table's
+        // dims as-is, or a custom request clamped to maxOutputPx (see above). This
+        // is what the dispatcher patches the workflow with.
         outputWidth: outputDims.width,
         outputHeight: outputDims.height,
         ...(aspectRatio ? { aspectRatio } : {}),
@@ -755,10 +803,14 @@ export async function resolveTryonPlan(
         ...(catalogueTemplateMappingId
           ? {
               catalogueTemplateMappingId,
-              workflowTemplateId: pw?.workflowTemplateId,
               ...(pw?.promptGarmentPhase ? { promptGarmentPhase: pw.promptGarmentPhase } : {}),
             }
           : {}),
+        // Always last: regenerateJob's alternate-prompt override, when present, wins
+        // over both the request's own params and any mapping-derived prompt above —
+        // it targets the same workflowTemplateId already resolved for this pose, so
+        // this only changes which prompt text is sent, never which graph loads.
+        ...(opts.paramsOverride ?? {}),
       },
     };
   });
@@ -836,6 +888,15 @@ export async function createJob(
      *  endpoint. */
     apiKeyId?: string;
     source?: JobSource;
+    /** Set only by regenerateJob — see resolveTryonPlan's matching field. */
+    paramsOverride?: Record<string, unknown>;
+    /** Set only by regenerateJob when the caller is still within today's free
+     *  regenerate allowance: the job is created with creditsCharged=0 and no
+     *  credit_ledger row at all — genuinely never charged, not charged-then-
+     *  refunded. Keeping creditsCharged at 0 also means every existing refund
+     *  path (terminateJob, the sweeper) naturally no-ops for this job, since
+     *  they all guard on `creditsCharged > 0`. */
+    waiveCost?: boolean;
   },
 ) {
   const {
@@ -888,6 +949,7 @@ export async function createJob(
   const plan = await resolveTryonPlan(app, userId, body, {
     resolvedUpperGarmentKey: resolvedUpperGarmentKey ?? null,
     trustedGarmentKeys: opts?.trustedGarmentKeys,
+    paramsOverride: opts?.paramsOverride,
   });
 
   await assertQueueCapacity(app, plan.looks.length);
@@ -902,6 +964,7 @@ export async function createJob(
   // Never re-derived after this point — see spec precedence rule.
   const { queueStream, priority, watermark } = routing;
 
+  const cost = opts?.waiveCost ? 0 : plan.cost;
   const jobIds = await app.db.transaction(async (tx) => {
     const created: string[] = [];
     for (const look of plan.looks) {
@@ -915,11 +978,11 @@ export async function createJob(
           priority,
           queueStream,
           watermark,
-          creditsCharged: plan.cost,
+          creditsCharged: cost,
           source: opts?.source ?? JOB_SOURCE.CATALOG,
         })
         .returning();
-      await atomicDeduct(tx as unknown as DB, userId, plan.cost, job.id);
+      if (cost > 0) await atomicDeduct(tx as unknown as DB, userId, cost, job.id);
       await tx.insert(schema.jobInputs).values({
         jobId: job.id,
         upperGarmentKey: look.upperGarmentKey,
@@ -1011,9 +1074,14 @@ export async function createSimpleTryonJob(
   app: FastifyInstance,
   userId: string,
   body: z.infer<typeof CreateSimpleTryonRequest>,
+  opts?: {
+    /** Set only by regenerateJob within today's free allowance — see createJob's
+     *  matching option for why this is a genuine zero, not charge-then-refund. */
+    waiveCost?: boolean;
+  },
 ) {
   const { personKey, sourceJobId } = body;
-  const COST = await getTryonCreditCost(app);
+  const COST = opts?.waiveCost ? 0 : await getTryonCreditCost(app);
 
   await assertOwnsUploadKey(app, userId, personKey);
 
@@ -1027,6 +1095,7 @@ export async function createSimpleTryonJob(
       garmentTypeId: schema.jobInputs.garmentTypeId,
       kind: sql<string>`${schema.jobInputs.params}->>'kind'`.as('kind'),
       workflowTemplateId: schema.tryonCategories.workflowTemplateId,
+      workflowTemplateVersion: schema.workflowTemplates.version,
       tryonCategoryIsActive: schema.tryonCategories.isActive,
       workflowTemplateIsActive: schema.workflowTemplates.isActive,
       // Tryon-direct results (source='tryon'/'api_tryon') are WebP-encoded, not
@@ -1060,6 +1129,7 @@ export async function createSimpleTryonJob(
   }
 
   let workflowTemplateId: string;
+  let workflowTemplateVersion: number | null = source.workflowTemplateVersion ?? null;
 
   if (source.kind === 'saree') {
     const sareeSettings = await getSareeSettings(app.db);
@@ -1067,7 +1137,10 @@ export async function createSimpleTryonJob(
       throw new AppError('VALIDATION', 400, 'saree tryon workflow not configured by admin');
     }
     const [wf] = await app.db
-      .select({ isActive: schema.workflowTemplates.isActive })
+      .select({
+        isActive: schema.workflowTemplates.isActive,
+        version: schema.workflowTemplates.version,
+      })
       .from(schema.workflowTemplates)
       .where(
         and(
@@ -1079,6 +1152,7 @@ export async function createSimpleTryonJob(
       throw new AppError('VALIDATION', 400, 'saree tryon workflow is not active');
     }
     workflowTemplateId = sareeSettings.workflowTemplateId;
+    workflowTemplateVersion = wf.version;
   } else {
     // Kill-switch parity: a tryon category (or its workflow template) that an admin
     // deactivated after garment types were mapped to it must not resolve.
@@ -1119,7 +1193,7 @@ export async function createSimpleTryonJob(
         source: JOB_SOURCE.TRYON,
       })
       .returning();
-    await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
+    if (COST > 0) await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
     await tx.insert(schema.jobInputs).values({
       jobId: newJob.id,
       upperGarmentKey: garmentKey,
@@ -1128,7 +1202,12 @@ export async function createSimpleTryonJob(
       // regenerate can re-derive the garment from the CURRENT output of the
       // source job, exactly as a fresh request would, instead of needing a
       // separate code path.
-      params: { personKey, workflowTemplateId, sourceJobId },
+      params: {
+        personKey,
+        workflowTemplateId,
+        sourceJobId,
+        dispatchTemplateVersion: workflowTemplateVersion,
+      },
     });
     return [newJob];
   });

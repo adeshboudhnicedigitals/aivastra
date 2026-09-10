@@ -121,4 +121,94 @@ describe('requireShopifyStoreKey', () => {
     await (decorated.requireShopifyStoreKey as (req: unknown) => Promise<void>)(req);
     expect(req.shopifyStoreId).toBe('store-1');
   });
+  // Gap 15: an allowedOrigins mismatch is a merchant misconfiguration, and it
+  // used to be reported with the same FORBIDDEN code the routes use for
+  // "upload session expired". The widget branches on that code to decide
+  // whether to forget the shopper's remembered photo, so the two must not
+  // collide — see tryon-widget.js createJob().
+  it("rejects a disallowed origin with its own code, not the routes' FORBIDDEN", async () => {
+    const { shopifyWidgetAuthPlugin } = await import('./shopify-widget-auth.js');
+    const { AppError } = await import('../lib/errors.js');
+    const decorated: Record<string, unknown> = {};
+    const store = {
+      id: 'store-1',
+      uninstalledAt: null,
+      storeKey: '11111111-1111-1111-1111-111111111111',
+      allowedOrigins: ['https://shop.example.com'],
+    };
+    const limit = vi.fn().mockResolvedValue([store]);
+    const where = vi.fn().mockReturnValue({ limit });
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    const warn = vi.fn();
+    const app = {
+      decorate: (name: string, fn: unknown) => {
+        decorated[name] = fn;
+      },
+      db: { select },
+      log: { warn },
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: test mock — Fastify plugin type is opaque
+    await (shopifyWidgetAuthPlugin as any)(app, {}, () => {});
+    const req = {
+      headers: {
+        'x-widget-key': '11111111-1111-1111-1111-111111111111',
+        origin: 'https://not-the-shop.example.com',
+      },
+    } as never;
+
+    const err = await (decorated.requireShopifyStoreKey as (req: unknown) => Promise<void>)(
+      req,
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(AppError);
+    expect((err as InstanceType<typeof AppError>).code).toBe('ORIGIN_NOT_ALLOWED');
+    expect((err as InstanceType<typeof AppError>).statusCode).toBe(403);
+  });
+
+  // Nothing else surfaces this: the storefront shows a generic error and the
+  // merchant has no dashboard for it, so the log line is the only way anyone
+  // finds out why every try-on on the store is failing.
+  it('logs the rejected origin and the configured allowlist', async () => {
+    const { shopifyWidgetAuthPlugin } = await import('./shopify-widget-auth.js');
+    const decorated: Record<string, unknown> = {};
+    const store = {
+      id: 'store-1',
+      uninstalledAt: null,
+      storeKey: '11111111-1111-1111-1111-111111111111',
+      allowedOrigins: ['https://shop.example.com'],
+    };
+    const limit = vi.fn().mockResolvedValue([store]);
+    const where = vi.fn().mockReturnValue({ limit });
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    const warn = vi.fn();
+    const app = {
+      decorate: (name: string, fn: unknown) => {
+        decorated[name] = fn;
+      },
+      db: { select },
+      log: { warn },
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: test mock — Fastify plugin type is opaque
+    await (shopifyWidgetAuthPlugin as any)(app, {}, () => {});
+    const req = {
+      headers: {
+        'x-widget-key': '11111111-1111-1111-1111-111111111111',
+        origin: 'https://not-the-shop.example.com',
+      },
+    } as never;
+
+    await (decorated.requireShopifyStoreKey as (req: unknown) => Promise<void>)(req).catch(
+      () => {},
+    );
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [payload] = warn.mock.calls[0];
+    expect(payload).toMatchObject({
+      storeId: 'store-1',
+      origin: 'https://not-the-shop.example.com',
+      allowedOrigins: ['https://shop.example.com'],
+    });
+  });
 });

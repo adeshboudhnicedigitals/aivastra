@@ -8,4 +8,10 @@ useDefault = true
   regexes = [
     '''test-jwt-secret-0123456789abcdef-32min''',
     '''Passw0rdTest123''',
+    # Not a secret — a field assignment in models.routes.ts
+    # (`bgComfyR2Key: body.bgComfyR2Key ?? null`). The generic-api-key rule
+    # matches on the "...Key: <identifier>" shape; gitleaks re-scans this line
+    # as "added" whenever its surrounding block is edited (e.g. wrapped in a
+    # transaction) even though the line itself is unchanged.
+    '''body\.bgComfyR2Key''',
   ]

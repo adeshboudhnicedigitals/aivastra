@@ -2,25 +2,50 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  DevAnalyticsResponse,
+  DevBalanceResponse,
   DevCategoriesResponse,
   DevErrorResponse,
   DevJobParams,
   DevJobResponse,
   DevMeResponse,
+  DevPaymentOrderBody,
+  DevPaymentOrderResponse,
+  DevPaymentVerifyBody,
+  DevPaymentVerifyResponse,
+  DevPhotoPreviewRequest,
+  DevPhotoPreviewResponse,
+  DevPlansResponse,
   DevSareeMannequinJsonBody,
+  DevSupportSessionResponse,
   DevTryonJsonBody,
   DevTryonResponse,
+  DevWidgetEventBody,
+  DevWidgetEventResponse,
   JOB_SOURCE,
   LEGACY_JOB_SOURCE,
 } from '@aivastra/types';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
+import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
+import { assertWidgetKeyRateLimit } from '../../lib/widget-key-rate-limit.js';
+import { signAccess } from '../auth/service.js';
+import {
+  createRazorpayOrder,
+  GST_RATE,
+  grantMerchantCredits,
+  verifyRazorpaySignature,
+} from '../merchant/razorpay.js';
+import { devAnalyticsCards, devAnalyticsDaily, devAnalyticsProducts } from './analytics.js';
 import { createDevTryonJob } from './create-job.js';
 import { createDevSareeMannequinJob } from './create-saree-mannequin-job.js';
 import { sniffImageMime } from './image-sniff.js';
 import { hashApiKey } from './keys.js';
+
+const ANALYTICS_CARDS_WINDOW_DAYS = 30;
+const ANALYTICS_DAILY_WINDOW_DAYS = 14;
 
 const EXT_BY_MIME = {
   'image/jpeg': 'jpg',
@@ -68,7 +93,7 @@ export async function devRoutes(app: FastifyInstance) {
   app.get(
     '/v1/dev/me',
     {
-      preHandler: app.requireApiKey,
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
       config: rateLimitConfig,
       schema: {
         tags: ['dev'],
@@ -93,10 +118,309 @@ export async function devRoutes(app: FastifyInstance) {
         .where(eq(schema.merchants.id, req.merchantId as string))
         .limit(1);
       if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+      const credits = row.credits ?? 0;
+      const tryonCost = await getTryonCreditCost(app);
       return {
         merchantId: row.merchantId,
         companyName: row.companyName,
-        credits: row.credits ?? 0,
+        credits,
+        tryOnsRemaining: Math.floor(credits / tryonCost),
+      };
+    },
+  );
+
+  app.get(
+    '/v1/dev/balance',
+    {
+      // No requireDevScope() — a credit count is not sensitive, and this is
+      // the one dev-API read a widget-scoped key needs directly (e.g. the
+      // WordPress plugin's "Refresh balance" button, which only ever holds
+      // the widget key day-to-day). Full-scoped keys may call it too.
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        // wp-internal, not 'dev': the WordPress plugin's own "Refresh balance"
+        // button, not part of the public build-your-own-integration surface —
+        // see server.ts's swagger transform, which hides anything not tagged 'dev'.
+        tags: ['wp-internal'],
+        summary: 'Get the current credit balance',
+        response: {
+          200: DevBalanceResponse,
+          401: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+        },
+      },
+    },
+    async (req) => {
+      const [row] = await app.db
+        .select({ credits: schema.userCredits.balance })
+        .from(schema.merchants)
+        .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+        .where(eq(schema.merchants.id, req.merchantId as string))
+        .limit(1);
+      if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+      const credits = row.credits ?? 0;
+      const tryonCost = await getTryonCreditCost(app);
+      return { credits, tryOnsRemaining: Math.floor(credits / tryonCost) };
+    },
+  );
+
+  app.get(
+    '/v1/dev/plans',
+    {
+      // No requireDevScope() — plan pricing is public display data, same
+      // reasoning as /v1/dev/balance: the WordPress plugin only ever holds
+      // a widget-scoped key day-to-day and needs this to render its
+      // "Plans & Credits" card on every settings-page load.
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        // wp-internal: powers the WordPress plugin's "Plans & Credits" card only.
+        tags: ['wp-internal'],
+        summary: 'List purchasable merchant credit plans',
+        response: { 200: DevPlansResponse, 401: DevErrorResponse, 429: DevErrorResponse },
+      },
+    },
+    async () => {
+      // 'tryon' plan type mirrors the merchant's actual use case (storefront
+      // virtual try-on), same tab a logged-in user sees on /pricing. Admin-
+      // managed — see packages/db/src/schema/credits.ts — not a fixed enum.
+      const rows = await app.db
+        .select({
+          slug: schema.creditPlans.slug,
+          name: schema.creditPlans.name,
+          basePaise: schema.creditPlans.basePaise,
+          credits: schema.creditPlans.credits,
+          isHighlighted: schema.creditPlans.isHighlighted,
+          badge: schema.creditPlans.badge,
+          perUnitPriceLabel: schema.creditPlans.perUnitPriceLabel,
+          unitCountLabel: schema.creditPlans.unitCountLabel,
+        })
+        .from(schema.creditPlans)
+        .where(and(eq(schema.creditPlans.planType, 'tryon'), eq(schema.creditPlans.isActive, true)))
+        .orderBy(asc(schema.creditPlans.sortOrder));
+
+      return {
+        plans: rows.map((r) => ({
+          slug: r.slug,
+          name: r.name,
+          priceInr: Math.round(r.basePaise / 100),
+          credits: r.credits,
+          isHighlighted: r.isHighlighted,
+          badge: r.badge,
+          perUnitPriceLabel: r.perUnitPriceLabel,
+          unitCountLabel: r.unitCountLabel,
+        })),
+      };
+    },
+  );
+
+  app.post(
+    '/v1/dev/support/session',
+    {
+      // No requireDevScope() — same reasoning as /v1/dev/balance and
+      // /v1/dev/plans: this only needs to identify the merchant, not touch
+      // anything sensitive, and the WordPress plugin only ever holds a
+      // widget-scoped key day-to-day.
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        // wp-internal: mirrors POST /v1/shopify/support/session
+        // (apps/api/src/modules/shopify/support.routes.ts) for the WordPress
+        // plugin's live-chat button. The browser exchanges the returned JWT
+        // for a chatbot ws-ticket exactly the way the Shopify embedded
+        // admin's useSupportChat.ts does.
+        tags: ['wp-internal'],
+        summary: 'Mint a chatbot session token for the connected merchant',
+        response: { 200: DevSupportSessionResponse, 401: DevErrorResponse, 429: DevErrorResponse },
+      },
+    },
+    async (req) => {
+      // Unlike Shopify's getOrCreateSupportUser(), no synthetic user is
+      // needed — an API-key-authed request already resolves to a real
+      // users.id via schema.merchants.userId (a merchant IS a user).
+      const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+      const token = await signAccess(
+        secret,
+        req.merchantUserId as string,
+        { kind: 'access' },
+        app.env.JWT_EXPIRY,
+      );
+      return { token };
+    },
+  );
+
+  app.post(
+    '/v1/dev/payments/orders',
+    {
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
+      config: rateLimitConfig,
+      schema: {
+        // wp-internal: the WordPress plugin's own credit-purchase flow, not part
+        // of the public dev API surface.
+        tags: ['wp-internal'],
+        summary: 'Create a Razorpay order for a merchant credit plan',
+        body: DevPaymentOrderBody,
+        response: {
+          200: DevPaymentOrderResponse,
+          401: DevErrorResponse,
+          403: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+          503: DevErrorResponse,
+        },
+      },
+    },
+    async (req) => {
+      const { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET } = app.env;
+      if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
+        throw new AppError('NOT_CONFIGURED', 503, 'payments not configured');
+      }
+
+      const merchantId = req.merchantId as string;
+      const { planSlug } = req.body as { planSlug: string };
+      const [plan] = await app.db
+        .select()
+        .from(schema.creditPlans)
+        .where(
+          and(
+            eq(schema.creditPlans.slug, planSlug),
+            eq(schema.creditPlans.planType, 'tryon'),
+            eq(schema.creditPlans.isActive, true),
+          ),
+        );
+      if (!plan) throw new AppError('NOT_FOUND', 404, 'plan not found');
+
+      const gstPaise = Math.round(plan.basePaise * GST_RATE);
+      const totalPaise = plan.basePaise + gstPaise;
+
+      const rzpOrder = await createRazorpayOrder(
+        RAZORPAY_KEY_ID,
+        RAZORPAY_KEY_SECRET,
+        totalPaise,
+        `aivastra_wp_${merchantId.slice(0, 8)}`,
+      );
+
+      await app.db.insert(schema.merchantPayments).values({
+        merchantId,
+        planId: plan.slug,
+        razorpayOrderId: rzpOrder.id,
+        basePaise: plan.basePaise,
+        gstPaise,
+        totalPaise,
+        credits: plan.credits,
+        status: 'created',
+      });
+
+      return {
+        orderId: rzpOrder.id,
+        amount: totalPaise,
+        currency: 'INR',
+        keyId: RAZORPAY_KEY_ID,
+        credits: plan.credits,
+        label: plan.name,
+      };
+    },
+  );
+
+  app.post(
+    '/v1/dev/payments/verify',
+    {
+      // Widget-scoped keys may call this: verification is a signature check
+      // against an order already tied to a specific merchant at creation
+      // time (/v1/dev/payments/orders, full-scope only) — a leaked widget
+      // key cannot forge a valid Razorpay signature, so this stays safe
+      // without a scope restriction.
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        // wp-internal: pairs with POST /v1/dev/payments/orders above.
+        tags: ['wp-internal'],
+        summary: 'Verify a Razorpay payment and grant credits',
+        body: DevPaymentVerifyBody,
+        response: {
+          200: DevPaymentVerifyResponse,
+          400: DevErrorResponse,
+          401: DevErrorResponse,
+          403: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+          503: DevErrorResponse,
+        },
+      },
+    },
+    async (req) => {
+      const { RAZORPAY_KEY_SECRET } = app.env;
+      if (!RAZORPAY_KEY_SECRET) {
+        throw new AppError('NOT_CONFIGURED', 503, 'payments not configured');
+      }
+
+      const merchantId = req.merchantId as string;
+      const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body as {
+        razorpayOrderId: string;
+        razorpayPaymentId: string;
+        razorpaySignature: string;
+      };
+
+      if (
+        !verifyRazorpaySignature(
+          RAZORPAY_KEY_SECRET,
+          razorpayOrderId,
+          razorpayPaymentId,
+          razorpaySignature,
+        )
+      ) {
+        throw new AppError('INVALID_SIGNATURE', 400, 'payment signature invalid');
+      }
+
+      const [payment] = await app.db
+        .select()
+        .from(schema.merchantPayments)
+        .where(eq(schema.merchantPayments.razorpayOrderId, razorpayOrderId));
+
+      if (!payment) throw new AppError('NOT_FOUND', 404, 'order not found');
+      if (payment.merchantId !== merchantId) throw new AppError('FORBIDDEN', 403, 'forbidden');
+
+      if (payment.status === 'paid') {
+        const [bal] = await app.db
+          .select({ balance: schema.userCredits.balance })
+          .from(schema.merchants)
+          .innerJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+          .where(eq(schema.merchants.id, merchantId));
+        const balance = bal?.balance ?? payment.credits;
+        const tryonCost = await getTryonCreditCost(app);
+        return {
+          ok: true as const,
+          alreadyCredited: true,
+          balance,
+          tryOnsRemaining: Math.floor(balance / tryonCost),
+        };
+      }
+
+      await grantMerchantCredits(
+        app,
+        merchantId,
+        razorpayOrderId,
+        razorpayPaymentId,
+        payment.credits,
+        razorpaySignature,
+      );
+
+      const [bal] = await app.db
+        .select({ balance: schema.userCredits.balance })
+        .from(schema.merchants)
+        .innerJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+        .where(eq(schema.merchants.id, merchantId));
+
+      const balanceAfterGrant = bal?.balance ?? payment.credits;
+      const tryonCost = await getTryonCreditCost(app);
+
+      return {
+        ok: true as const,
+        alreadyCredited: false,
+        balance: balanceAfterGrant,
+        tryOnsRemaining: Math.floor(balanceAfterGrant / tryonCost),
       };
     },
   );
@@ -142,6 +466,11 @@ export async function devRoutes(app: FastifyInstance) {
       const merchantId = req.merchantId as string;
       const merchantUserId = req.merchantUserId as string;
       const apiKeyId = req.apiKeyId as string;
+
+      if (req.apiKeyScope === 'widget') {
+        await assertWidgetKeyRateLimit(app, apiKeyId);
+      }
+
       const maxFileBytes = await getUploadLimitBytes(req.server, 'devApiMaxBytes');
 
       let categorySlug: string | undefined;
@@ -246,19 +575,65 @@ export async function devRoutes(app: FastifyInstance) {
         merchantId,
         merchantUserId,
         apiKeyId,
+        integration: (req.integration as 'generic' | 'wordpress') ?? 'generic',
         categorySlug,
         personKey,
         garmentKey,
       });
 
-      return reply.code(202).send({ jobId, status: 'QUEUED' });
+      // Lets a later /v1/dev/photo/preview call offer "reuse this photo"
+      // without re-uploading it — same 24h renewable window as the Shopify
+      // widget's equivalent (customer.routes.ts), refreshed on every reuse.
+      await app.redis.set(`dev:person-photo:${merchantId}:${personKey}`, '1', 'EX', 86400);
+
+      return reply.code(202).send({ jobId, status: 'QUEUED', personKey });
+    },
+  );
+
+  app.post(
+    '/v1/dev/photo/preview',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'Re-sign a previously uploaded person photo for reuse on a new job',
+        body: DevPhotoPreviewRequest,
+        response: {
+          200: DevPhotoPreviewResponse,
+          401: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+        },
+      },
+    },
+    async (req) => {
+      const merchantId = req.merchantId as string;
+      if (req.apiKeyScope === 'widget') {
+        await assertWidgetKeyRateLimit(app, req.apiKeyId as string);
+      }
+      const { personKey } = req.body as { personKey: string };
+
+      // The dev/ key prefix embeds the owning merchant (keys.devUpload), so this
+      // also rejects a photo key from a different merchant outright, before ever
+      // touching Redis.
+      if (!personKey.startsWith(`dev/${merchantId}/`)) {
+        throw new AppError('NOT_FOUND', 404, 'photo not available');
+      }
+      const owned = await app.redis.get(`dev:person-photo:${merchantId}:${personKey}`);
+      if (!owned) {
+        throw new AppError('NOT_FOUND', 404, 'photo not available');
+      }
+
+      const { url } = await app.storage.presignGet(personKey, 300);
+      return { previewUrl: url };
     },
   );
 
   app.post(
     '/v1/dev/saree-mannequin',
     {
-      preHandler: app.requireApiKey,
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
       config: rateLimitConfig,
       // One image, base64-inflated ~1.34x — 20MB source caps around 26.8MB of JSON text.
       bodyLimit: 30 * 1024 * 1024,
@@ -384,6 +759,9 @@ export async function devRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
+      if (req.apiKeyScope === 'widget') {
+        await assertWidgetKeyRateLimit(app, req.apiKeyId as string);
+      }
       const [job] = await app.db
         .select({
           id: schema.jobs.id,
@@ -403,6 +781,7 @@ export async function devRoutes(app: FastifyInstance) {
               JOB_SOURCE.API_TRYON,
               JOB_SOURCE.API_SAREE_MANNEQUIN,
               JOB_SOURCE.API_CATALOG,
+              JOB_SOURCE.WORDPRESS_TRYON,
               LEGACY_JOB_SOURCE.API,
             ]),
           ),
@@ -435,6 +814,93 @@ export async function devRoutes(app: FastifyInstance) {
         jobId: job.id,
         status: job.status === 'QUEUED' ? ('QUEUED' as const) : ('RUNNING' as const),
       };
+    },
+  );
+
+  app.post(
+    '/v1/dev/widget-event',
+    {
+      // Called directly from the shopper's browser (assets/widget.js), same
+      // as POST /v1/dev/tryon — widget-scoped keys only ever hold this key
+      // day-to-day, so no requireDevScope().
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        // wp-internal: feeds the WordPress plugin Analytics card only (see
+        // description below) — not part of the public dev API surface.
+        tags: ['wp-internal'],
+        summary: 'Record an advisory widget analytics event',
+        description:
+          'ADVISORY ONLY: client-reported and forgeable by anyone who can open ' +
+          'devtools. Never consulted for a credit, limit, or authorization decision. ' +
+          'Feeds the WordPress plugin Analytics card only.',
+        body: DevWidgetEventBody,
+        response: {
+          202: DevWidgetEventResponse,
+          400: DevErrorResponse,
+          401: DevErrorResponse,
+          429: DevErrorResponse,
+        },
+      },
+    },
+    async (req, reply) => {
+      if (req.apiKeyScope === 'widget') {
+        await assertWidgetKeyRateLimit(app, req.apiKeyId as string);
+      }
+      const body = req.body as DevWidgetEventBody;
+      await app.db.insert(schema.merchantWidgetEvents).values({
+        merchantId: req.merchantId as string,
+        clientId: body.clientId ?? null,
+        productId: body.productId ?? null,
+        type: body.type,
+        device: body.device ?? null,
+      });
+      reply.code(202);
+      return { ok: true as const };
+    },
+  );
+
+  app.get(
+    '/v1/dev/analytics',
+    {
+      // Full scope only: aggregate business data (try-on volume, per-product
+      // breakdown), unlike /v1/dev/balance or /v1/dev/plans. Called
+      // server-side by the WordPress plugin's settings page render, which
+      // holds the full key, never by the browser.
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
+      config: rateLimitConfig,
+      schema: {
+        // wp-internal: rendered server-side by the WordPress plugin's settings
+        // page only — not part of the public dev API surface.
+        tags: ['wp-internal'],
+        summary: 'Get widget analytics for the last 30 days',
+        description:
+          '`cards.tryOns` and `daily` are real (drawn from the jobs table, which a ' +
+          'caller cannot forge). Every other field is advisory, client-reported data ' +
+          'from POST /v1/dev/widget-event, since the dev-API try-on route carries no ' +
+          'product id or shopper identity to join against.',
+        response: { 200: DevAnalyticsResponse, 401: DevErrorResponse, 429: DevErrorResponse },
+      },
+    },
+    async (req) => {
+      const merchantId = req.merchantId as string;
+      const now = new Date();
+      const cardsRange = {
+        from: new Date(now.getTime() - ANALYTICS_CARDS_WINDOW_DAYS * 86_400_000),
+        to: now,
+      };
+      const dailyRange = {
+        from: new Date(now.getTime() - ANALYTICS_DAILY_WINDOW_DAYS * 86_400_000),
+        to: now,
+      };
+
+      const [cards, daily, products] = await Promise.all([
+        devAnalyticsCards(app.db, merchantId, cardsRange),
+        devAnalyticsDaily(app.db, merchantId, dailyRange),
+        devAnalyticsProducts(app.db, merchantId, cardsRange),
+      ]);
+
+      return { cards, daily, products };
     },
   );
 }

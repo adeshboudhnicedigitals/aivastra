@@ -52,6 +52,7 @@ function rowValues(row: UserExportRow, idx: number) {
     joined: fmtExportDate(row.createdAt),
     credits: row.balance.toLocaleString('en-IN'),
     jobs: String(row.totalJobs),
+    lastActivity: row.lastJobAt ? fmtExportDate(new Date(row.lastJobAt)) : '—',
     status: row.isBanned ? 'Suspended' : 'Active',
   };
 }
@@ -60,16 +61,17 @@ function rowValues(row: UserExportRow, idx: number) {
 // of rounding slack — keep any edit here summing to the same total.
 const COLUMNS: Column[] = [
   { key: 'idx', label: '#', width: 20 },
-  { key: 'name', label: 'Name', width: 108 },
-  { key: 'mobile', label: 'Mobile', width: 78 },
-  { key: 'email', label: 'Email', width: 155 },
-  { key: 'plan', label: 'Plan', width: 58, align: 'center' },
-  { key: 'type', label: 'Type', width: 55, align: 'center' },
-  { key: 'company', label: 'Company', width: 108 },
-  { key: 'joined', label: 'Joined', width: 62, align: 'center' },
-  { key: 'credits', label: 'Credits', width: 48, align: 'right' },
-  { key: 'jobs', label: 'Jobs', width: 34, align: 'right' },
-  { key: 'status', label: 'Status', width: 42, align: 'center' },
+  { key: 'name', label: 'Name', width: 102 },
+  { key: 'mobile', label: 'Mobile', width: 72 },
+  { key: 'email', label: 'Email', width: 140 },
+  { key: 'plan', label: 'Plan', width: 52, align: 'center' },
+  { key: 'type', label: 'Type', width: 50, align: 'center' },
+  { key: 'company', label: 'Company', width: 98 },
+  { key: 'joined', label: 'Joined', width: 60, align: 'center' },
+  { key: 'credits', label: 'Credits', width: 44, align: 'right' },
+  { key: 'jobs', label: 'Jobs', width: 30, align: 'right' },
+  { key: 'lastActivity', label: 'Last Activity', width: 60, align: 'center' },
+  { key: 'status', label: 'Status', width: 40, align: 'center' },
 ];
 
 export function renderUsersExportPdf(

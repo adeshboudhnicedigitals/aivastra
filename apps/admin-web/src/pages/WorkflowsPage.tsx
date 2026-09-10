@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
+import { ReplaceWorkflowModal } from '../components/ReplaceWorkflowModal';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { WorkflowUploadModal } from '../components/WorkflowUploadModal';
 import { ApiError, apiErrorMessage, apiFetch } from '../lib/data';
@@ -33,6 +34,27 @@ interface Props {
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
 }
 
+// Older rows predate the `instruction` field on regenerationReasonPrompts —
+// default it to '' so the edit form's controlled textarea never receives
+// undefined.
+function regenerationReasonPromptsFromWf(wf: WorkflowOption) {
+  return (wf.regenerationReasonPrompts ?? []).map((p) => ({
+    reason: p.reason,
+    prompt: p.prompt,
+    instruction: p.instruction ?? '',
+  }));
+}
+
+function ksamplerOverridesFromWf(wf: WorkflowOption) {
+  return wf.ksamplerNodes.map((n) => ({
+    nodeId: n.nodeId,
+    steps: String(n.steps ?? ''),
+    cfg: String(n.cfg ?? ''),
+    denoise: String(n.denoise ?? ''),
+    seed: String(n.seed ?? ''),
+  }));
+}
+
 export default function WorkflowsPage({ toast }: Props) {
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [query, setQuery] = useState('');
@@ -49,14 +71,24 @@ export default function WorkflowsPage({ toast }: Props) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [jsonCopied, setJsonCopied] = useState(false);
   const [editingWf, setEditingWf] = useState<WorkflowOption | null>(null);
+  const [replacingWf, setReplacingWf] = useState<WorkflowOption | null>(null);
   const [editForm, setEditForm] = useState({
     label: '',
     slug: '',
     garmentPhasePrompt: '',
     facePhasePrompt: '',
-    ksamplerSteps: '',
-    ksamplerCfg: '',
-    ksamplerDenoise: '',
+    regenerationReasonPrompts: [] as { reason: string; prompt: string; instruction: string }[],
+    stage1PositivePrompt: '',
+    stage1NegativePrompt: '',
+    latentMaxPx: '',
+    outputMaxPx: '',
+    ksamplerOverrides: [] as {
+      nodeId: string;
+      steps: string;
+      cfg: string;
+      denoise: string;
+      seed: string;
+    }[],
   });
   const [editSaving, setEditSaving] = useState(false);
 
@@ -79,6 +111,11 @@ export default function WorkflowsPage({ toast }: Props) {
   const handleCreated = (wf: WorkflowOption) => {
     setWorkflows((prev) => [wf, ...prev]);
     setShowUpload(false);
+  };
+
+  const handleReplaced = (updated: WorkflowOption) => {
+    setWorkflows((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
+    setReplacingWf(null);
   };
 
   const handleDelete = async (id: string) => {
@@ -179,22 +216,69 @@ export default function WorkflowsPage({ toast }: Props) {
     if (!editingWf) return;
     setEditSaving(true);
     try {
+      // A blank prompt/instruction is kept — it means "no override yet" for
+      // that reason (regenerate then falls back to the original
+      // prompt/instruction), not "delete this reason." Only a blank REASON
+      // label is dropped, since the picker can't render a nameless row.
+      const cleanedRegenerationReasonPrompts = editForm.regenerationReasonPrompts
+        .map((p) => ({
+          reason: p.reason.trim(),
+          prompt: p.prompt.trim(),
+          instruction: p.instruction.trim(),
+        }))
+        .filter((p) => p.reason.length > 0);
       const patch: Record<string, unknown> = {
         label: editForm.label.trim(),
         slug: editForm.slug.trim(),
         garmentPhasePrompt: editForm.garmentPhasePrompt.trim(),
       };
+      // regenerationReasonPrompts is only meaningful on a regeneration-type
+      // template — the API now rejects it for any other type, so omit the key
+      // entirely rather than send an echoed-back [] for other workflow types.
+      if (editingWf.workflowType === 'regeneration') {
+        patch.regenerationReasonPrompts = cleanedRegenerationReasonPrompts;
+      }
       if (editingWf.facePhasePromptNode) {
         patch.facePhasePrompt = editForm.facePhasePrompt.trim();
       }
-      if (editingWf.ksamplerSteps !== null) {
-        const steps = Number(editForm.ksamplerSteps);
-        const cfg = Number(editForm.ksamplerCfg);
-        const denoise = Number(editForm.ksamplerDenoise);
-        if (!Number.isNaN(steps)) patch.ksamplerSteps = steps;
-        if (!Number.isNaN(cfg)) patch.ksamplerCfg = cfg;
-        if (!Number.isNaN(denoise)) patch.ksamplerDenoise = denoise;
+      if (editingWf.stage1PositivePromptNode) {
+        patch.stage1PositivePrompt = editForm.stage1PositivePrompt.trim();
       }
+      if (editingWf.stage1NegativePromptNode) {
+        patch.stage1NegativePrompt = editForm.stage1NegativePrompt.trim();
+      }
+      // Only a dual-size-group template (latentSizeNodeIds populated) has these caps —
+      // the node IDs themselves stay server-computed, only the pixel ceilings are editable.
+      if (editingWf.latentSizeNodeIds.length > 0) {
+        const latentMaxPx = Number(editForm.latentMaxPx);
+        if (!Number.isNaN(latentMaxPx)) patch.latentMaxPx = latentMaxPx;
+      }
+      if (editingWf.outputSizeNodeIds.length > 0) {
+        const outputMaxPx = Number(editForm.outputMaxPx);
+        if (!Number.isNaN(outputMaxPx)) patch.outputMaxPx = outputMaxPx;
+      }
+      const ksamplerOverrides = editForm.ksamplerOverrides
+        .map((o) => {
+          const steps = Number(o.steps);
+          const cfg = Number(o.cfg);
+          const denoise = Number(o.denoise);
+          const seed = Number(o.seed);
+          const override: {
+            nodeId: string;
+            steps?: number;
+            cfg?: number;
+            denoise?: number;
+            seed?: number;
+          } = { nodeId: o.nodeId };
+          if (!Number.isNaN(steps)) override.steps = steps;
+          if (!Number.isNaN(cfg)) override.cfg = cfg;
+          if (!Number.isNaN(denoise)) override.denoise = denoise;
+          if (!Number.isNaN(seed)) override.seed = seed;
+          return override;
+        })
+        .filter((o) => Object.keys(o).length > 1);
+      if (ksamplerOverrides.length > 0) patch.ksamplerOverrides = ksamplerOverrides;
+
       await apiFetch(`/admin/workflows/${editingWf.id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
@@ -207,22 +291,37 @@ export default function WorkflowsPage({ toast }: Props) {
                 label: editForm.label.trim(),
                 slug: editForm.slug.trim(),
                 defaultGarmentPhasePrompt: editForm.garmentPhasePrompt.trim(),
+                ...(editingWf.workflowType === 'regeneration'
+                  ? { regenerationReasonPrompts: cleanedRegenerationReasonPrompts }
+                  : {}),
                 ...(editingWf.facePhasePromptNode
                   ? { defaultFacePhasePrompt: editForm.facePhasePrompt.trim() }
                   : {}),
-                ...(editingWf.ksamplerSteps !== null
-                  ? {
-                      ksamplerSteps: Number.isNaN(Number(editForm.ksamplerSteps))
-                        ? w.ksamplerSteps
-                        : Number(editForm.ksamplerSteps),
-                      ksamplerCfg: Number.isNaN(Number(editForm.ksamplerCfg))
-                        ? w.ksamplerCfg
-                        : Number(editForm.ksamplerCfg),
-                      ksamplerDenoise: Number.isNaN(Number(editForm.ksamplerDenoise))
-                        ? w.ksamplerDenoise
-                        : Number(editForm.ksamplerDenoise),
-                    }
+                ...(editingWf.stage1PositivePromptNode
+                  ? { defaultStage1PositivePrompt: editForm.stage1PositivePrompt.trim() }
                   : {}),
+                ...(editingWf.stage1NegativePromptNode
+                  ? { defaultStage1NegativePrompt: editForm.stage1NegativePrompt.trim() }
+                  : {}),
+                ...(editingWf.latentSizeNodeIds.length > 0 &&
+                !Number.isNaN(Number(editForm.latentMaxPx))
+                  ? { latentMaxPx: Number(editForm.latentMaxPx) }
+                  : {}),
+                ...(editingWf.outputSizeNodeIds.length > 0 &&
+                !Number.isNaN(Number(editForm.outputMaxPx))
+                  ? { outputMaxPx: Number(editForm.outputMaxPx) }
+                  : {}),
+                ksamplerNodes: w.ksamplerNodes.map((n) => {
+                  const form = editForm.ksamplerOverrides.find((o) => o.nodeId === n.nodeId);
+                  if (!form) return n;
+                  return {
+                    nodeId: n.nodeId,
+                    steps: Number.isNaN(Number(form.steps)) ? n.steps : Number(form.steps),
+                    cfg: Number.isNaN(Number(form.cfg)) ? n.cfg : Number(form.cfg),
+                    denoise: Number.isNaN(Number(form.denoise)) ? n.denoise : Number(form.denoise),
+                    seed: Number.isNaN(Number(form.seed)) ? n.seed : Number(form.seed),
+                  };
+                }),
               }
             : w,
         ),
@@ -268,26 +367,19 @@ export default function WorkflowsPage({ toast }: Props) {
                   onChange={(e) => setQuery(e.target.value)}
                 />
               </div>
-              <select
+              <SearchableSelect
+                options={[
+                  { id: 'regular', label: 'Catalogue workflows' },
+                  { id: 'tryon', label: 'Tryon' },
+                  { id: 'saree_step1', label: 'Saree Step 1' },
+                  { id: 'saree_step1_two_input', label: 'Saree Step 1 (2-input)' },
+                  { id: 'regeneration', label: 'Regeneration' },
+                ]}
                 value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--ink)',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                <option value="">All Types</option>
-                <option value="regular">Catalogue workflows</option>
-                <option value="tryon">Tryon</option>
-                <option value="saree_step1">Saree Step 1</option>
-                <option value="saree_step1_two_input">Saree Step 1 (2-input)</option>
-              </select>
+                emptyLabel="All Types"
+                onChange={setTypeFilter}
+                style={{ minWidth: 180 }}
+              />
             </>
           )}
           <button className="btn primary" onClick={() => setShowUpload(true)}>
@@ -363,7 +455,47 @@ export default function WorkflowsPage({ toast }: Props) {
                 <tbody>
                   {filteredWorkflows.map((wf) => (
                     <tr key={wf.id}>
-                      <td style={{ fontWeight: 500 }}>{wf.label}</td>
+                      <td style={{ fontWeight: 500 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <span>{wf.label}</span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              fontWeight: 600,
+                              background: 'var(--subtle, #f1f5f9)',
+                              color: 'var(--text-muted, #64748b)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 4,
+                              padding: '1px 5px',
+                            }}
+                          >
+                            v{wf.version ?? 1}
+                          </span>
+                          {wf.draining && (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                padding: '2px 8px',
+                                borderRadius: 10,
+                                background: 'rgba(234, 179, 8, 0.15)',
+                                color: '#ca8a04',
+                              }}
+                              title={`Draining jobs from v${wf.draining.fromVersion}`}
+                            >
+                              Draining v{wf.draining.fromVersion}
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td>
                         <code
                           style={{
@@ -433,6 +565,18 @@ export default function WorkflowsPage({ toast }: Props) {
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                           <button
                             className="btn sm ghost"
+                            disabled={Boolean(wf.draining)}
+                            onClick={() => setReplacingWf(wf)}
+                            title={
+                              wf.draining
+                                ? 'Cannot replace while draining previous version'
+                                : 'Replace workflow in place (updates ComfyUI graph)'
+                            }
+                          >
+                            <Icon.Replace /> Replace
+                          </button>
+                          <button
+                            className="btn sm ghost"
                             onClick={() => {
                               setEditingWf(wf);
                               setEditForm({
@@ -440,9 +584,12 @@ export default function WorkflowsPage({ toast }: Props) {
                                 slug: wf.slug,
                                 garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
                                 facePhasePrompt: wf.defaultFacePhasePrompt,
-                                ksamplerSteps: String(wf.ksamplerSteps ?? ''),
-                                ksamplerCfg: String(wf.ksamplerCfg ?? ''),
-                                ksamplerDenoise: String(wf.ksamplerDenoise ?? ''),
+                                regenerationReasonPrompts: regenerationReasonPromptsFromWf(wf),
+                                stage1PositivePrompt: wf.defaultStage1PositivePrompt,
+                                stage1NegativePrompt: wf.defaultStage1NegativePrompt,
+                                latentMaxPx: String(wf.latentMaxPx ?? ''),
+                                outputMaxPx: String(wf.outputMaxPx ?? ''),
+                                ksamplerOverrides: ksamplerOverridesFromWf(wf),
                               });
                             }}
                             title="Edit workflow"
@@ -466,23 +613,6 @@ export default function WorkflowsPage({ toast }: Props) {
                             {wf.isActive ? <Icon.Eye /> : <Icon.Eye />}
                             {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
                           </button>
-                          {wf.poseCount > 0 && (
-                            <button
-                              className="btn sm ghost"
-                              disabled={workflows.length <= 1}
-                              onClick={() => {
-                                setReassigning(wf);
-                                setReassignTargetId('');
-                              }}
-                              title={
-                                workflows.length <= 1
-                                  ? 'No other workflows to reassign to'
-                                  : 'Reassign poses to another workflow'
-                              }
-                            >
-                              <Icon.Replace /> Reassign
-                            </button>
-                          )}
                           <button
                             className="btn sm ghost"
                             style={{ color: 'var(--danger)' }}
@@ -540,19 +670,58 @@ export default function WorkflowsPage({ toast }: Props) {
                       fontSize: 'inherit',
                     }}
                   >
-                    <span
-                      className="semi"
+                    <div
                       style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        flexWrap: 'wrap',
                         overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        fontSize: 15,
-                        color: 'var(--ink)',
-                        fontWeight: 600,
                       }}
                     >
-                      {wf.label}
-                    </span>
+                      <span
+                        className="semi"
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontSize: 15,
+                          color: 'var(--ink)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {wf.label}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          fontWeight: 600,
+                          background: 'var(--subtle, #f1f5f9)',
+                          color: 'var(--text-muted, #64748b)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 4,
+                          padding: '1px 5px',
+                        }}
+                      >
+                        v{wf.version ?? 1}
+                      </span>
+                      {wf.draining && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            background: 'rgba(234, 179, 8, 0.15)',
+                            color: '#ca8a04',
+                          }}
+                          title={`Draining jobs from v${wf.draining.fromVersion}`}
+                        >
+                          Draining v{wf.draining.fromVersion}
+                        </span>
+                      )}
+                    </div>
                     <span
                       style={{
                         color: 'var(--muted-2)',
@@ -690,6 +859,18 @@ export default function WorkflowsPage({ toast }: Props) {
                       >
                         <button
                           className="btn sm ghost"
+                          disabled={Boolean(wf.draining)}
+                          onClick={() => setReplacingWf(wf)}
+                          title={
+                            wf.draining
+                              ? 'Cannot replace while draining previous version'
+                              : 'Replace workflow in place (updates ComfyUI graph)'
+                          }
+                        >
+                          <Icon.Replace /> Replace
+                        </button>
+                        <button
+                          className="btn sm ghost"
                           onClick={() => {
                             setEditingWf(wf);
                             setEditForm({
@@ -697,9 +878,12 @@ export default function WorkflowsPage({ toast }: Props) {
                               slug: wf.slug,
                               garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
                               facePhasePrompt: wf.defaultFacePhasePrompt,
-                              ksamplerSteps: String(wf.ksamplerSteps ?? ''),
-                              ksamplerCfg: String(wf.ksamplerCfg ?? ''),
-                              ksamplerDenoise: String(wf.ksamplerDenoise ?? ''),
+                              regenerationReasonPrompts: regenerationReasonPromptsFromWf(wf),
+                              stage1PositivePrompt: wf.defaultStage1PositivePrompt,
+                              stage1NegativePrompt: wf.defaultStage1NegativePrompt,
+                              latentMaxPx: String(wf.latentMaxPx ?? ''),
+                              outputMaxPx: String(wf.outputMaxPx ?? ''),
+                              ksamplerOverrides: ksamplerOverridesFromWf(wf),
                             });
                           }}
                         >
@@ -719,18 +903,6 @@ export default function WorkflowsPage({ toast }: Props) {
                         >
                           {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
                         </button>
-                        {wf.poseCount > 0 && (
-                          <button
-                            className="btn sm ghost"
-                            disabled={workflows.length <= 1}
-                            onClick={() => {
-                              setReassigning(wf);
-                              setReassignTargetId('');
-                            }}
-                          >
-                            <Icon.Replace /> Reassign
-                          </button>
-                        )}
                         <button
                           className="btn sm ghost danger"
                           disabled={wf.poseCount > 0}
@@ -1052,14 +1224,23 @@ export default function WorkflowsPage({ toast }: Props) {
             !editForm.label.trim() ||
             !editForm.slug.trim() ||
             !editForm.garmentPhasePrompt.trim() ||
-            (editingWf?.ksamplerSteps !== null &&
-              (Number.isNaN(Number(editForm.ksamplerSteps)) ||
-                Number(editForm.ksamplerSteps) < 1 ||
-                Number.isNaN(Number(editForm.ksamplerCfg)) ||
-                Number(editForm.ksamplerCfg) < 0 ||
-                Number.isNaN(Number(editForm.ksamplerDenoise)) ||
-                Number(editForm.ksamplerDenoise) < 0 ||
-                Number(editForm.ksamplerDenoise) > 1))
+            (!!editingWf?.stage1PositivePromptNode && !editForm.stage1PositivePrompt.trim()) ||
+            ((editingWf?.latentSizeNodeIds.length ?? 0) > 0 &&
+              (Number.isNaN(Number(editForm.latentMaxPx)) || Number(editForm.latentMaxPx) < 1)) ||
+            ((editingWf?.outputSizeNodeIds.length ?? 0) > 0 &&
+              (Number.isNaN(Number(editForm.outputMaxPx)) || Number(editForm.outputMaxPx) < 1)) ||
+            editForm.ksamplerOverrides.some(
+              (o) =>
+                Number.isNaN(Number(o.steps)) ||
+                Number(o.steps) < 1 ||
+                Number.isNaN(Number(o.cfg)) ||
+                Number(o.cfg) < 0 ||
+                Number.isNaN(Number(o.denoise)) ||
+                Number(o.denoise) < 0 ||
+                Number(o.denoise) > 1 ||
+                Number.isNaN(Number(o.seed)) ||
+                Number(o.seed) < 0,
+            )
           }
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1109,42 +1290,242 @@ export default function WorkflowsPage({ toast }: Props) {
                 />
               </div>
             )}
-            {editingWf?.ksamplerSteps !== null && (
-              <div style={{ display: 'flex', gap: 14 }}>
-                <div className="field" style={{ flex: 1 }}>
-                  <label>Steps</label>
-                  <input
-                    className="input"
-                    type="number"
-                    value={editForm.ksamplerSteps}
+            {editingWf?.workflowType === 'regeneration' && (
+              <div className="field">
+                <label>Regeneration reasons & prompts (optional)</label>
+                <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--muted)' }}>
+                  When a user regenerates a result, the reason they pick is matched against these
+                  labels and the matching prompt/instruction is used. A reason with no match here
+                  (including "Other") reruns this workflow's own default prompt/instruction.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {editForm.regenerationReasonPrompts.map((pair, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        padding: 8,
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                      }}
+                    >
+                      <input
+                        className="input"
+                        style={{ flex: '0 0 160px' }}
+                        placeholder="Reason (e.g. Wrong pose)"
+                        value={pair.reason}
+                        disabled={editSaving}
+                        onChange={(e) =>
+                          setEditForm((f) => ({
+                            ...f,
+                            regenerationReasonPrompts: f.regenerationReasonPrompts.map((p, i) =>
+                              i === idx ? { ...p, reason: e.target.value } : p,
+                            ),
+                          }))
+                        }
+                      />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                        <textarea
+                          className="input"
+                          rows={2}
+                          placeholder="Alternate prompt"
+                          value={pair.prompt}
+                          disabled={editSaving}
+                          onChange={(e) =>
+                            setEditForm((f) => ({
+                              ...f,
+                              regenerationReasonPrompts: f.regenerationReasonPrompts.map((p, i) =>
+                                i === idx ? { ...p, prompt: e.target.value } : p,
+                              ),
+                            }))
+                          }
+                        />
+                        <textarea
+                          className="input"
+                          rows={2}
+                          placeholder="Alternate instruction"
+                          value={pair.instruction}
+                          disabled={editSaving}
+                          onChange={(e) =>
+                            setEditForm((f) => ({
+                              ...f,
+                              regenerationReasonPrompts: f.regenerationReasonPrompts.map((p, i) =>
+                                i === idx ? { ...p, instruction: e.target.value } : p,
+                              ),
+                            }))
+                          }
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="btn sm ghost"
+                        disabled={editSaving}
+                        onClick={() =>
+                          setEditForm((f) => ({
+                            ...f,
+                            regenerationReasonPrompts: f.regenerationReasonPrompts.filter(
+                              (_, i) => i !== idx,
+                            ),
+                          }))
+                        }
+                        title="Remove this reason"
+                      >
+                        <Icon.Trash />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn sm ghost"
                     disabled={editSaving}
-                    onChange={(e) => setEditForm((f) => ({ ...f, ksamplerSteps: e.target.value }))}
-                  />
-                </div>
-                <div className="field" style={{ flex: 1 }}>
-                  <label>CFG</label>
-                  <input
-                    className="input"
-                    type="number"
-                    value={editForm.ksamplerCfg}
-                    disabled={editSaving}
-                    onChange={(e) => setEditForm((f) => ({ ...f, ksamplerCfg: e.target.value }))}
-                  />
-                </div>
-                <div className="field" style={{ flex: 1 }}>
-                  <label>Denoise</label>
-                  <input
-                    className="input"
-                    type="number"
-                    value={editForm.ksamplerDenoise}
-                    disabled={editSaving}
-                    onChange={(e) =>
-                      setEditForm((f) => ({ ...f, ksamplerDenoise: e.target.value }))
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() =>
+                      setEditForm((f) => ({
+                        ...f,
+                        regenerationReasonPrompts: [
+                          ...f.regenerationReasonPrompts,
+                          { reason: '', prompt: '', instruction: '' },
+                        ],
+                      }))
                     }
-                  />
+                  >
+                    <Icon.Plus /> Add reason
+                  </button>
                 </div>
               </div>
             )}
+            {editingWf?.stage1PositivePromptNode && (
+              <div className="field">
+                <label>Stage 1 positive prompt (build-person pass)</label>
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={editForm.stage1PositivePrompt}
+                  disabled={editSaving}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, stage1PositivePrompt: e.target.value }))
+                  }
+                />
+              </div>
+            )}
+            {editingWf?.stage1NegativePromptNode && (
+              <div className="field">
+                <label>Stage 1 negative prompt (build-person pass)</label>
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={editForm.stage1NegativePrompt}
+                  disabled={editSaving}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, stage1NegativePrompt: e.target.value }))
+                  }
+                />
+              </div>
+            )}
+            {(editingWf?.latentSizeNodeIds.length ?? 0) > 0 && (
+              <div className="field">
+                <label>Latent max px (diffusion canvas)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={editForm.latentMaxPx}
+                  disabled={editSaving}
+                  onChange={(e) => setEditForm((f) => ({ ...f, latentMaxPx: e.target.value }))}
+                />
+              </div>
+            )}
+            {(editingWf?.outputSizeNodeIds.length ?? 0) > 0 && (
+              <div className="field">
+                <label>Output max px (final resize/pad target)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={editForm.outputMaxPx}
+                  disabled={editSaving}
+                  onChange={(e) => setEditForm((f) => ({ ...f, outputMaxPx: e.target.value }))}
+                />
+              </div>
+            )}
+            {editForm.ksamplerOverrides.map((o, idx) => (
+              <div key={o.nodeId} className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>
+                  KSampler {editForm.ksamplerOverrides.length > 1 ? `— node ${o.nodeId}` : ''}
+                </label>
+                <div style={{ display: 'flex', gap: 14 }}>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label>Steps</label>
+                    <input
+                      className="input"
+                      type="number"
+                      value={o.steps}
+                      disabled={editSaving}
+                      onChange={(e) =>
+                        setEditForm((f) => ({
+                          ...f,
+                          ksamplerOverrides: f.ksamplerOverrides.map((x, i) =>
+                            i === idx ? { ...x, steps: e.target.value } : x,
+                          ),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label>CFG</label>
+                    <input
+                      className="input"
+                      type="number"
+                      value={o.cfg}
+                      disabled={editSaving}
+                      onChange={(e) =>
+                        setEditForm((f) => ({
+                          ...f,
+                          ksamplerOverrides: f.ksamplerOverrides.map((x, i) =>
+                            i === idx ? { ...x, cfg: e.target.value } : x,
+                          ),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label>Denoise</label>
+                    <input
+                      className="input"
+                      type="number"
+                      value={o.denoise}
+                      disabled={editSaving}
+                      onChange={(e) =>
+                        setEditForm((f) => ({
+                          ...f,
+                          ksamplerOverrides: f.ksamplerOverrides.map((x, i) =>
+                            i === idx ? { ...x, denoise: e.target.value } : x,
+                          ),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label>Seed</label>
+                    <input
+                      className="input"
+                      type="number"
+                      value={o.seed}
+                      disabled={editSaving}
+                      onChange={(e) =>
+                        setEditForm((f) => ({
+                          ...f,
+                          ksamplerOverrides: f.ksamplerOverrides.map((x, i) =>
+                            i === idx ? { ...x, seed: e.target.value } : x,
+                          ),
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </EditDrawer>
       )}
@@ -1154,6 +1535,16 @@ export default function WorkflowsPage({ toast }: Props) {
         <WorkflowUploadModal
           onCreated={handleCreated}
           onClose={() => setShowUpload(false)}
+          toast={toast}
+        />
+      )}
+
+      {/* Replace workflow modal */}
+      {replacingWf && (
+        <ReplaceWorkflowModal
+          workflow={replacingWf}
+          onReplaced={handleReplaced}
+          onClose={() => setReplacingWf(null)}
           toast={toast}
         />
       )}

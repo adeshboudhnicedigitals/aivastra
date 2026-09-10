@@ -178,7 +178,7 @@ const groups: NavGroup[] = [
       },
       {
         k: 'contacts',
-        label: 'Contacts',
+        label: 'Contact Requests (Legacy)',
         icon: Icon.Bell,
         perm: 'contact.read',
       },
@@ -225,7 +225,10 @@ export function Sidebar({
     .map((g) => ({ ...g, items: g.items.filter(isVisible) }))
     .filter((g) => g.items.length > 0);
 
-  const showSettings = hasPermission('admin_users.manage');
+  // Every admin role needs Settings for Appearance/Session (incl. Sign out) at
+  // minimum — the sensitive sub-tabs (Roles & Permissions, Credit Plans, etc.)
+  // are gated individually inside SettingsPage by their own permissions.
+  const showSettings = true;
 
   if (collapsed) {
     return (

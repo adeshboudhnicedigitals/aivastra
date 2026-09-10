@@ -64,6 +64,7 @@ export function BatchMode({
   params,
   creditCostPerImage,
   balance,
+  unlimited,
   onDirtyChange,
 }: {
   gender: string;
@@ -81,6 +82,8 @@ export function BatchMode({
   params?: { outputWidth: number; outputHeight: number };
   creditCostPerImage: number;
   balance: number | null;
+  /** Active unlimited plan — skips the balance gate entirely, same as the server-side bypass. */
+  unlimited?: boolean;
   /** Lets the page warn before switching away from Batch and losing this work. */
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -373,6 +376,7 @@ export function BatchMode({
                 totalJobs={totalJobs}
                 creditCost={totalJobs * creditCostPerImage}
                 balance={balance}
+                unlimited={unlimited}
                 maxBatchJobs={DEFAULT_MAX_BATCH_JOBS}
                 invalidRowCount={invalidRowIds.length}
                 aspectSupported={BATCH_ASPECTS.includes(aspectRatio)}

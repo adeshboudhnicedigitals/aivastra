@@ -1,8 +1,12 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { grantShopifyEmailBonus, storeBalance } from './purchase.js';
 import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
+
+const ClaimEmailBonusBody = z.object({ email: z.string().trim().email() });
 
 /**
  * Handle of the app block staged for insertion, i.e. the filename of
@@ -57,6 +61,50 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
       if (!updated) throw new AppError('FORBIDDEN', 403, 'Store not installed');
 
       return { settings: updated.settings };
+    },
+  );
+
+  // Dashboard popup: the merchant confirms/edits their contact email in
+  // exchange for a one-time bonus. `shopEmail` is auto-captured from
+  // `shop.email` at install with no consent behind it — this is the
+  // merchant's own explicit opt-in, so it overwrites that column with
+  // whatever they typed rather than leaving the two to drift apart.
+  app.post(
+    '/v1/shopify/onboarding/claim-email-bonus',
+    { preHandler: app.requireShopifySession, schema: { body: ClaimEmailBonusBody } },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      const { email } = req.body as z.infer<typeof ClaimEmailBonusBody>;
+
+      // Settings flag guards the popup (don't ask again); grantShopifyEmailBonus's
+      // own external_ref is the real idempotency guard against a double-submit
+      // racing this check.
+      if (store.settings.emailBonusClaimed) {
+        return {
+          creditsGranted: 0,
+          creditBalance: await storeBalance(app, store.id),
+          settings: store.settings,
+        };
+      }
+
+      const settings = mergeStoreSettingsObject(storeSettingsJson(), [], {
+        emailBonusClaimed: true,
+        emailBonusClaimedAt: new Date().toISOString(),
+      });
+
+      const [updated] = await app.db
+        .update(schema.shopifyStores)
+        .set({ shopEmail: email, settings, updatedAt: new Date() })
+        .where(eq(schema.shopifyStores.id, store.id))
+        .returning({ settings: schema.shopifyStores.settings });
+      if (!updated) throw new AppError('FORBIDDEN', 403, 'Store not installed');
+
+      const { creditsGranted } = await grantShopifyEmailBonus(app, store);
+      return {
+        creditsGranted,
+        creditBalance: await storeBalance(app, store.id),
+        settings: updated.settings,
+      };
     },
   );
 

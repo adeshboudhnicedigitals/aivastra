@@ -134,7 +134,6 @@ describe('admin config', () => {
     expect(getRes.json().shopify.packCredits).toEqual({
       pack_10: { credits: 800, autorefillCredits: 880 },
       pack_25: { credits: 2250, autorefillCredits: 2475 },
-      pack_50: { credits: 4800, autorefillCredits: 5280 },
       pack_100: { credits: 10000, autorefillCredits: 11000 },
     });
 
@@ -150,8 +149,40 @@ describe('admin config', () => {
     expect(getRes2.json().shopify.packCredits).toEqual({
       pack_10: { credits: 3000, autorefillCredits: 880 },
       pack_25: { credits: 2250, autorefillCredits: 2475 },
-      pack_50: { credits: 4800, autorefillCredits: 5280 },
       pack_100: { credits: 10000, autorefillCredits: 11000 },
+    });
+  });
+
+  it('a partial aspectDimensions PATCH merges over the prior value instead of replacing it wholesale', async () => {
+    const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.json().aspectDimensions['1:1']).toEqual({ width: 2688, height: 2688 });
+
+    // First PATCH customizes one ratio.
+    const patchRes1 = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ aspectDimensions: { '2:3': { width: 1800, height: 2700 } } }),
+    });
+    expect(patchRes1.statusCode).toBe(200);
+
+    // Second PATCH customizes a different ratio only — must not silently revert
+    // the '2:3' override from the previous PATCH back to default.
+    const patchRes2 = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ aspectDimensions: { '3:4': { width: 2100, height: 2800 } } }),
+    });
+    expect(patchRes2.statusCode).toBe(200);
+
+    const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes2.json().aspectDimensions).toEqual({
+      '1:1': { width: 2688, height: 2688 },
+      '2:3': { width: 1800, height: 2700 },
+      '3:4': { width: 2100, height: 2800 },
+      '4:5': { width: 2150, height: 2688 },
     });
   });
 

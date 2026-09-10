@@ -13,7 +13,7 @@ import sensible from '@fastify/sensible';
 import swagger from '@fastify/swagger';
 import scalar from '@scalar/fastify-api-reference';
 import * as Sentry from '@sentry/node';
-import { and, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   jsonSchemaTransform,
@@ -43,14 +43,17 @@ import { adminMerchantCatalogRoutes } from './modules/admin/merchant-catalog.rou
 import { adminMerchantsRoutes } from './modules/admin/merchants.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminPaymentsRoutes } from './modules/admin/payments.routes.js';
+import { adminProdSnapshotRoutes } from './modules/admin/prod-snapshot.routes.js';
 import { adminRolePermissionsRoutes } from './modules/admin/role-permissions.routes.js';
 import { adminSareeRoutes } from './modules/admin/saree.routes.js';
+import { adminShopifyFunnelRulesRoutes } from './modules/admin/shopify-funnel-rules.routes.js';
 import { adminShopifyFunnelsRoutes } from './modules/admin/shopify-funnels.routes.js';
 import { adminShopifyStoresRoutes } from './modules/admin/shopify-stores.routes.js';
 import { adminSignupCampaignsRoutes } from './modules/admin/signupCampaigns.routes.js';
 import { adminGarmentTypesRoutes } from './modules/admin/subcategories.routes.js';
 import { adminTelemetryRoutes } from './modules/admin/telemetry.routes.js';
 import { adminTryonRoutes } from './modules/admin/tryon.routes.js';
+import { adminUnlimitedPlanRoutes } from './modules/admin/unlimitedPlan.routes.js';
 import { adminUsersRoutes } from './modules/admin/users.routes.js';
 import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
@@ -59,6 +62,9 @@ import { authRoutes } from './modules/auth/routes.js';
 import { backgroundsRoutes } from './modules/backgrounds/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
+import { unlimitedPlanLoginCheckRoutes } from './modules/credits/unlimited-plan-login-check.routes.js';
+import { unlimitedPlanRenewalRoutes } from './modules/credits/unlimited-plan-renewal.routes.js';
+import { devBackgroundsRoutes } from './modules/dev/backgrounds.routes.js';
 import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
@@ -77,6 +83,7 @@ import { paymentsRoutes } from './modules/payments/routes.js';
 import { posePresetsRoutes } from './modules/pose-presets/routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
 import { shopifyCustomerRoutes } from './modules/shopify/customer.routes.js';
+import { shopifyFunnelRulesRoutes } from './modules/shopify/funnel-rules.routes.js';
 import { shopifyRoutes } from './modules/shopify/routes.js';
 import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
@@ -171,7 +178,7 @@ export async function buildServer(env: Env) {
       const cached = originCache.get(origin);
       if (cached && cached.expiresAt > now) return cached.allowed;
 
-      const [row] = await app.db
+      const [shopifyRow] = await app.db
         .select({ id: schema.shopifyStores.id })
         .from(schema.shopifyStores)
         .where(
@@ -181,7 +188,25 @@ export async function buildServer(env: Env) {
           ),
         )
         .limit(1);
-      const allowed = !!row;
+
+      // Mirrors the shopifyStores check above, one row per WordPress widget key
+      // instead of an array column (one widget key is expected per site — see
+      // api-keys.ts's allowedOrigin comment). Without this, every WooCommerce
+      // storefront's widget.js is CORS-blocked calling /v1/dev/tryon directly.
+      const [wordpressRow] = shopifyRow
+        ? []
+        : await app.db
+            .select({ id: schema.apiKeys.id })
+            .from(schema.apiKeys)
+            .where(
+              and(
+                eq(schema.apiKeys.integration, 'wordpress'),
+                isNull(schema.apiKeys.revokedAt),
+                eq(schema.apiKeys.allowedOrigin, origin),
+              ),
+            )
+            .limit(1);
+      const allowed = !!shopifyRow || !!wordpressRow;
       // Cap unbounded growth from a flood of distinct attacker-supplied Origins; a full
       // clear is simple and fine since worst case is a handful of extra DB hits.
       if (originCache.size >= ORIGIN_CACHE_MAX_ENTRIES) originCache.clear();
@@ -282,7 +307,9 @@ export async function buildServer(env: Env) {
     },
     // The spec is public, so it must describe ONLY the developer surface. Every
     // route without the 'dev' tag is hidden — admin/auth/merchant routes must never
-    // appear here.
+    // appear here, and neither must the 'wp-internal'-tagged routes in
+    // modules/dev/routes.ts that exist solely to back the WordPress plugin's own
+    // UI (balance/plans/payments/widget-event/analytics), not the public API.
     transform: ({ schema: s, url }) => {
       const out = jsonSchemaTransform({ schema: s, url });
       if (!s?.tags?.includes('dev')) out.schema = { ...out.schema, hide: true };
@@ -357,6 +384,8 @@ export async function buildServer(env: Env) {
   await app.register(authRoutes);
   await app.register(googleAuthRoutes);
   await app.register(creditsRoutes);
+  await app.register(unlimitedPlanRenewalRoutes);
+  await app.register(unlimitedPlanLoginCheckRoutes);
   await app.register(catalogRoutes);
   await app.register(uploadsRoutes);
   await app.register(backgroundsRoutes);
@@ -374,8 +403,10 @@ export async function buildServer(env: Env) {
   await app.register(merchantApiKeysRoutes);
   await app.register(devRoutes);
   await app.register(devCatalogRoutes);
+  await app.register(devBackgroundsRoutes);
   await app.register(shopifyRoutes);
   await app.register(shopifyCustomerRoutes);
+  await app.register(shopifyFunnelRulesRoutes);
   await app.register(modelsRoutes);
   await app.register(adminAuditRoutes);
   await app.register(adminAuthRoutes);
@@ -383,6 +414,7 @@ export async function buildServer(env: Env) {
   await app.register(adminRolePermissionsRoutes);
   await app.register(adminCreditsRoutes);
   await app.register(adminCreditPlansRoutes);
+  await app.register(adminUnlimitedPlanRoutes);
   await app.register(adminCreditAnalysisRoutes);
   await app.register(adminPaymentsRoutes);
   await app.register(adminSignupCampaignsRoutes);
@@ -393,6 +425,7 @@ export async function buildServer(env: Env) {
   await app.register(adminMerchantCatalogRoutes);
   await app.register(adminDemoCatalogRoutes);
   await app.register(adminWorkersRoutes);
+  await app.register(adminProdSnapshotRoutes);
   await app.register(adminConfigRoutes);
   await app.register(adminTelemetryRoutes);
   await app.register(adminMeRoutes);
@@ -400,6 +433,7 @@ export async function buildServer(env: Env) {
   await app.register(adminGarmentTypesRoutes);
   await app.register(adminCatalogueTemplatesRoutes);
   await app.register(adminShopifyFunnelsRoutes);
+  await app.register(adminShopifyFunnelRulesRoutes);
   await app.register(adminShopifyStoresRoutes);
   await app.register(adminWorkflowsRoutes);
   await app.register(adminTryonRoutes);

@@ -3,9 +3,25 @@ import { schema } from '@aivastra/db';
 import { creditsDeductedTotal, creditsRefundedTotal } from '@aivastra/observability';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { AppError } from '../../lib/errors.js';
+import { getActiveUnlimitedPlan } from './unlimited-plan.js';
 
 export async function atomicDeduct(db: DB, userId: string, amount: number, jobId: string) {
-  const balance = await db.transaction(async (tx) => {
+  const { balance, deducted } = await db.transaction(async (tx) => {
+    // A user on an active unlimited plan spends nothing — but a zero-delta
+    // ledger row is still written so "every job writes a ledger row" stays an
+    // invariant and admins can audit unlimited-plan usage per job.
+    const activePlan = await getActiveUnlimitedPlan(tx, userId);
+    if (activePlan) {
+      await tx
+        .insert(schema.creditLedger)
+        .values({ userId, delta: 0, reason: 'UNLIMITED_PLAN_USAGE', jobId });
+      const [row] = await tx
+        .select({ balance: schema.userCredits.balance })
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, userId));
+      return { balance: row?.balance ?? 0, deducted: false };
+    }
+
     const res = await tx
       .update(schema.userCredits)
       .set({ balance: sql`${schema.userCredits.balance} - ${amount}`, updatedAt: new Date() })
@@ -15,9 +31,9 @@ export async function atomicDeduct(db: DB, userId: string, amount: number, jobId
     await tx
       .insert(schema.creditLedger)
       .values({ userId, delta: -amount, reason: 'JOB_DISPATCH', jobId });
-    return res[0]?.balance;
+    return { balance: res[0]?.balance, deducted: true };
   });
-  creditsDeductedTotal.inc(amount);
+  if (deducted) creditsDeductedTotal.inc(amount);
   return balance;
 }
 

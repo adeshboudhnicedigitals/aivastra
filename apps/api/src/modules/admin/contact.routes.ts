@@ -3,6 +3,7 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { sendIssueResolvedEmail } from '../../lib/mailer.js';
 import { requirePermission } from './guard.js';
 
 export async function adminContactRoutes(app: FastifyInstance) {
@@ -117,12 +118,32 @@ export async function adminContactRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const { status } = req.body as { status: string };
+      const [before] = await app.db
+        .select({ status: schema.contactRequests.status })
+        .from(schema.contactRequests)
+        .where(eq(schema.contactRequests.id, id));
       const [row] = await app.db
         .update(schema.contactRequests)
         .set({ status })
         .where(eq(schema.contactRequests.id, id))
         .returning();
       if (!row) throw new AppError('NOT_FOUND', 404, 'contact request not found');
+
+      // Only on the new->done transition — not every PATCH that happens to
+      // already be 'done' — so re-fetching or double-clicking never re-sends it.
+      if (status === 'done' && before?.status !== 'done' && row.email) {
+        try {
+          await sendIssueResolvedEmail(
+            app.env.RESEND_API_KEY,
+            app.env.EMAIL_FROM,
+            row.email,
+            row.message?.trim() || 'Your reported issue',
+          );
+        } catch (err) {
+          app.log.error({ err, contactRequestId: id }, 'Failed to send issue-resolved email');
+        }
+      }
+
       const { attachmentKey, ...rest } = row;
       return {
         ...rest,

@@ -1,0 +1,1463 @@
+/* ==========================================================================
+   Aivastra Try-On - Admin Settings Page
+   Palette mirrors assets/widget.css so the storefront widget and the admin
+   screen read as one product, not two plugins bolted together.
+   ========================================================================== */
+
+.aivastra-settings-wrap {
+  --aivastra-primary: #0f172a;
+  --aivastra-primary-hover: #1e293b;
+  --aivastra-accent: #6366f1;
+  --aivastra-accent-soft: #eef2ff;
+  --aivastra-accent-border: #c7d2fe;
+  --aivastra-surface: #ffffff;
+  --aivastra-surface-subtle: #f8fafc;
+  --aivastra-surface-muted: #f1f5f9;
+  --aivastra-border: #e2e8f0;
+  --aivastra-text-main: #0f172a;
+  --aivastra-text-muted: #64748b;
+  --aivastra-text-subtle: #94a3b8;
+  --aivastra-success: #15803d;
+  --aivastra-success-soft: #f0fdf4;
+  --aivastra-success-border: #bbf7d0;
+  --aivastra-danger: #b91c1c;
+  --aivastra-danger-soft: #fef2f2;
+  --aivastra-danger-border: #fecaca;
+  --aivastra-radius-card: 16px;
+  --aivastra-radius-control: 10px;
+  --aivastra-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.12);
+  /* Shared by the native <select>'s fallback chevron and the JS-enhanced
+     dropdown trigger (select.js) — one icon, one place to change it. */
+  --aivastra-chevron-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  /* Same four stops as the mark in admin/assets/images/logo.svg — used
+     sparingly (nav active state, primary buttons, the credit number) so the
+     page reads as the same product as that logo instead of a generic navy
+     admin screen with a brand mark bolted on top. */
+  --aivastra-gradient: linear-gradient(135deg, #d946ef 0%, #6366f1 45%, #22d3ee 75%, #fb923c 100%);
+  /* The exact brand gradient from apps/catalogues-web/src/components/tokens.ts
+     (`grad`) — used only within the Plans & Credits card, so its pricing
+     tiles read as the same product as the consumer /pricing page instead of
+     the WordPress-plugin-specific --aivastra-gradient used everywhere else
+     on this settings screen. */
+  --aivastra-catalogue-gradient: linear-gradient(
+    91.84deg,
+    #521d9c 0.33%,
+    #bd2587 50.77%,
+    #f96657 99.67%
+  );
+  --aivastra-catalogue-dark: #141414;
+  /* Was briefly widened to 1500px (matching apps/catalogues-web's own
+     /pricing grid) to give the Plans & Credits tiles more room. That value
+     applies to every tab through this shared wrapper, not just Plans &
+     Credits, and 1500px overflows/stretches badly on an actual laptop
+     viewport (1366/1440) for every other tab's much narrower content — a
+     plain two-field Connection form has no business being 1500px wide.
+     Reverted to 1180px, the previous width this class already used safely;
+     .aivastra-plans-grid's own breakpoints (below) still adapt the tile
+     count independently of this value. */
+  max-width: 1180px;
+  /* WordPress core's .wrap sets a small fixed left margin, which leaves this
+     fixed-width block hugging the left edge on any screen wider than ~760px
+     instead of sitting in the middle of the admin content area. Overriding
+     with an auto left/right margin centers it instead — .wrap and this class
+     are equal-specificity single-class selectors on the same element, and
+     this stylesheet is enqueued after WordPress's own admin CSS, so this
+     declaration wins on source order without needing !important. */
+  margin: 24px auto 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.aivastra-settings-wrap h1 {
+  font-size: 23px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+  margin: 0 0 4px;
+  padding: 0;
+}
+
+/* Same mark + wordmark treatment as the Logo component in
+   apps/catalogues-web/src/components/logo.tsx, so the plugin's admin screen
+   reads as the same product as the main web app. */
+.aivastra-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aivastra-logo-mark {
+  height: 28px;
+  width: auto;
+}
+
+.aivastra-logo-text {
+  height: 38px;
+  width: auto;
+}
+
+.aivastra-page-header {
+  margin-bottom: 20px;
+}
+
+.aivastra-page-subtitle {
+  color: var(--aivastra-text-muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.aivastra-notice.notice {
+  border-radius: 8px;
+  border-left-width: 4px;
+  margin: 0 0 20px;
+}
+
+/* Sidebar nav: was previously a single-column stack of every card in
+   sequence, which made a long scroll of "Plans", "Widget appearance",
+   "Category mapping", "Analytics" and "Support" feel like one page rather
+   than five distinct settings screens. */
+.aivastra-settings-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.aivastra-settings-nav {
+  flex: 0 0 210px;
+  background: var(--aivastra-surface);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-card);
+  box-shadow: var(--aivastra-shadow-card);
+  padding: 10px;
+  /* Follows the page as you scroll a long section (e.g. the category
+     mapping list, or a long product table in Analytics) instead of
+     scrolling out of view — 32px clears WP admin's own fixed toolbar. */
+  position: sticky;
+  top: 32px;
+}
+
+.aivastra-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 10px 12px;
+  margin-bottom: 2px;
+  border-radius: var(--aivastra-radius-control);
+  color: var(--aivastra-text-main);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  box-shadow: none;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.aivastra-nav-icon {
+  display: inline-flex;
+  color: var(--aivastra-text-subtle);
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.aivastra-nav-item:hover,
+.aivastra-nav-item:focus {
+  background: var(--aivastra-surface-subtle);
+  color: var(--aivastra-text-main);
+  transform: translateX(1px);
+}
+
+/* A flat left border wouldn't follow the rounded corners of the item's own
+   background pill, so the accent is a gradient bar clipped to a rounded
+   pseudo-element instead of border-left, which would sit flush at the nav's
+   outer edge rather than the item's. */
+.aivastra-nav-item.is-active {
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
+  font-weight: 600;
+}
+
+.aivastra-nav-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--aivastra-gradient);
+}
+
+.aivastra-nav-item.is-active .aivastra-nav-icon {
+  color: var(--aivastra-accent);
+}
+
+.aivastra-settings-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Matches WordPress core's own admin-menu collapse breakpoint, so the nav
+   drops to a horizontal scroller at the same width the main WP sidebar
+   already goes fluid at, rather than introducing a second, mismatched
+   breakpoint. */
+@media (max-width: 782px) {
+  .aivastra-settings-layout {
+    flex-direction: column;
+  }
+
+  .aivastra-settings-nav {
+    flex: 1 1 auto;
+    position: static;
+    display: flex;
+    overflow-x: auto;
+    gap: 4px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .aivastra-nav-item {
+    white-space: nowrap;
+  }
+}
+
+.aivastra-card {
+  background: var(--aivastra-surface);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-card);
+  box-shadow: var(--aivastra-shadow-card);
+  padding: 28px;
+  margin-bottom: 24px;
+}
+
+/* Status card */
+.aivastra-status-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.aivastra-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.aivastra-badge-success {
+  background: var(--aivastra-success-soft);
+  color: var(--aivastra-success);
+  border: 1px solid var(--aivastra-success-border);
+}
+
+.aivastra-status-company {
+  color: var(--aivastra-text-muted);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.aivastra-credit-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+}
+
+.aivastra-credit-number {
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: var(--aivastra-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--aivastra-text-main); /* fallback if background-clip: text isn't supported */
+}
+
+.aivastra-credit-label {
+  font-size: 14px;
+  color: var(--aivastra-text-muted);
+  font-weight: 500;
+}
+
+.aivastra-credit-meta {
+  color: var(--aivastra-text-subtle);
+  font-size: 12.5px;
+  margin: 4px 0 24px;
+}
+
+/* Action row — a plain one-click Refresh button next to the "Update
+   connection keys" accordion. flex-basis: 100% on the open accordion forces
+   it onto its own full-width line instead of squeezing the reveal into
+   whatever space happens to be left beside the Refresh button. */
+.aivastra-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.aivastra-refresh-form {
+  margin: 0;
+}
+
+.aivastra-accordion {
+  border-radius: var(--aivastra-radius-control);
+}
+
+.aivastra-accordion[open] {
+  flex-basis: 100%;
+  border: 1px solid var(--aivastra-accent-border);
+  border-radius: var(--aivastra-radius-control);
+  overflow: hidden;
+}
+
+.aivastra-accordion[open] > summary {
+  border: none;
+  border-bottom: 1px solid var(--aivastra-border);
+  border-radius: 0;
+}
+
+/* Same box model as .aivastra-btn (box-sizing, padding, border width) so the
+   closed accordion trigger sits at the exact same height as the plain
+   Refresh button beside it — the border lives on the trigger itself, not on
+   the (borderless-when-closed) .aivastra-accordion wrapper. */
+.aivastra-accordion > summary {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--aivastra-text-main);
+  cursor: pointer;
+  list-style: none;
+  background: var(--aivastra-surface-subtle);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+}
+
+.aivastra-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.aivastra-accordion > summary > svg:first-child {
+  color: var(--aivastra-text-muted);
+  flex-shrink: 0;
+}
+
+.aivastra-chevron {
+  margin-left: auto;
+  color: var(--aivastra-text-subtle) !important;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.aivastra-accordion[open] > summary .aivastra-chevron {
+  transform: rotate(180deg);
+}
+
+.aivastra-accordion-body {
+  padding: 18px 16px;
+  border-top: 1px solid var(--aivastra-border);
+}
+
+/* Forms & inputs, shared by every form on this page */
+.aivastra-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.aivastra-form label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--aivastra-text-main);
+}
+
+/* Same specificity fight as the native <select> above: wp-admin's forms.css
+   styles text/password inputs via `input[type="text"]` etc (an attribute
+   selector counts like a class, so element+attribute = higher specificity
+   than our plain `.aivastra-input`), which is what actually produced the
+   sharp-cornered, grey, 40px-tall WP-default boxes regardless of this rule.
+   `.wp-core-ui input.aivastra-input` (two classes + element) safely
+   out-specifies it the same way `.wp-core-ui select.aivastra-select` does. */
+.wp-core-ui input.aivastra-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  min-height: 0;
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+  background-color: var(--aivastra-surface);
+  color: var(--aivastra-text-main);
+  box-shadow: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.wp-core-ui input.aivastra-input:focus {
+  outline: none;
+  border-color: var(--aivastra-accent);
+  box-shadow: 0 0 0 3px var(--aivastra-accent-soft);
+}
+
+/* Native <select> — the no-JS fallback. select.js progressively enhances
+   every `.aivastra-select` into the custom trigger+popup widget below,
+   since CSS cannot restyle a native select's *open* option list in any
+   browser (only its closed chrome, which is all this rule reaches). If the
+   script fails to load, this is what renders instead — kept fully
+   functional, not just visually present.
+
+   Selector is `.wp-core-ui select.aivastra-select`, not just `.aivastra-select`
+   — wp-admin's own forms.css styles selects via `.wp-core-ui select` (one
+   class + one element = higher specificity than a single class), which
+   silently won every property fight here and left the default WP chrome
+   showing regardless of load order. `.wp-core-ui` is always present on
+   <body> in wp-admin, so this stays exactly as scoped as before while
+   guaranteed to out-specify core. */
+.wp-core-ui select.aivastra-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 34px 9px 12px;
+  font-size: 13.5px;
+  line-height: normal;
+  min-height: 0;
+  max-width: none;
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+  background-color: var(--aivastra-surface);
+  color: var(--aivastra-text-main);
+  box-shadow: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image: var(--aivastra-chevron-svg);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: auto;
+}
+
+.wp-core-ui select.aivastra-select:hover {
+  border-color: var(--aivastra-accent);
+  color: var(--aivastra-text-main);
+}
+
+.wp-core-ui select.aivastra-select:focus {
+  outline: none;
+  border-color: var(--aivastra-accent);
+  box-shadow: 0 0 0 3px var(--aivastra-accent-soft);
+  color: var(--aivastra-text-main);
+}
+
+/* Once select.js has enhanced a select, `.aivastra-select-native` visually
+   hides it (still in the DOM, still the value form submission reads — see
+   select.js) and this trigger+popup pair takes over as the visible control. */
+.aivastra-select-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.aivastra-select-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.aivastra-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+  background: var(--aivastra-surface);
+  color: var(--aivastra-text-main);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.aivastra-select-trigger:hover {
+  border-color: var(--aivastra-accent);
+}
+
+.aivastra-select-trigger:focus-visible,
+.aivastra-select-wrap.is-open .aivastra-select-trigger {
+  outline: none;
+  border-color: var(--aivastra-accent);
+  box-shadow: 0 0 0 3px var(--aivastra-accent-soft);
+}
+
+.aivastra-select-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aivastra-select-chevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  background-image: var(--aivastra-chevron-svg);
+  background-repeat: no-repeat;
+  background-position: center;
+  transition: transform 0.15s ease;
+}
+
+.aivastra-select-wrap.is-open .aivastra-select-chevron {
+  transform: rotate(180deg);
+}
+
+.aivastra-select-popup {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--aivastra-surface);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+  box-shadow: var(--aivastra-shadow-card);
+}
+
+.aivastra-select-option {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--aivastra-text-main);
+  cursor: pointer;
+}
+
+.aivastra-select-option.is-highlighted {
+  background: var(--aivastra-accent-soft);
+}
+
+.aivastra-select-option.is-selected {
+  color: var(--aivastra-accent);
+  font-weight: 600;
+}
+
+/* Widget appearance form — one row per field, label above input except the
+   two checkbox rows (toggle + its label override on the same line). */
+.aivastra-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* input[type="color"] is in the same wp-admin core rule as text/password
+   inputs above (border/radius/background via an attribute selector) — same
+   `.wp-core-ui` specificity bump needed here too. */
+.wp-core-ui input.aivastra-color-input {
+  width: 56px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+  background-color: var(--aivastra-surface);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.aivastra-field-row-checkbox {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.aivastra-field-row-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* Same wp-admin specificity fight as the select/input rules above —
+   `input[type="checkbox"]:checked` in forms.css is element+attribute+
+   pseudo-class, so every state (base, hover, focus, checked) here needs
+   the `.wp-core-ui` + own-class bump to actually win. Was left unstyled
+   (plain WP checkbox, tinted by --wp-admin-theme-color) until now. */
+.wp-core-ui input[type="checkbox"].aivastra-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  margin: 0;
+  border: 1.5px solid var(--aivastra-border);
+  border-radius: 5px;
+  background-color: var(--aivastra-surface);
+  background-repeat: no-repeat;
+  background-position: center;
+  cursor: pointer;
+  vertical-align: middle;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.wp-core-ui input[type="checkbox"].aivastra-checkbox:hover {
+  border-color: var(--aivastra-accent);
+}
+
+.wp-core-ui input[type="checkbox"].aivastra-checkbox:focus-visible {
+  outline: none;
+  border-color: var(--aivastra-accent);
+  box-shadow: 0 0 0 3px var(--aivastra-accent-soft);
+}
+
+.wp-core-ui input[type="checkbox"].aivastra-checkbox:checked {
+  background-color: var(--aivastra-accent);
+  border-color: var(--aivastra-accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+}
+
+/* Suppresses wp-admin's own Dashicon "Yes" glyph on ::before, which would
+   otherwise render on top of / alongside our background-image checkmark. */
+.wp-core-ui input[type="checkbox"].aivastra-checkbox:checked::before {
+  content: none;
+}
+
+.aivastra-input-inline {
+  width: auto;
+  flex: 1;
+  min-width: 140px;
+}
+
+/* Analytics card */
+.aivastra-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.aivastra-stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--aivastra-surface-subtle);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+}
+
+.aivastra-stat-label {
+  font-size: 12px;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-analytics-subheading {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+  margin: 20px 0 12px;
+}
+
+.aivastra-bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.aivastra-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.aivastra-bar-track {
+  width: 100%;
+  max-width: 22px;
+  height: 100px;
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--aivastra-border);
+}
+
+.aivastra-bar {
+  width: 100%;
+  background: var(--aivastra-accent);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+}
+
+.aivastra-bar-label {
+  font-size: 10px;
+  color: var(--aivastra-text-muted);
+  white-space: nowrap;
+}
+
+.aivastra-analytics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.aivastra-analytics-table th,
+.aivastra-analytics-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--aivastra-border);
+}
+
+.aivastra-analytics-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--aivastra-text-muted);
+  font-weight: 600;
+}
+
+/* Buttons */
+.aivastra-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: var(--aivastra-radius-control);
+  border: 1px solid transparent;
+  cursor: pointer;
+  /* Applied to <a> as well as <button> (e.g. "Email us", the onboarding
+     links) — without this, WP admin's default link styling underlines the
+     label and it reads as a stray link instead of a button. */
+  text-decoration: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+/* Solid black, not the brand gradient — the gradient is reserved for the
+   Plans & Credits (pricing) page, where it matches the consumer /pricing
+   page's own branding. Every other primary action on this settings screen
+   (Test connection, Save appearance, Save category mapping) reads as a plain
+   admin-tool action, not a marketing CTA. */
+.aivastra-btn-primary {
+  background: var(--aivastra-catalogue-dark);
+  color: #fff;
+  align-self: flex-start;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.aivastra-btn-primary:hover {
+  background: #2a2a2a;
+  color: #fff;
+}
+
+.aivastra-btn-primary:active {
+  transform: translateY(1px);
+}
+
+.aivastra-btn-secondary {
+  background: var(--aivastra-surface-subtle);
+  color: var(--aivastra-text-main);
+  border-color: var(--aivastra-border);
+}
+
+.aivastra-btn-secondary:hover {
+  background: var(--aivastra-surface-muted);
+  color: var(--aivastra-text-main);
+}
+
+/* Text-style, no visible border — the lighter of two unequal paths (see
+   .aivastra-onboarding-links), never a first choice on its own. */
+.aivastra-btn-ghost {
+  background: transparent;
+  color: var(--aivastra-accent);
+  border-color: transparent;
+}
+
+.aivastra-btn-ghost:hover {
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
+}
+
+.aivastra-btn-block {
+  align-self: stretch;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+/* Plan tile's Buy Now button — full width, matching the consumer pricing
+   page's CTA. margin-top: auto pushes it to the bottom of the tile uniformly
+   even when tiles have different content heights (e.g. the highlighted
+   tile's extra badge line), since .aivastra-plan-tile is a column flexbox. */
+.aivastra-plan-buy-btn {
+  align-self: stretch;
+  justify-content: center;
+  margin-top: auto;
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+
+.aivastra-btn-dark {
+  background: var(--aivastra-catalogue-dark);
+  color: #fff;
+}
+
+.aivastra-btn-dark:hover {
+  background: #2a2a2a;
+  color: #fff;
+}
+
+.aivastra-btn-catalogue-gradient {
+  background: var(--aivastra-catalogue-gradient);
+  color: #fff;
+}
+
+.aivastra-btn-catalogue-gradient:hover {
+  filter: brightness(1.08) saturate(1.1);
+  color: #fff;
+}
+
+.aivastra-btn-danger-ghost {
+  background: transparent;
+  color: var(--aivastra-danger);
+  border-color: var(--aivastra-danger-border);
+  flex-shrink: 0;
+}
+
+.aivastra-btn-danger-ghost:hover {
+  background: var(--aivastra-danger-soft);
+  color: var(--aivastra-danger);
+}
+
+/* Danger zone */
+.aivastra-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--aivastra-border);
+}
+
+.aivastra-danger-copy strong {
+  display: block;
+  font-size: 13.5px;
+  color: var(--aivastra-text-main);
+  margin-bottom: 2px;
+}
+
+.aivastra-danger-copy p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--aivastra-text-muted);
+  max-width: 380px;
+  line-height: 1.5;
+}
+
+/* Connect card / connect form (shared with the "Update connection keys" reveal) */
+.aivastra-connect-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  margin: 0 0 6px;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-connect-description {
+  color: var(--aivastra-text-muted);
+  font-size: 13.5px;
+  margin: 0 0 24px;
+}
+
+/* Points a fresh marketplace install (no account yet) or a merchant who's
+   forgotten where keys live at the web app. Shown above the connect form in
+   both places it renders — first-time connect and "Update connection keys". */
+.aivastra-onboarding-banner {
+  background: var(--aivastra-accent-soft);
+  border: 1px solid var(--aivastra-accent-border);
+  border-radius: var(--aivastra-radius-control);
+  padding: 12px 14px;
+  margin-bottom: 20px;
+}
+
+.aivastra-onboarding-banner-text {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-onboarding-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.aivastra-step {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.aivastra-step-number {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--aivastra-accent);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.aivastra-step-body {
+  flex: 1;
+}
+
+.aivastra-step-body label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.aivastra-step-hint {
+  margin: 0 0 8px;
+  color: var(--aivastra-text-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* Category mapping card */
+.aivastra-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  margin: 0 0 8px;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-heading-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
+}
+
+.aivastra-card-description {
+  color: var(--aivastra-text-muted);
+  font-size: 13px;
+  margin: 0 0 18px;
+}
+
+.aivastra-empty-state {
+  color: var(--aivastra-text-muted);
+  font-size: 13.5px;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.aivastra-mapping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.aivastra-mapping-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  background: var(--aivastra-surface-subtle);
+  border-radius: var(--aivastra-radius-control);
+}
+
+.aivastra-mapping-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--aivastra-text-main);
+}
+
+.wp-core-ui .aivastra-mapping-row select.aivastra-select,
+.aivastra-mapping-row .aivastra-select-wrap {
+  width: auto;
+  min-width: 200px;
+}
+
+.aivastra-settings-wrap code {
+  background: var(--aivastra-surface-muted);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .aivastra-danger-zone,
+  .aivastra-mapping-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .wp-core-ui .aivastra-mapping-row select.aivastra-select,
+  .aivastra-mapping-row .aivastra-select-wrap {
+    width: 100%;
+  }
+}
+
+/* Plans & credits card — mirrors apps/catalogues-web's /pricing tryon-tab
+   cards (Desktop.tsx): icon chip + name/subtext, big price, a divider, a
+   static feature checklist, then a full-width CTA. */
+.aivastra-plans-grid {
+  display: grid;
+  /* Fixed 4 columns rather than auto-fit — with 4 real plans, auto-fit's
+     minmax(210px, 1fr) stopped fitting a 4th column just under ~900px of
+     content width (210*4 + 16*3 = 888px), silently wrapping the last card
+     onto its own row. Fixed columns keep all four side by side down to
+     whatever width 4 cards can still read at, and the media query below
+     steps down column count as that space runs out instead. */
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  /* Room for the highlighted tile's badge, which floats above the tile edge. */
+  padding-top: 14px;
+}
+
+@media (max-width: 1000px) {
+  .aivastra-plans-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .aivastra-plans-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Outer wrapper only matters for the highlighted tile — it's what turns a
+   plain border into a 2px ring of pure gradient, the same "padding: 2,
+   gradient background" trick Desktop.tsx uses, since CSS has no shorthand
+   for a gradient-colored border that still respects border-radius cleanly. */
+.aivastra-plan-outer {
+  display: flex;
+  flex-direction: column;
+}
+
+.aivastra-plan-outer-highlighted {
+  padding: 2px;
+  border-radius: 16px;
+  background: var(--aivastra-catalogue-gradient);
+  box-shadow: 0 10px 28px -14px rgba(189, 37, 135, 0.45);
+}
+
+.aivastra-plan-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 18px;
+  background: var(--aivastra-surface);
+  border: 1px solid var(--aivastra-border);
+  border-radius: 14px;
+}
+
+.aivastra-plan-tile-highlighted {
+  border: none;
+  border-radius: 14px;
+}
+
+.aivastra-plan-badge {
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  background: var(--aivastra-catalogue-gradient);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(189, 37, 135, 0.35);
+}
+
+.aivastra-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.aivastra-plan-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.aivastra-plan-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.aivastra-plan-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-plan-subtext {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-plan-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.aivastra-plan-price-big {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--aivastra-text-main);
+  letter-spacing: -0.5px;
+}
+
+.aivastra-plan-unit {
+  font-size: 12.5px;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-plan-gst {
+  font-size: 11.5px;
+  color: var(--aivastra-text-subtle);
+  margin: 2px 0 0;
+}
+
+.aivastra-plan-per-unit {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+  margin: 6px 0 0;
+}
+
+.aivastra-plan-divider {
+  height: 1px;
+  background: var(--aivastra-border);
+  margin: 16px 0;
+}
+
+.aivastra-plan-features {
+  flex: 1;
+}
+
+.aivastra-plan-features-heading {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+  margin: 0 0 10px;
+}
+
+.aivastra-plan-feature-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.aivastra-plan-feature-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.aivastra-plan-feature-check.is-gradient {
+  background: var(--aivastra-catalogue-gradient);
+  color: #fff;
+}
+
+.aivastra-plan-feature-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--aivastra-text-main);
+}
+
+/* Verifying-payment overlay — appended to document.body by checkout.js, so
+   it can't rely on the --aivastra-* custom properties scoped to
+   .aivastra-settings-wrap. Colors are hardcoded to match, not inherited.
+   z-index above WordPress's own admin bar (99999). */
+#aivastra-verifying-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+}
+
+.aivastra-verifying-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 16px 22px;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px -12px rgba(15, 23, 42, 0.35);
+}
+
+.aivastra-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e2e8f0;
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: aivastra-spin 0.7s linear infinite;
+}
+
+@keyframes aivastra-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Support card — mirrors apps/shopify/src/pages/SupportPage.tsx's two-channel
+   layout and copy. */
+
+.aivastra-support-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.aivastra-support-channel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  background: var(--aivastra-surface-subtle);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+}
+
+.aivastra-support-channel-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+  margin: 0;
+}
+
+.aivastra-support-channel-body {
+  font-size: 13px;
+  color: var(--aivastra-text-muted);
+  margin: 0 0 4px;
+}
+
+.aivastra-support-channel .aivastra-btn {
+  align-self: flex-start;
+  text-decoration: none;
+}
+
+/* Live-chat modal — mirrors the message-bubble/status/composer layout of
+   apps/shopify/src/components/SupportChat.tsx's Polaris Modal, restyled
+   with this plugin's own --aivastra-* tokens (no component library here). */
+
+.aivastra-chat-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.aivastra-chat-modal[hidden] {
+  display: none;
+}
+
+.aivastra-chat-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.aivastra-chat-modal__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(420px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 64px));
+  background: var(--aivastra-surface);
+  border-radius: var(--aivastra-radius-card);
+  box-shadow: var(--aivastra-shadow-card);
+  overflow: hidden;
+}
+
+.aivastra-chat-modal__header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--aivastra-border);
+}
+
+.aivastra-chat-modal__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-chat-modal__status {
+  flex: 1;
+  font-size: 12px;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-chat-modal__close {
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--aivastra-text-subtle);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.aivastra-chat-modal__error {
+  margin: 10px 16px 0;
+  padding: 8px 10px;
+  background: var(--aivastra-danger-soft);
+  border: 1px solid var(--aivastra-danger-border);
+  border-radius: var(--aivastra-radius-control);
+  color: var(--aivastra-danger);
+  font-size: 12px;
+}
+
+.aivastra-chat-modal__messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aivastra-chat-message {
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: var(--aivastra-radius-control);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.aivastra-chat-message--user {
+  align-self: flex-end;
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
+}
+
+.aivastra-chat-message--agent {
+  align-self: flex-start;
+  background: var(--aivastra-surface-subtle);
+  border: 1px solid var(--aivastra-border);
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-chat-modal__composer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--aivastra-border);
+}
+
+.aivastra-chat-modal__composer input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+  font-size: 13px;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-chat-modal__composer input:disabled {
+  background: var(--aivastra-surface-muted);
+  color: var(--aivastra-text-subtle);
+}

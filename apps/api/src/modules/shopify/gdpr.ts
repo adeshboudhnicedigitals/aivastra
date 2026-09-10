@@ -8,6 +8,13 @@ export interface ShopperMatch {
   email?: string | null;
   /** shop_redact: every shopper for the store, ignoring the other fields. */
   matchAll?: boolean;
+  /**
+   * Retry path only: address the subjects by row id instead of by the
+   * identifiers the webhook carried. The sweeper re-runs an erasure from the
+   * stamped rows themselves, so it never has to hold a copy of the email or
+   * customer id it is erasing.
+   */
+  shopperIds?: string[];
 }
 
 /** Match on customer id first, then email: a shopper may have supplied an
@@ -17,6 +24,13 @@ export interface ShopperMatch {
 function matchFilter(storeId: string, match: ShopperMatch) {
   const storeScope = eq(schema.shopifyShoppers.storeId, storeId);
   if (match.matchAll) return storeScope;
+
+  // Checked before the identifier clauses: an explicit id list is the retry
+  // path's whole subject set, and must not be widened by a stale email.
+  if (match.shopperIds) {
+    if (match.shopperIds.length === 0) return null;
+    return and(storeScope, inArray(schema.shopifyShoppers.id, match.shopperIds));
+  }
 
   const email = normalizeEmail(match.email);
   const clauses = [];
@@ -159,6 +173,20 @@ export async function redactShopperData(
     .from(schema.shopifyShoppers)
     .where(filter);
   const ids = shoppers.map((s) => s.id);
+
+  // Stamp BEFORE deleting anything. The stamp is what the retry sweeper walks,
+  // so it has to be durable ahead of the work it describes — otherwise a crash
+  // between here and the deletes leaves an erasure nobody remembers was asked
+  // for. Rows that erase cleanly are deleted outright a few lines down, taking
+  // the stamp with them; only survivors keep it, and a survivor is exactly the
+  // outstanding work. Skipped for a whole-shop purge, which is tracked on the
+  // store row instead (a shopper stamp cannot record unlinked jobs).
+  if (!match.matchAll && ids.length > 0) {
+    await app.db
+      .update(schema.shopifyShoppers)
+      .set({ redactionRequestedAt: new Date() })
+      .where(inArray(schema.shopifyShoppers.id, ids));
+  }
 
   // Per-shopper "every object delete succeeded (or had nothing to delete)"
   // flag. Only shoppers that stay true across their whole job set are

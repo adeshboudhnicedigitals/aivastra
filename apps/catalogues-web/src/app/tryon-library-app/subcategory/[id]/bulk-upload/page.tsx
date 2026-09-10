@@ -13,6 +13,7 @@ import {
   XIcon,
 } from '@/components/icons';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { ApiError } from '@/lib/errors';
 import { catalogAppApi as api } from '../../../catalog-app-api';
 import { deleteProduct, presignAndUpload } from '../../../catalog-app-helpers';
 import { ScreenHeader } from '../../../components/ScreenHeader';
@@ -65,6 +66,11 @@ function BulkUploadScreenInner() {
   const searchParams = useSearchParams();
 
   const getErrorMessage = useSessionExpiryMessage();
+  // The server intentionally collapses any unhandled 5xx to a terse, non-actionable
+  // "internal error" string so it never leaks internals — surface the caller's own
+  // fallback instead of that raw string for this screen's batched save/enqueue calls.
+  const friendlyErrorMessage = (err: unknown, fallback: string): string =>
+    err instanceof ApiError && err.status >= 500 ? fallback : getErrorMessage(err, fallback);
   const [items, setItems] = useState<QueueItem[]>([]);
   const [showDetails, setShowDetails] = useState(false);
   const [showInfoBanner, setShowInfoBanner] = useState(true);
@@ -98,6 +104,14 @@ function BulkUploadScreenInner() {
   const categoryLabel = GENDER_OPTIONS.find((g) => g.id === subcategory?.category)?.label;
   const breadcrumb =
     categoryLabel && subcategory ? `${categoryLabel} > ${subcategory.name}` : undefined;
+
+  // A stale/bookmarked ?mode=flat deep link could otherwise strand a non-saree
+  // subcategory in flat mode with no toggle visible to switch back.
+  useEffect(() => {
+    if (subcategory && !subcategory.requiresMannequinStep && imageMode === 'flat') {
+      setImageMode('catalogue');
+    }
+  }, [subcategory, imageMode]);
 
   useEffect(() => {
     return () => {
@@ -164,7 +178,7 @@ function BulkUploadScreenInner() {
                   ...p,
                   status: 'failed',
                   hasError: true,
-                  errorMessage: getErrorMessage(err, 'Upload failed'),
+                  errorMessage: friendlyErrorMessage(err, 'Upload failed'),
                 }
               : p,
           ),
@@ -201,7 +215,7 @@ function BulkUploadScreenInner() {
                 ...p,
                 status: 'failed',
                 hasError: true,
-                errorMessage: getErrorMessage(err, 'Failed to enqueue'),
+                errorMessage: friendlyErrorMessage(err, 'Failed to enqueue'),
               }
             : p,
         ),
@@ -331,7 +345,7 @@ function BulkUploadScreenInner() {
       qc.invalidateQueries({ queryKey: ['merchant-catalog-subcategories'] });
       goBackToProducts();
     } catch (err) {
-      setSaveError(getErrorMessage(err, 'Failed to save some items. Please try again.'));
+      setSaveError(friendlyErrorMessage(err, 'Failed to save some items. Please try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -363,63 +377,69 @@ function BulkUploadScreenInner() {
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, padding: 16 }}>
-        <div
-          style={{
-            display: 'flex',
-            borderRadius: 8,
-            border: `1px solid ${LIGHT.border2}`,
-            overflow: 'hidden',
-            background: LIGHT.card,
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setImageMode('catalogue')}
-            disabled={busy || items.length > 0}
+        {/* Flat Images (AI-generate) mode only applies to the mannequin (saree) pipeline —
+            every other garment type uses the flat photo directly for try-on, so the toggle
+            is hidden and Catalogue Images (direct upload) is the only mode. See
+            ProductForm.tsx / ProductModal.tsx for the sibling implementations. */}
+        {subcategory?.requiresMannequinStep && (
+          <div
             style={{
-              flex: 1,
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              padding: '12px 16px',
-              border: 'none',
-              background: imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-              color: imageMode === 'catalogue' ? '#f55c7a' : LIGHT.text,
-              fontWeight: imageMode === 'catalogue' ? 600 : 500,
-              fontSize: 14,
-              fontFamily: 'inherit',
-              cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
-              borderRight: `1px solid ${LIGHT.border2}`,
+              borderRadius: 8,
+              border: `1px solid ${LIGHT.border2}`,
+              overflow: 'hidden',
+              background: LIGHT.card,
             }}
           >
-            <ImagesIcon size={15} />
-            Catalogue Images
-          </button>
-          <button
-            type="button"
-            onClick={() => setImageMode('flat')}
-            disabled={busy || items.length > 0}
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              padding: '12px 16px',
-              border: 'none',
-              background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
-              color: imageMode === 'flat' ? '#f55c7a' : LIGHT.text,
-              fontWeight: imageMode === 'flat' ? 600 : 500,
-              fontSize: 14,
-              fontFamily: 'inherit',
-              cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
-            }}
-          >
-            <GarmentIcon size={15} />
-            Flat Images
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setImageMode('catalogue')}
+              disabled={busy || items.length > 0}
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                padding: '12px 16px',
+                border: 'none',
+                background: imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                color: imageMode === 'catalogue' ? '#f55c7a' : LIGHT.text,
+                fontWeight: imageMode === 'catalogue' ? 600 : 500,
+                fontSize: 14,
+                fontFamily: 'inherit',
+                cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
+                borderRight: `1px solid ${LIGHT.border2}`,
+              }}
+            >
+              <ImagesIcon size={15} />
+              Catalogue Images
+            </button>
+            <button
+              type="button"
+              onClick={() => setImageMode('flat')}
+              disabled={busy || items.length > 0}
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                padding: '12px 16px',
+                border: 'none',
+                background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                color: imageMode === 'flat' ? '#f55c7a' : LIGHT.text,
+                fontWeight: imageMode === 'flat' ? 600 : 500,
+                fontSize: 14,
+                fontFamily: 'inherit',
+                cursor: busy || items.length > 0 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <GarmentIcon size={15} />
+              Flat Images
+            </button>
+          </div>
+        )}
 
         {!showDetails && (
           <>

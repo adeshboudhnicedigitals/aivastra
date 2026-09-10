@@ -1,10 +1,48 @@
+import { createHash } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { and, count, desc, eq, gte, ilike, or, type SQL, sql } from 'drizzle-orm';
+import { JOB_SOURCE } from '@aivastra/types';
+import AdmZip from 'adm-zip';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  ilike,
+  isNotNull,
+  isNull,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { recordAudit } from '../admin/audit.js';
 import { resolveAdminAccess } from '../admin/guard.js';
+import { jobTypeSql } from '../admin/job-type.js';
 import { signAccess, verifyAccess, verifyPassword } from '../auth/service.js';
+
+// Fixed QA flag categories shown in the flag modal's reason dropdown — mirrored
+// verbatim in appJs() below since this tool has no shared front-end bundle.
+const FLAG_REASONS: { value: string; label: string }[] = [
+  { value: 'multiple_body_parts', label: 'Multiple body parts' },
+  { value: 'nudity', label: 'Nudity' },
+  { value: 'draping_issue', label: 'Draping issue' },
+  { value: 'additional_assets', label: 'Additional assets' },
+  { value: 'texture_issue', label: 'Texture issue' },
+  { value: 'wrong_input_uploaded', label: 'Wrong input/uploaded' },
+];
+const FLAG_REASON_VALUES = FLAG_REASONS.map((r) => r.value) as [string, ...string[]];
+
+// Content hash of the generated client script, appended to its <script src> as a
+// cache-busting query param. This tool ships no build step, so the script is a
+// server-rendered string — a CDN in front of the app (Cloudflare on staging/prod)
+// can cache /results/app.js and ignore/override our Cache-Control header entirely,
+// serving a stale script for days after a deploy. A content-addressed URL sidesteps
+// that: every deploy that changes the script gets a new URL, which is a guaranteed
+// cache miss regardless of what the CDN does with the old one.
+const APP_JS_VERSION = createHash('sha256').update(appJs()).digest('hex').slice(0, 10);
 
 const LoginBody = z.object({ email: z.string().email(), password: z.string().min(1) });
 const ResultsQuery = z.object({
@@ -14,7 +52,24 @@ const ResultsQuery = z.object({
   userId: z.string().uuid().optional(),
   date: z.enum(['any', 'today', '7d', '30d']).default('any'),
   status: z.enum(['completed', 'failed', 'all']).default('completed'),
+  flag: z.enum(['all', 'flagged', 'resolved']).default('all'),
+  // Coarse grouping over jobs.source (via jobTypeSql — same taxonomy admin/jobs.routes.ts
+  // uses): 'catalog' is every *_catalog*/catalog_video source, 'regeneration' is exactly
+  // JOB_SOURCE.REGENERATE, 'tryon' is everything else (tryon, merchant_tryon, api_tryon,
+  // wordpress_tryon, shopify, saree*) — explicitly excluding regenerate jobs, which would
+  // otherwise fall into this bucket by default since they don't match '%catalog%' either.
+  jobType: z.enum(['all', 'tryon', 'catalog', 'regeneration']).default('all'),
+  gender: z.enum(['all', 'men', 'women', 'boys', 'girls']).default('all'),
+  garmentTypeId: z.string().uuid().optional(),
 });
+const FlagBody = z
+  .object({
+    flagged: z.boolean(),
+    reason: z.enum(FLAG_REASON_VALUES).optional(),
+    note: z.string().max(500).optional(),
+  })
+  .refine((v) => !v.flagged || !!v.reason, { message: 'reason is required when flagging' });
+const ResolveBody = z.object({ note: z.string().max(500).optional() });
 
 export async function resultsRoutes(app: FastifyInstance) {
   const secret = new TextEncoder().encode(app.env.JWT_SECRET);
@@ -41,17 +96,43 @@ export async function resultsRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { email, password } = req.body as z.infer<typeof LoginBody>;
-      const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
+      const [user] = await app.db
+        .select({
+          id: schema.users.id,
+          isBanned: schema.users.isBanned,
+          passwordHash: schema.users.passwordHash,
+        })
+        .from(schema.users)
+        .where(eq(schema.users.email, email));
       if (!user || user.isBanned) throw new AppError('INVALID', 401, 'invalid credentials');
-      if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
-      if (!(await verifyPassword(user.passwordHash, password)))
-        throw new AppError('INVALID', 401, 'invalid credentials');
 
       // Explicit decision: preserve existing behavior — any active admin of any role gets a /results session.
-      // resolveAdminAccess() returning non-null (i.e. status === 'active') is sufficient; role is informational
-      // for the minted kind: 'results' token.
-      const admin = await resolveAdminAccess(app, user.id);
-      if (!admin || admin.status !== 'active') {
+      // admin.status !== 'active' is sufficient; role is informational for the minted kind: 'results' token.
+      //
+      // Auth against admin_users.passwordHash (the admin-specific credential, same field
+      // /admin/auth/login checks), not schema.users.passwordHash (the customer-portal
+      // password). The two are only equal at admin creation/approval time and drift apart
+      // whenever either password is changed independently afterwards.
+      const [admin] = await app.db
+        .select({
+          role: schema.adminUsers.role,
+          status: schema.adminUsers.status,
+          passwordHash: schema.adminUsers.passwordHash,
+        })
+        .from(schema.adminUsers)
+        .where(eq(schema.adminUsers.userId, user.id));
+
+      // Verify the password *before* branching on admin status — a 403 must only be
+      // reachable after proving password knowledge, otherwise the status check becomes an
+      // unauthenticated oracle for "is this email an active admin" (POST any garbage
+      // password and read 403 vs 401 off the response, no credential needed). Gate on the
+      // admin's own hash when an admin row exists; fall back to the customer hash otherwise
+      // so a 403 for a non-admin account still requires the caller to know that password.
+      const gatingHash = admin?.passwordHash ?? user.passwordHash;
+      if (!gatingHash || !(await verifyPassword(gatingHash, password)))
+        throw new AppError('INVALID', 401, 'invalid credentials');
+
+      if (admin?.status !== 'active') {
         throw new AppError('FORBIDDEN', 403, 'admin access required');
       }
 
@@ -72,8 +153,18 @@ export async function resultsRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.get('/results/app.js', async (_req, reply) => {
-    reply.type('application/javascript').send(appJs());
+  app.get('/results/app.js', async (req, reply) => {
+    // The HTML always points at the current build's content-addressed URL
+    // (?v=APP_JS_VERSION, see its definition above), so this specific URL's response
+    // never changes — safe to let any cache (including a CDN in front of this app)
+    // hold onto it indefinitely. A request for a stale ?v= (an old tab that hasn't
+    // reloaded) still gets served the current script, which is fine: it's the same
+    // contract a plain unversioned URL had, just without the CDN staleness trap.
+    const cacheControl =
+      'v' in (req.query as Record<string, unknown>)
+        ? 'public, max-age=31536000, immutable'
+        : 'no-store';
+    reply.type('application/javascript').header('Cache-Control', cacheControl).send(appJs());
   });
 
   app.get('/results', async (req, reply) => {
@@ -89,10 +180,21 @@ export async function resultsRoutes(app: FastifyInstance) {
     '/results/data',
     { preHandler: requireResultsUser, schema: { querystring: ResultsQuery } },
     async (req) => {
-      const { page, pageSize, search, userId, date, status } = req.query as z.infer<
-        typeof ResultsQuery
-      >;
+      const { page, pageSize, search, userId, date, status, flag, jobType, gender, garmentTypeId } =
+        req.query as z.infer<typeof ResultsQuery>;
       const conditions: (SQL | undefined)[] = [];
+
+      if (flag === 'flagged')
+        conditions.push(and(eq(schema.jobs.flagged, true), isNull(schema.jobs.resolvedAt)));
+      else if (flag === 'resolved') conditions.push(isNotNull(schema.jobs.resolvedAt));
+
+      if (jobType === 'catalog') conditions.push(sql`${jobTypeSql()} ILIKE ${'%catalog%'}`);
+      else if (jobType === 'regeneration')
+        conditions.push(sql`${jobTypeSql()} = ${JOB_SOURCE.REGENERATE}`);
+      else if (jobType === 'tryon')
+        conditions.push(
+          sql`${jobTypeSql()} NOT ILIKE ${'%catalog%'} AND ${jobTypeSql()} <> ${JOB_SOURCE.REGENERATE}`,
+        );
 
       if (status === 'completed') {
         conditions.push(eq(schema.jobs.status, 'COMPLETED'));
@@ -103,6 +205,13 @@ export async function resultsRoutes(app: FastifyInstance) {
       }
 
       if (userId) conditions.push(eq(schema.jobs.userId, userId));
+      // garmentTypeId narrows to one specific type; gender narrows to every type of
+      // that gender — both read off job_inputs.garment_type_id (via the
+      // garmentSubcategories join below), which is null for jobs that predate that
+      // column or never went through a garment-type-scoped path (e.g. legacy widget
+      // jobs), so those are correctly excluded rather than matched by either filter.
+      if (garmentTypeId) conditions.push(eq(schema.jobInputs.garmentTypeId, garmentTypeId));
+      if (gender !== 'all') conditions.push(eq(schema.garmentSubcategories.genderSlug, gender));
       if (search) {
         conditions.push(
           or(ilike(schema.users.email, `%${search}%`), ilike(schema.jobs.id, `%${search}%`)),
@@ -134,6 +243,10 @@ export async function resultsRoutes(app: FastifyInstance) {
           eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
         )
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .leftJoin(
+          schema.garmentSubcategories,
+          eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+        )
         .where(where);
 
       const rows = await app.db
@@ -144,9 +257,34 @@ export async function resultsRoutes(app: FastifyInstance) {
           creditsCharged: schema.jobs.creditsCharged,
           createdAt: schema.jobs.createdAt,
           status: schema.jobs.status,
+          workerId: schema.jobs.workerId,
+          workerLabel: schema.workers.label,
+          flagged: schema.jobs.flagged,
+          flagReason: schema.jobs.flagReason,
+          flagNote: schema.jobs.flagNote,
+          flaggedAt: schema.jobs.flaggedAt,
+          resolvedAt: schema.jobs.resolvedAt,
+          resolvedNote: schema.jobs.resolvedNote,
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           poseThumbKey: schema.modelPoseAssets.thumbnailKey,
+          // No admin pose asset (poseThumbKey) means this job's "pose" slot
+          // is actually whatever image the customer/system supplied instead —
+          // a widget/kiosk customer photo (jobs.customerPhotoKey) or an
+          // uploaded tryon-direct person photo (job_inputs.params.personKey) —
+          // tagged "Person" client-side — or the source image a regenerate
+          // job is editing (job_inputs.params.sourceImageKey), tagged "Input".
+          // Folding these into the same slot instead of a separate column
+          // avoids a column that's empty for every catalogue/studio job.
+          personOrSourceKey: sql<
+            string | null
+          >`COALESCE(${schema.jobs.customerPhotoKey}, ${schema.jobInputs.params}->>'personKey', ${schema.jobInputs.params}->>'sourceImageKey')`,
+          personOrSourceTag: sql<'person' | 'input' | null>`CASE
+            WHEN ${schema.jobs.customerPhotoKey} IS NOT NULL
+              OR ${schema.jobInputs.params}->>'personKey' IS NOT NULL THEN 'person'
+            WHEN ${schema.jobInputs.params}->>'sourceImageKey' IS NOT NULL THEN 'input'
+            ELSE NULL
+          END`,
           backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
           lowerThumbKey: sql<
             string | null
@@ -165,6 +303,11 @@ export async function resultsRoutes(app: FastifyInstance) {
           eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
         )
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .leftJoin(schema.workers, eq(schema.workers.id, schema.jobs.workerId))
+        .leftJoin(
+          schema.garmentSubcategories,
+          eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+        )
         .where(where)
         .orderBy(desc(schema.jobs.createdAt))
         .limit(pageSize)
@@ -181,8 +324,17 @@ export async function resultsRoutes(app: FastifyInstance) {
           creditsCharged: r.creditsCharged,
           createdAt: r.createdAt,
           status: r.status,
+          workerId: r.workerId,
+          workerLabel: r.workerLabel,
+          flagged: r.flagged,
+          flagReason: r.flagReason,
+          flagNote: r.flagNote,
+          flaggedAt: r.flaggedAt,
+          resolvedAt: r.resolvedAt,
+          resolvedNote: r.resolvedNote,
           garmentUrl: await presign(r.upperGarmentKey ?? r.lowerGarmentKey),
-          poseUrl: await presign(r.poseThumbKey),
+          poseUrl: await presign(r.poseThumbKey ?? r.personOrSourceKey),
+          poseTag: r.poseThumbKey ? null : r.personOrSourceTag,
           backgroundUrl: await presign(r.backgroundThumbKey),
           lowerUrl: await presign(r.lowerThumbKey),
           shoeUrl: await presign(r.shoeThumbKey),
@@ -202,6 +354,279 @@ export async function resultsRoutes(app: FastifyInstance) {
       .orderBy(schema.users.email);
     return rows;
   });
+
+  // Only garment types that actually have at least one job — same "only what's
+  // actually in use" convention as /results/users above — so the filter dropdown
+  // doesn't get cluttered with types an admin created but never generated with.
+  app.get('/results/garment-types', { preHandler: requireResultsUser }, async () => {
+    const rows = await app.db
+      .selectDistinct({
+        id: schema.garmentSubcategories.id,
+        label: schema.garmentSubcategories.label,
+        genderSlug: schema.garmentSubcategories.genderSlug,
+      })
+      .from(schema.garmentSubcategories)
+      .innerJoin(
+        schema.jobInputs,
+        eq(schema.jobInputs.garmentTypeId, schema.garmentSubcategories.id),
+      )
+      .orderBy(schema.garmentSubcategories.genderSlug, schema.garmentSubcategories.label);
+    return rows;
+  });
+
+  app.get('/results/flag-reasons', { preHandler: requireResultsUser }, async () => FLAG_REASONS);
+
+  app.patch(
+    '/results/:id/flag',
+    {
+      preHandler: requireResultsUser,
+      schema: { params: z.object({ id: z.string().uuid() }), body: FlagBody },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { flagged, reason, note } = req.body as z.infer<typeof FlagBody>;
+
+      const [job] = await app.db
+        .select({
+          id: schema.jobs.id,
+          flagged: schema.jobs.flagged,
+          flagReason: schema.jobs.flagReason,
+          flagNote: schema.jobs.flagNote,
+        })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, id));
+      if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
+
+      const admin = await resolveAdminAccess(app, req.userId);
+      const actorRole = admin?.role ?? 'ADMIN';
+
+      const patch = flagged
+        ? {
+            flagged: true,
+            flagReason: reason ?? null,
+            flagNote: note ?? null,
+            flaggedAt: new Date(),
+            flaggedBy: req.userId,
+          }
+        : {
+            flagged: false,
+            flagReason: null,
+            flagNote: null,
+            flaggedAt: null,
+            flaggedBy: null,
+            resolvedAt: null,
+            resolvedNote: null,
+            resolvedBy: null,
+          };
+
+      await app.db.transaction(async (tx) => {
+        await tx.update(schema.jobs).set(patch).where(eq(schema.jobs.id, id));
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: actorRole },
+          action: flagged ? 'job.flag' : 'job.unflag',
+          resourceType: 'job',
+          resourceId: id,
+          before: { flagged: job.flagged, reason: job.flagReason, note: job.flagNote },
+          after: { flagged: patch.flagged, reason: patch.flagReason, note: patch.flagNote },
+          request: req,
+        });
+      });
+
+      return {
+        ok: true,
+        flagged: patch.flagged,
+        flagReason: patch.flagReason,
+        flagNote: patch.flagNote,
+      };
+    },
+  );
+
+  app.patch(
+    '/results/:id/resolve',
+    {
+      preHandler: requireResultsUser,
+      schema: { params: z.object({ id: z.string().uuid() }), body: ResolveBody },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { note } = req.body as z.infer<typeof ResolveBody>;
+
+      const [job] = await app.db
+        .select({
+          id: schema.jobs.id,
+          flagged: schema.jobs.flagged,
+          resolvedAt: schema.jobs.resolvedAt,
+        })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, id));
+      if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
+      if (!job.flagged) throw new AppError('VALIDATION', 400, 'job is not flagged');
+      if (job.resolvedAt) throw new AppError('VALIDATION', 400, 'job is already resolved');
+
+      const admin = await resolveAdminAccess(app, req.userId);
+      const actorRole = admin?.role ?? 'ADMIN';
+
+      const patch = {
+        resolvedAt: new Date(),
+        resolvedNote: note ?? null,
+        resolvedBy: req.userId,
+      };
+
+      await app.db.transaction(async (tx) => {
+        await tx.update(schema.jobs).set(patch).where(eq(schema.jobs.id, id));
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: actorRole },
+          action: 'job.resolve',
+          resourceType: 'job',
+          resourceId: id,
+          before: { resolvedAt: null, resolvedNote: null },
+          after: { resolvedAt: patch.resolvedAt, resolvedNote: patch.resolvedNote },
+          request: req,
+        });
+      });
+
+      return { ok: true, resolvedAt: patch.resolvedAt, resolvedNote: patch.resolvedNote };
+    },
+  );
+
+  app.get(
+    '/results/:id/bundle',
+    { preHandler: requireResultsUser, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+
+      const [row] = await app.db
+        .select({
+          id: schema.jobs.id,
+          userEmail: schema.users.email,
+          status: schema.jobs.status,
+          creditsCharged: schema.jobs.creditsCharged,
+          createdAt: schema.jobs.createdAt,
+          flagged: schema.jobs.flagged,
+          flagReason: schema.jobs.flagReason,
+          flagNote: schema.jobs.flagNote,
+          flaggedAt: schema.jobs.flaggedAt,
+          resolvedAt: schema.jobs.resolvedAt,
+          resolvedNote: schema.jobs.resolvedNote,
+          upperGarmentKey: schema.jobInputs.upperGarmentKey,
+          lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+          faceThumbKey: schema.modelFaces.thumbnailKey,
+          poseThumbKey: schema.modelPoseAssets.thumbnailKey,
+          // See the matching fields in /results/data above — same fallback
+          // for jobs with no admin pose asset.
+          personOrSourceKey: sql<
+            string | null
+          >`COALESCE(${schema.jobs.customerPhotoKey}, ${schema.jobInputs.params}->>'personKey', ${schema.jobInputs.params}->>'sourceImageKey')`,
+          personOrSourceTag: sql<'person' | 'input' | null>`CASE
+            WHEN ${schema.jobs.customerPhotoKey} IS NOT NULL
+              OR ${schema.jobInputs.params}->>'personKey' IS NOT NULL THEN 'person'
+            WHEN ${schema.jobInputs.params}->>'sourceImageKey' IS NOT NULL THEN 'input'
+            ELSE NULL
+          END`,
+          backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
+          lowerThumbKey: sql<
+            string | null
+          >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.lowerCatalogId})`,
+          shoeThumbKey: sql<
+            string | null
+          >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
+          outputKey: schema.jobOutputs.resultKey,
+        })
+        .from(schema.jobs)
+        .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
+        .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(schema.modelFaces, eq(schema.modelFaces.id, schema.jobInputs.faceId))
+        .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
+        .leftJoin(
+          schema.modelBackgrounds,
+          eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
+        )
+        .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(eq(schema.jobs.id, id));
+
+      if (!row) throw new AppError('NOT_FOUND', 404, 'job not found');
+      if (!row.flagged)
+        throw new AppError('VALIDATION', 400, 'only flagged jobs can be downloaded as a bundle');
+
+      const dispatchEvents = await app.db
+        .select({ createdAt: schema.jobEvents.createdAt, payload: schema.jobEvents.payload })
+        .from(schema.jobEvents)
+        .where(
+          and(eq(schema.jobEvents.jobId, id), eq(schema.jobEvents.eventType, 'COMFY_DISPATCH')),
+        )
+        .orderBy(schema.jobEvents.createdAt);
+
+      const zip = new AdmZip();
+
+      const extOf = (key: string) => {
+        const dot = key.lastIndexOf('.');
+        return dot >= 0 && key.length - dot <= 6 ? key.slice(dot) : '.jpg';
+      };
+      const addKey = async (folder: string, name: string, key: string | null) => {
+        if (!key) return;
+        try {
+          const buf = await app.storage.getObject(key);
+          zip.addFile(`${folder}/${name}${extOf(key)}`, buf);
+        } catch (err) {
+          zip.addFile(`${folder}/${name}.MISSING.txt`, Buffer.from(String(err)));
+        }
+      };
+
+      await addKey('inputs', 'garment', row.upperGarmentKey ?? row.lowerGarmentKey);
+      await addKey('inputs', 'face', row.faceThumbKey);
+      // No admin pose asset means this job's only "pose"-slot image is
+      // whatever person/source photo it actually used — see the matching
+      // field comment above.
+      if (row.poseThumbKey) {
+        await addKey('inputs', 'pose', row.poseThumbKey);
+      } else {
+        await addKey(
+          'inputs',
+          row.personOrSourceTag === 'input' ? 'input' : 'person',
+          row.personOrSourceKey,
+        );
+      }
+      await addKey('inputs', 'background', row.backgroundThumbKey);
+      await addKey('inputs', 'lower', row.lowerThumbKey);
+      await addKey('inputs', 'shoe', row.shoeThumbKey);
+      await addKey('output', 'output', row.outputKey);
+
+      dispatchEvents.forEach((ev, i) => {
+        const prompt = (ev.payload as Record<string, unknown> | null)?.prompt;
+        if (prompt) {
+          const name = dispatchEvents.length > 1 ? `workflow-${i + 1}.json` : 'workflow.json';
+          zip.addFile(`workflow/${name}`, Buffer.from(JSON.stringify(prompt, null, 2)));
+        }
+      });
+
+      zip.addFile(
+        'metadata.json',
+        Buffer.from(
+          JSON.stringify(
+            {
+              jobId: row.id,
+              userEmail: row.userEmail,
+              status: row.status,
+              creditsCharged: row.creditsCharged,
+              createdAt: row.createdAt,
+              flagReason: row.flagReason,
+              flagNote: row.flagNote,
+              flaggedAt: row.flaggedAt,
+              resolvedAt: row.resolvedAt,
+              resolvedNote: row.resolvedNote,
+            },
+            null,
+            2,
+          ),
+        ),
+      );
+
+      reply
+        .header('Content-Type', 'application/zip')
+        .header('Content-Disposition', `attachment; filename="job-${id}-bundle.zip"`)
+        .send(zip.toBuffer());
+    },
+  );
 }
 
 function commonCss(): string {
@@ -222,6 +647,12 @@ function commonCss(): string {
   --accent-ink: oklch(0.36 0.12 240);
   --danger: oklch(0.58 0.2 25);
   --danger-soft: oklch(0.95 0.04 25);
+  --flag: oklch(0.62 0.15 55);
+  --flag-soft: oklch(0.95 0.05 55);
+  --flag-ink: oklch(0.42 0.13 55);
+  --resolved: oklch(0.6 0.14 145);
+  --resolved-soft: oklch(0.95 0.05 145);
+  --resolved-ink: oklch(0.4 0.12 145);
   --sans: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --mono: 'Geist Mono', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --r: 6px;
@@ -245,6 +676,12 @@ function commonCss(): string {
   --accent-ink: oklch(0.82 0.1 240);
   --danger: oklch(0.65 0.2 25);
   --danger-soft: oklch(0.28 0.07 25);
+  --flag: oklch(0.72 0.15 55);
+  --flag-soft: oklch(0.3 0.07 55);
+  --flag-ink: oklch(0.82 0.12 60);
+  --resolved: oklch(0.7 0.14 145);
+  --resolved-soft: oklch(0.28 0.07 145);
+  --resolved-ink: oklch(0.82 0.12 150);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
@@ -313,7 +750,7 @@ ${commonCss()}
     <div class="error-msg" id="error-msg"></div>
   </div>
 </div>
-<script src="/results/app.js"></script>
+<script src="/results/app.js?v=${APP_JS_VERSION}"></script>
 </body>
 </html>`;
 }
@@ -327,7 +764,7 @@ function monitorHtml(): string {
 <title>Webtool results (all users)</title>
 <style>
 ${commonCss()}
-.page { max-width: 1600px; margin: 0 auto; padding: 24px 28px 40px; }
+.page { max-width: 1800px; margin: 0 auto; padding: 24px 28px 40px; }
 .header {
   display: flex; align-items: flex-end; justify-content: space-between;
   margin-bottom: 20px; gap: 16px; flex-wrap: wrap;
@@ -383,15 +820,17 @@ ${commonCss()}
 .col-img { width: 130px; text-align: center; }
 .col-credits { width: 70px; text-align: center; }
 .col-when { width: 150px; }
+.col-flag { width: 150px; text-align: center; }
 
-.id-num { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); }
-.id-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; }
+.id-num { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); cursor: help; }
+.id-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; cursor: help; }
 .user-name { font-weight: 500; color: var(--ink); word-break: break-all; }
 .user-email { font-size: 12px; color: var(--muted); margin-top: 2px; word-break: break-all; }
 
 .thumb-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.thumb-img { position: relative; width: 100%; max-width: 110px; }
 .thumb {
-  width: 100%; max-width: 110px; aspect-ratio: 3/4; object-fit: cover;
+  display: block; width: 100%; aspect-ratio: 3/4; object-fit: cover;
   border-radius: var(--r); border: 1px solid var(--border); background: var(--surface-2);
   cursor: zoom-in; transition: transform 120ms ease, box-shadow 120ms ease;
 }
@@ -399,16 +838,78 @@ ${commonCss()}
 .thumb-placeholder {
   width: 100%; max-width: 110px; aspect-ratio: 3/4; border-radius: var(--r); border: 1px dashed var(--border);
   background: var(--surface-2); display: grid; place-items: center; color: var(--muted-2); font-size: 18px;
+  margin: 0 auto;
 }
-.img-links { display: flex; gap: 6px; justify-content: center; }
-.img-links a {
+.thumb-dl {
+  position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; text-decoration: none;
+  transition: background 120ms ease;
+}
+.thumb-dl:hover { background: rgba(0,0,0,0.75); }
+.thumb-dl svg { width: 12px; height: 12px; }
+.thumb-tag {
+  position: absolute; top: 4px; left: 4px; padding: 1px 6px; border-radius: 4px;
+  background: rgba(0,0,0,0.6); color: #fff; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.02em; pointer-events: none;
+}
+.credits-num { font-family: var(--mono); font-weight: 500; }
+.when-text { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+
+.results-table tr.flagged-row td { background: var(--flag-soft); }
+.results-table tr.flagged-row:hover td { filter: brightness(0.97); }
+.results-table tr.resolved-row td { background: var(--resolved-soft); }
+.results-table tr.resolved-row:hover td { filter: brightness(0.97); }
+.flag-cell { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.flag-status { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.flag-actions {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding-top: 8px; border-top: 1px dashed var(--border);
+}
+.flag-btn {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 5px 10px;
+  border-radius: var(--r); border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  font-weight: 500; transition: background 80ms ease, border-color 80ms ease, color 80ms ease;
+}
+.flag-btn:hover { background: var(--surface-hover); border-color: var(--border-strong); color: var(--ink); }
+.flag-btn.active { background: var(--flag-soft); border-color: var(--flag); color: var(--flag-ink); }
+.flag-btn.resolved-active { background: var(--resolved-soft); border-color: var(--resolved); color: var(--resolved-ink); }
+.flag-btn.resolve { border-color: var(--resolved); color: var(--resolved-ink); }
+.flag-btn.resolve:hover { background: var(--resolved-soft); }
+.flag-badge {
+  font-size: 11px; color: var(--flag-ink); background: var(--flag-soft); border: 1px solid var(--flag);
+  border-radius: var(--r); padding: 2px 7px; max-width: 130px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.flag-badge.resolved { color: var(--resolved-ink); background: var(--resolved-soft); border-color: var(--resolved); }
+.flag-note-hint { font-size: 10.5px; color: var(--muted); max-width: 130px; text-align: center; word-break: break-word; }
+.flag-note-hint.resolved-hint { color: var(--resolved-ink); }
+.bundle-link {
   font-size: 11px; color: var(--accent-ink); text-decoration: none; padding: 3px 8px;
   border: 1px solid var(--border); border-radius: var(--r); background: var(--surface-2);
   transition: background 80ms ease, border-color 80ms ease;
 }
-.img-links a:hover { background: var(--accent-soft); border-color: var(--accent); }
-.credits-num { font-family: var(--mono); font-weight: 500; }
-.when-text { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.bundle-link:hover { background: var(--accent-soft); border-color: var(--accent); }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 110;
+  display: none; justify-content: center; align-items: center; padding: 24px;
+}
+.modal-overlay.active { display: flex; }
+.modal-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 24px; width: 100%; max-width: 380px; box-shadow: var(--shadow-md);
+}
+.modal-card h2 { margin: 0 0 4px; font-size: 16px; font-weight: 500; }
+.modal-card p.modal-sub { margin: 0 0 18px; color: var(--muted); font-size: 12.5px; }
+.modal-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.modal-field label { font-size: 12px; color: var(--ink-2); font-weight: 500; }
+.modal-field select, .modal-field textarea {
+  border: 1px solid var(--border); border-radius: var(--r); padding: 8px 10px;
+  background: var(--surface-2); color: var(--ink); outline: 0; width: 100%; resize: vertical;
+}
+.modal-field select:focus, .modal-field textarea:focus { border-color: var(--accent); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+.modal-error { color: var(--danger); font-size: 12.5px; min-height: 18px; }
 
 .pager { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 18px; padding: 12px 0; }
 .pager-info { margin-right: auto; color: var(--muted); font-size: 12.5px; }
@@ -424,8 +925,8 @@ ${commonCss()}
   position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 100;
   display: none; justify-content: center; align-items: center; cursor: zoom-out; backdrop-filter: blur(2px);
 }
-.lightbox.active { display: flex; }
-.lightbox img { max-width: 92vw; max-height: 92vh; border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); }
+.lightbox.active { display: flex; overflow: hidden; }
+.lightbox img { border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); user-select: none; -webkit-user-drag: none; }
 .lightbox-close {
   position: absolute; top: 20px; right: 24px; color: #fff; font-size: 32px; line-height: 1;
   cursor: pointer; opacity: 0.8; transition: opacity 120ms ease; user-select: none;
@@ -487,6 +988,37 @@ ${commonCss()}
         <option value="all">All</option>
       </select>
     </div>
+    <div class="filter-group" style="min-width:140px;flex:0">
+      <label>Flag</label>
+      <select class="select" id="filter-flag">
+        <option value="all">All</option>
+        <option value="flagged">Flagged only</option>
+        <option value="resolved">Resolved only</option>
+      </select>
+    </div>
+    <div class="filter-group" style="min-width:140px;flex:0">
+      <label>Job type</label>
+      <select class="select" id="filter-jobtype">
+        <option value="all">All</option>
+        <option value="tryon">Try-on</option>
+        <option value="catalog">Catalogue</option>
+        <option value="regeneration">Regeneration</option>
+      </select>
+    </div>
+    <div class="filter-group" style="min-width:130px;flex:0">
+      <label>Gender</label>
+      <select class="select" id="filter-gender">
+        <option value="all">All</option>
+        <option value="men">Men</option>
+        <option value="women">Women</option>
+        <option value="boys">Boys</option>
+        <option value="girls">Girls</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Garment type</label>
+      <select class="select" id="filter-garmenttype"><option value="">All garment types</option></select>
+    </div>
     <div class="filter-group">
       <label>Search</label>
       <input class="search-input" id="filter-search" placeholder="Username, email, job ID…" />
@@ -512,6 +1044,7 @@ ${commonCss()}
           <th class="col-img">Output</th>
           <th class="col-credits">Credits</th>
           <th class="col-when">When</th>
+          <th class="col-flag">Flag</th>
         </tr>
       </thead>
       <tbody id="results-body"></tbody>
@@ -521,13 +1054,34 @@ ${commonCss()}
   <div class="pager" id="pager"></div>
 </div>
 
+<div class="modal-overlay" id="flag-modal">
+  <div class="modal-card">
+    <h2 id="flag-modal-title">Flag job</h2>
+    <p class="modal-sub" id="flag-modal-sub">Mark this job for later review.</p>
+    <div class="modal-field" id="flag-reason-group">
+      <label for="flag-reason">Reason</label>
+      <select id="flag-reason"></select>
+    </div>
+    <div class="modal-field">
+      <label for="flag-note">Note (optional)</label>
+      <textarea id="flag-note" rows="3" maxlength="500" placeholder="Any extra detail…"></textarea>
+    </div>
+    <div class="modal-error" id="flag-modal-error"></div>
+    <div class="modal-actions">
+      <button class="btn danger ghost" id="flag-modal-unflag" style="display:none">Unflag</button>
+      <button class="btn ghost" id="flag-modal-cancel">Cancel</button>
+      <button class="btn primary" id="flag-modal-confirm">Flag job</button>
+    </div>
+  </div>
+</div>
+
 <div class="lightbox" id="lightbox">
   <span class="lightbox-close" id="lightbox-close">&times;</span>
-  <img id="lightbox-img" src="" alt="Preview" />
+  <img id="lightbox-img" src="" alt="Preview" draggable="false" />
 </div>
 
 <div class="toast-stack" id="toast-stack"></div>
-<script src="/results/app.js"></script>
+<script src="/results/app.js?v=${APP_JS_VERSION}"></script>
 </body>
 </html>`;
 }
@@ -606,9 +1160,12 @@ function appJs(): string {
   var resultsBody = document.getElementById('results-body');
   if (!resultsBody) return;
 
+  var FLAG_REASONS = ${JSON.stringify(FLAG_REASONS)};
+  var FLAG_REASON_LABELS = FLAG_REASONS.reduce(function(acc, r) { acc[r.value] = r.label; return acc; }, {});
+
   var state = {
-    page: 1, pageSize: 25, total: 0, items: [], users: [],
-    filters: { userId: '', date: 'any', search: '', status: 'completed' },
+    page: 1, pageSize: 25, total: 0, items: [], users: [], garmentTypes: [],
+    filters: { userId: '', date: 'any', search: '', status: 'completed', flag: 'all', jobType: 'all', gender: 'all', garmentTypeId: '' },
     loading: false,
   };
 
@@ -634,6 +1191,37 @@ function appJs(): string {
     }).catch(function(e) { toast('Failed to load users: ' + e.message, 'error'); });
   }
 
+  var GENDER_LABELS = { men: 'Men', women: 'Women', boys: 'Boys', girls: 'Girls' };
+  function loadGarmentTypes() {
+    api('/results/garment-types').then(function(types) {
+      state.garmentTypes = types;
+      renderGarmentTypeOptions();
+    }).catch(function(e) { toast('Failed to load garment types: ' + e.message, 'error'); });
+  }
+
+  // Narrows the Garment type list to whichever gender is currently picked in the
+  // Gender filter, rather than always showing every gender's types in one flat
+  // list — the prefix ("Women — ") only earns its keep when 'All' genders are in
+  // play; scoped to one gender it's just noise. Runs on load and on every Gender
+  // change (not gated behind Apply) so narrowing feels immediate, and preserves
+  // the current selection across the rebuild when it still belongs to the list.
+  function renderGarmentTypeOptions() {
+    var sel = $('filter-garmenttype');
+    var selectedGender = $('filter-gender').value;
+    var prevValue = sel.value;
+    var types = selectedGender === 'all'
+      ? state.garmentTypes
+      : state.garmentTypes.filter(function(t) { return t.genderSlug === selectedGender; });
+    sel.innerHTML = '<option value="">All garment types</option>' + types.map(function(t) {
+      var label = selectedGender === 'all'
+        ? (GENDER_LABELS[t.genderSlug] || t.genderSlug) + ' — ' + t.label
+        : t.label;
+      return '<option value="' + esc(t.id) + '">' + esc(label) + '</option>';
+    }).join('');
+    if (types.some(function(t) { return t.id === prevValue; })) sel.value = prevValue;
+    else state.filters.garmentTypeId = '';
+  }
+
   function loadData() {
     state.loading = true;
     renderSkeleton();
@@ -644,6 +1232,10 @@ function appJs(): string {
     if (state.filters.date !== 'any') p.set('date', state.filters.date);
     if (state.filters.search) p.set('search', state.filters.search);
     if (state.filters.status !== 'completed') p.set('status', state.filters.status);
+    if (state.filters.flag !== 'all') p.set('flag', state.filters.flag);
+    if (state.filters.jobType !== 'all') p.set('jobType', state.filters.jobType);
+    if (state.filters.gender !== 'all') p.set('gender', state.filters.gender);
+    if (state.filters.garmentTypeId) p.set('garmentTypeId', state.filters.garmentTypeId);
     api('/results/data?' + p.toString()).then(function(data) {
       state.items = data.items || [];
       state.total = data.total || 0;
@@ -670,7 +1262,8 @@ function appJs(): string {
         '<td class="col-img"><div class="skel" style="height:90px;width:70px;margin:0 auto"></div><div class="skel" style="height:10px;width:80px;margin:6px auto 0"></div></td>' +
         '<td class="col-img"><div class="skel" style="height:90px;width:70px;margin:0 auto"></div><div class="skel" style="height:10px;width:80px;margin:6px auto 0"></div></td>' +
         '<td class="col-credits"><div class="skel" style="height:14px;width:30px;margin:0 auto"></div></td>' +
-        '<td class="col-when"><div class="skel" style="height:14px;width:110px"></div></td></tr>');
+        '<td class="col-when"><div class="skel" style="height:14px;width:110px"></div></td>' +
+        '<td class="col-flag"><div class="skel" style="height:24px;width:80px;margin:0 auto"></div></td></tr>');
     }
     resultsBody.innerHTML = rows.join('');
     $('result-count').textContent = 'Loading…';
@@ -682,39 +1275,89 @@ function appJs(): string {
     $('result-count').textContent = state.total + ' output(s) — page ' + state.page + ' of ' + totalPages;
 
     if (state.items.length === 0) {
-      resultsBody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg></div><div>No results found.</div></div></td></tr>';
+      resultsBody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg></div><div>No results found.</div></div></td></tr>';
     } else {
       var rows = [];
       for (var i = 0; i < state.items.length; i++) {
         var item = state.items[i];
         var seq = (state.page - 1) * state.pageSize + i + 1;
         var rev = state.total - ((state.page - 1) * state.pageSize + i);
+        var rowClass = item.resolvedAt ? 'resolved-row' : (item.flagged ? 'flagged-row' : '');
+        var workerLabel = item.workerLabel || item.workerId || 'unassigned';
+        var rowTitle = 'Job ID: ' + item.id + ' • Worker: ' + workerLabel;
+        var poseLabel = item.poseTag === 'input' ? 'Input' : item.poseTag === 'person' ? 'Person' : 'Pose';
         rows.push(
-          '<tr>' +
+          '<tr class="' + rowClass + '" title="' + esc(rowTitle) + '">' +
           '<td class="col-id"><div class="id-num">' + rev + '</div><div class="id-sub">#' + seq + '</div></td>' +
           '<td class="col-user"><div class="user-name">' + esc(item.userEmail || '—') + '</div><div class="user-email">' + esc(item.userEmail || '') + '</div></td>' +
           '<td class="col-img">' + renderThumb(item.garmentUrl, 'Garment') + '</td>' +
-          '<td class="col-img">' + renderThumb(item.poseUrl, 'Pose') + '</td>' +
+          '<td class="col-img">' + renderThumb(item.poseUrl, poseLabel, item.poseTag ? poseLabel : null) + '</td>' +
           '<td class="col-img">' + renderThumb(item.backgroundUrl, 'Background') + '</td>' +
           '<td class="col-img">' + renderThumb(item.shoeUrl, 'Shoes') + '</td>' +
           '<td class="col-img">' + renderThumb(item.outputUrl, 'Output') + '</td>' +
           '<td class="col-credits"><span class="credits-num">' + item.creditsCharged + '</span></td>' +
           '<td class="col-when"><span class="when-text">' + fmtDate(item.createdAt) + '</span></td>' +
+          '<td class="col-flag">' + renderFlagCell(item) + '</td>' +
           '</tr>'
         );
       }
       resultsBody.innerHTML = rows.join('');
+      var flagBtns = resultsBody.querySelectorAll('[data-flag-btn]');
+      for (var fb = 0; fb < flagBtns.length; fb++) {
+        flagBtns[fb].addEventListener('click', (function(jobId) {
+          return function() { openFlagModal(jobId); };
+        })(flagBtns[fb].getAttribute('data-flag-btn')));
+      }
+      var resolveBtns = resultsBody.querySelectorAll('[data-resolve-btn]');
+      for (var rb = 0; rb < resolveBtns.length; rb++) {
+        resolveBtns[rb].addEventListener('click', (function(jobId) {
+          return function() { openResolveModal(jobId); };
+        })(resolveBtns[rb].getAttribute('data-resolve-btn')));
+      }
+      var thumbImgs = resultsBody.querySelectorAll('img.thumb[data-lb]');
+      for (var ti = 0; ti < thumbImgs.length; ti++) {
+        thumbImgs[ti].addEventListener('click', (function(url) {
+          return function() { window.openLightbox(url); };
+        })(thumbImgs[ti].getAttribute('data-lb')));
+      }
     }
     renderPager(totalPages);
   }
 
-  function renderThumb(url, label) {
+  function renderFlagCell(item) {
+    if (!item.flagged) {
+      return '<button class="flag-btn" data-flag-btn="' + esc(item.id) + '">' +
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>' +
+        ' Flag</button>';
+    }
+    var label = FLAG_REASON_LABELS[item.flagReason] || item.flagReason || 'Flagged';
+    var resolved = !!item.resolvedAt;
+    var flagIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/></svg>';
+    var html = '<div class="flag-cell">' +
+      '<div class="flag-status">' +
+        '<button class="flag-btn ' + (resolved ? 'resolved-active' : 'active') + '" data-flag-btn="' + esc(item.id) + '">' +
+          flagIcon + ' ' + (resolved ? 'Resolved' : 'Flagged') + '</button>' +
+        '<span class="flag-badge' + (resolved ? ' resolved' : '') + '" title="' + esc(label) + '">' + esc(label) + '</span>';
+    if (item.flagNote) html += '<span class="flag-note-hint">' + esc(item.flagNote) + '</span>';
+    if (resolved && item.resolvedNote) html += '<span class="flag-note-hint resolved-hint">Resolved: ' + esc(item.resolvedNote) + '</span>';
+    html += '</div>' +
+      '<div class="flag-actions">' +
+        '<a class="bundle-link" href="/results/' + esc(item.id) + '/bundle">Download bundle</a>';
+    if (!resolved) html += '<button class="flag-btn resolve" data-resolve-btn="' + esc(item.id) + '">Mark resolved</button>';
+    html += '</div>' +
+    '</div>';
+    return html;
+  }
+
+  function renderThumb(url, label, tag) {
     if (!url) return '<div class="thumb-placeholder">—</div>';
     return '<div class="thumb-wrap">' +
-      '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" data-lb="' + esc(url) + '" onclick="window.openLightbox(this.dataset.lb)">' +
-      '<div class="img-links">' +
-        '<a href="' + esc(url) + '" target="_blank" rel="noreferrer">Open</a>' +
-        '<a href="' + esc(url) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.jpg">Download</a>' +
+      '<div class="thumb-img">' +
+        (tag ? '<span class="thumb-tag">' + esc(tag) + '</span>' : '') +
+        '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" data-lb="' + esc(url) + '">' +
+        '<a class="thumb-dl" href="' + esc(url) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.jpg" title="Download">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>' +
+        '</a>' +
       '</div>' +
     '</div>';
   }
@@ -755,19 +1398,115 @@ function appJs(): string {
     localStorage.setItem('aivastra-theme', next);
   });
 
-  // Lightbox
+  // Lightbox — wheel zooms, left-click drag pans around the zoomed image.
+  //
+  // Zoom is done by resizing the <img>'s width/height, NOT a CSS transform:
+  // scale(). A transform scale is a compositor-only operation — the browser
+  // rasterizes the image once at its laid-out CSS size and then the GPU
+  // stretches that fixed bitmap, so a transform-scaled "zoom" looks
+  // increasingly soft no matter how high-res the source file is. Changing
+  // width/height instead makes the browser re-render the element at the new
+  // size, decoding detail from the full source up to its native resolution —
+  // which is why this looks sharp up to the same point where opening the raw
+  // URL in a new tab does, and not before.
+  var lbImg = $('lightbox-img');
+  var lbScale = 1, lbX = 0, lbY = 0;
+  var lbBaseW = 0, lbBaseH = 0;
+  var LB_MAX_SCALE = 6; // same zoom range as before — resizing width/height (not transform) is what keeps it sharp
+  var lbDragging = false, lbDragMoved = false, lbDragStartX = 0, lbDragStartY = 0;
+
+  function lbApply() {
+    if (lbBaseW > 0) {
+      lbImg.style.width = (lbBaseW * lbScale) + 'px';
+      lbImg.style.height = (lbBaseH * lbScale) + 'px';
+    }
+    lbImg.style.transform = 'translate(' + lbX + 'px, ' + lbY + 'px)';
+    lbImg.style.cursor = lbScale > 1 ? 'grab' : 'zoom-out';
+  }
+  function lbReset() {
+    lbScale = 1; lbX = 0; lbY = 0;
+    lbApply();
+  }
+  function lbFit() {
+    var nw = lbImg.naturalWidth, nh = lbImg.naturalHeight;
+    if (!nw || !nh) return;
+    // Only shrink to fit the viewport, never upscale past native resolution
+    // just to fill it — the fit size is scale 1; zooming (up to LB_MAX_SCALE)
+    // grows the actual width/height from there, so the browser re-renders
+    // from the full source at every step instead of stretching a fixed
+    // raster the way a CSS transform would.
+    var fitScale = Math.min(1, (window.innerWidth * 0.92) / nw, (window.innerHeight * 0.92) / nh);
+    lbBaseW = nw * fitScale;
+    lbBaseH = nh * fitScale;
+    lbApply();
+  }
+
   window.openLightbox = function(url) {
-    $('lightbox-img').src = url;
+    lbScale = 1; lbX = 0; lbY = 0; lbBaseW = 0; lbBaseH = 0;
+    lbImg.style.width = '';
+    lbImg.style.height = '';
+    lbImg.onload = lbFit;
+    lbImg.src = url;
+    // If this exact URL was already loaded (e.g. reopening the same job),
+    // assigning .src again is a no-op and 'load' never fires — fit manually.
+    if (lbImg.complete && lbImg.naturalWidth) lbFit();
     $('lightbox').classList.add('active');
   };
-  $('lightbox').addEventListener('click', function() { $('lightbox').classList.remove('active'); });
-  $('lightbox-close').addEventListener('click', function(e) { e.stopPropagation(); $('lightbox').classList.remove('active'); });
+  function closeLightbox() {
+    $('lightbox').classList.remove('active');
+    lbReset();
+  }
+  $('lightbox').addEventListener('click', function() {
+    if (lbDragMoved) { lbDragMoved = false; return; }
+    closeLightbox();
+  });
+  $('lightbox-close').addEventListener('click', function(e) { e.stopPropagation(); closeLightbox(); });
+  $('lightbox').addEventListener('wheel', function(e) {
+    if (!$('lightbox').classList.contains('active')) return;
+    e.preventDefault();
+    lbScale = Math.min(LB_MAX_SCALE, Math.max(1, lbScale + (e.deltaY < 0 ? 0.2 : -0.2)));
+    if (lbScale <= 1) { lbX = 0; lbY = 0; }
+    lbApply();
+  }, { passive: false });
+
+  lbImg.addEventListener('mousedown', function(e) {
+    if (lbScale <= 1) return;
+    e.preventDefault();
+    e.stopPropagation();
+    lbDragging = true;
+    lbDragMoved = false;
+    lbDragStartX = e.clientX - lbX;
+    lbDragStartY = e.clientY - lbY;
+    lbImg.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', function(e) {
+    if (!lbDragging) return;
+    var nx = e.clientX - lbDragStartX;
+    var ny = e.clientY - lbDragStartY;
+    if (Math.abs(nx - lbX) > 2 || Math.abs(ny - lbY) > 2) lbDragMoved = true;
+    lbX = nx; lbY = ny;
+    lbApply();
+  });
+  window.addEventListener('mouseup', function() {
+    if (!lbDragging) return;
+    lbDragging = false;
+    lbApply();
+  });
 
   // Filters
+  // Re-scope the Garment type list the moment Gender changes, ahead of Apply —
+  // otherwise picking "Women" then opening Garment type still shows Boys/Girls
+  // entries until the next fetch, which is the exact "same garment types for
+  // every gender" complaint this narrowing fixes.
+  $('filter-gender').addEventListener('change', renderGarmentTypeOptions);
   $('btn-apply').addEventListener('click', function() {
     state.filters.userId = $('filter-user').value;
     state.filters.date = $('filter-date').value;
     state.filters.status = $('filter-status').value;
+    state.filters.flag = $('filter-flag').value;
+    state.filters.jobType = $('filter-jobtype').value;
+    state.filters.gender = $('filter-gender').value;
+    state.filters.garmentTypeId = $('filter-garmenttype').value;
     state.filters.search = $('filter-search').value.trim();
     state.page = 1;
     loadData();
@@ -776,11 +1515,141 @@ function appJs(): string {
     $('filter-user').value = '';
     $('filter-date').value = 'any';
     $('filter-status').value = 'completed';
+    $('filter-flag').value = 'all';
+    $('filter-jobtype').value = 'all';
+    $('filter-gender').value = 'all';
+    $('filter-garmenttype').value = '';
+    renderGarmentTypeOptions();
     $('filter-search').value = '';
-    state.filters = { userId: '', date: 'any', search: '', status: 'completed' };
+    state.filters = { userId: '', date: 'any', search: '', status: 'completed', flag: 'all', jobType: 'all', gender: 'all', garmentTypeId: '' };
     state.page = 1;
     loadData();
   });
+
+  // ── Flag modal ────────────────────────────────────────────────────────────
+  var flagReasonSel = $('flag-reason');
+  flagReasonSel.innerHTML = FLAG_REASONS.map(function(r) {
+    return '<option value="' + esc(r.value) + '">' + esc(r.label) + '</option>';
+  }).join('');
+
+  var flagModalJobId = null;
+  var flagModalMode = null; // 'flag' | 'resolve'
+  var flagModalSubmitting = false;
+
+  function openFlagModal(jobId) {
+    var item = null;
+    for (var i = 0; i < state.items.length; i++) {
+      if (state.items[i].id === jobId) { item = state.items[i]; break; }
+    }
+    if (!item) return;
+    flagModalJobId = jobId;
+    flagModalMode = 'flag';
+    $('flag-modal-error').textContent = '';
+    $('flag-reason-group').style.display = '';
+    if (item.flagged) {
+      $('flag-modal-title').textContent = 'Update flag';
+      $('flag-modal-sub').textContent = 'Update why job #' + jobId.slice(0, 8) + ' is flagged, or unflag it.';
+      flagReasonSel.value = item.flagReason || FLAG_REASONS[0].value;
+      $('flag-note').value = item.flagNote || '';
+      $('flag-modal-confirm').textContent = 'Update';
+      $('flag-modal-unflag').style.display = '';
+    } else {
+      $('flag-modal-title').textContent = 'Flag job';
+      $('flag-modal-sub').textContent = 'Mark job #' + jobId.slice(0, 8) + ' for later review.';
+      flagReasonSel.value = FLAG_REASONS[0].value;
+      $('flag-note').value = '';
+      $('flag-modal-confirm').textContent = 'Flag job';
+      $('flag-modal-unflag').style.display = 'none';
+    }
+    $('flag-modal').classList.add('active');
+  }
+
+  function openResolveModal(jobId) {
+    var item = null;
+    for (var i = 0; i < state.items.length; i++) {
+      if (state.items[i].id === jobId) { item = state.items[i]; break; }
+    }
+    if (!item) return;
+    flagModalJobId = jobId;
+    flagModalMode = 'resolve';
+    $('flag-modal-error').textContent = '';
+    $('flag-reason-group').style.display = 'none';
+    $('flag-modal-title').textContent = 'Mark resolved';
+    $('flag-modal-sub').textContent = 'Add a note on how job #' + jobId.slice(0, 8) + ' was resolved.';
+    $('flag-note').value = '';
+    $('flag-modal-confirm').textContent = 'Mark resolved';
+    $('flag-modal-unflag').style.display = 'none';
+    $('flag-modal').classList.add('active');
+  }
+
+  function closeFlagModal() {
+    $('flag-modal').classList.remove('active');
+    flagModalJobId = null;
+    flagModalMode = null;
+  }
+
+  function submitFlag(flagged) {
+    if (!flagModalJobId || flagModalSubmitting) return;
+    flagModalSubmitting = true;
+    $('flag-modal-error').textContent = '';
+    var body = flagged
+      ? { flagged: true, reason: flagReasonSel.value, note: $('flag-note').value.trim() || undefined }
+      : { flagged: false };
+    fetch('/results/' + flagModalJobId + '/flag', {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function(res) {
+      if (res.status === 401) { window.location.reload(); throw new Error('Session expired'); }
+      if (!res.ok) return res.json().then(function(b) {
+        throw new Error((b.error && b.error.message) || 'HTTP ' + res.status);
+      });
+      return res.json();
+    }).then(function() {
+      flagModalSubmitting = false;
+      closeFlagModal();
+      toast(flagged ? 'Job flagged' : 'Job unflagged');
+      loadData();
+    }).catch(function(e) {
+      flagModalSubmitting = false;
+      $('flag-modal-error').textContent = e.message;
+    });
+  }
+
+  function submitResolve() {
+    if (!flagModalJobId || flagModalSubmitting) return;
+    flagModalSubmitting = true;
+    $('flag-modal-error').textContent = '';
+    fetch('/results/' + flagModalJobId + '/resolve', {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: $('flag-note').value.trim() || undefined }),
+    }).then(function(res) {
+      if (res.status === 401) { window.location.reload(); throw new Error('Session expired'); }
+      if (!res.ok) return res.json().then(function(b) {
+        throw new Error((b.error && b.error.message) || 'HTTP ' + res.status);
+      });
+      return res.json();
+    }).then(function() {
+      flagModalSubmitting = false;
+      closeFlagModal();
+      toast('Job marked resolved');
+      loadData();
+    }).catch(function(e) {
+      flagModalSubmitting = false;
+      $('flag-modal-error').textContent = e.message;
+    });
+  }
+
+  $('flag-modal-confirm').addEventListener('click', function() {
+    if (flagModalMode === 'resolve') submitResolve();
+    else submitFlag(true);
+  });
+  $('flag-modal-unflag').addEventListener('click', function() { submitFlag(false); });
+  $('flag-modal-cancel').addEventListener('click', closeFlagModal);
+  $('flag-modal').addEventListener('click', function(e) { if (e.target === $('flag-modal')) closeFlagModal(); });
 
   // Logout
   $('logout-btn').addEventListener('click', function() {
@@ -792,10 +1661,13 @@ function appJs(): string {
   });
 
   // Keyboard
-  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') $('lightbox').classList.remove('active'); });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') { closeLightbox(); closeFlagModal(); }
+  });
 
   // Boot
   loadUsers();
+  loadGarmentTypes();
   loadData();
 })();
 `;

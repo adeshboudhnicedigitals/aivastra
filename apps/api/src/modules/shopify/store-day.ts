@@ -164,6 +164,38 @@ export function windowStart(
 }
 
 /**
+ * The UTC instant at which the current local calendar window ends, i.e. the
+ * start of the next window. Mirrors windowStart's boundary rules (weeks start
+ * Monday); relies on Date.UTC's own overflow handling (day 32, month 13, …)
+ * to roll into the next calendar unit.
+ */
+export function windowEnd(
+  timezone: string | null,
+  window: 'day' | 'week' | 'month',
+  now: Date = new Date(),
+): Date {
+  const zone = validTimezone(timezone);
+  const start = windowStart(timezone, window, now);
+  const { year, month, day } = localParts(zone, start);
+
+  if (window === 'day') return localMidnightUtc(zone, year, month, day + 1);
+  if (window === 'week') return localMidnightUtc(zone, year, month, day + 7);
+  return localMidnightUtc(zone, year, month + 1, 1);
+}
+
+/** Human-readable reset time in the store's own timezone, e.g. "Mon, Sep 1 at 12:00 AM". */
+export function formatResetTime(timezone: string | null, at: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: validTimezone(timezone),
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(at);
+}
+
+/**
  * The UTC instant at which the given store-local calendar date begins.
  *
  * `isoDate` is a bare YYYY-MM-DD naming a day in the store's own timezone —

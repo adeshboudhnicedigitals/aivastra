@@ -1,0 +1,57 @@
+<?php
+/**
+ * Plugin Name: Ai Vastra Try-On
+ * Description: Adds an AI virtual try-on button to WooCommerce product pages.
+ * Version: 0.5.13
+ * Requires PHP: 8.1
+ * Requires Plugins: woocommerce
+ * License: GPL-2.0-or-later
+ */
+
+declare(strict_types=1);
+
+if (!defined('ABSPATH')) {
+    exit; // No direct access.
+}
+
+define('AIVASTRA_TRYON_VERSION', '0.5.13');
+define('AIVASTRA_TRYON_DIR', plugin_dir_path(__FILE__));
+define('AIVASTRA_TRYON_URL', plugin_dir_url(__FILE__));
+
+require_once AIVASTRA_TRYON_DIR . 'includes/class-crypto.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-widget-customization.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-connection-settings.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-connection-service.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-widget-config.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-category-mapping.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-product-toggle.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-cart-ajax.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-checkout-ajax.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-support-ajax.php';
+require_once AIVASTRA_TRYON_DIR . 'admin/class-settings-page.php';
+require_once AIVASTRA_TRYON_DIR . 'public/class-widget-loader.php';
+
+// Update checker: present only in the direct-share build, never in the wp.org
+// submission zip — see includes/class-update-checker.php's doc comment.
+$aivastra_update_checker_file = AIVASTRA_TRYON_DIR . 'includes/class-update-checker.php';
+if (file_exists($aivastra_update_checker_file)) {
+    require_once $aivastra_update_checker_file;
+}
+
+// No external calls on activation — connection happens explicitly in
+// settings, per docs/wordpress-plugin-design.md §4.3.
+register_activation_hook(__FILE__, function (): void {
+    // Nothing to do yet: no options need a default value before first save.
+});
+
+add_action('plugins_loaded', function (): void {
+    Aivastra_Settings_Page::init();
+    Aivastra_Widget_Loader::init();
+    Aivastra_Cart_Ajax::init();
+    Aivastra_Checkout_Ajax::init();
+    Aivastra_Support_Ajax::init();
+    Aivastra_Product_Toggle::init();
+    if (class_exists('Aivastra_Update_Checker')) {
+        Aivastra_Update_Checker::init();
+    }
+});

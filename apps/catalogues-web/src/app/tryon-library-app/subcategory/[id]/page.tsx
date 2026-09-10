@@ -94,7 +94,7 @@ export default function ProductsScreen() {
         }
         actions={[
           {
-            label: 'Add Product',
+            label: 'Add Garment',
             onClick: () =>
               router.push(`/tryon-library-app/subcategory/${subcategoryId}/add-product`),
           },

@@ -316,9 +316,9 @@ export default function ContactRequestsPage({ toast }: Props) {
             type="button"
             className="btn primary"
             onClick={() => void setStatus(r.id, 'done')}
-            title="Mark done"
+            title="Mark resolved — sends the customer a resolution email"
           >
-            <Icon.Check /> Ok
+            <Icon.Check /> Resolved
           </button>
         )}
         {r.status === 'done' && (
@@ -378,6 +378,23 @@ export default function ContactRequestsPage({ toast }: Props) {
         <button className="btn ghost" onClick={() => void load(statusFilter, sourceFilter)}>
           <Icon.Refresh /> Refresh
         </button>
+      </div>
+
+      {/* ── Legacy banner ────────────────────────────────────────── */}
+      <div
+        style={{
+          padding: '10px 14px',
+          marginBottom: 12,
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--r)',
+          fontSize: 13,
+          color: 'var(--muted)',
+        }}
+      >
+        Legacy history — Contact Us and the Support modal now open tickets in{' '}
+        <strong>Chat Inbox</strong> instead of rows here. This page shows submissions from before
+        that change.
       </div>
 
       {/* ── Channel summary cards ─────────────────────────────────── */}

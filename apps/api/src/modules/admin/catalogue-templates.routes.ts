@@ -11,6 +11,7 @@ import { and, asc, eq, ilike, inArray, isNull, ne, notInArray } from 'drizzle-or
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 import { resolveForTemplate } from './shot-type-resolve.js';
 
@@ -72,15 +73,27 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
       if (existingLabel) {
         throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
       }
-      const [row] = await app.db
-        .insert(schema.catalogueTemplates)
-        .values({
-          genderSlug: body.genderSlug,
-          label: body.label,
-          thumbnailKey: body.thumbnailKey ?? null,
-          sortOrder: body.sortOrder,
-        })
-        .returning();
+      const row = await app.db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(schema.catalogueTemplates)
+          .values({
+            genderSlug: body.genderSlug,
+            label: body.label,
+            thumbnailKey: body.thumbnailKey ?? null,
+            sortOrder: body.sortOrder,
+          })
+          .returning();
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'catalogue_template.create',
+          resourceType: 'catalogue_template',
+          resourceId: inserted.id,
+          after: { id: inserted.id, label: inserted.label, genderSlug: inserted.genderSlug },
+          request: req,
+        });
+        return inserted;
+      });
       return row;
     },
   );
@@ -120,12 +133,30 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
           await app.storage.deleteObject(current.thumbnailKey).catch(() => {});
         }
       }
-      const [updated] = await app.db
-        .update(schema.catalogueTemplates)
-        .set({ ...body, updatedAt: new Date() })
-        .where(eq(schema.catalogueTemplates.id, id))
-        .returning({ id: schema.catalogueTemplates.id });
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'catalogue template not found');
+      await app.db.transaction(async (tx) => {
+        const [before] = await tx
+          .select()
+          .from(schema.catalogueTemplates)
+          .where(eq(schema.catalogueTemplates.id, id))
+          .for('update');
+        if (!before) throw new AppError('NOT_FOUND', 404, 'catalogue template not found');
+
+        await tx
+          .update(schema.catalogueTemplates)
+          .set({ ...body, updatedAt: new Date() })
+          .where(eq(schema.catalogueTemplates.id, id));
+
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'catalogue_template.update',
+          resourceType: 'catalogue_template',
+          resourceId: id,
+          before,
+          after: { ...before, ...body },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -140,10 +171,21 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
         .from(schema.catalogueTemplates)
         .where(eq(schema.catalogueTemplates.id, id));
       if (!row) throw new AppError('NOT_FOUND', 404, 'catalogue template not found');
-      await app.db
-        .update(schema.catalogueTemplates)
-        .set({ deletedAt: new Date() })
-        .where(eq(schema.catalogueTemplates.id, id));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.catalogueTemplates)
+          .set({ deletedAt: new Date() })
+          .where(eq(schema.catalogueTemplates.id, id));
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'catalogue_template.delete',
+          resourceType: 'catalogue_template',
+          resourceId: id,
+          before: { id: row.id, label: row.label },
+          request: req,
+        });
+      });
       return { ok: true };
     },
   );
@@ -249,6 +291,16 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
           }
           await tx.delete(schema.catalogueTemplatePoseWorkflows).where(and(...staleConditions));
         }
+
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'catalogue_template.update_looks',
+          resourceType: 'catalogue_template',
+          resourceId: id,
+          after: { lookCount: looks.length },
+          request: req,
+        });
 
         return resolveForTemplate(tx, id);
       });

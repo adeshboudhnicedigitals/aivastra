@@ -1,5 +1,6 @@
 import { schema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { AppError } from '../lib/errors.js';
 import { API_KEY_RE, extractBearer, hashApiKey } from '../modules/dev/keys.js';
@@ -21,6 +22,8 @@ export const devApiAuthPlugin = fp(async (app) => {
       .select({
         id: schema.apiKeys.id,
         revokedAt: schema.apiKeys.revokedAt,
+        scope: schema.apiKeys.scope,
+        integration: schema.apiKeys.integration,
         merchantId: schema.merchants.id,
         merchantIsActive: schema.merchants.isActive,
         merchantUserId: schema.merchants.userId,
@@ -37,6 +40,8 @@ export const devApiAuthPlugin = fp(async (app) => {
     }
 
     req.apiKeyId = row.id;
+    req.apiKeyScope = row.scope;
+    req.integration = row.integration;
     req.merchantId = row.merchantId;
     req.merchantUserId = row.merchantUserId;
 
@@ -57,15 +62,32 @@ export const devApiAuthPlugin = fp(async (app) => {
       }
     })();
   });
+
+  // Factory mirroring admin/guard.ts's requirePermission(permission) — composed
+  // AFTER requireApiKey in a route's preHandler array, reads the scope it already
+  // resolved, never re-derives it. No route reads req.apiKeyScope and branches
+  // inline; every full-only route composes this instead.
+  app.decorate('requireDevScope', (scope: 'full' | 'widget') => {
+    return async (req: FastifyRequest, _reply: FastifyReply) => {
+      if (req.apiKeyScope !== scope) {
+        throw new AppError('FORBIDDEN', 403, `this endpoint requires a '${scope}'-scoped API key`);
+      }
+    };
+  });
 });
 
 declare module 'fastify' {
   interface FastifyRequest {
     apiKeyId?: string;
+    apiKeyScope?: 'full' | 'widget';
+    integration?: 'generic' | 'wordpress';
     merchantId?: string;
     merchantUserId?: string;
   }
   interface FastifyInstance {
     requireApiKey: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireDevScope: (
+      scope: 'full' | 'widget',
+    ) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }

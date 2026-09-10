@@ -137,8 +137,9 @@ directly and cast them, so gates guarding money or access must compare
 - User hint text is sanitized before reaching a workflow prompt.
 - `packages/db/src/index.ts` exports `* as schema` — no duplicate re-export; import
   `@aivastra/db` as `workspace:*`, never by relative path.
-- Shopify credit grants are idempotent on `external_ref`, and the cycle marker
-  advances only when a grant was actually possible.
+- Shopify credit grants are idempotent on `external_ref`. Settle a stranded
+  `PENDING` auto-refill purchase by replaying its charge under the row's original
+  idempotency key, never by marking it `FAILED` (that risks a double charge).
 - `shopify_widget_events` is advisory only — never read it for a credit, limit, or
   authorization decision.
 - No schema or data changes against production.

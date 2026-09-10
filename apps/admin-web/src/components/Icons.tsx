@@ -216,6 +216,13 @@ export const Icon: Record<string, (props?: IconProps) => JSX.Element> = {
       <circle cx="8" cy="8" r="2" />
     </svg>
   ),
+  EyeOff: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" />
+      <circle cx="8" cy="8" r="2" />
+      <path d="M2 2l12 12" strokeLinecap="round" />
+    </svg>
+  ),
   Drain: () => (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
       <path d="M3 3h10v3a5 5 0 0 1-10 0V3z" />

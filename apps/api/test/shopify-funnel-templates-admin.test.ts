@@ -179,3 +179,198 @@ describe('admin shopify funnel templates CRUD', () => {
     expect(res.json().hasDefault).toBe(true);
   });
 });
+
+describe('admin shopify funnel template delete-impact response', () => {
+  async function createBasket(slug: string) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/shopify/funnel-templates',
+      headers: adminHeaders,
+      payload: { slug, label: slug, workflowTemplateId, sortOrder: 0 },
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json().id as string;
+  }
+
+  it('reports hasGlobalRule: true when the basket has a global rule', async () => {
+    const basketId = await createBasket('delete-impact-global');
+    await app.db.insert(schema.shopifyFunnelRules).values({
+      storeId: null,
+      funnelTemplateId: basketId,
+      conditions: [{ field: 'tags', operator: 'contains', value: 'x' }],
+      priority: 0,
+    });
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/admin/shopify/funnel-templates/${basketId}`,
+      headers: adminHeaders,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      ok: true,
+      rulesAffected: 1,
+      storesAffected: 0,
+      hasGlobalRule: true,
+    });
+  });
+
+  it('previews the delete impact without deleting anything', async () => {
+    const basketId = await createBasket('delete-impact-preview');
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `delete-impact-preview-${Date.now()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+      })
+      .returning();
+    await app.db.insert(schema.shopifyFunnelRules).values([
+      {
+        storeId: null,
+        funnelTemplateId: basketId,
+        conditions: [{ field: 'tags', operator: 'contains', value: 'x' }],
+        priority: 0,
+      },
+      {
+        storeId: store.id,
+        funnelTemplateId: basketId,
+        conditions: [{ field: 'tags', operator: 'contains', value: 'y' }],
+        priority: 0,
+      },
+    ]);
+
+    const preview = await app.inject({
+      method: 'GET',
+      url: `/admin/shopify/funnel-templates/${basketId}/delete-impact`,
+      headers: adminHeaders,
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json()).toMatchObject({
+      rulesAffected: 2,
+      storesAffected: 1,
+      hasGlobalRule: true,
+    });
+
+    // The preview must not have deleted anything.
+    const [stillThere] = await app.db
+      .select()
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.id, basketId));
+    expect(stillThere).toBeDefined();
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/admin/shopify/funnel-templates/${basketId}`,
+      headers: adminHeaders,
+    });
+    expect(del.statusCode).toBe(200);
+    // The preview's numbers must match what the actual delete reports.
+    expect(del.json()).toMatchObject({
+      rulesAffected: preview.json().rulesAffected,
+      storesAffected: preview.json().storesAffected,
+      hasGlobalRule: preview.json().hasGlobalRule,
+    });
+  });
+
+  it('reports hasGlobalRule: false when the basket has only store-scoped rules', async () => {
+    const basketId = await createBasket('delete-impact-store-scoped');
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `delete-impact-${Date.now()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+      })
+      .returning();
+    await app.db.insert(schema.shopifyFunnelRules).values({
+      storeId: store.id,
+      funnelTemplateId: basketId,
+      conditions: [{ field: 'tags', operator: 'contains', value: 'x' }],
+      priority: 0,
+    });
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/admin/shopify/funnel-templates/${basketId}`,
+      headers: adminHeaders,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      ok: true,
+      rulesAffected: 1,
+      storesAffected: 1,
+      hasGlobalRule: false,
+    });
+  });
+});
+
+describe('admin shopify funnel template reassign-on-delete', () => {
+  async function createBasket(slug: string) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/shopify/funnel-templates',
+      headers: adminHeaders,
+      payload: { slug, label: slug, workflowTemplateId, sortOrder: 0 },
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json().id as string;
+  }
+
+  it("reassigns pinned products to 'admin_reassign', not 'manual', when their basket is deleted", async () => {
+    const sourceBasketId = await createBasket('reassign-source');
+    const targetBasketId = await createBasket('reassign-target');
+
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `reassign-${Date.now()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+      })
+      .returning();
+
+    const productId = Date.now();
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: store.id,
+      shopifyProductId: productId,
+      r2Key: `shopify-garments/${store.id}/${productId}/garment.jpg`,
+      title: 'Reassign Product',
+      status: 'active',
+      enabled: true,
+      // The merchant pinned this themselves — 'manual' is the value the
+      // reassign route must overwrite, since the row is about to be moved by
+      // an admin action, not the merchant.
+      funnelTemplateId: sourceBasketId,
+      funnelAssignmentSource: 'manual',
+    });
+
+    // The admin flow: reassign every product pinned to the basket being
+    // removed onto a target basket, then delete the now-empty source.
+    const reassignRes = await app.inject({
+      method: 'POST',
+      url: `/admin/shopify/funnel-templates/${sourceBasketId}/reassign`,
+      headers: adminHeaders,
+      payload: { targetId: targetBasketId },
+    });
+    expect(reassignRes.statusCode).toBe(200);
+    expect(reassignRes.json()).toMatchObject({ ok: true, reassigned: 1 });
+
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/admin/shopify/funnel-templates/${sourceBasketId}`,
+      headers: adminHeaders,
+    });
+    expect(deleteRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(eq(schema.shopifyProductGarments.shopifyProductId, productId));
+    expect(row.funnelTemplateId).toBe(targetBasketId);
+    expect(row.funnelAssignmentSource).toBe('admin_reassign');
+  });
+});

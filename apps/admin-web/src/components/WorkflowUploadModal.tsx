@@ -120,7 +120,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [showConvention, setShowConvention] = useState(false);
 
   const [workflowType, setWorkflowType] = useState<
-    'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input'
+    'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input' | 'two_stage' | 'regeneration'
   >('regular');
   const [slug, setSlug] = useState('');
   const [label, setLabel] = useState('');
@@ -149,6 +149,14 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [tryonOutputNodeId, setTryonOutputNodeId] = useState('');
   const [tryonPositivePrompt, setTryonPositivePrompt] = useState('');
   const [tryonNegativePrompt, setTryonNegativePrompt] = useState('');
+
+  // Two-stage workflow node IDs (auto-detected via graph structure, not titles).
+  // faceNodeId/poseNodeId/bgNodeId above are reused; stage 2's prompt pair reuses
+  // positivePromptNode/negativePromptNode above too (same "the patched prompt" role
+  // as regular/tryon) — only stage 1 needs its own dedicated fields.
+  const [twoStageGarmentNodeId, setTwoStageGarmentNodeId] = useState('');
+  const [stage1PositivePromptNode, setStage1PositivePromptNode] = useState('');
+  const [stage1NegativePromptNode, setStage1NegativePromptNode] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -188,7 +196,11 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       );
       setParsed(result);
 
-      if (workflowType === 'tryon' || workflowType === 'saree_step1') {
+      if (
+        workflowType === 'tryon' ||
+        workflowType === 'saree_step1' ||
+        workflowType === 'regeneration'
+      ) {
         const d = result.detected as {
           personNodeId?: string;
           garmentNodeId?: string;
@@ -231,6 +243,30 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
         return;
       }
 
+      if (workflowType === 'two_stage') {
+        const d = result.detected as {
+          faceNodeId?: string;
+          poseNodeId?: string;
+          bgNodeId?: string;
+          garmentNodeId?: string;
+          stage1PositivePromptNode?: string;
+          stage1NegativePromptNode?: string;
+          stage2PositivePromptNode?: string;
+          stage2NegativePromptNode?: string;
+          sizeNodeIds?: string[];
+        };
+        setFaceNodeId(d.faceNodeId ?? '');
+        setPoseNodeId(d.poseNodeId ?? '');
+        setBgNodeId(d.bgNodeId ?? '');
+        setTwoStageGarmentNodeId(d.garmentNodeId ?? '');
+        setStage1PositivePromptNode(d.stage1PositivePromptNode ?? '');
+        setStage1NegativePromptNode(d.stage1NegativePromptNode ?? '');
+        setPositivePromptNode(d.stage2PositivePromptNode ?? '');
+        setNegativePromptNode(d.stage2NegativePromptNode ?? '');
+        setSizeNodeIds(d.sizeNodeIds ?? []);
+        return;
+      }
+
       const d = result.detected as DetectedMappings;
       setFaceNodeId(d.faceNodeId ?? '');
       setPoseNodeId(d.poseNodeId ?? '');
@@ -268,6 +304,15 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
         setError('Positive and negative prompt nodes are required');
         return;
       }
+    } else if (workflowType === 'regeneration') {
+      if (!tryonPersonNodeId.trim() || !tryonOutputNodeId.trim()) {
+        setError('Source-image and output node IDs are required');
+        return;
+      }
+      if (!positivePromptNode || !negativePromptNode) {
+        setError('Reason (positive) and negative prompt nodes are required');
+        return;
+      }
     } else if (workflowType === 'saree_step1_two_input') {
       if (!tryonGarmentNodeId.trim() || !tryonGarmentNodeId2.trim() || !tryonOutputNodeId.trim()) {
         setError('Body, pallu, and output node IDs are required');
@@ -275,6 +320,19 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       }
       if (!positivePromptNode || !negativePromptNode) {
         setError('Positive and negative prompt nodes are required');
+        return;
+      }
+    } else if (workflowType === 'two_stage') {
+      if (!faceNodeId || !poseNodeId || !bgNodeId || !twoStageGarmentNodeId) {
+        setError('Face, pose, background, and garment nodes are all required');
+        return;
+      }
+      if (!stage1PositivePromptNode || !stage1NegativePromptNode) {
+        setError('Stage 1 positive and negative prompt nodes are required');
+        return;
+      }
+      if (!positivePromptNode || !negativePromptNode) {
+        setError('Stage 2 positive and negative prompt nodes are required');
         return;
       }
     } else {
@@ -306,7 +364,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       if (
         workflowType === 'tryon' ||
         workflowType === 'saree_step1' ||
-        workflowType === 'saree_step1_two_input'
+        workflowType === 'saree_step1_two_input' ||
+        workflowType === 'regeneration'
       ) {
         payload = {
           slug: slug.trim(),
@@ -314,13 +373,33 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           jsonContent,
           workflowType,
           tryonPersonNodeId: tryonPersonNodeId.trim() || undefined,
-          tryonGarmentNodeId: tryonGarmentNodeId.trim(),
+          ...(workflowType !== 'regeneration'
+            ? { tryonGarmentNodeId: tryonGarmentNodeId.trim() }
+            : {}),
           ...(workflowType === 'saree_step1_two_input'
             ? { tryonGarmentNodeId2: tryonGarmentNodeId2.trim() }
             : {}),
           tryonOutputNodeId: tryonOutputNodeId.trim(),
           facePhasePromptNode: negativePromptNode,
           garmentPhasePromptNode: positivePromptNode,
+        };
+      } else if (workflowType === 'two_stage') {
+        payload = {
+          slug: slug.trim(),
+          label: label.trim(),
+          jsonContent,
+          workflowType: 'two_stage',
+          faceNodeId,
+          poseNodeId,
+          bgNodeId,
+          upperNodeIds: [twoStageGarmentNodeId],
+          sizeNodeIds: sizeNodeIds.filter(Boolean),
+          // positive → garmentPhasePromptNode, negative → facePhasePromptNode — same
+          // "stage 2 / the patched prompt" convention regular and tryon both use.
+          facePhasePromptNode: negativePromptNode,
+          garmentPhasePromptNode: positivePromptNode,
+          stage1PositivePromptNode,
+          stage1NegativePromptNode,
         };
       } else {
         const validUpperIds = upperNodeIds.filter(Boolean);
@@ -406,24 +485,36 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     jsonFile &&
     slug.trim() &&
     label.trim() &&
-    (workflowType === 'tryon' || workflowType === 'saree_step1'
-      ? parsed &&
-        tryonGarmentNodeId &&
-        tryonOutputNodeId &&
-        positivePromptNode &&
-        negativePromptNode
-      : workflowType === 'saree_step1_two_input'
+    (workflowType === 'regeneration'
+      ? parsed && tryonPersonNodeId && tryonOutputNodeId && positivePromptNode && negativePromptNode
+      : workflowType === 'tryon' || workflowType === 'saree_step1'
         ? parsed &&
           tryonGarmentNodeId &&
-          tryonGarmentNodeId2 &&
           tryonOutputNodeId &&
           positivePromptNode &&
           negativePromptNode
-        : parsed &&
-          poseNodeId &&
-          positivePromptNode &&
-          (!faceNodeId || negativePromptNode) &&
-          (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId));
+        : workflowType === 'saree_step1_two_input'
+          ? parsed &&
+            tryonGarmentNodeId &&
+            tryonGarmentNodeId2 &&
+            tryonOutputNodeId &&
+            positivePromptNode &&
+            negativePromptNode
+          : workflowType === 'two_stage'
+            ? parsed &&
+              faceNodeId &&
+              poseNodeId &&
+              bgNodeId &&
+              twoStageGarmentNodeId &&
+              stage1PositivePromptNode &&
+              stage1NegativePromptNode &&
+              positivePromptNode &&
+              negativePromptNode
+            : parsed &&
+              poseNodeId &&
+              positivePromptNode &&
+              (!faceNodeId || negativePromptNode) &&
+              (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId));
 
   return (
     <EditDrawer
@@ -437,8 +528,17 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Workflow type selector */}
-        <div style={{ display: 'flex', gap: 8 }}>
-          {(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input'] as const).map((t) => (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {(
+            [
+              'regular',
+              'tryon',
+              'saree_step1',
+              'saree_step1_two_input',
+              'two_stage',
+              'regeneration',
+            ] as const
+          ).map((t) => (
             <button
               key={t}
               className={`btn sm ${workflowType === t ? 'primary' : 'ghost'}`}
@@ -455,10 +555,33 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                   ? 'Saree Step 1 (mannequin)'
                   : t === 'saree_step1_two_input'
                     ? 'Saree Step 1 (body + pallu)'
-                    : 'Catalogue workflows (pose-based)'}
+                    : t === 'two_stage'
+                      ? 'Two-Stage (build + dress)'
+                      : t === 'regeneration'
+                        ? 'Regeneration (single-image edit)'
+                        : 'Catalogue workflows (pose-based)'}
             </button>
           ))}
         </div>
+
+        {workflowType === 'two_stage' && (
+          <div
+            style={{
+              background: 'var(--subtle)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: '8px 12px',
+              fontSize: 12,
+              color: 'var(--muted)',
+            }}
+          >
+            Face/pose/background/garment are detected by title, same as catalogue workflows. The two
+            prompt pairs are <strong>not</strong> title-based — with two KSamplers in the graph, a
+            single "positive_prompt"/"negative_prompt" title is ambiguous. Stage 2's prompts are
+            found by tracing back from the output node to the nearest KSampler; stage 1's are
+            whatever KSampler is left over. Override below if it picks the wrong one.
+          </div>
+        )}
 
         {/* Convention reference — only for regular */}
         {workflowType === 'regular' && (
@@ -561,7 +684,9 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
             {(workflowType === 'regular' ||
               workflowType === 'tryon' ||
               workflowType === 'saree_step1' ||
-              workflowType === 'saree_step1_two_input') && (
+              workflowType === 'saree_step1_two_input' ||
+              workflowType === 'two_stage' ||
+              workflowType === 'regeneration') && (
               <button
                 className="btn sm primary"
                 onClick={handleParse}
@@ -593,7 +718,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
 
         {(workflowType === 'tryon' ||
           workflowType === 'saree_step1' ||
-          workflowType === 'saree_step1_two_input') &&
+          workflowType === 'saree_step1_two_input' ||
+          workflowType === 'regeneration') &&
           parsed && (
             <>
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
@@ -626,7 +752,12 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
                 <div className="field">
                   <label>
-                    Person node (optional — leave blank if face is fixed inside the workflow)
+                    {workflowType === 'regeneration'
+                      ? 'Source image node'
+                      : 'Person node (optional — leave blank if face is fixed inside the workflow)'}
+                    {workflowType === 'regeneration' && (
+                      <span style={{ color: 'var(--danger)' }}> *</span>
+                    )}
                   </label>
                   <input
                     className="input"
@@ -635,18 +766,20 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                     onChange={(e) => setTryonPersonNodeId(e.target.value.trim())}
                   />
                 </div>
-                <div className="field">
-                  <label>
-                    {workflowType === 'saree_step1_two_input' ? 'Body node' : 'Garment node'}{' '}
-                    <span style={{ color: 'var(--danger)' }}>*</span>
-                  </label>
-                  <input
-                    className="input"
-                    value={tryonGarmentNodeId}
-                    disabled={saving}
-                    onChange={(e) => setTryonGarmentNodeId(e.target.value.trim())}
-                  />
-                </div>
+                {workflowType !== 'regeneration' && (
+                  <div className="field">
+                    <label>
+                      {workflowType === 'saree_step1_two_input' ? 'Body node' : 'Garment node'}{' '}
+                      <span style={{ color: 'var(--danger)' }}>*</span>
+                    </label>
+                    <input
+                      className="input"
+                      value={tryonGarmentNodeId}
+                      disabled={saving}
+                      onChange={(e) => setTryonGarmentNodeId(e.target.value.trim())}
+                    />
+                  </div>
+                )}
                 {workflowType === 'saree_step1_two_input' && (
                   <div className="field">
                     <label>
@@ -720,6 +853,139 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               </div>
             </>
           )}
+
+        {parsed && nodes && workflowType === 'two_stage' && (
+          <>
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div className="field">
+                <label>
+                  Slug <span style={{ color: 'var(--danger)' }}>*</span>
+                </label>
+                <input
+                  className="input"
+                  value={slug}
+                  disabled={saving}
+                  onChange={(e) =>
+                    setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>
+                  Label <span style={{ color: 'var(--danger)' }}>*</span>
+                </label>
+                <input
+                  className="input"
+                  value={label}
+                  disabled={saving}
+                  onChange={(e) => setLabel(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+              <strong>Image nodes</strong> — auto-detected from node titles. Override any if needed.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <NodeSelect
+                label="Face node"
+                nodes={nodes.image}
+                value={faceNodeId}
+                onChange={setFaceNodeId}
+                required
+                disabled={saving}
+                hint='Title convention: "face"'
+              />
+              <NodeSelect
+                label="Pose node"
+                nodes={nodes.image}
+                value={poseNodeId}
+                onChange={setPoseNodeId}
+                required
+                disabled={saving}
+                hint='Title convention: "pose"'
+              />
+              <NodeSelect
+                label="Background node"
+                nodes={nodes.image}
+                value={bgNodeId}
+                onChange={setBgNodeId}
+                required
+                disabled={saving}
+                hint='Title convention: "background"'
+              />
+              <NodeSelect
+                label="Garment node"
+                nodes={nodes.image}
+                value={twoStageGarmentNodeId}
+                onChange={setTwoStageGarmentNodeId}
+                required
+                disabled={saving}
+                hint='Title convention: "garment"'
+              />
+            </div>
+
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+              <strong>Stage 1 — build person</strong> (pose + face + background). Detected from
+              whichever KSampler in the graph isn't stage 2 — not by title.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <NodeSelect
+                label="Stage 1 positive prompt"
+                nodes={nodes.prompt}
+                value={stage1PositivePromptNode}
+                onChange={setStage1PositivePromptNode}
+                required
+                disabled={saving}
+              />
+              <NodeSelect
+                label="Stage 1 negative prompt"
+                nodes={nodes.prompt}
+                value={stage1NegativePromptNode}
+                onChange={setStage1NegativePromptNode}
+                required
+                disabled={saving}
+              />
+            </div>
+
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+              <strong>Stage 2 — dress in garment</strong> (final image, the only prompt pair patched
+              at runtime). Detected by tracing back from the output node to the nearest KSampler.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <NodeSelect
+                label="Stage 2 positive prompt"
+                nodes={nodes.prompt}
+                value={positivePromptNode}
+                onChange={setPositivePromptNode}
+                required
+                disabled={saving}
+              />
+              <NodeSelect
+                label="Stage 2 negative prompt"
+                nodes={nodes.prompt}
+                value={negativePromptNode}
+                onChange={setNegativePromptNode}
+                required
+                disabled={saving}
+              />
+            </div>
+
+            {sizeNodeIds.length > 0 && (
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                  Size nodes (auto-detected)
+                </label>
+                <span className="mono" style={{ fontSize: 12, color: 'var(--accent)' }}>
+                  [{sizeNodeIds.join(', ')}]
+                </span>
+              </div>
+            )}
+          </>
+        )}
 
         {parsed && nodes && workflowType === 'regular' && (
           <>

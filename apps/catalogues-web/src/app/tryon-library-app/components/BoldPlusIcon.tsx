@@ -3,7 +3,7 @@
 // The shared PlusIcon (@/components/icons) renders at strokeWidth 1.5, which
 // reads as too thin/light against this section's gradient CTA buttons. Local
 // to tryon-library-app rather than changing the shared icon, which is reused
-// app-wide well past this section's "Add Category"/"Add Product" buttons.
+// app-wide well past this section's "Add Category"/"Add Garment" buttons.
 export function BoldPlusIcon({ size = 14 }: { size?: number }) {
   return (
     <svg

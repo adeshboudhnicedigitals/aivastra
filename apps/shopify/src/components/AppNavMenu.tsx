@@ -1,8 +1,8 @@
 import {
+  AutomationIcon,
   CashDollarIcon,
   ChartVerticalIcon,
   HomeIcon,
-  PaintBrushFlatIcon,
   ProductIcon,
   QuestionCircleIcon,
   SettingsIcon,
@@ -18,8 +18,10 @@ const BASENAME = import.meta.env.PROD ? '/shopify-admin' : '';
 export const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: HomeIcon },
   { path: '/manage', label: 'Manage', icon: ProductIcon },
+  // RulesIcon does not exist in @shopify/polaris-icons — AutomationIcon is the
+  // closest match for "conditions that decide an outcome".
+  { path: '/routing', label: 'Routing', icon: AutomationIcon },
   { path: '/analytics', label: 'Analytics', icon: ChartVerticalIcon },
-  { path: '/widget-design', label: 'Widget Design', icon: PaintBrushFlatIcon },
   { path: '/pricing', label: 'Billing', icon: CashDollarIcon },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
   { path: '/support', label: 'Support', icon: QuestionCircleIcon },

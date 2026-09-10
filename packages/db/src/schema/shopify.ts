@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -69,6 +70,8 @@ export interface ShopifyActivationSettings {
 export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
+  emailBonusClaimed?: boolean;
+  emailBonusClaimedAt?: string;
   limits?: ShopifyStoreLimits;
   retention?: ShopifyStoreRetention;
   widget?: ShopifyWidgetConfig;
@@ -111,6 +114,12 @@ export const shopifyStores = pgTable('shopify_stores', {
   // nothing. Refreshed on every provision, since a store's plan can change.
   partnerDevelopment: boolean('partner_development').notNull().default(false),
   ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
+  // Owns this store's support tickets in the chatbot ticket system — a
+  // platform user created purely to hold that identity, never a real login.
+  // Distinct from ownerUserId (the real merchant account, when one exists,
+  // used for admin reporting) — do not conflate the two. Lazily provisioned
+  // by POST /v1/shopify/support/session on first use.
+  supportUserId: uuid('support_user_id').references(() => users.id, { onDelete: 'set null' }),
   installedAt: timestamp('installed_at', { withTimezone: true }).notNull().defaultNow(),
   uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
   settings: jsonb('settings').$type<ShopifyStoreSettings>().notNull().default({}),
@@ -162,6 +171,12 @@ export const shopifyStores = pgTable('shopify_stores', {
   // would permanently suppress that level for the store.
   lastAlertLevel: text('last_alert_level'),
   lastAlertAt: timestamp('last_alert_at', { withTimezone: true }),
+  // Store-wide counterpart of shopify_shoppers.redaction_requested_at, set by
+  // shop_redact. A whole-shop purge also has to sweep jobs no shopper row
+  // points at, which no surviving shopper row would record — so the
+  // outstanding work is tracked here and cleared only once an erasure pass
+  // reports nothing left behind.
+  redactionRequestedAt: timestamp('redaction_requested_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -264,13 +279,13 @@ export const shopifyFunnelRules = pgTable(
   'shopify_funnel_rules',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    storeId: uuid('store_id')
-      .notNull()
-      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    // Null means a global, Aivastra-authored rule that applies to every store.
+    // Non-null is a store's own rule, which always resolves before any global
+    // one — see resolveBasketFrom in modules/shopify/funnel-resolution.ts.
+    storeId: uuid('store_id').references(() => shopifyStores.id, { onDelete: 'cascade' }),
     funnelTemplateId: uuid('funnel_template_id')
       .notNull()
       .references(() => shopifyFunnelTemplates.id, { onDelete: 'cascade' }),
-    mode: text('mode').notNull().default('manual'),
     conditions: jsonb('conditions').$type<FunnelRuleCondition[]>().notNull().default([]),
     priority: integer('priority').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -278,6 +293,32 @@ export const shopifyFunnelRules = pgTable(
   },
   (t) => ({
     uq: unique().on(t.storeId, t.funnelTemplateId),
+    // Postgres treats NULLs as distinct, so `uq` above does NOT constrain the
+    // global tier at all — without this, unlimited duplicate global rules per
+    // basket are insertable and resolution order becomes arbitrary.
+    singleGlobalPerBasket: uniqueIndex('shopify_funnel_rules_one_global_per_basket_idx')
+      .on(t.funnelTemplateId)
+      .where(sql`${t.storeId} is null`),
+  }),
+);
+
+// A merchant switching off one Aivastra global rule for their store alone.
+// Keyed on rule_id rather than funnel_template_id so it keeps its meaning if
+// global rules ever go multi-per-basket. Cascading from both sides means
+// deleting a global rule cleans up every store's suppression of it.
+export const shopifyStoreDisabledFunnelRules = pgTable(
+  'shopify_store_disabled_funnel_rules',
+  {
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    ruleId: uuid('rule_id')
+      .notNull()
+      .references(() => shopifyFunnelRules.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.storeId, t.ruleId] }),
   }),
 );
 
@@ -331,6 +372,13 @@ export const shopifyShoppers = pgTable(
     emailCapturedAt: timestamp('email_captured_at', { withTimezone: true }),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    // Set when a GDPR customers_redact names this shopper, and only ever
+    // cleared by the row being deleted — a fully-erased shopper has no row.
+    // So a surviving stamped row IS the outstanding work, which is what lets
+    // the retry sweeper find it without persisting the payload's email or
+    // customer id anywhere. Re-storing the identifier a subject asked us to
+    // erase, purely to remember to erase it, would be its own violation.
+    redactionRequestedAt: timestamp('redaction_requested_at', { withTimezone: true }),
   },
   (t) => ({
     uq: unique().on(t.storeId, t.clientId),

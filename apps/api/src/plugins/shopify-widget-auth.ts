@@ -70,7 +70,21 @@ export const shopifyWidgetAuthPlugin = fp(async (app) => {
     if (store.allowedOrigins.length > 0) {
       const origin = req.headers.origin ?? '';
       if (!store.allowedOrigins.includes(origin) && !isShopifyPreviewOrigin(origin)) {
-        throw new AppError('FORBIDDEN', 403, 'Origin not allowed');
+        // Distinct from the routes' own FORBIDDEN ("upload session expired or
+        // not owned"), which the widget uses to decide whether to forget the
+        // shopper's remembered photo. Sharing a code made a merchant's
+        // allowedOrigins mistake look like an expired upload, so every shopper
+        // was told their saved photo had expired, re-uploaded, and hit the same
+        // wall — with the real cause never surfaced anywhere.
+        //
+        // Logged because nothing else reports it: there is no merchant-facing
+        // view of this setting, and the storefront deliberately shows the
+        // shopper nothing specific. This line is how support finds it.
+        app.log.warn(
+          { storeId: store.id, origin, allowedOrigins: store.allowedOrigins },
+          'shopify widget request rejected: origin not in store allowlist',
+        );
+        throw new AppError('ORIGIN_NOT_ALLOWED', 403, 'Origin not allowed');
       }
     }
     req.shopifyStoreId = store.id;

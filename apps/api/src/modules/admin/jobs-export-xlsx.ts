@@ -14,11 +14,14 @@ const COLUMNS: Column[] = [
   { header: 'Job ID', width: 38 },
   { header: 'User', width: 26 },
   { header: 'Email', width: 32 },
+  { header: 'Job Type', width: 16 },
   { header: 'Started', width: 20 },
   { header: 'Ended', width: 20 },
+  { header: 'Duration', width: 12 },
   { header: 'Credits Used', width: 14 },
   { header: 'Credits Remaining', width: 16 },
   { header: 'Status', width: 16 },
+  { header: 'Failure Reason', width: 32 },
 ];
 
 function titleCaseStatus(status: string): string {
@@ -27,6 +30,14 @@ function titleCaseStatus(status: string): string {
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+function fmtDuration(seconds: number | null): string {
+  if (seconds == null) return '';
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${rest}s`;
 }
 
 const FAILED_LIKE = new Set(['FAILED', 'CANCELLED']);
@@ -70,19 +81,24 @@ export async function renderJobsExportXlsx(
   sheet.views = [{ state: 'frozen', ySplit: HEADER_ROW }];
 
   rows.forEach((row, i) => {
+    const isFailed = row.status === 'FAILED';
+    const failureReason = isFailed ? row.errorCode || 'Failed' : '';
     const excelRow = sheet.addRow([
       i + 1,
       row.jobId,
       row.userName,
       row.userEmail || '',
+      titleCaseStatus(row.jobType || 'Tryon'),
       row.startedAt,
       row.completedAt,
+      fmtDuration(row.durationSeconds),
       row.creditsUsed,
       row.creditsRemaining,
       titleCaseStatus(row.status),
+      failureReason,
     ]);
-    excelRow.getCell(5).numFmt = 'dd mmm yyyy hh:mm';
     excelRow.getCell(6).numFmt = 'dd mmm yyyy hh:mm';
+    excelRow.getCell(7).numFmt = 'dd mmm yyyy hh:mm';
     if (FAILED_LIKE.has(row.status)) {
       excelRow.font = { color: { argb: DANGER } };
     }

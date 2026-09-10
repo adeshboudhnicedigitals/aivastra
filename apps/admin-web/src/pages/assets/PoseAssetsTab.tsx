@@ -391,16 +391,16 @@ export function PoseAssetsTab() {
                 placeholder="All poses"
               />
             </div>
-            <select
-              className="select"
-              style={{ minWidth: 110, width: 'auto' }}
+            <SearchableSelect
+              style={{ minWidth: 110 }}
+              options={[
+                { id: 'sortOrder', label: 'Sort order' },
+                { id: 'label', label: 'Name' },
+                { id: 'createdAt', label: 'Date added' },
+              ]}
               value={paSortKey}
-              onChange={(e) => setPaSortKey(e.target.value as 'label' | 'sortOrder' | 'createdAt')}
-            >
-              <option value="sortOrder">Sort order</option>
-              <option value="label">Name</option>
-              <option value="createdAt">Date added</option>
-            </select>
+              onChange={(v) => setPaSortKey(v as 'label' | 'sortOrder' | 'createdAt')}
+            />
             <button
               className="btn sm ghost"
               title={paSortDir === 'asc' ? 'Ascending' : 'Descending'}
@@ -867,17 +867,17 @@ export function PoseAssetsTab() {
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>Gender</label>
-                <select
-                  className="input"
+                <SearchableSelect
+                  options={[
+                    { id: 'men', label: 'Men' },
+                    { id: 'women', label: 'Women' },
+                    { id: 'boys', label: 'Boys' },
+                    { id: 'girls', label: 'Girls' },
+                  ]}
                   value={bulkImportGender}
-                  onChange={(e) => setBulkImportGender(e.target.value as GenderSlug)}
+                  onChange={(v) => setBulkImportGender(v as GenderSlug)}
                   disabled={bulkImporting}
-                >
-                  <option value="men">Men</option>
-                  <option value="women">Women</option>
-                  <option value="boys">Boys</option>
-                  <option value="girls">Girls</option>
-                </select>
+                />
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>

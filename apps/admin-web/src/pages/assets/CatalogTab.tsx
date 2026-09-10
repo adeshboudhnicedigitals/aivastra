@@ -3,6 +3,7 @@ import { AssetThumb } from '../../components/AssetThumb';
 import { BatchCatalogUploadModal } from '../../components/BatchCatalogUploadModal';
 import { EditDrawer } from '../../components/EditDrawer';
 import { Icon } from '../../components/Icons';
+import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
 import {
   apiErrorMessage,
@@ -829,18 +830,16 @@ export function CatalogTab() {
             </div>
             <div className="field">
               <label>Gender</label>
-              <select
-                className="select"
+              <SearchableSelect
+                options={[
+                  { id: 'men', label: 'Men' },
+                  { id: 'women', label: 'Women' },
+                  { id: 'boys', label: 'Boys' },
+                  { id: 'girls', label: 'Girls' },
+                ]}
                 value={catForm.genderSlug}
-                onChange={(e) =>
-                  setCatForm((f) => ({ ...f, genderSlug: e.target.value as GenderSlug }))
-                }
-              >
-                <option value="men">Men</option>
-                <option value="women">Women</option>
-                <option value="boys">Boys</option>
-                <option value="girls">Girls</option>
-              </select>
+                onChange={(v) => setCatForm((f) => ({ ...f, genderSlug: v as GenderSlug }))}
+              />
             </div>
             <div className="field">
               <label>Sort order</label>
@@ -1122,17 +1121,17 @@ export function CatalogTab() {
             </div>
             <div className="field">
               <label>Gender</label>
-              <select
-                className="select"
+              <SearchableSelect
+                options={[
+                  { id: 'men', label: 'Men' },
+                  { id: 'women', label: 'Women' },
+                  { id: 'boys', label: 'Boys' },
+                  { id: 'girls', label: 'Girls' },
+                ]}
                 value={editCatalogGender}
                 disabled={editCatalogSaving}
-                onChange={(e) => setEditCatalogGender(e.target.value)}
-              >
-                <option value="men">Men</option>
-                <option value="women">Women</option>
-                <option value="boys">Boys</option>
-                <option value="girls">Girls</option>
-              </select>
+                onChange={(v) => setEditCatalogGender(v)}
+              />
             </div>
             {(() => {
               const matchingSubs = garmentTypes.filter((g) => g.genderSlug === editCatalogGender);

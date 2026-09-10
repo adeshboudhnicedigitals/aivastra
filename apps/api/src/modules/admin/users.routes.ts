@@ -5,11 +5,26 @@ import {
   ResetPasswordBody,
   UpdateUserBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, exists, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  exists,
+  gte,
+  ilike,
+  isNotNull,
+  isNull,
+  lte,
+  ne,
+  or,
+  sql,
+} from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword } from '../auth/service.js';
+import { deriveDisplayStatus } from '../credits/unlimited-plan.js';
 import { disconnect as disconnectGoogleDrive } from '../google-drive/token.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
@@ -18,12 +33,18 @@ import { renderUsersExportPdf } from './users-export-pdf.js';
 import { loadUsersForExport, UsersExportQuery } from './users-export-query.js';
 import { renderUsersExportXlsx } from './users-export-xlsx.js';
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 const PaginatedSearch = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),
   merchant: z.coerce.boolean().optional(),
   showBanned: z.coerce.boolean().optional(),
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
+  tier: z.string().optional(),
+  excludeFree: z.coerce.boolean().optional(),
 });
 
 export async function adminUsersRoutes(app: FastifyInstance) {
@@ -34,9 +55,17 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     '/admin/users',
     { preHandler: ALL, schema: { querystring: PaginatedSearch } },
     async (req) => {
-      const { page, pageSize, search, merchant, showBanned } = req.query as z.infer<
-        typeof PaginatedSearch
-      >;
+      const {
+        page,
+        pageSize,
+        search,
+        merchant,
+        showBanned,
+        createdFrom,
+        createdTo,
+        tier,
+        excludeFree,
+      } = req.query as z.infer<typeof PaginatedSearch>;
 
       const searchWhere = search
         ? or(
@@ -45,11 +74,21 @@ export async function adminUsersRoutes(app: FastifyInstance) {
             ilike(schema.users.username, `%${search}%`),
           )
         : undefined;
-      const bannedWhere = showBanned === true ? undefined : eq(schema.users.isBanned, false);
+      const bannedWhere = eq(schema.users.isBanned, showBanned === true);
+      const toInclusive = createdTo
+        ? new Date(DATE_ONLY.test(createdTo) ? `${createdTo}T23:59:59.999Z` : createdTo)
+        : undefined;
+      const fromInclusive = createdFrom
+        ? new Date(DATE_ONLY.test(createdFrom) ? `${createdFrom}T00:00:00.000Z` : createdFrom)
+        : undefined;
       const where = and(
         searchWhere,
         bannedWhere,
         merchant === true ? isNotNull(schema.merchants.id) : undefined,
+        fromInclusive ? gte(schema.users.createdAt, fromInclusive) : undefined,
+        toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
+        tier ? eq(schema.users.tier, tier) : undefined,
+        excludeFree === true ? ne(schema.users.tier, 'free') : undefined,
       );
 
       const [{ total }] = await app.db
@@ -91,24 +130,66 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           isMerchant: isNotNull(schema.merchants.id),
           signupSource: schema.merchants.signupSource,
           demoData: schema.merchants.demoData,
+          unlimitedPlanId: schema.unlimitedPlans.id,
+          unlimitedPlanStartAt: schema.unlimitedPlans.startAt,
+          unlimitedPlanEndAt: schema.unlimitedPlans.endAt,
+          unlimitedPlanStatus: schema.unlimitedPlans.status,
+          unlimitedPlanNote: schema.unlimitedPlans.note,
+          unlimitedPlanPricePaise: schema.unlimitedPlans.pricePaise,
+          unlimitedPlanQueueStream: schema.unlimitedPlans.queueStream,
         })
         .from(schema.users)
         .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.users.id))
         .leftJoin(schema.jobs, eq(schema.jobs.userId, schema.users.id))
         .leftJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
         .leftJoin(schema.merchants, eq(schema.merchants.userId, schema.users.id))
+        .leftJoin(
+          schema.unlimitedPlans,
+          and(
+            eq(schema.unlimitedPlans.userId, schema.users.id),
+            eq(schema.unlimitedPlans.status, 'active'),
+          ),
+        )
         .where(where)
         .groupBy(
           schema.users.id,
           schema.userCredits.balance,
           schema.adminUsers.id,
           schema.merchants.id,
+          schema.unlimitedPlans.id,
         )
         .orderBy(desc(schema.users.createdAt))
         .limit(pageSize)
         .offset((page - 1) * pageSize);
 
-      return { page, pageSize, total, items: rows };
+      const items = rows.map(
+        ({
+          unlimitedPlanId,
+          unlimitedPlanStartAt,
+          unlimitedPlanEndAt,
+          unlimitedPlanStatus,
+          unlimitedPlanNote,
+          unlimitedPlanPricePaise,
+          unlimitedPlanQueueStream,
+          ...rest
+        }) => ({
+          ...rest,
+          unlimitedPlan: deriveDisplayStatus(
+            unlimitedPlanId
+              ? ({
+                  startAt: unlimitedPlanStartAt,
+                  endAt: unlimitedPlanEndAt,
+                  status: unlimitedPlanStatus,
+                  note: unlimitedPlanNote,
+                  pricePaise: unlimitedPlanPricePaise,
+                  queueStream: unlimitedPlanQueueStream,
+                } as (typeof schema.unlimitedPlans)['$inferSelect'])
+              : null,
+          ),
+        }),
+      );
+
+      return { page, pageSize, total, items };
     },
   );
 
@@ -132,6 +213,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           showBanned: query.showBanned,
           createdFrom: query.createdFrom,
           createdTo: query.createdTo,
+          tier: query.tier,
+          excludeFree: query.excludeFree,
           sortDir: query.sortDir,
         },
       });
@@ -158,6 +241,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           showBanned: query.showBanned,
           createdFrom: query.createdFrom,
           createdTo: query.createdTo,
+          tier: query.tier,
+          excludeFree: query.excludeFree,
           sortDir: query.sortDir,
         },
       });
@@ -213,6 +298,23 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .select()
         .from(schema.userCredits)
         .where(eq(schema.userCredits.userId, id));
+      const [unlimitedPlan] = await app.db
+        .select()
+        .from(schema.unlimitedPlans)
+        .where(
+          and(eq(schema.unlimitedPlans.userId, id), eq(schema.unlimitedPlans.status, 'active')),
+        );
+      const unlimitedPlanCharges = await app.db
+        .select({
+          id: schema.unlimitedPlanCharges.id,
+          pricePaise: schema.unlimitedPlanCharges.pricePaise,
+          chargeType: schema.unlimitedPlanCharges.chargeType,
+          chargedAt: schema.unlimitedPlanCharges.chargedAt,
+        })
+        .from(schema.unlimitedPlanCharges)
+        .where(eq(schema.unlimitedPlanCharges.userId, id))
+        .orderBy(desc(schema.unlimitedPlanCharges.chargedAt))
+        .limit(20);
       const [merchantRow] = await app.db
         .select({
           id: schema.merchants.id,
@@ -248,6 +350,10 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       return {
         ...user,
         balance: credits?.balance ?? 0,
+        unlimitedPlan: {
+          ...deriveDisplayStatus(unlimitedPlan ?? null),
+          charges: unlimitedPlanCharges,
+        },
         totalJobs: jobsCount?.total ?? 0,
         recentJobs: jobs,
         merchant: merchantRow

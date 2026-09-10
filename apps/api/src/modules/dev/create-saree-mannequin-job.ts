@@ -42,12 +42,15 @@ export async function createDevSareeMannequinJob(
     .from(schema.devSareeMannequinConfig)
     .limit(1);
 
-  if (!config || !config.isActive || !config.workflowTemplateId) {
+  if (!config?.isActive || !config.workflowTemplateId) {
     throw new AppError('BAD_CATEGORY', 400, 'saree mannequin generation is not configured');
   }
 
   const [template] = await app.db
-    .select({ isActive: schema.workflowTemplates.isActive })
+    .select({
+      isActive: schema.workflowTemplates.isActive,
+      version: schema.workflowTemplates.version,
+    })
     .from(schema.workflowTemplates)
     .where(eq(schema.workflowTemplates.id, config.workflowTemplateId));
   if (!template?.isActive) {
@@ -71,7 +74,11 @@ export async function createDevSareeMannequinJob(
       garmentTypeId: null,
       faceId: null,
       // Snapshot the workflow so the dispatcher routes off params, not internal tables.
-      params: { kind: 'saree_mannequin', workflowTemplateId: config.workflowTemplateId },
+      params: {
+        kind: 'saree_mannequin',
+        workflowTemplateId: config.workflowTemplateId,
+        dispatchTemplateVersion: template.version ?? null,
+      },
     }),
   });
 }

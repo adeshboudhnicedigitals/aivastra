@@ -496,7 +496,7 @@ describe('admin workflows - floor validation', () => {
     },
   };
 
-  it('PATCH updates ksamplerSteps/ksamplerCfg/ksamplerDenoise in jsonContent', async () => {
+  it('PATCH updates steps/cfg/denoise via ksamplerOverrides in jsonContent', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -517,7 +517,9 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 8, ksamplerCfg: 2.5, ksamplerDenoise: 0.75 },
+      payload: {
+        ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 8, cfg: 2.5, denoise: 0.75 }],
+      },
     });
     expect(patchRes.statusCode).toBe(200);
 
@@ -534,7 +536,7 @@ describe('admin workflows - floor validation', () => {
     expect(stored.ksampler_node.inputs.denoise).toBe(0.75);
   });
 
-  it('PATCH rejects ksamplerSteps below 1', async () => {
+  it('PATCH rejects a ksamplerOverrides steps below 1', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -555,12 +557,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 0 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 0 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('PATCH rejects a negative ksamplerCfg', async () => {
+  it('PATCH rejects a negative ksamplerOverrides cfg', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -581,12 +583,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerCfg: -1 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', cfg: -1 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('PATCH rejects a ksamplerDenoise outside [0, 1]', async () => {
+  it('PATCH rejects a ksamplerOverrides denoise outside [0, 1]', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -607,12 +609,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerDenoise: 1.5 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', denoise: 1.5 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('PATCH rejects ksampler fields when the workflow has no KSampler node', async () => {
+  it('PATCH rejects a ksamplerOverrides nodeId that does not exist in the workflow', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -633,12 +635,12 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 10 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 10 }] },
     });
     expect(patchRes.statusCode).toBe(400);
   });
 
-  it('GET list and GET detail agree on ksamplerSteps/ksamplerCfg/ksamplerDenoise for the same workflow', async () => {
+  it('GET list and GET detail agree on ksamplerNodes for the same workflow', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -661,28 +663,24 @@ describe('admin workflows - floor validation', () => {
       url: `/admin/workflows/${id}`,
       headers,
     });
-    const listItem = (
-      listRes.json() as {
-        id: string;
-        ksamplerSteps: number | null;
-        ksamplerCfg: number | null;
-        ksamplerDenoise: number | null;
-      }[]
-    ).find((w) => w.id === id);
-    const detail = detailRes.json() as {
-      ksamplerSteps: number | null;
-      ksamplerCfg: number | null;
-      ksamplerDenoise: number | null;
+    type KSamplerNode = {
+      nodeId: string;
+      steps: number | null;
+      cfg: number | null;
+      denoise: number | null;
+      seed: number | null;
     };
-    expect(listItem?.ksamplerSteps).toBe(4);
-    expect(listItem?.ksamplerCfg).toBe(1);
-    expect(listItem?.ksamplerDenoise).toBe(1);
-    expect(detail.ksamplerSteps).toBe(listItem?.ksamplerSteps);
-    expect(detail.ksamplerCfg).toBe(listItem?.ksamplerCfg);
-    expect(detail.ksamplerDenoise).toBe(listItem?.ksamplerDenoise);
+    const listItem = (listRes.json() as { id: string; ksamplerNodes: KSamplerNode[] }[]).find(
+      (w) => w.id === id,
+    );
+    const detail = detailRes.json() as { ksamplerNodes: KSamplerNode[] };
+    expect(listItem?.ksamplerNodes).toEqual([
+      { nodeId: 'ksampler_node', steps: 4, cfg: 1, denoise: 1, seed: 12345 },
+    ]);
+    expect(detail.ksamplerNodes).toEqual(listItem?.ksamplerNodes);
   });
 
-  it('PATCH with only ksamplerSteps leaves cfg/denoise unchanged', async () => {
+  it('PATCH with only steps in ksamplerOverrides leaves cfg/denoise unchanged', async () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/workflows',
@@ -703,7 +701,7 @@ describe('admin workflows - floor validation', () => {
       method: 'PATCH',
       url: `/admin/workflows/${id}`,
       headers,
-      payload: { ksamplerSteps: 20 },
+      payload: { ksamplerOverrides: [{ nodeId: 'ksampler_node', steps: 20 }] },
     });
     expect(patchRes.statusCode).toBe(200);
 
@@ -718,5 +716,590 @@ describe('admin workflows - floor validation', () => {
     expect(stored.ksampler_node.inputs.steps).toBe(20);
     expect(stored.ksampler_node.inputs.cfg).toBe(1);
     expect(stored.ksampler_node.inputs.denoise).toBe(1);
+  });
+
+  it('POST seeds a new regeneration workflow with the 5 default regeneration reasons', async () => {
+    // Only the dedicated 'regeneration' workflow type uses reason prompts —
+    // see the 'does not seed default regeneration reasons onto a
+    // non-regeneration workflow' test below for the 'regular' case.
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `default_reasons_${Date.now()}`,
+        label: 'Default reasons',
+        jsonContent: {
+          person_node: {
+            inputs: { image: '' },
+            class_type: 'LoadImage',
+            _meta: { title: 'person' },
+          },
+          positive_node: {
+            inputs: { prompt: 'default reason prompt' },
+            class_type: 'CLIPTextEncode',
+            _meta: { title: 'positive_prompt' },
+          },
+          negative_node: {
+            inputs: { text: 'default negative' },
+            class_type: 'CLIPTextEncode',
+            _meta: { title: 'negative_prompt' },
+          },
+          output_node: {
+            inputs: {},
+            class_type: 'Save Image With Callback',
+            _meta: { title: 'output' },
+          },
+        },
+        workflowType: 'regeneration',
+        facePhasePromptNode: 'negative_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.regenerationReasonPrompts).toEqual([
+      { reason: 'Multiple body parts', prompt: '', instruction: '' },
+      { reason: 'Nudity', prompt: '', instruction: '' },
+      { reason: 'Draping issue', prompt: '', instruction: '' },
+      { reason: 'Additional assets', prompt: '', instruction: '' },
+      { reason: 'Texture issue', prompt: '', instruction: '' },
+    ]);
+  });
+
+  it('PATCH keeps blank-prompt regeneration reasons instead of dropping them', async () => {
+    // regenerationReasonPrompts is only settable on a 'regeneration'-type
+    // workflow — see the 'rejects regenerationReasonPrompts on a
+    // non-regeneration workflow' test below for the 'regular' case.
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `keep_blank_reasons_${Date.now()}`,
+        label: 'Keep blank reasons',
+        jsonContent: {
+          person_node: {
+            inputs: { image: '' },
+            class_type: 'LoadImage',
+            _meta: { title: 'person' },
+          },
+          positive_node: {
+            inputs: { prompt: 'default reason prompt' },
+            class_type: 'CLIPTextEncode',
+            _meta: { title: 'positive_prompt' },
+          },
+          negative_node: {
+            inputs: { text: 'default negative' },
+            class_type: 'CLIPTextEncode',
+            _meta: { title: 'negative_prompt' },
+          },
+          output_node: {
+            inputs: {},
+            class_type: 'Save Image With Callback',
+            _meta: { title: 'output' },
+          },
+        },
+        workflowType: 'regeneration',
+        facePhasePromptNode: 'negative_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    // Simulates the admin edit screen: save right after opening, with the
+    // default reasons still present but none of them given a prompt/
+    // instruction yet.
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: {
+        regenerationReasonPrompts: [
+          { reason: 'Multiple body parts', prompt: '' },
+          { reason: 'Nudity', prompt: '' },
+          {
+            reason: 'Draping issue',
+            prompt: 'garment sits flat, no fabric warping',
+            instruction: 'preserve the original garment silhouette',
+          },
+          { reason: '  ', prompt: 'should be dropped — blank reason label' },
+        ],
+      },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({ regenerationReasonPrompts: schema.workflowTemplates.regenerationReasonPrompts })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    expect(row?.regenerationReasonPrompts).toEqual([
+      { reason: 'Multiple body parts', prompt: '', instruction: '' },
+      { reason: 'Nudity', prompt: '', instruction: '' },
+      {
+        reason: 'Draping issue',
+        prompt: 'garment sits flat, no fabric warping',
+        instruction: 'preserve the original garment silhouette',
+      },
+    ]);
+  });
+
+  it('PATCH rejects regenerationReasonPrompts on a non-regeneration workflow', async () => {
+    // regenerationReasonPrompts is meaningful only on a 'regeneration'-type
+    // template — a 'regular'/'tryon' template must reject it rather than
+    // silently accept (and possibly re-populate) the field.
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `reject_reasons_on_regular_${Date.now()}`,
+        label: 'Regular, rejects reasons',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    expect(createRes.statusCode).toBe(200);
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: {
+        regenerationReasonPrompts: [{ reason: 'Nudity', prompt: 'should be rejected' }],
+      },
+    });
+    expect(patchRes.statusCode).toBe(400);
+
+    const [row] = await app.db
+      .select({ regenerationReasonPrompts: schema.workflowTemplates.regenerationReasonPrompts })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    expect(row?.regenerationReasonPrompts).toEqual([]);
+  });
+
+  describe('workflow replace with drain', () => {
+    it('rejects replace with wrong admin password', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `replace_bad_pw_${Date.now()}`,
+          label: 'Replace Bad PW',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(createRes.statusCode).toBe(200);
+      const id = createRes.json().id as string;
+
+      const replaceRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `replace_bad_pw_${Date.now()}`,
+          label: 'Replaced Label',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'wrongpassword',
+        },
+      });
+      expect(replaceRes.statusCode).toBe(401);
+    });
+
+    async function seedNonTerminalJobOnTemplate(workflowTemplateId: string, version: number) {
+      const [user] = await app.db
+        .insert(schema.users)
+        .values({
+          email: `replace-drain-${Date.now()}-${Math.random()}@example.com`,
+          passwordHash: null,
+          tier: 'free',
+        })
+        .returning();
+      const [job] = await app.db
+        .insert(schema.jobs)
+        .values({ userId: user.id, status: 'QUEUED', creditsCharged: 1 })
+        .returning();
+      await app.db.insert(schema.jobInputs).values({
+        jobId: job.id,
+        params: { workflowTemplateId, dispatchTemplateVersion: version },
+      });
+      return job.id;
+    }
+
+    it('replaces a workflow with no in-flight jobs immediately, without archiving or draining', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `replace_no_jobs_${Date.now()}`,
+          label: 'Initial Label',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(createRes.statusCode).toBe(200);
+      const id = createRes.json().id as string;
+
+      // No job anywhere references this brand-new template — replacing it
+      // should not archive anything, since there is nothing to drain.
+      const replaceRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `replace_no_jobs_${Date.now()}`,
+          label: 'Replaced Label',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'password123',
+        },
+      });
+      expect(replaceRes.statusCode).toBe(200);
+      const replacedBody = replaceRes.json();
+      expect(replacedBody.version).toBe(2);
+      expect(replacedBody.draining).toBeNull();
+
+      const [archiveRow] = await app.db
+        .select()
+        .from(schema.workflowTemplateArchives)
+        .where(eq(schema.workflowTemplateArchives.workflowTemplateId, id));
+      expect(archiveRow).toBeUndefined();
+
+      // A second replace must succeed right away — nothing is draining, so
+      // there is no conflict to wait out.
+      const replaceAgainRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `replace_no_jobs_${Date.now()}`,
+          label: 'Replaced Again',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'password123',
+        },
+      });
+      expect(replaceAgainRes.statusCode).toBe(200);
+      expect(replaceAgainRes.json().version).toBe(3);
+      expect(replaceAgainRes.json().draining).toBeNull();
+    });
+
+    it('replaces workflow, increments version to 2, archives old version, and reports draining', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `replace_success_${Date.now()}`,
+          label: 'Initial Label',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(createRes.statusCode).toBe(200);
+      const id = createRes.json().id as string;
+
+      // Check initial GET returns version 1 and draining: null
+      const getInitial = await app.inject({
+        method: 'GET',
+        url: `/admin/workflows/${id}`,
+        headers,
+      });
+      expect(getInitial.statusCode).toBe(200);
+      expect(getInitial.json().version).toBe(1);
+      expect(getInitial.json().draining).toBeNull();
+
+      // A non-terminal job stamped with the current (v1) version is the only
+      // thing that should make this replace archive anything.
+      await seedNonTerminalJobOnTemplate(id, 1);
+
+      // Replace with new label and new positive prompt
+      const newJson = {
+        ...jsonContent,
+        positive_node: {
+          inputs: { prompt: 'replaced prompt' },
+          class_type: 'CLIPTextEncode',
+          _meta: { title: 'positive_prompt' },
+        },
+      };
+
+      const replaceRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `replace_success_${Date.now()}`,
+          label: 'Replaced Label',
+          jsonContent: newJson,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'password123',
+        },
+      });
+      expect(replaceRes.statusCode).toBe(200);
+      const replacedBody = replaceRes.json();
+      expect(replacedBody.version).toBe(2);
+      expect(replacedBody.label).toBe('Replaced Label');
+      expect(replacedBody.defaultGarmentPhasePrompt).toBe('replaced prompt');
+      expect(replacedBody.draining).toEqual({ fromVersion: 1 });
+
+      // Verify DB state: live row is version 2
+      const [liveRow] = await app.db
+        .select()
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, id));
+      expect(liveRow?.version).toBe(2);
+      expect(liveRow?.label).toBe('Replaced Label');
+
+      // Verify DB state: archive row holds version 1
+      const [archiveRow] = await app.db
+        .select()
+        .from(schema.workflowTemplateArchives)
+        .where(eq(schema.workflowTemplateArchives.workflowTemplateId, id));
+      expect(archiveRow).toBeDefined();
+      expect(archiveRow?.version).toBe(1);
+      expect(archiveRow?.defaultGarmentPhasePrompt).toBe('default');
+
+      // Check GET /admin/workflows/:id returns draining status
+      const getReplaced = await app.inject({
+        method: 'GET',
+        url: `/admin/workflows/${id}`,
+        headers,
+      });
+      expect(getReplaced.statusCode).toBe(200);
+      expect(getReplaced.json().version).toBe(2);
+      expect(getReplaced.json().draining).toEqual({ fromVersion: 1 });
+
+      // Check GET /admin/workflows list also includes draining
+      const getList = await app.inject({
+        method: 'GET',
+        url: '/admin/workflows',
+        headers,
+      });
+      expect(getList.statusCode).toBe(200);
+      const listItem = getList.json().find((w: { id: string }) => w.id === id);
+      expect(listItem?.version).toBe(2);
+      expect(listItem?.draining).toEqual({ fromVersion: 1 });
+
+      // Attempting to replace again while draining must return 409 CONFLICT
+      const replaceAgainRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `replace_success_${Date.now()}`,
+          label: 'Replaced Again',
+          jsonContent: newJson,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'password123',
+        },
+      });
+      expect(replaceAgainRes.statusCode).toBe(409);
+      expect(replaceAgainRes.json().error.message).toContain('draining');
+    });
+  });
+
+  describe('regeneration workflows', () => {
+    const regenJson = {
+      person_node: { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'person' } },
+      positive_node: {
+        inputs: { prompt: 'default reason prompt' },
+        class_type: 'CLIPTextEncode',
+        _meta: { title: 'positive_prompt' },
+      },
+      negative_node: {
+        inputs: { text: 'default negative' },
+        class_type: 'CLIPTextEncode',
+        _meta: { title: 'negative_prompt' },
+      },
+      output_node: {
+        inputs: {},
+        class_type: 'Save Image With Callback',
+        _meta: { title: 'output' },
+      },
+    };
+
+    it('creates a regeneration workflow with auto-detected person/output/prompt nodes', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_${Date.now()}`,
+          label: 'Regen test',
+          jsonContent: regenJson,
+          workflowType: 'regeneration',
+          facePhasePromptNode: 'negative_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.workflowType).toBe('regeneration');
+      expect(body.tryonPersonNodeId).toBe('person_node');
+      expect(body.tryonOutputNodeId).toBe('output_node');
+    });
+
+    it('rejects a regeneration workflow with no detectable source-image node', async () => {
+      const { person_node: _drop, ...noPersonJson } = regenJson;
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_noperson_${Date.now()}`,
+          label: 'Regen no person',
+          jsonContent: noPersonJson,
+          workflowType: 'regeneration',
+          garmentPhasePromptNode: 'positive_node',
+          facePhasePromptNode: 'negative_node',
+        },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('activating a second regeneration workflow demotes the first', async () => {
+      const first = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_first_${Date.now()}`,
+          label: 'Regen first',
+          jsonContent: regenJson,
+          workflowType: 'regeneration',
+          facePhasePromptNode: 'negative_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(first.statusCode).toBe(200);
+      const firstId = first.json().id as string;
+
+      const second = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_second_${Date.now()}`,
+          label: 'Regen second',
+          jsonContent: regenJson,
+          workflowType: 'regeneration',
+          facePhasePromptNode: 'negative_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(second.statusCode).toBe(200);
+
+      const [firstRow] = await app.db
+        .select()
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, firstId));
+      expect(firstRow.isActive).toBe(false);
+    });
+
+    it('reactivating a demoted regeneration workflow demotes whichever is currently active', async () => {
+      const first = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_reactivate_a_${Date.now()}`,
+          label: 'Regen A',
+          jsonContent: regenJson,
+          workflowType: 'regeneration',
+          facePhasePromptNode: 'negative_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      const firstId = first.json().id as string;
+      const second = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regen_reactivate_b_${Date.now()}`,
+          label: 'Regen B',
+          jsonContent: regenJson,
+          workflowType: 'regeneration',
+          facePhasePromptNode: 'negative_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      const secondId = second.json().id as string;
+
+      // Reactivate the first (currently inactive, demoted by creating the second).
+      const patchRes = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${firstId}`,
+        headers,
+        payload: { isActive: true },
+      });
+      expect(patchRes.statusCode).toBe(200);
+
+      const [firstRow] = await app.db
+        .select()
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, firstId));
+      const [secondRow] = await app.db
+        .select()
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, secondId));
+      expect(firstRow.isActive).toBe(true);
+      expect(secondRow.isActive).toBe(false);
+    });
+
+    it('does not seed default regeneration reasons onto a non-regeneration workflow', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `regular_no_reasons_${Date.now()}`,
+          label: 'Regular, no reasons',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const [row] = await app.db
+        .select()
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, response.json().id));
+      expect(row.regenerationReasonPrompts).toEqual([]);
+    });
   });
 });

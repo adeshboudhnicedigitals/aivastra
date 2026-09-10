@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, eq, gte, sql } from 'drizzle-orm';
+import { and, count, eq, gte, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { computeRunway } from './runway.js';
 import { windowStart } from './store-day.js';
@@ -96,6 +96,12 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         and(
           eq(schema.jobs.shopifyStoreId, store.id),
           gte(schema.jobs.createdAt, windowStart(store.ianaTimezone, 'day')),
+          // Excluded so this number keeps matching the ceiling it is displayed
+          // against ("42 / 250"): a failed try-on is refunded and gives its cap
+          // slot back, so counting it here would show a merchant creeping
+          // toward a limit they are not actually approaching. Same rule the
+          // per-shopper cap already applies in limits.ts.
+          ne(schema.jobs.status, 'FAILED'),
         ),
       );
 
@@ -109,13 +115,32 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         ),
       );
 
+    // Dashboard's free-credits tile stays up until the store has paid for a
+    // pack at least once (manual or autorefill — both land here with the same
+    // status field) — 'ACTIVE' is Shopify's AppPurchaseOneTime status for a
+    // charge that actually went through, matching the same check
+    // grantForPurchase already gates the credit grant on.
+    const [{ hasPurchasedPack }] = await app.db
+      .select({ hasPurchasedPack: sql<boolean>`count(*) > 0` })
+      .from(schema.shopifyCreditPurchases)
+      .where(
+        and(
+          eq(schema.shopifyCreditPurchases.storeId, store.id),
+          eq(schema.shopifyCreditPurchases.status, 'ACTIVE'),
+        ),
+      );
+
     return {
       store: {
         shopDomain: store.shopDomain,
+        // Prefills the email-bonus popup — auto-captured from `shop.email` at
+        // install, so it's usually already correct and just needs confirming.
+        shopEmail: store.shopEmail,
         settings: store.settings,
         connectedSince: store.installedAt.toISOString(),
       },
       creditBalance: runway.balance,
+      hasPurchasedPack,
       runway: {
         balance: runway.balance,
         tryOnsRemaining: runway.tryOnsRemaining,

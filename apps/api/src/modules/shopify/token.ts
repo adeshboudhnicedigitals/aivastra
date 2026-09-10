@@ -311,8 +311,11 @@ export async function getValidAccessToken(app: FastifyInstance, store: Store): P
         return decryptStoredToken(app, fresh, fresh.accessToken, encKey);
     }
     // Holder died before writing; its lock will lapse. Surfacing this beats
-    // blocking the caller indefinitely or duplicating the refresh.
-    throw new AppError('SHOPIFY', 503, 'Token refresh in progress, retry shortly');
+    // blocking the caller indefinitely or duplicating the refresh. LOCKED, not
+    // SHOPIFY: this is our own Redis lock contention, not an upstream Shopify
+    // failure — a client that treats SHOPIFY as "Shopify may be degraded,
+    // back off" would be wrong to draw that conclusion here.
+    throw new AppError('LOCKED', 409, 'Token refresh in progress, retry shortly');
   }
 
   try {

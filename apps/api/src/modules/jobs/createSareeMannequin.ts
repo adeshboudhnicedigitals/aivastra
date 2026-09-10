@@ -1,7 +1,7 @@
 import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
 import { type CreateSareeMannequinJobRequest, JOB_SOURCE } from '@aivastra/types';
-import { and, eq } from 'drizzle-orm';
+import { aliasedTable, and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -20,6 +20,10 @@ export async function createSareeMannequinJob(
   await assertOwnsUploadKey(app, userId, garmentKey);
   if (secondGarmentKey) await assertOwnsUploadKey(app, userId, secondGarmentKey);
 
+  // No join/version lookup for the plain mannequinWorkflowTemplateId — that
+  // id is deliberately never snapshotted into the job (see the params
+  // comment below), so there is nothing to pair a version with.
+  const mannequinTwoInputWf = aliasedTable(schema.workflowTemplates, 'mannequin_two_input_wf');
   const [garmentType] = await app.db
     .select({
       isActive: schema.garmentSubcategories.isActive,
@@ -27,8 +31,13 @@ export async function createSareeMannequinJob(
       mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
       mannequinTwoInputWorkflowTemplateId:
         schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
+      mannequinTwoInputWorkflowVersion: mannequinTwoInputWf.version,
     })
     .from(schema.garmentSubcategories)
+    .leftJoin(
+      mannequinTwoInputWf,
+      eq(schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId, mannequinTwoInputWf.id),
+    )
     .where(eq(schema.garmentSubcategories.id, garmentTypeId));
   if (!garmentType?.isActive || !garmentType.requiresMannequinStep) {
     throw new AppError('BAD_CATALOG', 400, 'garment type does not use a mannequin step');
@@ -88,8 +97,17 @@ export async function createSareeMannequinJob(
       garmentTypeId,
       params: {
         kind: 'saree_mannequin',
+        // No entry at all in the plain (no secondGarmentKey) case — omitting
+        // the snapshot is what lets the dispatcher re-resolve
+        // garmentType.mannequinWorkflowTemplateId fresh at dispatch time, so
+        // an admin who changes a garment type's default mannequin workflow
+        // after this job is created (but before it dispatches) has that
+        // change take effect.
         ...(secondGarmentKey
-          ? { workflowTemplateId: garmentType.mannequinTwoInputWorkflowTemplateId }
+          ? {
+              workflowTemplateId: garmentType.mannequinTwoInputWorkflowTemplateId,
+              dispatchTemplateVersion: garmentType.mannequinTwoInputWorkflowVersion ?? null,
+            }
           : {}),
       },
     });

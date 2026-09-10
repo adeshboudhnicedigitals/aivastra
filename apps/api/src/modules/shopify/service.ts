@@ -309,7 +309,7 @@ export function verifySessionToken(
 
 export interface SyncTask {
   storeId: string;
-  mode: 'full' | 'product' | 'collection';
+  mode: 'full' | 'product' | 'collection' | 'reconcile';
   shopifyProductId?: number;
   shopifyCollectionId?: number;
 }

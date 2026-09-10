@@ -1,3 +1,4 @@
+import { ASPECT_DIMENSIONS, resolutionFromDims } from '@aivastra/types';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -8,6 +9,7 @@ import { Switch } from '../components/Switch';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import JobCostsTab from './settings/JobCostsTab';
+import ProdSnapshotTab from './settings/ProdSnapshotTab';
 import PurchasablePlansTab from './settings/PurchasablePlansTab';
 import RolesPermissionsTab from './settings/RolesPermissionsTab';
 import ShopifyCreditsTab from './settings/ShopifyCreditsTab';
@@ -37,16 +39,26 @@ type SettingsSection =
   | 'signup-campaigns'
   | 'roles-permissions'
   | 'system'
-  | 'session';
+  | 'session'
+  | 'prod-snapshot';
 
-const SETTING_SECTIONS: { k: SettingsSection; label: string }[] = [
+// `perm` mirrors the permission each section's own backend routes already
+// require (e.g. GET /admin/credit-plans requires credit_plans.write) — a
+// section with no `perm` (Appearance, Notifications, Session) is available to
+// every admin role regardless of permissions.
+const SETTING_SECTIONS: { k: SettingsSection; label: string; perm?: string }[] = [
   { k: 'appearance', label: 'Appearance' },
   { k: 'notifications', label: 'Notifications' },
-  { k: 'credit-plans', label: 'Credit Plans' },
-  { k: 'signup-campaigns', label: 'Signup Campaigns' },
-  { k: 'roles-permissions', label: 'Roles & Permissions' },
-  { k: 'system', label: 'System' },
+  { k: 'credit-plans', label: 'Credit Plans', perm: 'credit_plans.write' },
+  { k: 'signup-campaigns', label: 'Signup Campaigns', perm: 'signup_campaigns.write' },
+  { k: 'roles-permissions', label: 'Roles & Permissions', perm: 'admin_users.manage' },
+  { k: 'system', label: 'System', perm: 'config.read' },
   { k: 'session', label: 'Session' },
+  // Not a real permission key — never granted to any role in role_permissions,
+  // so hasPermission() only returns true here via its SUPER_ADMIN short-circuit
+  // (AuthContext.tsx). Matches the backend's own gate: prod-snapshot.routes.ts
+  // uses requireAdmin(['SUPER_ADMIN']) directly, not the permissions matrix.
+  { k: 'prod-snapshot', label: 'Prod Snapshot', perm: 'prod_snapshot.download' },
 ];
 
 interface Props {
@@ -236,9 +248,13 @@ function CampaignModal({
 }
 
 export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: Props) {
-  const { logout } = useAuth();
+  const { logout, hasPermission } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const section = (searchParams.get('s') as SettingsSection | null) ?? 'appearance';
+  const visibleSections = SETTING_SECTIONS.filter((s) => !s.perm || hasPermission(s.perm));
+  const requestedSection = (searchParams.get('s') as SettingsSection | null) ?? 'appearance';
+  const section = visibleSections.some((s) => s.k === requestedSection)
+    ? requestedSection
+    : 'appearance';
   const [creditSubTab, setCreditSubTab] = useState<'purchasable' | 'job-costs' | 'shopify'>(
     'purchasable',
   );
@@ -246,9 +262,14 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
 
-  const [maxOutputPx, setMaxOutputPx] = useState(2048);
+  const [maxOutputPx, setMaxOutputPx] = useState(2560);
   const [maxBatchJobs, setMaxBatchJobs] = useState(200);
   const [maxQueueDepth, setMaxQueueDepth] = useState(50);
+  // ASPECT_DIMENSIONS is only a fallback shown before /admin/config responds —
+  // the server (DEFAULT_ASPECT_DIMENSIONS in apps/api/src/lib/resolution-config.ts,
+  // itself seeded from this same constant) is authoritative.
+  const [aspectDimensions, setAspectDimensions] =
+    useState<Record<string, { width: number; height: number }>>(ASPECT_DIMENSIONS);
   const [sellerGstin, setSellerGstin] = useState('');
   const [sellerLegalName, setSellerLegalName] = useState('');
   const [sellerAddress, setSellerAddress] = useState('');
@@ -317,11 +338,14 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       >;
       merchantCatalogAspectRatio?: string;
       uploadLimits?: Record<string, number>;
+      aspectDimensions?: Record<string, { width: number; height: number }>;
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.maxOutputPx) setMaxOutputPx(cfg.maxOutputPx);
         if (cfg.maxBatchJobs) setMaxBatchJobs(cfg.maxBatchJobs);
         if (cfg.maxQueueDepth) setMaxQueueDepth(cfg.maxQueueDepth);
+        if (cfg.aspectDimensions)
+          setAspectDimensions((prev) => ({ ...prev, ...cfg.aspectDimensions }));
         if (cfg.seller) {
           setSellerGstin(cfg.seller.gstin ?? '');
           setSellerLegalName(cfg.seller.legalName ?? '');
@@ -441,6 +465,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           maxOutputPx,
           maxBatchJobs,
           maxQueueDepth,
+          aspectDimensions,
           seller: {
             gstin: sellerGstin.trim(),
             legalName: sellerLegalName.trim(),
@@ -538,7 +563,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       </div>
 
       <div className="tabs">
-        {SETTING_SECTIONS.map((s) => (
+        {visibleSections.map((s) => (
           <button
             key={s.k}
             className={`tab ${section === s.k ? 'active' : ''}`}
@@ -585,17 +610,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                 <div className="setting-lbl">Default page size</div>
                 <div className="setting-desc">Items per page in tables.</div>
               </div>
-              <select
-                className="select"
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-              >
-                {PAGE_SIZES.map((s) => (
-                  <option key={s} value={s}>
-                    {s} items
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                options={PAGE_SIZES.map((s) => ({ id: String(s), label: `${s} items` }))}
+                value={String(pageSize)}
+                onChange={(v) => setPageSize(Number(v))}
+              />
             </div>
 
             <div className="setting-actions">
@@ -805,6 +824,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       {/* Roles & Permissions */}
       {section === 'roles-permissions' && <RolesPermissionsTab toast={toast} />}
 
+      {/* Prod Snapshot */}
+      {section === 'prod-snapshot' && <ProdSnapshotTab toast={toast} />}
+
       {/* System */}
       {section === 'system' && (
         <div className="card settings-card">
@@ -823,8 +845,10 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                     Max Output Resolution
                   </div>
                   <div className="setting-desc" style={{ marginBottom: 12 }}>
-                    Platform-wide ceiling on the long edge of a generated image, in pixels. Applies
-                    to every job regardless of which workflow produced it.
+                    Ceiling on the long edge of a custom-dimension Studio generation only (the
+                    "custom" aspect option, where the user types their own width/height). Doesn't
+                    apply to the named ratios below — those are already the intended output size,
+                    whatever's set for them there.
                   </div>
                   <div
                     style={{
@@ -849,6 +873,75 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       onChange={(e) => setMaxOutputPx(Number(e.target.value))}
                     />
                     <span style={{ fontSize: 13, color: 'var(--muted)' }}>px, long edge</span>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Aspect Ratio Sizes
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Canonical output pixel dimensions per aspect ratio, applied to every new job
+                    without a code deploy — exactly as set here, not capped by Max Output Resolution
+                    above (that only bounds the Studio custom-dimension option). A long edge over
+                    3000px prices at the 4K tier instead of 2K — the resolution badge next to each
+                    row updates live as you type.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 460 }}>
+                    {(Object.keys(aspectDimensions) as Array<keyof typeof aspectDimensions>).map(
+                      (ratio) => {
+                        const dims = aspectDimensions[ratio];
+                        const tier = resolutionFromDims(dims.width, dims.height);
+                        const setDim = (field: 'width' | 'height', value: number) =>
+                          setAspectDimensions((prev) => ({
+                            ...prev,
+                            [ratio]: { ...prev[ratio], [field]: value },
+                          }));
+                        return (
+                          <div
+                            key={ratio}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              padding: '10px 12px',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--r)',
+                              background: 'var(--surface-2)',
+                            }}
+                          >
+                            <span className="setting-lbl" style={{ width: 40 }}>
+                              {ratio}
+                            </span>
+                            <input
+                              className="input"
+                              type="number"
+                              min={256}
+                              max={4096}
+                              style={{ width: 90 }}
+                              value={dims.width}
+                              disabled={sysSaving}
+                              onChange={(e) => setDim('width', Number(e.target.value))}
+                            />
+                            <span style={{ fontSize: 13, color: 'var(--muted)' }}>×</span>
+                            <input
+                              className="input"
+                              type="number"
+                              min={256}
+                              max={4096}
+                              style={{ width: 90 }}
+                              value={dims.height}
+                              disabled={sysSaving}
+                              onChange={(e) => setDim('height', Number(e.target.value))}
+                            />
+                            <span style={{ fontSize: 13, color: 'var(--muted)' }}>px</span>
+                            <span className="badge" style={{ marginLeft: 'auto' }}>
+                              {tier}
+                            </span>
+                          </div>
+                        );
+                      },
+                    )}
                   </div>
                 </div>
 
@@ -1302,17 +1395,17 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                     <div className="setting-lbl" style={{ marginBottom: 4 }}>
                       Aspect ratio
                     </div>
-                    <select
-                      className="select"
+                    <SearchableSelect
+                      options={[
+                        { id: '1:1', label: '1:1' },
+                        { id: '2:3', label: '2:3' },
+                        { id: '3:4', label: '3:4' },
+                        { id: '4:5', label: '4:5' },
+                      ]}
                       value={merchantCatalogAspectRatio}
                       disabled={sysSaving}
-                      onChange={(e) => setMerchantCatalogAspectRatio(e.target.value)}
-                    >
-                      <option value="1:1">1:1</option>
-                      <option value="2:3">2:3</option>
-                      <option value="3:4">3:4</option>
-                      <option value="4:5">4:5</option>
-                    </select>
+                      onChange={(v) => setMerchantCatalogAspectRatio(v)}
+                    />
                   </div>
                 </div>
 
@@ -1330,7 +1423,16 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       maxBatchJobs > 2000 ||
                       !Number.isInteger(maxQueueDepth) ||
                       maxQueueDepth < 1 ||
-                      maxQueueDepth > 5000
+                      maxQueueDepth > 5000 ||
+                      Object.values(aspectDimensions).some(
+                        (d) =>
+                          !Number.isInteger(d.width) ||
+                          d.width < 256 ||
+                          d.width > 4096 ||
+                          !Number.isInteger(d.height) ||
+                          d.height < 256 ||
+                          d.height > 4096,
+                      )
                     }
                   >
                     {sysSaving ? 'Saving…' : 'Save'}

@@ -56,6 +56,9 @@ export interface GarmentType {
   thumbnailUrl?: string | null;
   instructionImageKey?: string | null;
   instructionImageUrl?: string | null;
+  tryonLibraryInstructionImageKey?: string | null;
+  tryonLibraryInstructionImageUrl?: string | null;
+  tutorialVideoUrl?: string | null;
   isActive: boolean;
   sortOrder: number;
   requiresLowerUpload: boolean;
@@ -82,23 +85,47 @@ export interface WorkflowOption {
   id: string; // UUID from workflow_templates table
   slug: string;
   label: string;
-  workflowType: 'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input';
+  workflowType:
+    | 'regular'
+    | 'tryon'
+    | 'saree_step1'
+    | 'saree_step1_two_input'
+    | 'two_stage'
+    | 'regeneration';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
+  regenerationReasonPrompts: { reason: string; prompt: string; instruction: string }[];
   facePhasePromptNode: string | null;
-  ksamplerSteps: number | null;
-  ksamplerCfg: number | null;
-  ksamplerDenoise: number | null;
+  // two_stage only — stage 1's own prompt pair (stage 2's reuses the fields above)
+  stage1PositivePromptNode: string | null;
+  stage1NegativePromptNode: string | null;
+  defaultStage1PositivePrompt: string;
+  defaultStage1NegativePrompt: string;
+  ksamplerNodes: {
+    nodeId: string;
+    steps: number | null;
+    cfg: number | null;
+    denoise: number | null;
+    seed: number | null;
+  }[];
   lowerNodeId: string | null;
   shoeNodeId: string | null;
   thirdNodeId: string | null;
   sizeNodeIds: string[];
+  // Dual-size-group templates (build_model_main v2+) — empty arrays mean "use sizeNodeIds above".
+  latentSizeNodeIds: string[];
+  latentMaxPx: number;
+  outputSizeNodeIds: string[];
+  outputMaxPx: number;
   tryonPersonNodeId: string | null;
   tryonGarmentNodeId: string | null;
   tryonGarmentNodeId2: string | null;
   tryonOutputNodeId: string | null;
+  version?: number;
+  funnelCount?: number;
+  draining?: { fromVersion: number } | null;
   createdAt: string;
 }
 
@@ -220,6 +247,21 @@ export interface User {
   signupSource?: 'admin' | 'android_google' | null;
   demoData?: boolean | null;
   balance: number;
+  unlimitedPlan?: {
+    status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none';
+    startAt: string | null;
+    endAt: string | null;
+    daysRemaining: number | null;
+    note: string | null;
+    pricePaise: number | null;
+    queueStream: 'priority' | 'normal' | 'low' | null;
+    charges?: {
+      id: string;
+      pricePaise: number;
+      chargeType: 'initial' | 'renewal';
+      chargedAt: string;
+    }[];
+  } | null;
   totalJobs: number;
   lastJobAt: string | null;
   createdAt: string;
@@ -260,6 +302,9 @@ export interface Job {
   id: string;
   userId?: string;
   userEmail?: string | null;
+  /** Merchant contact email captured for the Shopify free-credit bonus — only set on shopify-sourced jobs. */
+  shopEmail?: string | null;
+  shopDomain?: string | null;
   status: JobStatus;
   priority: boolean;
   creditsCharged: number;
@@ -278,6 +323,8 @@ export interface Job {
   jobType?: string;
   outputUrl?: string;
   userHint?: string;
+  /** Non-null = this job was created by the regenerate flow, not a fresh submission. */
+  parentJobId?: string | null;
 }
 
 export type WorkerStatus = 'IDLE' | 'BUSY' | 'DRAINING' | 'OFFLINE';
