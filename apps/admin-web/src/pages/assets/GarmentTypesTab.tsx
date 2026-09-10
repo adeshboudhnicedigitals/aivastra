@@ -1914,6 +1914,12 @@ function PoseConfigsPanel({
   const [editing, setEditing] = useState<PoseGarmentConfig | null>(null);
   const [editWorkflow, setEditWorkflow] = useState('');
   const [editGarmentPrompt, setEditGarmentPrompt] = useState('');
+  // Off by default: the textarea then just previews the assigned workflow's live
+  // default prompt and Save persists null, so this pose keeps tracking future edits
+  // to that workflow's prompt. Only flipping this on pins editGarmentPrompt as a
+  // permanent override — pinning must be a conscious choice, never a side effect of
+  // picking a workflow (see the prompt-inheritance bug this was built to fix).
+  const [editPromptOverrideEnabled, setEditPromptOverrideEnabled] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkWorkflow, setBulkWorkflow] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -1950,16 +1956,17 @@ function PoseConfigsPanel({
     if (!bulkWorkflow || selectedIds.length === 0) return;
     setBulkSaving(true);
     try {
-      // Follow the selected workflow's own default prompt — same convention as the
-      // pose-asset-level bulk-workflow route — so applying a workflow in bulk doesn't
-      // leave a stale prompt (or a mismatched one inherited from whatever was there before).
-      const wf = workflows.find((w) => w.id === bulkWorkflow);
+      // Always inherit (null) rather than snapshotting the selected workflow's current
+      // default prompt — pinning a prompt is a conscious per-pose choice made through
+      // the edit modal's "Custom prompt" toggle, never a side effect of a bulk workflow
+      // assignment. This also means later edits to the workflow's prompt keep applying
+      // to every pose assigned here in bulk.
       await Promise.all(
         selectedIds.map((id) => {
           const item = items.find((i) => i.id === id);
           return onSave(sub.id, id, {
             workflowTemplateId: bulkWorkflow,
-            promptGarmentPhase: wf?.defaultGarmentPhasePrompt || null,
+            promptGarmentPhase: null,
             promptFacePhase: null,
             isActive: item?.config?.isActive ?? null,
           });
@@ -2032,23 +2039,36 @@ function PoseConfigsPanel({
   };
 
   const openEdit = (item: PoseGarmentConfig) => {
+    const workflowId = item.config?.workflowTemplateId ?? '';
+    const wf = workflowId ? workflows.find((w) => w.id === workflowId) : null;
     setEditing(item);
-    setEditWorkflow(item.config?.workflowTemplateId ?? '');
-    // Pre-fill with override if set, else inherit pose default so user edits from it
-    setEditGarmentPrompt(item.config?.promptGarmentPhase ?? item.defaultPromptGarmentPhase ?? '');
+    setEditWorkflow(workflowId);
+    // A pinned override already exists iff promptGarmentPhase is non-null — reopen
+    // with the toggle reflecting that, not just whatever text happens to be there.
+    setEditPromptOverrideEnabled(!!item.config?.promptGarmentPhase);
+    setEditGarmentPrompt(
+      item.config?.promptGarmentPhase ??
+        wf?.defaultGarmentPhasePrompt ??
+        item.defaultPromptGarmentPhase ??
+        '',
+    );
   };
 
   const closeEdit = () => {
     setEditing(null);
     setEditWorkflow('');
     setEditGarmentPrompt('');
+    setEditPromptOverrideEnabled(false);
   };
 
   const doSave = async () => {
     if (!editing) return;
     await onSave(sub.id, editing.id, {
       workflowTemplateId: editWorkflow || null,
-      promptGarmentPhase: editGarmentPrompt || null,
+      // Toggle off means "inherit" — save null regardless of what's in the
+      // (read-only preview) textarea so this pose keeps following the assigned
+      // workflow's live prompt instead of freezing today's snapshot of it.
+      promptGarmentPhase: editPromptOverrideEnabled ? editGarmentPrompt || null : null,
       promptFacePhase: null,
       // This modal only edits workflow/prompt — preserve whatever active override
       // (if any) is already set via the card's Switch, rather than clearing it.
@@ -2408,14 +2428,16 @@ function PoseConfigsPanel({
               disabled={savingId === editing.id}
               onChange={(newId) => {
                 setEditWorkflow(newId);
-                // Always follow the newly selected workflow's own default prompt — same
-                // convention as the pose-asset-level edit modal — so switching workflows
-                // here doesn't keep sending the previous workflow's prompt text. Admin can
-                // still hand-edit the textarea below before saving to customize further.
-                const wf = newId ? workflows.find((w) => w.id === newId) : null;
-                setEditGarmentPrompt(
-                  wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
-                );
+                // While the override toggle is off, this textarea is just a live preview
+                // of the newly-selected workflow's own default prompt — nothing is pinned
+                // until the admin explicitly turns "Custom prompt" on. When it's already on,
+                // leave the admin's own text alone; switching workflows shouldn't clobber it.
+                if (!editPromptOverrideEnabled) {
+                  const wf = newId ? workflows.find((w) => w.id === newId) : null;
+                  setEditGarmentPrompt(
+                    wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
+                  );
+                }
               }}
               emptyLabel={`Use default (${
                 editing.defaultWorkflowTemplateId
@@ -2426,21 +2448,46 @@ function PoseConfigsPanel({
               placeholder="— search workflow —"
             />
             <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
-              Changing this updates the prompt below to that workflow's own default — edit it after
-              to customize further.
+              This pose keeps following the assigned workflow's own prompt as it changes over time,
+              unless you pin a custom prompt below.
             </span>
           </div>
           <div className="field">
-            <label>Positive prompt</label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <label style={{ margin: 0 }}>Positive prompt</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>Custom prompt</span>
+                <Switch
+                  checked={editPromptOverrideEnabled}
+                  disabled={savingId === editing.id}
+                  onChange={(checked) => {
+                    setEditPromptOverrideEnabled(checked);
+                    if (!checked) {
+                      // Snap the preview back to whatever's actually live right now —
+                      // the admin may have edited the textarea before turning this off.
+                      const wf = editWorkflow ? workflows.find((w) => w.id === editWorkflow) : null;
+                      setEditGarmentPrompt(
+                        wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
+                      );
+                    }
+                  }}
+                />
+              </div>
+            </div>
             <textarea
               className="input"
               rows={10}
-              placeholder="Inherited from pose"
+              placeholder="Inherited from workflow"
               value={editGarmentPrompt}
-              disabled={savingId === editing.id}
+              disabled={!editPromptOverrideEnabled || savingId === editing.id}
               onChange={(e) => setEditGarmentPrompt(e.target.value)}
               style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
             />
+            <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+              {editPromptOverrideEnabled
+                ? 'Pinned — future edits to the workflow prompt will not affect this pose.'
+                : 'Read-only preview of the assigned workflow’s live default prompt.'}
+            </span>
           </div>
           {editing.config && (
             <button
