@@ -9,6 +9,7 @@ import {
   type CreateTryOnJobRequest,
   JOB_SOURCE,
   type JobSource,
+  PIXVERSE_CUSTOM_VIDEO_PROMPT,
   type PixverseQuality,
   type Resolution,
   resolutionFromDims,
@@ -1196,24 +1197,47 @@ export async function createCatalogVideoJob(
     throw new AppError('VALIDATION', 400, 'sourceJobId or sourceImageKey is required');
   }
 
-  const [sample] = await app.db
-    .select()
-    .from(schema.sampleVideos)
-    .where(eq(schema.sampleVideos.id, body.sampleVideoId));
-  if (!sample || sample.deletedAt) throw new AppError('NOT_FOUND', 404, 'sample video not found');
-  if (!sample.isActive) throw new AppError('VALIDATION', 400, 'sample video is not active');
   const [user] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
   if (!isCatalogVideoAllowed(app.env, user.email)) {
     throw new AppError('FORBIDDEN', 403, 'catalog video is not enabled for this account');
   }
-  // Priced by this specific sample video's own duration/quality — not a flat
-  // cost — since PixVerse's real cost varies by both.
-  const cost = await getPixverseVideoCreditCost(
-    app,
-    sample.duration,
-    sample.quality as PixverseQuality,
-  );
+
+  // Exactly one of sampleVideoId or (duration + quality) is present —
+  // enforced by CreateCatalogVideoJobRequest's refine checks. sampleVideoId
+  // reuses an admin-curated prompt/duration/quality combo; the custom path
+  // (Motion Studio's Custom mode) lets the caller pick duration/quality
+  // directly, with a fixed system prompt — no free-text prompt from end
+  // users.
+  let prompt: string;
+  let duration: number;
+  let quality: PixverseQuality;
+  let sampleVideoId: string | null;
+  if (body.sampleVideoId) {
+    const [sample] = await app.db
+      .select()
+      .from(schema.sampleVideos)
+      .where(eq(schema.sampleVideos.id, body.sampleVideoId));
+    if (!sample || sample.deletedAt) throw new AppError('NOT_FOUND', 404, 'sample video not found');
+    if (!sample.isActive) throw new AppError('VALIDATION', 400, 'sample video is not active');
+    prompt = sample.prompt;
+    duration = sample.duration;
+    quality = sample.quality as PixverseQuality;
+    sampleVideoId = body.sampleVideoId;
+  } else {
+    // Unreachable per the schema's refine checks — guarded here so
+    // TypeScript sees duration/quality as definitely assigned below.
+    if (body.duration === undefined || body.quality === undefined) {
+      throw new AppError('VALIDATION', 400, 'duration and quality are required');
+    }
+    prompt = PIXVERSE_CUSTOM_VIDEO_PROMPT;
+    duration = body.duration;
+    quality = body.quality;
+    sampleVideoId = null;
+  }
+  // Priced by this job's own duration/quality — not a flat cost — since
+  // PixVerse's real cost varies by both, for presets and custom alike.
+  const cost = await getPixverseVideoCreditCost(app, duration, quality);
   const [job] = await app.db.transaction(async (tx) => {
     const [newJob] = await tx
       .insert(schema.jobs)
@@ -1236,13 +1260,13 @@ export async function createCatalogVideoJob(
         kind: 'video',
         ...(body.sourceJobId ? { sourceJobId: body.sourceJobId } : {}),
         sourceImageKey: resolvedSourceImageKey,
-        sampleVideoId: body.sampleVideoId,
-        prompt: sample.prompt,
-        // Snapshotted at creation time — same immutable-input pattern as
-        // `prompt` above — so the dispatcher forwards exactly what this job
-        // was priced and created with, even if the template is edited later.
-        duration: sample.duration,
-        quality: sample.quality,
+        sampleVideoId,
+        prompt,
+        // Snapshotted at creation time — same immutable-input pattern the
+        // preset path already had — so the dispatcher forwards exactly what
+        // this job was priced and created with.
+        duration,
+        quality,
       },
     });
     return [newJob];
