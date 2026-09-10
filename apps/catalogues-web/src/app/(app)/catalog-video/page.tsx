@@ -11,8 +11,9 @@ import { api } from '@/lib/api';
 import { isSupportedImageBytes } from '@/lib/image-validation';
 
 import { CataloguePickerModal } from './CataloguePickerModal';
-import { CatalogVideoWizard, type ImageSource } from './CatalogVideoWizard';
+import { CatalogVideoWizard } from './CatalogVideoWizard';
 import { SourcePanel } from './SourcePanel';
+import type { ImageSource } from './types';
 
 interface CatalogVideoItem {
   id: string;
@@ -233,8 +234,10 @@ export default function CatalogVideoPage(): React.ReactElement {
         <div className="cat-video-two-col">
           <div className="cat-video-source-col">
             <SourcePanel
+              source={wizardSource}
               onFile={handleUpload}
               onBrowseCatalogues={() => setPickerOpen(true)}
+              onRemove={() => setWizardSource(null)}
               uploading={uploading}
               progress={uploadProgress}
               error={uploadError}

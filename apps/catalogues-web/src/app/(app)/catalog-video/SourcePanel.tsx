@@ -1,25 +1,46 @@
 'use client';
 
-import { ImagePlus, Images, Upload } from 'lucide-react';
+import { ImagePlus, Images, Upload, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { JobThumbnail } from './JobThumbnail';
+import type { ImageSource } from './types';
+
+const CARD_STYLE: React.CSSProperties = {
+  width: '100%',
+  height: '100%',
+  minHeight: 360,
+  borderRadius: 20,
+  background: C.card,
+  boxShadow: `inset 0 0 0 1.5px ${C.border2}, 0 4px 15px rgba(0,0,0,0.08)`,
+  boxSizing: 'border-box',
+};
 
 // Left half of the Motion Studio main screen (mirrors Studio's two-column
 // layout: source input on the left, output preview on the right). Two ways
 // to pick a source image: "Browse Catalogues" opens CataloguePickerModal to
 // reuse a past completed generation; "Upload Custom Image" (or dragging a
 // file onto the card, or clicking the card itself) uploads a fresh photo.
+// Once `source` is set, the empty-state prompt is replaced by a preview of
+// the chosen image with a "Change image" control — same
+// preview-with-remove-button pattern CatalogVideoWizard's UploadDropzone
+// already uses, so picking a source has a visible result instead of the
+// card silently staying the same.
 export function SourcePanel({
+  source,
   onFile,
   onBrowseCatalogues,
+  onRemove,
   uploading,
   progress,
   error,
 }: {
+  source: ImageSource | null;
   onFile: (file: File) => void;
   onBrowseCatalogues: () => void;
+  onRemove: () => void;
   uploading: boolean;
   progress: number;
   error: string | null;
@@ -29,6 +50,47 @@ export function SourcePanel({
 
   function browse() {
     if (!uploading) inputRef.current?.click();
+  }
+
+  if (source && !uploading) {
+    return (
+      <div style={{ ...CARD_STYLE, position: 'relative', overflow: 'hidden' }}>
+        {source.kind === 'existing' ? (
+          <JobThumbnail jobId={source.jobId} alt="Selected source" />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          // biome-ignore lint/performance/noImgElement: local blob URL preview
+          <img
+            src={source.previewUrl}
+            alt="Selected source"
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          />
+        )}
+        <button
+          type="button"
+          onClick={onRemove}
+          style={{
+            position: 'absolute',
+            top: 16,
+            right: 16,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 14px',
+            borderRadius: 999,
+            border: 'none',
+            background: 'rgba(0,0,0,0.55)',
+            color: C.white,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          <X size={14} />
+          Change image
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -48,11 +110,7 @@ export function SourcePanel({
         if (file && !uploading) onFile(file);
       }}
       style={{
-        width: '100%',
-        height: '100%',
-        minHeight: 360,
-        borderRadius: 20,
-        background: C.card,
+        ...CARD_STYLE,
         boxShadow: `inset 0 0 0 1.5px ${dragOver ? C.pink : C.border2}, 0 4px 15px rgba(0,0,0,0.08)`,
         display: 'flex',
         flexDirection: 'column',
@@ -60,7 +118,6 @@ export function SourcePanel({
         justifyContent: 'center',
         gap: 20,
         padding: 40,
-        boxSizing: 'border-box',
         textAlign: 'center',
         cursor: uploading ? 'not-allowed' : 'pointer',
         transition: 'box-shadow 150ms ease',
