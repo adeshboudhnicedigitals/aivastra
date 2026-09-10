@@ -5,7 +5,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
-import { getPixverseVideoCreditCost } from '../../lib/resolution-config.js';
+import {
+  getPixverseVideoCreditCost,
+  getPixverseVideoPricingConfig,
+} from '../../lib/resolution-config.js';
 
 export async function modelsRoutes(app: FastifyInstance) {
   app.get(
@@ -82,8 +85,8 @@ export async function modelsRoutes(app: FastifyInstance) {
       .from(schema.sampleVideos)
       .where(and(eq(schema.sampleVideos.isActive, true), isNull(schema.sampleVideos.deletedAt)))
       .orderBy(asc(schema.sampleVideos.sortOrder));
-    return {
-      items: await Promise.all(
+    const [items, pixverseVideoPricing] = await Promise.all([
+      Promise.all(
         rows.map(async (row) => {
           const [thumbnail, video, creditCost] = await Promise.all([
             app.storage.presignGet(row.thumbnailR2Key, 3_600),
@@ -100,7 +103,12 @@ export async function modelsRoutes(app: FastifyInstance) {
           };
         }),
       ),
-    };
+      // Lets the Motion Studio client compute a live Custom-mode cost preview
+      // via computePixverseVideoCost without a second round-trip — see
+      // getPixverseVideoPricingConfig's doc comment.
+      getPixverseVideoPricingConfig(app),
+    ]);
+    return { items, pixverseVideoPricing };
   });
 
   app.get(

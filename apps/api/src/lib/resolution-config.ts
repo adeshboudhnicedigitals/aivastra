@@ -135,34 +135,46 @@ export async function getSareeMannequinDevCreditCost(app: FastifyInstance): Prom
 
 /**
  * Reads the admin-configured PixVerse duration/quality pricing formula from
- * the same `config:system` Redis key. `SystemConfigBody.pixverseVideoPricing`
+ * the `config:system` Redis key, merged per-key against
+ * DEFAULT_PIXVERSE_VIDEO_PRICING. `SystemConfigBody.pixverseVideoPricing`
  * lets an admin PATCH just one quality tier (`qualityBase` is a Zod
- * `.partial()`), so a stored config can legitimately be missing tiers — merge
- * per-key against DEFAULT_PIXVERSE_VIDEO_PRICING rather than trusting the
- * stored object as complete. An existence check (`cfg.pixverseVideoPricing ??
- * DEFAULT`) would let a partial `qualityBase` reach computePixverseVideoCost,
- * which indexes it directly with no fallback — `undefined + number` is `NaN`.
+ * `.partial()`), so a stored config can legitimately be missing tiers — an
+ * existence check (`cfg.pixverseVideoPricing ?? DEFAULT`) would let a
+ * partial `qualityBase` reach computePixverseVideoCost, which indexes it
+ * directly with no fallback — `undefined + number` is `NaN`. Exported so
+ * both getPixverseVideoCreditCost() (below) and the public
+ * GET /v1/models/sample-videos response (apps/api/src/modules/models/routes.ts)
+ * can read the same resolved config — the route exposes it for a
+ * client-side Custom-mode cost preview; the server still recomputes the
+ * charged cost itself at job-creation time regardless of what the client
+ * showed.
  */
-export async function getPixverseVideoCreditCost(
+export async function getPixverseVideoPricingConfig(
   app: FastifyInstance,
-  duration: number,
-  quality: PixverseQuality,
-): Promise<number> {
+): Promise<PixverseVideoPricingConfig> {
   try {
     const raw = await app.redis.get(CONFIG_KEY);
     const cfg = raw ? JSON.parse(raw) : {};
     const stored = cfg.pixverseVideoPricing as Partial<PixverseVideoPricingConfig> | undefined;
-    const pricing: PixverseVideoPricingConfig = {
+    return {
       perSecondRate:
         typeof stored?.perSecondRate === 'number'
           ? stored.perSecondRate
           : DEFAULT_PIXVERSE_VIDEO_PRICING.perSecondRate,
       qualityBase: { ...DEFAULT_PIXVERSE_VIDEO_PRICING.qualityBase, ...stored?.qualityBase },
     };
-    return computePixverseVideoCost(duration, quality, pricing);
   } catch {
-    return computePixverseVideoCost(duration, quality, DEFAULT_PIXVERSE_VIDEO_PRICING);
+    return DEFAULT_PIXVERSE_VIDEO_PRICING;
   }
+}
+
+export async function getPixverseVideoCreditCost(
+  app: FastifyInstance,
+  duration: number,
+  quality: PixverseQuality,
+): Promise<number> {
+  const pricing = await getPixverseVideoPricingConfig(app);
+  return computePixverseVideoCost(duration, quality, pricing);
 }
 
 /**

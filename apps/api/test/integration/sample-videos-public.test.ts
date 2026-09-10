@@ -114,4 +114,29 @@ describe('GET /v1/models/sample-videos', () => {
     expect(items[0].thumbnailUrl).toContain('X-Amz-Signature');
     expect(items[0].previewVideoUrl).toContain('X-Amz-Signature');
   });
+
+  it('also returns the resolved pixverseVideoPricing config, merged with defaults', async () => {
+    await app.redis.set(
+      CONFIG_KEY,
+      JSON.stringify({
+        pixverseVideoPricing: {
+          perSecondRate: 3,
+          // Only 720p overridden — 360p/540p/1080p must fall back to the
+          // default qualityBase (150) rather than come back undefined.
+          qualityBase: { '720p': 40 },
+        },
+      }),
+    );
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/models/sample-videos',
+      headers: await authHeader(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.pixverseVideoPricing).toEqual({
+      perSecondRate: 3,
+      qualityBase: { '360p': 150, '540p': 150, '720p': 40, '1080p': 150 },
+    });
+  });
 });
