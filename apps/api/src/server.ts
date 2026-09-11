@@ -321,7 +321,11 @@ export async function buildServer(env: Env) {
     // hiddenClients: true drops the whole "Client Libraries" language picker --
     // the quickstart doc (dev-api-quickstart.md, this page's own description)
     // already covers curl/Node with the full multi-call flow.
-    configuration: { url: '/v1/dev/openapi.json', hiddenClients: true },
+    configuration: {
+      url: '/v1/dev/openapi.json',
+      hiddenClients: true,
+      pageTitle: 'Aivastra Try-On API Docs',
+    },
   });
   app.get('/v1/dev/openapi.json', { schema: { hide: true } }, async () => app.swagger());
   app.get('/v1/dev/postman-collection.json', { schema: { hide: true } }, async (_req, reply) => {

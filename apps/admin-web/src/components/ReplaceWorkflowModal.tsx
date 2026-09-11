@@ -356,7 +356,15 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      toast({ title: `Workflow replaced (now v${replaced.version ?? 2})` });
+      const clearedCount =
+        (replaced.clearedPosePromptCount ?? 0) + (replaced.clearedGarmentConfigPromptCount ?? 0);
+      toast({
+        title: `Workflow replaced (now v${replaced.version ?? 2})`,
+        body:
+          clearedCount > 0
+            ? `Cleared ${clearedCount} stale prompt override${clearedCount === 1 ? '' : 's'} that were tuned to the old graph.`
+            : undefined,
+      });
       onReplaced(replaced);
       onClose();
     } catch (e) {
@@ -441,6 +449,10 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
             stay intact, and new jobs will immediately resolve the new version (v
             {(workflow.version ?? 1) + 1}). Any in-flight or queued jobs will continue using v
             {workflow.version ?? 1} until they finish.
+          </div>
+          <div style={{ color: 'var(--text-muted, #6b7280)', marginTop: 8 }}>
+            Any per-pose or per-garment-type prompt override text tuned to the old graph will be
+            cleared, and cannot be restored.
           </div>
         </div>
 

@@ -1,10 +1,11 @@
 import { schema } from '@aivastra/db';
+import { computePixverseVideoCost, type PixverseQuality } from '@aivastra/types';
 import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
-import { getPixverseCreditCost } from '../../lib/resolution-config.js';
+import { getPixverseVideoPricingConfig } from '../../lib/resolution-config.js';
 
 export async function modelsRoutes(app: FastifyInstance) {
   app.get(
@@ -76,29 +77,46 @@ export async function modelsRoutes(app: FastifyInstance) {
         title: schema.sampleVideos.title,
         thumbnailR2Key: schema.sampleVideos.thumbnailR2Key,
         videoR2Key: schema.sampleVideos.videoR2Key,
+        duration: schema.sampleVideos.duration,
+        quality: schema.sampleVideos.quality,
       })
       .from(schema.sampleVideos)
       .where(and(eq(schema.sampleVideos.isActive, true), isNull(schema.sampleVideos.deletedAt)))
       .orderBy(asc(schema.sampleVideos.sortOrder));
-    const creditCost = await getPixverseCreditCost(app);
-    return {
-      creditCost,
-      items: await Promise.all(
-        rows.map(async (row) => {
-          const [thumbnail, video] = await Promise.all([
-            app.storage.presignGet(row.thumbnailR2Key, 3_600),
-            app.storage.presignGet(row.videoR2Key, 3_600),
-          ]);
+    // Resolve pricing once, up front, rather than in parallel with the
+    // per-row map below — every row's creditCost is now computed from this
+    // exact same snapshot via the pure computePixverseVideoCost, instead of
+    // each row independently re-reading (and re-resolving) config from Redis
+    // via getPixverseVideoCreditCost. That was N redundant round-trips per
+    // request, and meant the exposed pixverseVideoPricing and each item's
+    // creditCost could theoretically straddle an admin PATCH mid-request.
+    const pixverseVideoPricing = await getPixverseVideoPricingConfig(app);
+    const items = await Promise.all(
+      rows.map(async (row) => {
+        const [thumbnail, video] = await Promise.all([
+          app.storage.presignGet(row.thumbnailR2Key, 3_600),
+          app.storage.presignGet(row.videoR2Key, 3_600),
+        ]);
 
-          return {
-            id: row.id,
-            title: row.title,
-            thumbnailUrl: thumbnail.url,
-            previewVideoUrl: video.url,
-          };
-        }),
-      ),
-    };
+        return {
+          id: row.id,
+          title: row.title,
+          thumbnailUrl: thumbnail.url,
+          previewVideoUrl: video.url,
+          // The preset's own admin-set values — Motion Studio pre-fills its
+          // duration/quality controls from these when a preset is picked,
+          // then lets the caller override them (see CreateCatalogVideoJobRequest).
+          duration: row.duration,
+          quality: row.quality as PixverseQuality,
+          creditCost: computePixverseVideoCost(
+            row.duration,
+            row.quality as PixverseQuality,
+            pixverseVideoPricing,
+          ),
+        };
+      }),
+    );
+    return { items, pixverseVideoPricing };
   });
 
   app.get(

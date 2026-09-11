@@ -118,8 +118,49 @@ export const SIMPLE_TRYON_COST = 5;
 
 /** Fallback default — the actual charged cost is admin-configurable, see getSareeMannequinDevCreditCost(). */
 export const SAREE_MANNEQUIN_DEV_COST = 10;
-/** Fallback default — the actual charged cost is admin-configurable, see getPixverseCreditCost(). */
+/** Fallback default — the actual charged cost is admin-configurable, see getPixverseVideoCreditCost(). */
 export const PIXVERSE_VIDEO_COST = 150;
+
+export const PIXVERSE_DURATION_MIN = 1;
+export const PIXVERSE_DURATION_MAX = 15;
+
+export const PIXVERSE_QUALITIES = ['360p', '540p', '720p', '1080p'] as const;
+export type PixverseQuality = (typeof PIXVERSE_QUALITIES)[number];
+
+export interface PixverseVideoPricingConfig {
+  /** Credits charged per second of video, on top of the quality base. */
+  perSecondRate: number;
+  /** Base credit cost per quality tier, before the per-second addition. */
+  qualityBase: Record<PixverseQuality, number>;
+}
+
+/**
+ * Used for Motion Studio's Custom mode (duration + quality picked by the
+ * end user, no prompt field) — see CreateCatalogVideoJobRequest. Written
+ * once, deliberately generic and safe; not admin-configurable (YAGNI —
+ * promote to a config value if that's ever requested).
+ */
+export const PIXVERSE_CUSTOM_VIDEO_PROMPT =
+  'Subtle, natural motion: gentle fabric sway and a soft camera drift. ' +
+  'Keep the face, body proportions, and garment details unchanged — no ' +
+  'distortion, no extra people, no background changes.';
+
+/**
+ * Single source of truth for catalog-video pricing — called by both the API
+ * cost resolver (getPixverseVideoCreditCost) and the admin cost-preview UI,
+ * so the two can never compute a different number for the same inputs.
+ */
+export function computePixverseVideoCost(
+  duration: number,
+  quality: PixverseQuality,
+  config: PixverseVideoPricingConfig,
+): number {
+  const raw = config.qualityBase[quality] + duration * config.perSecondRate;
+  // A malformed/incomplete config (e.g. qualityBase missing the requested
+  // tier) makes raw NaN — floor to 1 instead of letting NaN reach
+  // atomicDeduct on the money path.
+  return Number.isFinite(raw) ? Math.max(1, Math.ceil(raw)) : 1;
+}
 
 export const CreateSimpleTryonRequest = z.object({
   personKey: z.string().regex(INPUT_GARMENT_KEY),
@@ -145,11 +186,33 @@ export const CreateCatalogVideoJobRequest = z
     // below, same XOR style as upperGarmentKey/mannequinJobId above.
     sourceJobId: z.string().uuid().optional(),
     sourceImageKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
-    sampleVideoId: z.string().uuid(),
+    // At least one of sampleVideoId (an admin-curated preset — prompt,
+    // duration, quality) or duration+quality (Motion Studio's standalone
+    // Custom path — no prompt field; the server fills in
+    // PIXVERSE_CUSTOM_VIDEO_PROMPT) is required — enforced below. The two
+    // are no longer mutually exclusive: sampleVideoId + duration + quality
+    // together means "use this preset's prompt, but this duration/quality
+    // instead of the preset's own" — Motion Studio's normal flow, since a
+    // user can adjust a preset's duration/quality rather than only
+    // accepting it as-is.
+    sampleVideoId: z.string().uuid().optional(),
+    duration: z.number().int().min(PIXVERSE_DURATION_MIN).max(PIXVERSE_DURATION_MAX).optional(),
+    quality: z.enum(PIXVERSE_QUALITIES).optional(),
   })
   .refine((d) => Boolean(d.sourceJobId) !== Boolean(d.sourceImageKey), {
     message: 'Provide either sourceJobId or sourceImageKey, not both',
     path: ['sourceJobId'],
+  })
+  .refine(
+    (d) => Boolean(d.sampleVideoId) || (d.duration !== undefined && d.quality !== undefined),
+    {
+      message: 'Provide sampleVideoId, or duration and quality, or both',
+      path: ['sampleVideoId'],
+    },
+  )
+  .refine((d) => (d.duration !== undefined) === (d.quality !== undefined), {
+    message: 'duration and quality must be provided together',
+    path: ['duration'],
   });
 
 export const CreateSareeMannequinJobRequest = z.object({

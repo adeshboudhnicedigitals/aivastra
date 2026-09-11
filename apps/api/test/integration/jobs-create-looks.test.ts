@@ -308,6 +308,146 @@ describe('createJob — atomic multi-background looks[] form', () => {
     expect(inputs?.params).not.toHaveProperty('promptGarmentPhase');
   });
 
+  it('snapshots a pose_garment_configs prompt override into job_inputs.params for a normal (non-mapped) job', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-garment-config-prompt@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `garment-config-prompt-workflow-${poseAId}`,
+        label: 'Garment config prompt workflow',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({
+        workflowTemplateId: workflow.id,
+        promptGarmentPhase: 'pose default garment prompt',
+        promptFacePhase: 'pose default face prompt',
+      })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'men',
+        slug: `garment-config-prompt-${poseAId}`,
+        label: 'Configured shirt',
+      })
+      .returning();
+    await app.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: poseAId,
+      subcategoryId: garmentType.id,
+      promptGarmentPhase: 'garment-type override prompt',
+      promptFacePhase: 'garment-type override face prompt',
+    });
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, response.json().jobIds[0]));
+    expect(inputs?.params).toMatchObject({
+      workflowTemplateId: workflow.id,
+      promptGarmentPhase: 'garment-type override prompt',
+      promptFacePhase: 'garment-type override face prompt',
+    });
+  });
+
+  it('falls back to the pose default prompt when no pose_garment_configs override exists for the garment type', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-pose-default-prompt@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `pose-default-prompt-workflow-${poseAId}`,
+        label: 'Pose default prompt workflow',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({
+        workflowTemplateId: workflow.id,
+        promptGarmentPhase: 'pose default garment prompt',
+        promptFacePhase: 'pose default face prompt',
+      })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'men',
+        slug: `pose-default-prompt-${poseAId}`,
+        label: 'Unconfigured shirt',
+      })
+      .returning();
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, response.json().jobIds[0]));
+    expect(inputs?.params).toMatchObject({
+      workflowTemplateId: workflow.id,
+      promptGarmentPhase: 'pose default garment prompt',
+      promptFacePhase: 'pose default face prompt',
+    });
+  });
+
   it('rejects duplicate (poseId, backgroundId) pairs within one looks[] request', async () => {
     await seedCreditPlan('free', false);
     const { token, userId } = await registerUser('looks-dup@x.com');

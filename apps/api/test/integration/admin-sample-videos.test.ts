@@ -48,6 +48,8 @@ describe('admin sample videos CRUD', () => {
         thumbnailR2Key: presign.thumbnailR2Key,
         prompt: 'model turns slowly to show the garment from all angles',
         sortOrder: 1,
+        duration: 8,
+        quality: '720p',
       }),
     });
     expect(confirmRes.statusCode).toBe(200);
@@ -104,6 +106,138 @@ describe('admin sample videos CRUD', () => {
       headers: adminAuth,
     });
     expect(listRes2.json().items.map((r: { id: string }) => r.id)).not.toContain(created.id);
+  });
+
+  it('creates with explicit duration/quality; patch can change every field', async () => {
+    const confirmRes = await app.inject({
+      method: 'POST',
+      url: '/admin/assets/sample-videos',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        title: 'Runway walk',
+        videoR2Key: 'sample-videos/runway.mp4',
+        thumbnailR2Key: 'sample-videos/runway.thumb.gif',
+        prompt: 'model walks the runway',
+        sortOrder: 0,
+        duration: 12,
+        quality: '1080p',
+      }),
+    });
+    expect(confirmRes.statusCode).toBe(200);
+    const created = confirmRes.json();
+    expect(created.duration).toBe(12);
+    expect(created.quality).toBe('1080p');
+
+    // By deliberate 2026-09-09 decision (see docs/progress.md), every
+    // PatchSampleVideoBody field is patchable, including title/prompt/
+    // duration/quality — the video itself is not touched or re-verified by
+    // a patch, admins are trusted to keep the two in sync manually.
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/sample-videos/${created.id}`,
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        title: 'Slow spin',
+        prompt: 'model turns slowly',
+        isActive: false,
+        sortOrder: 5,
+        duration: 5,
+        quality: '360p',
+      }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+    const [afterPatch] = await app.db
+      .select()
+      .from(schema.sampleVideos)
+      .where(eq(schema.sampleVideos.id, created.id));
+    expect(afterPatch.title).toBe('Slow spin');
+    expect(afterPatch.prompt).toBe('model turns slowly');
+    expect(afterPatch.isActive).toBe(false);
+    expect(afterPatch.sortOrder).toBe(5);
+    expect(afterPatch.duration).toBe(5);
+    expect(afterPatch.quality).toBe('360p');
+  });
+
+  it('rejects create without duration/quality — they are required fields, not defaulted', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/assets/sample-videos',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        title: 'No duration/quality',
+        videoR2Key: 'sample-videos/nodq.mp4',
+        thumbnailR2Key: 'sample-videos/nodq.thumb.gif',
+        prompt: 'p',
+        sortOrder: 0,
+      }),
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects duration outside 1-15 on patch, same as on create', async () => {
+    const confirmRes = await app.inject({
+      method: 'POST',
+      url: '/admin/assets/sample-videos',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        title: 'Patch range check',
+        videoR2Key: 'sample-videos/range.mp4',
+        thumbnailR2Key: 'sample-videos/range.thumb.gif',
+        prompt: 'p',
+        sortOrder: 0,
+        duration: 8,
+        quality: '720p',
+      }),
+    });
+    const created = confirmRes.json();
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/sample-videos/${created.id}`,
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ duration: 0 }),
+    });
+    expect(res.statusCode).toBe(400);
+    const [unchanged] = await app.db
+      .select()
+      .from(schema.sampleVideos)
+      .where(eq(schema.sampleVideos.id, created.id));
+    expect(unchanged.duration).toBe(8);
+  });
+
+  it('rejects duration outside 1-15 on create', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/assets/sample-videos',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        title: 'Bad',
+        videoR2Key: 'sample-videos/bad.mp4',
+        thumbnailR2Key: 'sample-videos/bad.thumb.gif',
+        prompt: 'p',
+        sortOrder: 0,
+        duration: 16,
+        quality: '720p',
+      }),
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects an unrecognized quality value on create', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/assets/sample-videos',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        title: 'Bad',
+        videoR2Key: 'sample-videos/bad2.mp4',
+        thumbnailR2Key: 'sample-videos/bad2.thumb.gif',
+        prompt: 'p',
+        sortOrder: 0,
+        duration: 8,
+        quality: '4k',
+      }),
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it('rejects non-mp4 content type on presign', async () => {
