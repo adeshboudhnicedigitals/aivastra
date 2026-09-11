@@ -81,6 +81,7 @@ export default function WorkflowsPage({ toast }: Props) {
     stage1PositivePrompt: '',
     stage1NegativePrompt: '',
     samSegmentationPrompt: '',
+    samSegmentationPromptNodeInput: '',
     latentMaxPx: '',
     outputMaxPx: '',
     ksamplerOverrides: [] as {
@@ -251,6 +252,14 @@ export default function WorkflowsPage({ toast }: Props) {
       if (editingWf.samSegmentationPromptNode) {
         patch.samSegmentationPrompt = editForm.samSegmentationPrompt.trim();
       }
+      // Compared against the node id BEFORE this save (not gated on it being
+      // set) — this is what lets an admin attach a node id to a template that
+      // never had one, not just edit an existing one. '' means "clear it".
+      const trimmedSamNode = editForm.samSegmentationPromptNodeInput.trim();
+      const samNodeChanged = trimmedSamNode !== (editingWf.samSegmentationPromptNode ?? '');
+      if (samNodeChanged) {
+        patch.samSegmentationPromptNode = trimmedSamNode || null;
+      }
       // Only a dual-size-group template (latentSizeNodeIds populated) has these caps —
       // the node IDs themselves stay server-computed, only the pixel ceilings are editable.
       if (editingWf.latentSizeNodeIds.length > 0) {
@@ -309,6 +318,17 @@ export default function WorkflowsPage({ toast }: Props) {
                   : {}),
                 ...(editingWf.samSegmentationPromptNode
                   ? { defaultSamSegmentationPrompt: editForm.samSegmentationPrompt.trim() }
+                  : {}),
+                ...(samNodeChanged
+                  ? {
+                      samSegmentationPromptNode: trimmedSamNode || null,
+                      // Clearing has a known resulting default (''); newly
+                      // attaching a node means the server derives its default
+                      // from the workflow JSON, which isn't available
+                      // client-side — left stale here until the next
+                      // View/Edit refetches it from the server.
+                      ...(trimmedSamNode ? {} : { defaultSamSegmentationPrompt: '' }),
+                    }
                   : {}),
                 ...(editingWf.latentSizeNodeIds.length > 0 &&
                 !Number.isNaN(Number(editForm.latentMaxPx))
@@ -595,6 +615,7 @@ export default function WorkflowsPage({ toast }: Props) {
                                 stage1PositivePrompt: wf.defaultStage1PositivePrompt,
                                 stage1NegativePrompt: wf.defaultStage1NegativePrompt,
                                 samSegmentationPrompt: wf.defaultSamSegmentationPrompt,
+                                samSegmentationPromptNodeInput: wf.samSegmentationPromptNode ?? '',
                                 latentMaxPx: String(wf.latentMaxPx ?? ''),
                                 outputMaxPx: String(wf.outputMaxPx ?? ''),
                                 ksamplerOverrides: ksamplerOverridesFromWf(wf),
@@ -890,6 +911,7 @@ export default function WorkflowsPage({ toast }: Props) {
                               stage1PositivePrompt: wf.defaultStage1PositivePrompt,
                               stage1NegativePrompt: wf.defaultStage1NegativePrompt,
                               samSegmentationPrompt: wf.defaultSamSegmentationPrompt,
+                              samSegmentationPromptNodeInput: wf.samSegmentationPromptNode ?? '',
                               latentMaxPx: String(wf.latentMaxPx ?? ''),
                               outputMaxPx: String(wf.outputMaxPx ?? ''),
                               ksamplerOverrides: ksamplerOverridesFromWf(wf),
@@ -1280,6 +1302,7 @@ export default function WorkflowsPage({ toast }: Props) {
             !editForm.slug.trim() ||
             !editForm.garmentPhasePrompt.trim() ||
             (!!editingWf?.stage1PositivePromptNode && !editForm.stage1PositivePrompt.trim()) ||
+            (!!editingWf?.samSegmentationPromptNode && !editForm.samSegmentationPrompt.trim()) ||
             ((editingWf?.latentSizeNodeIds.length ?? 0) > 0 &&
               (Number.isNaN(Number(editForm.latentMaxPx)) || Number(editForm.latentMaxPx) < 1)) ||
             ((editingWf?.outputSizeNodeIds.length ?? 0) > 0 &&
@@ -1478,6 +1501,18 @@ export default function WorkflowsPage({ toast }: Props) {
                 />
               </div>
             )}
+            <div className="field">
+              <label>SAM3 segmentation node ID (optional)</label>
+              <input
+                className="input"
+                value={editForm.samSegmentationPromptNodeInput}
+                disabled={editSaving}
+                placeholder="e.g. sam_node — leave blank for none"
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, samSegmentationPromptNodeInput: e.target.value }))
+                }
+              />
+            </div>
             {editingWf?.samSegmentationPromptNode && (
               <div className="field">
                 <label>SAM3 segmentation prompt</label>

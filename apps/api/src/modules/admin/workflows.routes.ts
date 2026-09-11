@@ -106,6 +106,23 @@ function validateNodeType(
   }
 }
 
+// Structural check for nodes whose class_type can't be reliably matched by
+// classifyNode (e.g. a SAM3 segmentation node, which won't classify as
+// 'prompt' under the TextEncode-based check) — requires the node to already
+// carry a prompt/text input rather than trusting class_type at all. Rename-
+// proof, unlike hardcoding the custom class_type string.
+function validateHasPromptInput(json: Record<string, unknown>, nodeId: string, role: string): void {
+  const node = json[nodeId] as WorkflowNode | undefined;
+  const inputs = node?.inputs ?? {};
+  if (!('prompt' in inputs) && !('text' in inputs)) {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      `Node "${nodeId}" (${role}) has no "prompt" or "text" input — not a valid target for a prompt override`,
+    );
+  }
+}
+
 // Different ComfyUI node types store their text under different input keys —
 // standard CLIPTextEncode uses "text", custom nodes (e.g. TextEncodeQwenImageEditPlusPro)
 // use "prompt". Try both rather than assuming one.
@@ -203,6 +220,11 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
   // docs/superpowers/specs/2026-09-11-sam3-segmentation-prompt-design.md.
   if (body.samSegmentationPromptNode) {
     validateNodeExists(
+      body.jsonContent,
+      body.samSegmentationPromptNode,
+      'SAM3 segmentation prompt',
+    );
+    validateHasPromptInput(
       body.jsonContent,
       body.samSegmentationPromptNode,
       'SAM3 segmentation prompt',
@@ -922,7 +944,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         stage1NegativePromptNode?: string;
         stage1PositivePrompt?: string;
         stage1NegativePrompt?: string;
-        samSegmentationPromptNode?: string;
+        samSegmentationPromptNode?: string | null;
         samSegmentationPrompt?: string;
       };
 
@@ -983,8 +1005,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if (body.samSegmentationPromptNode) {
         // No validateNodeType call here — see extractWorkflowInsertFields's
         // comment (Task 3): a SAM3 node's class_type won't classify as
-        // 'prompt' under the TextEncode-based check.
+        // 'prompt' under the TextEncode-based check. validateHasPromptInput
+        // is the structural check that stands in for it (Fix 2).
         validateNodeExists(json, body.samSegmentationPromptNode, 'SAM3 segmentation prompt');
+        validateHasPromptInput(json, body.samSegmentationPromptNode, 'SAM3 segmentation prompt');
       }
 
       const mergedUpperNodeIds = body.upperNodeIds ?? existing.upperNodeIds;
@@ -1020,7 +1044,13 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       const newPosNode = body.garmentPhasePromptNode ?? existing.garmentPhasePromptNode;
       const newStage1PosNode = body.stage1PositivePromptNode ?? existing.stage1PositivePromptNode;
       const newStage1NegNode = body.stage1NegativePromptNode ?? existing.stage1NegativePromptNode;
-      const newSamNode = body.samSegmentationPromptNode ?? existing.samSegmentationPromptNode;
+      // Nullable field (Fix 1) — 'in' presence check rather than `??`, same
+      // pattern as resultNodeId below, so an explicit null (clearing the node)
+      // is honored instead of falling through to the existing value.
+      const newSamNode =
+        'samSegmentationPromptNode' in body
+          ? (body.samSegmentationPromptNode ?? null)
+          : existing.samSegmentationPromptNode;
 
       if (body.garmentPhasePrompt !== undefined) {
         if (!body.garmentPhasePrompt.trim()) {
@@ -1070,6 +1100,13 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         writePromptText(json, newStage1NegNode, body.stage1NegativePrompt);
       }
       if (body.samSegmentationPrompt !== undefined) {
+        if (!body.samSegmentationPrompt.trim()) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'samSegmentationPrompt cannot be empty — an empty segmentation target likely causes ComfyUI to reject the job',
+          );
+        }
         if (!newSamNode) {
           throw new AppError(
             'VALIDATION',
@@ -1113,7 +1150,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       }
 
       let defaultSamSegmentationPrompt = existing.defaultSamSegmentationPrompt;
-      if (body.samSegmentationPromptNode || body.samSegmentationPrompt !== undefined) {
+      if ('samSegmentationPromptNode' in body || body.samSegmentationPrompt !== undefined) {
+        // Recomputed from the (possibly null, Fix 1) newSamNode: clearing the
+        // node clears the default back to '' via extractPromptText's fallback
+        // for an undefined node — there's nothing left to derive a default from.
         defaultSamSegmentationPrompt = extractPromptText(
           newSamNode ? (json[newSamNode] as WorkflowNode | undefined) : undefined,
         );
@@ -1172,8 +1212,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         updateValues.stage1PositivePromptNode = body.stage1PositivePromptNode;
       if (body.stage1NegativePromptNode !== undefined)
         updateValues.stage1NegativePromptNode = body.stage1NegativePromptNode;
-      if (body.samSegmentationPromptNode !== undefined)
-        updateValues.samSegmentationPromptNode = body.samSegmentationPromptNode;
+      if ('samSegmentationPromptNode' in body)
+        updateValues.samSegmentationPromptNode = body.samSegmentationPromptNode ?? null;
       if ('tryonPersonNodeId' in body)
         updateValues.tryonPersonNodeId = body.tryonPersonNodeId ?? null;
       if ('tryonGarmentNodeId' in body)

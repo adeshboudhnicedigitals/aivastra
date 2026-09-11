@@ -600,7 +600,10 @@ export const UpdateWorkflowBody = z.object({
   garmentPhasePromptNode: z.string().min(1).optional(),
   stage1PositivePromptNode: z.string().min(1).optional(),
   stage1NegativePromptNode: z.string().min(1).optional(),
-  samSegmentationPromptNode: z.string().min(1).optional(),
+  // Nullable (unlike its sibling node-id fields above) — an admin can clear a
+  // wrongly-set SAM3 node id back to "no node configured" without a
+  // destructive replace (Fix 1, closes Minor #8).
+  samSegmentationPromptNode: z.string().min(1).nullable().optional(),
   // Prompt TEXT (not which node holds it — see facePhasePromptNode/garmentPhasePromptNode
   // above for that). No .min(1) here on purpose: emptiness rules differ per field and are
   // enforced in the route handler (garmentPhasePrompt must be non-empty, facePhasePrompt may
