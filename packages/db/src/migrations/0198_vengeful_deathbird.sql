@@ -1,0 +1,1 @@
+ALTER TABLE "merchants" ADD COLUMN "loading_video_key" text;

@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import aivastra.nice.interactive.api.ApiClient
 import aivastra.nice.interactive.api.ApiService
+import aivastra.nice.interactive.data.session.SessionManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -39,9 +40,18 @@ class AppVideoRepository(
 
     suspend fun fetchAppVideoUri(context: Context): Uri? = withContext(Dispatchers.IO) {
         try {
-            val response = apiService.getAppVideoConfig()
-            val videoUrl = response.body()?.videoUrl
-            if (!response.isSuccessful || videoUrl.isNullOrBlank()) return@withContext null
+            // A merchant's uploaded override (persisted at login, see LoginViewModel /
+            // SessionManager) always wins; only fall back to the global config-driven
+            // clip when the signed-in merchant has none set.
+            val sessionVideoUrl = SessionManager.loadingVideoUrl
+            val videoUrl = if (!sessionVideoUrl.isNullOrBlank()) {
+                sessionVideoUrl
+            } else {
+                val response = apiService.getAppVideoConfig()
+                if (!response.isSuccessful) return@withContext null
+                response.body()?.videoUrl
+            }
+            if (videoUrl.isNullOrBlank()) return@withContext null
 
             val cacheFile = File(context.cacheDir, CACHE_FILE_NAME)
             val tempFile = File(context.cacheDir, "$CACHE_FILE_NAME.tmp")

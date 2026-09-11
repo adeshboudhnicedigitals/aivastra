@@ -1198,7 +1198,11 @@ export default function CataloguePage({
               borderRadius: '50%',
               background: 'rgba(255,255,255,0.15)',
               border: 'none',
-              color: C.white,
+              // Not C.white — this overlay is a fixed rgba(0,0,0,0.85) backdrop in
+              // both themes, but C.white flips to a near-black card color in dark
+              // mode (it's a surface token, not literal white), making the icon
+              // invisible there. C.onDark stays light in both themes.
+              color: C.onDark,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
