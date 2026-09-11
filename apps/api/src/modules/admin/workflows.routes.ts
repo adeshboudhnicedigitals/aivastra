@@ -1347,10 +1347,12 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
             tryonOutputNodeId: existing.tryonOutputNodeId,
             stage1PositivePromptNode: existing.stage1PositivePromptNode,
             stage1NegativePromptNode: existing.stage1NegativePromptNode,
+            samSegmentationPromptNode: existing.samSegmentationPromptNode,
             defaultFacePhasePrompt: existing.defaultFacePhasePrompt,
             defaultGarmentPhasePrompt: existing.defaultGarmentPhasePrompt,
             defaultStage1PositivePrompt: existing.defaultStage1PositivePrompt,
             defaultStage1NegativePrompt: existing.defaultStage1NegativePrompt,
+            defaultSamSegmentationPrompt: existing.defaultSamSegmentationPrompt,
           });
         }
 

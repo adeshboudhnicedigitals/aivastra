@@ -1831,5 +1831,72 @@ describe('admin workflows - floor validation', () => {
       });
       expect(response.statusCode).toBe(400);
     });
+
+    async function seedNonTerminalJobOnSamTemplate(workflowTemplateId: string, version: number) {
+      const [user] = await app.db
+        .insert(schema.users)
+        .values({
+          email: `sam3-drain-${Date.now()}-${Math.random()}@example.com`,
+          passwordHash: null,
+          tier: 'free',
+        })
+        .returning();
+      const [job] = await app.db
+        .insert(schema.jobs)
+        .values({ userId: user.id, status: 'QUEUED', creditsCharged: 1 })
+        .returning();
+      await app.db.insert(schema.jobInputs).values({
+        jobId: job.id,
+        params: { workflowTemplateId, dispatchTemplateVersion: version },
+      });
+    }
+
+    it('archives the SAM3 node ID and default prompt when a draining replace occurs', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_replace_${Date.now()}`,
+          label: 'SAM3 replace test',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'sam_node',
+        },
+      });
+      const id = createRes.json().id as string;
+      const version = createRes.json().version as number;
+
+      await seedNonTerminalJobOnSamTemplate(id, version);
+
+      const replaceRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `sam3_replace_${Date.now()}`,
+          label: 'SAM3 replaced',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'sam_node',
+          password: 'password123',
+        },
+      });
+      expect(replaceRes.statusCode).toBe(200);
+      expect(replaceRes.json().draining).not.toBeNull();
+
+      const [archiveRow] = await app.db
+        .select()
+        .from(schema.workflowTemplateArchives)
+        .where(eq(schema.workflowTemplateArchives.workflowTemplateId, id));
+      expect(archiveRow?.samSegmentationPromptNode).toBe('sam_node');
+      expect(archiveRow?.defaultSamSegmentationPrompt).toBe('person');
+    });
   });
 });
