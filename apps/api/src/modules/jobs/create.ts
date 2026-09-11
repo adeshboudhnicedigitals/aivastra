@@ -167,6 +167,7 @@ export interface TryonPlanLook {
   shoeCatalogId: string | null;
   workflowTemplateId: string | null;
   promptGarmentPhase: string | null;
+  promptFacePhase: string | null;
   params: Record<string, unknown>;
 }
 
@@ -661,6 +662,10 @@ export async function resolveTryonPlan(
             workflowTemplateId: row.workflowTemplateId,
             version: row.version,
             promptGarmentPhase: row.promptGarmentPhase,
+            // catalogue_template_pose_workflows has no promptFacePhase column of
+            // its own — this mapping mechanism only ever overrode the garment-phase
+            // prompt (see docs/superpowers/specs/2026-09-11-workflow-replace-prompt-override-invalidation-design.md §2).
+            promptFacePhase: null,
             upperNodeIds: row.upperNodeIds,
             lowerNodeId: row.lowerNodeId,
             shoeNodeId: row.shoeNodeId,
@@ -681,8 +686,12 @@ export async function resolveTryonPlan(
       defaultLowerNodeId: defaultWorkflow.lowerNodeId,
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
       defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
+      defaultPromptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
+      defaultPromptFacePhase: schema.modelPoseAssets.promptFacePhase,
       configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
       configIsActive: schema.poseGarmentConfigs.isActive,
+      configPromptGarmentPhase: schema.poseGarmentConfigs.promptGarmentPhase,
+      configPromptFacePhase: schema.poseGarmentConfigs.promptFacePhase,
       overrideWorkflowVersion: overrideWorkflow.version,
       overrideUpperNodeIds: overrideWorkflow.upperNodeIds,
       overrideLowerNodeId: overrideWorkflow.lowerNodeId,
@@ -717,12 +726,31 @@ export async function resolveTryonPlan(
     throw new AppError('BAD_CATALOG', 400, 'one or more poses not found or inactive');
   }
 
+  // Per-pose prompt override, resolved with the same precedence the dispatcher
+  // applies at dispatch time (apps/dispatcher/src/job/processor.ts): a matching
+  // pose_garment_configs row wins over the pose's own default when non-empty.
+  // Computed once here from poseWorkflowRows (already joined above) so both the
+  // requiresMannequinStep and standard branches below can snapshot it into
+  // params regardless of which workflow template ends up selected — previously
+  // this was hardcoded to null in both branches, so an admin's prompt override
+  // never reached a job's params and silently never applied.
+  const promptByPose = new Map(
+    poseWorkflowRows.map((r) => [
+      r.poseId,
+      {
+        promptGarmentPhase: r.configPromptGarmentPhase || r.defaultPromptGarmentPhase || null,
+        promptFacePhase: r.configPromptFacePhase || r.defaultPromptFacePhase || null,
+      },
+    ]),
+  );
+
   const poseWorkflows = requiresMannequinStep
     ? distinctPoseIds.map((poseId) => ({
         poseId,
         workflowTemplateId: sareeStep2?.workflowTemplateId ?? null,
         version: sareeStep2?.version ?? null,
-        promptGarmentPhase: null,
+        promptGarmentPhase: promptByPose.get(poseId)?.promptGarmentPhase ?? null,
+        promptFacePhase: promptByPose.get(poseId)?.promptFacePhase ?? null,
         upperNodeIds: sareeStep2?.upperNodeIds ?? [],
         lowerNodeId: sareeStep2?.lowerNodeId ?? null,
         shoeNodeId: sareeStep2?.shoeNodeId ?? null,
@@ -734,7 +762,8 @@ export async function resolveTryonPlan(
         workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
         version:
           r.configWorkflowTemplateId != null ? r.overrideWorkflowVersion : r.defaultWorkflowVersion,
-        promptGarmentPhase: null,
+        promptGarmentPhase: r.configPromptGarmentPhase || r.defaultPromptGarmentPhase || null,
+        promptFacePhase: r.configPromptFacePhase || r.defaultPromptFacePhase || null,
         upperNodeIds:
           r.configWorkflowTemplateId != null
             ? (r.overrideUpperNodeIds ?? [])
@@ -788,6 +817,7 @@ export async function resolveTryonPlan(
       shoeCatalogId: effectiveShoeCatalogId,
       workflowTemplateId: pw?.workflowTemplateId ?? null,
       promptGarmentPhase: pw?.promptGarmentPhase ?? null,
+      promptFacePhase: pw?.promptFacePhase ?? null,
       params: {
         ...(body.params ?? {}),
         dispatchTemplateVersion: pw?.version ?? null,
@@ -800,12 +830,16 @@ export async function resolveTryonPlan(
         ...(aspectRatio ? { aspectRatio } : {}),
         resolution,
         ...(platform ? { platform } : {}),
-        ...(catalogueTemplateMappingId
-          ? {
-              catalogueTemplateMappingId,
-              ...(pw?.promptGarmentPhase ? { promptGarmentPhase: pw.promptGarmentPhase } : {}),
-            }
-          : {}),
+        // Snapshotted here (not re-resolved at dispatch time) for the same reason
+        // workflowTemplateId is: the dispatcher's own pose_garment_configs lookup
+        // (processor.ts) only runs when workflowTemplateId was NOT snapshotted, so
+        // once a template is snapshotted the prompt override must travel with it or
+        // it silently never applies. pw.promptGarmentPhase already carries the right
+        // value regardless of source — the pose/config tables here, or (when
+        // catalogueTemplateMappingId is set) catalogue_template_pose_workflows.
+        ...(pw?.promptGarmentPhase ? { promptGarmentPhase: pw.promptGarmentPhase } : {}),
+        ...(pw?.promptFacePhase ? { promptFacePhase: pw.promptFacePhase } : {}),
+        ...(catalogueTemplateMappingId ? { catalogueTemplateMappingId } : {}),
         // Always last: regenerateJob's alternate-prompt override, when present, wins
         // over both the request's own params and any mapping-derived prompt above —
         // it targets the same workflowTemplateId already resolved for this pose, so
