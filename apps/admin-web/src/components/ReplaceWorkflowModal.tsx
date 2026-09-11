@@ -117,6 +117,13 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
   const [stage1PositivePromptNode, setStage1PositivePromptNode] = useState('');
   const [stage1NegativePromptNode, setStage1NegativePromptNode] = useState('');
 
+  // SAM3 Segmentation node — not auto-detected (see WorkflowUploadModal.tsx).
+  // Pre-filled from the workflow being replaced, same convention as
+  // slug/label above, since the new JSON usually keeps the same node ID.
+  const [samSegmentationPromptNode, setSamSegmentationPromptNode] = useState(
+    workflow.samSegmentationPromptNode ?? '',
+  );
+
   const [parsed, setParsed] = useState<ParseResult | null>(null);
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -309,6 +316,9 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
           tryonOutputNodeId: tryonOutputNodeId.trim(),
           facePhasePromptNode: negativePromptNode,
           garmentPhasePromptNode: positivePromptNode,
+          ...(samSegmentationPromptNode.trim()
+            ? { samSegmentationPromptNode: samSegmentationPromptNode.trim() }
+            : {}),
           password: password.trim(),
         };
       } else if (workflowType === 'two_stage') {
@@ -326,6 +336,9 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
           garmentPhasePromptNode: positivePromptNode,
           stage1PositivePromptNode,
           stage1NegativePromptNode,
+          ...(samSegmentationPromptNode.trim()
+            ? { samSegmentationPromptNode: samSegmentationPromptNode.trim() }
+            : {}),
           password: password.trim(),
         };
       } else {
@@ -348,6 +361,9 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
           ...(resultNodeId ? { resultNodeId } : {}),
           facePhasePromptNode: negativePromptNode || undefined,
           garmentPhasePromptNode: positivePromptNode,
+          ...(samSegmentationPromptNode.trim()
+            ? { samSegmentationPromptNode: samSegmentationPromptNode.trim() }
+            : {}),
           password: password.trim(),
         };
       }
@@ -868,6 +884,19 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
                 />
               </>
             )}
+          </div>
+        )}
+
+        {parsed && (
+          <div className="field">
+            <label>SAM3 segmentation node ID (optional)</label>
+            <input
+              className="input"
+              placeholder="e.g. 42 — not auto-detected, enter manually"
+              value={samSegmentationPromptNode}
+              disabled={saving}
+              onChange={(e) => setSamSegmentationPromptNode(e.target.value.trim())}
+            />
           </div>
         )}
 
