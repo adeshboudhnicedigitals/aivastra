@@ -1128,6 +1128,226 @@ describe('admin workflows - floor validation', () => {
       expect(replaceAgainRes.statusCode).toBe(409);
       expect(replaceAgainRes.json().error.message).toContain('draining');
     });
+
+    async function seedWorkflowTemplate(labelSuffix: string) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `replace_prompt_${labelSuffix}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          label: `Replace Prompt ${labelSuffix}`,
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      if (res.statusCode !== 200) {
+        console.error('seedWorkflowTemplate failed:', res.json());
+      }
+      expect(res.statusCode).toBe(200);
+      return res.json().id as string;
+    }
+
+    async function replaceWorkflow(id: string) {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `replace_prompt_replaced_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          label: 'Replaced',
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'password123',
+        },
+      });
+      if (res.statusCode !== 200) {
+        console.error('replaceWorkflow failed:', res.json());
+      }
+      expect(res.statusCode).toBe(200);
+      return res.json();
+    }
+
+    it('clears a pose default prompt override when its workflow is replaced, leaving workflowTemplateId intact', async () => {
+      const templateId = await seedWorkflowTemplate('pose_default');
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Pose with default override',
+          genderSlug: 'women',
+          r2Key: `replace-prompt-pose-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'replace-prompt-pose-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: templateId,
+          promptGarmentPhase: 'old garment phase text',
+          promptFacePhase: 'old face phase text',
+        })
+        .returning();
+
+      const replaced = await replaceWorkflow(templateId);
+      expect(replaced.clearedPosePromptCount).toBe(1);
+      expect(replaced.clearedGarmentConfigPromptCount).toBe(0);
+
+      const [updatedPose] = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, pose.id));
+      expect(updatedPose.promptGarmentPhase).toBeNull();
+      expect(updatedPose.promptFacePhase).toBeNull();
+      expect(updatedPose.workflowTemplateId).toBe(templateId);
+    });
+
+    it('clears an explicit per-garment-type prompt override when its referenced workflow is replaced', async () => {
+      const templateId = await seedWorkflowTemplate('config_direct');
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Pose for direct config override',
+          genderSlug: 'women',
+          r2Key: `replace-prompt-direct-pose-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'replace-prompt-direct-pose-thumb.jpg',
+          scope: 'general',
+        })
+        .returning();
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({
+          genderSlug: 'women',
+          slug: `replace-prompt-direct-gt-${Date.now()}-${Math.random()}`,
+          label: 'Replace Prompt Direct GT',
+          isActive: true,
+        })
+        .returning();
+      const [config] = await app.db
+        .insert(schema.poseGarmentConfigs)
+        .values({
+          poseAssetId: pose.id,
+          subcategoryId: garmentType.id,
+          workflowTemplateId: templateId,
+          promptGarmentPhase: 'old config garment phase text',
+          promptFacePhase: 'old config face phase text',
+        })
+        .returning();
+
+      const replaced = await replaceWorkflow(templateId);
+      expect(replaced.clearedPosePromptCount).toBe(0);
+      expect(replaced.clearedGarmentConfigPromptCount).toBe(1);
+
+      const [updatedConfig] = await app.db
+        .select()
+        .from(schema.poseGarmentConfigs)
+        .where(eq(schema.poseGarmentConfigs.id, config.id));
+      expect(updatedConfig.promptGarmentPhase).toBeNull();
+      expect(updatedConfig.promptFacePhase).toBeNull();
+      expect(updatedConfig.workflowTemplateId).toBe(templateId);
+    });
+
+    it('clears an inherited per-garment-type prompt override when the pose default it relies on is replaced', async () => {
+      const templateId = await seedWorkflowTemplate('config_inherited');
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Pose with inherited default',
+          genderSlug: 'women',
+          r2Key: `replace-prompt-inherited-pose-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'replace-prompt-inherited-pose-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: templateId,
+        })
+        .returning();
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({
+          genderSlug: 'women',
+          slug: `replace-prompt-inherited-gt-${Date.now()}-${Math.random()}`,
+          label: 'Replace Prompt Inherited GT',
+          isActive: true,
+        })
+        .returning();
+      const [config] = await app.db
+        .insert(schema.poseGarmentConfigs)
+        .values({
+          poseAssetId: pose.id,
+          subcategoryId: garmentType.id,
+          workflowTemplateId: null,
+          promptGarmentPhase: 'old inherited garment phase text',
+          promptFacePhase: 'old inherited face phase text',
+        })
+        .returning();
+
+      const replaced = await replaceWorkflow(templateId);
+      expect(replaced.clearedPosePromptCount).toBe(1);
+      expect(replaced.clearedGarmentConfigPromptCount).toBe(1);
+
+      const [updatedConfig] = await app.db
+        .select()
+        .from(schema.poseGarmentConfigs)
+        .where(eq(schema.poseGarmentConfigs.id, config.id));
+      expect(updatedConfig.promptGarmentPhase).toBeNull();
+      expect(updatedConfig.promptFacePhase).toBeNull();
+      expect(updatedConfig.workflowTemplateId).toBeNull();
+    });
+
+    it('leaves prompt overrides referencing a different, non-replaced template untouched', async () => {
+      const targetTemplateId = await seedWorkflowTemplate('target');
+      const otherTemplateId = await seedWorkflowTemplate('other');
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Pose pointing at other template',
+          genderSlug: 'women',
+          r2Key: `replace-prompt-other-pose-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'replace-prompt-other-pose-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: otherTemplateId,
+          promptGarmentPhase: 'untouched garment phase text',
+          promptFacePhase: 'untouched face phase text',
+        })
+        .returning();
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({
+          genderSlug: 'women',
+          slug: `replace-prompt-other-gt-${Date.now()}-${Math.random()}`,
+          label: 'Replace Prompt Other GT',
+          isActive: true,
+        })
+        .returning();
+      const [config] = await app.db
+        .insert(schema.poseGarmentConfigs)
+        .values({
+          poseAssetId: pose.id,
+          subcategoryId: garmentType.id,
+          workflowTemplateId: otherTemplateId,
+          promptGarmentPhase: 'untouched config garment phase text',
+          promptFacePhase: 'untouched config face phase text',
+        })
+        .returning();
+
+      const replaced = await replaceWorkflow(targetTemplateId);
+      expect(replaced.clearedPosePromptCount).toBe(0);
+      expect(replaced.clearedGarmentConfigPromptCount).toBe(0);
+
+      const [updatedPose] = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, pose.id));
+      expect(updatedPose.promptGarmentPhase).toBe('untouched garment phase text');
+      expect(updatedPose.promptFacePhase).toBe('untouched face phase text');
+
+      const [updatedConfig] = await app.db
+        .select()
+        .from(schema.poseGarmentConfigs)
+        .where(eq(schema.poseGarmentConfigs.id, config.id));
+      expect(updatedConfig.promptGarmentPhase).toBe('untouched config garment phase text');
+      expect(updatedConfig.promptFacePhase).toBe('untouched config face phase text');
+    });
   });
 
   describe('regeneration workflows', () => {

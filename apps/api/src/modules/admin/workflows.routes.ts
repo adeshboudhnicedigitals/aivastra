@@ -7,7 +7,7 @@ import {
   ReplaceWorkflowBody,
   UpdateWorkflowBody,
 } from '@aivastra/types';
-import { and, count, eq, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -1303,6 +1303,49 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           .where(eq(schema.workflowTemplates.id, id))
           .returning();
 
+        // Prompt override text on both tables below was written against the
+        // OLD graph's shape (node roles, phrasing, even workflowType can
+        // differ after a replace) and is never structurally guaranteed to be
+        // valid against the new graph. workflowTemplateId columns on these
+        // tables are FKs by row id, which a replace never changes — they
+        // stay correct and are deliberately left untouched here. See
+        // docs/superpowers/specs/
+        // 2026-09-11-workflow-replace-prompt-override-invalidation-design.md.
+        const clearedPoseAssets = await tx
+          .update(schema.modelPoseAssets)
+          .set({ promptGarmentPhase: null, promptFacePhase: null })
+          .where(eq(schema.modelPoseAssets.workflowTemplateId, id))
+          .returning({ id: schema.modelPoseAssets.id });
+
+        const clearedGarmentConfigsDirect = await tx
+          .update(schema.poseGarmentConfigs)
+          .set({ promptGarmentPhase: null, promptFacePhase: null })
+          .where(eq(schema.poseGarmentConfigs.workflowTemplateId, id))
+          .returning({ id: schema.poseGarmentConfigs.id });
+
+        // Rows with no workflow override of their own inherit whichever pose
+        // just had its default cleared above — their prompt text is just as
+        // stale even though their own workflowTemplateId column is (and
+        // stays) null.
+        const inheritingPoseIds = clearedPoseAssets.map((p) => p.id);
+        const clearedGarmentConfigsInherited =
+          inheritingPoseIds.length > 0
+            ? await tx
+                .update(schema.poseGarmentConfigs)
+                .set({ promptGarmentPhase: null, promptFacePhase: null })
+                .where(
+                  and(
+                    isNull(schema.poseGarmentConfigs.workflowTemplateId),
+                    inArray(schema.poseGarmentConfigs.poseAssetId, inheritingPoseIds),
+                  ),
+                )
+                .returning({ id: schema.poseGarmentConfigs.id })
+            : [];
+
+        const clearedPosePromptCount = clearedPoseAssets.length;
+        const clearedGarmentConfigPromptCount =
+          clearedGarmentConfigsDirect.length + clearedGarmentConfigsInherited.length;
+
         await recordAudit(tx, {
           // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
           actor: { userId: req.userId, role: req.adminRole! },
@@ -1315,11 +1358,19 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
             slug: updated.slug,
             label: updated.label,
             archived: needsDrain,
+            clearedPosePromptCount,
+            clearedGarmentConfigPromptCount,
           },
           request: req,
         });
 
-        return { updated, fromVersion: existing.version, archived: needsDrain };
+        return {
+          updated,
+          fromVersion: existing.version,
+          archived: needsDrain,
+          clearedPosePromptCount,
+          clearedGarmentConfigPromptCount,
+        };
       });
 
       const [[poseCountRow], [funnelCountRow]] = await Promise.all([
@@ -1339,6 +1390,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         funnelCount: Number(funnelCountRow?.cnt ?? 0),
         draining: result.archived ? { fromVersion: result.fromVersion } : null,
         ksamplerNodes: extractKSamplerNodes(result.updated.jsonContent as Record<string, unknown>),
+        clearedPosePromptCount: result.clearedPosePromptCount,
+        clearedGarmentConfigPromptCount: result.clearedGarmentConfigPromptCount,
       };
     },
   );
