@@ -106,6 +106,23 @@ function validateNodeType(
   }
 }
 
+// Structural check for nodes whose class_type can't be reliably matched by
+// classifyNode (e.g. a SAM3 segmentation node, which won't classify as
+// 'prompt' under the TextEncode-based check) — requires the node to already
+// carry a prompt/text input rather than trusting class_type at all. Rename-
+// proof, unlike hardcoding the custom class_type string.
+function validateHasPromptInput(json: Record<string, unknown>, nodeId: string, role: string): void {
+  const node = json[nodeId] as WorkflowNode | undefined;
+  const inputs = node?.inputs ?? {};
+  if (!('prompt' in inputs) && !('text' in inputs)) {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      `Node "${nodeId}" (${role}) has no "prompt" or "text" input — not a valid target for a prompt override`,
+    );
+  }
+}
+
 // Different ComfyUI node types store their text under different input keys —
 // standard CLIPTextEncode uses "text", custom nodes (e.g. TextEncodeQwenImageEditPlusPro)
 // use "prompt". Try both rather than assuming one.
@@ -196,6 +213,30 @@ export function writeKSamplerOverride(
 function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
   const workflowType = body.workflowType ?? 'regular';
 
+  // SAM3 Segmentation node — generic across every workflow type, computed
+  // once here rather than duplicated per branch below. No validateNodeType
+  // call: a SAM3 node's class_type won't classify as 'prompt' under the
+  // TextEncode-based check, so only existence is validated. See
+  // docs/superpowers/specs/2026-09-11-sam3-segmentation-prompt-design.md.
+  if (body.samSegmentationPromptNode) {
+    validateNodeExists(
+      body.jsonContent,
+      body.samSegmentationPromptNode,
+      'SAM3 segmentation prompt',
+    );
+    validateHasPromptInput(
+      body.jsonContent,
+      body.samSegmentationPromptNode,
+      'SAM3 segmentation prompt',
+    );
+  }
+  const samSegmentationPromptNode = body.samSegmentationPromptNode ?? null;
+  const defaultSamSegmentationPrompt = body.samSegmentationPromptNode
+    ? extractPromptText(
+        body.jsonContent[body.samSegmentationPromptNode] as WorkflowNode | undefined,
+      )
+    : '';
+
   if (workflowType === 'saree_step1_two_input') {
     const { detected: autoDetected } = detectTryonTwoInputMappings(body.jsonContent);
     const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
@@ -272,6 +313,8 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       tryonGarmentNodeId: bodyNodeId,
       tryonGarmentNodeId2: palluNodeId,
       tryonOutputNodeId: outputNodeId,
+      samSegmentationPromptNode,
+      defaultSamSegmentationPrompt,
     };
   }
 
@@ -374,6 +417,8 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       tryonGarmentNodeId: null,
       tryonGarmentNodeId2: null,
       tryonOutputNodeId: null,
+      samSegmentationPromptNode,
+      defaultSamSegmentationPrompt,
     };
   }
 
@@ -446,6 +491,8 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       tryonGarmentNodeId: null,
       tryonGarmentNodeId2: null,
       tryonOutputNodeId: outputNodeId,
+      samSegmentationPromptNode,
+      defaultSamSegmentationPrompt,
     };
   }
 
@@ -520,6 +567,8 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       tryonGarmentNodeId: garmentNodeId,
       tryonGarmentNodeId2: null,
       tryonOutputNodeId: outputNodeId,
+      samSegmentationPromptNode,
+      defaultSamSegmentationPrompt,
     };
   }
 
@@ -603,6 +652,8 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
     tryonGarmentNodeId: null,
     tryonGarmentNodeId2: null,
     tryonOutputNodeId: null,
+    samSegmentationPromptNode,
+    defaultSamSegmentationPrompt,
   };
 }
 
@@ -682,6 +733,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       stage1NegativePromptNode: r.stage1NegativePromptNode,
       defaultStage1PositivePrompt: r.defaultStage1PositivePrompt,
       defaultStage1NegativePrompt: r.defaultStage1NegativePrompt,
+      samSegmentationPromptNode: r.samSegmentationPromptNode,
+      defaultSamSegmentationPrompt: r.defaultSamSegmentationPrompt,
       createdAt: r.createdAt,
     }));
   });
@@ -891,6 +944,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         stage1NegativePromptNode?: string;
         stage1PositivePrompt?: string;
         stage1NegativePrompt?: string;
+        samSegmentationPromptNode?: string | null;
+        samSegmentationPrompt?: string;
       };
 
       const [existing] = await app.db
@@ -947,6 +1002,14 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         validateNodeExists(json, body.stage1NegativePromptNode, 'stage-1 negative prompt');
         validateNodeType(json, body.stage1NegativePromptNode, 'prompt', 'stage-1 negative prompt');
       }
+      if (body.samSegmentationPromptNode) {
+        // No validateNodeType call here — see extractWorkflowInsertFields's
+        // comment (Task 3): a SAM3 node's class_type won't classify as
+        // 'prompt' under the TextEncode-based check. validateHasPromptInput
+        // is the structural check that stands in for it (Fix 2).
+        validateNodeExists(json, body.samSegmentationPromptNode, 'SAM3 segmentation prompt');
+        validateHasPromptInput(json, body.samSegmentationPromptNode, 'SAM3 segmentation prompt');
+      }
 
       const mergedUpperNodeIds = body.upperNodeIds ?? existing.upperNodeIds;
       const mergedLowerNodeId =
@@ -981,6 +1044,13 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       const newPosNode = body.garmentPhasePromptNode ?? existing.garmentPhasePromptNode;
       const newStage1PosNode = body.stage1PositivePromptNode ?? existing.stage1PositivePromptNode;
       const newStage1NegNode = body.stage1NegativePromptNode ?? existing.stage1NegativePromptNode;
+      // Nullable field (Fix 1) — 'in' presence check rather than `??`, same
+      // pattern as resultNodeId below, so an explicit null (clearing the node)
+      // is honored instead of falling through to the existing value.
+      const newSamNode =
+        'samSegmentationPromptNode' in body
+          ? (body.samSegmentationPromptNode ?? null)
+          : existing.samSegmentationPromptNode;
 
       if (body.garmentPhasePrompt !== undefined) {
         if (!body.garmentPhasePrompt.trim()) {
@@ -1029,6 +1099,23 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         }
         writePromptText(json, newStage1NegNode, body.stage1NegativePrompt);
       }
+      if (body.samSegmentationPrompt !== undefined) {
+        if (!body.samSegmentationPrompt.trim()) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'samSegmentationPrompt cannot be empty — an empty segmentation target likely causes ComfyUI to reject the job',
+          );
+        }
+        if (!newSamNode) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot set samSegmentationPrompt: this workflow has no SAM3 segmentation prompt node',
+          );
+        }
+        writePromptText(json, newSamNode, body.samSegmentationPrompt);
+      }
       for (const override of body.ksamplerOverrides ?? []) {
         writeKSamplerOverride(json, override);
       }
@@ -1062,18 +1149,30 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         );
       }
 
+      let defaultSamSegmentationPrompt = existing.defaultSamSegmentationPrompt;
+      if ('samSegmentationPromptNode' in body || body.samSegmentationPrompt !== undefined) {
+        // Recomputed from the (possibly null, Fix 1) newSamNode: clearing the
+        // node clears the default back to '' via extractPromptText's fallback
+        // for an undefined node — there's nothing left to derive a default from.
+        defaultSamSegmentationPrompt = extractPromptText(
+          newSamNode ? (json[newSamNode] as WorkflowNode | undefined) : undefined,
+        );
+      }
+
       const updateValues: Record<string, unknown> = {
         updatedAt: new Date(),
         defaultFacePhasePrompt,
         defaultGarmentPhasePrompt,
         defaultStage1PositivePrompt,
         defaultStage1NegativePrompt,
+        defaultSamSegmentationPrompt,
       };
       if (
         body.garmentPhasePrompt !== undefined ||
         body.facePhasePrompt !== undefined ||
         body.stage1PositivePrompt !== undefined ||
         body.stage1NegativePrompt !== undefined ||
+        body.samSegmentationPrompt !== undefined ||
         (body.ksamplerOverrides?.length ?? 0) > 0
       ) {
         updateValues.jsonContent = json;
@@ -1113,6 +1212,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         updateValues.stage1PositivePromptNode = body.stage1PositivePromptNode;
       if (body.stage1NegativePromptNode !== undefined)
         updateValues.stage1NegativePromptNode = body.stage1NegativePromptNode;
+      if ('samSegmentationPromptNode' in body)
+        updateValues.samSegmentationPromptNode = body.samSegmentationPromptNode ?? null;
       if ('tryonPersonNodeId' in body)
         updateValues.tryonPersonNodeId = body.tryonPersonNodeId ?? null;
       if ('tryonGarmentNodeId' in body)
@@ -1286,10 +1387,12 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
             tryonOutputNodeId: existing.tryonOutputNodeId,
             stage1PositivePromptNode: existing.stage1PositivePromptNode,
             stage1NegativePromptNode: existing.stage1NegativePromptNode,
+            samSegmentationPromptNode: existing.samSegmentationPromptNode,
             defaultFacePhasePrompt: existing.defaultFacePhasePrompt,
             defaultGarmentPhasePrompt: existing.defaultGarmentPhasePrompt,
             defaultStage1PositivePrompt: existing.defaultStage1PositivePrompt,
             defaultStage1NegativePrompt: existing.defaultStage1NegativePrompt,
+            defaultSamSegmentationPrompt: existing.defaultSamSegmentationPrompt,
           });
         }
 

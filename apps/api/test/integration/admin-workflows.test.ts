@@ -1642,4 +1642,513 @@ describe('admin workflows - floor validation', () => {
       expect(row.regenerationReasonPrompts).toEqual([]);
     });
   });
+
+  describe('SAM3 segmentation prompt node', () => {
+    const samJsonContent = {
+      ...jsonContent,
+      sam_node: {
+        inputs: { prompt: 'person' },
+        class_type: 'Sam3Segmentation',
+        _meta: { title: 'sam3_segmentation' },
+      },
+    };
+
+    it('creates a workflow with samSegmentationPromptNode and extracts its default prompt', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_create_${Date.now()}`,
+          label: 'SAM3 create test',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'sam_node',
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.samSegmentationPromptNode).toBe('sam_node');
+      expect(body.defaultSamSegmentationPrompt).toBe('person');
+    });
+
+    it('creates a workflow with no samSegmentationPromptNode — defaults stay null/empty', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_absent_${Date.now()}`,
+          label: 'SAM3 absent test',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.samSegmentationPromptNode ?? null).toBeNull();
+      expect(body.defaultSamSegmentationPrompt).toBe('');
+    });
+
+    it('rejects a nonexistent samSegmentationPromptNode', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_bad_node_${Date.now()}`,
+          label: 'SAM3 bad node test',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'does_not_exist',
+        },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('GET /admin/workflows list includes samSegmentationPromptNode/defaultSamSegmentationPrompt', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_list_${Date.now()}`,
+          label: 'SAM3 list test',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'sam_node',
+        },
+      });
+      const id = createRes.json().id as string;
+
+      const listRes = await app.inject({ method: 'GET', url: '/admin/workflows', headers });
+      expect(listRes.statusCode).toBe(200);
+      const row = (listRes.json() as { id: string }[]).find((w) => w.id === id) as {
+        samSegmentationPromptNode: string | null;
+        defaultSamSegmentationPrompt: string;
+      };
+      expect(row.samSegmentationPromptNode).toBe('sam_node');
+      expect(row.defaultSamSegmentationPrompt).toBe('person');
+    });
+
+    async function createSamWorkflow(promptText = 'person') {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_patch_${Date.now()}_${Math.floor(Math.random() * 1e9)}`,
+          label: 'SAM3 patch test',
+          jsonContent: {
+            ...jsonContent,
+            sam_node: {
+              inputs: { prompt: promptText },
+              class_type: 'Sam3Segmentation',
+              _meta: { title: 'sam3_segmentation' },
+            },
+          },
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      return createRes.json().id as string;
+    }
+
+    it('PATCH rejects samSegmentationPrompt when no node is configured', async () => {
+      const id = await createSamWorkflow();
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPrompt: 'garment' },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('PATCH sets samSegmentationPromptNode alone and recomputes the default from the JSON', async () => {
+      const id = await createSamWorkflow('person');
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: 'sam_node' },
+      });
+      expect(response.statusCode).toBe(200);
+
+      const detailRes = await app.inject({ method: 'GET', url: `/admin/workflows/${id}`, headers });
+      const detail = detailRes.json();
+      expect(detail.samSegmentationPromptNode).toBe('sam_node');
+      expect(detail.defaultSamSegmentationPrompt).toBe('person');
+    });
+
+    it('PATCH edits samSegmentationPrompt once a node is configured, writing into jsonContent', async () => {
+      const id = await createSamWorkflow('person');
+      await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: 'sam_node' },
+      });
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPrompt: 'garment' },
+      });
+      expect(response.statusCode).toBe(200);
+
+      const detailRes = await app.inject({ method: 'GET', url: `/admin/workflows/${id}`, headers });
+      const detail = detailRes.json();
+      expect(detail.defaultSamSegmentationPrompt).toBe('garment');
+      expect(
+        (detail.jsonContent as Record<string, { inputs: { prompt: string } }>).sam_node.inputs
+          .prompt,
+      ).toBe('garment');
+    });
+
+    it('PATCH rejects a nonexistent samSegmentationPromptNode', async () => {
+      const id = await createSamWorkflow();
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: 'does_not_exist' },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    // Closes Minor #4 — proves `newSamNode = body.samSegmentationPromptNode ??
+    // existing.samSegmentationPromptNode` correctly resolves from `body` when
+    // `existing` has nothing configured, in a single combined PATCH (Fix 1).
+    it('PATCH sets samSegmentationPromptNode and samSegmentationPrompt together on a workflow with neither configured', async () => {
+      const id = await createSamWorkflow();
+
+      const patchRes = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: 'sam_node', samSegmentationPrompt: 'garment' },
+      });
+      expect(patchRes.statusCode).toBe(200);
+
+      const detailRes = await app.inject({ method: 'GET', url: `/admin/workflows/${id}`, headers });
+      const detail = detailRes.json();
+      expect(detail.samSegmentationPromptNode).toBe('sam_node');
+      expect(detail.defaultSamSegmentationPrompt).toBe('garment');
+      expect(
+        (detail.jsonContent as Record<string, { inputs: { prompt: string } }>).sam_node.inputs
+          .prompt,
+      ).toBe('garment');
+    });
+
+    // Closes Minor #5 — proves extractWorkflowInsertFields's hoisted SAM3
+    // extraction is spread into a NON-regular return branch too, not just the
+    // 'regular' branch every other test above exercises.
+    it('creates a regeneration-type workflow with samSegmentationPromptNode set', async () => {
+      const regenSamJsonContent = {
+        person_node: { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'person' } },
+        positive_node: {
+          inputs: { prompt: 'default reason prompt' },
+          class_type: 'CLIPTextEncode',
+          _meta: { title: 'positive_prompt' },
+        },
+        negative_node: {
+          inputs: { text: 'default negative' },
+          class_type: 'CLIPTextEncode',
+          _meta: { title: 'negative_prompt' },
+        },
+        output_node: {
+          inputs: {},
+          class_type: 'Save Image With Callback',
+          _meta: { title: 'output' },
+        },
+        sam_node: {
+          inputs: { prompt: 'person' },
+          class_type: 'Sam3Segmentation',
+          _meta: { title: 'sam3_segmentation' },
+        },
+      };
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_regen_${Date.now()}`,
+          label: 'SAM3 regeneration test',
+          jsonContent: regenSamJsonContent,
+          workflowType: 'regeneration',
+          facePhasePromptNode: 'negative_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'sam_node',
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.workflowType).toBe('regeneration');
+      expect(body.samSegmentationPromptNode).toBe('sam_node');
+      expect(body.defaultSamSegmentationPrompt).toBe('person');
+    });
+
+    // Closes Minor #6 — exercises extractPromptText/writePromptText's dual-key
+    // handling for this field specifically (custom nodes may store their value
+    // under inputs.text instead of inputs.prompt).
+    it('handles a SAM3 node that stores its value under inputs.text, not inputs.prompt', async () => {
+      const textJsonContent = {
+        ...jsonContent,
+        sam_node: {
+          inputs: { text: 'person' },
+          class_type: 'Sam3Segmentation',
+          _meta: { title: 'sam3_segmentation' },
+        },
+      };
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_text_${Date.now()}`,
+          label: 'SAM3 text-input test',
+          jsonContent: textJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'sam_node',
+        },
+      });
+      expect(createRes.statusCode).toBe(200);
+      expect(createRes.json().defaultSamSegmentationPrompt).toBe('person');
+      const id = createRes.json().id as string;
+
+      const patchRes = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPrompt: 'garment' },
+      });
+      expect(patchRes.statusCode).toBe(200);
+
+      const detailRes = await app.inject({ method: 'GET', url: `/admin/workflows/${id}`, headers });
+      const detail = detailRes.json();
+      expect(detail.defaultSamSegmentationPrompt).toBe('garment');
+      expect(
+        (detail.jsonContent as Record<string, { inputs: { text: string } }>).sam_node.inputs.text,
+      ).toBe('garment');
+    });
+
+    // Fix 2 — structural validation: samSegmentationPromptNode must point at a
+    // node that actually has a prompt/text input, on both the create and PATCH
+    // paths. Reuses `pose_node` (a LoadImage) from the shared jsonContent
+    // fixture as an existing-but-wrong-type target.
+    it('rejects samSegmentationPromptNode pointed at a node with no prompt/text input, on create', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_bad_structure_create_${Date.now()}`,
+          label: 'SAM3 bad structure create test',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'pose_node',
+        },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('rejects samSegmentationPromptNode pointed at a node with no prompt/text input, on PATCH', async () => {
+      const id = await createSamWorkflow();
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: 'pose_node' },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    // Fix 3 — an empty or whitespace-only samSegmentationPrompt is rejected,
+    // same convention as garmentPhasePrompt/stage1PositivePrompt.
+    it('PATCH rejects an empty or whitespace-only samSegmentationPrompt when a node is configured', async () => {
+      const id = await createSamWorkflow();
+      await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: 'sam_node' },
+      });
+
+      const emptyRes = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPrompt: '' },
+      });
+      expect(emptyRes.statusCode).toBe(400);
+
+      const whitespaceRes = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPrompt: '   ' },
+      });
+      expect(whitespaceRes.statusCode).toBe(400);
+    });
+
+    // Fix 1 point 4 — an admin can null out a wrongly-set node id without a
+    // destructive replace; clearing it also resets the derived default prompt.
+    it('PATCH clears samSegmentationPromptNode to null and resets the default prompt to empty', async () => {
+      const id = await createSamWorkflow('person');
+      await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: 'sam_node' },
+      });
+
+      const patchRes = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: null },
+      });
+      expect(patchRes.statusCode).toBe(200);
+
+      const detailRes = await app.inject({ method: 'GET', url: `/admin/workflows/${id}`, headers });
+      const detail = detailRes.json();
+      expect(detail.samSegmentationPromptNode).toBeNull();
+      expect(detail.defaultSamSegmentationPrompt).toBe('');
+    });
+
+    // Fix 1 point 4 — clearing the node and setting new prompt text in the same
+    // request is contradictory (there'd be nowhere to write the text) and is
+    // rejected the same way the existing node-not-configured case is.
+    it('PATCH rejects clearing samSegmentationPromptNode while also setting samSegmentationPrompt in the same request', async () => {
+      const id = await createSamWorkflow('person');
+      await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: 'sam_node' },
+      });
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: null, samSegmentationPrompt: 'x' },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    async function seedNonTerminalJobOnSamTemplate(workflowTemplateId: string, version: number) {
+      const [user] = await app.db
+        .insert(schema.users)
+        .values({
+          email: `sam3-drain-${Date.now()}-${Math.random()}@example.com`,
+          passwordHash: null,
+          tier: 'free',
+        })
+        .returning();
+      const [job] = await app.db
+        .insert(schema.jobs)
+        .values({ userId: user.id, status: 'QUEUED', creditsCharged: 1 })
+        .returning();
+      await app.db.insert(schema.jobInputs).values({
+        jobId: job.id,
+        params: { workflowTemplateId, dispatchTemplateVersion: version },
+      });
+    }
+
+    it('archives the SAM3 node ID and default prompt when a draining replace occurs', async () => {
+      // The replace payload deliberately reuses the same node id ('sam_node' —
+      // realistic, since a replace's graph usually keeps its node names) but
+      // gives it a DIFFERENT prompt text ('garment' vs the original 'person').
+      // That difference is what lets this test tell "archived the pre-replace
+      // value" apart from "archived the post-replace value" — with identical
+      // jsonContent on both sides, an archive-insert bug that read from the
+      // updated row instead of `existing` would produce the exact same
+      // asserted value and the test would pass either way.
+      const replacementJsonContent = {
+        ...jsonContent,
+        sam_node: {
+          inputs: { prompt: 'garment' },
+          class_type: 'Sam3Segmentation',
+          _meta: { title: 'sam3_segmentation' },
+        },
+      };
+
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_replace_${Date.now()}`,
+          label: 'SAM3 replace test',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'sam_node',
+        },
+      });
+      const id = createRes.json().id as string;
+      const version = createRes.json().version as number;
+      expect(createRes.json().defaultSamSegmentationPrompt).toBe('person');
+
+      await seedNonTerminalJobOnSamTemplate(id, version);
+
+      const replaceRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `sam3_replace_${Date.now()}`,
+          label: 'SAM3 replaced',
+          jsonContent: replacementJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'sam_node',
+          password: 'password123',
+        },
+      });
+      expect(replaceRes.statusCode).toBe(200);
+      expect(replaceRes.json().draining).not.toBeNull();
+      // The live/updated row must reflect the NEW version's prompt text —
+      // proving the replace payload's version actually differs from the
+      // original, so a passing archive assertion below can't be a coincidence
+      // of both sides holding the same value.
+      expect(replaceRes.json().defaultSamSegmentationPrompt).toBe('garment');
+
+      const [archiveRow] = await app.db
+        .select()
+        .from(schema.workflowTemplateArchives)
+        .where(eq(schema.workflowTemplateArchives.workflowTemplateId, id));
+      expect(archiveRow?.samSegmentationPromptNode).toBe('sam_node');
+      // Must be the OUTGOING (pre-replace) value, 'person' — not 'garment',
+      // which is what the live row now holds after the replace.
+      expect(archiveRow?.defaultSamSegmentationPrompt).toBe('person');
+    });
+  });
 });
