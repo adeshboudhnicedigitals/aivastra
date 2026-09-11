@@ -1642,4 +1642,105 @@ describe('admin workflows - floor validation', () => {
       expect(row.regenerationReasonPrompts).toEqual([]);
     });
   });
+
+  describe('SAM3 segmentation prompt node', () => {
+    const samJsonContent = {
+      ...jsonContent,
+      sam_node: {
+        inputs: { prompt: 'person' },
+        class_type: 'Sam3Segmentation',
+        _meta: { title: 'sam3_segmentation' },
+      },
+    };
+
+    it('creates a workflow with samSegmentationPromptNode and extracts its default prompt', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_create_${Date.now()}`,
+          label: 'SAM3 create test',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'sam_node',
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.samSegmentationPromptNode).toBe('sam_node');
+      expect(body.defaultSamSegmentationPrompt).toBe('person');
+    });
+
+    it('creates a workflow with no samSegmentationPromptNode — defaults stay null/empty', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_absent_${Date.now()}`,
+          label: 'SAM3 absent test',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.samSegmentationPromptNode ?? null).toBeNull();
+      expect(body.defaultSamSegmentationPrompt).toBe('');
+    });
+
+    it('rejects a nonexistent samSegmentationPromptNode', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_bad_node_${Date.now()}`,
+          label: 'SAM3 bad node test',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'does_not_exist',
+        },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('GET /admin/workflows list includes samSegmentationPromptNode/defaultSamSegmentationPrompt', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_list_${Date.now()}`,
+          label: 'SAM3 list test',
+          jsonContent: samJsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+          samSegmentationPromptNode: 'sam_node',
+        },
+      });
+      const id = createRes.json().id as string;
+
+      const listRes = await app.inject({ method: 'GET', url: '/admin/workflows', headers });
+      expect(listRes.statusCode).toBe(200);
+      const row = (listRes.json() as { id: string }[]).find((w) => w.id === id) as {
+        samSegmentationPromptNode: string | null;
+        defaultSamSegmentationPrompt: string;
+      };
+      expect(row.samSegmentationPromptNode).toBe('sam_node');
+      expect(row.defaultSamSegmentationPrompt).toBe('person');
+    });
+  });
 });

@@ -196,6 +196,25 @@ export function writeKSamplerOverride(
 function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
   const workflowType = body.workflowType ?? 'regular';
 
+  // SAM3 Segmentation node — generic across every workflow type, computed
+  // once here rather than duplicated per branch below. No validateNodeType
+  // call: a SAM3 node's class_type won't classify as 'prompt' under the
+  // TextEncode-based check, so only existence is validated. See
+  // docs/superpowers/specs/2026-09-11-sam3-segmentation-prompt-design.md.
+  if (body.samSegmentationPromptNode) {
+    validateNodeExists(
+      body.jsonContent,
+      body.samSegmentationPromptNode,
+      'SAM3 segmentation prompt',
+    );
+  }
+  const samSegmentationPromptNode = body.samSegmentationPromptNode ?? null;
+  const defaultSamSegmentationPrompt = body.samSegmentationPromptNode
+    ? extractPromptText(
+        body.jsonContent[body.samSegmentationPromptNode] as WorkflowNode | undefined,
+      )
+    : '';
+
   if (workflowType === 'saree_step1_two_input') {
     const { detected: autoDetected } = detectTryonTwoInputMappings(body.jsonContent);
     const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
@@ -272,6 +291,8 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       tryonGarmentNodeId: bodyNodeId,
       tryonGarmentNodeId2: palluNodeId,
       tryonOutputNodeId: outputNodeId,
+      samSegmentationPromptNode,
+      defaultSamSegmentationPrompt,
     };
   }
 
@@ -374,6 +395,8 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       tryonGarmentNodeId: null,
       tryonGarmentNodeId2: null,
       tryonOutputNodeId: null,
+      samSegmentationPromptNode,
+      defaultSamSegmentationPrompt,
     };
   }
 
@@ -446,6 +469,8 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       tryonGarmentNodeId: null,
       tryonGarmentNodeId2: null,
       tryonOutputNodeId: outputNodeId,
+      samSegmentationPromptNode,
+      defaultSamSegmentationPrompt,
     };
   }
 
@@ -520,6 +545,8 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       tryonGarmentNodeId: garmentNodeId,
       tryonGarmentNodeId2: null,
       tryonOutputNodeId: outputNodeId,
+      samSegmentationPromptNode,
+      defaultSamSegmentationPrompt,
     };
   }
 
@@ -603,6 +630,8 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
     tryonGarmentNodeId: null,
     tryonGarmentNodeId2: null,
     tryonOutputNodeId: null,
+    samSegmentationPromptNode,
+    defaultSamSegmentationPrompt,
   };
 }
 
@@ -682,6 +711,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       stage1NegativePromptNode: r.stage1NegativePromptNode,
       defaultStage1PositivePrompt: r.defaultStage1PositivePrompt,
       defaultStage1NegativePrompt: r.defaultStage1NegativePrompt,
+      samSegmentationPromptNode: r.samSegmentationPromptNode,
+      defaultSamSegmentationPrompt: r.defaultSamSegmentationPrompt,
       createdAt: r.createdAt,
     }));
   });
