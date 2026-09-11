@@ -43,6 +43,7 @@ export interface DetectedMappings {
   latentSizeNodeIds: string[]; // [widthNodeId, heightNodeId] — dual-size-group templates only
   outputSizeNodeIds: string[]; // [widthNodeId, heightNodeId] — dual-size-group templates only
   resultNodeId?: string; // disambiguates multiple SaveImage(type=output) nodes
+  samSegmentationPromptNode?: string; // SAM3 segmentation node — detected by class_type, not title
 }
 
 // Node class_types that control output dimensions (EmptyLatentImage + resize nodes)
@@ -124,6 +125,14 @@ export function detectMappings(json: Record<string, unknown>): {
     const title = node._meta?.title ?? nodeId;
     const norm = normaliseTitle(title);
     const category = classifyNode(classType);
+
+    // SAM3 segmentation nodes ship under a custom class_type (e.g.
+    // "SAM3Segment") that classifyNode can't map to 'prompt' — detected here
+    // by class_type substring instead of by category or title. First match
+    // wins; a workflow is expected to have at most one.
+    if (!detected.samSegmentationPromptNode && classType.toUpperCase().includes('SAM3')) {
+      detected.samSegmentationPromptNode = nodeId;
+    }
 
     if (category === 'image') {
       allImageNodes.push({ id: nodeId, class_type: classType, title, category });

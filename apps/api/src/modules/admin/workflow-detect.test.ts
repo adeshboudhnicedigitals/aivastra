@@ -322,6 +322,42 @@ describe('dual-size-group node detection', () => {
   });
 });
 
+describe('SAM3 segmentation node detection', () => {
+  it('detects a SAM3Segment node by class_type regardless of title', () => {
+    const wf = {
+      '1072': {
+        class_type: 'SAM3Segment',
+        _meta: { title: 'SAM3 Segmentation (RMBG)' },
+        inputs: { image: ['1071', 0], prompt: 'blouse and saree.' },
+      },
+    };
+    const { detected } = detectMappings(wf);
+    expect(detected.samSegmentationPromptNode).toBe('1072');
+  });
+
+  it('leaves samSegmentationPromptNode undefined when no SAM3 node is present', () => {
+    const { detected } = detectMappings(makeCanonicalWorkflow());
+    expect(detected.samSegmentationPromptNode).toBeUndefined();
+  });
+
+  it('picks the first SAM3-like node when more than one is present', () => {
+    const wf = {
+      '10': {
+        class_type: 'SAM3Segment',
+        _meta: { title: 'first' },
+        inputs: { prompt: 'a' },
+      },
+      '20': {
+        class_type: 'SAM3Segment',
+        _meta: { title: 'second' },
+        inputs: { prompt: 'b' },
+      },
+    };
+    const { detected } = detectMappings(wf);
+    expect(detected.samSegmentationPromptNode).toBe('10');
+  });
+});
+
 describe('returned node lists are correctly populated', () => {
   it('allImageNodes contains only LoadImage nodes', () => {
     const { allImageNodes } = detectMappings(makeCanonicalWorkflow());

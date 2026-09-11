@@ -26,6 +26,7 @@ interface DetectedMappings {
   latentSizeNodeIds: string[];
   outputSizeNodeIds: string[];
   resultNodeId?: string;
+  samSegmentationPromptNode?: string;
 }
 
 interface ParseResult {
@@ -286,6 +287,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       setLatentSizeNodeIds(d.latentSizeNodeIds ?? []);
       setOutputSizeNodeIds(d.outputSizeNodeIds ?? []);
       setResultNodeId(d.resultNodeId ?? '');
+      setSamSegmentationPromptNode(d.samSegmentationPromptNode ?? '');
     } catch (e) {
       setError(apiErrorMessage(e, 'Failed to parse workflow'));
     } finally {
