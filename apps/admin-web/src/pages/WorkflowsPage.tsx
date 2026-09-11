@@ -80,6 +80,7 @@ export default function WorkflowsPage({ toast }: Props) {
     regenerationReasonPrompts: [] as { reason: string; prompt: string; instruction: string }[],
     stage1PositivePrompt: '',
     stage1NegativePrompt: '',
+    samSegmentationPrompt: '',
     latentMaxPx: '',
     outputMaxPx: '',
     ksamplerOverrides: [] as {
@@ -247,6 +248,9 @@ export default function WorkflowsPage({ toast }: Props) {
       if (editingWf.stage1NegativePromptNode) {
         patch.stage1NegativePrompt = editForm.stage1NegativePrompt.trim();
       }
+      if (editingWf.samSegmentationPromptNode) {
+        patch.samSegmentationPrompt = editForm.samSegmentationPrompt.trim();
+      }
       // Only a dual-size-group template (latentSizeNodeIds populated) has these caps —
       // the node IDs themselves stay server-computed, only the pixel ceilings are editable.
       if (editingWf.latentSizeNodeIds.length > 0) {
@@ -302,6 +306,9 @@ export default function WorkflowsPage({ toast }: Props) {
                   : {}),
                 ...(editingWf.stage1NegativePromptNode
                   ? { defaultStage1NegativePrompt: editForm.stage1NegativePrompt.trim() }
+                  : {}),
+                ...(editingWf.samSegmentationPromptNode
+                  ? { defaultSamSegmentationPrompt: editForm.samSegmentationPrompt.trim() }
                   : {}),
                 ...(editingWf.latentSizeNodeIds.length > 0 &&
                 !Number.isNaN(Number(editForm.latentMaxPx))
@@ -587,6 +594,7 @@ export default function WorkflowsPage({ toast }: Props) {
                                 regenerationReasonPrompts: regenerationReasonPromptsFromWf(wf),
                                 stage1PositivePrompt: wf.defaultStage1PositivePrompt,
                                 stage1NegativePrompt: wf.defaultStage1NegativePrompt,
+                                samSegmentationPrompt: wf.defaultSamSegmentationPrompt,
                                 latentMaxPx: String(wf.latentMaxPx ?? ''),
                                 outputMaxPx: String(wf.outputMaxPx ?? ''),
                                 ksamplerOverrides: ksamplerOverridesFromWf(wf),
@@ -881,6 +889,7 @@ export default function WorkflowsPage({ toast }: Props) {
                               regenerationReasonPrompts: regenerationReasonPromptsFromWf(wf),
                               stage1PositivePrompt: wf.defaultStage1PositivePrompt,
                               stage1NegativePrompt: wf.defaultStage1NegativePrompt,
+                              samSegmentationPrompt: wf.defaultSamSegmentationPrompt,
                               latentMaxPx: String(wf.latentMaxPx ?? ''),
                               outputMaxPx: String(wf.outputMaxPx ?? ''),
                               ksamplerOverrides: ksamplerOverridesFromWf(wf),
@@ -997,6 +1006,14 @@ export default function WorkflowsPage({ toast }: Props) {
                             ? [['Pallu node', viewingDetail.tryonGarmentNodeId2 ?? '—']]
                             : []),
                           ['Output node', viewingDetail.tryonOutputNodeId ?? '—'],
+                          ...(viewingDetail.samSegmentationPromptNode
+                            ? [
+                                [
+                                  'SAM3 segmentation prompt node',
+                                  viewingDetail.samSegmentationPromptNode,
+                                ],
+                              ]
+                            : []),
                         ]
                       : [
                           ['Face node', viewingDetail.faceNodeId],
@@ -1027,6 +1044,14 @@ export default function WorkflowsPage({ toast }: Props) {
                           ['Result node', viewingDetail.resultNodeId ?? '—'],
                           ['Negative prompt node', viewingDetail.facePhasePromptNode],
                           ['Positive prompt node', viewingDetail.garmentPhasePromptNode],
+                          ...(viewingDetail.samSegmentationPromptNode
+                            ? [
+                                [
+                                  'SAM3 segmentation prompt node',
+                                  viewingDetail.samSegmentationPromptNode,
+                                ],
+                              ]
+                            : []),
                         ]
                     ).map(([k, v]) => (
                       <>
@@ -1052,7 +1077,8 @@ export default function WorkflowsPage({ toast }: Props) {
 
                 {/* Default prompts */}
                 {(viewingDetail.defaultFacePhasePrompt ||
-                  viewingDetail.defaultGarmentPhasePrompt) && (
+                  viewingDetail.defaultGarmentPhasePrompt ||
+                  viewingDetail.defaultSamSegmentationPrompt) && (
                   <div>
                     <div
                       style={{
@@ -1121,6 +1147,35 @@ export default function WorkflowsPage({ toast }: Props) {
                           }}
                         >
                           {viewingDetail.defaultGarmentPhasePrompt}
+                        </pre>
+                      </div>
+                    )}
+                    {viewingDetail.defaultSamSegmentationPrompt && (
+                      <div style={{ marginTop: 10 }}>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: 'var(--ink-2)',
+                            marginBottom: 4,
+                          }}
+                        >
+                          SAM3 segmentation prompt
+                        </div>
+                        <pre
+                          style={{
+                            margin: 0,
+                            fontSize: 11.5,
+                            background: 'var(--subtle)',
+                            padding: '10px 12px',
+                            borderRadius: 6,
+                            border: '1px solid var(--border)',
+                            overflowX: 'auto',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          {viewingDetail.defaultSamSegmentationPrompt}
                         </pre>
                       </div>
                     )}
@@ -1419,6 +1474,20 @@ export default function WorkflowsPage({ toast }: Props) {
                   disabled={editSaving}
                   onChange={(e) =>
                     setEditForm((f) => ({ ...f, stage1NegativePrompt: e.target.value }))
+                  }
+                />
+              </div>
+            )}
+            {editingWf?.samSegmentationPromptNode && (
+              <div className="field">
+                <label>SAM3 segmentation prompt</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={editForm.samSegmentationPrompt}
+                  disabled={editSaving}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, samSegmentationPrompt: e.target.value }))
                   }
                 />
               </div>

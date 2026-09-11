@@ -103,6 +103,10 @@ export interface WorkflowOption {
   stage1NegativePromptNode: string | null;
   defaultStage1PositivePrompt: string;
   defaultStage1NegativePrompt: string;
+  // SAM3 Segmentation node — template-level only, no per-pose override. See
+  // docs/superpowers/specs/2026-09-11-sam3-segmentation-prompt-design.md.
+  samSegmentationPromptNode: string | null;
+  defaultSamSegmentationPrompt: string;
   ksamplerNodes: {
     nodeId: string;
     steps: number | null;
