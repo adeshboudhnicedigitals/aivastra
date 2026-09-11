@@ -335,9 +335,34 @@ describe('SAM3 segmentation node detection', () => {
     expect(detected.samSegmentationPromptNode).toBe('1072');
   });
 
-  it('leaves samSegmentationPromptNode undefined when no SAM3 node is present', () => {
+  it("also extracts the node's existing prompt text", () => {
+    const wf = {
+      '1072': {
+        class_type: 'SAM3Segment',
+        _meta: { title: 'SAM3 Segmentation (RMBG)' },
+        inputs: { image: ['1071', 0], prompt: 'blouse and saree.' },
+      },
+    };
+    const { detected } = detectMappings(wf);
+    expect(detected.defaultSamSegmentationPrompt).toBe('blouse and saree.');
+  });
+
+  it('extracts from inputs.text when the node uses that key instead of inputs.prompt', () => {
+    const wf = {
+      '1072': {
+        class_type: 'SAM3Segment',
+        _meta: { title: 'SAM3 Segmentation (RMBG)' },
+        inputs: { text: 'person' },
+      },
+    };
+    const { detected } = detectMappings(wf);
+    expect(detected.defaultSamSegmentationPrompt).toBe('person');
+  });
+
+  it('leaves samSegmentationPromptNode/defaultSamSegmentationPrompt undefined when no SAM3 node is present', () => {
     const { detected } = detectMappings(makeCanonicalWorkflow());
     expect(detected.samSegmentationPromptNode).toBeUndefined();
+    expect(detected.defaultSamSegmentationPrompt).toBeUndefined();
   });
 
   it('picks the first SAM3-like node when more than one is present', () => {

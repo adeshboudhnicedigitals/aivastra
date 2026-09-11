@@ -27,6 +27,7 @@ interface DetectedMappings {
   outputSizeNodeIds: string[];
   resultNodeId?: string;
   samSegmentationPromptNode?: string;
+  defaultSamSegmentationPrompt?: string;
 }
 
 interface ParseResult {
@@ -118,12 +119,18 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
   const [stage1PositivePromptNode, setStage1PositivePromptNode] = useState('');
   const [stage1NegativePromptNode, setStage1NegativePromptNode] = useState('');
 
-  // SAM3 Segmentation node — not auto-detected (see WorkflowUploadModal.tsx).
-  // Pre-filled from the workflow being replaced, same convention as
-  // slug/label above, since the new JSON usually keeps the same node ID.
+  // SAM3 Segmentation node — detected by class_type on re-parse (see
+  // WorkflowUploadModal.tsx). Pre-filled from the workflow being replaced,
+  // same convention as slug/label above; re-parsing the new JSON overwrites
+  // it with the freshly detected node, same as every other detected field.
+  // samSegmentationPromptDetected is a read-only preview of the text already
+  // baked into the newly uploaded JSON — not sent to the API. The replace
+  // always saves the new JSON's own text as the default; to change the
+  // wording, save first, then edit it via the workflow's Edit drawer.
   const [samSegmentationPromptNode, setSamSegmentationPromptNode] = useState(
     workflow.samSegmentationPromptNode ?? '',
   );
+  const [samSegmentationPromptDetected, setSamSegmentationPromptDetected] = useState('');
 
   const [parsed, setParsed] = useState<ParseResult | null>(null);
   const [parsing, setParsing] = useState(false);
@@ -225,6 +232,7 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
       setOutputSizeNodeIds(d.outputSizeNodeIds ?? []);
       setResultNodeId(d.resultNodeId ?? '');
       setSamSegmentationPromptNode(d.samSegmentationPromptNode ?? '');
+      setSamSegmentationPromptDetected(d.defaultSamSegmentationPrompt ?? '');
     } catch (e) {
       setError(apiErrorMessage(e, 'Failed to parse workflow'));
     } finally {
@@ -894,11 +902,20 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
             <label>SAM3 segmentation node ID (optional)</label>
             <input
               className="input"
-              placeholder="e.g. 42 — not auto-detected, enter manually"
+              placeholder="e.g. 42 — auto-detected by class_type, override if wrong"
               value={samSegmentationPromptNode}
               disabled={saving}
               onChange={(e) => setSamSegmentationPromptNode(e.target.value.trim())}
             />
+            {samSegmentationPromptNode && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Current prompt in this node (as uploaded):{' '}
+                <code style={{ fontFamily: 'monospace' }}>
+                  {samSegmentationPromptDetected || '(empty)'}
+                </code>
+                . To change the wording, complete the replace, then edit it from the workflow list.
+              </div>
+            )}
           </div>
         )}
 

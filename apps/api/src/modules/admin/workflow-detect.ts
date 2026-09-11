@@ -44,6 +44,7 @@ export interface DetectedMappings {
   outputSizeNodeIds: string[]; // [widthNodeId, heightNodeId] — dual-size-group templates only
   resultNodeId?: string; // disambiguates multiple SaveImage(type=output) nodes
   samSegmentationPromptNode?: string; // SAM3 segmentation node — detected by class_type, not title
+  defaultSamSegmentationPrompt?: string; // whatever prompt/text is already on that node
 }
 
 // Node class_types that control output dimensions (EmptyLatentImage + resize nodes)
@@ -74,6 +75,13 @@ type WorkflowNode = {
   _meta?: { title?: string };
   inputs?: Record<string, unknown>;
 };
+
+// Duplicated in every *-detect.ts and in workflows.routes.ts's extractPromptText —
+// established convention here rather than a shared helper.
+function promptText(node: WorkflowNode | undefined): string {
+  const inputs = node?.inputs;
+  return (inputs?.prompt as string | undefined) ?? (inputs?.text as string | undefined) ?? '';
+}
 
 // Build reverse link map: nodeId → [{consumerId, inputName}]
 // ComfyUI API format encodes links as [sourceNodeId, outputIndex] arrays.
@@ -132,6 +140,7 @@ export function detectMappings(json: Record<string, unknown>): {
     // wins; a workflow is expected to have at most one.
     if (!detected.samSegmentationPromptNode && classType.toUpperCase().includes('SAM3')) {
       detected.samSegmentationPromptNode = nodeId;
+      detected.defaultSamSegmentationPrompt = promptText(node);
     }
 
     if (category === 'image') {
