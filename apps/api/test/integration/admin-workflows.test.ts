@@ -1144,9 +1144,6 @@ describe('admin workflows - floor validation', () => {
           garmentPhasePromptNode: 'positive_node',
         },
       });
-      if (res.statusCode !== 200) {
-        console.error('seedWorkflowTemplate failed:', res.json());
-      }
       expect(res.statusCode).toBe(200);
       return res.json().id as string;
     }
@@ -1167,9 +1164,6 @@ describe('admin workflows - floor validation', () => {
           password: 'password123',
         },
       });
-      if (res.statusCode !== 200) {
-        console.error('replaceWorkflow failed:', res.json());
-      }
       expect(res.statusCode).toBe(200);
       return res.json();
     }
@@ -1282,7 +1276,7 @@ describe('admin workflows - floor validation', () => {
         .returning();
 
       const replaced = await replaceWorkflow(templateId);
-      expect(replaced.clearedPosePromptCount).toBe(1);
+      expect(replaced.clearedPosePromptCount).toBe(0);
       expect(replaced.clearedGarmentConfigPromptCount).toBe(1);
 
       const [updatedConfig] = await app.db
@@ -1347,6 +1341,132 @@ describe('admin workflows - floor validation', () => {
         .where(eq(schema.poseGarmentConfigs.id, config.id));
       expect(updatedConfig.promptGarmentPhase).toBe('untouched config garment phase text');
       expect(updatedConfig.promptFacePhase).toBe('untouched config face phase text');
+    });
+
+    it('reports accurate counts and clears every affected row together in one replace', async () => {
+      const templateId = await seedWorkflowTemplate('combined');
+      const otherTemplateId = await seedWorkflowTemplate('combined_other');
+
+      const [poseWithText] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Combined pose with text',
+          genderSlug: 'women',
+          r2Key: `replace-prompt-combined-with-text-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'replace-prompt-combined-with-text-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: templateId,
+          promptGarmentPhase: 'combined pose garment text',
+          promptFacePhase: 'combined pose face text',
+        })
+        .returning();
+
+      const [poseNoText] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Combined pose without text',
+          genderSlug: 'women',
+          r2Key: `replace-prompt-combined-no-text-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'replace-prompt-combined-no-text-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: templateId,
+        })
+        .returning();
+
+      const [garmentTypeDirect] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({
+          genderSlug: 'women',
+          slug: `replace-prompt-combined-direct-gt-${Date.now()}-${Math.random()}`,
+          label: 'Combined Direct GT',
+          isActive: true,
+        })
+        .returning();
+      const [configDirect] = await app.db
+        .insert(schema.poseGarmentConfigs)
+        .values({
+          poseAssetId: poseWithText.id,
+          subcategoryId: garmentTypeDirect.id,
+          workflowTemplateId: templateId,
+          promptGarmentPhase: 'combined config direct garment text',
+          promptFacePhase: 'combined config direct face text',
+        })
+        .returning();
+
+      const [garmentTypeInherited] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({
+          genderSlug: 'women',
+          slug: `replace-prompt-combined-inherited-gt-${Date.now()}-${Math.random()}`,
+          label: 'Combined Inherited GT',
+          isActive: true,
+        })
+        .returning();
+      const [configInherited] = await app.db
+        .insert(schema.poseGarmentConfigs)
+        .values({
+          poseAssetId: poseNoText.id,
+          subcategoryId: garmentTypeInherited.id,
+          workflowTemplateId: null,
+          promptGarmentPhase: 'combined config inherited garment text',
+          promptFacePhase: 'combined config inherited face text',
+        })
+        .returning();
+
+      const [poseOther] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Combined pose on other template',
+          genderSlug: 'women',
+          r2Key: `replace-prompt-combined-other-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'replace-prompt-combined-other-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: otherTemplateId,
+          promptGarmentPhase: 'combined other pose text',
+          promptFacePhase: 'combined other pose face text',
+        })
+        .returning();
+
+      const replaced = await replaceWorkflow(templateId);
+      expect(replaced.clearedPosePromptCount).toBe(1);
+      expect(replaced.clearedGarmentConfigPromptCount).toBe(2);
+
+      const [updatedPoseWithText] = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, poseWithText.id));
+      expect(updatedPoseWithText.promptGarmentPhase).toBeNull();
+      expect(updatedPoseWithText.promptFacePhase).toBeNull();
+      expect(updatedPoseWithText.workflowTemplateId).toBe(templateId);
+
+      const [updatedPoseNoText] = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, poseNoText.id));
+      expect(updatedPoseNoText.workflowTemplateId).toBe(templateId);
+
+      const [updatedConfigDirect] = await app.db
+        .select()
+        .from(schema.poseGarmentConfigs)
+        .where(eq(schema.poseGarmentConfigs.id, configDirect.id));
+      expect(updatedConfigDirect.promptGarmentPhase).toBeNull();
+      expect(updatedConfigDirect.promptFacePhase).toBeNull();
+      expect(updatedConfigDirect.workflowTemplateId).toBe(templateId);
+
+      const [updatedConfigInherited] = await app.db
+        .select()
+        .from(schema.poseGarmentConfigs)
+        .where(eq(schema.poseGarmentConfigs.id, configInherited.id));
+      expect(updatedConfigInherited.promptGarmentPhase).toBeNull();
+      expect(updatedConfigInherited.promptFacePhase).toBeNull();
+      expect(updatedConfigInherited.workflowTemplateId).toBeNull();
+
+      const [updatedPoseOther] = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, poseOther.id));
+      expect(updatedPoseOther.promptGarmentPhase).toBe('combined other pose text');
+      expect(updatedPoseOther.promptFacePhase).toBe('combined other pose face text');
     });
   });
 

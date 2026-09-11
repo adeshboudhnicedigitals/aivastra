@@ -58,9 +58,26 @@ Explicitly out of scope (decided during design):
   Left alone for this change.
 - `garment_subcategories`' own workflow-pointer columns
   (`mannequinWorkflowTemplateId`, `sareeStep2WorkflowTemplateId`,
-  `mannequinTwoInputWorkflowTemplateId`, `twoInputTryonWorkflowTemplateId`) —
-  these are pure FK pointers with no paired prompt-override text of their own,
-  so there is nothing to invalidate.
+  `mannequinTwoInputWorkflowTemplateId`, `twoInputTryonWorkflowTemplateId`).
+  **Amended 2026-09-11 (final review):** the original reasoning here — "no
+  paired prompt-override text of their own" — is incomplete. For garment
+  types with `requiresMannequinStep` (flat saree and similar), the
+  dispatcher applies `pose_garment_configs.promptGarmentPhase`/
+  `.promptFacePhase` regardless of which template actually wins workflow
+  selection (`garmentSubcategories.sareeStep2WorkflowTemplateId`, not the
+  pose's own template — see `apps/dispatcher/src/job/processor.ts:402-434`).
+  This branch's clearing logic keys off `pose_garment_configs`' relationship
+  to the *pose's* template, so for these garment types it is neither fully
+  correct nor complete: (a) replacing a POSE's template can clear prompt
+  text that was actually tuned to the unrelated, unreplaced saree step-2
+  graph (an over-clear), and (b) replacing the saree step-2 template itself
+  clears nothing, even though text tuned to it lives on these same rows (a
+  pre-existing gap, unchanged by this branch). Deliberately left unfixed
+  here — closing it needs either routing the clear through
+  `sareeStep2WorkflowTemplateId` for these garment types, or a separate
+  investigation into whether `pose_garment_configs` is even the right place
+  for saree-step-2 prompt overrides to live. Tracked here as a known
+  limitation, not silently.
 - A pre-replace preview/estimate of how many prompt overrides a replace would
   clear. The existing impact banner already shows pose/funnel counts before
   confirming; adding a matching prompt-override preview is a reasonable

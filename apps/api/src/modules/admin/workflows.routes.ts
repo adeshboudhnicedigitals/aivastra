@@ -7,7 +7,7 @@ import {
   ReplaceWorkflowBody,
   UpdateWorkflowBody,
 } from '@aivastra/types';
-import { and, count, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -1311,38 +1311,74 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         // stay correct and are deliberately left untouched here. See
         // docs/superpowers/specs/
         // 2026-09-11-workflow-replace-prompt-override-invalidation-design.md.
-        const clearedPoseAssets = await tx
+        //
+        // Every pose on this template is selected first (not just the ones
+        // with prompt text) because the inherited pass below needs the full
+        // id list regardless of whether a given pose had its own override
+        // text — a pose with no text can still have a garment-type config
+        // relying on it as its default workflow. clearedPosePromptCount is
+        // computed from this pre-update snapshot, not from how many rows the
+        // UPDATE touched, so it reflects overrides actually invalidated
+        // (this count is written into audit_logs.after and shown to the
+        // admin — it must not overstate impact).
+        const posesOnTemplate = await tx
+          .select({
+            id: schema.modelPoseAssets.id,
+            promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
+            promptFacePhase: schema.modelPoseAssets.promptFacePhase,
+          })
+          .from(schema.modelPoseAssets)
+          .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
+
+        await tx
           .update(schema.modelPoseAssets)
           .set({ promptGarmentPhase: null, promptFacePhase: null })
-          .where(eq(schema.modelPoseAssets.workflowTemplateId, id))
-          .returning({ id: schema.modelPoseAssets.id });
+          .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
 
+        const clearedPosePromptCount = posesOnTemplate.filter(
+          (p) => p.promptGarmentPhase !== null || p.promptFacePhase !== null,
+        ).length;
+        const inheritingPoseIds = posesOnTemplate.map((p) => p.id);
+
+        // These two updates only match rows that actually had prompt text,
+        // so .returning().length is already an accurate count — no separate
+        // pre-select needed here the way it was for model_pose_assets above.
         const clearedGarmentConfigsDirect = await tx
           .update(schema.poseGarmentConfigs)
-          .set({ promptGarmentPhase: null, promptFacePhase: null })
-          .where(eq(schema.poseGarmentConfigs.workflowTemplateId, id))
+          .set({ promptGarmentPhase: null, promptFacePhase: null, updatedAt: new Date() })
+          .where(
+            and(
+              eq(schema.poseGarmentConfigs.workflowTemplateId, id),
+              or(
+                isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+                isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+              ),
+            ),
+          )
           .returning({ id: schema.poseGarmentConfigs.id });
 
         // Rows with no workflow override of their own inherit whichever pose
         // just had its default cleared above — their prompt text is just as
         // stale even though their own workflowTemplateId column is (and
         // stays) null.
-        const inheritingPoseIds = clearedPoseAssets.map((p) => p.id);
         const clearedGarmentConfigsInherited =
           inheritingPoseIds.length > 0
             ? await tx
                 .update(schema.poseGarmentConfigs)
-                .set({ promptGarmentPhase: null, promptFacePhase: null })
+                .set({ promptGarmentPhase: null, promptFacePhase: null, updatedAt: new Date() })
                 .where(
                   and(
                     isNull(schema.poseGarmentConfigs.workflowTemplateId),
                     inArray(schema.poseGarmentConfigs.poseAssetId, inheritingPoseIds),
+                    or(
+                      isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+                      isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+                    ),
                   ),
                 )
                 .returning({ id: schema.poseGarmentConfigs.id })
             : [];
 
-        const clearedPosePromptCount = clearedPoseAssets.length;
         const clearedGarmentConfigPromptCount =
           clearedGarmentConfigsDirect.length + clearedGarmentConfigsInherited.length;
 

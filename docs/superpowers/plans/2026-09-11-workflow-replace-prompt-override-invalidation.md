@@ -528,9 +528,12 @@ Replace it with:
 
 - [ ] **Step 3: Typecheck the admin-web package**
 
-Run:
+`apps/admin-web/package.json` has no `typecheck` script, so `pnpm --filter
+@aivastra/admin typecheck` silently no-ops (prints "None of the selected
+packages has a typecheck script" and exits 0). Run this instead, from
+`apps/admin-web`:
 ```bash
-pnpm --filter @aivastra/admin typecheck
+npx tsc -p tsconfig.app.json --noEmit
 ```
 Expected: no errors.
 

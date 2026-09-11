@@ -2,6 +2,29 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-11 — Workflow replace now clears stale prompt overrides tied to the old graph
+
+- **Change:** `POST /admin/workflows/:id/replace` now also clears stale admin-authored
+  prompt override text on `model_pose_assets` and `pose_garment_configs` that pointed at
+  the replaced template — that text was tuned to the old graph's node shape and is never
+  guaranteed valid against the new one. `workflowTemplateId` on both tables is left
+  untouched (those FKs by row id stay correct across a replace). The response and the
+  `audit_logs.after` entry now carry `clearedPosePromptCount`/`clearedGarmentConfigPromptCount`.
+- **Fix wave after final review:** counts are computed from a pre-update snapshot of which
+  rows actually had prompt text, not from how many rows the UPDATE matched (the
+  `workflowTemplateId` FK alone), since the prior version overstated impact — e.g.
+  reporting "cleared 37" when most of those 37 pose rows never had override text to begin
+  with. `pose_garment_configs.updatedAt` is now bumped on clear (previously omitted). The
+  admin-web replace modal's warning banner now states plainly that this prompt-override
+  text is cleared and cannot be restored (static text only, no new preview query).
+- **Known limitation, documented not fixed:** for garment types with `requiresMannequinStep`
+  (flat saree and similar), the dispatcher applies `pose_garment_configs` prompt overrides
+  against whichever template `garmentSubcategories.sareeStep2WorkflowTemplateId` resolves
+  to, not the pose's own template — so this clearing logic (keyed off the pose's template)
+  can both over-clear (replacing a pose's template clears text actually tuned to the
+  untouched saree step-2 graph) and under-clear (replacing the saree step-2 template itself
+  clears nothing). See `docs/superpowers/specs/2026-09-11-workflow-replace-prompt-override-invalidation-design.md` §2.
+
 ## 2026-09-10 — Dev API: merchant-uploaded custom backgrounds for catalog/generate
 
 - **Ask:** the internal bulk-try-on tool (a `/v1/dev/*` API-key caller) needed to mix a

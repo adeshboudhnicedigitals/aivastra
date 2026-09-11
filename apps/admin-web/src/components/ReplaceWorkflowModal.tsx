@@ -450,6 +450,10 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
             {(workflow.version ?? 1) + 1}). Any in-flight or queued jobs will continue using v
             {workflow.version ?? 1} until they finish.
           </div>
+          <div style={{ color: 'var(--text-muted, #6b7280)', marginTop: 8 }}>
+            Any per-pose or per-garment-type prompt override text tuned to the old graph will be
+            cleared, and cannot be restored.
+          </div>
         </div>
 
         {error && (
