@@ -356,7 +356,15 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      toast({ title: `Workflow replaced (now v${replaced.version ?? 2})` });
+      const clearedCount =
+        (replaced.clearedPosePromptCount ?? 0) + (replaced.clearedGarmentConfigPromptCount ?? 0);
+      toast({
+        title: `Workflow replaced (now v${replaced.version ?? 2})`,
+        body:
+          clearedCount > 0
+            ? `Cleared ${clearedCount} stale prompt override${clearedCount === 1 ? '' : 's'} that were tuned to the old graph.`
+            : undefined,
+      });
       onReplaced(replaced);
       onClose();
     } catch (e) {
