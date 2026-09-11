@@ -27,6 +27,13 @@ import { requirePermission } from './guard.js';
 
 const KEY = 'config:system';
 
+// Shared with resolveMerchantLoadingVideoUrl (apps/api/src/modules/auth/routes.ts),
+// which falls back to this global clip when a merchant has no loadingVideoKey override.
+export async function resolveAppVideoUrl(app: FastifyInstance): Promise<string | null> {
+  const cfg = await readAppVideoConfig(app, KEY);
+  return cfg ? await appVideoUrl(app, cfg.key) : null;
+}
+
 export async function adminConfigRoutes(app: FastifyInstance) {
   // Public — used by the web pricing page and studio custom-resolution input (no auth required)
   app.get('/v1/config/resolutions', async () => {
@@ -179,10 +186,12 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     return { videoUrl: await appVideoUrl(app, cfg.key), updatedAt: cfg.updatedAt };
   });
 
-  // Public — used by the Android app to fetch the current intro/promo video (no auth)
+  // Public — used by the Android app to fetch the current intro/promo video (no auth).
+  // A logged-in merchant with a loadingVideoKey override gets that URL instead, via
+  // resolveMerchantLoadingVideoUrl in the device-login response — this route only ever
+  // serves the global fallback, so it stays usable pre-login too.
   app.get('/v1/config/app-video', async () => {
-    const cfg = await readAppVideoConfig(app, KEY);
-    return { videoUrl: cfg ? await appVideoUrl(app, cfg.key) : null };
+    return { videoUrl: await resolveAppVideoUrl(app) };
   });
 
   // ── WordPress plugin release (self-hosted update feed for direct-share

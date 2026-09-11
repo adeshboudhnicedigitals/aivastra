@@ -1,6 +1,6 @@
 {
-  "id": "644531f6-842e-4f6c-a300-7a593cf03020",
-  "prevId": "9619f298-e666-47c6-96be-56b1b6b5b5b1",
+  "id": "25b52ca7-d31e-422a-9f91-fc440eb1e312",
+  "prevId": "644531f6-842e-4f6c-a300-7a593cf03020",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5971,6 +5971,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "sam_segmentation_prompt_node": {
+          "name": "sam_segmentation_prompt_node",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "default_face_phase_prompt": {
           "name": "default_face_phase_prompt",
           "type": "text",
@@ -5994,6 +6000,13 @@
         },
         "default_stage1_negative_prompt": {
           "name": "default_stage1_negative_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "default_sam_segmentation_prompt": {
+          "name": "default_sam_segmentation_prompt",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -6226,6 +6239,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "sam_segmentation_prompt_node": {
+          "name": "sam_segmentation_prompt_node",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "default_face_phase_prompt": {
           "name": "default_face_phase_prompt",
           "type": "text",
@@ -6249,6 +6268,13 @@
         },
         "default_stage1_negative_prompt": {
           "name": "default_stage1_negative_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "default_sam_segmentation_prompt": {
+          "name": "default_sam_segmentation_prompt",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

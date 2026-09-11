@@ -13,6 +13,7 @@ export const keys = {
   demoCatalogItem: (id: string) => `demo-catalog/${id}/image.jpg`,
   demoCatalogItemThumb: (id: string) => `demo-catalog/${id}/thumb.jpg`,
   merchantLogo: (merchantId: string) => `merchant-logo/${merchantId}/logo.jpg`,
+  merchantLoadingVideo: (merchantId: string) => `merchant-loading-video/${merchantId}/video.mp4`,
   devUpload: (merchantId: string, id: string, ext: string) => `dev/${merchantId}/${id}.${ext}`,
   catalogItem: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.jpg`,
   catalogThumb: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.thumb.jpg`,

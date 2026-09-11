@@ -267,6 +267,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           resolvedNote: schema.jobs.resolvedNote,
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+          thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
           poseThumbKey: schema.modelPoseAssets.thumbnailKey,
           // No admin pose asset (poseThumbKey) means this job's "pose" slot
           // is actually whatever image the customer/system supplied instead —
@@ -316,6 +317,29 @@ export async function resultsRoutes(app: FastifyInstance) {
       const presign = async (key: string | null) =>
         key ? (await app.storage.presignGet(key, 3600)).url : null;
 
+      // A job can upload up to three garment images (2-input jobs like kurthi +
+      // pyjama set upper + lower; 3-input jobs like chudidhar additionally set
+      // third for the dupatta) — surface every slot that's actually populated,
+      // not just one, so QA can see (and later download) all of them.
+      const presignGarments = async (r: {
+        upperGarmentKey: string | null;
+        lowerGarmentKey: string | null;
+        thirdGarmentKey: string | null;
+      }) => {
+        const slots: { key: string | null; label: string }[] = [
+          { key: r.upperGarmentKey, label: 'Upper' },
+          { key: r.lowerGarmentKey, label: 'Lower' },
+          { key: r.thirdGarmentKey, label: 'Third' },
+        ];
+        const present = slots.filter((s): s is { key: string; label: string } => s.key !== null);
+        return Promise.all(
+          present.map(async (s) => ({
+            url: await presign(s.key),
+            label: present.length > 1 ? s.label : null,
+          })),
+        );
+      };
+
       const items = await Promise.all(
         rows.map(async (r) => ({
           id: r.id,
@@ -332,7 +356,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           flaggedAt: r.flaggedAt,
           resolvedAt: r.resolvedAt,
           resolvedNote: r.resolvedNote,
-          garmentUrl: await presign(r.upperGarmentKey ?? r.lowerGarmentKey),
+          garments: await presignGarments(r),
           poseUrl: await presign(r.poseThumbKey ?? r.personOrSourceKey),
           poseTag: r.poseThumbKey ? null : r.personOrSourceTag,
           backgroundUrl: await presign(r.backgroundThumbKey),
@@ -510,6 +534,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           resolvedNote: schema.jobs.resolvedNote,
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+          thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
           faceThumbKey: schema.modelFaces.thumbnailKey,
           poseThumbKey: schema.modelPoseAssets.thumbnailKey,
           // See the matching fields in /results/data above — same fallback
@@ -572,7 +597,21 @@ export async function resultsRoutes(app: FastifyInstance) {
         }
       };
 
-      await addKey('inputs', 'garment', row.upperGarmentKey ?? row.lowerGarmentKey);
+      // Same up-to-three-garment shape as /results/data above: zip every uploaded
+      // garment for a multi-input job instead of only one. Single-garment jobs
+      // (the common case) keep the plain 'garment' filename for continuity.
+      const uploadedGarmentKeys = [
+        row.upperGarmentKey,
+        row.lowerGarmentKey,
+        row.thirdGarmentKey,
+      ].filter((k): k is string => !!k);
+      if (uploadedGarmentKeys.length > 1) {
+        await addKey('inputs', 'garment-upper', row.upperGarmentKey);
+        await addKey('inputs', 'garment-lower', row.lowerGarmentKey);
+        await addKey('inputs', 'garment-third', row.thirdGarmentKey);
+      } else {
+        await addKey('inputs', 'garment', uploadedGarmentKeys[0] ?? null);
+      }
       await addKey('inputs', 'face', row.faceThumbKey);
       // No admin pose asset means this job's only "pose"-slot image is
       // whatever person/source photo it actually used — see the matching
@@ -818,6 +857,7 @@ ${commonCss()}
 .col-id { width: 70px; }
 .col-user { width: 190px; }
 .col-img { width: 130px; text-align: center; }
+.col-garments { width: 220px; text-align: center; }
 .col-credits { width: 70px; text-align: center; }
 .col-when { width: 150px; }
 .col-flag { width: 150px; text-align: center; }
@@ -840,6 +880,11 @@ ${commonCss()}
   background: var(--surface-2); display: grid; place-items: center; color: var(--muted-2); font-size: 18px;
   margin: 0 auto;
 }
+/* Multiple garments (2/3-input jobs) share one table cell as a small row of
+   thumbnails instead of the normal single full-size one. */
+.garments-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.thumb-img.sm { max-width: 62px; }
+.thumb-placeholder.sm { max-width: 62px; }
 .thumb-dl {
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%;
   background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; text-decoration: none;
@@ -1037,7 +1082,7 @@ ${commonCss()}
         <tr>
           <th class="col-id">ID</th>
           <th class="col-user">User</th>
-          <th class="col-img">Garment</th>
+          <th class="col-garments">Garment</th>
           <th class="col-img">Pose</th>
           <th class="col-img">Background</th>
           <th class="col-img">Shoes</th>
@@ -1256,7 +1301,7 @@ function appJs(): string {
     for (var r = 0; r < 5; r++) {
       rows.push('<tr><td class="col-id"><div class="skel" style="height:14px;width:40px"></div></td>' +
         '<td class="col-user"><div class="skel" style="height:14px;width:130px"></div></td>' +
-        '<td class="col-img"><div class="skel" style="height:90px;width:70px;margin:0 auto"></div><div class="skel" style="height:10px;width:80px;margin:6px auto 0"></div></td>' +
+        '<td class="col-garments"><div class="skel" style="height:90px;width:70px;margin:0 auto"></div><div class="skel" style="height:10px;width:80px;margin:6px auto 0"></div></td>' +
         '<td class="col-img"><div class="skel" style="height:90px;width:70px;margin:0 auto"></div><div class="skel" style="height:10px;width:80px;margin:6px auto 0"></div></td>' +
         '<td class="col-img"><div class="skel" style="height:90px;width:70px;margin:0 auto"></div><div class="skel" style="height:10px;width:80px;margin:6px auto 0"></div></td>' +
         '<td class="col-img"><div class="skel" style="height:90px;width:70px;margin:0 auto"></div><div class="skel" style="height:10px;width:80px;margin:6px auto 0"></div></td>' +
@@ -1290,7 +1335,7 @@ function appJs(): string {
           '<tr class="' + rowClass + '" title="' + esc(rowTitle) + '">' +
           '<td class="col-id"><div class="id-num">' + rev + '</div><div class="id-sub">#' + seq + '</div></td>' +
           '<td class="col-user"><div class="user-name">' + esc(item.userEmail || '—') + '</div><div class="user-email">' + esc(item.userEmail || '') + '</div></td>' +
-          '<td class="col-img">' + renderThumb(item.garmentUrl, 'Garment') + '</td>' +
+          '<td class="col-garments">' + renderGarmentCell(item.garments) + '</td>' +
           '<td class="col-img">' + renderThumb(item.poseUrl, poseLabel, item.poseTag ? poseLabel : null) + '</td>' +
           '<td class="col-img">' + renderThumb(item.backgroundUrl, 'Background') + '</td>' +
           '<td class="col-img">' + renderThumb(item.shoeUrl, 'Shoes') + '</td>' +
@@ -1349,10 +1394,10 @@ function appJs(): string {
     return html;
   }
 
-  function renderThumb(url, label, tag) {
-    if (!url) return '<div class="thumb-placeholder">—</div>';
+  function renderThumb(url, label, tag, small) {
+    if (!url) return '<div class="thumb-placeholder' + (small ? ' sm' : '') + '">—</div>';
     return '<div class="thumb-wrap">' +
-      '<div class="thumb-img">' +
+      '<div class="thumb-img' + (small ? ' sm' : '') + '">' +
         (tag ? '<span class="thumb-tag">' + esc(tag) + '</span>' : '') +
         '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" data-lb="' + esc(url) + '">' +
         '<a class="thumb-dl" href="' + esc(url) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.jpg" title="Download">' +
@@ -1360,6 +1405,18 @@ function appJs(): string {
         '</a>' +
       '</div>' +
     '</div>';
+  }
+
+  // A job's garments array holds every uploaded garment slot present (upper,
+  // lower, third/dupatta) — most jobs have exactly one and render like any
+  // other single-image column, but 2- and 3-input jobs render every uploaded
+  // image side by side instead of only the first one.
+  function renderGarmentCell(garments) {
+    if (!garments || garments.length === 0) return '<div class="thumb-placeholder">—</div>';
+    if (garments.length === 1) return renderThumb(garments[0].url, garments[0].label || 'Garment');
+    return '<div class="garments-row">' + garments.map(function(g) {
+      return renderThumb(g.url, g.label || 'Garment', g.label, true);
+    }).join('') + '</div>';
   }
 
   function renderPager(totalPages) {

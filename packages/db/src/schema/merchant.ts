@@ -40,6 +40,15 @@ export const merchants = pgTable('merchants', {
   // Aivastra default. Null means "no merchant logo, app uses its own default" --
   // see /v1/auth/device-login's logoUrl field in apps/api/src/modules/auth/routes.ts.
   logoKey: text('logo_key'),
+  // Nullable -- R2 object key for the merchant's uploaded loading/processing
+  // video, shown by the Android app in place of the single global clip
+  // configured at config:system.appVideo (packages/storage/src/keys.ts's
+  // appVideo()). Null means "no merchant override, fall back to the global
+  // video" -- same null-means-fallback contract as logoKey, but the fallback
+  // is a configured global asset rather than a client-bundled default. See
+  // /v1/auth/device-login's loadingVideoUrl field in
+  // apps/api/src/modules/auth/routes.ts.
+  loadingVideoKey: text('loading_video_key'),
   // 'admin'          -- created through POST /admin/merchants (an admin IS the approval)
   // 'android_google' -- self-serve Google signup from the Android app via
   //                    POST /v1/merchant/onboarding. No separate free-credit

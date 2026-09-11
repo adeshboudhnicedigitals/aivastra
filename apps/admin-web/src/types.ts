@@ -233,6 +233,8 @@ export interface UserMerchant {
   jobRateLimitPerMin: number | null;
   logoKey: string | null;
   logoUrl: string | null;
+  loadingVideoKey: string | null;
+  loadingVideoUrl: string | null;
 }
 
 export interface User {
