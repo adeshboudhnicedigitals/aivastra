@@ -1742,5 +1742,94 @@ describe('admin workflows - floor validation', () => {
       expect(row.samSegmentationPromptNode).toBe('sam_node');
       expect(row.defaultSamSegmentationPrompt).toBe('person');
     });
+
+    async function createSamWorkflow(promptText = 'person') {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `sam3_patch_${Date.now()}_${Math.floor(Math.random() * 1e9)}`,
+          label: 'SAM3 patch test',
+          jsonContent: {
+            ...jsonContent,
+            sam_node: {
+              inputs: { prompt: promptText },
+              class_type: 'Sam3Segmentation',
+              _meta: { title: 'sam3_segmentation' },
+            },
+          },
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      return createRes.json().id as string;
+    }
+
+    it('PATCH rejects samSegmentationPrompt when no node is configured', async () => {
+      const id = await createSamWorkflow();
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPrompt: 'garment' },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('PATCH sets samSegmentationPromptNode alone and recomputes the default from the JSON', async () => {
+      const id = await createSamWorkflow('person');
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: 'sam_node' },
+      });
+      expect(response.statusCode).toBe(200);
+
+      const detailRes = await app.inject({ method: 'GET', url: `/admin/workflows/${id}`, headers });
+      const detail = detailRes.json();
+      expect(detail.samSegmentationPromptNode).toBe('sam_node');
+      expect(detail.defaultSamSegmentationPrompt).toBe('person');
+    });
+
+    it('PATCH edits samSegmentationPrompt once a node is configured, writing into jsonContent', async () => {
+      const id = await createSamWorkflow('person');
+      await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: 'sam_node' },
+      });
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPrompt: 'garment' },
+      });
+      expect(response.statusCode).toBe(200);
+
+      const detailRes = await app.inject({ method: 'GET', url: `/admin/workflows/${id}`, headers });
+      const detail = detailRes.json();
+      expect(detail.defaultSamSegmentationPrompt).toBe('garment');
+      expect(
+        (detail.jsonContent as Record<string, { inputs: { prompt: string } }>).sam_node.inputs
+          .prompt,
+      ).toBe('garment');
+    });
+
+    it('PATCH rejects a nonexistent samSegmentationPromptNode', async () => {
+      const id = await createSamWorkflow();
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { samSegmentationPromptNode: 'does_not_exist' },
+      });
+      expect(response.statusCode).toBe(400);
+    });
   });
 });

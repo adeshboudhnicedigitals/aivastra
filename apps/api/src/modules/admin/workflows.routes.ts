@@ -922,6 +922,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         stage1NegativePromptNode?: string;
         stage1PositivePrompt?: string;
         stage1NegativePrompt?: string;
+        samSegmentationPromptNode?: string;
+        samSegmentationPrompt?: string;
       };
 
       const [existing] = await app.db
@@ -978,6 +980,12 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         validateNodeExists(json, body.stage1NegativePromptNode, 'stage-1 negative prompt');
         validateNodeType(json, body.stage1NegativePromptNode, 'prompt', 'stage-1 negative prompt');
       }
+      if (body.samSegmentationPromptNode) {
+        // No validateNodeType call here — see extractWorkflowInsertFields's
+        // comment (Task 3): a SAM3 node's class_type won't classify as
+        // 'prompt' under the TextEncode-based check.
+        validateNodeExists(json, body.samSegmentationPromptNode, 'SAM3 segmentation prompt');
+      }
 
       const mergedUpperNodeIds = body.upperNodeIds ?? existing.upperNodeIds;
       const mergedLowerNodeId =
@@ -1012,6 +1020,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       const newPosNode = body.garmentPhasePromptNode ?? existing.garmentPhasePromptNode;
       const newStage1PosNode = body.stage1PositivePromptNode ?? existing.stage1PositivePromptNode;
       const newStage1NegNode = body.stage1NegativePromptNode ?? existing.stage1NegativePromptNode;
+      const newSamNode = body.samSegmentationPromptNode ?? existing.samSegmentationPromptNode;
 
       if (body.garmentPhasePrompt !== undefined) {
         if (!body.garmentPhasePrompt.trim()) {
@@ -1060,6 +1069,16 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         }
         writePromptText(json, newStage1NegNode, body.stage1NegativePrompt);
       }
+      if (body.samSegmentationPrompt !== undefined) {
+        if (!newSamNode) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot set samSegmentationPrompt: this workflow has no SAM3 segmentation prompt node',
+          );
+        }
+        writePromptText(json, newSamNode, body.samSegmentationPrompt);
+      }
       for (const override of body.ksamplerOverrides ?? []) {
         writeKSamplerOverride(json, override);
       }
@@ -1093,18 +1112,27 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         );
       }
 
+      let defaultSamSegmentationPrompt = existing.defaultSamSegmentationPrompt;
+      if (body.samSegmentationPromptNode || body.samSegmentationPrompt !== undefined) {
+        defaultSamSegmentationPrompt = extractPromptText(
+          newSamNode ? (json[newSamNode] as WorkflowNode | undefined) : undefined,
+        );
+      }
+
       const updateValues: Record<string, unknown> = {
         updatedAt: new Date(),
         defaultFacePhasePrompt,
         defaultGarmentPhasePrompt,
         defaultStage1PositivePrompt,
         defaultStage1NegativePrompt,
+        defaultSamSegmentationPrompt,
       };
       if (
         body.garmentPhasePrompt !== undefined ||
         body.facePhasePrompt !== undefined ||
         body.stage1PositivePrompt !== undefined ||
         body.stage1NegativePrompt !== undefined ||
+        body.samSegmentationPrompt !== undefined ||
         (body.ksamplerOverrides?.length ?? 0) > 0
       ) {
         updateValues.jsonContent = json;
@@ -1144,6 +1172,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         updateValues.stage1PositivePromptNode = body.stage1PositivePromptNode;
       if (body.stage1NegativePromptNode !== undefined)
         updateValues.stage1NegativePromptNode = body.stage1NegativePromptNode;
+      if (body.samSegmentationPromptNode !== undefined)
+        updateValues.samSegmentationPromptNode = body.samSegmentationPromptNode;
       if ('tryonPersonNodeId' in body)
         updateValues.tryonPersonNodeId = body.tryonPersonNodeId ?? null;
       if ('tryonGarmentNodeId' in body)
