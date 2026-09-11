@@ -1852,6 +1852,23 @@ describe('admin workflows - floor validation', () => {
     }
 
     it('archives the SAM3 node ID and default prompt when a draining replace occurs', async () => {
+      // The replace payload deliberately reuses the same node id ('sam_node' —
+      // realistic, since a replace's graph usually keeps its node names) but
+      // gives it a DIFFERENT prompt text ('garment' vs the original 'person').
+      // That difference is what lets this test tell "archived the pre-replace
+      // value" apart from "archived the post-replace value" — with identical
+      // jsonContent on both sides, an archive-insert bug that read from the
+      // updated row instead of `existing` would produce the exact same
+      // asserted value and the test would pass either way.
+      const replacementJsonContent = {
+        ...jsonContent,
+        sam_node: {
+          inputs: { prompt: 'garment' },
+          class_type: 'Sam3Segmentation',
+          _meta: { title: 'sam3_segmentation' },
+        },
+      };
+
       const createRes = await app.inject({
         method: 'POST',
         url: '/admin/workflows',
@@ -1869,6 +1886,7 @@ describe('admin workflows - floor validation', () => {
       });
       const id = createRes.json().id as string;
       const version = createRes.json().version as number;
+      expect(createRes.json().defaultSamSegmentationPrompt).toBe('person');
 
       await seedNonTerminalJobOnSamTemplate(id, version);
 
@@ -1879,7 +1897,7 @@ describe('admin workflows - floor validation', () => {
         payload: {
           slug: `sam3_replace_${Date.now()}`,
           label: 'SAM3 replaced',
-          jsonContent: samJsonContent,
+          jsonContent: replacementJsonContent,
           workflowType: 'regular',
           poseNodeId: 'pose_node',
           lowerNodeId: 'lower_node',
@@ -1890,12 +1908,19 @@ describe('admin workflows - floor validation', () => {
       });
       expect(replaceRes.statusCode).toBe(200);
       expect(replaceRes.json().draining).not.toBeNull();
+      // The live/updated row must reflect the NEW version's prompt text —
+      // proving the replace payload's version actually differs from the
+      // original, so a passing archive assertion below can't be a coincidence
+      // of both sides holding the same value.
+      expect(replaceRes.json().defaultSamSegmentationPrompt).toBe('garment');
 
       const [archiveRow] = await app.db
         .select()
         .from(schema.workflowTemplateArchives)
         .where(eq(schema.workflowTemplateArchives.workflowTemplateId, id));
       expect(archiveRow?.samSegmentationPromptNode).toBe('sam_node');
+      // Must be the OUTGOING (pre-replace) value, 'person' — not 'garment',
+      // which is what the live row now holds after the replace.
       expect(archiveRow?.defaultSamSegmentationPrompt).toBe('person');
     });
   });
