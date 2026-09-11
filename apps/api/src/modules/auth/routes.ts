@@ -11,6 +11,7 @@ import {
   sendVerificationEmail,
   sendWelcomeEmail,
 } from '../../lib/mailer.js';
+import { resolveAppVideoUrl } from '../admin/config.routes.js';
 import { resolveMerchantStatus } from '../merchant/status.js';
 import { resolveCampaignId } from './campaign.js';
 import { parseAcceptedAudiences, verifyGoogleIdToken } from './google-id-token.js';
@@ -222,6 +223,23 @@ async function resolveMerchantLogoUrl(
     .from(schema.merchants)
     .where(eq(schema.merchants.userId, userId));
   return row?.logoKey ? (await app.storage.presignGet(row.logoKey, 3600)).url : null;
+}
+
+// Same Android-only surface as resolveMerchantLogoUrl above, but the fallback is the
+// single global clip at config:system.appVideo (GET /v1/config/app-video) rather than
+// a client-bundled default -- see merchants.loadingVideoKey's schema comment.
+async function resolveMerchantLoadingVideoUrl(
+  app: FastifyInstance,
+  userId: string,
+): Promise<string | null> {
+  const [row] = await app.db
+    .select({ loadingVideoKey: schema.merchants.loadingVideoKey })
+    .from(schema.merchants)
+    .where(eq(schema.merchants.userId, userId));
+  if (row?.loadingVideoKey) {
+    return (await app.storage.presignGet(row.loadingVideoKey, 3600)).url;
+  }
+  return resolveAppVideoUrl(app);
 }
 
 async function issueDeviceSession(
@@ -931,11 +949,18 @@ export async function authRoutes(app: FastifyInstance) {
         deviceName,
         platform,
       });
-      const [logoUrl, merchantStatus] = await Promise.all([
+      const [logoUrl, loadingVideoUrl, merchantStatus] = await Promise.all([
         resolveMerchantLogoUrl(app, user.id),
+        resolveMerchantLoadingVideoUrl(app, user.id),
         resolveMerchantStatus(app, user.id),
       ]);
-      return { ...tokens, user: deviceLoginUserPayload(user), logoUrl, merchantStatus };
+      return {
+        ...tokens,
+        user: deviceLoginUserPayload(user),
+        logoUrl,
+        loadingVideoUrl,
+        merchantStatus,
+      };
     },
   );
 
@@ -1085,8 +1110,9 @@ export async function authRoutes(app: FastifyInstance) {
         deviceName,
         platform,
       });
-      const [logoUrl, merchantStatus] = await Promise.all([
+      const [logoUrl, loadingVideoUrl, merchantStatus] = await Promise.all([
         resolveMerchantLogoUrl(app, user.id),
+        resolveMerchantLoadingVideoUrl(app, user.id),
         resolveMerchantStatus(app, user.id),
       ]);
 
@@ -1094,6 +1120,7 @@ export async function authRoutes(app: FastifyInstance) {
         ...tokens,
         user: deviceLoginUserPayload(user),
         logoUrl,
+        loadingVideoUrl,
         merchantStatus,
         // Prefill for the onboarding form; omitted once a merchants row exists.
         ...(merchantStatus === 'ONBOARDING_REQUIRED'

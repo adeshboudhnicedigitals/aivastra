@@ -439,6 +439,7 @@ export const AdminMerchantUpdateBody = z
     // Null clears the override back to DEFAULT_JOB_RATE_LIMIT_PER_MIN.
     jobRateLimitPerMin: z.number().int().min(1).max(500).nullable().optional(),
     logoKey: z.string().max(500).nullable().optional(),
+    loadingVideoKey: z.string().max(500).nullable().optional(),
   })
   .refine((body) => Object.values(body).some((v) => v !== undefined), {
     message: 'at least one field is required',

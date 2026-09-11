@@ -1,7 +1,7 @@
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { AdminMerchantUpdateBody, AssetContentType } from '@aivastra/types';
+import { AdminMerchantUpdateBody, AssetContentType, PresignAppVideoBody } from '@aivastra/types';
 import { count, desc, eq, ilike, or as orOp } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -25,6 +25,7 @@ function auditMerchantSnapshot(row: {
   webhookUrl?: string | null;
   webhookSecret?: string | null;
   logoKey?: string | null;
+  loadingVideoKey?: string | null;
 }) {
   return {
     companyName: row.companyName,
@@ -37,6 +38,7 @@ function auditMerchantSnapshot(row: {
     webhookUrl: row.webhookUrl,
     webhookSecret: row.webhookSecret ? '(set)' : null,
     logoKey: row.logoKey,
+    loadingVideoKey: row.loadingVideoKey,
   };
 }
 
@@ -342,6 +344,9 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       if (body.logoKey !== undefined) {
         updates.logoKey = body.logoKey;
       }
+      if (body.loadingVideoKey !== undefined) {
+        updates.loadingVideoKey = body.loadingVideoKey;
+      }
 
       const updated = await app.db.transaction(async (tx) => {
         const [existing] = await tx
@@ -391,6 +396,23 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       const logoKey = keys.merchantLogo(id);
       const presign = await app.storage.presignPut(logoKey, contentType, 2_000_000, 300);
       return { uploadUrl: presign.url, logoKey };
+    },
+  );
+
+  app.post(
+    '/admin/merchants/:id/loading-video/presign',
+    {
+      preHandler: requirePermission('merchants.write'),
+      schema: { body: PresignAppVideoBody },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { contentType } = req.body as { contentType: string };
+      const loadingVideoKey = keys.merchantLoadingVideo(id);
+      // Same 50MB cap as the global app-video upload (config.routes.ts) — this
+      // is the same asset, just merchant-scoped instead of a single shared one.
+      const presign = await app.storage.presignPut(loadingVideoKey, contentType, 50_000_000, 300);
+      return { uploadUrl: presign.url, loadingVideoKey };
     },
   );
 

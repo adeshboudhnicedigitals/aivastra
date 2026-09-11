@@ -72,12 +72,17 @@ data class DeviceLoginResponse(
     @SerializedName("refreshToken") val refreshToken: String? = null,
     @SerializedName("logoUrl") val logoUrlCamel: String? = null,
     @SerializedName("logo_url") val logoUrlSnake: String? = null,
+    // Merchant's uploaded processing-screen video; null falls back to the global
+    // clip served by GET /v1/config/app-video -- see AppVideoRepository.
+    @SerializedName("loadingVideoUrl") val loadingVideoUrlCamel: String? = null,
+    @SerializedName("loading_video_url") val loadingVideoUrlSnake: String? = null,
     @SerializedName("user") val user: UserDto,
     @SerializedName("merchantStatus") val merchantStatus: String? = null,
     // Only present from the Google login route, and only when onboarding is required.
     @SerializedName("onboarding") val onboarding: OnboardingPrefill? = null
 ) {
     val effectiveLogoUrl: String? get() = logoUrlCamel ?: logoUrlSnake ?: user.effectiveLogoUrl
+    val effectiveLoadingVideoUrl: String? get() = loadingVideoUrlCamel ?: loadingVideoUrlSnake
 }
 
 data class RefreshTokenResponse(
