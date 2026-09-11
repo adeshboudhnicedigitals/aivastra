@@ -1387,6 +1387,13 @@
       "when": 1789034133733,
       "tag": "0197_pale_xorn",
       "breakpoints": true
+    },
+    {
+      "idx": 198,
+      "version": "7",
+      "when": 1789124620009,
+      "tag": "0198_vengeful_deathbird",
+      "breakpoints": true
     }
   ]
 }

@@ -19,6 +19,7 @@ object SessionManager {
     private const val USER_EMAIL = "user_email"
     private const val USER_NAME = "user_name"
     private const val USER_LOGO_URL = "user_logo_url"
+    private const val USER_LOADING_VIDEO_URL = "user_loading_video_url"
     private const val EXPIRY_SKEW_SECONDS = 30L
 
     private lateinit var appContext: Context
@@ -50,6 +51,9 @@ object SessionManager {
     val logoUrl: String?
         get() = preferences?.getString(USER_LOGO_URL, null)
 
+    val loadingVideoUrl: String?
+        get() = preferences?.getString(USER_LOADING_VIDEO_URL, null)
+
     @JvmOverloads
     fun save(
         accessToken: String,
@@ -57,7 +61,8 @@ object SessionManager {
         userId: String? = null,
         email: String? = null,
         userName: String? = null,
-        logoUrl: String? = null
+        logoUrl: String? = null,
+        loadingVideoUrl: String? = null
     ) {
         val prefs = preferences ?: return
         val editor = prefs.edit()
@@ -76,6 +81,9 @@ object SessionManager {
         }
         if (!logoUrl.isNullOrEmpty()) {
             editor.putString(USER_LOGO_URL, logoUrl)
+        }
+        if (!loadingVideoUrl.isNullOrEmpty()) {
+            editor.putString(USER_LOADING_VIDEO_URL, loadingVideoUrl)
         }
         editor.apply()
         ApiClient.setAccessToken(accessToken)

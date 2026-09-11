@@ -86,7 +86,8 @@ class LoginViewModel(
                                 userId = result.data.user.id,
                                 email = result.data.user.email,
                                 userName = result.data.user.displayName,
-                                logoUrl = result.data.effectiveLogoUrl
+                                logoUrl = result.data.effectiveLogoUrl,
+                                loadingVideoUrl = result.data.effectiveLoadingVideoUrl
                             )
                             LoginUiState.Success(result.data)
                         }
@@ -146,7 +147,8 @@ class LoginViewModel(
                                         userId = result.data.user.id,
                                         email = result.data.user.email,
                                         userName = result.data.user.displayName,
-                                        logoUrl = result.data.effectiveLogoUrl
+                                        logoUrl = result.data.effectiveLogoUrl,
+                                        loadingVideoUrl = result.data.effectiveLoadingVideoUrl
                                     )
                                     LoginUiState.Success(result.data)
                                 }
@@ -194,7 +196,8 @@ class LoginViewModel(
                                 userId = result.data.user.id,
                                 email = result.data.user.email,
                                 userName = result.data.user.displayName,
-                                logoUrl = result.data.effectiveLogoUrl
+                                logoUrl = result.data.effectiveLogoUrl,
+                                loadingVideoUrl = result.data.effectiveLoadingVideoUrl
                             )
                             LoginUiState.Success(result.data)
                         }

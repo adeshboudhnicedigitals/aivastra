@@ -150,6 +150,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [showEditMerchant, setShowEditMerchant] = useState(false);
   const [merchantEditForm, setMerchantEditForm] = useState(EMPTY_EDIT_MERCHANT_FORM);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingLoadingVideo, setUploadingLoadingVideo] = useState(false);
   const [savingMerchantEdit, setSavingMerchantEdit] = useState(false);
   const [togglingMerchant, setTogglingMerchant] = useState(false);
   const [togglingDemoData, setTogglingDemoData] = useState(false);
@@ -773,6 +774,31 @@ export default function UsersPage({ onNav, toast }: Props) {
       toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to upload logo') });
     } finally {
       setUploadingLogo(false);
+    }
+  }
+  async function handleLoadingVideoUpload(file: File) {
+    if (!detail?.merchant) return;
+    setUploadingLoadingVideo(true);
+    try {
+      const presign = await apiFetch<{ uploadUrl: string; loadingVideoKey: string }>(
+        `/admin/merchants/${detail.merchant.id}/loading-video/presign`,
+        { method: 'POST', body: JSON.stringify({ contentType: file.type }) },
+      );
+      await fetch(presign.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      await apiFetch(`/admin/merchants/${detail.merchant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ loadingVideoKey: presign.loadingVideoKey }),
+      });
+      toast({ title: 'Merchant loading video updated' });
+      await openDetail(detail);
+    } catch (err) {
+      toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to upload loading video') });
+    } finally {
+      setUploadingLoadingVideo(false);
     }
   }
 
@@ -1978,6 +2004,42 @@ export default function UsersPage({ onNav, toast }: Props) {
                     />
                   </label>
                 </div>
+              </div>
+              <div className="field">
+                <label>Loading video</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {detail.merchant?.loadingVideoUrl && (
+                    <video
+                      src={detail.merchant.loadingVideoUrl}
+                      muted
+                      style={{
+                        width: 64,
+                        height: 48,
+                        objectFit: 'cover',
+                        borderRadius: 6,
+                        border: '1px solid var(--border)',
+                      }}
+                    />
+                  )}
+                  <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                    {uploadingLoadingVideo ? 'Uploading…' : 'Upload loading video'}
+                    <input
+                      type="file"
+                      accept="video/mp4"
+                      style={{ display: 'none' }}
+                      disabled={uploadingLoadingVideo}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void handleLoadingVideoUpload(file);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+                <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '4px 0 0' }}>
+                  Shown on the Android app's processing screen for this merchant's staff/kiosk
+                  logins. Leave unset to use the global loading video (Settings → App video).
+                </p>
               </div>
               <div className="field">
                 <label>Company name</label>

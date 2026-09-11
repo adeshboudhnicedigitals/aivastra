@@ -326,6 +326,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           demoData: schema.merchants.demoData,
           jobRateLimitPerMin: schema.merchants.jobRateLimitPerMin,
           logoKey: schema.merchants.logoKey,
+          loadingVideoKey: schema.merchants.loadingVideoKey,
         })
         .from(schema.merchants)
         .where(eq(schema.merchants.userId, id));
@@ -366,6 +367,9 @@ export async function adminUsersRoutes(app: FastifyInstance) {
               // signature only covers the exact query string present when it was signed.
               logoUrl: merchantRow.logoKey
                 ? (await app.storage.presignGet(merchantRow.logoKey, 3600)).url
+                : null,
+              loadingVideoUrl: merchantRow.loadingVideoKey
+                ? (await app.storage.presignGet(merchantRow.loadingVideoKey, 3600)).url
                 : null,
             }
           : null,
