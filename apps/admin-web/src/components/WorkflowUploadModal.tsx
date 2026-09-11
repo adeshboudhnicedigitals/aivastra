@@ -158,6 +158,11 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [stage1PositivePromptNode, setStage1PositivePromptNode] = useState('');
   const [stage1NegativePromptNode, setStage1NegativePromptNode] = useState('');
 
+  // SAM3 Segmentation node — no auto-detection (it doesn't feed a KSampler,
+  // so the connection-tracing detector can't find it); the admin types the
+  // node ID directly, same manual-entry UX as a ksamplerOverrides nodeId.
+  const [samSegmentationPromptNode, setSamSegmentationPromptNode] = useState('');
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -382,6 +387,9 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           tryonOutputNodeId: tryonOutputNodeId.trim(),
           facePhasePromptNode: negativePromptNode,
           garmentPhasePromptNode: positivePromptNode,
+          ...(samSegmentationPromptNode.trim()
+            ? { samSegmentationPromptNode: samSegmentationPromptNode.trim() }
+            : {}),
         };
       } else if (workflowType === 'two_stage') {
         payload = {
@@ -400,6 +408,9 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           garmentPhasePromptNode: positivePromptNode,
           stage1PositivePromptNode,
           stage1NegativePromptNode,
+          ...(samSegmentationPromptNode.trim()
+            ? { samSegmentationPromptNode: samSegmentationPromptNode.trim() }
+            : {}),
         };
       } else {
         const validUpperIds = upperNodeIds.filter(Boolean);
@@ -423,6 +434,9 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           // negative → facePhasePromptNode    (DB field name)
           facePhasePromptNode: negativePromptNode || undefined,
           garmentPhasePromptNode: positivePromptNode,
+          ...(samSegmentationPromptNode.trim()
+            ? { samSegmentationPromptNode: samSegmentationPromptNode.trim() }
+            : {}),
         };
       }
 
@@ -1253,6 +1267,19 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               </div>
             )}
           </>
+        )}
+
+        {parsed && (
+          <div className="field">
+            <label>SAM3 segmentation node ID (optional)</label>
+            <input
+              className="input"
+              placeholder="e.g. 42 — not auto-detected, enter manually"
+              value={samSegmentationPromptNode}
+              disabled={saving}
+              onChange={(e) => setSamSegmentationPromptNode(e.target.value.trim())}
+            />
+          </div>
         )}
 
         {error && (
