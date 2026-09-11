@@ -2,6 +2,20 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-11 — Admin can edit a workflow's SAM3 segmentation prompt
+
+- **Change:** `workflow_templates`/`workflow_template_archives` gain
+  `samSegmentationPromptNode`/`defaultSamSegmentationPrompt`, following the
+  `stage1PositivePromptNode` pattern exactly — template-level only, no
+  per-pose override, no dispatcher change (the value is baked into
+  `jsonContent` at edit time, same as every other admin-editable prompt).
+  `POST`/`PATCH /admin/workflows` and the replace route all support it; the
+  admin-web workflow create/replace modals expose a manual node-ID input
+  (no auto-detection — a SAM3 node doesn't feed a KSampler, so the existing
+  connection-tracing detector can't find it), and the Edit drawer/detail
+  view expose the prompt text once a node ID is configured.
+- **Design:** `docs/superpowers/specs/2026-09-11-sam3-segmentation-prompt-design.md`.
+
 ## 2026-09-11 — Workflow replace now clears stale prompt overrides tied to the old graph
 
 - **Change:** `POST /admin/workflows/:id/replace` now also clears stale admin-authored
