@@ -386,7 +386,14 @@ export async function processJob(
     typeof rawParams.workflowTemplateId === 'string' ? rawParams.workflowTemplateId : null;
   if (snapshottedWorkflowTemplateId) {
     effectiveWorkflowTemplateId = snapshottedWorkflowTemplateId;
-    effectivePromptFacePhase = null;
+    // api snapshots both prompt fields into params at job-creation time (see
+    // resolveTryonPlan in apps/api/src/modules/jobs/create.ts) using the same
+    // pose_garment_configs-over-pose-default precedence this file's own lookup
+    // below applies — that lookup is only reachable when nothing was snapshotted,
+    // so a snapshotted job must carry its resolved prompt text with it or the
+    // override silently never applies.
+    effectivePromptFacePhase =
+      typeof rawParams.promptFacePhase === 'string' ? rawParams.promptFacePhase : null;
     effectivePromptGarmentPhase =
       typeof rawParams.promptGarmentPhase === 'string' ? rawParams.promptGarmentPhase : null;
   } else if (inputs.garmentTypeId) {
