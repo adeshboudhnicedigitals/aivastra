@@ -249,14 +249,18 @@ export default function WorkflowsPage({ toast }: Props) {
       if (editingWf.stage1NegativePromptNode) {
         patch.stage1NegativePrompt = editForm.stage1NegativePrompt.trim();
       }
-      if (editingWf.samSegmentationPromptNode) {
-        patch.samSegmentationPrompt = editForm.samSegmentationPrompt.trim();
-      }
       // Compared against the node id BEFORE this save (not gated on it being
       // set) — this is what lets an admin attach a node id to a template that
       // never had one, not just edit an existing one. '' means "clear it".
       const trimmedSamNode = editForm.samSegmentationPromptNodeInput.trim();
       const samNodeChanged = trimmedSamNode !== (editingWf.samSegmentationPromptNode ?? '');
+      const clearingSamNode = samNodeChanged && !trimmedSamNode;
+      // Never send prompt text in the same patch as a node-id clear — there'd
+      // be nowhere on the server to write it, and the API's PATCH handler
+      // rejects that exact combination as contradictory.
+      if (editingWf.samSegmentationPromptNode && !clearingSamNode) {
+        patch.samSegmentationPrompt = editForm.samSegmentationPrompt.trim();
+      }
       if (samNodeChanged) {
         patch.samSegmentationPromptNode = trimmedSamNode || null;
       }
@@ -316,6 +320,9 @@ export default function WorkflowsPage({ toast }: Props) {
                 ...(editingWf.stage1NegativePromptNode
                   ? { defaultStage1NegativePrompt: editForm.stage1NegativePrompt.trim() }
                   : {}),
+                // Ordering here is load-bearing: this spread must run before the
+                // samNodeChanged spread below so that spread's own
+                // defaultSamSegmentationPrompt: '' (the clear case) wins the merge.
                 ...(editingWf.samSegmentationPromptNode
                   ? { defaultSamSegmentationPrompt: editForm.samSegmentationPrompt.trim() }
                   : {}),
