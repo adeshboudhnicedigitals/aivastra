@@ -51,7 +51,6 @@ describe('shopify try-on routes through basket resolution', () => {
       slug: `basket-routing-default-basket-${Date.now()}`,
       label: 'Default',
       workflowTemplateId: defaultWorkflowId,
-      isDefault: true,
     });
 
     const [sareeBasket] = await app.db
@@ -199,30 +198,8 @@ describe('shopify try-on routes through basket resolution', () => {
     );
   });
 
-  it('falls back to the default basket when no rule matches', async () => {
-    const store = await seedStore();
-    const untaggedProductId = 5002;
-    await seedGarment(store.id, untaggedProductId);
-
-    const res = await createTryon(store, { shopifyProductId: untaggedProductId });
-    const [inputs] = await app.db
-      .select()
-      .from(schema.jobInputs)
-      .where(eq(schema.jobInputs.jobId, res.json().jobId));
-    expect((inputs.params as { workflowTemplateId?: string }).workflowTemplateId).toBe(
-      defaultWorkflowId,
-    );
-  });
-
   // The critical one: refusal must happen BEFORE the deduct, not merely happen.
-  // Must run last — it turns off the only default basket in this suite's DB,
-  // which the earlier tests rely on for their fallback/rule assertions.
   it('refuses without deducting credits or creating a job when nothing resolves', async () => {
-    await app.db
-      .update(schema.shopifyFunnelTemplates)
-      .set({ isDefault: false })
-      .where(eq(schema.shopifyFunnelTemplates.isDefault, true));
-
     const store = await seedStore();
     const untaggedProductId = 5003;
     await seedGarment(store.id, untaggedProductId);
