@@ -79,8 +79,16 @@ export interface ShopifyStoreSettings {
   activation?: ShopifyActivationSettings;
 }
 
+export const FUNNEL_RULE_CONDITION_FIELDS = [
+  'product_type',
+  'tags',
+  'vendor',
+  'collections',
+  'title',
+] as const;
+
 export interface FunnelRuleCondition {
-  field: 'product_type' | 'tags' | 'vendor' | 'collections' | 'title';
+  field: (typeof FUNNEL_RULE_CONDITION_FIELDS)[number];
   operator: 'equals' | 'contains';
   value: string;
 }

@@ -88,7 +88,7 @@ function describeConditions(conditions: Condition[]): string {
   return conditions
     .map(
       (c) =>
-        `${CONDITION_FIELD_LABEL[c.field]} ${CONDITION_OPERATOR_LABEL[c.operator]} "${c.value}"`,
+        `${CONDITION_FIELD_LABEL[c.field] ?? c.field} ${CONDITION_OPERATOR_LABEL[c.operator]} "${c.value}"`,
     )
     .join(' or ');
 }

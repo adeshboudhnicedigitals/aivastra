@@ -84,10 +84,14 @@ work.
   operators, case-insensitivity, matching the existing `vendor` test shape).
 - The integration test covering `funnel-rules.routes.ts`'s counts endpoint
   gets a title-condition case, specifically to guard site #4's select-list
-  change — a regression here would silently break the counts query (title
-  would read as `undefined`, so a `title` condition would ineffectually never
-  match) without any type error, since the cast to `BasketMatchTarget` at
-  that call site hides the missing field from the compiler.
+  change end-to-end. Note: removing `title` from that `select` after this
+  ships would actually fail to compile — the row would no longer be a
+  structural superset of `BasketMatchTarget`, so `as BasketMatchTarget` stops
+  being a legal assertion. The integration test's value is defense in depth
+  against a regression that silences that compile error (e.g. widening the
+  cast to `as unknown as BasketMatchTarget`) or against `matchesText`'s
+  behavior changing underneath the `title` case — not against the
+  missing-column scenario itself, which the compiler already catches.
 
 ## Out of scope
 

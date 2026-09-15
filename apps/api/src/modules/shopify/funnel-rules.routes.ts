@@ -12,7 +12,7 @@ import { type BasketMatchTarget, loadRuleSet, resolveBasketFrom } from './funnel
 const COUNTS_PRODUCT_CAP = 10_000;
 
 const Condition = z.object({
-  field: z.enum(['product_type', 'tags', 'vendor', 'collections', 'title']),
+  field: z.enum(schema.FUNNEL_RULE_CONDITION_FIELDS),
   operator: z.enum(['equals', 'contains']),
   value: z.string().min(1).max(200),
 });

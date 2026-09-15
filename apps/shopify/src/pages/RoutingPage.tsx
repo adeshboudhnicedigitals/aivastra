@@ -86,7 +86,8 @@ export function describeConditions(conditions: Condition[]): string {
   if (conditions.length === 0) return 'Matches nothing — add a condition';
   return conditions
     .map(
-      (c) => `${FIELD_LABEL[c.field]} ${c.operator === 'equals' ? 'is' : 'contains'} "${c.value}"`,
+      (c) =>
+        `${FIELD_LABEL[c.field] ?? c.field} ${c.operator === 'equals' ? 'is' : 'contains'} "${c.value}"`,
     )
     .join(' or ');
 }
