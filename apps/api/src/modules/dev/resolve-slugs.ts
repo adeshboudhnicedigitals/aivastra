@@ -26,6 +26,10 @@ export interface ResolvedCatalogSelection {
   garmentTypeId?: string;
   lowerCatalogId?: string;
   shoeCatalogId?: string;
+  // Carried back so the route can validate `lowerGarment`/`thirdGarment` were
+  // supplied when this garment type requires them, without a second DB hit.
+  requiresLowerUpload: boolean;
+  requiresThirdUpload: boolean;
 }
 
 /**
@@ -94,9 +98,15 @@ export async function resolveCatalogSelection(
   // this gender, because the pose/lower/shoe lists in the second lookup are narrowed
   // BY that garment type.
   let garmentTypeId: string | undefined;
+  let requiresLowerUpload = false;
+  let requiresThirdUpload = false;
   if (body.garmentType) {
     const base = await getCatalogOptions(app, { gender: body.gender, publicOnly: true });
     garmentTypeId = pick(base.options.garmentTypes, body.garmentType, 'garmentType');
+    // `pick` already threw if no row matched, so this find always succeeds.
+    const gt = base.options.garmentTypes.find((g) => g.id === garmentTypeId);
+    requiresLowerUpload = gt?.requiresLowerUpload ?? false;
+    requiresThirdUpload = gt?.requiresThirdUpload ?? false;
   }
 
   const { options } = await getCatalogOptions(app, {
@@ -122,6 +132,8 @@ export async function resolveCatalogSelection(
     shoeCatalogId: body.shoe
       ? pick(options.shoeItems, body.shoe, 'shoe', body.garmentType)
       : undefined,
+    requiresLowerUpload,
+    requiresThirdUpload,
   };
 }
 
@@ -135,7 +147,14 @@ export function toPublicOptions(options: CatalogOptions) {
     thumbnailUrl: i.thumbnailUrl,
   });
   return {
-    garmentTypes: options.garmentTypes.map((g) => ({ slug: g.slug as string, label: g.label })),
+    garmentTypes: options.garmentTypes.map((g) => ({
+      slug: g.slug as string,
+      label: g.label,
+      requiresLowerUpload: g.requiresLowerUpload,
+      lowerUploadLabel: g.lowerUploadLabel,
+      requiresThirdUpload: g.requiresThirdUpload,
+      thirdUploadLabel: g.thirdUploadLabel,
+    })),
     faces: options.faces.map(asset),
     backgrounds: options.backgrounds.map(asset),
     poses: options.poses.map((p) => ({ ...asset(p), hasLower: p.hasLower, hasShoes: p.hasShoes })),

@@ -19,6 +19,10 @@ let setCredits: (n: number) => Promise<void>;
 let publishedFaceId: string;
 let hiddenFaceId: string;
 
+// A composite garment type (kurta+pyjama-style) requiring the caller's own 2nd
+// piece photo — exercises the lowerGarment/thirdGarment upload path.
+let compositeGarmentTypeId: string;
+
 const jpegBytes = () => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64)]);
 
 const getOptions = (query: string, token = key, headers: Record<string, string> = {}) =>
@@ -123,6 +127,28 @@ beforeAll(async () => {
     })
     .returning();
 
+  // A SEPARATE workflow template with a real lowerNodeId, used only by the
+  // composite-garment-type pose below. createJob requires a lower garment
+  // (curated or uploaded) on any pose whose workflow has a lower slot — sharing
+  // `wf` above would have made every other pose in this fixture set (which have
+  // no lower slot and no lower garment in their test bodies) start failing too.
+  const [wfWithLower] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: 'dev-catalog-wf-lower',
+      label: 'WF Lower',
+      jsonContent: {},
+      faceNodeId: 'x',
+      poseNodeId: 'x',
+      bgNodeId: 'x',
+      upperNodeIds: ['1'],
+      lowerNodeId: 'x',
+      facePhasePromptNode: 'x',
+      garmentPhasePromptNode: 'x',
+      workflowType: 'tryon',
+    })
+    .returning();
+
   const [, sideProfile] = await app.db
     .insert(schema.modelPoseAssets)
     .values([
@@ -151,6 +177,25 @@ beforeAll(async () => {
     ])
     .returning();
 
+  // A pose whose workflow HAS a lower slot (wfWithLower), dedicated to the
+  // composite-garment-type tests below — createJob requires a lower garment on
+  // any pose using this workflow, which is exactly the case those tests cover.
+  // Only its public_api_slug ('full-body-with-lower') is referenced below.
+  await app.db
+    .insert(schema.modelPoseAssets)
+    .values({
+      genderSlug: 'women',
+      label: 'Full Body With Lower',
+      displayName: 'Full Body With Lower',
+      r2Key: 'pose3.jpg',
+      thumbnailKey: 'pose3-t.jpg',
+      isActive: true,
+      scope: 'general',
+      workflowTemplateId: wfWithLower.id,
+      publicApiSlug: 'full-body-with-lower',
+    })
+    .returning();
+
   // A garment type that disables `side-profile` via a per-(pose, garmentType)
   // override — reproducing the real prod gotcha: a pose visible in the unfiltered
   // /v1/dev/catalog/options list can still be rejected by /generate once a
@@ -171,6 +216,23 @@ beforeAll(async () => {
     subcategoryId: dress.id,
     isActive: false,
   });
+
+  // A garment type that requires the caller's own 2nd piece photo (mirrors a real
+  // kurta-pyjama/sherwani-pyjama config) — same requiresLowerUpload flag
+  // EditGarmentTypeModal.tsx already toggles admin-side.
+  const [composite] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({
+      genderSlug: 'women',
+      slug: 'kurta-pyjama-test',
+      label: 'Kurta Pyjama',
+      isActive: true,
+      publicApiSlug: 'kurta-pyjama-test',
+      requiresLowerUpload: true,
+      lowerUploadLabel: 'Pyjama photo',
+    })
+    .returning();
+  compositeGarmentTypeId = composite.id;
 
   // Seeded straight into Postgres, so the /admin/* onResponse hook that normally
   // invalidates never fired — see plugins/catalog-cache-invalidation.ts.
@@ -357,6 +419,85 @@ describe('POST /v1/dev/catalog/generate', () => {
     });
     expect(jobRes.status).toBe(200);
     expect(((await jobRes.json()) as { status: string }).status).toBe('QUEUED');
+  });
+
+  describe('own-photo lowerGarment/thirdGarment uploads (composite garment types)', () => {
+    it('rejects a requiresLowerUpload garmentType with 400 when lowerGarment is missing, and charges nothing', async () => {
+      await setCredits(1000);
+      const res = await postGenerate(generateBody({ garmentType: 'kurta-pyjama-test' }));
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error.message).toContain('lowerGarment');
+
+      const [credits] = await app.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, userId));
+      expect(credits.balance).toBe(1000);
+    });
+
+    it('accepts lowerGarment as base64 JSON and stores it as job_inputs.lowerGarmentKey', async () => {
+      await setCredits(1000);
+      const res = await postGenerate(
+        generateBody({
+          garmentType: 'kurta-pyjama-test',
+          looks: [{ pose: 'full-body-with-lower', background: 'studio-white' }],
+          lowerGarment: jpegBytes().toString('base64'),
+        }),
+      );
+      const body = (await res.json()) as { jobs: { jobId: string }[] };
+      expect(res.status, JSON.stringify(body)).toBe(202);
+
+      const [inputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, body.jobs[0].jobId));
+      expect(inputs?.lowerGarmentKey).toBeTruthy();
+      expect(inputs?.garmentTypeId).toBe(compositeGarmentTypeId);
+    });
+
+    it('accepts lowerGarment via multipart/form-data alongside garment', async () => {
+      await setCredits(1000);
+      const fd = new FormData();
+      fd.set('gender', 'women');
+      fd.set('face', 'women-model-a');
+      fd.set('garmentType', 'kurta-pyjama-test');
+      fd.set(
+        'looks',
+        JSON.stringify([{ pose: 'full-body-with-lower', background: 'studio-white' }]),
+      );
+      fd.set('aspectRatio', '3:4');
+      fd.set('resolution', '2K');
+      fd.set('garment', new Blob([jpegBytes()], { type: 'image/jpeg' }), 'garment.jpg');
+      fd.set('lowerGarment', new Blob([jpegBytes()], { type: 'image/jpeg' }), 'lower.jpg');
+
+      const res = await fetch(`${base}/v1/dev/catalog/generate`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}` },
+        body: fd,
+      });
+      const body = (await res.json()) as { jobs: { jobId: string }[] };
+      expect(res.status, JSON.stringify(body)).toBe(202);
+
+      const [inputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, body.jobs[0].jobId));
+      expect(inputs?.lowerGarmentKey).toBeTruthy();
+    });
+
+    it('leaves lowerGarmentKey null for a garmentType that does not require it', async () => {
+      await setCredits(1000);
+      const res = await postGenerate(generateBody({ garmentType: 'dress' }));
+      const body = (await res.json()) as { jobs: { jobId: string }[] };
+      expect(res.status, JSON.stringify(body)).toBe(202);
+
+      const [inputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, body.jobs[0].jobId));
+      expect(inputs?.lowerGarmentKey).toBeNull();
+    });
   });
 });
 
