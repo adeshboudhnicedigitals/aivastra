@@ -8,7 +8,6 @@ import {
 
 const SAREE = 'b-saree';
 const UPPER = 'b-upper';
-const FALLBACK = 'b-fallback';
 
 function baskets(overrides: Partial<Record<string, boolean>> = {}) {
   return new Map([
@@ -32,16 +31,6 @@ function baskets(overrides: Partial<Record<string, boolean>> = {}) {
         isActive: overrides[UPPER] ?? true,
       },
     ],
-    [
-      FALLBACK,
-      {
-        id: FALLBACK,
-        label: 'Default',
-        workflowTemplateId: 'wf-default',
-        workflowTemplateVersion: null,
-        isActive: overrides[FALLBACK] ?? true,
-      },
-    ],
   ]);
 }
 
@@ -50,7 +39,6 @@ function ruleSet(partial: Partial<BasketRuleSet> = {}): BasketRuleSet {
     storeRules: [],
     globalRules: [],
     baskets: baskets(),
-    defaultBasketId: FALLBACK,
     ...partial,
   };
 }
@@ -165,11 +153,21 @@ describe('resolveBasketFrom', () => {
 
   it('falls through a pin to an inactive basket rather than dead-ending', () => {
     const result = resolveBasketFrom(
-      ruleSet({ baskets: baskets({ [SAREE]: false }) }),
-      product({ funnelTemplateId: SAREE }),
+      ruleSet({
+        baskets: baskets({ [SAREE]: false }),
+        globalRules: [
+          {
+            ruleId: 'r1',
+            basketId: UPPER,
+            priority: 1,
+            conditions: [{ field: 'tags', operator: 'equals', value: 'x' }],
+          },
+        ],
+      }),
+      product({ funnelTemplateId: SAREE, tags: ['x'] }),
     );
-    expect(result?.basketId).toBe(FALLBACK);
-    expect(result?.source).toBe('default');
+    expect(result?.basketId).toBe(UPPER);
+    expect(result?.source).toBe('rule');
   });
 
   it('resolves a store rule before a global rule of far better priority', () => {
@@ -241,7 +239,7 @@ describe('resolveBasketFrom', () => {
       ruleSet({ globalRules: [{ ruleId: 'r1', basketId: UPPER, priority: 1, conditions: [] }] }),
       product({ tags: ['anything'] }),
     );
-    expect(result?.basketId).toBe(FALLBACK);
+    expect(result).toBeNull();
   });
 
   it('ORs conditions within one rule', () => {
@@ -260,27 +258,11 @@ describe('resolveBasketFrom', () => {
     });
     expect(resolveBasketFrom(rules, product({ tags: ['saree'] }))?.basketId).toBe(SAREE);
     expect(resolveBasketFrom(rules, product({ productType: 'saree' }))?.basketId).toBe(SAREE);
-    expect(resolveBasketFrom(rules, product({ vendor: 'saree' }))?.basketId).toBe(FALLBACK);
+    expect(resolveBasketFrom(rules, product({ vendor: 'saree' }))).toBeNull();
   });
 
-  it('returns the default basket when nothing matches', () => {
+  it('returns null when nothing matches', () => {
     const result = resolveBasketFrom(ruleSet(), product({ tags: ['unmatched'] }));
-    expect(result).toEqual({
-      basketId: FALLBACK,
-      label: 'Default',
-      workflowTemplateId: 'wf-default',
-      workflowTemplateVersion: null,
-      source: 'default',
-    });
-  });
-
-  it('returns null when there is no default basket', () => {
-    expect(resolveBasketFrom(ruleSet({ defaultBasketId: null }), product())).toBeNull();
-  });
-
-  it('returns null when the default basket is inactive', () => {
-    expect(
-      resolveBasketFrom(ruleSet({ baskets: baskets({ [FALLBACK]: false }) }), product()),
-    ).toBeNull();
+    expect(result).toBeNull();
   });
 });
