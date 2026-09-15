@@ -98,26 +98,55 @@ async function seedCatalogItem(app: TestApp, merchantId: string, garmentTypeId: 
   return item;
 }
 
-// Two-input (body+pallu) garment type — deliberately has NO tryonCategoryId, mirroring the
-// real saree row (verified via psql during planning: tryon_categories is empty locally and
-// garment_subcategories.tryon_category_id is null for saree). The two-input path must never
-// depend on that lookup — see resolveTryonGarment.ts.
-async function seedTwoInputGarmentType(app: TestApp, opts: { templateActive?: boolean } = {}) {
-  const [template] = await app.db
+// Two-input (body+pallu) garment type. No single-pass 3-input (customer + body +
+// pallu) template exists in this system — see resolveTryonGarment.ts's
+// ResolvedTwoInputTryonGarment doc comment — so a two-input catalog item goes
+// through the two-step pipeline: a mannequin-drape template (body+pallu, no
+// person node) followed by the garment type's ordinary tryonCategory
+// single-garment template (person+garment, same as any other tryon).
+async function seedTwoInputGarmentType(
+  app: TestApp,
+  opts: { mannequinTemplateActive?: boolean } = {},
+) {
+  const [mannequinTemplate] = await app.db
     .insert(schema.workflowTemplates)
     .values({
-      slug: `two-input-template-${randomUUID()}`,
-      label: 'Two-input tryon workflow',
+      slug: `two-input-mannequin-${randomUUID()}`,
+      label: 'Two-input mannequin drape',
       jsonContent: {},
       poseNodeId: 'pose',
       upperNodeIds: [],
       garmentPhasePromptNode: 'garment',
       workflowType: 'saree_step1_two_input',
-      tryonPersonNodeId: '26',
       tryonGarmentNodeId: '30',
       tryonGarmentNodeId2: '27',
       tryonOutputNodeId: '25',
-      isActive: opts.templateActive ?? true,
+      isActive: opts.mannequinTemplateActive ?? true,
+    })
+    .returning();
+  const [tryonTemplate] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `two-input-tryon-${randomUUID()}`,
+      label: 'Tryon workflow for two-input garment type',
+      jsonContent: {},
+      poseNodeId: 'pose',
+      upperNodeIds: [],
+      garmentPhasePromptNode: 'garment',
+      workflowType: 'tryon',
+      tryonPersonNodeId: '26',
+      tryonGarmentNodeId: '30',
+      tryonOutputNodeId: '25',
+      isActive: true,
+    })
+    .returning();
+  const [tryonCategory] = await app.db
+    .insert(schema.tryonCategories)
+    .values({
+      name: `two-input-category-${randomUUID()}`,
+      slug: `two-input-category-${randomUUID()}`,
+      workflowTemplateId: tryonTemplate.id,
+      isActive: true,
     })
     .returning();
   const [garmentType] = await app.db
@@ -126,10 +155,11 @@ async function seedTwoInputGarmentType(app: TestApp, opts: { templateActive?: bo
       genderSlug: 'women',
       slug: `saree-${randomUUID()}`,
       label: 'Saree',
-      twoInputTryonWorkflowTemplateId: template.id,
+      tryonCategoryId: tryonCategory.id,
+      mannequinTwoInputWorkflowTemplateId: mannequinTemplate.id,
     })
     .returning();
-  return { garmentType, template };
+  return { garmentType, mannequinTemplate, tryonTemplate };
 }
 
 async function seedCatalogItemWithSecondImage(
@@ -496,10 +526,10 @@ describe('merchant try-on jobs', () => {
     expect(forbidden.statusCode).toBe(403);
   });
 
-  it('resolves the two-input template and carries the pallu key as thirdGarmentKey when the catalog item has a second image', async () => {
+  it('creates a mannequin-drape job plus a PENDING_MANNEQUIN tryon job carrying the real customer photo when the catalog item has a second image', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-two-input-a@example.com');
     const auth = await authHeader(merchantUser.id);
-    const { garmentType, template } = await seedTwoInputGarmentType(app);
+    const { garmentType, mannequinTemplate, tryonTemplate } = await seedTwoInputGarmentType(app);
     const item = await seedCatalogItemWithSecondImage(app, merchant.id, garmentType.id);
     const r2Key = await presignAndUploadCustomerPhoto(app, auth);
 
@@ -512,19 +542,46 @@ describe('merchant try-on jobs', () => {
     expect(created.statusCode).toBe(201);
     const { jobId } = created.json() as { jobId: string };
 
-    const [inputs] = await app.db
+    const [tryonJob] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(tryonJob.status).toBe('PENDING_MANNEQUIN');
+    expect(tryonJob.customerPhotoKey).toBe(r2Key);
+    expect(tryonJob.merchantId).toBe(merchant.id);
+
+    const [tryonInputs] = await app.db
       .select()
       .from(schema.jobInputs)
       .where(eq(schema.jobInputs.jobId, jobId));
-    expect(inputs.upperGarmentKey).toBe(item.r2Key);
-    expect(inputs.thirdGarmentKey).toBe(item.secondR2Key);
-    expect((inputs.params as { workflowTemplateId: string }).workflowTemplateId).toBe(template.id);
+    expect(tryonInputs.upperGarmentKey).toBeNull();
+    expect(tryonInputs.thirdGarmentKey).toBeNull();
+    const tryonParams = tryonInputs.params as {
+      workflowTemplateId: string;
+      mannequinJobId: string;
+    };
+    expect(tryonParams.workflowTemplateId).toBe(tryonTemplate.id);
+
+    const [mannequinJob] = await app.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, tryonParams.mannequinJobId));
+    expect(mannequinJob.status).toBe('QUEUED');
+    expect(mannequinJob.creditsCharged).toBe(0);
+    expect(mannequinJob.source).toBe('saree_mannequin');
+
+    const [mannequinInputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, tryonParams.mannequinJobId));
+    expect(mannequinInputs.upperGarmentKey).toBe(item.r2Key);
+    expect(mannequinInputs.thirdGarmentKey).toBe(item.secondR2Key);
+    expect((mannequinInputs.params as { workflowTemplateId: string }).workflowTemplateId).toBe(
+      mannequinTemplate.id,
+    );
   });
 
-  it('does not send thirdGarmentKey for a single-image catalog item on a two-input-capable garment type', async () => {
+  it('creates an ordinary single-image job (not the two-step pipeline) for a single-image catalog item on a two-input-capable garment type', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-two-input-b@example.com');
     const auth = await authHeader(merchantUser.id);
-    const { garmentType } = await seedTwoInputGarmentType(app);
+    const { garmentType, tryonTemplate } = await seedTwoInputGarmentType(app);
     // Single-image item — same garment type, but no secondR2Key on this particular item.
     const item = await seedCatalogItem(app, merchant.id, garmentType.id);
     const r2Key = await presignAndUploadCustomerPhoto(app, auth);
@@ -535,18 +592,27 @@ describe('merchant try-on jobs', () => {
       headers: auth,
       payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
     });
-    // The garment type has no tryonCategoryId (mirrors the real saree row), so a
-    // single-image item on it falls through to the ordinary assertWorkflow check and is
-    // rejected the same way the existing "no tryon category configured" test expects —
-    // this is the guardrail against silently ignoring a configured two-input template.
-    expect(created.statusCode).toBe(400);
-    expect((created.json() as { error: { code: string } }).error.code).toBe('VALIDATION');
+    expect(created.statusCode).toBe(201);
+    const { jobId } = created.json() as { jobId: string };
+
+    const [jobRow] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(jobRow.status).toBe('QUEUED');
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect(inputs.upperGarmentKey).toBe(item.r2Key);
+    expect(inputs.thirdGarmentKey).toBeNull();
+    expect((inputs.params as { workflowTemplateId: string }).workflowTemplateId).toBe(
+      tryonTemplate.id,
+    );
   });
 
-  it('rejects a two-input catalog item when the garment type has no two-input workflow configured', async () => {
+  it('rejects a two-input catalog item when the garment type has no two-input mannequin workflow configured', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-two-input-c@example.com');
     const auth = await authHeader(merchantUser.id);
-    // No twoInputTryonWorkflowTemplateId set at all.
+    // No mannequinTwoInputWorkflowTemplateId set at all.
     const [garmentType] = await app.db
       .insert(schema.garmentSubcategories)
       .values({ genderSlug: 'women', slug: `unconfigured-saree-${randomUUID()}`, label: 'Saree' })
@@ -563,7 +629,7 @@ describe('merchant try-on jobs', () => {
     expect(created.statusCode).toBe(400);
     const body = created.json() as { error: { code: string; message: string } };
     expect(body.error.code).toBe('VALIDATION');
-    expect(body.error.message).toBe('garment type has no two-input tryon workflow configured');
+    expect(body.error.message).toBe('garment type has no two-input mannequin workflow configured');
 
     const jobs = await app.db
       .select({ id: schema.jobs.id })
@@ -572,10 +638,10 @@ describe('merchant try-on jobs', () => {
     expect(jobs).toHaveLength(0);
   });
 
-  it('rejects a two-input catalog item when the two-input workflow template is inactive', async () => {
+  it('rejects a two-input catalog item when the two-input mannequin workflow template is inactive', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-two-input-d@example.com');
     const auth = await authHeader(merchantUser.id);
-    const { garmentType } = await seedTwoInputGarmentType(app, { templateActive: false });
+    const { garmentType } = await seedTwoInputGarmentType(app, { mannequinTemplateActive: false });
     const item = await seedCatalogItemWithSecondImage(app, merchant.id, garmentType.id);
     const r2Key = await presignAndUploadCustomerPhoto(app, auth);
 
@@ -588,6 +654,68 @@ describe('merchant try-on jobs', () => {
     expect(created.statusCode).toBe(400);
     const body = created.json() as { error: { code: string; message: string } };
     expect(body.error.code).toBe('VALIDATION');
-    expect(body.error.message).toBe('two-input tryon workflow is inactive');
+    expect(body.error.message).toBe('two-input mannequin workflow is inactive');
+  });
+
+  it('promotes the step-2 job to QUEUED with the mannequin output as upperGarmentKey, and the real customer photo untouched, once the mannequin job completes (simulated)', async () => {
+    const { merchant, merchantUser } = await createMerchant(app, 'tryon-two-input-e@example.com');
+    const auth = await authHeader(merchantUser.id);
+    const { garmentType, tryonTemplate } = await seedTwoInputGarmentType(app);
+    const item = await seedCatalogItemWithSecondImage(app, merchant.id, garmentType.id);
+    const r2Key = await presignAndUploadCustomerPhoto(app, auth);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: auth,
+      payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+    });
+    expect(created.statusCode).toBe(201);
+    const { jobId: step2JobId } = created.json() as { jobId: string };
+
+    const [step2Inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, step2JobId));
+    const mannequinJobId = (step2Inputs.params as Record<string, unknown>).mannequinJobId as string;
+
+    // Simulate the dispatcher completing the mannequin job (dispatcher is not
+    // running in this integration test — same convention as
+    // merchant-catalog-generate.test.ts's own two-step promotion test).
+    const mannequinResultKey = `outputs/${mannequinJobId}/result.png`;
+    await app.storage.putObject(mannequinResultKey, Buffer.from('drape-output'), 'image/png');
+    await app.db
+      .update(schema.jobs)
+      .set({ status: 'COMPLETED' })
+      .where(eq(schema.jobs.id, mannequinJobId));
+
+    // Run the actual promoter sweep against the real dispatcher config shape.
+    const { promoteSareeStep2Jobs } = await import(
+      '../../../dispatcher/src/job/saree-step2-promoter.js'
+    );
+    await promoteSareeStep2Jobs({
+      db: app.db,
+      redis: app.redis,
+      pub: app.redis,
+      log: app.log,
+    } as never);
+
+    const [step2] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, step2JobId));
+    expect(step2.status).toBe('QUEUED');
+    expect(step2.customerPhotoKey).toBe(r2Key);
+
+    const [step2InputsAfter] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, step2JobId));
+    expect(step2InputsAfter.upperGarmentKey).toBe(mannequinResultKey);
+    expect(step2InputsAfter.thirdGarmentKey).toBeNull();
+    expect((step2InputsAfter.params as { workflowTemplateId: string }).workflowTemplateId).toBe(
+      tryonTemplate.id,
+    );
+
+    const stream = await app.redis.xrange('jobs:normal', '-', '+');
+    const enqueuedJobIds = stream.map(([, fields]) => fields[fields.indexOf('jobId') + 1]);
+    expect(enqueuedJobIds).toContain(step2JobId);
   });
 });
