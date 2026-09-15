@@ -154,10 +154,15 @@ them merges.
 
 `/v1/shopify/funnel-rules`'s response already includes `unrouted: number |
 null` (null when `countsOmitted`, i.e. catalog too large to scan) — this is
-computed once per page load today by `RoutingPage`'s own `load()`. The
-merged page hoists that same fetch to the container level (`ManagePage`) so
-both tabs and the shared banner read from one `rules` state, avoiding a
-duplicate fetch when the merchant is on the Eligibility tab.
+computed once per page load today by `RoutingPage`'s own `load()`. Rather
+than lifting `RoutingPage`'s full state (rules, baskets, loading, error,
+toast, and every handler that closes over them) up into `ManagePage` just to
+share one number, `ManagePage` makes its own small, independent fetch of the
+same endpoint on mount, reading only `unrouted`/`countsOmitted` for the
+banner. `RoutingPage`'s own fetch is untouched — this trades one extra
+lightweight GET for keeping the two tabs' internals fully decoupled, which
+matches the "reuse existing internals nearly unchanged" principle the rest
+of this design follows.
 
 Banner copy, shown whenever `rules !== null && unrouted !== null && unrouted
 > 0`, in the shared header area above the tabs:
