@@ -1,5 +1,4 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
@@ -19,10 +18,11 @@ describe('shopify merchant funnel rules routes', () => {
   let storeAId: string;
   let storeBId: string;
   let upperBasketId: string;
-  let defaultBasketId: string;
+  let storeABasketId: string;
   let globalRuleId: string;
   let storeARuleId: string;
   let storeBRuleId: string;
+  let tag: number;
 
   beforeAll(async () => {
     c = await startContainers();
@@ -32,7 +32,7 @@ describe('shopify merchant funnel rules routes', () => {
       SHOPIFY_API_KEY: API_KEY,
     });
 
-    const tag = Date.now();
+    tag = Date.now();
 
     async function seedWorkflow(slug: string) {
       const [wf] = await app.db
@@ -54,10 +54,10 @@ describe('shopify merchant funnel rules routes', () => {
       return wf.id;
     }
 
-    async function seedBasket(slug: string, workflowTemplateId: string, isDefault = false) {
+    async function seedBasket(slug: string, workflowTemplateId: string) {
       const [basket] = await app.db
         .insert(schema.shopifyFunnelTemplates)
-        .values({ slug, label: slug, workflowTemplateId, isDefault })
+        .values({ slug, label: slug, workflowTemplateId })
         .returning();
       return basket.id;
     }
@@ -66,16 +66,11 @@ describe('shopify merchant funnel rules routes', () => {
       `merchant-rules-upper-${tag}`,
       await seedWorkflow(`merchant-rules-upper-wf-${tag}`),
     );
-    defaultBasketId = await seedBasket(
-      `merchant-rules-default-${tag}`,
-      await seedWorkflow(`merchant-rules-default-wf-${tag}`),
-      true,
-    );
     const globalBasketId = await seedBasket(
       `merchant-rules-global-${tag}`,
       await seedWorkflow(`merchant-rules-global-wf-${tag}`),
     );
-    const storeABasketId = await seedBasket(
+    storeABasketId = await seedBasket(
       `merchant-rules-store-a-${tag}`,
       await seedWorkflow(`merchant-rules-store-a-wf-${tag}`),
     );
@@ -147,15 +142,15 @@ describe('shopify merchant funnel rules routes', () => {
       .returning();
     storeBRuleId = storeBRule.id;
 
-    // A store-A product that matches none of the seeded rules, so the counts
-    // endpoint's resolution must fall through to the default basket.
+    // A store-A product that matches store A's own rule, so the counts
+    // endpoint's per-basket tally has something to report.
     await app.db.insert(schema.shopifyProductGarments).values({
       storeId: storeAId,
       shopifyProductId: tag + 100,
       r2Key: `shopify-inputs/${storeAId}/${tag}/photo`,
       status: 'active',
-      productType: 'unmatched',
-      tags: ['nothing-here'],
+      productType: 'matched',
+      tags: ['store-a-tag'],
     });
   });
 
@@ -277,28 +272,32 @@ describe('shopify merchant funnel rules routes', () => {
       headers: authA,
     });
     expect(res.json().countsOmitted).toBe(false);
-    expect(res.json().counts[defaultBasketId]).toBeGreaterThan(0);
-    // The unmatched product falls through to the active default basket, so
-    // nothing is actually unrouted yet.
+    expect(res.json().counts[storeABasketId]).toBeGreaterThan(0);
     expect(res.json().unrouted).toBe(0);
   });
 
   it('counts a product with no resolvable basket as unrouted, not silently dropped', async () => {
-    // Deactivating the default removes the unmatched product's only fallback.
-    // This is the last test in the file, so it's safe to leave the fixture
-    // in this state.
-    await app.db
-      .update(schema.shopifyFunnelTemplates)
-      .set({ isActive: false })
-      .where(eq(schema.shopifyFunnelTemplates.id, defaultBasketId));
+    // Scoped to store B (its own auth + storeId), not store A, so this
+    // fixture can never bleed into 'returns per-basket counts' (store A)
+    // regardless of execution order — counts/unrouted are computed per
+    // calling store (see funnel-rules.routes.ts), so inserting under store A
+    // here would make this test order-dependent on the other one all over
+    // again, just with a second product instead of a mutated basket.
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: storeBId,
+      shopifyProductId: tag + 101,
+      r2Key: `shopify-inputs/${storeBId}/${tag}-unrouted/photo`,
+      status: 'active',
+      productType: 'unmatched',
+      tags: ['nothing-here'],
+    });
 
     const res = await app.inject({
       method: 'GET',
       url: '/v1/shopify/funnel-rules',
-      headers: authA,
+      headers: authB,
     });
     expect(res.json().countsOmitted).toBe(false);
-    expect(res.json().counts[defaultBasketId]).toBeUndefined();
     expect(res.json().unrouted).toBe(1);
   });
 });
