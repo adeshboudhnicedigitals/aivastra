@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { ImageLightbox } from '../components/ImageLightbox';
 import type { ChatMessageT, WsAgentFrameT, WsServerFrameT } from '../lib/chatws';
 import { connectAgentWs, fetchChatbot } from '../lib/chatws';
 import { apiErrorMessage, apiFetch } from '../lib/data';
@@ -93,6 +94,7 @@ export default function ChatInboxPage({ toast }: Props) {
   const [messages, setMessages] = useState<ChatMessageT[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [input, setInput] = useState('');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [typing, setTyping] = useState<string | null>(null);
   // Local edit buffer for the selected ticket's subject/category/priority — seeded from
   // the row when a conversation is selected, pushed to the server via updateFields.
@@ -555,11 +557,10 @@ export default function ChatInboxPage({ toast }: Props) {
                     <img
                       src={`/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
                       alt="attachment"
-                      style={{ maxWidth: '100%', borderRadius: 6, marginTop: 4, cursor: 'pointer' }}
+                      style={{ maxWidth: '100%', borderRadius: 6, marginTop: 4, cursor: 'zoom-in' }}
                       onClick={() =>
-                        window.open(
+                        setPreviewUrl(
                           `/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey as string)}`,
-                          '_blank',
                         )
                       }
                     />
@@ -644,6 +645,8 @@ export default function ChatInboxPage({ toast }: Props) {
           Select a conversation to start chatting.
         </div>
       )}
+
+      {previewUrl && <ImageLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />}
     </div>
   );
 }

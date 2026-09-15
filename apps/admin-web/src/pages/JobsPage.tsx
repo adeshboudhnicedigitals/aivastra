@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { ImageLightbox } from '../components/ImageLightbox';
 import { JobTypeBadge } from '../components/JobTypeBadge';
 import { KV } from '../components/KV';
 import { Pager } from '../components/Pager';
@@ -249,6 +250,7 @@ export default function JobsPage({ onNav, toast }: Props) {
     Record<string, 'input' | 'output' | 'events' | null>
   >({});
   const [jobDetailsMap, setJobDetailsMap] = useState<Record<string, JobDetail>>({});
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [exportingXlsx, setExportingXlsx] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -753,90 +755,52 @@ export default function JobsPage({ onNav, toast }: Props) {
               {j.parentJobId && <KV k="Regenerate reason" v={j.regenerateReason ?? '—'} />}
             </div>
 
-            {j.outputUrl && (
+            {((j.inputImages && Object.values(j.inputImages).some(Boolean)) || j.outputUrl) && (
               <div className="card" style={{ marginBottom: 14 }}>
                 <div className="card-head">
-                  <h3>Output</h3>
-                </div>
-                <div className="card-body">
-                  {(() => {
-                    const resultSelected = deleteAssetsTargets.has('result');
-                    return (
-                      <div
-                        style={{
-                          position: 'relative',
-                          display: 'inline-block',
-                          borderRadius: 8,
-                          border: `1px solid ${resultSelected ? 'var(--danger-border)' : 'var(--border)'}`,
-                          background: resultSelected ? 'var(--danger-soft)' : 'transparent',
-                          padding: 6,
-                        }}
-                      >
-                        <a
-                          href={j.outputUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ display: 'block' }}
-                        >
-                          {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
-                          <img
-                            src={j.outputUrl}
-                            alt="Result"
-                            style={{
-                              display: 'block',
-                              maxWidth: 280,
-                              maxHeight: 240,
-                              width: '100%',
-                              objectFit: 'contain',
-                              borderRadius: 6,
-                              background: 'var(--bg)',
-                              cursor: 'zoom-in',
-                            }}
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        </a>
-                        {canDeleteAssets && (
-                          <AssetSelectBadge
-                            selected={resultSelected}
-                            onToggle={() => toggleDeleteTarget('result', !resultSelected)}
-                          />
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            )}
-
-            {j.inputImages && Object.values(j.inputImages).some(Boolean) && (
-              <div className="card" style={{ marginBottom: 14 }}>
-                <div className="card-head">
-                  <h3>Input Images</h3>
+                  <h3>Images</h3>
                 </div>
                 <div className="card-body">
                   {canDeleteAssets && (
                     <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px' }}>
-                      Only the person's uploaded photo can be deleted.
+                      Only the person's uploaded photo and the output result can be deleted.
                     </p>
                   )}
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                     {(
                       [
-                        { key: 'person', label: 'Person' },
-                        { key: 'face', label: 'Face (ComfyUI)' },
-                        { key: 'background', label: 'Background (ComfyUI)' },
-                        { key: 'pose', label: 'Pose' },
-                        { key: 'upper', label: 'Upper Garment' },
-                        { key: 'lower', label: 'Lower Garment' },
-                        { key: 'shoe', label: 'Shoes' },
-                      ] as { key: keyof InputImages; label: string }[]
-                    ).map(({ key, label }) => {
-                      const url = j.inputImages?.[key];
+                        {
+                          key: 'person',
+                          label: 'Person',
+                          target: 'person' as const,
+                          url: j.inputImages?.person,
+                        },
+                        { key: 'face', label: 'Face (ComfyUI)', url: j.inputImages?.face },
+                        {
+                          key: 'background',
+                          label: 'Background (ComfyUI)',
+                          url: j.inputImages?.background,
+                        },
+                        { key: 'pose', label: 'Pose', url: j.inputImages?.pose },
+                        { key: 'upper', label: 'Upper Garment', url: j.inputImages?.upper },
+                        { key: 'lower', label: 'Lower Garment', url: j.inputImages?.lower },
+                        { key: 'shoe', label: 'Shoes', url: j.inputImages?.shoe },
+                        {
+                          key: 'output',
+                          label: 'Output',
+                          target: 'result' as const,
+                          url: j.outputUrl,
+                        },
+                      ] as {
+                        key: string;
+                        label: string;
+                        target?: 'person' | 'result';
+                        url?: string | null;
+                      }[]
+                    ).map(({ key, label, target, url }) => {
                       if (!url) return null;
-                      const isPersonSelectable = key === 'person' && canDeleteAssets;
-                      const personSelected = key === 'person' && deleteAssetsTargets.has('person');
+                      const isSelectable = target != null && canDeleteAssets;
+                      const isSelected = target != null && deleteAssetsTargets.has(target);
                       return (
                         <div key={key} style={{ textAlign: 'center' }}>
                           <div
@@ -844,16 +808,19 @@ export default function JobsPage({ onNav, toast }: Props) {
                               position: 'relative',
                               display: 'inline-block',
                               borderRadius: 8,
-                              border: `1px solid ${personSelected ? 'var(--danger-border)' : 'transparent'}`,
-                              background: personSelected ? 'var(--danger-soft)' : 'transparent',
-                              padding: personSelected ? 3 : 0,
+                              border: `1px solid ${isSelected ? 'var(--danger-border)' : 'transparent'}`,
+                              background: isSelected ? 'var(--danger-soft)' : 'transparent',
+                              padding: isSelected ? 3 : 0,
                             }}
                           >
                             <a
                               href={url}
-                              target="_blank"
                               rel="noreferrer"
                               style={{ display: 'block' }}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setPreviewUrl(url);
+                              }}
                             >
                               {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
                               <img
@@ -873,18 +840,18 @@ export default function JobsPage({ onNav, toast }: Props) {
                                 }}
                               />
                             </a>
-                            {isPersonSelectable && (
+                            {isSelectable && target && (
                               <AssetSelectBadge
-                                selected={personSelected}
-                                onToggle={() => toggleDeleteTarget('person', !personSelected)}
+                                selected={isSelected}
+                                onToggle={() => toggleDeleteTarget(target, !isSelected)}
                               />
                             )}
                           </div>
                           <span
                             style={{
                               fontSize: 11,
-                              fontWeight: personSelected ? 600 : 400,
-                              color: personSelected ? 'var(--danger-ink)' : 'var(--muted)',
+                              fontWeight: isSelected ? 600 : 400,
+                              color: isSelected ? 'var(--danger-ink)' : 'var(--muted)',
                               marginTop: 4,
                               display: 'block',
                             }}
@@ -1089,6 +1056,8 @@ export default function JobsPage({ onNav, toast }: Props) {
             </div>
           </div>
         )}
+
+        {previewUrl && <ImageLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />}
       </>
     );
   }
@@ -1256,7 +1225,7 @@ export default function JobsPage({ onNav, toast }: Props) {
           <div className="filter-search-box">
             <Icon.Search />
             <input
-              placeholder="Search by Job ID or user email…"
+              placeholder="Search by Job ID, User ID, or user email…"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
             />
@@ -2083,9 +2052,12 @@ export default function JobsPage({ onNav, toast }: Props) {
                                 <a
                                   key={key}
                                   href={url}
-                                  target="_blank"
                                   rel="noreferrer"
                                   style={{ textDecoration: 'none', textAlign: 'center' }}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setPreviewUrl(url);
+                                  }}
                                 >
                                   <img
                                     src={url}
@@ -2097,6 +2069,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                                       borderRadius: 6,
                                       border: '1px solid var(--border)',
                                       display: 'block',
+                                      cursor: 'zoom-in',
                                     }}
                                   />
                                   <span
@@ -2154,17 +2127,18 @@ export default function JobsPage({ onNav, toast }: Props) {
                                   borderRadius: 6,
                                   border: '1px solid var(--border)',
                                   background: 'var(--bg)',
+                                  cursor: 'zoom-in',
                                 }}
+                                onClick={() => setPreviewUrl(fullJ.outputUrl ?? null)}
                               />
-                              <a
-                                href={fullJ.outputUrl}
-                                target="_blank"
-                                rel="noreferrer"
+                              <button
+                                type="button"
+                                onClick={() => setPreviewUrl(fullJ.outputUrl ?? null)}
                                 className="btn sm ghost"
                                 style={{ justifyContent: 'center' }}
                               >
                                 Open full output <Icon.ExternalLink />
-                              </a>
+                              </button>
                             </div>
                           ) : (
                             <span className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
@@ -2328,6 +2302,8 @@ export default function JobsPage({ onNav, toast }: Props) {
           </div>
         </div>
       )}
+
+      {previewUrl && <ImageLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />}
     </>
   );
 }
