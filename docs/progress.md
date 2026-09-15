@@ -2,6 +2,49 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-15 — Removed the Shopify "default basket" fallback; merged Manage + Routing pages
+
+- **Change:** `resolveBasketFrom` (`apps/api/src/modules/shopify/funnel-resolution.ts`) no
+  longer has a fourth "default basket" tier. Precedence is now: manual pin → store's own
+  rules → Aivastra global rules → `null` (refusal, the same pre-existing refusal path a
+  fully-unconfigured product already hit). The `isDefault` column and its admin CRUD/UI
+  (promote/demote, the "no default configured" banner) are gone entirely from
+  `shopify_funnel_templates`. On the merchant side, `apps/shopify`'s separate Manage
+  (`/manage`) and Routing (`/routing`) pages are now one page: Routing is a second tab
+  (`RoutingTab`, née `RoutingPage`) alongside Eligibility, sharing one nav entry and one
+  "Sync products" button; `/routing` redirects to `/manage`.
+- **This was a hard cutover with no backfill migration**, an explicitly accepted tradeoff in
+  the design (see below), not an oversight: any store whose products were silently resolving
+  via the removed default basket stopped offering Try-On for those products the moment this
+  shipped, with no advance warning and no grace period.
+- **Expected support signature:** a merchant reports Try-On "stopped working" or "was never
+  configured" for some/all products, with no error visible to them beyond the storefront
+  widget declining to run. Root cause: the product resolves to no basket (no manual pin, no
+  matching store or global rule) — check `GET /v1/shopify/funnel-rules`'s `unrouted`/
+  `unroutedEnabled` fields for that store, or `apps/api/src/modules/shopify/customer.routes.ts`'s
+  refusal-path log (now `warn`, not `error`: `'shopify try-on blocked before enqueue: product
+  resolves to no basket (no pin, no matching rule)'`).
+- **Remediation:** the merchant adds a routing rule matching the product (Routing tab) or pins
+  it individually to a basket (Manage tab's Individual Products basket picker). The merged
+  page's Manage tab now shows a warning banner ("N products have no basket assigned") whenever
+  `unroutedEnabled > 0` — computed over *effectively-enabled* products only (via
+  `computeEffectiveEnabled`), not the raw synced-catalog count, so it doesn't read as an
+  alarming, mostly-noise number for stores with a small enabled subset of a large catalog. The
+  banner refreshes on Sync, on a staged Save, and immediately after any routing-rule or basket-pin
+  change made from either tab.
+- **Design:** `docs/superpowers/specs/2026-09-15-shopify-manage-routing-merge-design.md`.
+  Plan: `docs/superpowers/plans/2026-09-15-shopify-manage-routing-merge.md`.
+- **Outstanding, not yet done as of this entry:** a read-only production impact query
+  (`SELECT store_id, count(*) FROM shopify_product_garments WHERE status <> 'deleted' AND
+  funnel_template_id IS NULL GROUP BY store_id ORDER BY 2 DESC;`) was handed to the user to
+  run wherever they have prod access, to learn how many live products across how many stores
+  were actually relying on the now-removed default basket, before/shortly after this ships —
+  this repo has no direct network path to production Postgres from a local dev machine (it
+  binds `127.0.0.1`-only on the VPS). Result not yet recorded here. Also outstanding: a manual
+  browser click-through of the merged `/manage` page (no browser tooling was available to any
+  implementer this session) and a Grafana/alerting check for anything keyed on `level=error`
+  for the now-`warn` refusal log message.
+
 ## 2026-09-11 — Admin can edit a workflow's SAM3 segmentation prompt
 
 - **Change:** `workflow_templates`/`workflow_template_archives` gain
