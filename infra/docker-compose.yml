@@ -40,7 +40,7 @@ services:
       - aivastra-net
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     container_name: aivastra-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -61,7 +61,7 @@ services:
       - aivastra-net
 
   minio-bootstrap:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     container_name: aivastra-minio-bootstrap
     depends_on:
       minio:
