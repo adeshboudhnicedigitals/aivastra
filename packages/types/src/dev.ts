@@ -96,7 +96,21 @@ const DevCatalogPose = DevCatalogAsset.extend({
 });
 
 export const DevCatalogOptionsResponse = z.object({
-  garmentTypes: z.array(z.object({ slug: z.string(), label: z.string() })),
+  garmentTypes: z.array(
+    z.object({
+      slug: z.string(),
+      label: z.string(),
+      // Whether this garment type needs the caller's own 2nd/3rd piece photo
+      // (e.g. kurta-pyjama, sherwani-pyjama, saree+dupatta) rather than (or in
+      // addition to) picking a curated `lower`/`shoe` slug. Mirrors the same
+      // flags the internal Studio wizard already reads off
+      // `garmentSubcategories` to decide whether to show extra upload boxes.
+      requiresLowerUpload: z.boolean(),
+      lowerUploadLabel: z.string().nullable(),
+      requiresThirdUpload: z.boolean(),
+      thirdUploadLabel: z.string().nullable(),
+    }),
+  ),
   faces: z.array(DevCatalogAsset),
   backgrounds: z.array(DevCatalogAsset),
   poses: z.array(DevCatalogPose),
@@ -124,6 +138,14 @@ export const DevCatalogGenerateJsonBody = z.object({
   garmentType: PUBLIC_SLUG.optional(),
   lower: PUBLIC_SLUG.optional(),
   shoe: PUBLIC_SLUG.optional(),
+  // Own-photo 2nd/3rd piece uploads for composite garment types (kurta+pyjama,
+  // sherwani+pyjama, saree+dupatta, co-ord sets, ...). Same shape as `garment`
+  // (raw base64 or a `data:image/...;base64,` URI). Orthogonal to `lower`/
+  // `shoe`: those pick an admin-curated asset by slug, these carry the
+  // caller's own photo through to `createJob`'s `lowerGarmentKey`/
+  // `thirdGarmentKey` — the same mechanism the internal Studio wizard uses.
+  lowerGarment: z.string().min(1).optional(),
+  thirdGarment: z.string().min(1).optional(),
   aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']),
   resolution: z.enum(['HD', '2K', '4K']),
 });
