@@ -20,7 +20,7 @@ import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 
 interface Condition {
-  field: 'product_type' | 'tags' | 'vendor' | 'collections';
+  field: 'product_type' | 'tags' | 'vendor' | 'collections' | 'title';
   operator: 'equals' | 'contains';
   value: string;
 }
@@ -54,6 +54,7 @@ interface RulesResponse {
 }
 
 const FIELD_LABEL: Record<Condition['field'], string> = {
+  title: 'Product title',
   product_type: 'Product type',
   tags: 'Tag',
   vendor: 'Vendor',
