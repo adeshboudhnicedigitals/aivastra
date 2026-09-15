@@ -301,6 +301,7 @@ export default function RoutingTab({ refreshToken }: { refreshToken: number }) {
   // refreshToken is bumped by the parent (ManagePage) after a successful
   // Sync products — this tab has no Sync button of its own, so it relies on
   // the shared one to know when to refetch.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken is a deliberate refetch trigger (bumps after a successful Sync), not referenced in the body
   useEffect(() => {
     void load();
   }, [load, refreshToken]);
