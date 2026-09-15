@@ -8,7 +8,6 @@ import {
   IndexTable,
   InlineStack,
   Modal,
-  Page,
   Select,
   Spinner,
   Text,
@@ -273,7 +272,7 @@ function basketLabelFor(baskets: Basket[], id: string): string {
   return baskets.find((b) => b.id === id)?.label ?? 'Unknown basket';
 }
 
-export default function RoutingPage() {
+export default function RoutingTab({ refreshToken }: { refreshToken: number }) {
   const [baskets, setBaskets] = useState<Basket[]>([]);
   const [rules, setRules] = useState<RulesResponse | null>(null);
   const [error, setError] = useState<ClassifiedError | null>(null);
@@ -281,7 +280,6 @@ export default function RoutingPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   // null = closed. 'new' = add-rule modal. A StoreRule = editing that rule.
   const [editorTarget, setEditorTarget] = useState<StoreRule | 'new' | null>(null);
-  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -300,9 +298,12 @@ export default function RoutingPage() {
     }
   }, []);
 
+  // refreshToken is bumped by the parent (ManagePage) after a successful
+  // Sync products — this tab has no Sync button of its own, so it relies on
+  // the shared one to know when to refetch.
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshToken]);
 
   const setDisabled = useCallback(
     async (ruleId: string, disabled: boolean) => {
@@ -353,40 +354,16 @@ export default function RoutingPage() {
     setToastMessage(message);
   }
 
-  // Sync is queued, not synchronous (products.routes.ts enqueues onto
-  // shopify:sync and the consumer processes it separately), so the reload
-  // below reflects whatever's already in Postgres — same caveat as the
-  // Manage page's identical button, not a bug specific to this one.
-  async function syncProducts() {
-    setSyncing(true);
-    setError(null);
-    try {
-      await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
-      setToastMessage('Products synced from Shopify.');
-      await load();
-    } catch (err) {
-      setError(classifyError(err));
-    } finally {
-      setSyncing(false);
-    }
-  }
-
   if (loading) {
     return (
-      <Page title="Routing">
-        <Card>
-          <Spinner accessibilityLabel="Loading routing rules" />
-        </Card>
-      </Page>
+      <Card>
+        <Spinner accessibilityLabel="Loading routing rules" />
+      </Card>
     );
   }
 
   return (
-    <Page
-      title="Routing"
-      subtitle="Choose which try-on style each product uses."
-      primaryAction={{ content: 'Sync products', onAction: syncProducts, loading: syncing }}
-    >
+    <>
       <BlockStack gap="400">
         <ErrorBanner error={error} onRetry={load} onDismiss={() => setError(null)} />
 
@@ -452,7 +429,7 @@ export default function RoutingPage() {
             <Card>
               <BlockStack gap="300">
                 <Text as="h2" variant="headingMd">
-                  Default rules (from AiVastra)
+                  Global rules (from AiVastra)
                 </Text>
                 <Text as="p" tone="subdued">
                   These apply to every store. Turn one off if it conflicts with your own rules — it
@@ -562,6 +539,6 @@ export default function RoutingPage() {
       )}
 
       {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
-    </Page>
+    </>
   );
 }
