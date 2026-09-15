@@ -214,7 +214,10 @@ export async function resultsRoutes(app: FastifyInstance) {
       if (gender !== 'all') conditions.push(eq(schema.garmentSubcategories.genderSlug, gender));
       if (search) {
         conditions.push(
-          or(ilike(schema.users.email, `%${search}%`), ilike(schema.jobs.id, `%${search}%`)),
+          or(
+            ilike(schema.users.email, `%${search}%`),
+            ilike(sql`${schema.jobs.id}::text`, `%${search}%`),
+          ),
         );
       }
       if (date !== 'any') {
