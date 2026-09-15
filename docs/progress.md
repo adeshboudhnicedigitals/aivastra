@@ -2,6 +2,35 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-11 — Admin can edit a workflow's SAM3 segmentation prompt
+
+- **Change:** `workflow_templates`/`workflow_template_archives` gain
+  `samSegmentationPromptNode`/`defaultSamSegmentationPrompt`, following the
+  `stage1PositivePromptNode` pattern exactly — template-level only, no
+  per-pose override, no dispatcher change (the value is baked into
+  `jsonContent` at edit time, same as every other admin-editable prompt).
+  `POST`/`PATCH /admin/workflows` and the replace route all support it; the
+  admin-web workflow create/replace modals expose a manual node-ID input,
+  and the Edit drawer/detail view expose the prompt text once a node ID is
+  configured.
+- **Design:** `docs/superpowers/specs/2026-09-11-sam3-segmentation-prompt-design.md`.
+- **Addendum (same day):** the design's "no auto-detection" call was about the
+  connection-tracing technique (`positivePromptNode`/`negativePromptNode`
+  detection via which `TextEncode*` feeds a `KSampler*`) not applying to a
+  SAM3 node, since it doesn't feed a KSampler. It doesn't rule out detecting
+  by `class_type` the way `classifyNode` already does for `LoadImage`/
+  `TextEncode*`. Real templates (`templates/saree_sec_step_07_09_2026.json`)
+  ship the node as `class_type: "SAM3Segment"`, so
+  `apps/api/src/modules/admin/workflow-detect.ts`'s `detectMappings` now
+  also sets `samSegmentationPromptNode` whenever any node's `class_type`
+  contains `SAM3` (case-insensitive, first match wins) — independent of
+  `classifyNode`'s category, since that node's custom `class_type` still
+  won't classify as `'prompt'`. `POST /admin/workflows/parse` needed no
+  route change (the field rides through the existing `detected` object);
+  both admin-web modals' `handleParse` now also pre-fill
+  `samSegmentationPromptNode` from it, same as every other detected field —
+  manual override remains available exactly as before.
+
 ## 2026-09-11 — Workflow replace now clears stale prompt overrides tied to the old graph
 
 - **Change:** `POST /admin/workflows/:id/replace` now also clears stale admin-authored

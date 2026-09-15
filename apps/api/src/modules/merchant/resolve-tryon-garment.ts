@@ -3,13 +3,36 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 
-export interface ResolvedTryonGarment {
+export interface ResolvedSingleTryonGarment {
+  kind: 'single';
   r2Key: string;
-  secondR2Key?: string;
   workflowTemplateId: string;
   workflowTemplateVersion?: number | null;
   isDemo: boolean;
 }
+
+/**
+ * A catalog item with a pallu (second) image. No single-pass 3-input (customer +
+ * body + pallu) ComfyUI template exists in this system today — see
+ * docs/superpowers/plans/2026-08-20-merchant-catalog-two-input-direct-tryon.md and
+ * the handoff that followed it. This shape instead carries what's needed to run
+ * the same two-step pipeline merchant-catalog product generation already uses:
+ * a 0-credit mannequin-drape job (body+pallu -> one draped image) whose output
+ * then becomes the single garment input to an ordinary tryon job against the
+ * real customer's photo. Always merchant-owned (never a demo item).
+ */
+export interface ResolvedTwoInputTryonGarment {
+  kind: 'two-input';
+  bodyKey: string;
+  palluKey: string;
+  garmentSubcategoryId: string;
+  mannequinWorkflowTemplateId: string;
+  mannequinWorkflowTemplateVersion?: number | null;
+  tryonWorkflowTemplateId: string;
+  tryonWorkflowTemplateVersion?: number | null;
+}
+
+export type ResolvedTryonGarment = ResolvedSingleTryonGarment | ResolvedTwoInputTryonGarment;
 
 /**
  * One garment lookup for both try-on entry points (the merchant-token route and
@@ -30,7 +53,8 @@ export async function resolveTryonGarment(
       secondR2Key: schema.merchantCatalogItems.secondR2Key,
       isActive: schema.merchantCatalogItems.isActive,
       moderationStatus: schema.merchantCatalogItems.moderationStatus,
-      twoInputTryonWorkflowTemplateId: schema.garmentSubcategories.twoInputTryonWorkflowTemplateId,
+      garmentSubcategoryId: schema.merchantCatalogSubcategories.garmentSubcategoryId,
+      mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId,
       workflowTemplateId: schema.tryonCategories.workflowTemplateId,
       workflowTemplateVersion: schema.workflowTemplates.version,
       tryonCategoryIsActive: schema.tryonCategories.isActive,
@@ -64,41 +88,50 @@ export async function resolveTryonGarment(
       throw new AppError('FORBIDDEN', 403, 'catalog item is not available');
     }
 
-    // A catalog item with a second (pallu) image bypasses the normal tryon-category
-    // lookup entirely and goes through the garment type's dedicated two-input template —
-    // see garmentSubcategories.twoInputTryonWorkflowTemplateId. Falling back to the
-    // single-image template here would silently ignore the pallu image rather than fail
-    // loud, so this is a hard config error, not a soft fallback.
+    // A catalog item with a second (pallu) image needs the two-step pipeline: no
+    // single-pass 3-input (customer + body + pallu) template exists in this system
+    // (see ResolvedTwoInputTryonGarment's doc comment). Falling back to the
+    // single-image template here would silently ignore the pallu image rather than
+    // fail loud, so both the drape template and the tryon-category template are
+    // hard config requirements, not a soft fallback.
     if (own.secondR2Key) {
-      if (!own.twoInputTryonWorkflowTemplateId) {
+      if (!own.garmentSubcategoryId || !own.mannequinWorkflowTemplateId) {
         throw new AppError(
           'VALIDATION',
           400,
-          'garment type has no two-input tryon workflow configured',
+          'garment type has no two-input mannequin workflow configured',
         );
       }
-      const [twoInputTemplate] = await app.db
+      const [mannequinTemplate] = await app.db
         .select({
           isActive: schema.workflowTemplates.isActive,
           version: schema.workflowTemplates.version,
         })
         .from(schema.workflowTemplates)
-        .where(eq(schema.workflowTemplates.id, own.twoInputTryonWorkflowTemplateId))
+        .where(eq(schema.workflowTemplates.id, own.mannequinWorkflowTemplateId))
         .limit(1);
-      if (!twoInputTemplate?.isActive) {
-        throw new AppError('VALIDATION', 400, 'two-input tryon workflow is inactive');
+      if (!mannequinTemplate?.isActive) {
+        throw new AppError('VALIDATION', 400, 'two-input mannequin workflow is inactive');
       }
+      // Step 2 reuses the same tryon-category template an ordinary single-image
+      // try-on for this garment type already uses — assertWorkflow gives the same
+      // fail-loud check that path already relies on.
+      assertWorkflow(own);
       return {
-        r2Key: own.r2Key,
-        secondR2Key: own.secondR2Key,
-        workflowTemplateId: own.twoInputTryonWorkflowTemplateId,
-        workflowTemplateVersion: twoInputTemplate.version,
-        isDemo: false,
+        kind: 'two-input',
+        bodyKey: own.r2Key,
+        palluKey: own.secondR2Key,
+        garmentSubcategoryId: own.garmentSubcategoryId,
+        mannequinWorkflowTemplateId: own.mannequinWorkflowTemplateId,
+        mannequinWorkflowTemplateVersion: mannequinTemplate.version,
+        tryonWorkflowTemplateId: own.workflowTemplateId,
+        tryonWorkflowTemplateVersion: own.workflowTemplateVersion,
       };
     }
 
     assertWorkflow(own);
     return {
+      kind: 'single',
       r2Key: own.r2Key,
       workflowTemplateId: own.workflowTemplateId,
       workflowTemplateVersion: own.workflowTemplateVersion,
@@ -158,6 +191,7 @@ export async function resolveTryonGarment(
   }
   assertWorkflow(demo);
   return {
+    kind: 'single',
     r2Key: demo.r2Key,
     workflowTemplateId: demo.workflowTemplateId,
     workflowTemplateVersion: demo.workflowTemplateVersion,

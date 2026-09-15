@@ -222,11 +222,18 @@ export const workflowTemplates = pgTable('workflow_templates', {
   stage1PositivePromptNode: text('stage1_positive_prompt_node'),
   stage1NegativePromptNode: text('stage1_negative_prompt_node'),
 
+  // SAM3 Segmentation node — names the segmentation target (e.g. "person",
+  // "garment"). Nullable: most templates have no SAM3 node. Template-level
+  // only — no per-pose override, no dispatcher patching. Editing the prompt
+  // writes straight into jsonContent, same as stage1PositivePrompt above.
+  samSegmentationPromptNode: text('sam_segmentation_prompt_node'),
+
   // Default prompts extracted from JSON at upload time
   defaultFacePhasePrompt: text('default_face_phase_prompt').notNull().default(''),
   defaultGarmentPhasePrompt: text('default_garment_phase_prompt').notNull().default(''),
   defaultStage1PositivePrompt: text('default_stage1_positive_prompt').notNull().default(''),
   defaultStage1NegativePrompt: text('default_stage1_negative_prompt').notNull().default(''),
+  defaultSamSegmentationPrompt: text('default_sam_segmentation_prompt').notNull().default(''),
 
   // Admin-curated (reason -> alternate prompt/instruction) pairs offered when
   // a user regenerates a result produced by this template — same graph,
@@ -301,10 +308,12 @@ export const workflowTemplateArchives = pgTable(
     garmentPhasePromptNode: text('garment_phase_prompt_node').notNull(),
     stage1PositivePromptNode: text('stage1_positive_prompt_node'),
     stage1NegativePromptNode: text('stage1_negative_prompt_node'),
+    samSegmentationPromptNode: text('sam_segmentation_prompt_node'),
     defaultFacePhasePrompt: text('default_face_phase_prompt').notNull().default(''),
     defaultGarmentPhasePrompt: text('default_garment_phase_prompt').notNull().default(''),
     defaultStage1PositivePrompt: text('default_stage1_positive_prompt').notNull().default(''),
     defaultStage1NegativePrompt: text('default_stage1_negative_prompt').notNull().default(''),
+    defaultSamSegmentationPrompt: text('default_sam_segmentation_prompt').notNull().default(''),
     workflowType: text('workflow_type').notNull().default('regular'),
     tryonPersonNodeId: text('tryon_person_node_id'),
     tryonGarmentNodeId: text('tryon_garment_node_id'),

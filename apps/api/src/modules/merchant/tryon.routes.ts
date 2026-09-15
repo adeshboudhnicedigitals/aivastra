@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { withIdempotency } from '../../lib/idempotency.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { createMerchantTryonJob } from './create-tryon-job.js';
+import { createMerchantTryonJob, createMerchantTryonJobTwoStep } from './create-tryon-job.js';
 import { merchantRefund } from './ledger.js';
 import { resolveTryonGarment } from './resolve-tryon-garment.js';
 
@@ -174,15 +174,28 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
             .limit(1);
           if (!merchant) throw new AppError('NOT_FOUND', 404, 'merchant not found');
 
-          const jobId = await createMerchantTryonJob(app, {
-            merchantId,
-            merchantUserId: merchant.userId,
-            upperGarmentKey: garment.r2Key,
-            secondGarmentKey: garment.secondR2Key,
-            customerPhotoKey,
-            workflowTemplateId: garment.workflowTemplateId,
-            dispatchTemplateVersion: garment.workflowTemplateVersion ?? null,
-          });
+          const jobId =
+            garment.kind === 'two-input'
+              ? await createMerchantTryonJobTwoStep(app, {
+                  merchantId,
+                  merchantUserId: merchant.userId,
+                  customerPhotoKey,
+                  bodyKey: garment.bodyKey,
+                  palluKey: garment.palluKey,
+                  garmentSubcategoryId: garment.garmentSubcategoryId,
+                  mannequinWorkflowTemplateId: garment.mannequinWorkflowTemplateId,
+                  mannequinWorkflowTemplateVersion: garment.mannequinWorkflowTemplateVersion,
+                  tryonWorkflowTemplateId: garment.tryonWorkflowTemplateId,
+                  tryonWorkflowTemplateVersion: garment.tryonWorkflowTemplateVersion,
+                })
+              : await createMerchantTryonJob(app, {
+                  merchantId,
+                  merchantUserId: merchant.userId,
+                  upperGarmentKey: garment.r2Key,
+                  customerPhotoKey,
+                  workflowTemplateId: garment.workflowTemplateId,
+                  dispatchTemplateVersion: garment.workflowTemplateVersion ?? null,
+                });
 
           return { jobId };
         },

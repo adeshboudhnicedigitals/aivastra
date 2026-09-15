@@ -458,6 +458,10 @@ export const CreateWorkflowBody = z
     // own dedicated fields.
     stage1PositivePromptNode: z.string().min(1).optional(),
     stage1NegativePromptNode: z.string().min(1).optional(),
+    // SAM3 Segmentation node — optional on every workflow type, no superRefine
+    // requirement (unlike stage1/tryon prompt nodes, nothing requires this to
+    // be set). See docs/superpowers/specs/2026-09-11-sam3-segmentation-prompt-design.md.
+    samSegmentationPromptNode: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
     // Only the two prompt-node fields are Zod-required here — tryonPersonNodeId
@@ -596,6 +600,10 @@ export const UpdateWorkflowBody = z.object({
   garmentPhasePromptNode: z.string().min(1).optional(),
   stage1PositivePromptNode: z.string().min(1).optional(),
   stage1NegativePromptNode: z.string().min(1).optional(),
+  // Nullable (unlike its sibling node-id fields above) — an admin can clear a
+  // wrongly-set SAM3 node id back to "no node configured" without a
+  // destructive replace (Fix 1, closes Minor #8).
+  samSegmentationPromptNode: z.string().min(1).nullable().optional(),
   // Prompt TEXT (not which node holds it — see facePhasePromptNode/garmentPhasePromptNode
   // above for that). No .min(1) here on purpose: emptiness rules differ per field and are
   // enforced in the route handler (garmentPhasePrompt must be non-empty, facePhasePrompt may
@@ -632,6 +640,9 @@ export const UpdateWorkflowBody = z.object({
   // stage1NegativePrompt may be empty (same as facePhasePrompt).
   stage1PositivePrompt: z.string().optional(),
   stage1NegativePrompt: z.string().optional(),
+  // No .min(1) — emptiness (and "no node configured yet") is enforced in the
+  // route handler, same convention as the sibling prompt-text fields above.
+  samSegmentationPrompt: z.string().optional(),
   // KSampler settings — targeted by node ID rather than "the" KSampler, since a
   // workflow can have more than one (two_stage: build-person + dress-garment each
   // have their own). steps<1 means no generation happens; denoise is bounded to its
