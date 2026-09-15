@@ -93,11 +93,8 @@ import java.util.Locale
 
 
 import android.app.Activity
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.BackHandler
-import aivastra.nice.interactive.utils.CrashReporter
 
 // ─── Data model ──────────────────────────────────────────────────────────────
 
@@ -127,6 +124,7 @@ fun CategorySelectionPage(
     onProfileClick: () -> Unit = {},
     onUploadProductsClick: () -> Unit = {},
     onReportsClick: () -> Unit = {},
+    onManageCreditsClick: () -> Unit = {},
     onLogoutSuccess: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -341,14 +339,7 @@ fun CategorySelectionPage(
                                                     },
                                                     title = "Manage Credits",
                                                     subtitle = "View plans & Add credits",
-                                                    onClick = {
-                                                        showProfileMenu = false
-                                                        try {
-                                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://app.aivastra.com/pricing")))
-                                                        } catch (e: Exception) {
-                                                            CrashReporter.recordException(e, "CategorySelectionPage")
-                                                        }
-                                                    }
+                                                    onClick = { showProfileMenu = false; onManageCreditsClick() }
                                                 )
                                                 HorizontalDivider(
                                                     color = Color.White.copy(alpha = 0.12f),

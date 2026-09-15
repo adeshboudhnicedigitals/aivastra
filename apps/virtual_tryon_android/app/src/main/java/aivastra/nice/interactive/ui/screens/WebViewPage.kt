@@ -78,11 +78,19 @@ import java.io.File
 fun WebViewPage(
     url: String,
     onExit: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Optional: called with every URL the WebView lands on — including
+    // client-side (History API pushState) navigation inside a single-page
+    // app, which doesn't trigger onPageStarted/onPageFinished. Returning
+    // true exits the WebView back to the caller instead of letting that
+    // navigation render, e.g. detecting a post-payment redirect so the
+    // user lands back in the native app instead of the site's own page.
+    shouldExitOnUrl: ((String) -> Boolean)? = null
 ) {
     val isPreview = LocalInspectionMode.current
     val context = LocalContext.current
     val currentOnExit by rememberUpdatedState(onExit)
+    val currentShouldExitOnUrl by rememberUpdatedState(shouldExitOnUrl)
 
     var webView by remember { mutableStateOf<WebView?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -293,6 +301,20 @@ fun WebViewPage(
                                     if (request == null || request.isForMainFrame) {
                                         isLoading = false
                                         hasError = true
+                                    }
+                                }
+
+                                // Fires for client-side (History API) navigation too, unlike
+                                // onPageStarted/onPageFinished which only cover real document
+                                // loads — needed to catch an SPA route change (e.g. a
+                                // post-payment redirect) without a full page reload.
+                                override fun doUpdateVisitedHistory(
+                                    view: WebView?,
+                                    loadedUrl: String?,
+                                    isReload: Boolean
+                                ) {
+                                    if (loadedUrl != null && currentShouldExitOnUrl?.invoke(loadedUrl) == true) {
+                                        clearAndExit()
                                     }
                                 }
                             }
