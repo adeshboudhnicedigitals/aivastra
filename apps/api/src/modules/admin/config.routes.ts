@@ -11,14 +11,13 @@ import {
 import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
-  DEFAULT_MAX_OUTPUT_PX,
+  DEFAULT_MERCHANT_CATALOG_RESOLUTION,
   DEFAULT_PIXVERSE_VIDEO_PRICING,
   DEFAULT_RESOLUTION_CONFIG,
   DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG,
   DEFAULT_SELLER_CONFIG,
   DEFAULT_SHOPIFY_TRIAL_CONFIG,
   DEFAULT_TRYON_CONFIG,
-  mergeAspectDimensions,
 } from '../../lib/resolution-config.js';
 import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
 import { CREDIT_PACKS } from '../shopify/packs.js';
@@ -35,15 +34,11 @@ export async function resolveAppVideoUrl(app: FastifyInstance): Promise<string |
 }
 
 export async function adminConfigRoutes(app: FastifyInstance) {
-  // Public — used by the web pricing page and studio custom-resolution input (no auth required)
+  // Public — used by the web pricing page and Studio's resolution picker (no auth required)
   app.get('/v1/config/resolutions', async () => {
     const raw = await app.redis.get(KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    return {
-      resolutions: cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG,
-      maxOutputPx: cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX,
-      aspectDimensions: mergeAspectDimensions(cfg.aspectDimensions),
-    };
+    return { resolutions: cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG };
   });
 
   // Public — used by the login/register pages so the advertised signup bonus
@@ -61,8 +56,8 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     const raw = await app.redis.get(KEY);
     const cfg = raw ? JSON.parse(raw) : {};
     cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
-    cfg.maxOutputPx = cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX;
-    cfg.aspectDimensions = mergeAspectDimensions(cfg.aspectDimensions);
+    cfg.merchantCatalogResolution =
+      cfg.merchantCatalogResolution ?? DEFAULT_MERCHANT_CATALOG_RESOLUTION;
     cfg.maxBatchJobs = cfg.maxBatchJobs ?? DEFAULT_MAX_BATCH_JOBS;
     cfg.maxQueueDepth = cfg.maxQueueDepth ?? DEFAULT_MAX_QUEUE_DEPTH;
     cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
@@ -106,19 +101,6 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
       const body = req.body as Record<string, unknown>;
       const next = { ...cur, ...body };
-      // aspectDimensions is a nested per-ratio record — a submitted body may
-      // legitimately carry only the ratios the admin actually edited (see
-      // mergeAspectDimensions's doc comment), so it must be merged key-wise
-      // over the previously stored value rather than replaced wholesale, or
-      // every ratio missing from this PATCH would silently revert to default.
-      if (body.aspectDimensions) {
-        next.aspectDimensions = {
-          ...mergeAspectDimensions(
-            cur.aspectDimensions as Record<string, { width: number; height: number }> | undefined,
-          ),
-          ...(body.aspectDimensions as Record<string, { width: number; height: number }>),
-        };
-      }
       // System config lives in Redis, not Postgres, so there's no row for a
       // failed audit insert to roll back — write the audit record first and
       // only apply the Redis change once it succeeds, so a config change can

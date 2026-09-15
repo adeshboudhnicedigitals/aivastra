@@ -153,37 +153,52 @@ describe('admin config', () => {
     });
   });
 
-  it('a partial aspectDimensions PATCH merges over the prior value instead of replacing it wholesale', async () => {
+  it('GET /admin/config default-fills resolution longEdgePx, and PATCH persists a full-object override', async () => {
     const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
     expect(getRes.statusCode).toBe(200);
-    expect(getRes.json().aspectDimensions['1:1']).toEqual({ width: 2688, height: 2688 });
+    expect(getRes.json().resolutions).toEqual({
+      HD: { enabled: false, creditCost: 25, longEdgePx: 1536 },
+      '2K': { enabled: true, creditCost: 35, longEdgePx: 2688 },
+      '4K': { enabled: true, creditCost: 40, longEdgePx: 4096 },
+    });
 
-    // First PATCH customizes one ratio.
-    const patchRes1 = await app.inject({
+    const patchRes = await app.inject({
       method: 'PATCH',
       url: '/admin/config',
       headers: { ...adminAuth, 'content-type': 'application/json' },
-      payload: JSON.stringify({ aspectDimensions: { '2:3': { width: 1800, height: 2700 } } }),
+      payload: JSON.stringify({
+        resolutions: {
+          HD: { enabled: true, creditCost: 20, longEdgePx: 1200 },
+          '2K': { enabled: true, creditCost: 35, longEdgePx: 2688 },
+          '4K': { enabled: true, creditCost: 40, longEdgePx: 4096 },
+        },
+      }),
     });
-    expect(patchRes1.statusCode).toBe(200);
-
-    // Second PATCH customizes a different ratio only — must not silently revert
-    // the '2:3' override from the previous PATCH back to default.
-    const patchRes2 = await app.inject({
-      method: 'PATCH',
-      url: '/admin/config',
-      headers: { ...adminAuth, 'content-type': 'application/json' },
-      payload: JSON.stringify({ aspectDimensions: { '3:4': { width: 2100, height: 2800 } } }),
-    });
-    expect(patchRes2.statusCode).toBe(200);
+    expect(patchRes.statusCode).toBe(200);
 
     const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
-    expect(getRes2.json().aspectDimensions).toEqual({
-      '1:1': { width: 2688, height: 2688 },
-      '2:3': { width: 1800, height: 2700 },
-      '3:4': { width: 2100, height: 2800 },
-      '4:5': { width: 2150, height: 2688 },
+    expect(getRes2.json().resolutions.HD).toEqual({
+      enabled: true,
+      creditCost: 20,
+      longEdgePx: 1200,
     });
+  });
+
+  it('GET /admin/config default-fills merchantCatalogResolution, and PATCH persists an override', async () => {
+    const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.json().merchantCatalogResolution).toBe('2K');
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ merchantCatalogResolution: '4K' }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes2.json().merchantCatalogResolution).toBe('4K');
   });
 
   it('GET /admin/config default-fills maxBatchJobs, and PATCH persists an override', async () => {
