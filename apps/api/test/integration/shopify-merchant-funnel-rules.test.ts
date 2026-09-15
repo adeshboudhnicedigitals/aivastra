@@ -300,4 +300,60 @@ describe('shopify merchant funnel rules routes', () => {
     expect(res.json().countsOmitted).toBe(false);
     expect(res.json().unrouted).toBe(1);
   });
+
+  it('computes unroutedEnabled from only effectively-enabled unrouted products, not every unrouted product', async () => {
+    // Baseline from the previous test: store B has exactly one unrouted
+    // product (tag+101), and it was inserted with no `enabled` override, so
+    // it defaults to false. It must count toward unrouted but not toward
+    // unroutedEnabled.
+    const baseline = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/funnel-rules',
+      headers: authB,
+    });
+    expect(baseline.json().unrouted).toBe(1);
+    expect(baseline.json().unroutedEnabled).toBe(0);
+
+    // An individually-enabled product with no matching rule: this is exactly
+    // the case the merchant-facing banner needs to count — unrouted AND
+    // effectively enabled for Try-On.
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: storeBId,
+      shopifyProductId: tag + 102,
+      r2Key: `shopify-inputs/${storeBId}/${tag}-unrouted-enabled/photo`,
+      status: 'active',
+      productType: 'unmatched',
+      tags: ['nothing-here-either'],
+      enabled: true,
+    });
+
+    // An individually-enabled BUT excluded product with no matching rule:
+    // exclusion wins in computeEffectiveEnabled's precedence, so this must
+    // count toward unrouted (still no basket) but never toward
+    // unroutedEnabled — proving the real precedence function governs this
+    // count rather than a hand-rolled reimplementation that could drift.
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: storeBId,
+      shopifyProductId: tag + 103,
+      r2Key: `shopify-inputs/${storeBId}/${tag}-unrouted-excluded/photo`,
+      status: 'active',
+      productType: 'unmatched',
+      tags: ['nothing-here-either'],
+      enabled: true,
+      excluded: true,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/funnel-rules',
+      headers: authB,
+    });
+    expect(res.json().countsOmitted).toBe(false);
+    // All three unrouted products (tag+101 disabled, tag+102 enabled,
+    // tag+103 enabled-but-excluded) still count toward unrouted — its
+    // meaning is untouched by this plan.
+    expect(res.json().unrouted).toBe(3);
+    // Only tag+102 is effectively enabled, so unroutedEnabled narrows to 1.
+    expect(res.json().unroutedEnabled).toBe(1);
+  });
 });

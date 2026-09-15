@@ -379,6 +379,7 @@ function IndividualProductsPanel({
   draft,
   onAdd,
   onRemove,
+  onBasketChanged,
   setError,
 }: {
   editable: boolean;
@@ -386,6 +387,10 @@ function IndividualProductsPanel({
   draft: DraftList<ShopifyProductListItem>;
   onAdd: (item: ShopifyProductListItem) => void;
   onRemove: (shopifyProductId: number) => void;
+  // Called after a basket PATCH succeeds so the parent can refresh the
+  // unrouted banner — pinning a product here can change whether it's
+  // routed, and this is an immediate mutation, not staged behind Save.
+  onBasketChanged: () => void;
   setError: (e: ClassifiedError) => void;
 }) {
   const [baseItems, setBaseItems] = useState<ShopifyProductListItem[]>([]);
@@ -440,11 +445,10 @@ function IndividualProductsPanel({
     [baseItems, draft],
   );
 
-  // funnelTemplateId null resets to automatic routing (rule or default).
-  // No optimistic update: the effective source after a reset (rule vs.
-  // default) is decided server-side by funnel-resolution.ts, which the
-  // client doesn't replicate — a silent refetch is the only accurate way to
-  // show the real result.
+  // funnelTemplateId null resets to automatic routing (rule).
+  // No optimistic update: the effective source after a reset is decided
+  // server-side by funnel-resolution.ts, which the client doesn't replicate
+  // — a silent refetch is the only accurate way to show the real result.
   async function updateBasket(shopifyProductId: number, funnelTemplateId: string | null) {
     setBasketBusyId(shopifyProductId);
     try {
@@ -453,6 +457,7 @@ function IndividualProductsPanel({
         body: JSON.stringify({ funnelTemplateId }),
       });
       await loadProducts({ silent: true });
+      onBasketChanged();
     } catch (err) {
       setError(classifyError(err));
     } finally {
@@ -824,6 +829,11 @@ export default function ManagePage() {
   const [selectedTab, setSelectedTab] = useState(0);
   const [outerTabIndex, setOuterTabIndex] = useState(0);
   const [unrouted, setUnrouted] = useState<number | null>(null);
+  // Bumped by any routing mutation (rule add/edit/delete, global rule
+  // toggle, individual product pin) that isn't already covered by
+  // refreshToken (Sync / Eligibility Save) — so the banner reflects the
+  // merchant's own fix without requiring another Sync.
+  const [unroutedRefreshToken, setUnroutedRefreshToken] = useState(0);
   const [failedModalOpen, setFailedModalOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -857,12 +867,12 @@ export default function ManagePage() {
   // to see it, and enabling this second GET doesn't require lifting
   // RoutingTab's full state (rules, baskets, its own loading/error/toast)
   // up into this component.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken is a deliberate refetch trigger (bumps after a successful Save), not referenced in the body
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken and unroutedRefreshToken are deliberate refetch triggers (bump after a successful Save/Sync or a routing mutation), not referenced in the body
   useEffect(() => {
-    apiFetch<{ unrouted: number | null; countsOmitted: boolean }>('/v1/shopify/funnel-rules')
-      .then((res) => setUnrouted(res.countsOmitted ? null : res.unrouted))
+    apiFetch<{ unroutedEnabled: number | null; countsOmitted: boolean }>('/v1/shopify/funnel-rules')
+      .then((res) => setUnrouted(res.countsOmitted ? null : res.unroutedEnabled))
       .catch(() => setUnrouted(null));
-  }, [refreshToken]);
+  }, [refreshToken, unroutedRefreshToken]);
 
   const isDirty =
     (draftMode !== null && draftMode !== summary?.mode) ||
@@ -1096,8 +1106,9 @@ export default function ManagePage() {
             tone="warning"
             action={{ content: 'View routing', onAction: () => setOuterTabIndex(1) }}
           >
-            {unrouted} product{unrouted === 1 ? '' : 's'} have no basket assigned — Try-On won't
-            work for them until you add a routing rule or pin them individually.
+            {unrouted} product{unrouted === 1 ? ' has' : 's have'} no basket assigned — Try-On won't
+            work for {unrouted === 1 ? 'it' : 'them'} until you add a routing rule or pin{' '}
+            {unrouted === 1 ? 'it' : 'them'} individually.
           </Banner>
         )}
 
@@ -1271,6 +1282,7 @@ export default function ManagePage() {
                               meta: d.meta,
                             }))
                           }
+                          onBasketChanged={() => setUnroutedRefreshToken((n) => n + 1)}
                           setError={setError}
                         />
                       </DisabledTabView>
@@ -1319,7 +1331,10 @@ export default function ManagePage() {
                 </Tabs>
               )}
               {OUTER_TABS[outerTabIndex].id === 'routing' && (
-                <RoutingTab refreshToken={refreshToken} />
+                <RoutingTab
+                  refreshToken={refreshToken}
+                  onChanged={() => setUnroutedRefreshToken((n) => n + 1)}
+                />
               )}
             </Box>
           </Tabs>

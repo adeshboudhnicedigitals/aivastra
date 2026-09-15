@@ -79,8 +79,11 @@ export async function resolveEffectiveEnabled(
   });
 }
 
-/** EXISTS predicate: is the garment row's product in any collection in `set`? */
-function inCollectionSetSql(
+/** EXISTS predicate: is the garment row's product in any collection in `set`?
+ *  Exported so other routes expressing this same boolean at catalog scale
+ *  (e.g. funnel-rules.routes.ts's unroutedEnabled count) reuse this fragment
+ *  instead of hand-duplicating it and risking drift from `countEffectivelyEnabled`. */
+export function inCollectionSetSql(
   set: typeof schema.shopifyEnabledCollections | typeof schema.shopifyExcludedCollections,
 ) {
   return sql`exists (

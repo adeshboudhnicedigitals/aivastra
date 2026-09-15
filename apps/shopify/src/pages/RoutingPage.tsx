@@ -272,7 +272,16 @@ function basketLabelFor(baskets: Basket[], id: string): string {
   return baskets.find((b) => b.id === id)?.label ?? 'Unknown basket';
 }
 
-export default function RoutingTab({ refreshToken }: { refreshToken: number }) {
+export default function RoutingTab({
+  refreshToken,
+  onChanged,
+}: {
+  refreshToken: number;
+  // Called after a rule create/edit/delete or a global rule toggle — lets
+  // the parent (ManagePage) refresh its unrouted banner without waiting for
+  // the next Sync/Save. Optional: RoutingTab is still usable standalone.
+  onChanged?: () => void;
+}) {
   const [baskets, setBaskets] = useState<Basket[]>([]);
   const [rules, setRules] = useState<RulesResponse | null>(null);
   const [error, setError] = useState<ClassifiedError | null>(null);
@@ -313,8 +322,9 @@ export default function RoutingTab({ refreshToken }: { refreshToken: number }) {
         body: JSON.stringify({ disabled }),
       });
       await load();
+      onChanged?.();
     },
-    [load],
+    [load, onChanged],
   );
 
   const basketLabel = useCallback((id: string) => basketLabelFor(baskets, id), [baskets]);
@@ -327,7 +337,7 @@ export default function RoutingTab({ refreshToken }: { refreshToken: number }) {
   async function toggleGlobalRule(rule: GlobalRule) {
     try {
       await setDisabled(rule.id, !rule.disabled);
-      setToastMessage(rule.disabled ? 'Default rule turned back on.' : 'Default rule turned off.');
+      setToastMessage(rule.disabled ? 'Global rule turned back on.' : 'Global rule turned off.');
     } catch (err) {
       setError(classifyError(err));
     }
@@ -340,6 +350,7 @@ export default function RoutingTab({ refreshToken }: { refreshToken: number }) {
     try {
       await apiFetch(`/v1/shopify/funnel-rules/${rule.id}`, { method: 'DELETE' });
       await load();
+      onChanged?.();
       setToastMessage('Rule deleted.');
     } catch (err) {
       setError(classifyError(err));
@@ -352,6 +363,7 @@ export default function RoutingTab({ refreshToken }: { refreshToken: number }) {
 
   async function handleSaved(message: string) {
     await load();
+    onChanged?.();
     setToastMessage(message);
   }
 
