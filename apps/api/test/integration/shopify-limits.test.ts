@@ -56,12 +56,13 @@ describe('shopify shopper limits', () => {
     return store;
   }
 
-  /** The single default funnel template every product now resolves. Created
-   *  lazily so the test that asserts the no-default path isn't forced to depend
-   *  on it — that test runs against a database where this was never called. */
-  let defaultFunnelTemplateId: string | null = null;
-  async function seedDefaultFunnelTemplate() {
-    if (defaultFunnelTemplateId) return defaultFunnelTemplateId;
+  /** The single basket every test product is manually pinned to, so routing
+   *  resolves and these limit-refusal tests exercise the limit check they're
+   *  named for, not the unrelated "no basket configured" refusal. Created
+   *  lazily. */
+  let cachedFunnelTemplateId: string | null = null;
+  async function seedFunnelTemplate() {
+    if (cachedFunnelTemplateId) return cachedFunnelTemplateId;
     const [workflow] = await app.db
       .insert(schema.workflowTemplates)
       .values({
@@ -80,17 +81,16 @@ describe('shopify shopper limits', () => {
     const [funnel] = await app.db
       .insert(schema.shopifyFunnelTemplates)
       .values({
-        slug: `default-${Date.now()}`,
-        label: 'Default',
+        slug: `basket-${Date.now()}`,
+        label: 'Test basket',
         workflowTemplateId: workflow.id,
-        isDefault: true,
       })
       .returning();
-    defaultFunnelTemplateId = funnel.id;
-    return defaultFunnelTemplateId;
+    cachedFunnelTemplateId = funnel.id;
+    return cachedFunnelTemplateId;
   }
 
-  async function seedGarment(storeId: string, shopifyProductId: number) {
+  async function seedGarment(storeId: string, shopifyProductId: number, funnelTemplateId: string) {
     const [garment] = await app.db
       .insert(schema.shopifyProductGarments)
       .values({
@@ -100,6 +100,8 @@ describe('shopify shopper limits', () => {
         title: 'Test Product',
         status: 'active',
         enabled: true,
+        funnelTemplateId,
+        funnelAssignmentSource: 'manual',
       })
       .returning();
     return garment;
@@ -144,10 +146,10 @@ describe('shopify shopper limits', () => {
   }
 
   it('enforces the store daily cap without a client ID and charges nothing for the refusal', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5001);
+    await seedGarment(store.id, 5001, funnelTemplateId);
     await setLimits(store.id, { storeDailyCap: 50 });
     const dayKey = storeDayKey(null);
     const counterKey = `shopify:cap:store:${store.id}:${dayKey}`;
@@ -178,10 +180,10 @@ describe('shopify shopper limits', () => {
   });
 
   it('enforces the per-shopper cap after a browser change with the same email', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5002);
+    await seedGarment(store.id, 5002, funnelTemplateId);
     await setLimits(store.id, { perShopperCap: 1, perShopperWindow: 'day' });
 
     const photo1 = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
@@ -216,10 +218,10 @@ describe('shopify shopper limits', () => {
   });
 
   it('gates on email after N try-ons, then accepts the retry with the same photo', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5003);
+    await seedGarment(store.id, 5003, funnelTemplateId);
     await setLimits(store.id, { emailAfterNTryOns: 1 });
 
     const clientId = randomUUID();
@@ -256,10 +258,10 @@ describe('shopify shopper limits', () => {
   });
 
   it('links the created job to the shopper row', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5004);
+    await seedGarment(store.id, 5004, funnelTemplateId);
     const clientId = randomUUID();
     const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
     const res = await createJob(store, {
@@ -276,10 +278,10 @@ describe('shopify shopper limits', () => {
   });
 
   it('enforces nothing when the merchant has configured no limits', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5005);
+    await seedGarment(store.id, 5005, funnelTemplateId);
     const clientId = randomUUID();
     for (let i = 0; i < 3; i++) {
       const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
@@ -293,10 +295,10 @@ describe('shopify shopper limits', () => {
   });
 
   it('restores store, shopper, and billing quota when enqueue fails', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5006);
+    await seedGarment(store.id, 5006, funnelTemplateId);
     await setLimits(store.id, {
       storeDailyCap: 1,
       perShopperCap: 1,
@@ -363,10 +365,10 @@ describe('shopify shopper limits', () => {
     // route is still in its error path believing the enqueue failed. Without a
     // status guard the compensation overwrites COMPLETED with FAILED and
     // refunds a generation the shopper actually received — image AND credits.
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5010);
+    await seedGarment(store.id, 5010, funnelTemplateId);
     const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
 
     const realXadd = app.redis.xadd.bind(app.redis);
@@ -480,10 +482,10 @@ describe('shopify shopper limits', () => {
   });
 
   it('releases quota and compensates billing when the post-commit upload marker write fails', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5007);
+    await seedGarment(store.id, 5007, funnelTemplateId);
     await setLimits(store.id, { storeDailyCap: 1 });
     const counterKey = `shopify:cap:store:${store.id}:${storeDayKey(null)}`;
     const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
@@ -547,10 +549,10 @@ describe('shopify shopper limits', () => {
     // EVAL. Mocking `eval` to fail simulates the whole reservation attempt
     // never landing — proving there is no intermediate state to leak,
     // because there is no intermediate round trip left to fail on.
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5008);
+    await seedGarment(store.id, 5008, funnelTemplateId);
     await setLimits(store.id, { storeDailyCap: 1 });
     const counterKey = `shopify:cap:store:${store.id}:${storeDayKey(null)}`;
     const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
@@ -635,10 +637,10 @@ describe('shopify shopper limits', () => {
     // lock keyed on the shopper's counting identity and rechecks the limit
     // under it, immediately before the job insert — serializing the two
     // racing requests so only one can win.
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5009);
+    await seedGarment(store.id, 5009, funnelTemplateId);
     await setLimits(store.id, { perShopperCap: 1, perShopperWindow: 'day' });
 
     const clientId = randomUUID();
@@ -678,10 +680,10 @@ describe('shopify shopper limits', () => {
     // route now retries the (already-idempotent) release closure up to 3
     // times — this forces the first two release calls to fail and asserts the
     // counter is restored anyway, without the test itself retrying anything.
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5010);
+    await seedGarment(store.id, 5010, funnelTemplateId);
     await setLimits(store.id, { storeDailyCap: 1 });
     const counterKey = `shopify:cap:store:${store.id}:${storeDayKey(null)}`;
     const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
@@ -745,10 +747,10 @@ describe('shopify shopper limits', () => {
     // Compatibility test for finding #6's third bullet: an explicit
     // `limits: null` (as opposed to the key being absent entirely, already
     // covered above) must also disable enforcement.
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5011);
+    await seedGarment(store.id, 5011, funnelTemplateId);
     await app.db
       .update(schema.shopifyStores)
       .set({ settings: { limits: null } })
@@ -772,10 +774,10 @@ describe('shopify shopper limits', () => {
   // per-shopper cap, which has always excluded FAILED jobs.
 
   it('pins the cap key onto the job so a later failure can find it', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5310);
+    await seedGarment(store.id, 5310, funnelTemplateId);
     await setLimits(store.id, { storeDailyCap: 5 });
     const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
 
@@ -798,10 +800,10 @@ describe('shopify shopper limits', () => {
   });
 
   it('records no cap key when the store is uncapped', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5311);
+    await seedGarment(store.id, 5311, funnelTemplateId);
     await setLimits(store.id, { perShopperCap: 5 });
     const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
 
@@ -863,10 +865,10 @@ describe('shopify shopper limits', () => {
   });
 
   it('gives the slot back when an admin cancels a store-billed job', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 5312);
+    await seedGarment(store.id, 5312, funnelTemplateId);
     await setLimits(store.id, { storeDailyCap: 1 });
     const counterKey = `shopify:cap:store:${store.id}:${storeDayKey(null)}`;
     const photo = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(1024));
