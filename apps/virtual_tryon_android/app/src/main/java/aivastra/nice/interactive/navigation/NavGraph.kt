@@ -1,5 +1,6 @@
 package aivastra.nice.interactive.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -72,6 +73,7 @@ sealed class Screen(val route: String) {
     object Profile            : Screen("profile")
     object Reports            : Screen("reports")
     object TryOnLibrary       : Screen("tryon_library")
+    object ManageCredits      : Screen("manage_credits")
     object OutfitSelection    : Screen("outfit_selection/{category}") {
         fun createRoute(category: String) = "outfit_selection/$category"
     }
@@ -291,6 +293,9 @@ fun AppNavGraph(
                 onReportsClick = {
                     navController.navigate(Screen.Reports.route)
                 },
+                onManageCreditsClick = {
+                    navController.navigate(Screen.ManageCredits.route)
+                },
                 onLogoutSuccess = {
                     navController.navigate(Screen.SignIn.route) {
                         popUpTo(0) { inclusive = true }
@@ -370,6 +375,64 @@ fun AppNavGraph(
                             popUpTo(Screen.CategorySelection.route) { inclusive = false }
                             launchSingleTop = true
                         }
+                    }
+                )
+            }
+        }
+
+        // ── Manage Credits (in-app webview) ────────────────────────────────
+        composable(
+            route = Screen.ManageCredits.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition  = { ExitTransition.None }
+        ) {
+            val manageCreditsBaseUrl = "https://app.aivastra.com/pricing"
+            var manageCreditsUrl by remember { mutableStateOf<String?>(null) }
+
+            // Exchanges the device session for a short-lived SSO code so the WebView
+            // logs in as the same user instead of showing its own sign-in page. On
+            // any failure, falls back to the plain URL so the user can still log in
+            // manually rather than being stuck on a blank screen.
+            LaunchedEffect(Unit) {
+                manageCreditsUrl = try {
+                    val response = ApiClient.apiService.getCatalogAppDeviceCode()
+                    val code = response.body()?.code
+                    if (response.isSuccessful && !code.isNullOrBlank()) {
+                        "$manageCreditsBaseUrl?code=$code"
+                    } else {
+                        manageCreditsBaseUrl
+                    }
+                } catch (e: Exception) {
+                    CrashReporter.recordException(e, "NavGraph")
+                    manageCreditsBaseUrl
+                }
+            }
+
+            val currentManageCreditsUrl = manageCreditsUrl
+            if (currentManageCreditsUrl == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AppLoadingIndicator(size = sdp(R.dimen._32sdp), color = Color(0xFFE7A52C))
+                }
+            } else {
+                WebViewPage(
+                    url = currentManageCreditsUrl,
+                    onExit = {
+                        navController.navigate(Screen.CategorySelection.route) {
+                            popUpTo(Screen.CategorySelection.route) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    },
+                    // The pricing page's post-payment success popup sends the user to
+                    // "/tryon" (its own try-on page) via client-side routing when
+                    // "Continue" is tapped. Catch that redirect and exit to the native
+                    // app instead of letting the site's own page load in the WebView.
+                    shouldExitOnUrl = { navigatedUrl ->
+                        runCatching { Uri.parse(navigatedUrl).path }.getOrNull() == "/tryon"
                     }
                 )
             }
