@@ -1639,8 +1639,8 @@ export default function StudioPage(): React.ReactElement {
     needsLower && !requiresLowerUpload && 'lower',
     needsShoes && 'shoes',
     'platform',
-    'aspect',
     resolution && 'resolution',
+    'aspect',
   ].filter((key): key is string => !!key);
   const stepNumberOf = (key: string) => extraSectionKeys.indexOf(key) + 5;
 
@@ -4355,6 +4355,81 @@ export default function StudioPage(): React.ReactElement {
                 </div>
               </section>
 
+              {/* ── Resolution (read-only, auto-derived from output dims) ── */}
+              {resolution && (
+                <section className="studio-section-card" style={sectionCardStyle}>
+                  <SectionHead
+                    title="Output Resolution"
+                    stepNumber={stepNumberOf('resolution')}
+                    right={
+                      <span style={{ fontSize: 11, color: C.light, fontWeight: 400 }}>Auto</span>
+                    }
+                  />
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    {(
+                      [
+                        { key: 'HD' as const, label: 'HD' },
+                        { key: '2K' as const, label: '2K' },
+                        { key: '4K' as const, label: '4K' },
+                      ] as const
+                    )
+                      .filter((r) => resolutionConfig[r.key]?.enabled !== false)
+                      .map((r) => {
+                        const credits =
+                          resolutionConfig[r.key]?.creditCost ?? RESOLUTION_COSTS[r.key];
+                        const active = resolution === r.key;
+                        return (
+                          <div
+                            key={r.key}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              padding: '8px 16px',
+                              borderRadius: 99,
+                              border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
+                              background: active ? 'rgba(245,92,122,0.04)' : C.white,
+                              boxSizing: 'border-box',
+                              userSelect: 'none',
+                              opacity: active ? 1 : 0.45,
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: 16,
+                                height: 16,
+                                borderRadius: '50%',
+                                border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
+                                background: C.white,
+                                flexShrink: 0,
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                            <span
+                              style={{
+                                fontSize: 14,
+                                fontWeight: 600,
+                                color: active ? C.pink : C.text,
+                              }}
+                            >
+                              {r.label}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 13,
+                                color: active ? C.pink : C.mid,
+                                fontWeight: 400,
+                              }}
+                            >
+                              ({credits} credits)
+                            </span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </section>
+              )}
+
               <section className="studio-section-card" style={sectionCardStyle}>
                 <SectionHead
                   title="Aspect Ratio"
@@ -4521,81 +4596,6 @@ export default function StudioPage(): React.ReactElement {
                   </div>
                 )}
               </section>
-
-              {/* ── Resolution (read-only, auto-derived from output dims) ── */}
-              {resolution && (
-                <section className="studio-section-card" style={sectionCardStyle}>
-                  <SectionHead
-                    title="Output Resolution"
-                    stepNumber={stepNumberOf('resolution')}
-                    right={
-                      <span style={{ fontSize: 11, color: C.light, fontWeight: 400 }}>Auto</span>
-                    }
-                  />
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    {(
-                      [
-                        { key: 'HD' as const, label: 'HD' },
-                        { key: '2K' as const, label: '2K' },
-                        { key: '4K' as const, label: '4K' },
-                      ] as const
-                    )
-                      .filter((r) => resolutionConfig[r.key]?.enabled !== false)
-                      .map((r) => {
-                        const credits =
-                          resolutionConfig[r.key]?.creditCost ?? RESOLUTION_COSTS[r.key];
-                        const active = resolution === r.key;
-                        return (
-                          <div
-                            key={r.key}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              padding: '8px 16px',
-                              borderRadius: 99,
-                              border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
-                              background: active ? 'rgba(245,92,122,0.04)' : C.white,
-                              boxSizing: 'border-box',
-                              userSelect: 'none',
-                              opacity: active ? 1 : 0.45,
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: 16,
-                                height: 16,
-                                borderRadius: '50%',
-                                border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
-                                background: C.white,
-                                flexShrink: 0,
-                                boxSizing: 'border-box',
-                              }}
-                            />
-                            <span
-                              style={{
-                                fontSize: 14,
-                                fontWeight: 600,
-                                color: active ? C.pink : C.text,
-                              }}
-                            >
-                              {r.label}
-                            </span>
-                            <span
-                              style={{
-                                fontSize: 13,
-                                color: active ? C.pink : C.mid,
-                                fontWeight: 400,
-                              }}
-                            >
-                              ({credits} credits)
-                            </span>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </section>
-              )}
             </div>
 
             {/* Footer (pinned, left column only, block effect) */}
