@@ -1,5 +1,4 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
@@ -19,10 +18,11 @@ describe('shopify merchant funnel rules routes', () => {
   let storeAId: string;
   let storeBId: string;
   let upperBasketId: string;
-  let defaultBasketId: string;
+  let storeABasketId: string;
   let globalRuleId: string;
   let storeARuleId: string;
   let storeBRuleId: string;
+  let tag: number;
 
   beforeAll(async () => {
     c = await startContainers();
@@ -32,7 +32,7 @@ describe('shopify merchant funnel rules routes', () => {
       SHOPIFY_API_KEY: API_KEY,
     });
 
-    const tag = Date.now();
+    tag = Date.now();
 
     async function seedWorkflow(slug: string) {
       const [wf] = await app.db
@@ -54,10 +54,10 @@ describe('shopify merchant funnel rules routes', () => {
       return wf.id;
     }
 
-    async function seedBasket(slug: string, workflowTemplateId: string, isDefault = false) {
+    async function seedBasket(slug: string, workflowTemplateId: string) {
       const [basket] = await app.db
         .insert(schema.shopifyFunnelTemplates)
-        .values({ slug, label: slug, workflowTemplateId, isDefault })
+        .values({ slug, label: slug, workflowTemplateId })
         .returning();
       return basket.id;
     }
@@ -66,16 +66,11 @@ describe('shopify merchant funnel rules routes', () => {
       `merchant-rules-upper-${tag}`,
       await seedWorkflow(`merchant-rules-upper-wf-${tag}`),
     );
-    defaultBasketId = await seedBasket(
-      `merchant-rules-default-${tag}`,
-      await seedWorkflow(`merchant-rules-default-wf-${tag}`),
-      true,
-    );
     const globalBasketId = await seedBasket(
       `merchant-rules-global-${tag}`,
       await seedWorkflow(`merchant-rules-global-wf-${tag}`),
     );
-    const storeABasketId = await seedBasket(
+    storeABasketId = await seedBasket(
       `merchant-rules-store-a-${tag}`,
       await seedWorkflow(`merchant-rules-store-a-wf-${tag}`),
     );
@@ -147,15 +142,15 @@ describe('shopify merchant funnel rules routes', () => {
       .returning();
     storeBRuleId = storeBRule.id;
 
-    // A store-A product that matches none of the seeded rules, so the counts
-    // endpoint's resolution must fall through to the default basket.
+    // A store-A product that matches store A's own rule, so the counts
+    // endpoint's per-basket tally has something to report.
     await app.db.insert(schema.shopifyProductGarments).values({
       storeId: storeAId,
       shopifyProductId: tag + 100,
       r2Key: `shopify-inputs/${storeAId}/${tag}/photo`,
       status: 'active',
-      productType: 'unmatched',
-      tags: ['nothing-here'],
+      productType: 'matched',
+      tags: ['store-a-tag'],
     });
   });
 
@@ -277,28 +272,223 @@ describe('shopify merchant funnel rules routes', () => {
       headers: authA,
     });
     expect(res.json().countsOmitted).toBe(false);
-    expect(res.json().counts[defaultBasketId]).toBeGreaterThan(0);
-    // The unmatched product falls through to the active default basket, so
-    // nothing is actually unrouted yet.
+    expect(res.json().counts[storeABasketId]).toBeGreaterThan(0);
     expect(res.json().unrouted).toBe(0);
   });
 
   it('counts a product with no resolvable basket as unrouted, not silently dropped', async () => {
-    // Deactivating the default removes the unmatched product's only fallback.
-    // This is the last test in the file, so it's safe to leave the fixture
-    // in this state.
-    await app.db
-      .update(schema.shopifyFunnelTemplates)
-      .set({ isActive: false })
-      .where(eq(schema.shopifyFunnelTemplates.id, defaultBasketId));
+    // Scoped to store B (its own auth + storeId), not store A, so this
+    // fixture can never bleed into 'returns per-basket counts' (store A)
+    // regardless of execution order — counts/unrouted are computed per
+    // calling store (see funnel-rules.routes.ts), so inserting under store A
+    // here would make this test order-dependent on the other one all over
+    // again, just with a second product instead of a mutated basket.
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: storeBId,
+      shopifyProductId: tag + 101,
+      r2Key: `shopify-inputs/${storeBId}/${tag}-unrouted/photo`,
+      status: 'active',
+      productType: 'unmatched',
+      tags: ['nothing-here'],
+    });
 
     const res = await app.inject({
       method: 'GET',
       url: '/v1/shopify/funnel-rules',
-      headers: authA,
+      headers: authB,
     });
     expect(res.json().countsOmitted).toBe(false);
-    expect(res.json().counts[defaultBasketId]).toBeUndefined();
+    expect(res.json().unrouted).toBe(1);
+  });
+
+  it('computes unroutedEnabled from only effectively-enabled unrouted products, across individual and collection-membership precedence', async () => {
+    // Fully self-contained, unlike the earlier 'counts a product with no
+    // resolvable basket' test whose fixture (tag+101, under store B) this
+    // test used to silently depend on via a `baseline` read. Run alone (e.g.
+    // `vitest -t 'unroutedEnabled'`) that fixture never gets inserted, so a
+    // baseline assertion here would be reading store B's pristine state
+    // instead. To make this test genuinely order-free — passing solo, passing
+    // under --sequence.shuffle, passing after any subset of the other tests —
+    // it creates its own store (store C) that no other test in this file
+    // touches, and asserts only on what it inserts itself, following this
+    // file's post-split-fixture convention.
+    //
+    // A dedicated store also isolates the collection-membership fixtures
+    // below: no other test in this file seeds shopifyEnabledCollections /
+    // shopifyExcludedCollections / shopifyCollectionProducts, so there's
+    // nothing else to collide with or be polluted by.
+    const storeC = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: tag + 4,
+        shopDomain: `merchant-rules-c-${tag}.myshopify.com`,
+        myshopifyDomain: `merchant-rules-c-${tag}.myshopify.com`,
+        name: 'Store C',
+        email: 'c@c.com',
+      },
+      'tok',
+      'read_products',
+    );
+    const authC = {
+      authorization: `Bearer ${signSessionToken(storeC.shopDomain, API_SECRET, API_KEY)}`,
+    };
+
+    const enabledCollectionId = tag + 900;
+    const excludedCollectionId = tag + 901;
+    await app.db.insert(schema.shopifyEnabledCollections).values({
+      storeId: storeC.id,
+      shopifyCollectionId: enabledCollectionId,
+    });
+    await app.db.insert(schema.shopifyExcludedCollections).values({
+      storeId: storeC.id,
+      shopifyCollectionId: excludedCollectionId,
+    });
+
+    // Five products, none tagged to match the global rule (which conditions
+    // on 'global-tag') or any store rule (store-scoped, so invisible to store
+    // C regardless), so every one of them is unrouted. They vary individual
+    // enabled/excluded and enabled/excluded collection membership to exercise
+    // both `computeEffectiveEnabled` inputs — individual flags AND the
+    // `inEnabledCollection`/`inExcludedCollection` EXISTS-subquery fragment
+    // reused from activation.ts — proving a bug that made that fragment
+    // always return false would NOT leave this test green:
+    //   tag+110 disabled, no collections            -> unrouted, not enabled (control)
+    //   tag+111 enabled, no collections              -> unrouted AND enabled
+    //   tag+112 enabled + excluded                   -> unrouted, not enabled (exclusion wins)
+    //   tag+113 disabled, in the enabled collection   -> unrouted AND enabled (collection membership turns it on)
+    //   tag+114 enabled, in the excluded collection   -> unrouted, not enabled (exclusion via collection wins)
+    await app.db.insert(schema.shopifyProductGarments).values([
+      {
+        storeId: storeC.id,
+        shopifyProductId: tag + 110,
+        r2Key: `shopify-inputs/${storeC.id}/${tag}-c-disabled/photo`,
+        status: 'active',
+        productType: 'unmatched',
+        tags: ['no-match-tag'],
+        enabled: false,
+      },
+      {
+        storeId: storeC.id,
+        shopifyProductId: tag + 111,
+        r2Key: `shopify-inputs/${storeC.id}/${tag}-c-enabled/photo`,
+        status: 'active',
+        productType: 'unmatched',
+        tags: ['no-match-tag'],
+        enabled: true,
+      },
+      {
+        storeId: storeC.id,
+        shopifyProductId: tag + 112,
+        r2Key: `shopify-inputs/${storeC.id}/${tag}-c-enabled-excluded/photo`,
+        status: 'active',
+        productType: 'unmatched',
+        tags: ['no-match-tag'],
+        enabled: true,
+        excluded: true,
+      },
+      {
+        storeId: storeC.id,
+        shopifyProductId: tag + 113,
+        r2Key: `shopify-inputs/${storeC.id}/${tag}-c-disabled-in-enabled-collection/photo`,
+        status: 'active',
+        productType: 'unmatched',
+        tags: ['no-match-tag'],
+        enabled: false,
+      },
+      {
+        storeId: storeC.id,
+        shopifyProductId: tag + 114,
+        r2Key: `shopify-inputs/${storeC.id}/${tag}-c-enabled-in-excluded-collection/photo`,
+        status: 'active',
+        productType: 'unmatched',
+        tags: ['no-match-tag'],
+        enabled: true,
+      },
+    ]);
+
+    await app.db.insert(schema.shopifyCollectionProducts).values([
+      { storeId: storeC.id, shopifyCollectionId: enabledCollectionId, shopifyProductId: tag + 113 },
+      {
+        storeId: storeC.id,
+        shopifyCollectionId: excludedCollectionId,
+        shopifyProductId: tag + 114,
+      },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/funnel-rules',
+      headers: authC,
+    });
+    expect(res.json().countsOmitted).toBe(false);
+    // All five products are unrouted — none match any global or store rule.
+    expect(res.json().unrouted).toBe(5);
+    // Only tag+111 (individually enabled) and tag+113 (in an enabled
+    // collection, despite being individually disabled) are effectively
+    // enabled. tag+112 and tag+114 prove exclusion wins over both individual
+    // enablement and collection-based enablement, matching
+    // computeEffectiveEnabled's precedence.
+    expect(res.json().unroutedEnabled).toBe(2);
+  });
+
+  it('accepts a title condition via the create route and matches it in the counts scan', async () => {
+    // A fresh store (D), like storeC above. Creating the rule through the
+    // real route (not app.db.insert) is deliberate: it's what makes this
+    // test depend on THIS task's Zod schema change (field: 'title' must be
+    // accepted, not rejected with 400) rather than only on Task 1's
+    // resolver/select-list fix, which a direct DB insert would bypass.
+    const storeD = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: tag + 5,
+        shopDomain: `merchant-rules-d-${tag}.myshopify.com`,
+        myshopifyDomain: `merchant-rules-d-${tag}.myshopify.com`,
+        name: 'Store D',
+        email: 'd@d.com',
+      },
+      'tok',
+      'read_products',
+    );
+    const authD = {
+      authorization: `Bearer ${signSessionToken(storeD.shopDomain, API_SECRET, API_KEY)}`,
+    };
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/funnel-rules',
+      headers: authD,
+      payload: {
+        funnelTemplateId: upperBasketId,
+        conditions: [{ field: 'title', operator: 'contains', value: 'zzz-title-match' }],
+        priority: 1,
+      },
+    });
+    expect(createRes.statusCode).toBe(200);
+
+    await app.db.insert(schema.shopifyProductGarments).values([
+      {
+        storeId: storeD.id,
+        shopifyProductId: tag + 120,
+        r2Key: `shopify-inputs/${storeD.id}/${tag}-d-matched/photo`,
+        status: 'active',
+        title: 'A zzz-title-match Product',
+      },
+      {
+        storeId: storeD.id,
+        shopifyProductId: tag + 121,
+        r2Key: `shopify-inputs/${storeD.id}/${tag}-d-unmatched/photo`,
+        status: 'active',
+        title: 'Something else entirely',
+      },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/funnel-rules',
+      headers: authD,
+    });
+    expect(res.json().countsOmitted).toBe(false);
+    expect(res.json().counts[upperBasketId]).toBe(1);
     expect(res.json().unrouted).toBe(1);
   });
 });

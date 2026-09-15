@@ -2,7 +2,7 @@ import { schema } from '@aivastra/db';
 import { and, eq, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
-export type BasketSource = 'manual' | 'rule' | 'default';
+export type BasketSource = 'manual' | 'rule';
 
 /** The subset of a shopify_product_garments row that routing reads. */
 export interface BasketMatchTarget {
@@ -11,6 +11,7 @@ export interface BasketMatchTarget {
   tags: string[] | null;
   vendor: string | null;
   collections: string[] | null;
+  title: string | null;
 }
 
 export interface BasketRule {
@@ -34,7 +35,6 @@ export interface BasketRuleSet {
   /** Aivastra global rules, with this store's suppressions already removed. */
   globalRules: BasketRule[];
   baskets: Map<string, BasketInfo>;
-  defaultBasketId: string | null;
 }
 
 export interface ResolvedBasket {
@@ -82,6 +82,8 @@ export function matchesCondition(
       return matchesText(target.productType, condition.operator, needle);
     case 'vendor':
       return matchesText(target.vendor, condition.operator, needle);
+    case 'title':
+      return matchesText(target.title, condition.operator, needle);
     case 'tags':
       return matchesList(target.tags, condition.operator, needle);
     case 'collections':
@@ -118,8 +120,10 @@ function activeBasket(ruleSet: BasketRuleSet, basketId: string | null): BasketIn
  * caller goes through computeEffectiveEnabled in activation.ts.
  *
  * Precedence: manual pin, then the store's own rules, then Aivastra global
- * rules, then the default basket. Null means nothing is configured at all,
- * which the try-on path treats as a refusal BEFORE deducting credits.
+ * rules. Null means nothing is configured at all — no pin, no matching rule
+ * at either tier — which the try-on path treats as a refusal BEFORE
+ * deducting credits. There is deliberately no further fallback: routing is
+ * fully explicit, never a silent admin-wide catch-all.
  */
 export function resolveBasketFrom(
   ruleSet: BasketRuleSet,
@@ -147,8 +151,7 @@ export function resolveBasketFrom(
     }
   }
 
-  const fallback = activeBasket(ruleSet, ruleSet.defaultBasketId);
-  return fallback ? resolved(fallback, 'default') : null;
+  return null;
 }
 
 /**
@@ -171,7 +174,6 @@ export async function loadRuleSet(app: FastifyInstance, storeId: string): Promis
         workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId,
         workflowTemplateVersion: schema.workflowTemplates.version,
         isActive: schema.shopifyFunnelTemplates.isActive,
-        isDefault: schema.shopifyFunnelTemplates.isDefault,
       })
       .from(schema.shopifyFunnelTemplates)
       .leftJoin(
@@ -204,7 +206,6 @@ export async function loadRuleSet(app: FastifyInstance, storeId: string): Promis
   ]);
 
   const baskets = new Map<string, BasketInfo>();
-  let defaultBasketId: string | null = null;
   for (const row of basketRows) {
     baskets.set(row.id, {
       id: row.id,
@@ -213,7 +214,6 @@ export async function loadRuleSet(app: FastifyInstance, storeId: string): Promis
       workflowTemplateVersion: row.workflowTemplateVersion ?? null,
       isActive: row.isActive,
     });
-    if (row.isDefault) defaultBasketId = row.id;
   }
 
   const storeRules: BasketRule[] = [];
@@ -234,7 +234,7 @@ export async function loadRuleSet(app: FastifyInstance, storeId: string): Promis
     }
   }
 
-  return { storeRules, globalRules, baskets, defaultBasketId };
+  return { storeRules, globalRules, baskets };
 }
 
 /** Single-product convenience wrapper. Never use this inside a loop. */

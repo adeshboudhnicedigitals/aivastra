@@ -11,7 +11,6 @@ describe('loadRuleSet', () => {
   let storeA: string;
   let storeB: string;
   let sareeBasketId: string;
-  let defaultBasketId: string;
   let globalRuleId: string;
   let storeRuleId: string;
   let suppressedRuleId: string;
@@ -46,7 +45,6 @@ describe('loadRuleSet', () => {
       sareeWorkflowVersion,
     );
     const upperWorkflowId = await seedWorkflow(`funnel-loader-upper-${Date.now()}`, 1);
-    const defaultWorkflowId = await seedWorkflow(`funnel-loader-default-${Date.now()}`, 1);
 
     const [sareeBasket] = await app.db
       .insert(schema.shopifyFunnelTemplates)
@@ -67,17 +65,6 @@ describe('loadRuleSet', () => {
       })
       .returning();
     const upperBasketId = upperBasket.id;
-
-    const [defaultBasket] = await app.db
-      .insert(schema.shopifyFunnelTemplates)
-      .values({
-        slug: `funnel-loader-default-basket-${Date.now()}`,
-        label: 'Default',
-        workflowTemplateId: defaultWorkflowId,
-        isDefault: true,
-      })
-      .returning();
-    defaultBasketId = defaultBasket.id;
 
     const [sA] = await app.db
       .insert(schema.shopifyStores)
@@ -150,11 +137,6 @@ describe('loadRuleSet', () => {
     const set = await loadRuleSet(app, storeA);
     expect(set.storeRules.every((r) => r.ruleId !== globalRuleId)).toBe(true);
     expect(set.globalRules.every((r) => r.ruleId !== storeRuleId)).toBe(true);
-  });
-
-  it('exposes the active default basket id', async () => {
-    const set = await loadRuleSet(app, storeA);
-    expect(set.defaultBasketId).toBe(defaultBasketId);
   });
 
   it('carries the workflow template version onto each basket', async () => {

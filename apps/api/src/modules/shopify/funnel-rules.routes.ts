@@ -1,8 +1,9 @@
 import { schema } from '@aivastra/db';
-import { and, asc, count, eq, isNull, ne, or } from 'drizzle-orm';
+import { and, asc, count, eq, isNull, ne, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { computeEffectiveEnabled, inCollectionSetSql } from './activation.js';
 import { type BasketMatchTarget, loadRuleSet, resolveBasketFrom } from './funnel-resolution.js';
 
 // Above this many products the Routing page reports countsOmitted rather than
@@ -11,7 +12,7 @@ import { type BasketMatchTarget, loadRuleSet, resolveBasketFrom } from './funnel
 const COUNTS_PRODUCT_CAP = 10_000;
 
 const Condition = z.object({
-  field: z.enum(['product_type', 'tags', 'vendor', 'collections']),
+  field: z.enum(schema.FUNNEL_RULE_CONDITION_FIELDS),
   operator: z.enum(['equals', 'contains']),
   value: z.string().min(1).max(200),
 });
@@ -108,13 +109,25 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
     const globals = rows.filter((r) => r.storeId === null);
 
     const counts: Record<string, number> = {};
-    // Products that resolve to nothing at all — no pin, no matching rule, no
-    // active default — are exactly the ones a try-on request refuses for
-    // before any credit deduct. Merchants have no other way to see this
-    // number: it never appears mid-catalog on the paginated product list.
+    // Products that resolve to nothing at all — no pin, no matching rule —
+    // are exactly the ones a try-on request refuses for before any credit
+    // deduct. Merchants have no other way to see this number: it never
+    // appears mid-catalog on the paginated product list.
+    //
+    // unrouted counts every synced, non-deleted product with no resolvable
+    // basket — this is pre-existing behavior the Routing tab's "Where your
+    // products land" summary already reads, and its meaning here is
+    // unchanged. unroutedEnabled narrows that to the subset a merchant would
+    // actually notice broken: products that are ALSO effectively enabled for
+    // Try-On per computeEffectiveEnabled. A catalog-sized store with 5,000
+    // synced products and 20 enabled must not tell the merchant "4,980
+    // products have no basket assigned" — the Manage page banner reads
+    // unroutedEnabled for exactly that reason.
     let unrouted = 0;
+    let unroutedEnabled = 0;
     const countsOmitted = total > COUNTS_PRODUCT_CAP;
     if (!countsOmitted) {
+      const mode = store.settings.activation?.mode ?? 'selective';
       const ruleSet = await loadRuleSet(app, store.id);
       const products = await app.db
         .select({
@@ -123,6 +136,11 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
           tags: schema.shopifyProductGarments.tags,
           vendor: schema.shopifyProductGarments.vendor,
           collections: schema.shopifyProductGarments.collections,
+          title: schema.shopifyProductGarments.title,
+          enabled: schema.shopifyProductGarments.enabled,
+          excluded: schema.shopifyProductGarments.excluded,
+          inEnabledCollection: sql<boolean>`${inCollectionSetSql(schema.shopifyEnabledCollections)}`,
+          inExcludedCollection: sql<boolean>`${inCollectionSetSql(schema.shopifyExcludedCollections)}`,
         })
         .from(schema.shopifyProductGarments)
         .where(
@@ -137,6 +155,14 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
           counts[resolved.basketId] = (counts[resolved.basketId] ?? 0) + 1;
         } else {
           unrouted++;
+          const effectivelyEnabled = computeEffectiveEnabled({
+            mode,
+            individuallyEnabled: p.enabled,
+            individuallyExcluded: p.excluded,
+            inEnabledCollection: p.inEnabledCollection,
+            inExcludedCollection: p.inExcludedCollection,
+          });
+          if (effectivelyEnabled) unroutedEnabled++;
         }
       }
     }
@@ -160,6 +186,7 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
       // null (not 0) when countsOmitted, matching counts' own omitted state —
       // a bare 0 would misreport "fully routed" for a catalog never scanned.
       unrouted: countsOmitted ? null : unrouted,
+      unroutedEnabled: countsOmitted ? null : unroutedEnabled,
     };
   });
 
@@ -261,7 +288,7 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
       // is deleting it, and silently accepting this would leave a merchant
       // believing a rule they still see listed is off.
       if (!rule)
-        throw new AppError('BAD_REQUEST', 400, 'only AiVastra default rules can be disabled');
+        throw new AppError('BAD_REQUEST', 400, 'only AiVastra global rules can be disabled');
 
       if (disabled) {
         await app.db
