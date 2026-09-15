@@ -8,7 +8,6 @@ import {
   IndexTable,
   InlineStack,
   Modal,
-  Page,
   Select,
   Spinner,
   Text,
@@ -21,7 +20,7 @@ import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 
 interface Condition {
-  field: 'product_type' | 'tags' | 'vendor' | 'collections';
+  field: 'product_type' | 'tags' | 'vendor' | 'collections' | 'title';
   operator: 'equals' | 'contains';
   value: string;
 }
@@ -48,9 +47,14 @@ interface RulesResponse {
   // null when countsOmitted — the catalog was never scanned, so there is no
   // count to report either way.
   unrouted: number | null;
+  // Subset of `unrouted` that's also effectively enabled for Try-On. Read by
+  // ManagePage.tsx's banner, not by this component — RoutingTab uses the raw
+  // `unrouted` for its "Where your products land" summary.
+  unroutedEnabled: number | null;
 }
 
 const FIELD_LABEL: Record<Condition['field'], string> = {
+  title: 'Product title',
   product_type: 'Product type',
   tags: 'Tag',
   vendor: 'Vendor',
@@ -82,7 +86,8 @@ export function describeConditions(conditions: Condition[]): string {
   if (conditions.length === 0) return 'Matches nothing — add a condition';
   return conditions
     .map(
-      (c) => `${FIELD_LABEL[c.field]} ${c.operator === 'equals' ? 'is' : 'contains'} "${c.value}"`,
+      (c) =>
+        `${FIELD_LABEL[c.field] ?? c.field} ${c.operator === 'equals' ? 'is' : 'contains'} "${c.value}"`,
     )
     .join(' or ');
 }
@@ -273,7 +278,16 @@ function basketLabelFor(baskets: Basket[], id: string): string {
   return baskets.find((b) => b.id === id)?.label ?? 'Unknown basket';
 }
 
-export default function RoutingPage() {
+export default function RoutingTab({
+  refreshToken,
+  onChanged,
+}: {
+  refreshToken: number;
+  // Called after a rule create/edit/delete or a global rule toggle — lets
+  // the parent (ManagePage) refresh its unrouted banner without waiting for
+  // the next Sync/Save. Optional: RoutingTab is still usable standalone.
+  onChanged?: () => void;
+}) {
   const [baskets, setBaskets] = useState<Basket[]>([]);
   const [rules, setRules] = useState<RulesResponse | null>(null);
   const [error, setError] = useState<ClassifiedError | null>(null);
@@ -281,7 +295,6 @@ export default function RoutingPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   // null = closed. 'new' = add-rule modal. A StoreRule = editing that rule.
   const [editorTarget, setEditorTarget] = useState<StoreRule | 'new' | null>(null);
-  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -300,9 +313,13 @@ export default function RoutingPage() {
     }
   }, []);
 
+  // refreshToken is bumped by the parent (ManagePage) after a successful
+  // Sync products — this tab has no Sync button of its own, so it relies on
+  // the shared one to know when to refetch.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken is a deliberate refetch trigger (bumps after a successful Sync), not referenced in the body
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshToken]);
 
   const setDisabled = useCallback(
     async (ruleId: string, disabled: boolean) => {
@@ -311,8 +328,9 @@ export default function RoutingPage() {
         body: JSON.stringify({ disabled }),
       });
       await load();
+      onChanged?.();
     },
-    [load],
+    [load, onChanged],
   );
 
   const basketLabel = useCallback((id: string) => basketLabelFor(baskets, id), [baskets]);
@@ -325,7 +343,7 @@ export default function RoutingPage() {
   async function toggleGlobalRule(rule: GlobalRule) {
     try {
       await setDisabled(rule.id, !rule.disabled);
-      setToastMessage(rule.disabled ? 'Default rule turned back on.' : 'Default rule turned off.');
+      setToastMessage(rule.disabled ? 'Global rule turned back on.' : 'Global rule turned off.');
     } catch (err) {
       setError(classifyError(err));
     }
@@ -338,6 +356,7 @@ export default function RoutingPage() {
     try {
       await apiFetch(`/v1/shopify/funnel-rules/${rule.id}`, { method: 'DELETE' });
       await load();
+      onChanged?.();
       setToastMessage('Rule deleted.');
     } catch (err) {
       setError(classifyError(err));
@@ -350,43 +369,20 @@ export default function RoutingPage() {
 
   async function handleSaved(message: string) {
     await load();
+    onChanged?.();
     setToastMessage(message);
-  }
-
-  // Sync is queued, not synchronous (products.routes.ts enqueues onto
-  // shopify:sync and the consumer processes it separately), so the reload
-  // below reflects whatever's already in Postgres — same caveat as the
-  // Manage page's identical button, not a bug specific to this one.
-  async function syncProducts() {
-    setSyncing(true);
-    setError(null);
-    try {
-      await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
-      setToastMessage('Products synced from Shopify.');
-      await load();
-    } catch (err) {
-      setError(classifyError(err));
-    } finally {
-      setSyncing(false);
-    }
   }
 
   if (loading) {
     return (
-      <Page title="Routing">
-        <Card>
-          <Spinner accessibilityLabel="Loading routing rules" />
-        </Card>
-      </Page>
+      <Card>
+        <Spinner accessibilityLabel="Loading routing rules" />
+      </Card>
     );
   }
 
   return (
-    <Page
-      title="Routing"
-      subtitle="Choose which try-on style each product uses."
-      primaryAction={{ content: 'Sync products', onAction: syncProducts, loading: syncing }}
-    >
+    <>
       <BlockStack gap="400">
         <ErrorBanner error={error} onRetry={load} onDismiss={() => setError(null)} />
 
@@ -419,7 +415,7 @@ export default function RoutingPage() {
                       image=""
                     >
                       <Text as="p">
-                        Products fall back to AiVastra's default rules below until you add one.
+                        Products fall back to AiVastra's global rules below until you add one.
                       </Text>
                     </EmptyState>
                   }
@@ -452,7 +448,7 @@ export default function RoutingPage() {
             <Card>
               <BlockStack gap="300">
                 <Text as="h2" variant="headingMd">
-                  Default rules (from AiVastra)
+                  Global rules (from AiVastra)
                 </Text>
                 <Text as="p" tone="subdued">
                   These apply to every store. Turn one off if it conflicts with your own rules — it
@@ -461,14 +457,14 @@ export default function RoutingPage() {
                 <IndexTable
                   selectable={false}
                   itemCount={rules.globalRules.length}
-                  resourceName={{ singular: 'default rule', plural: 'default rules' }}
+                  resourceName={{ singular: 'global rule', plural: 'global rules' }}
                   headings={[
                     { title: 'Basket' },
                     { title: 'Conditions' },
                     { title: 'Priority' },
                     { title: 'Enabled' },
                   ]}
-                  emptyState={<EmptyState heading="No default rules" image="" />}
+                  emptyState={<EmptyState heading="No global rules" image="" />}
                 >
                   {rules.globalRules.map((rule, index) => (
                     <IndexTable.Row id={rule.id} key={rule.id} position={index}>
@@ -562,6 +558,6 @@ export default function RoutingPage() {
       )}
 
       {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
-    </Page>
+    </>
   );
 }

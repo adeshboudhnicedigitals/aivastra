@@ -35,6 +35,7 @@ import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import { setNavGuard } from '../lib/navGuard';
 import type { ShopifyProductListItem } from '../types';
+import RoutingTab from './RoutingPage';
 
 type DisplayStatus = 'active' | 'processing' | 'failed' | 'disabled' | 'excluded';
 
@@ -72,17 +73,14 @@ interface Basket {
   label: string;
 }
 
-type BasketSource = 'manual' | 'rule' | 'default';
+type BasketSource = 'manual' | 'rule';
 
 const BASKET_SOURCE_LABEL: Record<BasketSource, string> = {
   manual: 'Pinned',
   rule: 'Rule',
-  default: 'Default',
 };
 
-// Deliberately no tone for 'default' — it's the expected fallback, not
-// something that needs to stand out the way a merchant-set pin does.
-const BASKET_SOURCE_TONE: Partial<Record<BasketSource, 'success' | 'info'>> = {
+const BASKET_SOURCE_TONE: Record<BasketSource, 'success' | 'info'> = {
   manual: 'success',
   rule: 'info',
 };
@@ -132,6 +130,11 @@ const TABS = [
   { id: 'collections', content: 'Collections' },
   { id: 'individual', content: 'Individual Products' },
   { id: 'exclusion', content: 'Exclusion' },
+] as const;
+
+const OUTER_TABS = [
+  { id: 'eligibility', content: 'Eligibility' },
+  { id: 'routing', content: 'Routing' },
 ] as const;
 
 // Draft staging (mergeById, diffActions, DraftList — see lib/activationDraft.ts)
@@ -376,6 +379,7 @@ function IndividualProductsPanel({
   draft,
   onAdd,
   onRemove,
+  onBasketChanged,
   setError,
 }: {
   editable: boolean;
@@ -383,6 +387,10 @@ function IndividualProductsPanel({
   draft: DraftList<ShopifyProductListItem>;
   onAdd: (item: ShopifyProductListItem) => void;
   onRemove: (shopifyProductId: number) => void;
+  // Called after a basket PATCH succeeds so the parent can refresh the
+  // unrouted banner — pinning a product here can change whether it's
+  // routed, and this is an immediate mutation, not staged behind Save.
+  onBasketChanged: () => void;
   setError: (e: ClassifiedError) => void;
 }) {
   const [baseItems, setBaseItems] = useState<ShopifyProductListItem[]>([]);
@@ -437,11 +445,10 @@ function IndividualProductsPanel({
     [baseItems, draft],
   );
 
-  // funnelTemplateId null resets to automatic routing (rule or default).
-  // No optimistic update: the effective source after a reset (rule vs.
-  // default) is decided server-side by funnel-resolution.ts, which the
-  // client doesn't replicate — a silent refetch is the only accurate way to
-  // show the real result.
+  // funnelTemplateId null resets to automatic routing (rule).
+  // No optimistic update: the effective source after a reset is decided
+  // server-side by funnel-resolution.ts, which the client doesn't replicate
+  // — a silent refetch is the only accurate way to show the real result.
   async function updateBasket(shopifyProductId: number, funnelTemplateId: string | null) {
     setBasketBusyId(shopifyProductId);
     try {
@@ -450,6 +457,7 @@ function IndividualProductsPanel({
         body: JSON.stringify({ funnelTemplateId }),
       });
       await loadProducts({ silent: true });
+      onBasketChanged();
     } catch (err) {
       setError(classifyError(err));
     } finally {
@@ -543,7 +551,7 @@ function IndividualProductsPanel({
                         {BASKET_SOURCE_LABEL[item.basket.source]}
                       </Badge>
                     </InlineStack>
-                    {/* A pin whose basket was deactivated falls through to a rule/default —
+                    {/* A pin whose basket was deactivated falls through to a rule —
                         source is no longer 'manual', so the badge above looks identical to a
                         product that was never pinned. Surface the fallen-through pin so the
                         merchant knows why this product isn't on the basket they set, and so
@@ -819,6 +827,13 @@ export default function ManagePage() {
   const [error, setError] = useState<ClassifiedError | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState(0);
+  const [outerTabIndex, setOuterTabIndex] = useState(0);
+  const [unrouted, setUnrouted] = useState<number | null>(null);
+  // Bumped by any routing mutation (rule add/edit/delete, global rule
+  // toggle, individual product pin) that isn't already covered by
+  // refreshToken (Sync / Eligibility Save) — so the banner reflects the
+  // merchant's own fix without requiring another Sync.
+  const [unroutedRefreshToken, setUnroutedRefreshToken] = useState(0);
   const [failedModalOpen, setFailedModalOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -846,6 +861,18 @@ export default function ManagePage() {
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
+
+  // Lightweight, independent of RoutingTab's own fetch — reads only the two
+  // fields this banner needs, so switching to the Routing tab isn't required
+  // to see it, and enabling this second GET doesn't require lifting
+  // RoutingTab's full state (rules, baskets, its own loading/error/toast)
+  // up into this component.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken and unroutedRefreshToken are deliberate refetch triggers (bump after a successful Save/Sync or a routing mutation), not referenced in the body
+  useEffect(() => {
+    apiFetch<{ unroutedEnabled: number | null; countsOmitted: boolean }>('/v1/shopify/funnel-rules')
+      .then((res) => setUnrouted(res.countsOmitted ? null : res.unroutedEnabled))
+      .catch(() => setUnrouted(null));
+  }, [refreshToken, unroutedRefreshToken]);
 
   const isDirty =
     (draftMode !== null && draftMode !== summary?.mode) ||
@@ -1074,6 +1101,17 @@ export default function ManagePage() {
       <BlockStack gap="400">
         <ErrorBanner error={error} onRetry={loadSummary} onDismiss={() => setError(null)} />
 
+        {unrouted !== null && unrouted > 0 && (
+          <Banner
+            tone="warning"
+            action={{ content: 'View routing', onAction: () => setOuterTabIndex(1) }}
+          >
+            {unrouted} product{unrouted === 1 ? ' has' : 's have'} no basket assigned — Try-On won't
+            work for {unrouted === 1 ? 'it' : 'them'} until you add a routing rule or pin{' '}
+            {unrouted === 1 ? 'it' : 'them'} individually.
+          </Banner>
+        )}
+
         <Card>
           <BlockStack gap="200">
             <Checkbox
@@ -1179,97 +1217,123 @@ export default function ManagePage() {
 
         <Card>
           <Tabs
-            tabs={TABS.map((t) => ({ ...t, disabled: !isTabEditable(mode, t.id) }))}
-            selected={selectedTab}
-            onSelect={setSelectedTab}
+            // Polaris's TabProps[] is mutable; OUTER_TABS's `as const` tuple
+            // is readonly (TS4104), same reason TABS below is never passed
+            // directly either — .map(...) produces a fresh mutable array.
+            tabs={OUTER_TABS.map((t) => ({ ...t }))}
+            selected={outerTabIndex}
+            onSelect={setOuterTabIndex}
           >
             <Box padding="400">
-              {activeTabId === 'collections' && (
-                <DisabledTabView disabled={!isTabEditable(mode, 'collections')}>
-                  <CollectionsPanel
-                    basePath="/v1/shopify/activation/collections"
-                    editable={isTabEditable(mode, 'collections')}
-                    addLabel="Add collections"
-                    emptyHeading="No enabled collections"
-                    refreshToken={refreshToken}
-                    draft={enabledCollections}
-                    onAdd={(result) =>
-                      setEnabledCollections((d) => {
-                        const actions = new Map(d.actions).set(result.shopifyCollectionId, 'add');
-                        const meta = new Map(d.meta).set(result.shopifyCollectionId, {
-                          ...result,
-                          productCount: null,
-                        });
-                        return { actions, meta };
-                      })
-                    }
-                    onRemove={(id) =>
-                      setEnabledCollections((d) => ({
-                        actions: new Map(d.actions).set(id, 'remove'),
-                        meta: d.meta,
-                      }))
-                    }
-                    setError={setError}
-                  />
-                </DisabledTabView>
+              {OUTER_TABS[outerTabIndex].id === 'eligibility' && (
+                <Tabs
+                  tabs={TABS.map((t) => ({ ...t, disabled: !isTabEditable(mode, t.id) }))}
+                  selected={selectedTab}
+                  onSelect={setSelectedTab}
+                >
+                  <Box padding="400">
+                    {activeTabId === 'collections' && (
+                      <DisabledTabView disabled={!isTabEditable(mode, 'collections')}>
+                        <CollectionsPanel
+                          basePath="/v1/shopify/activation/collections"
+                          editable={isTabEditable(mode, 'collections')}
+                          addLabel="Add collections"
+                          emptyHeading="No enabled collections"
+                          refreshToken={refreshToken}
+                          draft={enabledCollections}
+                          onAdd={(result) =>
+                            setEnabledCollections((d) => {
+                              const actions = new Map(d.actions).set(
+                                result.shopifyCollectionId,
+                                'add',
+                              );
+                              const meta = new Map(d.meta).set(result.shopifyCollectionId, {
+                                ...result,
+                                productCount: null,
+                              });
+                              return { actions, meta };
+                            })
+                          }
+                          onRemove={(id) =>
+                            setEnabledCollections((d) => ({
+                              actions: new Map(d.actions).set(id, 'remove'),
+                              meta: d.meta,
+                            }))
+                          }
+                          setError={setError}
+                        />
+                      </DisabledTabView>
+                    )}
+                    {activeTabId === 'individual' && (
+                      <DisabledTabView disabled={!isTabEditable(mode, 'individual')}>
+                        <IndividualProductsPanel
+                          editable={isTabEditable(mode, 'individual')}
+                          refreshToken={refreshToken}
+                          draft={individualProducts}
+                          onAdd={(item) =>
+                            setIndividualProducts((d) => ({
+                              actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
+                              meta: new Map(d.meta).set(item.shopifyProductId, item),
+                            }))
+                          }
+                          onRemove={(id) =>
+                            setIndividualProducts((d) => ({
+                              actions: new Map(d.actions).set(id, 'remove'),
+                              meta: d.meta,
+                            }))
+                          }
+                          onBasketChanged={() => setUnroutedRefreshToken((n) => n + 1)}
+                          setError={setError}
+                        />
+                      </DisabledTabView>
+                    )}
+                    {activeTabId === 'exclusion' && (
+                      <ExclusionPanel
+                        mode={mode}
+                        refreshToken={refreshToken}
+                        productDraft={excludedProducts}
+                        collectionDraft={excludedCollections}
+                        onAddProduct={(item) =>
+                          setExcludedProducts((d) => ({
+                            actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
+                            meta: new Map(d.meta).set(item.shopifyProductId, item),
+                          }))
+                        }
+                        onRemoveProduct={(id) =>
+                          setExcludedProducts((d) => ({
+                            actions: new Map(d.actions).set(id, 'remove'),
+                            meta: d.meta,
+                          }))
+                        }
+                        onAddCollection={(result) =>
+                          setExcludedCollections((d) => {
+                            const actions = new Map(d.actions).set(
+                              result.shopifyCollectionId,
+                              'add',
+                            );
+                            const meta = new Map(d.meta).set(result.shopifyCollectionId, {
+                              ...result,
+                              productCount: null,
+                            });
+                            return { actions, meta };
+                          })
+                        }
+                        onRemoveCollection={(id) =>
+                          setExcludedCollections((d) => ({
+                            actions: new Map(d.actions).set(id, 'remove'),
+                            meta: d.meta,
+                          }))
+                        }
+                        setError={setError}
+                      />
+                    )}
+                  </Box>
+                </Tabs>
               )}
-              {activeTabId === 'individual' && (
-                <DisabledTabView disabled={!isTabEditable(mode, 'individual')}>
-                  <IndividualProductsPanel
-                    editable={isTabEditable(mode, 'individual')}
-                    refreshToken={refreshToken}
-                    draft={individualProducts}
-                    onAdd={(item) =>
-                      setIndividualProducts((d) => ({
-                        actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
-                        meta: new Map(d.meta).set(item.shopifyProductId, item),
-                      }))
-                    }
-                    onRemove={(id) =>
-                      setIndividualProducts((d) => ({
-                        actions: new Map(d.actions).set(id, 'remove'),
-                        meta: d.meta,
-                      }))
-                    }
-                    setError={setError}
-                  />
-                </DisabledTabView>
-              )}
-              {activeTabId === 'exclusion' && (
-                <ExclusionPanel
-                  mode={mode}
+              {OUTER_TABS[outerTabIndex].id === 'routing' && (
+                <RoutingTab
                   refreshToken={refreshToken}
-                  productDraft={excludedProducts}
-                  collectionDraft={excludedCollections}
-                  onAddProduct={(item) =>
-                    setExcludedProducts((d) => ({
-                      actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
-                      meta: new Map(d.meta).set(item.shopifyProductId, item),
-                    }))
-                  }
-                  onRemoveProduct={(id) =>
-                    setExcludedProducts((d) => ({
-                      actions: new Map(d.actions).set(id, 'remove'),
-                      meta: d.meta,
-                    }))
-                  }
-                  onAddCollection={(result) =>
-                    setExcludedCollections((d) => {
-                      const actions = new Map(d.actions).set(result.shopifyCollectionId, 'add');
-                      const meta = new Map(d.meta).set(result.shopifyCollectionId, {
-                        ...result,
-                        productCount: null,
-                      });
-                      return { actions, meta };
-                    })
-                  }
-                  onRemoveCollection={(id) =>
-                    setExcludedCollections((d) => ({
-                      actions: new Map(d.actions).set(id, 'remove'),
-                      meta: d.meta,
-                    }))
-                  }
-                  setError={setError}
+                  onChanged={() => setUnroutedRefreshToken((n) => n + 1)}
                 />
               )}
             </Box>

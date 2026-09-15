@@ -32,8 +32,8 @@ android {
         applicationId = "aivastra.nice.interactive"
         minSdk = 28
         targetSdk = 36
-        versionCode = 17
-        versionName = "1.0.1"
+        versionCode = 19
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

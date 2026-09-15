@@ -4,16 +4,12 @@
    for details.
 -->
 <data-extraction-rules>
+    <!-- Holds access/refresh tokens (SessionManager); must never leave the device via backup
+         or device-to-device transfer. -->
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="sharedpref" path="ai_vastra_session.xml"/>
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="sharedpref" path="ai_vastra_session.xml"/>
     </device-transfer>
-    -->
 </data-extraction-rules>

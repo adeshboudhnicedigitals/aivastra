@@ -16,6 +16,7 @@ describe('admin shopify global funnel rules routes', () => {
   let secondBasketId: string;
   let suppressedRuleId: string;
   let patchDeleteBasketId: string;
+  let titleBasketId: string;
 
   beforeAll(async () => {
     c = await startContainers();
@@ -61,6 +62,7 @@ describe('admin shopify global funnel rules routes', () => {
     secondBasketId = await seedBasket(`admin-rules-b-${tag}`);
     const suppressedBasketId = await seedBasket(`admin-rules-suppressed-${tag}`);
     patchDeleteBasketId = await seedBasket(`admin-rules-patch-delete-${tag}`);
+    titleBasketId = await seedBasket(`admin-rules-title-${tag}`);
 
     // Seeded directly rather than through the routes under test: a rule with
     // two stores that have each switched it off, for the disabledByStoreCount
@@ -120,6 +122,20 @@ describe('admin shopify global funnel rules routes', () => {
       .from(schema.shopifyFunnelRules)
       .where(eq(schema.shopifyFunnelRules.id, res.json().id));
     expect(row.storeId).toBeNull();
+  });
+
+  it('accepts a title condition on a global rule', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/shopify/funnel-rules',
+      headers: adminAuth,
+      payload: {
+        funnelTemplateId: titleBasketId,
+        conditions: [{ field: 'title', operator: 'contains', value: 'saree' }],
+        priority: 0,
+      },
+    });
+    expect(res.statusCode).toBe(200);
   });
 
   it('writes an audit log row in the same transaction', async () => {

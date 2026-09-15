@@ -362,13 +362,15 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
 
       const resolvedBasket = await resolveBasket(app, storeId, garment);
       if (!resolvedBasket) {
-        // No basket resolved AND no active default exists — a system
-        // misconfiguration, not anything the merchant did. Refuse here, before
-        // the deduct: enqueueing would burn a credit and produce a FAILED row
-        // with NO_WORKFLOW_CONFIGURED that no merchant can fix.
-        app.log.error(
+        // No basket resolved — no pin, no matching store or global rule. This
+        // is now an expected, merchant-fixable state (the merchant needs to
+        // add a routing rule or pin the product), not a system
+        // misconfiguration. Still refuse here, before the deduct: enqueueing
+        // would burn a credit and produce a FAILED row with
+        // NO_WORKFLOW_CONFIGURED that no merchant can fix.
+        app.log.warn(
           { storeId, shopifyProductId, garmentId: garment.id },
-          'shopify try-on blocked before enqueue: no basket resolved and no active default',
+          'shopify try-on blocked before enqueue: product resolves to no basket (no pin, no matching rule)',
         );
         return reply
           .code(202)
@@ -449,7 +451,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
               kind: 'shopify',
               shopifyProductId,
               // Resolved above and pinned here so the dispatcher trusts it rather
-              // than re-resolving — a default promoted mid-flight can't change the
+              // than re-resolving — a rule change mid-flight can't change the
               // workflow under a job whose credits are already deducted.
               workflowTemplateId,
               dispatchTemplateVersion: resolvedBasket.workflowTemplateVersion,
