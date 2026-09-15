@@ -301,59 +301,133 @@ describe('shopify merchant funnel rules routes', () => {
     expect(res.json().unrouted).toBe(1);
   });
 
-  it('computes unroutedEnabled from only effectively-enabled unrouted products, not every unrouted product', async () => {
-    // Baseline from the previous test: store B has exactly one unrouted
-    // product (tag+101), and it was inserted with no `enabled` override, so
-    // it defaults to false. It must count toward unrouted but not toward
-    // unroutedEnabled.
-    const baseline = await app.inject({
-      method: 'GET',
-      url: '/v1/shopify/funnel-rules',
-      headers: authB,
-    });
-    expect(baseline.json().unrouted).toBe(1);
-    expect(baseline.json().unroutedEnabled).toBe(0);
+  it('computes unroutedEnabled from only effectively-enabled unrouted products, across individual and collection-membership precedence', async () => {
+    // Fully self-contained, unlike the earlier 'counts a product with no
+    // resolvable basket' test whose fixture (tag+101, under store B) this
+    // test used to silently depend on via a `baseline` read. Run alone (e.g.
+    // `vitest -t 'unroutedEnabled'`) that fixture never gets inserted, so a
+    // baseline assertion here would be reading store B's pristine state
+    // instead. To make this test genuinely order-free — passing solo, passing
+    // under --sequence.shuffle, passing after any subset of the other tests —
+    // it creates its own store (store C) that no other test in this file
+    // touches, and asserts only on what it inserts itself, following this
+    // file's post-split-fixture convention.
+    //
+    // A dedicated store also isolates the collection-membership fixtures
+    // below: no other test in this file seeds shopifyEnabledCollections /
+    // shopifyExcludedCollections / shopifyCollectionProducts, so there's
+    // nothing else to collide with or be polluted by.
+    const storeC = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: tag + 4,
+        shopDomain: `merchant-rules-c-${tag}.myshopify.com`,
+        myshopifyDomain: `merchant-rules-c-${tag}.myshopify.com`,
+        name: 'Store C',
+        email: 'c@c.com',
+      },
+      'tok',
+      'read_products',
+    );
+    const authC = {
+      authorization: `Bearer ${signSessionToken(storeC.shopDomain, API_SECRET, API_KEY)}`,
+    };
 
-    // An individually-enabled product with no matching rule: this is exactly
-    // the case the merchant-facing banner needs to count — unrouted AND
-    // effectively enabled for Try-On.
-    await app.db.insert(schema.shopifyProductGarments).values({
-      storeId: storeBId,
-      shopifyProductId: tag + 102,
-      r2Key: `shopify-inputs/${storeBId}/${tag}-unrouted-enabled/photo`,
-      status: 'active',
-      productType: 'unmatched',
-      tags: ['nothing-here-either'],
-      enabled: true,
+    const enabledCollectionId = tag + 900;
+    const excludedCollectionId = tag + 901;
+    await app.db.insert(schema.shopifyEnabledCollections).values({
+      storeId: storeC.id,
+      shopifyCollectionId: enabledCollectionId,
+    });
+    await app.db.insert(schema.shopifyExcludedCollections).values({
+      storeId: storeC.id,
+      shopifyCollectionId: excludedCollectionId,
     });
 
-    // An individually-enabled BUT excluded product with no matching rule:
-    // exclusion wins in computeEffectiveEnabled's precedence, so this must
-    // count toward unrouted (still no basket) but never toward
-    // unroutedEnabled — proving the real precedence function governs this
-    // count rather than a hand-rolled reimplementation that could drift.
-    await app.db.insert(schema.shopifyProductGarments).values({
-      storeId: storeBId,
-      shopifyProductId: tag + 103,
-      r2Key: `shopify-inputs/${storeBId}/${tag}-unrouted-excluded/photo`,
-      status: 'active',
-      productType: 'unmatched',
-      tags: ['nothing-here-either'],
-      enabled: true,
-      excluded: true,
-    });
+    // Five products, none tagged to match the global rule (which conditions
+    // on 'global-tag') or any store rule (store-scoped, so invisible to store
+    // C regardless), so every one of them is unrouted. They vary individual
+    // enabled/excluded and enabled/excluded collection membership to exercise
+    // both `computeEffectiveEnabled` inputs — individual flags AND the
+    // `inEnabledCollection`/`inExcludedCollection` EXISTS-subquery fragment
+    // reused from activation.ts — proving a bug that made that fragment
+    // always return false would NOT leave this test green:
+    //   tag+110 disabled, no collections            -> unrouted, not enabled (control)
+    //   tag+111 enabled, no collections              -> unrouted AND enabled
+    //   tag+112 enabled + excluded                   -> unrouted, not enabled (exclusion wins)
+    //   tag+113 disabled, in the enabled collection   -> unrouted AND enabled (collection membership turns it on)
+    //   tag+114 enabled, in the excluded collection   -> unrouted, not enabled (exclusion via collection wins)
+    await app.db.insert(schema.shopifyProductGarments).values([
+      {
+        storeId: storeC.id,
+        shopifyProductId: tag + 110,
+        r2Key: `shopify-inputs/${storeC.id}/${tag}-c-disabled/photo`,
+        status: 'active',
+        productType: 'unmatched',
+        tags: ['no-match-tag'],
+        enabled: false,
+      },
+      {
+        storeId: storeC.id,
+        shopifyProductId: tag + 111,
+        r2Key: `shopify-inputs/${storeC.id}/${tag}-c-enabled/photo`,
+        status: 'active',
+        productType: 'unmatched',
+        tags: ['no-match-tag'],
+        enabled: true,
+      },
+      {
+        storeId: storeC.id,
+        shopifyProductId: tag + 112,
+        r2Key: `shopify-inputs/${storeC.id}/${tag}-c-enabled-excluded/photo`,
+        status: 'active',
+        productType: 'unmatched',
+        tags: ['no-match-tag'],
+        enabled: true,
+        excluded: true,
+      },
+      {
+        storeId: storeC.id,
+        shopifyProductId: tag + 113,
+        r2Key: `shopify-inputs/${storeC.id}/${tag}-c-disabled-in-enabled-collection/photo`,
+        status: 'active',
+        productType: 'unmatched',
+        tags: ['no-match-tag'],
+        enabled: false,
+      },
+      {
+        storeId: storeC.id,
+        shopifyProductId: tag + 114,
+        r2Key: `shopify-inputs/${storeC.id}/${tag}-c-enabled-in-excluded-collection/photo`,
+        status: 'active',
+        productType: 'unmatched',
+        tags: ['no-match-tag'],
+        enabled: true,
+      },
+    ]);
+
+    await app.db.insert(schema.shopifyCollectionProducts).values([
+      { storeId: storeC.id, shopifyCollectionId: enabledCollectionId, shopifyProductId: tag + 113 },
+      {
+        storeId: storeC.id,
+        shopifyCollectionId: excludedCollectionId,
+        shopifyProductId: tag + 114,
+      },
+    ]);
 
     const res = await app.inject({
       method: 'GET',
       url: '/v1/shopify/funnel-rules',
-      headers: authB,
+      headers: authC,
     });
     expect(res.json().countsOmitted).toBe(false);
-    // All three unrouted products (tag+101 disabled, tag+102 enabled,
-    // tag+103 enabled-but-excluded) still count toward unrouted — its
-    // meaning is untouched by this plan.
-    expect(res.json().unrouted).toBe(3);
-    // Only tag+102 is effectively enabled, so unroutedEnabled narrows to 1.
-    expect(res.json().unroutedEnabled).toBe(1);
+    // All five products are unrouted — none match any global or store rule.
+    expect(res.json().unrouted).toBe(5);
+    // Only tag+111 (individually enabled) and tag+113 (in an enabled
+    // collection, despite being individually disabled) are effectively
+    // enabled. tag+112 and tag+114 prove exclusion wins over both individual
+    // enablement and collection-based enablement, matching
+    // computeEffectiveEnabled's precedence.
+    expect(res.json().unroutedEnabled).toBe(2);
   });
 });

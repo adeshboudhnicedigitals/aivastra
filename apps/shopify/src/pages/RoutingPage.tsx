@@ -47,6 +47,10 @@ interface RulesResponse {
   // null when countsOmitted — the catalog was never scanned, so there is no
   // count to report either way.
   unrouted: number | null;
+  // Subset of `unrouted` that's also effectively enabled for Try-On. Read by
+  // ManagePage.tsx's banner, not by this component — RoutingTab uses the raw
+  // `unrouted` for its "Where your products land" summary.
+  unroutedEnabled: number | null;
 }
 
 const FIELD_LABEL: Record<Condition['field'], string> = {
@@ -409,7 +413,7 @@ export default function RoutingTab({
                       image=""
                     >
                       <Text as="p">
-                        Products fall back to AiVastra's default rules below until you add one.
+                        Products fall back to AiVastra's global rules below until you add one.
                       </Text>
                     </EmptyState>
                   }
@@ -451,14 +455,14 @@ export default function RoutingTab({
                 <IndexTable
                   selectable={false}
                   itemCount={rules.globalRules.length}
-                  resourceName={{ singular: 'default rule', plural: 'default rules' }}
+                  resourceName={{ singular: 'global rule', plural: 'global rules' }}
                   headings={[
                     { title: 'Basket' },
                     { title: 'Conditions' },
                     { title: 'Priority' },
                     { title: 'Enabled' },
                   ]}
-                  emptyState={<EmptyState heading="No default rules" image="" />}
+                  emptyState={<EmptyState heading="No global rules" image="" />}
                 >
                   {rules.globalRules.map((rule, index) => (
                     <IndexTable.Row id={rule.id} key={rule.id} position={index}>

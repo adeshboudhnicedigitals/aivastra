@@ -551,7 +551,7 @@ function IndividualProductsPanel({
                         {BASKET_SOURCE_LABEL[item.basket.source]}
                       </Badge>
                     </InlineStack>
-                    {/* A pin whose basket was deactivated falls through to a rule/default —
+                    {/* A pin whose basket was deactivated falls through to a rule —
                         source is no longer 'manual', so the badge above looks identical to a
                         product that was never pinned. Surface the fallen-through pin so the
                         merchant knows why this product isn't on the basket they set, and so
