@@ -5,6 +5,9 @@ import android.util.Base64
 import aivastra.nice.interactive.api.ApiClient
 import aivastra.nice.interactive.data.repository.CatalogRepository
 import aivastra.nice.interactive.utils.CrashReporter
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 
 /**
@@ -54,6 +57,15 @@ object SessionManager {
     val loadingVideoUrl: String?
         get() = preferences?.getString(USER_LOADING_VIDEO_URL, null)
 
+    // Bumped only on a fresh login (see save()'s isLogin param). Two things key off this:
+    // AppVideoViewModel re-fetches the processing-screen video for the newly signed-in
+    // merchant instead of only fetching once at app-process start, and AppHeaderLogo folds it
+    // into Coil's cache key so a merchant's re-uploaded logo (same URL, new bytes) isn't served
+    // stale from disk cache across a login. Token refresh must never bump this — it would
+    // re-download both on every silent refresh for no reason.
+    private val _loadingVideoVersion = MutableStateFlow(0)
+    val loadingVideoVersion: StateFlow<Int> = _loadingVideoVersion.asStateFlow()
+
     @JvmOverloads
     fun save(
         accessToken: String,
@@ -62,7 +74,13 @@ object SessionManager {
         email: String? = null,
         userName: String? = null,
         logoUrl: String? = null,
-        loadingVideoUrl: String? = null
+        loadingVideoUrl: String? = null,
+        // True only from the login/google-login/force-login call sites. A fresh login's
+        // loadingVideoUrl is authoritative for the signed-in merchant, so it must be written
+        // (or cleared, if the merchant has no override) even when null — unlike the token
+        // refresh call site, which never sends this field and must leave the last-known value
+        // alone rather than wiping it out.
+        isLogin: Boolean = false
     ) {
         val prefs = preferences ?: return
         val editor = prefs.edit()
@@ -79,10 +97,26 @@ object SessionManager {
         if (!userName.isNullOrEmpty()) {
             editor.putString(USER_NAME, userName)
         }
-        if (!logoUrl.isNullOrEmpty()) {
+        // Same isLogin split as loadingVideoUrl below: a fresh login's logoUrl is authoritative
+        // for the signed-in merchant and must be cleared when blank (merchant removed their
+        // custom logo), while a token refresh never sends this field and must leave the
+        // last-known value alone rather than wiping it out.
+        if (isLogin) {
+            if (logoUrl.isNullOrEmpty()) {
+                editor.remove(USER_LOGO_URL)
+            } else {
+                editor.putString(USER_LOGO_URL, logoUrl)
+            }
+        } else if (!logoUrl.isNullOrEmpty()) {
             editor.putString(USER_LOGO_URL, logoUrl)
         }
-        if (!loadingVideoUrl.isNullOrEmpty()) {
+        if (isLogin) {
+            if (loadingVideoUrl.isNullOrEmpty()) {
+                editor.remove(USER_LOADING_VIDEO_URL)
+            } else {
+                editor.putString(USER_LOADING_VIDEO_URL, loadingVideoUrl)
+            }
+        } else if (!loadingVideoUrl.isNullOrEmpty()) {
             editor.putString(USER_LOADING_VIDEO_URL, loadingVideoUrl)
         }
         editor.apply()
@@ -91,6 +125,9 @@ object SessionManager {
         // Non-PII opaque id only — never the email — so crash reports can be
         // correlated with a user for support triage without logging PII to Crashlytics.
         CrashReporter.setUserId(userId ?: SessionManager.userId)
+        if (isLogin) {
+            _loadingVideoVersion.value++
+        }
     }
 
     fun clear() {
