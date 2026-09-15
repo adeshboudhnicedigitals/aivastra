@@ -60,11 +60,13 @@ describe('refusals are recorded as server-written events', () => {
     return store;
   }
 
-  // The single default funnel template every product now resolves. Created
+  // The single basket every test product is manually pinned to, so routing
+  // resolves and these limit-refusal tests exercise the limit check they're
+  // named for, not the unrelated "no basket configured" refusal. Created
   // lazily so tests that don't need it aren't forced to pay for it.
-  let defaultFunnelTemplateId: string | null = null;
-  async function seedDefaultFunnelTemplate() {
-    if (defaultFunnelTemplateId) return defaultFunnelTemplateId;
+  let cachedFunnelTemplateId: string | null = null;
+  async function seedFunnelTemplate() {
+    if (cachedFunnelTemplateId) return cachedFunnelTemplateId;
     const [workflow] = await app.db
       .insert(schema.workflowTemplates)
       .values({
@@ -83,17 +85,16 @@ describe('refusals are recorded as server-written events', () => {
     const [funnel] = await app.db
       .insert(schema.shopifyFunnelTemplates)
       .values({
-        slug: `default-${Date.now()}`,
-        label: 'Default',
+        slug: `basket-${Date.now()}`,
+        label: 'Test basket',
         workflowTemplateId: workflow.id,
-        isDefault: true,
       })
       .returning();
-    defaultFunnelTemplateId = funnel.id;
-    return defaultFunnelTemplateId;
+    cachedFunnelTemplateId = funnel.id;
+    return cachedFunnelTemplateId;
   }
 
-  async function seedGarment(storeId: string, shopifyProductId: number) {
+  async function seedGarment(storeId: string, shopifyProductId: number, funnelTemplateId: string) {
     const [garment] = await app.db
       .insert(schema.shopifyProductGarments)
       .values({
@@ -103,6 +104,8 @@ describe('refusals are recorded as server-written events', () => {
         title: 'Test Product',
         status: 'active',
         enabled: true,
+        funnelTemplateId,
+        funnelAssignmentSource: 'manual',
       })
       .returning();
     return garment;
@@ -159,10 +162,10 @@ describe('refusals are recorded as server-written events', () => {
   }
 
   it('writes refused_store_cap when the store daily cap turns a shopper away', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 6001);
+    await seedGarment(store.id, 6001, funnelTemplateId);
     // A cap of zero refuses every request, which is the cheapest way to reach
     // the store_limit branch without seeding a day's worth of jobs.
     await setLimits(store.id, { storeDailyCap: 0 });
@@ -189,10 +192,10 @@ describe('refusals are recorded as server-written events', () => {
   });
 
   it('writes refused_email_gate when the fast-path shopper-limit check gates on email', async () => {
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 6002);
+    await seedGarment(store.id, 6002, funnelTemplateId);
     await setLimits(store.id, { emailAfterNTryOns: 1 });
 
     const clientId = randomUUID();
@@ -226,10 +229,10 @@ describe('refusals are recorded as server-written events', () => {
     // both requests pass the fast-path check, then lockAndRecheckShopperLimits
     // serializes them and the loser is refused from inside the transaction's
     // catch — the ShopperLimitRaceRefusal path, not the fast path.
-    await seedDefaultFunnelTemplate();
+    const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
-    await seedGarment(store.id, 6003);
+    await seedGarment(store.id, 6003, funnelTemplateId);
     await setLimits(store.id, { perShopperCap: 1, perShopperWindow: 'day' });
 
     const clientId = randomUUID();
