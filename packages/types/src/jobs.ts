@@ -30,6 +30,38 @@ export function resolutionFromDims(width: number, height: number): Resolution {
 }
 
 /**
+ * Ratio parts for every aspect ratio the platform supports. The larger part
+ * (w vs h) tells computeOutputDims() which physical dimension gets the tier's
+ * long-edge value — landscape/square ratios put it on width, portrait ratios
+ * put it on height.
+ */
+export const ASPECT_RATIOS: Record<string, { w: number; h: number }> = {
+  '1:1': { w: 1, h: 1 },
+  '2:3': { w: 2, h: 3 },
+  '3:4': { w: 3, h: 4 },
+  '4:5': { w: 4, h: 5 },
+  '9:16': { w: 9, h: 16 },
+  '16:9': { w: 16, h: 9 },
+};
+
+/**
+ * Derives a job's output pixel dimensions from an aspect ratio and the
+ * admin-configured long-edge value for the requested resolution tier — the
+ * single formula that replaced the old per-ratio admin dimension table (one
+ * admin-set number per tier, not nine).
+ */
+export function computeOutputDims(
+  ratio: string,
+  longEdgePx: number,
+): { width: number; height: number } {
+  const r = ASPECT_RATIOS[ratio];
+  if (!r) throw new Error(`Unknown aspect ratio: ${ratio}`);
+  return r.w >= r.h
+    ? { width: longEdgePx, height: Math.round((longEdgePx * r.h) / r.w) }
+    : { width: Math.round((longEdgePx * r.w) / r.h), height: longEdgePx };
+}
+
+/**
  * Shape of a user-uploaded garment R2 key, exactly as issued by
  * `/v1/uploads/presign` (`inputs/<uuid>/garment.jpg`). Pinning the format here
  * rejects arbitrary/traversal keys at the API boundary; ownership of the key is
@@ -108,7 +140,7 @@ export const CreateTryOnJobRequest = z.object({
     })
     .optional(),
   userHint: z.string().max(300).optional(),
-  aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']),
+  aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5', '9:16', '16:9']),
   resolution: z.enum(['HD', '2K', '4K']),
   platform: z.string().optional(),
 });
@@ -240,7 +272,7 @@ export const CreateSareeMannequinJobRequest = z.object({
       })
       .optional(),
     userHint: z.string().max(300).optional(),
-    aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']),
+    aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5', '9:16', '16:9']),
     resolution: z.enum(['HD', '2K', '4K']),
     platform: z.string().optional(),
   }),
