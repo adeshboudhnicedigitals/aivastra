@@ -50,6 +50,7 @@ function product(partial: Partial<BasketMatchTarget> = {}): BasketMatchTarget {
     tags: null,
     vendor: null,
     collections: null,
+    title: null,
     ...partial,
   };
 }
@@ -90,6 +91,24 @@ describe('matchesCondition', () => {
     ).toBe(true);
   });
 
+  it('matches title case-insensitively', () => {
+    expect(
+      matchesCondition(
+        { field: 'title', operator: 'equals', value: 'silk saree' },
+        product({ title: 'Silk Saree' }),
+      ),
+    ).toBe(true);
+  });
+
+  it('matches title on substring for contains', () => {
+    expect(
+      matchesCondition(
+        { field: 'title', operator: 'contains', value: 'saree' },
+        product({ title: 'Premium Silk Saree - Red' }),
+      ),
+    ).toBe(true);
+  });
+
   it('matches any tag for equals and contains', () => {
     const target = product({ tags: ['Festive', 'Saree'] });
     expect(matchesCondition({ field: 'tags', operator: 'equals', value: 'saree' }, target)).toBe(
@@ -122,6 +141,9 @@ describe('matchesCondition', () => {
       false,
     );
     expect(matchesCondition({ field: 'collections', operator: 'equals', value: 'x' }, empty)).toBe(
+      false,
+    );
+    expect(matchesCondition({ field: 'title', operator: 'contains', value: 'x' }, empty)).toBe(
       false,
     );
   });

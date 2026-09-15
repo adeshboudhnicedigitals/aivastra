@@ -11,6 +11,7 @@ export interface BasketMatchTarget {
   tags: string[] | null;
   vendor: string | null;
   collections: string[] | null;
+  title: string | null;
 }
 
 export interface BasketRule {
@@ -81,6 +82,8 @@ export function matchesCondition(
       return matchesText(target.productType, condition.operator, needle);
     case 'vendor':
       return matchesText(target.vendor, condition.operator, needle);
+    case 'title':
+      return matchesText(target.title, condition.operator, needle);
     case 'tags':
       return matchesList(target.tags, condition.operator, needle);
     case 'collections':

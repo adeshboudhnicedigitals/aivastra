@@ -80,7 +80,7 @@ export interface ShopifyStoreSettings {
 }
 
 export interface FunnelRuleCondition {
-  field: 'product_type' | 'tags' | 'vendor' | 'collections';
+  field: 'product_type' | 'tags' | 'vendor' | 'collections' | 'title';
   operator: 'equals' | 'contains';
   value: string;
 }

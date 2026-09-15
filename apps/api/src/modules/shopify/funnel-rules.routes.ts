@@ -136,6 +136,7 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
           tags: schema.shopifyProductGarments.tags,
           vendor: schema.shopifyProductGarments.vendor,
           collections: schema.shopifyProductGarments.collections,
+          title: schema.shopifyProductGarments.title,
           enabled: schema.shopifyProductGarments.enabled,
           excluded: schema.shopifyProductGarments.excluded,
           inEnabledCollection: sql<boolean>`${inCollectionSetSql(schema.shopifyEnabledCollections)}`,
