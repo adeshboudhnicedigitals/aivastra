@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
+import { ImageLightbox } from '../components/ImageLightbox';
 import { KV } from '../components/KV';
 import { NameAvatar } from '../components/NameAvatar';
 import { Pager } from '../components/Pager';
@@ -166,6 +167,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [jobPreviewId, setJobPreviewId] = useState<string | null>(null);
   const [jobPreview, setJobPreview] = useState<JobPreview | null>(null);
   const [jobPreviewLoading, setJobPreviewLoading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [exportFrom, setExportFrom] = useState('');
   const [exportTo, setExportTo] = useState('');
   const [exportSortDir, setExportSortDir] = useState<'asc' | 'desc'>('desc');
@@ -1421,9 +1423,12 @@ export default function UsersPage({ onNav, toast }: Props) {
                         <div className="card-body">
                           <a
                             href={jobPreview.outputUrl}
-                            target="_blank"
                             rel="noreferrer"
                             className="link"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setPreviewUrl(jobPreview.outputUrl ?? null);
+                            }}
                           >
                             View output <Icon.ExternalLink />
                           </a>
@@ -1455,9 +1460,12 @@ export default function UsersPage({ onNav, toast }: Props) {
                                   <div key={key} style={{ textAlign: 'center' }}>
                                     <a
                                       href={url}
-                                      target="_blank"
                                       rel="noreferrer"
                                       style={{ textDecoration: 'none' }}
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        setPreviewUrl(url);
+                                      }}
                                     >
                                       {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
                                       <img
@@ -2096,6 +2104,8 @@ export default function UsersPage({ onNav, toast }: Props) {
             </div>
           </EditDrawer>
         )}
+
+        {previewUrl && <ImageLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />}
       </>
     );
   }
@@ -2952,6 +2962,8 @@ export default function UsersPage({ onNav, toast }: Props) {
           </div>
         </div>
       )}
+
+      {previewUrl && <ImageLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />}
     </>
   );
 }

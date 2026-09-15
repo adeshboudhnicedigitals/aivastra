@@ -173,6 +173,7 @@ export async function loadJobsForExport(
     search
       ? or(
           ilike(sql`${schema.jobs.id}::text`, `%${search}%`),
+          ilike(sql`${schema.jobs.userId}::text`, `%${search}%`),
           ilike(schema.users.email, `%${search}%`),
           ilike(schema.users.username, `%${search}%`),
         )

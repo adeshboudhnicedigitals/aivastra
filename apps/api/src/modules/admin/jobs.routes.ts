@@ -217,6 +217,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       conditions.push(
         or(
           ilike(sql`${schema.jobs.id}::text`, `%${search}%`),
+          ilike(sql`${schema.jobs.userId}::text`, `%${search}%`),
           ilike(schema.users.email, `%${search}%`),
           ilike(schema.users.username, `%${search}%`),
           ilike(schema.shopifyStores.shopEmail, `%${search}%`),
