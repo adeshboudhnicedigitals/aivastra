@@ -2163,9 +2163,31 @@ async function processWidgetJob(
   // A template with a second garment node requires a second garment key on the job, and
   // vice versa — a mismatch means resolveTryonGarment and this template disagree about
   // whether this is a two-input job, which should never happen if Task 5's config
-  // validation ran correctly. Fail loud rather than silently dropping the pallu image.
+  // validation ran correctly. Fail loud rather than silently dropping the pallu image:
+  // without this second check, a thirdGarmentKey with no matching garmentNodeId2 would
+  // fall through to the patch step below, where `garmentNodeId2 && ...` simply no-ops
+  // and the job completes "successfully" with the pallu image dropped.
   if (garmentNodeId2 && !inputs.thirdGarmentKey) {
     jobLog.error({ workflowTemplateId }, 'two-input template but job has no thirdGarmentKey');
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      merchantId,
+      creditsCharged,
+      stream,
+      messageId,
+      'TRYON_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+      job.source,
+    );
+    return;
+  }
+  if (inputs.thirdGarmentKey && !garmentNodeId2) {
+    jobLog.error(
+      { workflowTemplateId },
+      'job has thirdGarmentKey but template has no garmentNodeId2',
+    );
     await markWidgetFailed(
       cfg,
       jobId,

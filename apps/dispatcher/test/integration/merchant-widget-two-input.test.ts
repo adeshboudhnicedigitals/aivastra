@@ -60,7 +60,10 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
 
-  async function seedTwoInputMerchantWidgetJob(opts: { thirdGarmentKey?: string | null } = {}) {
+  async function seedTwoInputMerchantWidgetJob(
+    opts: { thirdGarmentKey?: string | null; templateHasGarmentNodeId2?: boolean } = {},
+  ) {
+    const templateHasGarmentNodeId2 = opts.templateHasGarmentNodeId2 ?? true;
     const [user] = await env.db
       .insert(schema.users)
       .values({ email: `merchant-owner-2in-${Date.now()}@test.com`, displayName: 'Merchant Owner' })
@@ -88,7 +91,7 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
         jsonContent: {
           [PERSON_NODE_ID]: { inputs: { image: '' } },
           [GARMENT_NODE_ID]: { inputs: { image: '' } },
-          [GARMENT_NODE_ID_2]: { inputs: { image: '' } },
+          ...(templateHasGarmentNodeId2 ? { [GARMENT_NODE_ID_2]: { inputs: { image: '' } } } : {}),
           [OUTPUT_NODE_ID]: { class_type: 'SaveImage', inputs: {} },
         },
         faceNodeId: 'x',
@@ -100,7 +103,7 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
         workflowType: 'saree_step1_two_input',
         tryonPersonNodeId: PERSON_NODE_ID,
         tryonGarmentNodeId: GARMENT_NODE_ID,
-        tryonGarmentNodeId2: GARMENT_NODE_ID_2,
+        tryonGarmentNodeId2: templateHasGarmentNodeId2 ? GARMENT_NODE_ID_2 : null,
         tryonOutputNodeId: OUTPUT_NODE_ID,
       })
       .returning();
@@ -182,6 +185,29 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
 
   it('fails loud instead of silently dropping the pallu image when the template expects one but the job has none', async () => {
     const { jobId } = await seedTwoInputMerchantWidgetJob({ thirdGarmentKey: null });
+    const log = createLogger('test');
+
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      jobId,
+      '',
+      'jobs:normal',
+      `${Date.now()}-0`,
+    );
+
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.status).toBe('FAILED');
+    expect(job?.errorCode).toBe('TRYON_NODES_NOT_CONFIGURED');
+  });
+
+  // Regression test for the bug this repo actually shipped: a merchant catalog item with a
+  // pallu image (thirdGarmentKey populated) whose resolved template has no tryonGarmentNodeId2
+  // configured. Before the fix, processWidgetJob only validated the OTHER direction (template
+  // expects a pallu node but the job has none) — this mismatch fell through to the patch step,
+  // where `if (garmentNodeId2 && ...)` silently no-ops, and the job completed "successfully"
+  // with the pallu image dropped and only body + customer photo patched in.
+  it('fails loud instead of silently dropping the pallu image when the job has one but the template has no garmentNodeId2', async () => {
+    const { jobId } = await seedTwoInputMerchantWidgetJob({ templateHasGarmentNodeId2: false });
     const log = createLogger('test');
 
     await processJob(
