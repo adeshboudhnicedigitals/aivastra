@@ -16,7 +16,6 @@ interface FunnelTemplate {
   label: string;
   workflowTemplateId: string;
   isActive: boolean;
-  isDefault: boolean;
   sortOrder: number;
 }
 
@@ -202,7 +201,6 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [togglingId, setTogglingId] = useState<string | null>(null);
-  const [hasDefault, setHasDefault] = useState(true);
 
   const [showCreate, setShowCreate] = useState(false);
   const [slug, setSlug] = useState('');
@@ -259,13 +257,12 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
-      apiFetch<{ items: FunnelTemplate[]; hasDefault: boolean }>('/admin/shopify/funnel-templates'),
+      apiFetch<{ items: FunnelTemplate[] }>('/admin/shopify/funnel-templates'),
       apiFetch<WorkflowOption[]>('/admin/workflows'),
       apiFetch<{ items: GlobalRule[] }>('/admin/shopify/funnel-rules'),
     ])
       .then(([f, w, r]) => {
         setItems(f.items);
-        setHasDefault(f.hasDefault);
         setWorkflows(w);
         setRules(r.items);
       })
@@ -315,25 +312,6 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
         body: JSON.stringify({ isActive: !item.isActive }),
       });
       load();
-    } finally {
-      setTogglingId(null);
-    }
-  }
-
-  async function makeDefault(item: FunnelTemplate) {
-    setTogglingId(item.id);
-    try {
-      await apiFetch(`/admin/shopify/funnel-templates/${item.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ isDefault: true }),
-      });
-      load();
-    } catch (err) {
-      toast({
-        kind: 'error',
-        title: 'Could not set default',
-        body: apiErrorMessage(err, 'Please try again.'),
-      });
     } finally {
       setTogglingId(null);
     }
@@ -607,18 +585,6 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
         </div>
       </div>
 
-      {!loading && !hasDefault && (
-        <div className="banner" style={{ marginBottom: 16 }}>
-          <div className="ic">
-            <Icon.Warning />
-          </div>
-          <div>
-            <b>No default funnel template.</b> Every Shopify try-on is refused until one template
-            here is set as the default.
-          </div>
-        </div>
-      )}
-
       {/* Table */}
       {loading ? (
         <div
@@ -656,7 +622,6 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
                 <th>Label</th>
                 <th>Slug</th>
                 <th>Workflow</th>
-                <th style={{ textAlign: 'right' }}>Default</th>
                 <th style={{ textAlign: 'right' }}>Status</th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
@@ -678,25 +643,6 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
                     </code>
                   </td>
                   <td>{workflows.find((w) => w.id === item.workflowTemplateId)?.label ?? '?'}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    {item.isDefault ? (
-                      <span style={{ fontWeight: 600 }}>Default</span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn sm ghost"
-                        disabled={togglingId === item.id || !item.isActive}
-                        title={
-                          item.isActive
-                            ? 'Route every Shopify product through this workflow'
-                            : 'Activate this template before making it the default'
-                        }
-                        onClick={() => makeDefault(item)}
-                      >
-                        {togglingId === item.id ? '…' : 'Set default'}
-                      </button>
-                    )}
-                  </td>
                   <td style={{ textAlign: 'right' }}>
                     <button
                       type="button"
