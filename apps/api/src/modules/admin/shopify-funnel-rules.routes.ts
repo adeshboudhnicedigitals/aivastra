@@ -7,7 +7,7 @@ import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
 const Condition = z.object({
-  field: z.enum(['product_type', 'tags', 'vendor', 'collections']),
+  field: z.enum(['product_type', 'tags', 'vendor', 'collections', 'title']),
   operator: z.enum(['equals', 'contains']),
   value: z.string().min(1).max(200),
 });

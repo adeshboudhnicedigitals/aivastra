@@ -430,4 +430,65 @@ describe('shopify merchant funnel rules routes', () => {
     // computeEffectiveEnabled's precedence.
     expect(res.json().unroutedEnabled).toBe(2);
   });
+
+  it('accepts a title condition via the create route and matches it in the counts scan', async () => {
+    // A fresh store (D), like storeC above. Creating the rule through the
+    // real route (not app.db.insert) is deliberate: it's what makes this
+    // test depend on THIS task's Zod schema change (field: 'title' must be
+    // accepted, not rejected with 400) rather than only on Task 1's
+    // resolver/select-list fix, which a direct DB insert would bypass.
+    const storeD = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: tag + 5,
+        shopDomain: `merchant-rules-d-${tag}.myshopify.com`,
+        myshopifyDomain: `merchant-rules-d-${tag}.myshopify.com`,
+        name: 'Store D',
+        email: 'd@d.com',
+      },
+      'tok',
+      'read_products',
+    );
+    const authD = {
+      authorization: `Bearer ${signSessionToken(storeD.shopDomain, API_SECRET, API_KEY)}`,
+    };
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/funnel-rules',
+      headers: authD,
+      payload: {
+        funnelTemplateId: upperBasketId,
+        conditions: [{ field: 'title', operator: 'contains', value: 'zzz-title-match' }],
+        priority: 1,
+      },
+    });
+    expect(createRes.statusCode).toBe(200);
+
+    await app.db.insert(schema.shopifyProductGarments).values([
+      {
+        storeId: storeD.id,
+        shopifyProductId: tag + 120,
+        r2Key: `shopify-inputs/${storeD.id}/${tag}-d-matched/photo`,
+        status: 'active',
+        title: 'A zzz-title-match Product',
+      },
+      {
+        storeId: storeD.id,
+        shopifyProductId: tag + 121,
+        r2Key: `shopify-inputs/${storeD.id}/${tag}-d-unmatched/photo`,
+        status: 'active',
+        title: 'Something else entirely',
+      },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/funnel-rules',
+      headers: authD,
+    });
+    expect(res.json().countsOmitted).toBe(false);
+    expect(res.json().counts[upperBasketId]).toBe(1);
+    expect(res.json().unrouted).toBe(1);
+  });
 });
