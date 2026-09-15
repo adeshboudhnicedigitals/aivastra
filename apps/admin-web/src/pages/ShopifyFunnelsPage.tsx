@@ -1021,7 +1021,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
         <EditDrawer
           onClose={() => setShowCreateRule(false)}
           title="New global rule"
-          width="min(560px, calc(100vw - 40px))"
+          width="min(720px, calc(100vw - 40px))"
           saving={ruleSaving}
           onSave={createRule}
           saveLabel={ruleSaving ? 'Creating…' : 'Create'}
@@ -1074,7 +1074,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
           onClose={() => setEditingRule(null)}
           title="Edit global rule"
           subtitle={basketLabel(editingRule.funnelTemplateId)}
-          width="min(560px, calc(100vw - 40px))"
+          width="min(720px, calc(100vw - 40px))"
           saving={editRuleSaving}
           onSave={saveEditRule}
           saveLabel={editRuleSaving ? 'Saving…' : 'Save'}
