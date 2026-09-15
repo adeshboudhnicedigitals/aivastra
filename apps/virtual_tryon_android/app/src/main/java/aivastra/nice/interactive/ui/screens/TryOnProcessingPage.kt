@@ -266,24 +266,26 @@ fun TryOnProcessingContent(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Top Header Bar (Centered Logo without back button)
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    AppHeaderLogo()
-                }
+                // Hidden for now — leaving in place in case this comes back.
+                // Box(
+                //     modifier = Modifier.fillMaxWidth(),
+                //     contentAlignment = Alignment.Center
+                // ) {
+                //     AppHeaderLogo()
+                // }
 
                 Spacer(Modifier.height(sdp(R.dimen._18sdp)))
 
                 // Headline & Subtitle
-                Text(
-                    "Generating Your AI Try-On...",
-                    color = Color.White,
-                    fontSize = ssp(R.dimen._20ssp),
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = PoppinsFamily,
-                    textAlign = TextAlign.Center
-                )
+                // Hidden for now — leaving in place in case this comes back.
+                // Text(
+                //     "Generating Your AI Try-On...",
+                //     color = Color.White,
+                //     fontSize = ssp(R.dimen._20ssp),
+                //     fontWeight = FontWeight.Bold,
+                //     fontFamily = PoppinsFamily,
+                //     textAlign = TextAlign.Center
+                // )
 
             }
 
@@ -297,24 +299,25 @@ fun TryOnProcessingContent(
                 // Rotating status text and progress bar - hidden once the error dialog takes over.
                 if (errorMessage == null) {
                     // Rotating status line - keeps the wait feeling active
-                    AnimatedContent(
-                        targetState = messageIndex,
-                        transitionSpec = {
-                            (fadeIn(tween(400)) + slideInVertically(tween(400)) { it / 3 }) togetherWith
-                                (fadeOut(tween(250)) + slideOutVertically(tween(250)) { -it / 3 })
-                        },
-                        contentAlignment = Alignment.Center,
-                        label = "processingStatusMessage"
-                    ) { idx ->
-                        Text(
-                            processingStatusMessages[idx],
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = ssp(R.dimen._15ssp),
-                            fontWeight = FontWeight.Medium,
-                            fontFamily = PoppinsFamily,
-                            textAlign = TextAlign.Center
-                        )
-                    }
+                    // Hidden for now — leaving in place in case this comes back.
+                    // AnimatedContent(
+                    //     targetState = messageIndex,
+                    //     transitionSpec = {
+                    //         (fadeIn(tween(400)) + slideInVertically(tween(400)) { it / 3 }) togetherWith
+                    //             (fadeOut(tween(250)) + slideOutVertically(tween(250)) { -it / 3 })
+                    //     },
+                    //     contentAlignment = Alignment.Center,
+                    //     label = "processingStatusMessage"
+                    // ) { idx ->
+                    //     Text(
+                    //         processingStatusMessages[idx],
+                    //         color = Color.White.copy(alpha = 0.85f),
+                    //         fontSize = ssp(R.dimen._15ssp),
+                    //         fontWeight = FontWeight.Medium,
+                    //         fontFamily = PoppinsFamily,
+                    //         textAlign = TextAlign.Center
+                    //     )
+                    // }
 
                     Spacer(Modifier.height(sdp(R.dimen._12sdp)))
 

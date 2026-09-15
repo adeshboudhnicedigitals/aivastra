@@ -40,6 +40,15 @@ export interface CatalogOptionGarmentType {
   slug: string | null;
   label: string;
   sortOrder: number;
+  // Whether a caller must supply their own 2nd/3rd piece photo for this
+  // garment type (e.g. kurta-pyjama, sherwani-pyjama) rather than picking a
+  // curated lower/shoe item. Same flags EditGarmentTypeModal.tsx already
+  // toggles and the internal Studio wizard already reads — just projected
+  // out to callers of this shared builder too.
+  requiresLowerUpload: boolean;
+  lowerUploadLabel: string | null;
+  requiresThirdUpload: boolean;
+  thirdUploadLabel: string | null;
 }
 
 export interface CatalogOptions {
@@ -119,6 +128,10 @@ export async function buildCatalogOptions(
       slug: schema.garmentSubcategories.publicApiSlug,
       label: schema.garmentSubcategories.label,
       sortOrder: schema.garmentSubcategories.sortOrder,
+      requiresLowerUpload: schema.garmentSubcategories.requiresLowerUpload,
+      lowerUploadLabel: schema.garmentSubcategories.lowerUploadLabel,
+      requiresThirdUpload: schema.garmentSubcategories.requiresThirdUpload,
+      thirdUploadLabel: schema.garmentSubcategories.thirdUploadLabel,
     })
     .from(schema.garmentSubcategories)
     .where(and(...garmentTypeConditions))

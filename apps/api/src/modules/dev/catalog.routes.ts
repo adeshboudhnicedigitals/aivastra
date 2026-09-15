@@ -172,15 +172,25 @@ export async function devCatalogRoutes(app: FastifyInstance) {
 
       let fields: Record<string, unknown>;
       let garmentFile: { buf: Buffer; mime: string } | undefined;
+      // Own-photo 2nd/3rd piece uploads for composite garment types (kurta+pyjama,
+      // sherwani+pyjama, saree+dupatta, ...) — see DevCatalogGenerateJsonBody's
+      // `lowerGarment`/`thirdGarment` doc comment. Optional here; required-ness is
+      // checked below once we know the resolved garment type's upload flags.
+      let lowerGarmentFile: { buf: Buffer; mime: string } | undefined;
+      let thirdGarmentFile: { buf: Buffer; mime: string } | undefined;
+
+      // Fieldname -> which upload slot a multipart file part fills in.
+      const FILE_FIELDS = ['garment', 'lowerGarment', 'thirdGarment'] as const;
 
       if (isJson) {
         fields = (req.body ?? {}) as Record<string, unknown>;
       } else {
         // The global multipart limit is 2.5GB (server.ts) for the admin zip-import
         // route, so this route MUST set its own limits — it does not inherit a safe
-        // default.
+        // default. `files: 3` covers garment + lowerGarment + thirdGarment; a request
+        // with none of the extra pieces simply sends 1 file part as before.
         const collected: Record<string, unknown> = {};
-        const parts = req.parts({ limits: { fileSize: maxFileBytes, files: 1 } });
+        const parts = req.parts({ limits: { fileSize: maxFileBytes, files: 3 } });
         for await (const part of parts) {
           if (part.type === 'field') {
             // `looks` is structured, so multipart callers send it JSON-encoded.
@@ -195,33 +205,41 @@ export async function devCatalogRoutes(app: FastifyInstance) {
             }
             continue;
           }
-          if (part.fieldname !== 'garment') {
+          if (!FILE_FIELDS.includes(part.fieldname as (typeof FILE_FIELDS)[number])) {
             throw new AppError('VALIDATION', 400, `unexpected file field: ${part.fieldname}`);
           }
           const buf = await part.toBuffer().catch(() => {
             throw new AppError(
               'VALIDATION',
               400,
-              `garment exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
+              `${part.fieldname} exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
             );
           });
           if (part.file.truncated) {
             throw new AppError(
               'VALIDATION',
               400,
-              `garment exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
+              `${part.fieldname} exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
             );
           }
           // Magic bytes only — part.mimetype is client-declared and untrusted.
           const mime = sniffImageMime(buf);
           if (!mime) {
-            throw new AppError('VALIDATION', 400, 'garment must be a JPEG, PNG, or WebP image');
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `${part.fieldname} must be a JPEG, PNG, or WebP image`,
+            );
           }
-          garmentFile = { buf, mime };
+          if (part.fieldname === 'garment') garmentFile = { buf, mime };
+          else if (part.fieldname === 'lowerGarment') lowerGarmentFile = { buf, mime };
+          else thirdGarmentFile = { buf, mime };
         }
-        // Satisfy the shared schema, which models the JSON shape where `garment` is
-        // the base64 payload. The real bytes came through the file part above.
+        // Satisfy the shared schema, which models the JSON shape where each of these
+        // is the base64 payload. The real bytes came through the file parts above.
         collected.garment = garmentFile ? 'multipart' : '';
+        if (lowerGarmentFile) collected.lowerGarment = 'multipart';
+        if (thirdGarmentFile) collected.thirdGarment = 'multipart';
         fields = collected;
       }
 
@@ -235,22 +253,32 @@ export async function devCatalogRoutes(app: FastifyInstance) {
       }
       const body = parsed.data;
 
-      if (isJson) {
-        const raw = body.garment.replace(/^data:[^;]+;base64,/, '');
-        const buf = Buffer.from(raw, 'base64');
+      // Shared with the lowerGarment/thirdGarment decode below — same base64/data-URI
+      // handling and size/mime checks the original `garment`-only path already did.
+      const decodeBase64Image = (raw: string, fieldName: string): { buf: Buffer; mime: string } => {
+        const stripped = raw.replace(/^data:[^;]+;base64,/, '');
+        const buf = Buffer.from(stripped, 'base64');
         if (buf.length === 0 || buf.length > maxFileBytes) {
           throw new AppError(
             'VALIDATION',
             400,
-            `garment exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
+            `${fieldName} exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
           );
         }
         // Magic bytes only — decoding garbage base64 still yields *some* buffer.
         const mime = sniffImageMime(buf);
         if (!mime) {
-          throw new AppError('VALIDATION', 400, 'garment must be a JPEG, PNG, or WebP image');
+          throw new AppError('VALIDATION', 400, `${fieldName} must be a JPEG, PNG, or WebP image`);
         }
-        garmentFile = { buf, mime };
+        return { buf, mime };
+      };
+
+      if (isJson) {
+        garmentFile = decodeBase64Image(body.garment, 'garment');
+        if (body.lowerGarment)
+          lowerGarmentFile = decodeBase64Image(body.lowerGarment, 'lowerGarment');
+        if (body.thirdGarment)
+          thirdGarmentFile = decodeBase64Image(body.thirdGarment, 'thirdGarment');
       }
       if (!garmentFile) throw new AppError('VALIDATION', 400, 'garment image is required');
 
@@ -259,12 +287,56 @@ export async function devCatalogRoutes(app: FastifyInstance) {
       // (POST /v1/dev/backgrounds/confirm) resolve alongside curated slugs.
       const selection = await resolveCatalogSelection(app, body, merchantUserId);
 
+      // Composite garment types (kurta+pyjama, sherwani+pyjama, ...) declare these
+      // flags via the same admin toggle the internal Studio wizard already honors
+      // (EditGarmentTypeModal.tsx) — enforce them here too, before anything uploads.
+      if (selection.requiresLowerUpload && !lowerGarmentFile) {
+        throw new AppError(
+          'VALIDATION',
+          400,
+          'lowerGarment image is required for this garmentType',
+        );
+      }
+      if (selection.requiresThirdUpload && !thirdGarmentFile) {
+        throw new AppError(
+          'VALIDATION',
+          400,
+          'thirdGarment image is required for this garmentType',
+        );
+      }
+
       const garmentKey = keys.devUpload(
         merchantId,
         randomUUID(),
         EXT_BY_MIME[garmentFile.mime as keyof typeof EXT_BY_MIME],
       );
       await app.storage.putObject(garmentKey, garmentFile.buf, garmentFile.mime);
+
+      const lowerGarmentKey = lowerGarmentFile
+        ? keys.devUpload(
+            merchantId,
+            randomUUID(),
+            EXT_BY_MIME[lowerGarmentFile.mime as keyof typeof EXT_BY_MIME],
+          )
+        : undefined;
+      if (lowerGarmentKey && lowerGarmentFile) {
+        await app.storage.putObject(lowerGarmentKey, lowerGarmentFile.buf, lowerGarmentFile.mime);
+      }
+
+      const thirdGarmentKey = thirdGarmentFile
+        ? keys.devUpload(
+            merchantId,
+            randomUUID(),
+            EXT_BY_MIME[thirdGarmentFile.mime as keyof typeof EXT_BY_MIME],
+          )
+        : undefined;
+      if (thirdGarmentKey && thirdGarmentFile) {
+        await app.storage.putObject(thirdGarmentKey, thirdGarmentFile.buf, thirdGarmentFile.mime);
+      }
+
+      const uploadedKeys = [garmentKey, lowerGarmentKey, thirdGarmentKey].filter(
+        (k): k is string => k != null,
+      );
 
       let result: Awaited<ReturnType<typeof createJob>>;
       try {
@@ -274,6 +346,8 @@ export async function devCatalogRoutes(app: FastifyInstance) {
           {
             inputs: {
               upperGarmentKey: garmentKey,
+              lowerGarmentKey,
+              thirdGarmentKey,
               faceId: selection.faceId,
               garmentTypeId: selection.garmentTypeId,
               looks: selection.looks,
@@ -284,10 +358,10 @@ export async function devCatalogRoutes(app: FastifyInstance) {
             resolution: body.resolution,
           },
           {
-            // The garment was written straight through putObject with no presign, so
+            // All three were written straight through putObject with no presign, so
             // the Redis upload-ownership binding verifyGarmentKey looks for does not
             // exist. Shopify's catalog route does the same for the same reason.
-            trustedGarmentKeys: new Set([garmentKey]),
+            trustedGarmentKeys: new Set(uploadedKeys),
             // Without both of these the resulting jobs are invisible to
             // /v1/dev/jobs/:id and /v1/dev/catalogues/:id, which scope by merchant
             // through api_keys and filter source = 'api'.
@@ -296,8 +370,8 @@ export async function devCatalogRoutes(app: FastifyInstance) {
           },
         );
       } catch (err) {
-        // Nothing has been charged at this point; drop the orphaned upload.
-        await app.storage.deleteObject(garmentKey).catch(() => {});
+        // Nothing has been charged at this point; drop every orphaned upload.
+        await Promise.all(uploadedKeys.map((k) => app.storage.deleteObject(k).catch(() => {})));
         throw err;
       }
 
