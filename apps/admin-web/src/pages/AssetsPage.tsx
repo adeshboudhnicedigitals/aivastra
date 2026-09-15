@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Icon } from '../components/Icons';
+import { ImageLightbox } from '../components/ImageLightbox';
 import type { Toast } from './assets/AssetsContext';
 import { AssetsProvider, useAssetsContext } from './assets/AssetsContext';
 import { BackgroundsTab } from './assets/BackgroundsTab';
@@ -182,34 +183,7 @@ function AssetsShell() {
       {activeTab === 'catalogue-templates' && <CatalogueTemplatesTab />}
       {activeTab === 'saree-styles' && <SareeStylesTab />}
 
-      {previewUrl && (
-        <div
-          onClick={() => setPreviewUrl(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.82)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-            cursor: 'zoom-out',
-          }}
-        >
-          {/* biome-ignore lint/performance/noImgElement: admin panel */}
-          <img
-            src={previewUrl}
-            alt="preview"
-            style={{
-              maxWidth: '90vw',
-              maxHeight: '90vh',
-              borderRadius: 8,
-              boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
+      {previewUrl && <ImageLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />}
     </>
   );
 }

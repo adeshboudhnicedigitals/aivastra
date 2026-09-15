@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { ImageLightbox } from '../components/ImageLightbox';
 
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { ContactRequest } from '../types';
@@ -55,6 +56,7 @@ export default function ContactRequestsPage({ toast }: Props) {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ContactRequest | null>(null);
   const [modalRow, setModalRow] = useState<ContactRequest | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const notifPermRef = useRef(false);
   const prevNewCountRef = useRef<number | null>(null);
@@ -272,7 +274,14 @@ export default function ContactRequestsPage({ toast }: Props) {
             Attachment
           </div>
           {r.attachmentKey && /\.(jpe?g|png|webp)$/i.test(r.attachmentKey) ? (
-            <a href={r.attachmentUrl} target="_blank" rel="noreferrer">
+            <a
+              href={r.attachmentUrl}
+              rel="noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                setPreviewUrl(r.attachmentUrl);
+              }}
+            >
               {/* biome-ignore lint/performance/noImgElement: presigned R2 attachment preview */}
               <img
                 src={r.attachmentUrl}
@@ -283,6 +292,7 @@ export default function ContactRequestsPage({ toast }: Props) {
                   borderRadius: 8,
                   border: '1px solid var(--border)',
                   display: 'block',
+                  cursor: 'zoom-in',
                 }}
               />
             </a>
@@ -670,6 +680,8 @@ export default function ContactRequestsPage({ toast }: Props) {
           </div>
         </div>
       )}
+
+      {previewUrl && <ImageLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />}
     </div>
   );
 }
