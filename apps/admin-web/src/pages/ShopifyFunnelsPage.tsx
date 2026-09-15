@@ -19,7 +19,7 @@ interface FunnelTemplate {
   sortOrder: number;
 }
 
-type ConditionField = 'product_type' | 'tags' | 'vendor' | 'collections';
+type ConditionField = 'product_type' | 'tags' | 'vendor' | 'collections' | 'title';
 type ConditionOperator = 'equals' | 'contains';
 
 interface Condition {
@@ -62,6 +62,7 @@ function slugify(value: string): string {
 // schemas) so a global rule reads the same way here as it does in the store's own
 // routing page.
 const CONDITION_FIELD_LABEL: Record<ConditionField, string> = {
+  title: 'Product title',
   product_type: 'Product type',
   tags: 'Tag',
   vendor: 'Vendor',
