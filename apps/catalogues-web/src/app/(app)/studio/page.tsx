@@ -194,7 +194,7 @@ const BRAND_CONFIG: Record<string, BrandConfig> = {
   AJIO: { ratios: ['1:1', '2:3', '3:4'], default: '3:4' },
   Meesho: { ratios: ['1:1', '2:3'], default: '1:1' },
   'Nykaa Fashion': { ratios: ['2:3', '3:4'], default: '3:4' },
-  Shopify: { ratios: ['1:1', '2:3', '4:5'], default: '1:1' },
+  Shopify: { ratios: ['1:1', '2:3', '4:5', '9:16'], default: '1:1' },
 };
 const PLATFORMS = Object.keys(BRAND_CONFIG);
 const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
@@ -209,7 +209,7 @@ const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
   'Nykaa Fashion': { src: `${BASE}/assets/platform-logos/nykaa-logo.svg`, h: 16 },
   Shopify: { src: `${BASE}/assets/platform-logos/shopify-logo.svg`, h: 20 },
 };
-const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9'];
+const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16'];
 // Fallback long-edge px per tier, used only until /v1/config/resolutions
 // resolves — the server (DEFAULT_RESOLUTION_CONFIG in
 // apps/api/src/lib/resolution-config.ts) is authoritative.
@@ -411,9 +411,6 @@ function AspectRatioIcon({ ratio, active }: { ratio: string; active?: boolean })
   if (ratio === '2:3' || ratio === '3:4' || ratio === '4:5' || ratio === '9:16') {
     w = 9;
     h = 13;
-  } else if (ratio === '16:9') {
-    w = 14;
-    h = 9;
   }
   return (
     <div
@@ -441,16 +438,18 @@ export default function StudioPage(): React.ReactElement {
   const [platform, setPlatform] = useState('Amazon');
   const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
   const [resolution, setResolution] = useState<Resolution | null>(null);
-  const [customRatio, setCustomRatio] = useState('');
   const [customWStr, setCustomWStr] = useState('');
   const [customHStr, setCustomHStr] = useState('');
+  // True once the user has typed into Width/Height directly — until then the
+  // fields just mirror the selected preset's computed dims for the current
+  // tier, and no outputWidth/outputHeight override is sent to the server.
+  const [customEdited, setCustomEdited] = useState(false);
   const [amazonPoseModalOpen, setAmazonPoseModalOpen] = useState(false);
   const [amazonMainPoseId, setAmazonMainPoseId] = useState('');
   // Bypassed: Amazon no longer forces white bg. Logic kept dormant for future use.
   const [amazonUseWhiteBg, _setAmazonUseWhiteBg] = useState(false);
 
   const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
-  const effectiveAspect = aspect === 'custom' && customRatio ? customRatio : aspect;
 
   // Prefill platform/aspect from the user's saved Account Preferences (Settings page),
   // once, so switching platforms later doesn't keep re-applying the saved default.
@@ -506,10 +505,21 @@ export default function StudioPage(): React.ReactElement {
     ? (resolutionConfig[resolution]?.longEdgePx ?? RESOLUTION_LONG_EDGE_PX_FALLBACK[resolution])
     : undefined;
 
-  // Custom dimension validation — computed at component level so handleSubmit
-  // and canGenerate can both reference them without re-deriving inside the
-  // render IIFE. Bounded by the SELECTED tier's longEdgePx, not a single
-  // global ceiling — switching tiers re-validates against the new bound.
+  // Width/Height mirror the selected preset's own computed dims for the
+  // current tier until the user types into them directly (customEdited).
+  // Re-syncs whenever the preset or tier changes so an un-edited pair never
+  // goes stale, but never overwrites a value the user actually chose.
+  useEffect(() => {
+    if (customEdited || !tierPx) return;
+    const dims = computeOutputDims(aspect, tierPx);
+    setCustomWStr(String(dims.width));
+    setCustomHStr(String(dims.height));
+  }, [aspect, tierPx, customEdited]);
+
+  // Dimension validation — computed at component level so handleSubmit and
+  // canGenerate can both reference them without re-deriving inside the render
+  // IIFE. Bounded by the SELECTED tier's longEdgePx, not a single global
+  // ceiling — switching tiers re-validates against the new bound.
   const customWNum = Number(customWStr);
   const customHNum = Number(customHStr);
   const customWErr =
@@ -518,16 +528,15 @@ export default function StudioPage(): React.ReactElement {
   const customHErr =
     customHStr !== '' &&
     (Number.isNaN(customHNum) || customHNum < 768 || (!!tierPx && customHNum > tierPx));
-  const customDimsReady =
-    aspect !== 'custom' ||
-    (!!customRatio && !!customWStr && !!customHStr && !customWErr && !customHErr);
+  const customDimsReady = !!customWStr && !!customHStr && !customWErr && !customHErr;
+  // Only an actual manual edit overrides the server's own tier-derived dims —
+  // an un-edited preset still submits as a plain aspectRatio, same as before.
   const customParams =
-    aspect === 'custom' && customDimsReady
-      ? { outputWidth: customWNum, outputHeight: customHNum }
-      : {};
+    customEdited && customDimsReady ? { outputWidth: customWNum, outputHeight: customHNum } : {};
 
   const handlePlatformChange = (p: string) => {
     setPlatform(p);
+    setCustomEdited(false);
     const cfg = BRAND_CONFIG[p];
     if (cfg) setAspect(cfg.default);
   };
@@ -1368,7 +1377,7 @@ export default function StudioPage(): React.ReactElement {
             };
       const step2Body = {
         inputs: step2Inputs,
-        aspectRatio: effectiveAspect,
+        aspectRatio: aspect,
         resolution,
         ...(Object.keys(customParams).length ? { params: customParams } : {}),
         ...(effectivePlatform ? { platform: effectivePlatform } : {}),
@@ -1471,7 +1480,7 @@ export default function StudioPage(): React.ReactElement {
           shoeCatalogId: effectiveShoesId,
           thirdGarmentKey: thirdGarmentKey || undefined,
         },
-        aspectRatio: effectiveAspect,
+        aspectRatio: aspect,
         resolution,
         ...(Object.keys(customParams).length ? { params: customParams } : {}),
         platform: 'Amazon',
@@ -1507,7 +1516,7 @@ export default function StudioPage(): React.ReactElement {
             shoeCatalogId: effectiveShoesId,
             thirdGarmentKey: thirdGarmentKey || undefined,
           },
-          aspectRatio: effectiveAspect,
+          aspectRatio: aspect,
           resolution,
           ...(Object.keys(customParams).length ? { params: customParams } : {}),
         });
@@ -1587,7 +1596,7 @@ export default function StudioPage(): React.ReactElement {
                   ? 'Select at least one pose'
                   : 'Select at least one look'
                 : !customDimsReady
-                  ? 'Enter valid width and height for custom size'
+                  ? 'Enter a valid width and height'
                   : '';
 
   // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
@@ -2056,11 +2065,11 @@ export default function StudioPage(): React.ReactElement {
             <BatchMode
               gender={gender}
               garmentTypeId={garmentTypeId}
-              aspectRatio={effectiveAspect}
+              aspectRatio={aspect}
               resolution={resolution ?? '2K'}
               platform={platform}
               params={
-                aspect === 'custom' && customDimsReady
+                customEdited && customDimsReady
                   ? { outputWidth: customWNum, outputHeight: customHNum }
                   : undefined
               }
@@ -4395,165 +4404,119 @@ export default function StudioPage(): React.ReactElement {
                   stepNumber={stepNumberOf('aspect')}
                 />
 
-                {/* ── Pill row: hide presets when custom is active ── */}
+                {/* ── Pill row: presets, each backed by the same permanently
+                     visible width/height pair below. Picking a preset re-syncs
+                     the fields to its computed dims; editing a field directly
+                     is what turns this into a custom size (customEdited). ── */}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {aspect !== 'custom' &&
-                    ALL_ASPECTS.map((r) => {
-                      const supported = brandAspects.includes(r);
-                      return (
-                        <button
-                          type="button"
-                          key={r}
-                          onClick={supported ? () => setAspect(r) : undefined}
+                  {ALL_ASPECTS.map((r) => {
+                    const supported = brandAspects.includes(r);
+                    return (
+                      <button
+                        type="button"
+                        key={r}
+                        onClick={
+                          supported
+                            ? () => {
+                                setAspect(r);
+                                setCustomEdited(false);
+                              }
+                            : undefined
+                        }
+                        style={{
+                          ...pill(aspect === r && !customEdited),
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                        }}
+                      >
+                        <AspectRatioIcon ratio={r} active={aspect === r && !customEdited} />
+                        {r}
+                      </button>
+                    );
+                  })}
+
+                  {(() => {
+                    const [rW, rH] = aspect.split(':').map(Number);
+                    const inputBase: React.CSSProperties = {
+                      width: 86,
+                      padding: '6px 8px',
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: C.text,
+                      background: C.bg,
+                      outline: 'none',
+                    };
+                    const handleWChange = (val: string) => {
+                      setCustomWStr(val);
+                      setCustomEdited(true);
+                      if (rW && rH && val !== '') {
+                        setCustomHStr(String(Math.round((Number(val) * rH) / rW)));
+                      }
+                    };
+                    const handleHChange = (val: string) => {
+                      setCustomHStr(val);
+                      setCustomEdited(true);
+                      if (rW && rH && val !== '') {
+                        setCustomWStr(String(Math.round((Number(val) * rW) / rH)));
+                      }
+                    };
+
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div
                           style={{
-                            ...pill(aspect === r),
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                            width: 1,
+                            height: 24,
+                            background: C.border,
+                            flexShrink: 0,
+                            margin: '0 4px',
                           }}
-                        >
-                          <AspectRatioIcon ratio={r} active={aspect === r} />
-                          {r}
-                        </button>
-                      );
-                    })}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAspect('custom');
-                      setCustomRatio('');
-                      setCustomWStr('');
-                      setCustomHStr('');
-                    }}
-                    style={{
-                      ...pill(aspect === 'custom'),
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    <AspectRatioIcon ratio="custom" active={aspect === 'custom'} />
-                    Custom Ratio
-                  </button>
+                        />
 
-                  {/* ── Custom inline options ── */}
-                  {aspect === 'custom' &&
-                    (() => {
-                      const [rW, rH] = customRatio ? customRatio.split(':').map(Number) : [0, 0];
-                      const wErr = customWErr;
-                      const hErr = customHErr;
+                        <input
+                          type="number"
+                          placeholder="Width"
+                          value={customWStr}
+                          onChange={(e) => handleWChange(e.target.value)}
+                          style={{
+                            ...inputBase,
+                            border: `1px solid ${customWErr ? '#F55C7A' : C.border}`,
+                          }}
+                        />
 
-                      const handleWChange = (val: string) => {
-                        setCustomWStr(val);
-                        if (rW && rH && val !== '') {
-                          const n = Math.round((Number(val) * rH) / rW);
-                          setCustomHStr(String(n));
-                        }
-                      };
-                      const handleHChange = (val: string) => {
-                        setCustomHStr(val);
-                        if (rW && rH && val !== '') {
-                          const n = Math.round((Number(val) * rW) / rH);
-                          setCustomWStr(String(n));
-                        }
-                      };
+                        <span style={{ fontSize: 13, color: C.light, flexShrink: 0 }}>×</span>
 
-                      const inputBase: React.CSSProperties = {
-                        width: 86,
-                        padding: '6px 8px',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        color: C.text,
-                        background: C.bg,
-                        outline: 'none',
-                      };
-
-                      return (
-                        <>
-                          <span
-                            style={{ fontSize: 13, color: C.mid, marginLeft: 4, marginRight: 4 }}
-                          >
-                            Select aspect ratio
-                          </span>
-                          {ALL_ASPECTS.map((r) => (
-                            <button
-                              type="button"
-                              key={r}
-                              onClick={() => {
-                                setCustomRatio(r);
-                                setCustomWStr('');
-                                setCustomHStr('');
-                              }}
-                              style={{ ...pill(customRatio === r), flexShrink: 0 }}
-                            >
-                              {r}
-                            </button>
-                          ))}
-
-                          {customRatio && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div
-                                style={{
-                                  width: 1,
-                                  height: 24,
-                                  background: C.border,
-                                  flexShrink: 0,
-                                  margin: '0 4px',
-                                }}
-                              />
-
-                              <input
-                                type="number"
-                                placeholder="Width"
-                                value={customWStr}
-                                onChange={(e) => handleWChange(e.target.value)}
-                                style={{
-                                  ...inputBase,
-                                  border: `1px solid ${wErr ? '#F55C7A' : C.border}`,
-                                }}
-                              />
-
-                              <span style={{ fontSize: 13, color: C.light, flexShrink: 0 }}>×</span>
-
-                              <input
-                                type="number"
-                                placeholder="Height"
-                                value={customHStr}
-                                onChange={(e) => handleHChange(e.target.value)}
-                                style={{
-                                  ...inputBase,
-                                  border: `1px solid ${hErr ? '#F55C7A' : C.border}`,
-                                }}
-                              />
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
+                        <input
+                          type="number"
+                          placeholder="Height"
+                          value={customHStr}
+                          onChange={(e) => handleHChange(e.target.value)}
+                          style={{
+                            ...inputBase,
+                            border: `1px solid ${customHErr ? '#F55C7A' : C.border}`,
+                          }}
+                        />
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                {aspect === 'custom' && customRatio && (
-                  <p
-                    style={{
-                      fontSize: 11,
-                      color: customWErr || customHErr ? '#F55C7A' : C.light,
-                      margin: '8px 0 0',
-                    }}
-                  >
-                    {customWErr || customHErr
-                      ? `${(customWErr && customWNum < 768) || (customHErr && customHNum < 768) ? 'Min 768px' : `Max ${tierPx ?? RESOLUTION_LONG_EDGE_PX_FALLBACK['4K']}px`}`
-                      : `Min 768px · Max ${tierPx ?? RESOLUTION_LONG_EDGE_PX_FALLBACK['4K']}px`}
-                  </p>
-                )}
-
-                {/* ── Dimension hint ── */}
-                {aspect !== 'custom' && tierPx && (
-                  <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
-                    {computeOutputDims(aspect, tierPx).width} ×{' '}
-                    {computeOutputDims(aspect, tierPx).height} px
-                  </div>
-                )}
+                {/* ── Dimension hint / validation ── */}
+                <p
+                  style={{
+                    fontSize: 11,
+                    color: customWErr || customHErr ? '#F55C7A' : C.light,
+                    margin: '8px 0 0',
+                  }}
+                >
+                  {customWErr || customHErr
+                    ? (customWErr && customWNum < 768) || (customHErr && customHNum < 768)
+                      ? 'Min 768px'
+                      : `Max ${tierPx ?? RESOLUTION_LONG_EDGE_PX_FALLBACK['4K']}px`
+                    : `Min 768px · Max ${tierPx ?? RESOLUTION_LONG_EDGE_PX_FALLBACK['4K']}px`}
+                </p>
               </section>
             </div>
 

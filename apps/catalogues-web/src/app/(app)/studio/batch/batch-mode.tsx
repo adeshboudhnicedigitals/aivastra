@@ -38,7 +38,7 @@ function flattenCatalogTree(node: CatalogTreeNode): PickerItem[] {
 
 /**
  * Mirrors CreateBatchJobRequest.aspectRatio (packages/types/src/batch.ts). The
- * page's own ALL_ASPECTS list is wider (it includes 9:16 / 16:9 / custom), and
+ * page's own ALL_ASPECTS list is wider (it includes 9:16 / custom), and
  * batch mode has no aspect control to correct a selection with, so an
  * unsupported ratio is surfaced as a blocking reason rather than a 400.
  */
