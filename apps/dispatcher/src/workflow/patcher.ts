@@ -161,8 +161,9 @@ export function applyWorkflowPatch(
   if (!customDims && enumDims) {
     // Every current job-creation path snapshots outputWidth/outputHeight before
     // enqueue, so this fallback firing means an older/unresolved job reached the
-    // dispatcher — it renders at the hardcoded ASPECT_DIMENSIONS default, silently
-    // ignoring any admin override set via PATCH /admin/config aspectDimensions
+    // dispatcher — it renders at the hardcoded ASPECT_DIMENSIONS default (see
+    // resolutionFromDims in packages/types/src/jobs.ts), silently ignoring
+    // whatever longEdgePx an admin has configured for the job's resolution tier
     // (the dispatcher has no route to that live config). Logged so a mismatch
     // between expected and actual output size is traceable, not just mysterious.
     log?.warn(
@@ -177,7 +178,8 @@ export function applyWorkflowPatch(
   // canvas size and doesn't need to match any fixed enum value. Output group (result-width/
   // result-height) uses the resolved outputDims directly — the max-output-resolution ceiling
   // is a product/pricing decision enforced once, globally, by the API before enqueue
-  // (see getMaxOutputPx in apps/api), not a per-template technical constraint like latentMaxPx.
+  // (see getResolutionTierConfig in apps/api/src/lib/resolution-config.ts), not a
+  // per-template technical constraint like latentMaxPx.
   const latentSizeNodeIds = tmpl.latentSizeNodeIds ?? [];
   const outputSizeNodeIds = tmpl.outputSizeNodeIds ?? [];
   if (outputDims && (latentSizeNodeIds.length === 2 || outputSizeNodeIds.length === 2)) {

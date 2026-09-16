@@ -57,7 +57,7 @@ function fillResolutionDefaults(
 }
 
 export async function adminConfigRoutes(app: FastifyInstance) {
-  // Public — used by the web pricing page and Studio's resolution picker (no auth required)
+  // Public — used by Studio's resolution picker (no auth required)
   app.get('/v1/config/resolutions', async () => {
     const raw = await app.redis.get(KEY);
     const cfg = raw ? JSON.parse(raw) : {};

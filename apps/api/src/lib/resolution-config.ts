@@ -65,32 +65,11 @@ export const DEFAULT_SELLER_CONFIG: {
 };
 
 /**
- * Reads the admin-configured credit cost for a resolution from the same
- * `config:system` Redis key the admin panel edits (GET/PATCH /admin/config).
- * Falls back to the hardcoded RESOLUTION_COSTS default if nothing is stored
- * yet, or the entry is missing/malformed.
- */
-export async function getResolutionCreditCost(
-  app: FastifyInstance,
-  resolution: Resolution,
-): Promise<number> {
-  try {
-    const raw = await app.redis.get(CONFIG_KEY);
-    const cfg = raw ? JSON.parse(raw) : {};
-    const resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
-    const cost = resolutions?.[resolution]?.creditCost;
-    return typeof cost === 'number' ? cost : RESOLUTION_COSTS[resolution];
-  } catch {
-    return RESOLUTION_COSTS[resolution];
-  }
-}
-
-/**
  * Reads the admin-configured HD/2K/4K tier config — enabled, credit cost, and
  * long-edge pixel value — from the same `config:system` Redis key. One Redis
- * read replaces what used to be two separate lookups (getAspectDimensions or
- * getMaxOutputPx, then getResolutionCreditCost) now that a tier's price and
- * its output size are both properties of the same admin-configured object.
+ * read replaces what used to be two separate lookups (one for output size,
+ * one for credit cost) now that a tier's price and its output size are both
+ * properties of the same admin-configured object.
  * Falls back to DEFAULT_RESOLUTION_CONFIG if nothing is stored yet, or the
  * entry is missing/malformed.
  */
@@ -217,7 +196,7 @@ export async function getShopifyTrialCredits(app: FastifyInstance): Promise<numb
  * lookup this replaces had, rather than guessing.
  *
  * Falls back to the code default when nothing is stored or the entry is
- * malformed, matching getResolutionCreditCost's try/catch behaviour.
+ * malformed, matching every other lookup in this file's try/catch behaviour.
  *
  * Note this is only consulted when a purchase row is INSERTed. The grant itself
  * reads the snapshotted `credits` column on that row, never this — see the

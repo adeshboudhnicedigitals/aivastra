@@ -241,6 +241,9 @@ export async function createMerchantCatalogJob(
   // is likewise fixed platform-wide (merchantCatalogResolution) since this
   // path has no per-job tier picker. Both dims and cost come from the same
   // admin-configured tier object resolveTryonPlan uses for interactive jobs.
+  // Unlike resolveTryonPlan (apps/api/src/modules/jobs/create.ts), this path
+  // deliberately does NOT check tierConfig.enabled — there is no end-user
+  // request to reject here, only an admin-picked platform-wide default.
   const tierConfig = await getResolutionTierConfig(app, resolutionTier);
   const outputDims = computeOutputDims(aspectRatio, tierConfig.longEdgePx);
   const resolution: Resolution = resolutionTier;

@@ -268,6 +268,12 @@ export async function resolveTryonPlan(
   // number and credit cost is still resolved server-side — never trust a
   // client-sent width/height or cost. See computeOutputDims in
   // packages/types/src/jobs.ts.
+  //
+  // The tierConfig.enabled check below rejects a disabled tier with 400
+  // BAD_RESOLUTION because this path has a real end-user request to reject.
+  // The merchant-catalog auto-generation path (apps/api/src/modules/merchant/
+  // create-job.ts) deliberately does NOT enforce this same check — it has no
+  // end-user request to reject.
   const resolution: Resolution = body.resolution;
   const tierConfig =
     opts.cache?.resolutionTiers.get(resolution) ??

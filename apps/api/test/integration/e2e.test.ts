@@ -139,7 +139,7 @@ describe('e2e', () => {
       url: '/v1/credits',
       headers: { authorization: `Bearer ${userToken}` },
     });
-    // Actual cost is admin-configurable per resolution (getResolutionCreditCost) — assert
+    // Actual cost is admin-configurable per resolution (getResolutionTierConfig) — assert
     // a deduction happened, not an exact value (see jobs-create.test.ts for the same pattern).
     expect(bal2.json().balance).toBeLessThan(100);
 

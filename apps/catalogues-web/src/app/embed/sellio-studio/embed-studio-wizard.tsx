@@ -266,7 +266,7 @@ export function EmbedStudioWizard() {
             thirdGarmentKey: thirdGarmentKey || undefined,
           },
           aspectRatio: '1:1',
-          resolution: 'HD',
+          resolution: '2K',
           platform: 'Shopify',
         },
       );

@@ -1547,7 +1547,9 @@ export default function StudioPage(): React.ReactElement {
   const sareeTwoInputActive = sareeTwoInputCapable && sareeUploadMode === 'two_input';
   const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload || sareeTwoInputActive;
 
-  const creditCost = resolution ? RESOLUTION_COSTS[resolution] * selectedCount : 0;
+  const creditCost = resolution
+    ? (resolutionConfig[resolution]?.creditCost ?? RESOLUTION_COSTS[resolution]) * selectedCount
+    : 0;
   const canGenerate =
     selectedCount > 0 &&
     !!garmentKey &&
@@ -2052,7 +2054,7 @@ export default function StudioPage(): React.ReactElement {
               gender={gender}
               garmentTypeId={garmentTypeId}
               aspectRatio={effectiveAspect}
-              resolution={resolution ?? 'HD'}
+              resolution={resolution ?? '2K'}
               platform={platform}
               params={
                 aspect === 'custom' && customDimsReady
@@ -2060,7 +2062,9 @@ export default function StudioPage(): React.ReactElement {
                   : undefined
               }
               creditCostPerImage={
-                resolution ? RESOLUTION_COSTS[resolution] : (resolutionConfig.HD?.creditCost ?? 25)
+                resolution
+                  ? (resolutionConfig[resolution]?.creditCost ?? RESOLUTION_COSTS[resolution])
+                  : (resolutionConfig['2K']?.creditCost ?? 35)
               }
               balance={userCredits}
               unlimited={isUnlimitedPlan}
@@ -4535,8 +4539,8 @@ export default function StudioPage(): React.ReactElement {
                     }}
                   >
                     {customWErr || customHErr
-                      ? `${(customWErr && customWNum < 768) || (customHErr && customHNum < 768) ? 'Min 768px' : `Max ${tierPx ?? 4096}px`}`
-                      : `Min 768px · Max ${tierPx ?? 4096}px`}
+                      ? `${(customWErr && customWNum < 768) || (customHErr && customHNum < 768) ? 'Min 768px' : `Max ${tierPx ?? RESOLUTION_LONG_EDGE_PX_FALLBACK['4K']}px`}`
+                      : `Min 768px · Max ${tierPx ?? RESOLUTION_LONG_EDGE_PX_FALLBACK['4K']}px`}
                   </p>
                 )}
 

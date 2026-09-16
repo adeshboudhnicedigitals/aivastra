@@ -102,8 +102,7 @@ export default function JobCostsTab({ toast }: Props) {
               </div>
               <div className="setting-desc" style={{ marginBottom: 12 }}>
                 Credit cost and output long-edge (px) per resolution. The short edge is derived from
-                the requested aspect ratio. Disable a resolution to hide it from Studio and the
-                pricing page.
+                the requested aspect ratio. Disable a resolution to hide it from Studio.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {(['HD', '2K', '4K'] as const).map((res) => {
