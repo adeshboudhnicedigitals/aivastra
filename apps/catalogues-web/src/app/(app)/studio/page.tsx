@@ -1,4 +1,5 @@
 'use client';
+import { computeOutputDims, type Resolution } from '@aivastra/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { X as CloseIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -209,36 +210,14 @@ const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
   Shopify: { src: `${BASE}/assets/platform-logos/shopify-logo.svg`, h: 20 },
 };
 const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9'];
-// Defaults only — matches ASPECT_DIMENSIONS in packages/types/src/jobs.ts as of the
-// 2688 long-edge bump (2026-09-08, including 4:5). The admin can override
-// 1:1/2:3/3:4/4:5 at runtime (Settings → System → Aspect Ratio Sizes); this table is
-// only the fallback used before that config loads (see effectiveAspectPx/
-// effectiveAspectDims below) or if it's never been touched. 9:16 and 16:9 aren't in
-// ASPECT_DIMENSIONS server-side, so they're always these fixed values regardless of
-// admin config.
-const ASPECT_DIMS: Record<string, string> = {
-  '1:1': '2688 × 2688 px',
-  '2:3': '1792 × 2688 px',
-  '3:4': '2016 × 2688 px',
-  '4:5': '2150 × 2688 px',
-  '9:16': '1512 × 2688 px',
-  '16:9': '2688 × 1512 px',
+// Fallback long-edge px per tier, used only until /v1/config/resolutions
+// resolves — the server (DEFAULT_RESOLUTION_CONFIG in
+// apps/api/src/lib/resolution-config.ts) is authoritative.
+const RESOLUTION_LONG_EDGE_PX_FALLBACK: Record<Resolution, number> = {
+  HD: 1536,
+  '2K': 2688,
+  '4K': 4096,
 };
-const ASPECT_PX: Record<string, { w: number; h: number }> = {
-  '1:1': { w: 2688, h: 2688 },
-  '2:3': { w: 1792, h: 2688 },
-  '3:4': { w: 2016, h: 2688 },
-  '4:5': { w: 2150, h: 2688 },
-};
-// Mirrors the server-authoritative resolutionFromDims in packages/types/src/jobs.ts
-// (>3000 → 4K, >1200 → 2K) — must use the same thresholds or this display badge/estimate
-// would disagree with what the server actually charges.
-function resolutionFromOutputDims(w: number, h: number): 'HD' | '2K' | '4K' {
-  const longer = Math.max(w, h);
-  if (longer > 3000) return '4K';
-  if (longer > 1200) return '2K';
-  return 'HD';
-}
 
 /**
  * Tracks .studio-5col-grid's actual column count (see its @media rules below in
@@ -461,6 +440,7 @@ export default function StudioPage(): React.ReactElement {
   const [batchGarmentModalOpen, setBatchGarmentModalOpen] = useState(false);
   const [platform, setPlatform] = useState('Amazon');
   const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
+  const [resolution, setResolution] = useState<Resolution | null>(null);
   const [customRatio, setCustomRatio] = useState('');
   const [customWStr, setCustomWStr] = useState('');
   const [customHStr, setCustomHStr] = useState('');
@@ -495,54 +475,46 @@ export default function StudioPage(): React.ReactElement {
   }, [meDefaults]);
 
   const { data: resolutionConfigData } = useQuery<{
-    resolutions: Record<string, { enabled: boolean; creditCost: number }>;
-    maxOutputPx: number;
-    aspectDimensions?: Record<string, { width: number; height: number }>;
+    resolutions: Record<string, { enabled: boolean; creditCost: number; longEdgePx: number }>;
   }>({
     queryKey: ['resolution-configs'],
     queryFn: () => api.get('/v1/config/resolutions'),
     staleTime: 10 * 60 * 1000,
   });
   const resolutionConfig = resolutionConfigData?.resolutions ?? {
-    HD: { enabled: true, creditCost: 25 },
-    '2K': { enabled: true, creditCost: 35 },
-    '4K': { enabled: true, creditCost: 40 },
-  };
-  // Admin-configured platform ceiling (Settings → Max Output Resolution) — falls back
-  // to 2560 only until the query resolves, never as a silent permanent cap.
-  const maxOutputPx = resolutionConfigData?.maxOutputPx ?? 2560;
-  // Admin-configured per-ratio output dims (Settings → System → Aspect Ratio Sizes)
-  // override the hardcoded ASPECT_PX/ASPECT_DIMS defaults above for the 4 ratios that
-  // are actually in ASPECT_DIMENSIONS server-side (9:16/16:9 aren't, so those two
-  // always fall back to the hardcoded table). Falls back entirely until the query
-  // resolves, same as maxOutputPx above.
-  const effectiveAspectPx: Record<string, { w: number; h: number }> = {
-    ...ASPECT_PX,
-    ...Object.fromEntries(
-      Object.entries(resolutionConfigData?.aspectDimensions ?? {}).map(([ratio, d]) => [
-        ratio,
-        { w: d.width, h: d.height },
-      ]),
-    ),
-  };
-  const effectiveAspectDims: Record<string, string> = {
-    ...ASPECT_DIMS,
-    ...Object.fromEntries(
-      Object.entries(resolutionConfigData?.aspectDimensions ?? {}).map(([ratio, d]) => [
-        ratio,
-        `${d.width} × ${d.height} px`,
-      ]),
-    ),
+    HD: { enabled: true, creditCost: 25, longEdgePx: RESOLUTION_LONG_EDGE_PX_FALLBACK.HD },
+    '2K': { enabled: true, creditCost: 35, longEdgePx: RESOLUTION_LONG_EDGE_PX_FALLBACK['2K'] },
+    '4K': { enabled: true, creditCost: 40, longEdgePx: RESOLUTION_LONG_EDGE_PX_FALLBACK['4K'] },
   };
 
-  // Custom dimension validation — computed at component level so handleSubmit and
-  // canGenerate can both reference them without re-deriving inside the render IIFE.
+  // Default-select the first enabled tier once config loads, same pattern as
+  // the platform/aspect default-selection effect above — never leaves the
+  // picker permanently empty, but never overrides a user's own pick either.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run only when the config query resolves, not on every resolution/resolutionConfig identity change (the fallback object literal is new every render)
+  useEffect(() => {
+    if (resolution || !resolutionConfigData) return;
+    const firstEnabled = (['2K', '4K', 'HD'] as const).find(
+      (r) => resolutionConfig[r]?.enabled !== false,
+    );
+    if (firstEnabled) setResolution(firstEnabled);
+  }, [resolutionConfigData]);
+
+  const tierPx = resolution
+    ? (resolutionConfig[resolution]?.longEdgePx ?? RESOLUTION_LONG_EDGE_PX_FALLBACK[resolution])
+    : undefined;
+
+  // Custom dimension validation — computed at component level so handleSubmit
+  // and canGenerate can both reference them without re-deriving inside the
+  // render IIFE. Bounded by the SELECTED tier's longEdgePx, not a single
+  // global ceiling — switching tiers re-validates against the new bound.
   const customWNum = Number(customWStr);
   const customHNum = Number(customHStr);
   const customWErr =
-    customWStr !== '' && (Number.isNaN(customWNum) || customWNum < 768 || customWNum > maxOutputPx);
+    customWStr !== '' &&
+    (Number.isNaN(customWNum) || customWNum < 768 || (!!tierPx && customWNum > tierPx));
   const customHErr =
-    customHStr !== '' && (Number.isNaN(customHNum) || customHNum < 768 || customHNum > maxOutputPx);
+    customHStr !== '' &&
+    (Number.isNaN(customHNum) || customHNum < 768 || (!!tierPx && customHNum > tierPx));
   const customDimsReady =
     aspect !== 'custom' ||
     (!!customRatio && !!customWStr && !!customHStr && !customWErr && !customHErr);
@@ -550,19 +522,6 @@ export default function StudioPage(): React.ReactElement {
     aspect === 'custom' && customDimsReady
       ? { outputWidth: customWNum, outputHeight: customHNum }
       : {};
-
-  const outputDims: { w: number; h: number } | null = (() => {
-    if (aspect === 'custom') {
-      return customDimsReady && customWNum > 0 && customHNum > 0
-        ? { w: customWNum, h: customHNum }
-        : null;
-    }
-    const d = effectiveAspectPx[effectiveAspect];
-    return d ?? null;
-  })();
-  const resolution: 'HD' | '2K' | '4K' | null = outputDims
-    ? resolutionFromOutputDims(outputDims.w, outputDims.h)
-    : null;
 
   const handlePlatformChange = (p: string) => {
     setPlatform(p);
@@ -4355,80 +4314,72 @@ export default function StudioPage(): React.ReactElement {
                 </div>
               </section>
 
-              {/* ── Resolution (read-only, auto-derived from output dims) ── */}
-              {resolution && (
-                <section className="studio-section-card" style={sectionCardStyle}>
-                  <SectionHead
-                    title="Output Resolution"
-                    stepNumber={stepNumberOf('resolution')}
-                    right={
-                      <span style={{ fontSize: 11, color: C.light, fontWeight: 400 }}>Auto</span>
-                    }
-                  />
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    {(
-                      [
-                        { key: 'HD' as const, label: 'HD' },
-                        { key: '2K' as const, label: '2K' },
-                        { key: '4K' as const, label: '4K' },
-                      ] as const
-                    )
-                      .filter((r) => resolutionConfig[r.key]?.enabled !== false)
-                      .map((r) => {
-                        const credits =
-                          resolutionConfig[r.key]?.creditCost ?? RESOLUTION_COSTS[r.key];
-                        const active = resolution === r.key;
-                        return (
+              <section className="studio-section-card" style={sectionCardStyle}>
+                <SectionHead title="Output Resolution" stepNumber={stepNumberOf('resolution')} />
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  {(
+                    [
+                      { key: 'HD' as const, label: 'HD' },
+                      { key: '2K' as const, label: '2K' },
+                      { key: '4K' as const, label: '4K' },
+                    ] as const
+                  )
+                    .filter((r) => resolutionConfig[r.key]?.enabled !== false)
+                    .map((r) => {
+                      const credits =
+                        resolutionConfig[r.key]?.creditCost ?? RESOLUTION_COSTS[r.key];
+                      const active = resolution === r.key;
+                      return (
+                        <button
+                          type="button"
+                          key={r.key}
+                          onClick={() => setResolution(r.key)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '8px 16px',
+                            borderRadius: 99,
+                            border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
+                            background: active ? 'rgba(245,92,122,0.04)' : C.white,
+                            boxSizing: 'border-box',
+                            cursor: 'pointer',
+                          }}
+                        >
                           <div
-                            key={r.key}
                             style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              padding: '8px 16px',
-                              borderRadius: 99,
-                              border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
-                              background: active ? 'rgba(245,92,122,0.04)' : C.white,
+                              width: 16,
+                              height: 16,
+                              borderRadius: '50%',
+                              border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
+                              background: C.white,
+                              flexShrink: 0,
                               boxSizing: 'border-box',
-                              userSelect: 'none',
-                              opacity: active ? 1 : 0.45,
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 600,
+                              color: active ? C.pink : C.text,
                             }}
                           >
-                            <div
-                              style={{
-                                width: 16,
-                                height: 16,
-                                borderRadius: '50%',
-                                border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
-                                background: C.white,
-                                flexShrink: 0,
-                                boxSizing: 'border-box',
-                              }}
-                            />
-                            <span
-                              style={{
-                                fontSize: 14,
-                                fontWeight: 600,
-                                color: active ? C.pink : C.text,
-                              }}
-                            >
-                              {r.label}
-                            </span>
-                            <span
-                              style={{
-                                fontSize: 13,
-                                color: active ? C.pink : C.mid,
-                                fontWeight: 400,
-                              }}
-                            >
-                              ({credits} credits)
-                            </span>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </section>
-              )}
+                            {r.label}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 13,
+                              color: active ? C.pink : C.mid,
+                              fontWeight: 400,
+                            }}
+                          >
+                            ({credits} credits)
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </section>
 
               <section className="studio-section-card" style={sectionCardStyle}>
                 <SectionHead
@@ -4584,15 +4535,16 @@ export default function StudioPage(): React.ReactElement {
                     }}
                   >
                     {customWErr || customHErr
-                      ? `${(customWErr && customWNum < 768) || (customHErr && customHNum < 768) ? 'Min 768px' : `Max ${maxOutputPx}px`}`
-                      : `Min 768px · Max ${maxOutputPx}px`}
+                      ? `${(customWErr && customWNum < 768) || (customHErr && customHNum < 768) ? 'Min 768px' : `Max ${tierPx ?? 4096}px`}`
+                      : `Min 768px · Max ${tierPx ?? 4096}px`}
                   </p>
                 )}
 
                 {/* ── Dimension hint ── */}
-                {aspect !== 'custom' && (
+                {aspect !== 'custom' && tierPx && (
                   <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
-                    {effectiveAspectDims[aspect]}
+                    {computeOutputDims(aspect, tierPx).width} ×{' '}
+                    {computeOutputDims(aspect, tierPx).height} px
                   </div>
                 )}
               </section>
