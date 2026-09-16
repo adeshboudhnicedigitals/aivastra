@@ -183,8 +183,17 @@ export function applyWorkflowPatch(
   const latentSizeNodeIds = tmpl.latentSizeNodeIds ?? [];
   const outputSizeNodeIds = tmpl.outputSizeNodeIds ?? [];
   if (outputDims && (latentSizeNodeIds.length === 2 || outputSizeNodeIds.length === 2)) {
-    // Latent: scale so the long edge = latentMaxPx, preserving aspect
-    const latentMax = tmpl.latentMaxPx ?? 2048;
+    // The latent target is the request's own resolved long edge (already tier-derived
+    // by the API before enqueue — computeOutputDims puts the tier's longEdgePx on the
+    // long edge for a named ratio, or the custom-dims clamp does for a custom one),
+    // never exceeding this template's own technical ceiling. Previously every tier
+    // rendered at the same flat latentMaxPx; now a smaller-tier request (e.g. HD)
+    // renders a smaller, cheaper/faster latent, and a larger-tier request renders up
+    // to whatever ceiling this template's admin has configured — no per-tier admin
+    // config needed, since the tier is already baked into outputDims by the time the
+    // dispatcher sees it.
+    const requestedLongEdge = Math.max(outputDims.width, outputDims.height);
+    const latentMax = Math.min(requestedLongEdge, tmpl.latentMaxPx ?? 2048);
     const latentDims = resizeToMax(outputDims.width, outputDims.height, latentMax);
     const [lwId, lhId] = latentSizeNodeIds;
     const lwNode = lwId ? workflow[lwId] : undefined;
