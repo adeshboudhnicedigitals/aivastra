@@ -72,6 +72,29 @@
   same `http://` vs `https://` mismatch.
 - **Design:** `docs/superpowers/specs/2026-09-15-resolution-tiers-design.md`.
   Plan: `docs/superpowers/plans/2026-09-15-resolution-tiers.md`.
+- **Follow-up, same day (dispatcher latent canvas):** the resolution-tier feature above
+  deliberately left `apps/dispatcher/src/workflow/patcher.ts` untouched, but reading it
+  afterward surfaced that dual-size-group ComfyUI templates (a separate latent-canvas
+  node pair distinct from the final-output node pair) always rendered their diffusion
+  latent at a flat, template-level `latentMaxPx` (2048px default) regardless of which
+  tier was requested — HD/2K/4K diffused identically and differed only in the final
+  resize/pad step. First fix (`apps/dispatcher/src/workflow/patcher.ts`, commit
+  `84c965ec`) made the latent scale with the request but still capped at `latentMaxPx`
+  as a per-template technical ceiling — see
+  `docs/superpowers/specs/2026-09-16-dispatcher-latent-tier-scaling-design.md` and
+  `docs/superpowers/plans/2026-09-16-dispatcher-latent-tier-scaling.md`. **That ceiling
+  was then removed entirely** per direct product feedback (commit `68d4dfbd`): the
+  latent group now always mirrors the output group's exact resolved dims, with no cap
+  — matching how legacy single-group templates already behaved. `latentMaxPx` stays in
+  `workflow_templates` (still admin-editable) but is no longer read anywhere; `resizeToMax`
+  (`apps/dispatcher/src/workflow/resize-to-max.ts`) became fully unused as a result and
+  was deleted. **The two linked design/plan docs above describe the now-superseded
+  capped design** — read them for the reasoning history, not as the current behavior.
+  No GPU-capacity/VRAM validation was done for this final, uncapped version (the earlier
+  design's capped approach was the one validated by a real 4K generation, documented in
+  this same entry above) — worth a real large-custom-dims generation test on affected
+  dual-group templates before this reaches production, since a very large custom request
+  now reaches the latent grid directly and uncapped for the first time.
 
 ## 2026-09-15 — Removed the Shopify "default basket" fallback; merged Manage + Routing pages
 
