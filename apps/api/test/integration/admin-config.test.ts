@@ -184,6 +184,42 @@ describe('admin config', () => {
     });
   });
 
+  it('PATCH /admin/config with a partial resolutions object does not drop the other tiers', async () => {
+    // Seed all three tiers with known, non-default values first. Values must
+    // stay within ResolutionConfig's bounds (longEdgePx 512-4096).
+    const seedRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        resolutions: {
+          HD: { enabled: true, creditCost: 11, longEdgePx: 1111 },
+          '2K': { enabled: true, creditCost: 22, longEdgePx: 2222 },
+          '4K': { enabled: true, creditCost: 44, longEdgePx: 3333 },
+        },
+      }),
+    });
+    expect(seedRes.statusCode).toBe(200);
+
+    // Now PATCH only HD.
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        resolutions: { HD: { enabled: false, creditCost: 5, longEdgePx: 999 } },
+      }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    const resolutions = getRes.json().resolutions;
+    expect(resolutions.HD).toEqual({ enabled: false, creditCost: 5, longEdgePx: 999 });
+    // 2K and 4K must survive untouched — this is the regression this test guards.
+    expect(resolutions['2K']).toEqual({ enabled: true, creditCost: 22, longEdgePx: 2222 });
+    expect(resolutions['4K']).toEqual({ enabled: true, creditCost: 44, longEdgePx: 3333 });
+  });
+
   it('GET /admin/config default-fills merchantCatalogResolution, and PATCH persists an override', async () => {
     const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
     expect(getRes.statusCode).toBe(200);

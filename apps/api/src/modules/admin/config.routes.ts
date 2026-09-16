@@ -101,6 +101,20 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
       const body = req.body as Record<string, unknown>;
       const next = { ...cur, ...body };
+      // resolutions' HD/2K/4K keys are each independently optional in
+      // SystemConfigBody, so a schema-valid PATCH may legitimately include
+      // only some tiers. Merge per-tier instead of letting the top-level
+      // spread above wholesale-replace `resolutions` and silently drop the
+      // tiers the caller didn't send.
+      if (body.resolutions) {
+        const curResolutions = (cur.resolutions ?? {}) as Record<string, unknown>;
+        const bodyResolutions = body.resolutions as Record<string, unknown>;
+        next.resolutions = {
+          HD: bodyResolutions.HD ?? curResolutions.HD ?? DEFAULT_RESOLUTION_CONFIG.HD,
+          '2K': bodyResolutions['2K'] ?? curResolutions['2K'] ?? DEFAULT_RESOLUTION_CONFIG['2K'],
+          '4K': bodyResolutions['4K'] ?? curResolutions['4K'] ?? DEFAULT_RESOLUTION_CONFIG['4K'],
+        };
+      }
       // System config lives in Redis, not Postgres, so there's no row for a
       // failed audit insert to roll back — write the audit record first and
       // only apply the Redis change once it succeeds, so a config change can
