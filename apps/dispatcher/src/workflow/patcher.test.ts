@@ -464,7 +464,7 @@ describe('dual-size groups', () => {
     };
   }
 
-  it('patches the latent group via resizeToMax, and the output group via the literal ASPECT_DIMENSIONS lookup', () => {
+  it('patches both the latent group and the output group with the identical literal ASPECT_DIMENSIONS lookup', () => {
     const wf = makeDualSizeWorkflow();
     applyWorkflowPatch(
       wf,
@@ -475,79 +475,34 @@ describe('dual-size groups', () => {
       }),
       { ...BASE_INPUTS, aspectRatio: '2:3' },
     );
-    // Latent group: resizeToMax(1792, 2688, 2048) — 2:3's ASPECT_DIMENSIONS output (2688
-    // long edge, raised 2026-09-08) now exceeds latentMaxPx (2048, an unchanged per-template
-    // technical ceiling — see the comment above), so this is a genuine downscale rather than
-    // the old table's coincidental identity (its 2048 output height equaled latentMaxPx exactly).
-    expect(wf['max-width']?.inputs.value).toBe(
-      Math.round(
-        2048 * ((ASPECT_DIMENSIONS['2:3']?.width ?? 0) / (ASPECT_DIMENSIONS['2:3']?.height ?? 1)),
-      ),
-    );
-    expect(wf['max-height']?.inputs.value).toBe(2048);
-    // Output group: the literal selected dimensions, not derived via resizeToMax
+    // Latent group and output group both get the exact same resolved dims — no
+    // ceiling, no downscale. latentMaxPx (2048, above) is stored on the template but
+    // intentionally not read by this branch.
+    expect(wf['max-width']?.inputs.value).toBe(ASPECT_DIMENSIONS['2:3']?.width);
+    expect(wf['max-height']?.inputs.value).toBe(ASPECT_DIMENSIONS['2:3']?.height);
     expect(wf['result-width']?.inputs.value).toBe(ASPECT_DIMENSIONS['2:3']?.width);
     expect(wf['result-height']?.inputs.value).toBe(ASPECT_DIMENSIONS['2:3']?.height);
   });
 
-  it("renders the latent at the request's own long edge when it is below the template ceiling (the HD-tier case)", () => {
+  it('renders the latent at the exact custom request size regardless of the template latentMaxPx column', () => {
     const wf = makeDualSizeWorkflow();
     applyWorkflowPatch(
       wf,
       makeTemplate({
         latentSizeNodeIds: ['max-width', 'max-height'],
-        latentMaxPx: 2048,
-        outputSizeNodeIds: ['result-width', 'result-height'],
-      }),
-      { ...BASE_INPUTS, outputWidth: 1152, outputHeight: 1536 },
-    );
-    // Request's long edge (1536) is below the template's latentMaxPx (2048), so the
-    // latent renders at the request's own size — it is NOT forced up to 2048 the way
-    // every tier used to be, regardless of what was actually requested.
-    expect(wf['max-width']?.inputs.value).toBe(1152);
-    expect(wf['max-height']?.inputs.value).toBe(1536);
-    // Output group still gets the literal requested dims, unaffected by this change.
-    expect(wf['result-width']?.inputs.value).toBe(1152);
-    expect(wf['result-height']?.inputs.value).toBe(1536);
-  });
-
-  it('still clamps the latent to a lowered template ceiling when the request exceeds it', () => {
-    const wf = makeDualSizeWorkflow();
-    applyWorkflowPatch(
-      wf,
-      makeTemplate({
-        latentSizeNodeIds: ['max-width', 'max-height'],
+        // Set well below the requested dims to prove this column no longer clamps
+        // anything for the latent group — it is intentionally unused here.
         latentMaxPx: 1024,
         outputSizeNodeIds: ['result-width', 'result-height'],
       }),
       { ...BASE_INPUTS, outputWidth: 3000, outputHeight: 4000 },
     );
-    // Request's long edge (4000) exceeds the template's latentMaxPx (1024) — still
-    // clamped, exactly like before this change. resizeToMax(3000, 4000, 1024):
-    // width < height, ratio = 3000/4000 = 0.75, width = round(1024 * 0.75) = 768.
-    expect(wf['max-width']?.inputs.value).toBe(768);
-    expect(wf['max-height']?.inputs.value).toBe(1024);
-  });
-
-  it('does not inflate a request above itself when an admin raises the template ceiling', () => {
-    const wf = makeDualSizeWorkflow();
-    applyWorkflowPatch(
-      wf,
-      makeTemplate({
-        latentSizeNodeIds: ['max-width', 'max-height'],
-        latentMaxPx: 3072,
-        outputSizeNodeIds: ['result-width', 'result-height'],
-      }),
-      { ...BASE_INPUTS, outputWidth: 1792, outputHeight: 2688 },
-    );
-    // Before this change, this would have been forced UP to resizeToMax(1792, 2688,
-    // 3072) = {width: 2048, height: 3072} regardless of the smaller request. Now the
-    // request's own long edge (2688) is below the raised ceiling (3072), so the
-    // latent renders at the request's own size instead of inflating to the ceiling —
-    // this is what lets a smaller-tier request stay cheap/fast even on a template an
-    // admin has tuned for higher-detail top-tier output.
-    expect(wf['max-width']?.inputs.value).toBe(1792);
-    expect(wf['max-height']?.inputs.value).toBe(2688);
+    // Neither dimension is clamped, even though both exceed latentMaxPx (1024) — the
+    // latent group mirrors the request exactly, same as the output group.
+    expect(wf['max-width']?.inputs.value).toBe(3000);
+    expect(wf['max-height']?.inputs.value).toBe(4000);
+    expect(wf['result-width']?.inputs.value).toBe(3000);
+    expect(wf['result-height']?.inputs.value).toBe(4000);
   });
 
   it('warns and skips the output group for an unknown aspect ratio, leaving the node untouched', () => {

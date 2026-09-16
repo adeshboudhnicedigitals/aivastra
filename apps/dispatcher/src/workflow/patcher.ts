@@ -1,6 +1,5 @@
 import type { DB, schema } from '@aivastra/db';
 import { ASPECT_DIMENSIONS } from '@aivastra/types';
-import { resizeToMax } from './resize-to-max.js';
 import { resolveWorkflowTemplateVersion } from './resolve-template-version.js';
 
 type WorkflowNode = { inputs: Record<string, unknown>; class_type: string; _meta?: unknown };
@@ -173,33 +172,19 @@ export function applyWorkflowPatch(
   }
   const outputDims = customDims ?? enumDims;
 
-  // Dual-size-group templates. Latent group (max-width/max-height) is derived from the
-  // raw aspect numbers via resizeToMax, capped at latentMaxPx — this is the diffusion
-  // canvas size and doesn't need to match any fixed enum value. Output group (result-width/
-  // result-height) uses the resolved outputDims directly — the max-output-resolution ceiling
-  // is a product/pricing decision enforced once, globally, by the API before enqueue
-  // (see getResolutionTierConfig in apps/api/src/lib/resolution-config.ts), not a
-  // per-template technical constraint like latentMaxPx.
+  // Dual-size-group templates. Both latent group (max-width/max-height) and output
+  // group (result-width/result-height) receive the same resolved outputDims — the two
+  // node groups exist for the workflow's own internal graph wiring, not because the
+  // diffusion canvas is meant to render at a different size than what's delivered.
+  // latentMaxPx is still stored per template (admin-editable) but is not read here.
   const latentSizeNodeIds = tmpl.latentSizeNodeIds ?? [];
   const outputSizeNodeIds = tmpl.outputSizeNodeIds ?? [];
   if (outputDims && (latentSizeNodeIds.length === 2 || outputSizeNodeIds.length === 2)) {
-    // The latent target is the request's own resolved long edge (already tier-derived
-    // by the API before enqueue — computeOutputDims puts the tier's longEdgePx on the
-    // long edge for a named ratio, or the custom-dims clamp does for a custom one),
-    // never exceeding this template's own technical ceiling. Previously every tier
-    // rendered at the same flat latentMaxPx; now a smaller-tier request (e.g. HD)
-    // renders a smaller, cheaper/faster latent, and a larger-tier request renders up
-    // to whatever ceiling this template's admin has configured — no per-tier admin
-    // config needed, since the tier is already baked into outputDims by the time the
-    // dispatcher sees it.
-    const requestedLongEdge = Math.max(outputDims.width, outputDims.height);
-    const latentMax = Math.min(requestedLongEdge, tmpl.latentMaxPx ?? 2048);
-    const latentDims = resizeToMax(outputDims.width, outputDims.height, latentMax);
     const [lwId, lhId] = latentSizeNodeIds;
     const lwNode = lwId ? workflow[lwId] : undefined;
     const lhNode = lhId ? workflow[lhId] : undefined;
-    if (lwNode) lwNode.inputs.value = latentDims.width;
-    if (lhNode) lhNode.inputs.value = latentDims.height;
+    if (lwNode) lwNode.inputs.value = outputDims.width;
+    if (lhNode) lhNode.inputs.value = outputDims.height;
 
     if (outputSizeNodeIds.length === 2) {
       const [widthId, heightId] = outputSizeNodeIds;
