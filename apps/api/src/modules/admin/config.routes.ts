@@ -33,12 +33,35 @@ export async function resolveAppVideoUrl(app: FastifyInstance): Promise<string |
   return cfg ? await appVideoUrl(app, cfg.key) : null;
 }
 
+// A stored tier can predate the longEdgePx field (it was added to
+// SystemConfigBody after resolutions already existed in Redis for some
+// deployments), so `cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG` isn't
+// enough — that only fires when `resolutions` is missing entirely, not when
+// an individual tier is missing just this one field. Fill per-field, the
+// same reasoning getResolutionTierConfig (lib/resolution-config.ts) already
+// applies for the job-creation path.
+function fillResolutionDefaults(
+  stored: Record<string, unknown> | undefined,
+): typeof DEFAULT_RESOLUTION_CONFIG {
+  const s = stored ?? {};
+  const fill = (tier: 'HD' | '2K' | '4K') => {
+    const t = (s[tier] ?? {}) as Record<string, unknown>;
+    const d = DEFAULT_RESOLUTION_CONFIG[tier];
+    return {
+      enabled: typeof t.enabled === 'boolean' ? t.enabled : d.enabled,
+      creditCost: typeof t.creditCost === 'number' ? t.creditCost : d.creditCost,
+      longEdgePx: typeof t.longEdgePx === 'number' ? t.longEdgePx : d.longEdgePx,
+    };
+  };
+  return { HD: fill('HD'), '2K': fill('2K'), '4K': fill('4K') };
+}
+
 export async function adminConfigRoutes(app: FastifyInstance) {
   // Public — used by the web pricing page and Studio's resolution picker (no auth required)
   app.get('/v1/config/resolutions', async () => {
     const raw = await app.redis.get(KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    return { resolutions: cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG };
+    return { resolutions: fillResolutionDefaults(cfg.resolutions) };
   });
 
   // Public — used by the login/register pages so the advertised signup bonus
@@ -55,7 +78,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
   app.get('/admin/config', { preHandler: requirePermission('config.read') }, async () => {
     const raw = await app.redis.get(KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
+    cfg.resolutions = fillResolutionDefaults(cfg.resolutions);
     cfg.merchantCatalogResolution =
       cfg.merchantCatalogResolution ?? DEFAULT_MERCHANT_CATALOG_RESOLUTION;
     cfg.maxBatchJobs = cfg.maxBatchJobs ?? DEFAULT_MAX_BATCH_JOBS;

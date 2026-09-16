@@ -184,6 +184,52 @@ describe('admin config', () => {
     });
   });
 
+  it('GET /v1/config/resolutions backfills longEdgePx for a legacy tier stored without it', async () => {
+    // Shape predates the longEdgePx field — exercises the per-tier,
+    // per-field fallback in fillResolutionDefaults rather than the
+    // top-level `resolutions ?? DEFAULT` fallback, which never fires here
+    // because `resolutions` itself is present.
+    await app.redis.set(
+      CONFIG_KEY,
+      JSON.stringify({
+        resolutions: {
+          HD: { enabled: false, creditCost: 25 },
+          '2K': { enabled: true, creditCost: 35 },
+          '4K': { enabled: true, creditCost: 40 },
+        },
+      }),
+    );
+
+    const res = await app.inject({ method: 'GET', url: '/v1/config/resolutions' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().resolutions).toEqual({
+      HD: { enabled: false, creditCost: 25, longEdgePx: 1536 },
+      '2K': { enabled: true, creditCost: 35, longEdgePx: 2688 },
+      '4K': { enabled: true, creditCost: 40, longEdgePx: 4096 },
+    });
+  });
+
+  it('GET /admin/config backfills longEdgePx for a legacy tier stored without it', async () => {
+    await app.redis.set(
+      CONFIG_KEY,
+      JSON.stringify({
+        resolutions: {
+          HD: { enabled: false, creditCost: 25 },
+          '2K': { enabled: true, creditCost: 35 },
+          '4K': { enabled: true, creditCost: 40 },
+        },
+      }),
+    );
+
+    const res = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().resolutions).toEqual({
+      HD: { enabled: false, creditCost: 25, longEdgePx: 1536 },
+      '2K': { enabled: true, creditCost: 35, longEdgePx: 2688 },
+      '4K': { enabled: true, creditCost: 40, longEdgePx: 4096 },
+    });
+  });
+
   it('PATCH /admin/config with a partial resolutions object does not drop the other tiers', async () => {
     // Seed all three tiers with known, non-default values first. Values must
     // stay within ResolutionConfig's bounds (longEdgePx 512-4096).
