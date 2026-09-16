@@ -1598,7 +1598,7 @@ export default function StudioPage(): React.ReactElement {
     needsLower && !requiresLowerUpload && 'lower',
     needsShoes && 'shoes',
     'platform',
-    resolution && 'resolution',
+    'resolution',
     'aspect',
   ].filter((key): key is string => !!key);
   const stepNumberOf = (key: string) => extraSectionKeys.indexOf(key) + 5;
