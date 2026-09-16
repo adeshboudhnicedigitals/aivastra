@@ -162,7 +162,7 @@ export function applyWorkflowPatch(
     // Every current job-creation path snapshots outputWidth/outputHeight before
     // enqueue, so this fallback firing means an older/unresolved job reached the
     // dispatcher — it renders at the hardcoded ASPECT_DIMENSIONS default (see
-    // resolutionFromDims in packages/types/src/jobs.ts), silently ignoring
+    // ASPECT_DIMENSIONS in packages/types/src/jobs.ts), silently ignoring
     // whatever longEdgePx an admin has configured for the job's resolution tier
     // (the dispatcher has no route to that live config). Logged so a mismatch
     // between expected and actual output size is traceable, not just mysterious.

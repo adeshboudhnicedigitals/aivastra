@@ -482,7 +482,10 @@ export default function StudioPage(): React.ReactElement {
     staleTime: 10 * 60 * 1000,
   });
   const resolutionConfig = resolutionConfigData?.resolutions ?? {
-    HD: { enabled: true, creditCost: 25, longEdgePx: RESOLUTION_LONG_EDGE_PX_FALLBACK.HD },
+    // HD is disabled by default server-side (DEFAULT_RESOLUTION_CONFIG) — mirrored
+    // here so the picker never shows a pill the server would reject with
+    // BAD_RESOLUTION during the brief window before /v1/config/resolutions resolves.
+    HD: { enabled: false, creditCost: 25, longEdgePx: RESOLUTION_LONG_EDGE_PX_FALLBACK.HD },
     '2K': { enabled: true, creditCost: 35, longEdgePx: RESOLUTION_LONG_EDGE_PX_FALLBACK['2K'] },
     '4K': { enabled: true, creditCost: 40, longEdgePx: RESOLUTION_LONG_EDGE_PX_FALLBACK['4K'] },
   };
