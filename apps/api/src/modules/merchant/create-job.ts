@@ -1,13 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { JOB_SOURCE, type Resolution, resolutionFromDims } from '@aivastra/types';
+import { computeOutputDims, JOB_SOURCE, type Resolution } from '@aivastra/types';
 import { aliasedTable, and, eq, ilike } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import {
-  DEFAULT_ASPECT_DIMENSIONS,
-  getAspectDimensions,
-  getResolutionCreditCost,
+  DEFAULT_MERCHANT_CATALOG_RESOLUTION,
+  getResolutionTierConfig,
   getTryonCreditCost,
 } from '../../lib/resolution-config.js';
 import { atomicDeduct } from '../credits/ledger.js';
@@ -23,6 +22,7 @@ interface MerchantCatalogDefaults {
     >
   >;
   merchantCatalogAspectRatio?: string;
+  merchantCatalogResolution?: Resolution;
 }
 
 /**
@@ -111,6 +111,7 @@ export async function createMerchantCatalogJob(
     );
   }
   const aspectRatio = cfg.merchantCatalogAspectRatio ?? '2:3';
+  const resolutionTier = cfg.merchantCatalogResolution ?? DEFAULT_MERCHANT_CATALOG_RESOLUTION;
 
   // Determine whether the fixed pose's workflow (honoring any per-garment-type
   // override in pose_garment_configs) actually needs a lower garment / shoe --
@@ -235,15 +236,15 @@ export async function createMerchantCatalogJob(
     await assertMerchantUploadKey(app, params.merchantId, params.secondFlatImageKey, 'pallu');
   }
 
-  // No custom-dims path exists here (aspectRatio is always one of the fixed named
-  // ratios — see merchantCatalogAspectRatio in admin config), so unlike
-  // resolveTryonPlan's requestedDims, this is never clamped to maxOutputPx: the
-  // admin-curated aspect-ratio table (Settings → System → Aspect Ratio Sizes) is
-  // already the intended output size for every ratio it covers.
-  const outputDims =
-    (await getAspectDimensions(app, aspectRatio)) ?? DEFAULT_ASPECT_DIMENSIONS['2:3'];
-  const resolution: Resolution = resolutionFromDims(outputDims.width, outputDims.height);
-  const cost = await getResolutionCreditCost(app, resolution);
+  // No custom-dims path exists here (aspectRatio is always one of the fixed
+  // named ratios — see merchantCatalogAspectRatio in admin config); resolution
+  // is likewise fixed platform-wide (merchantCatalogResolution) since this
+  // path has no per-job tier picker. Both dims and cost come from the same
+  // admin-configured tier object resolveTryonPlan uses for interactive jobs.
+  const tierConfig = await getResolutionTierConfig(app, resolutionTier);
+  const outputDims = computeOutputDims(aspectRatio, tierConfig.longEdgePx);
+  const resolution: Resolution = resolutionTier;
+  const cost = tierConfig.creditCost;
 
   const jobId = randomUUID();
 
