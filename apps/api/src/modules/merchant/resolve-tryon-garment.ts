@@ -51,6 +51,7 @@ export async function resolveTryonGarment(
       merchantId: schema.merchantCatalogItems.merchantId,
       r2Key: schema.merchantCatalogItems.r2Key,
       secondR2Key: schema.merchantCatalogItems.secondR2Key,
+      mannequinResultKey: schema.merchantCatalogItems.mannequinResultKey,
       isActive: schema.merchantCatalogItems.isActive,
       moderationStatus: schema.merchantCatalogItems.moderationStatus,
       garmentSubcategoryId: schema.merchantCatalogSubcategories.garmentSubcategoryId,
@@ -95,6 +96,21 @@ export async function resolveTryonGarment(
     // fail loud, so both the drape template and the tryon-category template are
     // hard config requirements, not a soft fallback.
     if (own.secondR2Key) {
+      // Already drape once for this exact catalog item on an earlier customer's
+      // try-on (saree-step2-promoter.ts caches the mannequin job's output here on
+      // promotion) — every later try-on can skip straight to the single-garment
+      // step, using the cached drape as the garment input, same as any ordinary
+      // single-image product from this point on.
+      if (own.mannequinResultKey) {
+        assertWorkflow(own);
+        return {
+          kind: 'single',
+          r2Key: own.mannequinResultKey,
+          workflowTemplateId: own.workflowTemplateId,
+          workflowTemplateVersion: own.workflowTemplateVersion,
+          isDemo: false,
+        };
+      }
       if (!own.garmentSubcategoryId || !own.mannequinWorkflowTemplateId) {
         throw new AppError(
           'VALIDATION',

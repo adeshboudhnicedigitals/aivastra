@@ -22,6 +22,12 @@ const TERMINAL_FAILURE_STATUSES = new Set(['FAILED', 'CANCELLED']);
  * `credit_ledger(job_id, reason)` (`onConflictDoNothing`) to make the refund
  * exactly-once. Either way, a re-run after promotion/refund finds the row no
  * longer PENDING_MANNEQUIN and skips it.
+ *
+ * On promotion, also best-effort caches the mannequin job's output key onto
+ * merchantCatalogItems.mannequinResultKey when the step-2 job's params carries
+ * a merchantCatalogItemId (only the merchant-tryon two-step flow sets this) —
+ * see resolveTryonGarment, which checks that column to skip regenerating the
+ * same drape for every later customer try-on of the same catalog item.
  */
 export async function promoteSareeStep2Jobs(cfg: ProcessorConfig): Promise<void> {
   const { db, redis, pub, log } = cfg;
@@ -35,6 +41,9 @@ export async function promoteSareeStep2Jobs(cfg: ProcessorConfig): Promise<void>
       mannequinJobId: sql<string | null>`${schema.jobInputs.params}->>'mannequinJobId'`.as(
         'mannequin_job_id',
       ),
+      merchantCatalogItemId: sql<
+        string | null
+      >`${schema.jobInputs.params}->>'merchantCatalogItemId'`.as('merchant_catalog_item_id'),
     })
     .from(schema.jobs)
     .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
@@ -138,6 +147,19 @@ export async function promoteSareeStep2Jobs(cfg: ProcessorConfig): Promise<void>
         { jobId: row.jobId, mannequinJobId: row.mannequinJobId },
         'saree step-2 job promoted to QUEUED',
       );
+
+      // Best-effort cache warm: only present for the merchant-tryon two-step flow
+      // (create-tryon-job.ts) — createMerchantCatalogJob's two-step branch never
+      // sets this, since that catalog item doesn't exist yet at job-creation time.
+      // Kept outside the promotion's correctness-critical path above: a failure
+      // here just means the next customer try-on of this item regenerates the
+      // drape once more, not a broken job.
+      if (row.merchantCatalogItemId) {
+        await db
+          .update(schema.merchantCatalogItems)
+          .set({ mannequinResultKey: outputKey })
+          .where(eq(schema.merchantCatalogItems.id, row.merchantCatalogItemId));
+      }
       continue;
     }
 

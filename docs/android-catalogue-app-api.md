@@ -390,6 +390,9 @@ where `MerchantCatalogItem` is:
   "actualPrice": 2499, "offerPrice": 1999,
   "r2Key": "string", "thumbnailKey": "string",
   "imageUrl": "https://... | null", "thumbnailUrl": "https://... | null",
+  "secondR2Key": "string | null", "secondThumbnailKey": "string | null",
+  "secondImageUrl": "https://... | null",
+  "mannequinResultUrl": "https://... | null",
   "sourceJobId": "uuid | null", "sourceKind": "uploaded" | "generated" | "imported",
   "flatSourceKey": "string | null",
   "isActive": true, "moderationStatus": "approved" | "rejected", "moderationNote": "string | null",
@@ -397,8 +400,15 @@ where `MerchantCatalogItem` is:
   "isDemo": false, "readOnly": false
 }
 ```
-(`imageUrl`/`thumbnailUrl` are 1-hour presigned GETs — re-fetch the list if
-they expire, don't cache them long-term.)
+(`imageUrl`/`thumbnailUrl`/`secondImageUrl`/`mannequinResultUrl` are all 1-hour
+presigned GETs — re-fetch the list if they expire, don't cache them long-term.)
+
+For a two-input (body+pallu, `secondR2Key` non-null) product, `mannequinResultUrl`
+starts `null` and is populated some time after the *first* customer try-on of
+that product completes (server-side caching of the generated drape image — no
+action needed from this app beyond re-fetching the list). When non-null, prefer
+it over `imageUrl`/`thumbnailUrl` for display — it's the actual draped/composited
+photo, a better product preview than the separate raw body+pallu shots.
 
 **`PATCH /v1/merchant/catalog/:id`** — any subset of `{ subcategoryId, label,
 sku, actualPrice, offerPrice, isActive, sortOrder }`, at least one required.
