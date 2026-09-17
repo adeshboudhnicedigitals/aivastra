@@ -50,6 +50,27 @@ export function buildCsp(nonce: string): string {
       'https://*.razorpay.com',
       'https://img.youtube.com', // Tutorials + Try-On demo video thumbnails
       ...(apiOrigin ? [apiOrigin] : []),
+      // Local cloudflared quick tunnel — lets an external API (PixVerse,
+      // Shopify) fetch/display presigned MinIO URLs during local testing,
+      // since 127.0.0.1 isn't reachable from outside this machine. The
+      // tunnel host is random per run, so this allow-lists the wildcard
+      // rather than one hardcoded hostname; dev-only, never shipped to prod.
+      ...(isDev ? ['https://*.trycloudflare.com'] : []),
+    ],
+    // Catalog-video (PixVerse) job results are .mp4 — <video src> falls under
+    // media-src, not img-src, and this directive was never added when that
+    // feature shipped, so it silently fell back to default-src 'self' and
+    // blocked every generated video regardless of environment. Same origin
+    // list as img-src's storage origins (no youtube/razorpay entries —
+    // nothing here plays video from those).
+    'media-src': [
+      "'self'",
+      'blob:',
+      'http://127.0.0.1:*',
+      'https://*.r2.cloudflarestorage.com',
+      'https://app.aivastra.com',
+      ...(apiOrigin ? [apiOrigin] : []),
+      ...(isDev ? ['https://*.trycloudflare.com'] : []),
     ],
     'font-src': ["'self'", 'data:'],
     'connect-src': [
@@ -70,6 +91,7 @@ export function buildCsp(nonce: string): string {
       ...(chatbotWsOrigin ? [chatbotWsOrigin] : []),
       ...(sentryOrigin ? [sentryOrigin] : []),
       ...(isDev ? ['ws://127.0.0.1:*', 'ws://localhost:*'] : []), // Next dev HMR websocket
+      ...(isDev ? ['https://*.trycloudflare.com'] : []), // local cloudflared quick tunnel — see img-src
     ],
     // youtube.com (not youtube-nocookie.com) — matches the embed URL host used
     // by both the Tutorials page and the Try-On demo video.

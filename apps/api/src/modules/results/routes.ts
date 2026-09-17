@@ -878,6 +878,16 @@ ${commonCss()}
   cursor: zoom-in; transition: transform 120ms ease, box-shadow 120ms ease;
 }
 .thumb:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+/* Video thumbnail (catalog-video output) — a play glyph over the poster
+   frame the browser draws from preload="metadata", so it doesn't read as a
+   plain still image. */
+.thumb-video::after {
+  content: ''; position: absolute; top: 50%; left: 50%; pointer-events: none;
+  transform: translate(-50%, -50%);
+  border-style: solid; border-width: 8px 0 8px 13px;
+  border-color: transparent transparent transparent #fff;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.6));
+}
 .thumb-placeholder {
   width: 100%; max-width: 110px; aspect-ratio: 3/4; border-radius: var(--r); border: 1px dashed var(--border);
   background: var(--surface-2); display: grid; place-items: center; color: var(--muted-2); font-size: 18px;
@@ -975,6 +985,7 @@ ${commonCss()}
 }
 .lightbox.active { display: flex; overflow: hidden; }
 .lightbox img { border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); user-select: none; -webkit-user-drag: none; }
+.lightbox video { max-width: 92vw; max-height: 92vh; border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); cursor: default; }
 .lightbox-close {
   position: absolute; top: 20px; right: 24px; color: #fff; font-size: 32px; line-height: 1;
   cursor: pointer; opacity: 0.8; transition: opacity 120ms ease; user-select: none;
@@ -1126,6 +1137,7 @@ ${commonCss()}
 <div class="lightbox" id="lightbox">
   <span class="lightbox-close" id="lightbox-close">&times;</span>
   <img id="lightbox-img" src="" alt="Preview" draggable="false" />
+  <video id="lightbox-video" controls playsinline style="display:none"></video>
 </div>
 
 <div class="toast-stack" id="toast-stack"></div>
@@ -1154,6 +1166,20 @@ function appJs(): string {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function(m) {
       return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m];
     });
+  }
+
+  // Catalog-video jobs' output is an .mp4 (see PIXVERSE_CUSTOM_VIDEO_PROMPT /
+  // apps/dispatcher's videoOutput key), unlike every other job's PNG/WebP
+  // output — the thumbnail grid and lightbox below both need to know which
+  // element to render, since an <img> can't display a video file.
+  function isVideoUrl(url) {
+    var path = String(url == null ? '' : url).split('?')[0].split('#')[0];
+    return /\.(mp4|webm|mov|m4v)$/i.test(path);
+  }
+  function extOf(url) {
+    var path = String(url == null ? '' : url).split('?')[0].split('#')[0];
+    var m = path.match(/\.([a-z0-9]+)$/i);
+    return m ? m[1] : 'jpg';
   }
 
   function toast(msg, kind) {
@@ -1362,7 +1388,7 @@ function appJs(): string {
           return function() { openResolveModal(jobId); };
         })(resolveBtns[rb].getAttribute('data-resolve-btn')));
       }
-      var thumbImgs = resultsBody.querySelectorAll('img.thumb[data-lb]');
+      var thumbImgs = resultsBody.querySelectorAll('.thumb[data-lb]');
       for (var ti = 0; ti < thumbImgs.length; ti++) {
         thumbImgs[ti].addEventListener('click', (function(url) {
           return function() { window.openLightbox(url); };
@@ -1399,11 +1425,15 @@ function appJs(): string {
 
   function renderThumb(url, label, tag, small) {
     if (!url) return '<div class="thumb-placeholder' + (small ? ' sm' : '') + '">—</div>';
+    var video = isVideoUrl(url);
+    var media = video
+      ? '<video class="thumb" src="' + esc(url) + '" muted playsinline preload="metadata" data-lb="' + esc(url) + '"></video>'
+      : '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" data-lb="' + esc(url) + '">';
     return '<div class="thumb-wrap">' +
-      '<div class="thumb-img' + (small ? ' sm' : '') + '">' +
+      '<div class="thumb-img' + (small ? ' sm' : '') + (video ? ' thumb-video' : '') + '">' +
         (tag ? '<span class="thumb-tag">' + esc(tag) + '</span>' : '') +
-        '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" data-lb="' + esc(url) + '">' +
-        '<a class="thumb-dl" href="' + esc(url) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.jpg" title="Download">' +
+        media +
+        '<a class="thumb-dl" href="' + esc(url) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.' + extOf(url) + '" title="Download">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>' +
         '</a>' +
       '</div>' +
@@ -1470,6 +1500,7 @@ function appJs(): string {
   // which is why this looks sharp up to the same point where opening the raw
   // URL in a new tab does, and not before.
   var lbImg = $('lightbox-img');
+  var lbVideo = $('lightbox-video');
   var lbScale = 1, lbX = 0, lbY = 0;
   var lbBaseW = 0, lbBaseH = 0;
   var LB_MAX_SCALE = 6; // same zoom range as before — resizing width/height (not transform) is what keeps it sharp
@@ -1502,6 +1533,21 @@ function appJs(): string {
   }
 
   window.openLightbox = function(url) {
+    if (isVideoUrl(url)) {
+      lbImg.style.display = 'none';
+      lbImg.src = '';
+      lbVideo.style.display = '';
+      lbVideo.src = url;
+      lbVideo.currentTime = 0;
+      lbVideo.play().catch(function() {}); // autoplay can be blocked; controls are still usable
+      $('lightbox').classList.add('active');
+      return;
+    }
+    lbVideo.pause();
+    lbVideo.removeAttribute('src');
+    lbVideo.load();
+    lbVideo.style.display = 'none';
+    lbImg.style.display = '';
     lbScale = 1; lbX = 0; lbY = 0; lbBaseW = 0; lbBaseH = 0;
     lbImg.style.width = '';
     lbImg.style.height = '';
@@ -1514,12 +1560,17 @@ function appJs(): string {
   };
   function closeLightbox() {
     $('lightbox').classList.remove('active');
+    lbVideo.pause();
     lbReset();
   }
   $('lightbox').addEventListener('click', function() {
     if (lbDragMoved) { lbDragMoved = false; return; }
     closeLightbox();
   });
+  // The image lightbox closes on any click inside it (see the listener above);
+  // a video's own controls (play/seek/volume) need normal clicks to work
+  // without dismissing the lightbox, so stop those from bubbling there.
+  lbVideo.addEventListener('click', function(e) { e.stopPropagation(); });
   $('lightbox-close').addEventListener('click', function(e) { e.stopPropagation(); closeLightbox(); });
   $('lightbox').addEventListener('wheel', function(e) {
     if (!$('lightbox').classList.contains('active')) return;
