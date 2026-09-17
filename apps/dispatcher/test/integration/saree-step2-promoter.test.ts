@@ -96,6 +96,128 @@ describe('promoteSareeStep2Jobs', () => {
     expect(streamLen).toBe(1);
   });
 
+  async function seedMerchantCatalogItem(userId: string) {
+    const [merchant] = await cfg.db
+      .insert(schema.merchants)
+      .values({
+        companyName: 'Test Co',
+        contactName: 'Test Contact',
+        phone: '0000000000',
+        businessAddress: 'Nowhere',
+        isActive: true,
+        userId,
+      })
+      .returning();
+    const [garmentType] = await cfg.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'women', slug: `saree-${Date.now()}`, label: 'Saree' })
+      .returning();
+    const [subcategory] = await cfg.db
+      .insert(schema.merchantCatalogSubcategories)
+      .values({
+        merchantId: merchant.id,
+        category: 'women',
+        name: 'Sarees',
+        garmentSubcategoryId: garmentType.id,
+      })
+      .returning();
+    const [item] = await cfg.db
+      .insert(schema.merchantCatalogItems)
+      .values({
+        merchantId: merchant.id,
+        subcategoryId: subcategory.id,
+        label: 'Two-Input Saree',
+        actualPricePaise: 200000,
+        offerPricePaise: 180000,
+        r2Key: `merchant-catalog/${merchant.id}/body.jpg`,
+        thumbnailKey: `merchant-catalog/${merchant.id}/thumb.jpg`,
+        secondR2Key: `merchant-catalog/${merchant.id}/pallu.jpg`,
+      })
+      .returning();
+    return item;
+  }
+
+  it('caches the mannequin output onto the merchant catalog item when the step-2 job carries a merchantCatalogItemId', async () => {
+    const userId = await seedUser();
+    const item = await seedMerchantCatalogItem(userId);
+    const [mannequinJob] = await cfg.db
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'COMPLETED',
+        source: 'saree_mannequin',
+        creditsCharged: 0,
+        queueStream: 'normal',
+      })
+      .returning();
+    const [step2Job] = await cfg.db
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'PENDING_MANNEQUIN',
+        source: 'merchant_tryon',
+        creditsCharged: 25,
+        queueStream: 'normal',
+      })
+      .returning();
+    await cfg.db.insert(schema.jobInputs).values({
+      jobId: step2Job.id,
+      upperGarmentKey: null,
+      params: { mannequinJobId: mannequinJob.id, merchantCatalogItemId: item.id },
+    });
+
+    await promoteSareeStep2Jobs(cfg);
+
+    const [updatedItem] = await cfg.db
+      .select()
+      .from(schema.merchantCatalogItems)
+      .where(eq(schema.merchantCatalogItems.id, item.id));
+    expect(updatedItem?.mannequinResultKey).toBe(keys.output(mannequinJob.id));
+  });
+
+  it('does not touch merchant_catalog_items when the step-2 job has no merchantCatalogItemId (merchant-catalog generation path)', async () => {
+    const userId = await seedUser();
+    const item = await seedMerchantCatalogItem(userId);
+    const [mannequinJob] = await cfg.db
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'COMPLETED',
+        source: 'saree_mannequin',
+        creditsCharged: 0,
+        queueStream: 'normal',
+      })
+      .returning();
+    const [step2Job] = await cfg.db
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'PENDING_MANNEQUIN',
+        source: 'merchant_catalog',
+        creditsCharged: 25,
+        queueStream: 'normal',
+      })
+      .returning();
+    await cfg.db.insert(schema.jobInputs).values({
+      jobId: step2Job.id,
+      upperGarmentKey: null,
+      params: { mannequinJobId: mannequinJob.id },
+    });
+
+    await promoteSareeStep2Jobs(cfg);
+
+    const [updatedJob] = await cfg.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, step2Job.id));
+    expect(updatedJob?.status).toBe('QUEUED');
+    const [untouchedItem] = await cfg.db
+      .select()
+      .from(schema.merchantCatalogItems)
+      .where(eq(schema.merchantCatalogItems.id, item.id));
+    expect(untouchedItem?.mannequinResultKey).toBeNull();
+  });
+
   it('refunds and fails a PENDING_MANNEQUIN job whose mannequin parent FAILED', async () => {
     const userId = await seedUser();
     await cfg.db.insert(schema.userCredits).values({ userId, balance: 100 });

@@ -53,7 +53,9 @@ class ProductCategoryItemAdapter(private val onClickEvent:(MerchantCatalogItem,I
             fun bindItem(itemData: MerchantCatalogItem) {
                 try {
                     Glide.with(binding.root.context)
-                        .load(itemData.thumbnailUrl ?: itemData.imageUrl)
+                        // Prefer the generated mannequin-drape image for a two-input (body+pallu)
+                        // product once it's been generated — a truer preview than the raw body shot.
+                        .load(itemData.mannequinResultUrl ?: itemData.thumbnailUrl ?: itemData.imageUrl)
                         .thumbnail(0.1f)                // shows preview immediately
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
                         .skipMemoryCache(false)

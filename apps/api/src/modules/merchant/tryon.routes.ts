@@ -183,6 +183,7 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
                   bodyKey: garment.bodyKey,
                   palluKey: garment.palluKey,
                   garmentSubcategoryId: garment.garmentSubcategoryId,
+                  merchantCatalogItemId,
                   mannequinWorkflowTemplateId: garment.mannequinWorkflowTemplateId,
                   mannequinWorkflowTemplateVersion: garment.mannequinWorkflowTemplateVersion,
                   tryonWorkflowTemplateId: garment.tryonWorkflowTemplateId,
