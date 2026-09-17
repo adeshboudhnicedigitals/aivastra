@@ -157,7 +157,9 @@ fun OutfitDetailPage(
                         )
                 ) {
                     SubcomposeAsyncImage(
-                        model = currentProduct.imageUrl ?: currentProduct.thumbnailUrl,
+                        model = currentProduct.mannequinResultUrl
+                            ?: currentProduct.imageUrl
+                            ?: currentProduct.thumbnailUrl,
                         contentDescription = currentProduct.label ?: "Selected outfit",
                         contentScale = ContentScale.FillBounds,
                         alignment = Alignment.Center,

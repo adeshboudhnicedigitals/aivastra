@@ -275,7 +275,9 @@ fun OutfitSelectionPage(
                             ) {
                                 items(uiState.visibleProducts, key = { it.id }) { product ->
                                     OutfitCard(
-                                        thumbnailUrl = product.thumbnailUrl ?: product.imageUrl,
+                                        thumbnailUrl = product.mannequinResultUrl
+                                            ?: product.thumbnailUrl
+                                            ?: product.imageUrl,
                                         contentDescription = product.label ?: "Outfit",
                                         accent = Color(0xFF9E7656),
                                         onClick = {
