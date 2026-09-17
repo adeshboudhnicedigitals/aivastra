@@ -357,6 +357,7 @@ export function ConfigPanel({
             }
           >
             <GradBtn
+              final
               disabled={generateDisabled || submitting || insufficientCredits}
               onClick={handleGenerate}
             >
