@@ -15,6 +15,9 @@ export const C = {
   lighter: 'var(--c-lighter)',
   field: 'var(--c-field)',
   mint: 'var(--c-mint)',
+  navbar: 'var(--c-navbar-bg)',
+  btnPrimary: 'var(--c-btn-primary-bg)',
+  toggleActive: 'var(--c-toggle-active)',
   /**
    * Error/invalid signal. Points at the same CSS variable the merchant token map
    * uses (`M.danger`), which globals.css already defines for both light and dark

@@ -180,7 +180,7 @@ export function Sidebar({
         width: fillWidth ? '100%' : SIDEBAR_WIDTH,
         minWidth: fillWidth ? 0 : SIDEBAR_WIDTH,
         height: '100vh',
-        background: '#080C18',
+        background: 'var(--c-side-nav)',
         display: 'flex',
         flexDirection: 'column',
         borderRight: '1px solid rgba(57, 61, 70, 0.4)',

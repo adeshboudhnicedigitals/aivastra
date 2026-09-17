@@ -1959,9 +1959,9 @@ export default function StudioPage(): React.ReactElement {
             style={{
               padding: '6px 14px',
               borderRadius: 999,
-              border: `1px solid ${mode === m ? C.pink : C.border}`,
-              background: mode === m ? C.pink : 'transparent',
-              color: mode === m ? C.white : C.text,
+              border: `1px solid ${mode === m ? C.toggleActive : C.border}`,
+              background: mode === m ? C.toggleActive : 'transparent',
+              color: mode === m ? C.onDark : C.text,
               cursor: 'pointer',
             }}
           >
@@ -5150,6 +5150,7 @@ export default function StudioPage(): React.ReactElement {
                 Cancel
               </button>
               <GradBtn
+                final
                 onClick={() => submitAmazonPose(amazonMainPoseId)}
                 disabled={!amazonMainPoseId || isSubmitting}
                 style={{ padding: '10px 28px', gap: 8 }}

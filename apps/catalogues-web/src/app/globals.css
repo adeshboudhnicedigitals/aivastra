@@ -26,6 +26,13 @@
   --c-field: #f9f9f9;
   --c-mint: #209e46;
   --c-grad-subtle: linear-gradient(135deg, rgba(245, 92, 122, 0.15), rgba(246, 181, 83, 0.15));
+  /* Sidebar is always-navy regardless of theme; navbar only adopts it in dark mode (see html.dark) */
+  --c-side-nav: #131524;
+  --c-navbar-bg: var(--c-white);
+  /* Default GradBtn fill; job-submission buttons pass `final` to stay on the fixed
+     pink->orange `grad` gradient in every theme instead of this token. */
+  --c-btn-primary-bg: linear-gradient(91.84deg, #521d9c 0.33%, #bd2587 50.77%, #f96657 99.67%);
+  --c-toggle-active: var(--c-pink);
 
   /* Merchant portal tokens */
   --c-merchant-bg: #f7f8fa;
@@ -73,18 +80,22 @@ html.dark {
   color-scheme: dark;
   --icon-invert: invert(1);
   --icon-invert-light: none;
-  --c-bg: #111111;
-  --c-card: #1c1c1c;
-  --c-white: #1c1c1c;
-  --c-surface-text: #f0f0f0;
-  --c-border: #2a2a2a;
-  --c-border2: #313131;
-  --c-text: #f0f0f0;
-  --c-mid: #a0a0a0;
-  --c-light: #6a6a6a;
-  --c-lighter: #2a2a2a;
-  --c-field: #242424;
+  /* Neutrals pinned to the BLACK scale in /color-pallet.txt (Figma source of truth) */
+  --c-bg: #0f1017;
+  --c-card: #1a1d2e;
+  --c-white: #1a1d2e;
+  --c-surface-text: #e9e9e9; /* black-50 */
+  --c-border: #4c4c4f; /* black-400 */
+  --c-border2: #69696c; /* black-300 */
+  --c-text: #e9e9e9; /* black-50 */
+  --c-mid: #bababb; /* black-100 */
+  --c-light: #98989a; /* black-200 */
+  --c-lighter: #4c4c4f; /* black-400 */
+  --c-field: #1f1f23; /* black-500 */
   --c-mint: #2ecc57;
+  --c-navbar-bg: var(--c-side-nav);
+  --c-btn-primary-bg: #5128b3;
+  --c-toggle-active: #5128b3;
   --c-grad-subtle: linear-gradient(135deg, rgba(245, 92, 122, 0.2), rgba(246, 181, 83, 0.2));
 
   /* Merchant portal dark tokens */
