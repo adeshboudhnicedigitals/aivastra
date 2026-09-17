@@ -8,8 +8,8 @@ export function GET() {
     start_url: `${BASE}/tryon-library-app`,
     scope: `${BASE}/tryon-library-app`,
     display: 'standalone',
-    background_color: '#080C18',
-    theme_color: '#080C18',
+    background_color: '#131524',
+    theme_color: '#131524',
     icons: [
       { src: `${BASE}/tryon-library-app-icon-192.png`, sizes: '192x192', type: 'image/png' },
       { src: `${BASE}/tryon-library-app-icon-512.png`, sizes: '512x512', type: 'image/png' },

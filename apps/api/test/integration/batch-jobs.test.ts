@@ -298,6 +298,53 @@ describe('POST /v1/jobs/batch', () => {
     expect(jobRows).toHaveLength(0);
   });
 
+  it("rejects a batch row carrying lowerGarmentKey for a requiresLowerUpload garment type when the row's pose has no lowerNodeId — createBatchJobs shares resolveTryonPlan's guardrail with the dev API", async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('batch-lower-guardrail@x.com');
+    await grantCredits(userId, 1000);
+    const cat = await seedCatalog();
+    // cat.poseAId carries no workflow_template_id at all (seedCatalog leaves it
+    // null), so it resolves to no lowerNodeId — same shape as a real
+    // misconfigured sherwani-pyjama pose.
+    const [compositeGarmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        label: 'Kurta Pyjama',
+        slug: `kurta-pyjama-${Date.now()}`,
+        genderSlug: 'men',
+        requiresLowerUpload: true,
+      })
+      .returning();
+    const g = await uploadKey(userId, '77777777-7777-4777-8777-777777777777');
+    const lower = await uploadKey(userId, '88888888-8888-4888-8888-888888888888');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/batch',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId: compositeGarmentType.id,
+        aspectRatio: '1:1',
+        resolution: '2K',
+        rows: [
+          {
+            upperGarmentKey: g,
+            lowerGarmentKey: lower,
+            faceId: cat.faceId,
+            backgroundId: cat.bgId,
+            poseIds: [cat.poseAId],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode, res.payload).toBe(400);
+    expect(res.payload).toContain('lower garment node');
+
+    const jobRows = await app.db.select().from(schema.jobs).where(eq(schema.jobs.userId, userId));
+    expect(jobRows).toHaveLength(0);
+  });
+
   it('rolls back the whole batch — no jobs, no credit deduction — when credits run out mid-batch', async () => {
     await seedCreditPlan();
     const { token, userId } = await registerUser('batch-rollback@x.com');

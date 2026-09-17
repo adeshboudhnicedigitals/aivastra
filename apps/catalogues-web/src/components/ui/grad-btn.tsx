@@ -6,6 +6,7 @@ export function GradBtn({
   onClick,
   style = {},
   outline = false,
+  final = false,
   disabled = false,
   type = 'button',
   className,
@@ -17,6 +18,11 @@ export function GradBtn({
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   style?: React.CSSProperties;
   outline?: boolean;
+  // Job-submission buttons (the actual "Generate"/"Create Try-On" action) stay on
+  // the fixed `grad` gradient in every theme; every other filled GradBtn instead
+  // uses C.btnPrimary, which is that same gradient in light mode but flattens to a
+  // solid violet in dark mode.
+  final?: boolean;
   disabled?: boolean;
   type?: 'button' | 'submit';
   className?: string;
@@ -40,7 +46,7 @@ export function GradBtn({
         fontWeight: 600,
         fontSize: 14,
         whiteSpace: 'nowrap',
-        background: outline ? C.white : grad,
+        background: outline ? C.white : final ? grad : C.btnPrimary,
         // C.white doubles as a theme-aware surface color (it's repurposed to a
         // dark card background under html.dark — see globals.css), so it's
         // wrong for text sitting on the fixed pink/purple gradient. C.onDark
