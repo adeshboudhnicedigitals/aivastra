@@ -1,0 +1,1 @@
+ALTER TABLE "merchant_catalog_items" ADD COLUMN "mannequin_result_key" text;

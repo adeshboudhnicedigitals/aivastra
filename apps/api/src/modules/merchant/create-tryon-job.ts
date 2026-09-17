@@ -75,6 +75,7 @@ interface CreateMerchantTryonJobTwoStepInput {
   bodyKey: string;
   palluKey: string;
   garmentSubcategoryId: string;
+  merchantCatalogItemId: string;
   mannequinWorkflowTemplateId: string;
   mannequinWorkflowTemplateVersion?: number | null;
   tryonWorkflowTemplateId: string;
@@ -92,6 +93,10 @@ interface CreateMerchantTryonJobTwoStepInput {
  * running, unmodified — it keys off status/params.mannequinJobId with no
  * source-specific branching) promotes the tryon job to QUEUED once the
  * mannequin job completes, patching its upperGarmentKey to the drape's output.
+ * `merchantCatalogItemId` in step-2's params is what lets that same promoter
+ * also cache the drape's output key onto merchantCatalogItems.mannequinResultKey,
+ * so resolveTryonGarment can skip this whole two-step dance on every later
+ * try-on of the same catalog item.
  */
 export async function createMerchantTryonJobTwoStep(
   app: FastifyInstance,
@@ -146,6 +151,7 @@ export async function createMerchantTryonJobTwoStep(
         workflowTemplateId: input.tryonWorkflowTemplateId,
         dispatchTemplateVersion: input.tryonWorkflowTemplateVersion ?? null,
         mannequinJobId,
+        merchantCatalogItemId: input.merchantCatalogItemId,
       },
     });
 
