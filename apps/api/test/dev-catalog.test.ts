@@ -456,6 +456,30 @@ describe('POST /v1/dev/catalog/generate', () => {
       expect(inputs?.garmentTypeId).toBe(compositeGarmentTypeId);
     });
 
+    it('rejects a requiresLowerUpload garmentType with 400 when the chosen pose has no lowerNodeId, instead of silently dropping the upload', async () => {
+      // front-standing uses `wf`, which has no lowerNodeId — a real-world stand-in
+      // for a composite garment type (e.g. sherwani-pyjama) whose exposed poses
+      // were never wired to a lower-capable workflow. Before the guardrail this
+      // would 202, charge credits, and store job_inputs.lowerGarmentKey = null.
+      await setCredits(1000);
+      const res = await postGenerate(
+        generateBody({
+          garmentType: 'kurta-pyjama-test',
+          looks: [{ pose: 'front-standing', background: 'studio-white' }],
+          lowerGarment: jpegBytes().toString('base64'),
+        }),
+      );
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(body.error.message).toContain('lower garment node');
+
+      const [credits] = await app.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, userId));
+      expect(credits.balance).toBe(1000);
+    });
+
     it('accepts lowerGarment via multipart/form-data alongside garment', async () => {
       await setCredits(1000);
       const fd = new FormData();
