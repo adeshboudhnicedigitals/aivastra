@@ -34,7 +34,16 @@ const Env = z.object({
   PIXVERSE_API_KEY: z.string().optional(),
   PIXVERSE_API_BASE_URL: z.string().url().default('https://app-api.pixverse.ai'),
   PIXVERSE_POLL_INTERVAL_MS: z.coerce.number().default(5_000),
-  PIXVERSE_POLL_TIMEOUT_MS: z.coerce.number().default(180_000),
+  // Deliberately generous, not tuned to any observed generation time — we don't
+  // have enough data yet on how long PixVerse actually takes across quality/
+  // duration tiers, and cutting a poll short bills real PixVerse credits for a
+  // video that finishes seconds later and gets thrown away (this happened at
+  // the old 180_000/3min default: 1080p/15s took 3m24s–3m30s, so every such job
+  // paid PixVerse twice for nothing). This is a safety net, not a target — it
+  // exists so a PixVerse task that never resolves at all (stuck on their side)
+  // eventually frees its VIDEO_CONCURRENCY slot and refunds our own credits,
+  // instead of blocking every other queued video job behind it forever.
+  PIXVERSE_POLL_TIMEOUT_MS: z.coerce.number().default(1_800_000),
   /** In-flight cap for the PixVerse video lane (jobs:video). Independent of the GPU
    *  worker registry — catalog-video jobs never touch ComfyUI. Should match the
    *  concurrency limit of the PixVerse plan. Restart the dispatcher to change it. */
