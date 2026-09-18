@@ -31,10 +31,18 @@ describe('jobs-create', () => {
     if (realHeadObject) app.storage.headObject = realHeadObject;
   });
 
+  // This file's registerUser count has grown past the /v1/auth/login route's
+  // 5-per-minute limit (fastify-rate-limit buckets by IP, shared across every
+  // test in the file since they all run against one app instance) — a distinct
+  // RFC 5737 TEST-NET-1 address per call keeps each registerUser in its own
+  // bucket, same fix as contact.test.ts.
+  let registerUserIpCounter = 0;
   async function registerUser(email: string) {
+    const remoteAddress = `192.0.2.${++registerUserIpCounter}`;
     await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
+      remoteAddress,
       payload: { displayName: 'Jobs Create User', email, password: 'password123' },
     });
     const [user] = await app.db
@@ -49,6 +57,7 @@ describe('jobs-create', () => {
     const login = await app.inject({
       method: 'POST',
       url: '/v1/auth/login',
+      remoteAddress,
       payload: { email, password: 'password123' },
     });
     return {
@@ -274,5 +283,109 @@ describe('jobs-create', () => {
       payload: body,
     });
     expect(res.statusCode).toBe(402);
+  });
+
+  it('rejects a job requesting a disabled resolution tier', async () => {
+    await seedCreditPlan('free');
+    const { token, userId } = await registerUser('disabled-tier@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, backgroundId, poseId } = await seedFaceAndLook('dt');
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    // HD is disabled by default (DEFAULT_RESOLUTION_CONFIG.HD.enabled = false) —
+    // no config:system override needed to exercise this.
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: { upperGarmentKey: garmentKey, faceId, looks: [{ poseId, backgroundId }] },
+        aspectRatio: '1:1',
+        resolution: 'HD',
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    // Error envelope is { error: { code, message } } (see server.ts's
+    // setErrorHandler AppError branch), not a top-level `code`.
+    expect(res.json().error.code).toBe('BAD_RESOLUTION');
+  });
+
+  it("computes output dims from the requested tier's longEdgePx via the aspect ratio formula", async () => {
+    await seedCreditPlan('free');
+    const { token, userId } = await registerUser('tier-dims@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, backgroundId, poseId } = await seedFaceAndLook('td');
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    // 2:3 is portrait (h > w) — long edge (4096, 4K's default) lands on height.
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: { upperGarmentKey: garmentKey, faceId, looks: [{ poseId, backgroundId }] },
+        aspectRatio: '2:3',
+        resolution: '4K',
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobIds } = res.json();
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobIds[0]));
+    expect(inputs?.params).toMatchObject({
+      outputWidth: 2731,
+      outputHeight: 4096,
+      resolution: '4K',
+    });
+  });
+
+  it("clamps custom output dims to the SELECTED tier's longEdgePx, not a fixed global ceiling", async () => {
+    await seedCreditPlan('free');
+    const { token, userId } = await registerUser('tier-clamp@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, backgroundId, poseId } = await seedFaceAndLook('tc');
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const bodyFor = (resolution: 'HD' | '2K' | '4K') => ({
+      inputs: { upperGarmentKey: garmentKey, faceId, looks: [{ poseId, backgroundId }] },
+      aspectRatio: '1:1',
+      resolution,
+      params: { outputWidth: 4000, outputHeight: 4000 },
+    });
+
+    // 2K's default longEdgePx (2688) is below the requested 4000 — clamped down.
+    const res2k = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: bodyFor('2K'),
+    });
+    expect(res2k.statusCode).toBe(201);
+    const [inputs2k] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, res2k.json().jobIds[0]));
+    expect(inputs2k?.params).toMatchObject({ outputWidth: 2688, outputHeight: 2688 });
+
+    // Same requested 4000x4000, but 4K's default longEdgePx (4096) is above it —
+    // not clamped at all, proving the ceiling tracks the selected tier, not a
+    // single global number.
+    const res4k = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: bodyFor('4K'),
+    });
+    expect(res4k.statusCode).toBe(201);
+    const [inputs4k] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, res4k.json().jobIds[0]));
+    expect(inputs4k?.params).toMatchObject({ outputWidth: 4000, outputHeight: 4000 });
   });
 });

@@ -112,6 +112,11 @@ export const ConfirmCatalogItemBody = z.object({
 const ResolutionConfig = z.object({
   enabled: z.boolean(),
   creditCost: z.number().int().positive().max(1_000),
+  // Long edge, in px, for this resolution tier — the short edge is derived
+  // from the requested aspect ratio via computeOutputDims(). Replaces the old
+  // single platform-wide maxOutputPx + per-ratio aspectDimensions table: an
+  // admin now configures exactly one number per tier.
+  longEdgePx: z.number().int().min(512).max(4096),
 });
 
 export const SystemConfigBody = z.object({
@@ -122,10 +127,6 @@ export const SystemConfigBody = z.object({
       '4K': ResolutionConfig.optional(),
     })
     .optional(),
-  // Platform-wide ceiling on requested output long edge (px). Not per-workflow —
-  // final image resolution is a product/pricing decision, unlike latentMaxPx
-  // (per-template, VRAM-bound diffusion canvas size).
-  maxOutputPx: z.number().int().min(512).max(4096).optional(),
   // Ceiling on jobs per Studio batch submission (createBatch.ts) — same number
   // GET /v1/catalogues?batchId uses to size its row cap, so the two stay in sync.
   maxBatchJobs: z.number().int().min(1).max(2000).optional(),
@@ -149,20 +150,10 @@ export const SystemConfigBody = z.object({
     )
     .optional(),
   merchantCatalogAspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).optional(),
-  // Admin-configurable canonical output pixel dimensions per aspect ratio (resize an
-  // existing ratio's long edge without a code deploy — see mergeAspectDimensions in
-  // apps/api/src/lib/resolution-config.ts). Only these 4 keys are recognized; they
-  // must stay in sync with ASPECT_DIMENSIONS in packages/types/src/jobs.ts, since
-  // that's what a value here overrides.
-  aspectDimensions: z
-    .record(
-      z.enum(['1:1', '2:3', '3:4', '4:5']),
-      z.object({
-        width: z.number().int().min(256).max(4096),
-        height: z.number().int().min(256).max(4096),
-      }),
-    )
-    .optional(),
+  // The resolution tier used by the merchant-catalog auto-generation path, which
+  // (unlike Studio) has no per-job tier picker — one admin-fixed default for the
+  // whole path, same pattern as merchantCatalogAspectRatio above.
+  merchantCatalogResolution: z.enum(['HD', '2K', '4K']).optional(),
   tryon: z
     .object({
       creditCost: z.number().int().positive().max(1_000),

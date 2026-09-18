@@ -11,14 +11,13 @@ import {
 import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
-  DEFAULT_MAX_OUTPUT_PX,
+  DEFAULT_MERCHANT_CATALOG_RESOLUTION,
   DEFAULT_PIXVERSE_VIDEO_PRICING,
   DEFAULT_RESOLUTION_CONFIG,
   DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG,
   DEFAULT_SELLER_CONFIG,
   DEFAULT_SHOPIFY_TRIAL_CONFIG,
   DEFAULT_TRYON_CONFIG,
-  mergeAspectDimensions,
 } from '../../lib/resolution-config.js';
 import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
 import { CREDIT_PACKS } from '../shopify/packs.js';
@@ -34,16 +33,35 @@ export async function resolveAppVideoUrl(app: FastifyInstance): Promise<string |
   return cfg ? await appVideoUrl(app, cfg.key) : null;
 }
 
+// A stored tier can predate the longEdgePx field (it was added to
+// SystemConfigBody after resolutions already existed in Redis for some
+// deployments), so `cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG` isn't
+// enough — that only fires when `resolutions` is missing entirely, not when
+// an individual tier is missing just this one field. Fill per-field, the
+// same reasoning getResolutionTierConfig (lib/resolution-config.ts) already
+// applies for the job-creation path.
+function fillResolutionDefaults(
+  stored: Record<string, unknown> | undefined,
+): typeof DEFAULT_RESOLUTION_CONFIG {
+  const s = stored ?? {};
+  const fill = (tier: 'HD' | '2K' | '4K') => {
+    const t = (s[tier] ?? {}) as Record<string, unknown>;
+    const d = DEFAULT_RESOLUTION_CONFIG[tier];
+    return {
+      enabled: typeof t.enabled === 'boolean' ? t.enabled : d.enabled,
+      creditCost: typeof t.creditCost === 'number' ? t.creditCost : d.creditCost,
+      longEdgePx: typeof t.longEdgePx === 'number' ? t.longEdgePx : d.longEdgePx,
+    };
+  };
+  return { HD: fill('HD'), '2K': fill('2K'), '4K': fill('4K') };
+}
+
 export async function adminConfigRoutes(app: FastifyInstance) {
-  // Public — used by the web pricing page and studio custom-resolution input (no auth required)
+  // Public — used by Studio's resolution picker (no auth required)
   app.get('/v1/config/resolutions', async () => {
     const raw = await app.redis.get(KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    return {
-      resolutions: cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG,
-      maxOutputPx: cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX,
-      aspectDimensions: mergeAspectDimensions(cfg.aspectDimensions),
-    };
+    return { resolutions: fillResolutionDefaults(cfg.resolutions) };
   });
 
   // Public — used by the login/register pages so the advertised signup bonus
@@ -60,9 +78,9 @@ export async function adminConfigRoutes(app: FastifyInstance) {
   app.get('/admin/config', { preHandler: requirePermission('config.read') }, async () => {
     const raw = await app.redis.get(KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
-    cfg.maxOutputPx = cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX;
-    cfg.aspectDimensions = mergeAspectDimensions(cfg.aspectDimensions);
+    cfg.resolutions = fillResolutionDefaults(cfg.resolutions);
+    cfg.merchantCatalogResolution =
+      cfg.merchantCatalogResolution ?? DEFAULT_MERCHANT_CATALOG_RESOLUTION;
     cfg.maxBatchJobs = cfg.maxBatchJobs ?? DEFAULT_MAX_BATCH_JOBS;
     cfg.maxQueueDepth = cfg.maxQueueDepth ?? DEFAULT_MAX_QUEUE_DEPTH;
     cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
@@ -106,17 +124,18 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
       const body = req.body as Record<string, unknown>;
       const next = { ...cur, ...body };
-      // aspectDimensions is a nested per-ratio record — a submitted body may
-      // legitimately carry only the ratios the admin actually edited (see
-      // mergeAspectDimensions's doc comment), so it must be merged key-wise
-      // over the previously stored value rather than replaced wholesale, or
-      // every ratio missing from this PATCH would silently revert to default.
-      if (body.aspectDimensions) {
-        next.aspectDimensions = {
-          ...mergeAspectDimensions(
-            cur.aspectDimensions as Record<string, { width: number; height: number }> | undefined,
-          ),
-          ...(body.aspectDimensions as Record<string, { width: number; height: number }>),
+      // resolutions' HD/2K/4K keys are each independently optional in
+      // SystemConfigBody, so a schema-valid PATCH may legitimately include
+      // only some tiers. Merge per-tier instead of letting the top-level
+      // spread above wholesale-replace `resolutions` and silently drop the
+      // tiers the caller didn't send.
+      if (body.resolutions) {
+        const curResolutions = (cur.resolutions ?? {}) as Record<string, unknown>;
+        const bodyResolutions = body.resolutions as Record<string, unknown>;
+        next.resolutions = {
+          HD: bodyResolutions.HD ?? curResolutions.HD ?? DEFAULT_RESOLUTION_CONFIG.HD,
+          '2K': bodyResolutions['2K'] ?? curResolutions['2K'] ?? DEFAULT_RESOLUTION_CONFIG['2K'],
+          '4K': bodyResolutions['4K'] ?? curResolutions['4K'] ?? DEFAULT_RESOLUTION_CONFIG['4K'],
         };
       }
       // System config lives in Redis, not Postgres, so there's no row for a

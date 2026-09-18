@@ -1,6 +1,5 @@
 import type { DB, schema } from '@aivastra/db';
 import { ASPECT_DIMENSIONS } from '@aivastra/types';
-import { resizeToMax } from './resize-to-max.js';
 import { resolveWorkflowTemplateVersion } from './resolve-template-version.js';
 
 type WorkflowNode = { inputs: Record<string, unknown>; class_type: string; _meta?: unknown };
@@ -161,8 +160,9 @@ export function applyWorkflowPatch(
   if (!customDims && enumDims) {
     // Every current job-creation path snapshots outputWidth/outputHeight before
     // enqueue, so this fallback firing means an older/unresolved job reached the
-    // dispatcher — it renders at the hardcoded ASPECT_DIMENSIONS default, silently
-    // ignoring any admin override set via PATCH /admin/config aspectDimensions
+    // dispatcher — it renders at the hardcoded ASPECT_DIMENSIONS default (see
+    // ASPECT_DIMENSIONS in packages/types/src/jobs.ts), silently ignoring
+    // whatever longEdgePx an admin has configured for the job's resolution tier
     // (the dispatcher has no route to that live config). Logged so a mismatch
     // between expected and actual output size is traceable, not just mysterious.
     log?.warn(
@@ -172,23 +172,19 @@ export function applyWorkflowPatch(
   }
   const outputDims = customDims ?? enumDims;
 
-  // Dual-size-group templates. Latent group (max-width/max-height) is derived from the
-  // raw aspect numbers via resizeToMax, capped at latentMaxPx — this is the diffusion
-  // canvas size and doesn't need to match any fixed enum value. Output group (result-width/
-  // result-height) uses the resolved outputDims directly — the max-output-resolution ceiling
-  // is a product/pricing decision enforced once, globally, by the API before enqueue
-  // (see getMaxOutputPx in apps/api), not a per-template technical constraint like latentMaxPx.
+  // Dual-size-group templates. Both latent group (max-width/max-height) and output
+  // group (result-width/result-height) receive the same resolved outputDims — the two
+  // node groups exist for the workflow's own internal graph wiring, not because the
+  // diffusion canvas is meant to render at a different size than what's delivered.
+  // latentMaxPx is still stored per template (admin-editable) but is not read here.
   const latentSizeNodeIds = tmpl.latentSizeNodeIds ?? [];
   const outputSizeNodeIds = tmpl.outputSizeNodeIds ?? [];
   if (outputDims && (latentSizeNodeIds.length === 2 || outputSizeNodeIds.length === 2)) {
-    // Latent: scale so the long edge = latentMaxPx, preserving aspect
-    const latentMax = tmpl.latentMaxPx ?? 2048;
-    const latentDims = resizeToMax(outputDims.width, outputDims.height, latentMax);
     const [lwId, lhId] = latentSizeNodeIds;
     const lwNode = lwId ? workflow[lwId] : undefined;
     const lhNode = lhId ? workflow[lhId] : undefined;
-    if (lwNode) lwNode.inputs.value = latentDims.width;
-    if (lhNode) lhNode.inputs.value = latentDims.height;
+    if (lwNode) lwNode.inputs.value = outputDims.width;
+    if (lhNode) lhNode.inputs.value = outputDims.height;
 
     if (outputSizeNodeIds.length === 2) {
       const [widthId, heightId] = outputSizeNodeIds;
