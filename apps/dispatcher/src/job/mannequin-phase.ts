@@ -114,6 +114,7 @@ export async function runMannequinPhase(
         workflowTemplateId: mannequinWorkflowTemplateId,
         phase: 'mannequin',
         inputs: { garmentKey, personKey, personFile, garmentFile },
+        prompt: workflow,
       },
     });
     await waitForCompletion(
