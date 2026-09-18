@@ -1,5 +1,6 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, Play } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,6 +24,8 @@ import { TopBar } from '@/components/topbar';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { PremiumDateRangePicker } from '@/components/ui/premium-date-range';
 import { Tooltip } from '@/components/ui/tooltip';
+import type { CatalogVideoItem } from '@/hooks/use-catalog-videos';
+import { PENDING_STATUSES, useCatalogVideos } from '@/hooks/use-catalog-videos';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 import { downloadErrorMessage } from '@/lib/errors';
@@ -45,6 +48,11 @@ interface Catalogue {
   coverUrl: string | null;
   coverThumbUrl: string | null;
 }
+
+// A single tile in the merged "recently generated" feed — an image catalogue
+// or a Motion Studio video, tagged by kind so the grid can render + group
+// them side by side sorted by createdAt, rather than as two separate lists.
+type FeedItem = { kind: 'image'; data: Catalogue } | { kind: 'video'; data: CatalogVideoItem };
 
 // ─── constants (outside component — stable references) ────────────────────────
 
@@ -93,6 +101,12 @@ function catalogueStatus(jobs: JobSummary[]): { label: string; color: string } {
   const hasActive = jobs.some((j) => !TERMINAL.includes(j.status));
   if (hasActive) return { label: 'In Progress', color: 'var(--c-amber)' };
   return { label: 'Partial', color: 'var(--c-amber)' };
+}
+
+function videoStatus(status: string): { label: string; color: string } {
+  if (status === 'COMPLETED') return { label: 'Ready', color: 'var(--c-mint)' };
+  if (status === 'FAILED') return { label: 'Failed', color: 'var(--c-pink)' };
+  return { label: 'Generating', color: 'var(--c-amber)' };
 }
 
 // ─── catalogue cover ──────────────────────────────────────────────────────────
@@ -153,15 +167,15 @@ function Cover({
 
 // ─── date grouping ────────────────────────────────────────────────────────────
 
-function groupByDate(items: Catalogue[]): Record<string, Catalogue[]> {
-  return items.reduce<Record<string, Catalogue[]>>((acc, cat) => {
-    const label = new Date(cat.createdAt).toLocaleDateString('en-IN', {
+function groupByDate<T>(items: T[], getCreatedAt: (item: T) => string): Record<string, T[]> {
+  return items.reduce<Record<string, T[]>>((acc, item) => {
+    const label = new Date(getCreatedAt(item)).toLocaleDateString('en-IN', {
       day: 'numeric',
       month: 'long',
       year: 'numeric',
     });
     if (!acc[label]) acc[label] = [];
-    acc[label].push(cat);
+    acc[label].push(item);
     return acc;
   }, {});
 }
@@ -202,6 +216,10 @@ function CataloguesPageInner(): React.ReactElement {
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
+  // video lightbox — videos aren't part of the bulk-select/download flow above
+  // (no jobs/catalogueId), so a click just plays them in place instead.
+  const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
+
   // download state
   const [downloading, setDownloading] = useState(false);
   const [zipProgress, setZipProgress] = useState<number | null>(null);
@@ -228,6 +246,19 @@ function CataloguesPageInner(): React.ReactElement {
     // Long-interval fallback in case SSE drops. Real-time updates come from useJobStream below.
     refetchInterval: 5 * 60 * 1000,
   });
+
+  // Same '/v1/me' call the sidebar makes for its own catalogVideoOnly nav item —
+  // dedupes under the shared 'me' key. Default to hidden until confirmed so the
+  // Motion Studio history section never flashes for an account that doesn't
+  // have the feature (the endpoint it's backed by, GET /v1/catalog-videos,
+  // 403s for those accounts).
+  const { data: me } = useQuery<{ catalogVideoEnabled?: boolean }>({
+    queryKey: ['me'],
+    queryFn: () => api.get('/v1/me'),
+    retry: false,
+  });
+  const catalogVideoEnabled = me?.catalogVideoEnabled ?? false;
+  const { data: catalogVideoItems } = useCatalogVideos({ enabled: catalogVideoEnabled });
 
   const searchParams = useSearchParams();
   const batchId = searchParams.get('batch');
@@ -373,24 +404,12 @@ function CataloguesPageInner(): React.ReactElement {
     return ['All Platforms', ...Array.from(seen).sort()];
   }, [catalogueSource]);
 
-  const filtered = useMemo(() => {
-    return catalogueSource.filter((c) => {
-      if (!c.catalogueId.toLowerCase().includes(search.toLowerCase())) return false;
-
-      if (genderFilter !== 'All Segments') {
-        const expected = GENDER_MAP[genderFilter];
-        if (c.genderSlug !== expected) return false;
-      }
-
-      if (platformFilter !== 'All Platforms') {
-        if ((c.platform ?? 'Other') !== platformFilter) return false;
-      }
-
-      if (garmentTypeFilter !== 'All Garment Types') {
-        if (c.garmentType !== garmentTypeFilter) return false;
-      }
-
-      const created = new Date(c.createdAt);
+  // Shared by both catalogues and videos below — date is the one filter axis
+  // that makes sense for both (gender/platform/garment-type are catalogue-only
+  // metadata a video doesn't have).
+  const matchesDate = useCallback(
+    (createdAt: string) => {
+      const created = new Date(createdAt);
       const now = new Date();
 
       if (dateFilter === 'Today') {
@@ -429,17 +448,39 @@ function CataloguesPageInner(): React.ReactElement {
       }
 
       return true;
+    },
+    [dateFilter, customFrom, customTo],
+  );
+
+  const filtered = useMemo(() => {
+    return catalogueSource.filter((c) => {
+      if (!c.catalogueId.toLowerCase().includes(search.toLowerCase())) return false;
+
+      if (genderFilter !== 'All Segments') {
+        const expected = GENDER_MAP[genderFilter];
+        if (c.genderSlug !== expected) return false;
+      }
+
+      if (platformFilter !== 'All Platforms') {
+        if ((c.platform ?? 'Other') !== platformFilter) return false;
+      }
+
+      if (garmentTypeFilter !== 'All Garment Types') {
+        if (c.garmentType !== garmentTypeFilter) return false;
+      }
+
+      return matchesDate(c.createdAt);
     });
-  }, [
-    catalogueSource,
-    search,
-    genderFilter,
-    platformFilter,
-    garmentTypeFilter,
-    dateFilter,
-    customFrom,
-    customTo,
-  ]);
+  }, [catalogueSource, search, genderFilter, platformFilter, garmentTypeFilter, matchesDate]);
+
+  // Videos skip the search/gender/platform/garment-type filters above (none of
+  // that metadata applies to a video) but still respect the date filter, since
+  // "recently generated" is meant to cover both.
+  const filteredVideoItems = useMemo(
+    () =>
+      catalogVideoEnabled ? (catalogVideoItems ?? []).filter((v) => matchesDate(v.createdAt)) : [],
+    [catalogVideoEnabled, catalogVideoItems, matchesDate],
+  );
 
   // downloadable = selected catalogues that have at least one COMPLETED job
   const downloadableCatalogues = useMemo(
@@ -457,7 +498,19 @@ function CataloguesPageInner(): React.ReactElement {
   const someVisibleSelected = filtered.some((c) => selected.has(c.catalogueId));
   const isPartial = someVisibleSelected && !allVisibleSelected;
 
-  const groups = groupByDate(filtered);
+  // Merged "recently generated" feed — images and videos interleaved by
+  // createdAt (newest first), then grouped by day. groupByDate relies on the
+  // input already being sorted so date groups themselves come out newest first.
+  const feedItems = useMemo<FeedItem[]>(() => {
+    const images: FeedItem[] = filtered.map((data) => ({ kind: 'image', data }));
+    const videos: FeedItem[] = filteredVideoItems.map((data) => ({ kind: 'video', data }));
+    return [...images, ...videos].sort(
+      (a, b) => new Date(b.data.createdAt).getTime() - new Date(a.data.createdAt).getTime(),
+    );
+  }, [filtered, filteredVideoItems]);
+
+  const groups = groupByDate(feedItems, (item) => item.data.createdAt);
+  const playingVideo = filteredVideoItems.find((v) => v.id === playingVideoId) ?? null;
 
   // ── sync refs ────────────────────────────────────────────────────────────────
 
@@ -875,7 +928,7 @@ function CataloguesPageInner(): React.ReactElement {
         }
       `}</style>
       <TopBar
-        title="Catalogs"
+        title="My Creations"
         subtitle="View, manage, and download your previously generated catalog images."
         right={undefined}
       />
@@ -1556,7 +1609,7 @@ function CataloguesPageInner(): React.ReactElement {
             </div>
           )}
 
-          {!isLoading && !batchPending && filtered.length === 0 && (
+          {!isLoading && !batchPending && feedItems.length === 0 && (
             <div style={{ textAlign: 'center', padding: '64px 24px', color: C.mid }}>
               {dateFilter !== 'Date' ||
               genderFilter !== 'All Segments' ||
@@ -1565,17 +1618,17 @@ function CataloguesPageInner(): React.ReactElement {
               search ? (
                 <>
                   <p style={{ fontWeight: 700, fontSize: 18, color: C.text, marginBottom: 8 }}>
-                    No catalogues match your filters
+                    Nothing matches your filters
                   </p>
                   <p style={{ fontSize: 14 }}>Try adjusting the filters or search term.</p>
                 </>
               ) : (
                 <>
                   <p style={{ fontWeight: 700, fontSize: 18, color: C.text, marginBottom: 8 }}>
-                    No catalogues yet
+                    Nothing generated yet
                   </p>
                   <p style={{ fontSize: 14, marginBottom: 24 }}>
-                    Generate your first AI catalogue to get started.
+                    Generate your first AI catalogue or video to get started.
                   </p>
                   <Link href="/studio" style={{ textDecoration: 'none', display: 'inline-block' }}>
                     <GradBtn>Get started</GradBtn>
@@ -1604,7 +1657,162 @@ function CataloguesPageInner(): React.ReactElement {
               </div>
 
               <div className="catalogues-grid">
-                {items.map((cat) => {
+                {items.map((item) => {
+                  if (item.kind === 'video') {
+                    const video = item.data;
+                    const pending = PENDING_STATUSES.has(video.status);
+                    const failed = video.status === 'FAILED';
+                    const { label: vLabel, color: vColor } = videoStatus(video.status);
+                    return (
+                      <div
+                        key={video.id}
+                        className="prod-card"
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 14,
+                          overflow: 'hidden',
+                          background: C.card,
+                          pointerEvents: downloading ? 'none' : 'auto',
+                        }}
+                      >
+                        <button
+                          type="button"
+                          disabled={!video.videoUrl}
+                          onClick={() => video.videoUrl && setPlayingVideoId(video.id)}
+                          style={{
+                            position: 'relative',
+                            display: 'block',
+                            width: '100%',
+                            padding: 0,
+                            border: 'none',
+                            aspectRatio: '3/4',
+                            background: C.lighter,
+                            overflow: 'hidden',
+                            cursor: video.videoUrl ? 'pointer' : 'default',
+                          }}
+                        >
+                          {video.thumbnailUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            // biome-ignore lint/performance/noImgElement: presigned R2 URL
+                            <img
+                              src={video.thumbnailUrl}
+                              alt="Generated video"
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                                display: 'block',
+                              }}
+                            />
+                          ) : (
+                            <div style={{ width: '100%', height: '100%', background: C.lighter }} />
+                          )}
+                          <div
+                            style={{
+                              position: 'absolute',
+                              inset: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              background: pending
+                                ? 'rgba(0,0,0,0.45)'
+                                : video.videoUrl
+                                  ? 'rgba(0,0,0,0.15)'
+                                  : 'transparent',
+                            }}
+                          >
+                            {pending && (
+                              <div
+                                className="av-spin"
+                                style={{
+                                  width: 22,
+                                  height: 22,
+                                  border: '2.5px solid rgba(255,255,255,0.35)',
+                                  borderTopColor: '#fff',
+                                  borderRadius: '50%',
+                                }}
+                              />
+                            )}
+                            {!pending && video.videoUrl && (
+                              <div
+                                style={{
+                                  width: 40,
+                                  height: 40,
+                                  borderRadius: '50%',
+                                  background: 'rgba(0,0,0,0.55)',
+                                  display: 'grid',
+                                  placeItems: 'center',
+                                  color: '#fff',
+                                }}
+                              >
+                                <Play size={18} fill="#fff" />
+                              </div>
+                            )}
+                            {failed && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  color: '#fff',
+                                }}
+                              >
+                                <AlertCircle size={20} />
+                                <span style={{ fontSize: 11, fontWeight: 600 }}>Failed</span>
+                              </div>
+                            )}
+                          </div>
+                        </button>
+
+                        {/* metadata row — status badge + video icon + date, mirrors the image card's row */}
+                        <div
+                          style={{
+                            padding: '10px 14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: vColor,
+                              background: `color-mix(in srgb, ${vColor} 12%, transparent)`,
+                              padding: '2px 7px',
+                              borderRadius: 20,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {vLabel}
+                          </span>
+                          <span style={{ color: C.mid, display: 'flex', flexShrink: 0 }}>
+                            <Play size={14} />
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              color: C.light,
+                              marginLeft: 'auto',
+                              flexShrink: 0,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {new Date(video.createdAt).toLocaleDateString('en-IN', {
+                              day: 'numeric',
+                              month: 'short',
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const cat = item.data;
                   const isSelected = selected.has(cat.catalogueId);
                   const showCheckbox = isSelectionMode || hoveredId === cat.catalogueId;
 
@@ -1800,6 +2008,87 @@ function CataloguesPageInner(): React.ReactElement {
           ))}
         </div>
       </div>
+
+      {/* ── video lightbox ── */}
+      {playingVideo?.videoUrl && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses, Close button is the keyboard-operable control
+        <div
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPlayingVideoId(null);
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            background: 'rgba(8,12,24,0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <div
+            style={{
+              background: C.card,
+              borderRadius: 16,
+              padding: 16,
+              maxWidth: 'min(480px, calc(100vw - 48px))',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+          >
+            <video
+              src={playingVideo.videoUrl}
+              poster={playingVideo.thumbnailUrl ?? undefined}
+              controls
+              autoPlay
+              style={{ width: '100%', borderRadius: 10, display: 'block', maxHeight: '70vh' }}
+            >
+              <track kind="captions" />
+            </video>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <a
+                href={playingVideo.videoUrl}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: C.text,
+                  border: `1px solid ${C.border2}`,
+                  borderRadius: 8,
+                  padding: '8px 14px',
+                  textDecoration: 'none',
+                }}
+              >
+                <DownloadIcon size={14} />
+                Download
+              </a>
+              <button
+                type="button"
+                onClick={() => setPlayingVideoId(null)}
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: C.mid,
+                  border: `1px solid ${C.border2}`,
+                  borderRadius: 8,
+                  padding: '8px 14px',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── toast ── */}
       {toast && (

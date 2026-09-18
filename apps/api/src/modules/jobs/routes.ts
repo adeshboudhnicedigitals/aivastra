@@ -68,21 +68,34 @@ export async function jobsRoutes(app: FastifyInstance) {
           })
           .from(schema.jobOutputs)
           .where(eq(schema.jobOutputs.jobId, row.id));
+
         let videoUrl: string | null = null;
-        let thumbnailUrl: string | null = null;
         if (output?.resultKey) {
           try {
-            const [video, thumb] = await Promise.all([
-              app.storage.presignGet(output.resultKey, 3600),
-              output.thumbnailKey ? app.storage.presignGet(output.thumbnailKey, 3600) : null,
-            ]);
-            videoUrl = video.url;
-            thumbnailUrl = thumb?.url ?? null;
+            videoUrl = (await app.storage.presignGet(output.resultKey, 3600)).url;
           } catch {
-            // Missing result object: leave URLs null so the UI shows its placeholder.
+            // Missing result object: leave the URL null so the UI shows its placeholder.
           }
         }
+
         const params = row.params as Record<string, unknown> | null;
+        // No video-thumbnail generation exists (PixVerse's response is just a video
+        // URL, nothing else) — but PixVerse animates the uploaded image directly, so
+        // that image already IS the video's first frame. Falls back to it whenever
+        // there's no dedicated thumbnailKey, which also means the thumbnail is
+        // available immediately at QUEUED rather than only once the job completes.
+        const thumbKey =
+          output?.thumbnailKey ??
+          (typeof params?.sourceImageKey === 'string' ? params.sourceImageKey : null);
+        let thumbnailUrl: string | null = null;
+        if (thumbKey) {
+          try {
+            thumbnailUrl = (await app.storage.presignGet(thumbKey, 3600)).url;
+          } catch {
+            // Missing source image object (e.g. swept by the upload sweeper): leave null.
+          }
+        }
+
         return {
           id: row.id,
           status: row.status,

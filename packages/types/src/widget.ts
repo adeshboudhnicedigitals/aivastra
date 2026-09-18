@@ -129,6 +129,10 @@ export const MerchantCatalogItem = z.object({
   secondR2Key: z.string().nullable(),
   secondThumbnailKey: z.string().nullable(),
   secondImageUrl: z.string().url().nullable(),
+  // Populated once a customer try-on's mannequin-drape step completes for this
+  // (two-input) item — see resolveTryonGarment/saree-step2-promoter.ts. Null for
+  // every single-image item, and for a two-input item before its first try-on.
+  mannequinResultUrl: z.string().url().nullable(),
   sourceJobId: z.string().uuid().nullable(),
   sourceKind: MerchantCatalogSourceKind,
   flatSourceKey: z.string().nullable(),

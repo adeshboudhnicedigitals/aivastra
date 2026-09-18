@@ -124,10 +124,19 @@ export const merchantCatalogItems = pgTable(
     thumbnailKey: text('thumbnail_key').notNull(),
     // Second garment image (pallu) for a two-input (body+pallu) saree product uploaded
     // directly via "Catalogue Image" mode — nullable because most catalog items are
-    // single-image. Both r2Key (body) and secondR2Key (pallu) are patched directly into
-    // ComfyUI at try-on time; see garmentSubcategories.twoInputTryonWorkflowTemplateId.
+    // single-image. A customer try-on against such an item runs a two-step pipeline
+    // (mannequin drape, then an ordinary single-garment tryon against the drape's
+    // output) — see resolveTryonGarment (apps/api/src/modules/merchant/resolve-tryon-garment.ts)
+    // and garmentSubcategories.mannequinTwoInputWorkflowTemplateId.
     secondR2Key: text('second_r2_key'),
     secondThumbnailKey: text('second_thumbnail_key'),
+    // R2 key of the mannequin-drape output for a two-input item, cached the first time
+    // any customer try-on's mannequin step completes (apps/dispatcher/src/job/saree-step2-promoter.ts)
+    // so every later try-on of the same item can skip straight to the single-garment
+    // step — r2Key/secondR2Key are immutable post-upload (never touched by PATCH
+    // /v1/merchant/catalog/:id), so this never needs invalidating once set. Null for
+    // every single-image item, and for a two-input item until its first try-on completes.
+    mannequinResultKey: text('mannequin_result_key'),
     sourceJobId: uuid('source_job_id').references(() => jobs.id, { onDelete: 'set null' }),
     sourceKind: text('source_kind').notNull().default('uploaded'), // 'uploaded' | 'generated' | 'imported'
     flatSourceKey: text('flat_source_key'), // provenance only for sourceKind='generated' — never sent to ComfyUI

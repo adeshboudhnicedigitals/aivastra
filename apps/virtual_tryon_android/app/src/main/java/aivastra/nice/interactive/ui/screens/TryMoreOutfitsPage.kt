@@ -145,7 +145,10 @@ fun TryMoreOutfitsPage(
     } else if (!userHasChangedProduct && !resultImageUrl.isNullOrBlank()) {
         resultImageUrl
     } else {
-        selectedProduct?.imageUrl ?: selectedProduct?.thumbnailUrl ?: resultImageUrl
+        selectedProduct?.mannequinResultUrl
+            ?: selectedProduct?.imageUrl
+            ?: selectedProduct?.thumbnailUrl
+            ?: resultImageUrl
     }
     // Full-screen gallery falls back to just the single currently-displayed image when there's
     // no multi-result session history yet (e.g. viewing the very first generated result).
@@ -509,7 +512,9 @@ fun TryMoreOutfitsPage(
                                                 }
                                         ) {
                                             AsyncImage(
-                                                model = product.thumbnailUrl ?: product.imageUrl,
+                                                model = product.mannequinResultUrl
+                                                    ?: product.thumbnailUrl
+                                                    ?: product.imageUrl,
                                                 contentDescription = product.label,
                                                 contentScale = ContentScale.Crop,
                                                 alignment = Alignment.TopCenter,

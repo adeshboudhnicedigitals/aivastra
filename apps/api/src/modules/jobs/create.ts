@@ -319,22 +319,32 @@ export async function resolveTryonPlan(
   // govern validation below) instead of each pose's own default workflow or any
   // pose_garment_configs override.
   let requiresMannequinStep = false;
+  // Whether this garment type demands the caller's own lower/third-piece photo —
+  // fetched here (not just validated client-side in dev/catalog.routes.ts) so
+  // resolveTryonPlan can assert every resolved pose's workflow actually has a
+  // matching node, instead of silently stripping an upload no node can consume.
+  let requiresLowerUpload = false;
+  let requiresThirdUpload = false;
   let sareeStep2: {
     workflowTemplateId: string | null;
     version: number | null;
     upperNodeIds: string[] | null;
     lowerNodeId: string | null;
     shoeNodeId: string | null;
+    thirdNodeId: string | null;
     sizeNodeIds: string[] | null;
   } | null = null;
   if (garmentTypeId) {
     const [gtRow] = await app.db
       .select({
         requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+        requiresLowerUpload: schema.garmentSubcategories.requiresLowerUpload,
+        requiresThirdUpload: schema.garmentSubcategories.requiresThirdUpload,
         sareeStep2WorkflowTemplateId: schema.garmentSubcategories.sareeStep2WorkflowTemplateId,
         sareeStep2UpperNodeIds: schema.workflowTemplates.upperNodeIds,
         sareeStep2LowerNodeId: schema.workflowTemplates.lowerNodeId,
         sareeStep2ShoeNodeId: schema.workflowTemplates.shoeNodeId,
+        sareeStep2ThirdNodeId: schema.workflowTemplates.thirdNodeId,
         sareeStep2SizeNodeIds: schema.workflowTemplates.sizeNodeIds,
         sareeStep2Version: schema.workflowTemplates.version,
       })
@@ -345,6 +355,8 @@ export async function resolveTryonPlan(
       )
       .where(eq(schema.garmentSubcategories.id, garmentTypeId));
     requiresMannequinStep = gtRow?.requiresMannequinStep ?? false;
+    requiresLowerUpload = gtRow?.requiresLowerUpload ?? false;
+    requiresThirdUpload = gtRow?.requiresThirdUpload ?? false;
     if (requiresMannequinStep) {
       sareeStep2 = {
         workflowTemplateId: gtRow?.sareeStep2WorkflowTemplateId ?? null,
@@ -352,6 +364,7 @@ export async function resolveTryonPlan(
         upperNodeIds: gtRow?.sareeStep2UpperNodeIds ?? null,
         lowerNodeId: gtRow?.sareeStep2LowerNodeId ?? null,
         shoeNodeId: gtRow?.sareeStep2ShoeNodeId ?? null,
+        thirdNodeId: gtRow?.sareeStep2ThirdNodeId ?? null,
         sizeNodeIds: gtRow?.sareeStep2SizeNodeIds ?? null,
       };
     }
@@ -591,6 +604,7 @@ export async function resolveTryonPlan(
             upperNodeIds: schema.workflowTemplates.upperNodeIds,
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
+            thirdNodeId: schema.workflowTemplates.thirdNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
             version: schema.workflowTemplates.version,
           })
@@ -662,6 +676,7 @@ export async function resolveTryonPlan(
             upperNodeIds: row.upperNodeIds,
             lowerNodeId: row.lowerNodeId,
             shoeNodeId: row.shoeNodeId,
+            thirdNodeId: row.thirdNodeId,
             sizeNodeIds: row.sizeNodeIds,
           };
         });
@@ -678,6 +693,7 @@ export async function resolveTryonPlan(
       defaultUpperNodeIds: defaultWorkflow.upperNodeIds,
       defaultLowerNodeId: defaultWorkflow.lowerNodeId,
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
+      defaultThirdNodeId: defaultWorkflow.thirdNodeId,
       defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
       defaultPromptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
       defaultPromptFacePhase: schema.modelPoseAssets.promptFacePhase,
@@ -689,6 +705,7 @@ export async function resolveTryonPlan(
       overrideUpperNodeIds: overrideWorkflow.upperNodeIds,
       overrideLowerNodeId: overrideWorkflow.lowerNodeId,
       overrideShoeNodeId: overrideWorkflow.shoeNodeId,
+      overrideThirdNodeId: overrideWorkflow.thirdNodeId,
       overrideSizeNodeIds: overrideWorkflow.sizeNodeIds,
     })
     .from(schema.modelPoseAssets)
@@ -747,6 +764,7 @@ export async function resolveTryonPlan(
         upperNodeIds: sareeStep2?.upperNodeIds ?? [],
         lowerNodeId: sareeStep2?.lowerNodeId ?? null,
         shoeNodeId: sareeStep2?.shoeNodeId ?? null,
+        thirdNodeId: sareeStep2?.thirdNodeId ?? null,
         sizeNodeIds: sareeStep2?.sizeNodeIds ?? null,
       }))
     : (mappingPoseWorkflows ??
@@ -764,6 +782,8 @@ export async function resolveTryonPlan(
         lowerNodeId:
           r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
         shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
+        thirdNodeId:
+          r.configWorkflowTemplateId != null ? r.overrideThirdNodeId : r.defaultThirdNodeId,
         sizeNodeIds:
           r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
       })));
@@ -787,6 +807,28 @@ export async function resolveTryonPlan(
     }
     if (pw.shoeNodeId && !shoeCatalogId) {
       throw new AppError('VALIDATION', 400, 'shoe catalog item required for this pose');
+    }
+    // A garmentType flagged requiresLowerUpload/requiresThirdUpload promises the
+    // caller's own second-piece photo will actually reach the output. Without
+    // this check, a pose whose resolved workflow has no matching node silently
+    // drops the upload below (see effectiveLowerGarmentKey) instead of failing —
+    // that gap is what let sherwani-pyjama etc. accept uploads, charge credits,
+    // and run jobs that never showed the second piece.
+    if (requiresLowerUpload && lowerGarmentKey && !pw.lowerNodeId) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        "garmentType requires a lower garment upload, but this pose's workflow has no lower " +
+          'garment node configured — fix pose_garment_configs or workflow_templates.lowerNodeId',
+      );
+    }
+    if (requiresThirdUpload && thirdGarmentKey && !pw.thirdNodeId) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        "garmentType requires a third garment upload, but this pose's workflow has no third " +
+          'garment node configured — fix pose_garment_configs or workflow_templates.thirdNodeId',
+      );
     }
   }
 

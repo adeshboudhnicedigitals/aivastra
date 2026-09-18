@@ -9,10 +9,26 @@ import { TopBar } from '@/components/topbar';
 import { api } from '@/lib/api';
 import { isSupportedImageBytes } from '@/lib/image-validation';
 
+import { ActiveSettingsPanel } from './ActiveSettingsPanel';
+import { ActiveVideoPanel } from './ActiveVideoPanel';
 import { CataloguePickerModal } from './CataloguePickerModal';
 import { ConfigPanel } from './ConfigPanel';
 import { SourcePanel } from './SourcePanel';
 import type { ImageSource } from './types';
+
+// What a submission froze at Generate time — deliberately captured once,
+// rather than re-read from `source`/ConfigPanel's live state, so the result
+// screen keeps showing exactly what this job used even after "Generate
+// again" resets those back to empty for the next one.
+interface ActiveSubmission {
+  jobId: string;
+  source: ImageSource;
+  presetTitle: string;
+  prompt: string;
+  duration: number;
+  quality: PixverseQuality;
+  creditCost: number;
+}
 
 export default function CatalogVideoPage(): React.ReactElement {
   const qc = useQueryClient();
@@ -24,6 +40,11 @@ export default function CatalogVideoPage(): React.ReactElement {
   const uploadAbortRef = useRef<AbortController | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Set once a job is submitted — while non-null, the left column shows
+  // ActiveVideoPanel (queued → generating → finished video) instead of
+  // SourcePanel, and the right column shows ActiveSettingsPanel (input image,
+  // style, Download, Generate again) instead of ConfigPanel.
+  const [activeSubmission, setActiveSubmission] = useState<ActiveSubmission | null>(null);
 
   // Abort any in-flight upload on unmount.
   useEffect(() => {
@@ -87,29 +108,50 @@ export default function CatalogVideoPage(): React.ReactElement {
     sampleVideoId: string;
     duration: number;
     quality: PixverseQuality;
+    presetTitle: string;
+    prompt: string;
+    creditCost: number;
   }) {
     if (!source || submitting) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await api.post('/v1/jobs/catalog-video', {
+      const { jobId } = await api.post<{ jobId: string }>('/v1/jobs/catalog-video', {
         ...(source.kind === 'existing'
           ? { sourceJobId: source.jobId }
           : { sourceImageKey: source.r2Key }),
-        ...choice,
+        sampleVideoId: choice.sampleVideoId,
+        duration: choice.duration,
+        quality: choice.quality,
       });
       // Credits were deducted server-side — refresh the shared ['credits']
       // balance so it doesn't keep showing a stale, too-high number (e.g. to
       // the user menu, or if the user immediately configures another video).
       qc.invalidateQueries({ queryKey: ['credits'] });
-      // Back to the empty state on both panels — nothing left to configure
-      // once the job is queued.
-      setSource(null);
+      // Surface the newly queued job in useCatalogVideos immediately, rather
+      // than waiting for its first poll tick or a STATUS event — this is what
+      // ActiveVideoPanel/ActiveSettingsPanel below read to find its row.
+      qc.invalidateQueries({ queryKey: ['catalog-videos'] });
+      // Swap both columns over to the result view.
+      setActiveSubmission({
+        jobId,
+        source,
+        presetTitle: choice.presetTitle,
+        prompt: choice.prompt,
+        duration: choice.duration,
+        quality: choice.quality,
+        creditCost: choice.creditCost,
+      });
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Failed to start video generation');
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function generateAnother() {
+    setActiveSubmission(null);
+    setSource(null);
   }
 
   return (
@@ -124,12 +166,15 @@ export default function CatalogVideoPage(): React.ReactElement {
           box-sizing: border-box;
         }
 
-        /* Source (left) + config (right), same split as Studio's
-           studio-left-column / studio-right-column. Exact height (not
-           min-height) fills the viewport under the 76px TopBar and this
-           section's own padding, and no further — nothing below it on this
-           page any more, so the columns should stand exactly as tall as the
-           screen rather than being able to grow past it. */
+        /* Two columns, same split as Studio's studio-left-column /
+           studio-right-column. Before a job is submitted: source picker
+           (left) + config form (right). Once one is: the video/progress
+           (left, ActiveVideoPanel) + a read-only recap of what was submitted
+           plus Download/Generate-again (right, ActiveSettingsPanel). Exact
+           height (not min-height) fills the viewport under the 76px TopBar
+           and this section's own padding, so the columns stand exactly as
+           tall as the screen rather than growing past it — history of past
+           videos lives on the Catalogs page instead. */
         .cat-video-two-col {
           display: flex;
           gap: 20px;
@@ -137,9 +182,14 @@ export default function CatalogVideoPage(): React.ReactElement {
         }
         .cat-video-source-col,
         .cat-video-result-col {
-          flex: 1 1 0;
           min-width: 0;
           display: flex;
+        }
+        .cat-video-source-col {
+          flex: 3 1 0;
+        }
+        .cat-video-result-col {
+          flex: 2 1 0;
         }
 
         @media (max-width: 1023px) {
@@ -173,23 +223,40 @@ export default function CatalogVideoPage(): React.ReactElement {
       <main className="cat-video-main">
         <div className="cat-video-two-col">
           <div className="cat-video-source-col">
-            <SourcePanel
-              source={source}
-              onFile={handleUpload}
-              onBrowseCatalogues={() => setPickerOpen(true)}
-              onRemove={() => setSource(null)}
-              uploading={uploading}
-              progress={uploadProgress}
-              error={uploadError}
-            />
+            {activeSubmission ? (
+              <ActiveVideoPanel jobId={activeSubmission.jobId} />
+            ) : (
+              <SourcePanel
+                source={source}
+                onFile={handleUpload}
+                onBrowseCatalogues={() => setPickerOpen(true)}
+                onRemove={() => setSource(null)}
+                uploading={uploading}
+                progress={uploadProgress}
+                error={uploadError}
+              />
+            )}
           </div>
           <div className="cat-video-result-col">
-            <ConfigPanel
-              source={source}
-              submitting={submitting}
-              submitError={submitError}
-              onSubmit={handleGenerate}
-            />
+            {activeSubmission ? (
+              <ActiveSettingsPanel
+                jobId={activeSubmission.jobId}
+                source={activeSubmission.source}
+                presetTitle={activeSubmission.presetTitle}
+                prompt={activeSubmission.prompt}
+                duration={activeSubmission.duration}
+                quality={activeSubmission.quality}
+                creditCost={activeSubmission.creditCost}
+                onGenerateAnother={generateAnother}
+              />
+            ) : (
+              <ConfigPanel
+                source={source}
+                submitting={submitting}
+                submitError={submitError}
+                onSubmit={handleGenerate}
+              />
+            )}
           </div>
         </div>
       </main>

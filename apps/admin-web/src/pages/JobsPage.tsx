@@ -10,6 +10,7 @@ import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAdminJobStream } from '../hooks/use-admin-job-stream';
 import { ApiError, apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
+import { isVideoUrl } from '../lib/media';
 import type { Job, JobStatus } from '../types';
 
 const PAGE_SIZE = 25;
@@ -822,23 +823,46 @@ export default function JobsPage({ onNav, toast }: Props) {
                                 setPreviewUrl(url);
                               }}
                             >
-                              {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
-                              <img
-                                src={url}
-                                alt={label}
-                                style={{
-                                  width: 96,
-                                  height: 96,
-                                  objectFit: 'cover',
-                                  borderRadius: 8,
-                                  border: '1px solid var(--border)',
-                                  display: 'block',
-                                  cursor: 'zoom-in',
-                                }}
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).style.display = 'none';
-                                }}
-                              />
+                              {isVideoUrl(url) ? (
+                                <video
+                                  src={url}
+                                  muted
+                                  playsInline
+                                  preload="metadata"
+                                  style={{
+                                    width: 96,
+                                    height: 96,
+                                    objectFit: 'cover',
+                                    borderRadius: 8,
+                                    border: '1px solid var(--border)',
+                                    display: 'block',
+                                    cursor: 'zoom-in',
+                                  }}
+                                  onError={(e) => {
+                                    (e.target as HTMLVideoElement).style.display = 'none';
+                                  }}
+                                >
+                                  <track kind="captions" />
+                                </video>
+                              ) : (
+                                // biome-ignore lint/performance/noImgElement: admin SPA, not Next.js
+                                <img
+                                  src={url}
+                                  alt={label}
+                                  style={{
+                                    width: 96,
+                                    height: 96,
+                                    objectFit: 'cover',
+                                    borderRadius: 8,
+                                    border: '1px solid var(--border)',
+                                    display: 'block',
+                                    cursor: 'zoom-in',
+                                  }}
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).style.display = 'none';
+                                  }}
+                                />
+                              )}
                             </a>
                             {isSelectable && target && (
                               <AssetSelectBadge
@@ -2117,20 +2141,42 @@ export default function JobsPage({ onNav, toast }: Props) {
                           </div>
                           {fullJ.outputUrl ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                              <img
-                                src={fullJ.outputUrl}
-                                alt="Output"
-                                style={{
-                                  width: '100%',
-                                  maxHeight: 240,
-                                  objectFit: 'contain',
-                                  borderRadius: 6,
-                                  border: '1px solid var(--border)',
-                                  background: 'var(--bg)',
-                                  cursor: 'zoom-in',
-                                }}
-                                onClick={() => setPreviewUrl(fullJ.outputUrl ?? null)}
-                              />
+                              {isVideoUrl(fullJ.outputUrl) ? (
+                                <video
+                                  src={fullJ.outputUrl}
+                                  muted
+                                  playsInline
+                                  preload="metadata"
+                                  style={{
+                                    width: '100%',
+                                    maxHeight: 240,
+                                    objectFit: 'contain',
+                                    borderRadius: 6,
+                                    border: '1px solid var(--border)',
+                                    background: 'var(--bg)',
+                                    cursor: 'zoom-in',
+                                  }}
+                                  onClick={() => setPreviewUrl(fullJ.outputUrl ?? null)}
+                                >
+                                  <track kind="captions" />
+                                </video>
+                              ) : (
+                                // biome-ignore lint/performance/noImgElement: admin SPA, not Next.js
+                                <img
+                                  src={fullJ.outputUrl}
+                                  alt="Output"
+                                  style={{
+                                    width: '100%',
+                                    maxHeight: 240,
+                                    objectFit: 'contain',
+                                    borderRadius: 6,
+                                    border: '1px solid var(--border)',
+                                    background: 'var(--bg)',
+                                    cursor: 'zoom-in',
+                                  }}
+                                  onClick={() => setPreviewUrl(fullJ.outputUrl ?? null)}
+                                />
+                              )}
                               <button
                                 type="button"
                                 onClick={() => setPreviewUrl(fullJ.outputUrl ?? null)}

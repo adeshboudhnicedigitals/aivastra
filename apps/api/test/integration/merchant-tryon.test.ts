@@ -717,5 +717,93 @@ describe('merchant try-on jobs', () => {
     const stream = await app.redis.xrange('jobs:normal', '-', '+');
     const enqueuedJobIds = stream.map(([, fields]) => fields[fields.indexOf('jobId') + 1]);
     expect(enqueuedJobIds).toContain(step2JobId);
+
+    // The promoter also caches the drape output onto the catalog item itself, so
+    // the next customer's try-on of this same product can skip step 1 entirely.
+    const [itemAfter] = await app.db
+      .select()
+      .from(schema.merchantCatalogItems)
+      .where(eq(schema.merchantCatalogItems.id, item.id));
+    expect(itemAfter.mannequinResultKey).toBe(mannequinResultKey);
+  });
+
+  it('goes straight to a single ordinary job, skipping the mannequin step entirely, when a cached drape already exists for the catalog item', async () => {
+    const { merchant, merchantUser } = await createMerchant(app, 'tryon-two-input-f@example.com');
+    const auth = await authHeader(merchantUser.id);
+    const { garmentType, tryonTemplate } = await seedTwoInputGarmentType(app);
+    const item = await seedCatalogItemWithSecondImage(app, merchant.id, garmentType.id);
+    const cachedDrapeKey = `outputs/${randomUUID()}/result.png`;
+    await app.db
+      .update(schema.merchantCatalogItems)
+      .set({ mannequinResultKey: cachedDrapeKey })
+      .where(eq(schema.merchantCatalogItems.id, item.id));
+    const r2Key = await presignAndUploadCustomerPhoto(app, auth);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: auth,
+      payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+    });
+    expect(created.statusCode).toBe(201);
+    const { jobId } = created.json() as { jobId: string };
+
+    const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job.status).toBe('QUEUED');
+    expect(job.customerPhotoKey).toBe(r2Key);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect(inputs.upperGarmentKey).toBe(cachedDrapeKey);
+    expect(inputs.thirdGarmentKey).toBeNull();
+    expect((inputs.params as { workflowTemplateId: string }).workflowTemplateId).toBe(
+      tryonTemplate.id,
+    );
+
+    // No second (mannequin) job was created for this request — only the one
+    // ordinary job above exists for this merchant.
+    const jobs = await app.db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.merchantId, merchant.id));
+    expect(jobs).toHaveLength(1);
+  });
+
+  it("returns mannequinResultUrl as null before the drape is cached and a presigned URL after, in the catalog item's serialized response", async () => {
+    const { merchant, merchantUser } = await createMerchant(app, 'tryon-two-input-g@example.com');
+    const auth = await authHeader(merchantUser.id);
+    const { garmentType } = await seedTwoInputGarmentType(app);
+    const item = await seedCatalogItemWithSecondImage(app, merchant.id, garmentType.id);
+
+    const before = await app.inject({
+      method: 'GET',
+      url: '/v1/merchant/catalog',
+      headers: auth,
+    });
+    expect(before.statusCode).toBe(200);
+    const beforeItem = (before.json() as { items: { id: string; mannequinResultUrl: unknown }[] })
+      .items[0];
+    expect(beforeItem.id).toBe(item.id);
+    expect(beforeItem.mannequinResultUrl).toBeNull();
+
+    const cachedDrapeKey = `outputs/${randomUUID()}/result.png`;
+    await app.storage.putObject(cachedDrapeKey, Buffer.from('drape-output'), 'image/png');
+    await app.db
+      .update(schema.merchantCatalogItems)
+      .set({ mannequinResultKey: cachedDrapeKey })
+      .where(eq(schema.merchantCatalogItems.id, item.id));
+
+    const after = await app.inject({
+      method: 'GET',
+      url: '/v1/merchant/catalog',
+      headers: auth,
+    });
+    expect(after.statusCode).toBe(200);
+    const afterItem = (
+      after.json() as { items: { id: string; mannequinResultUrl: string | null }[] }
+    ).items[0];
+    expect(afterItem.mannequinResultUrl).not.toBeNull();
   });
 });

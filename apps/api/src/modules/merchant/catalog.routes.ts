@@ -22,7 +22,7 @@ import { assertMerchantUploadKey } from './upload-guard.js';
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
 
 async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogRow) {
-  const [imageUrl, thumbnailUrl, secondImageUrl] = await Promise.all([
+  const [imageUrl, thumbnailUrl, secondImageUrl, mannequinResultUrl] = await Promise.all([
     app.storage
       .presignGet(item.r2Key, 3600)
       .then((result) => result.url)
@@ -37,6 +37,12 @@ async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogR
           .then((result) => result.url)
           .catch(() => null)
       : Promise.resolve(null),
+    item.mannequinResultKey
+      ? app.storage
+          .presignGet(item.mannequinResultKey, 3600)
+          .then((result) => result.url)
+          .catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   return {
@@ -46,6 +52,7 @@ async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogR
     imageUrl,
     thumbnailUrl,
     secondImageUrl,
+    mannequinResultUrl,
   };
 }
 
