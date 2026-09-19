@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
-import { and, eq, isNull, or } from 'drizzle-orm';
+import { and, count, eq, isNull, ne, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { computeEffectiveEnabled, inCollectionSetSql } from './activation.js';
 
 export type BasketSource = 'manual' | 'rule';
 
@@ -244,4 +245,91 @@ export async function resolveBasket(
   target: BasketMatchTarget,
 ): Promise<ResolvedBasket | null> {
   return resolveBasketFrom(await loadRuleSet(app, storeId), target);
+}
+
+// Above this many synced products, a full per-row routing scan is too slow to
+// run on every stat/read — the Routing tab, and every "Try-On Enabled" count
+// that needs routing precision, fall back to the uncorrected count instead.
+export const COUNTS_PRODUCT_CAP = 10_000;
+
+export interface UnroutedCounts {
+  countsOmitted: boolean;
+  unrouted: number | null;
+  unroutedEnabled: number | null;
+  /** basketId -> count of products that resolve to it. Only meaningful when
+   *  countsOmitted is false. */
+  basketCounts: Record<string, number>;
+}
+
+/**
+ * Per-product routing scan shared by the Routing tab's summary
+ * (`funnel-rules.routes.ts`) and every "Try-On Enabled" stat that must
+ * exclude effectively-enabled products with no resolvable basket
+ * (`activation.routes.ts`, `me.routes.ts`). A synced, enabled product with no
+ * pin and no matching rule can never actually complete a try-on —
+ * `customer.routes.ts`'s creation path refuses it before enqueue — so none of
+ * these surfaces may count it as enabled.
+ */
+export async function countUnroutedProducts(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+): Promise<UnroutedCounts> {
+  const [{ total }] = await app.db
+    .select({ total: count() })
+    .from(schema.shopifyProductGarments)
+    .where(
+      and(
+        eq(schema.shopifyProductGarments.storeId, store.id),
+        ne(schema.shopifyProductGarments.status, 'deleted'),
+      ),
+    );
+
+  if (total > COUNTS_PRODUCT_CAP) {
+    return { countsOmitted: true, unrouted: null, unroutedEnabled: null, basketCounts: {} };
+  }
+
+  const mode = store.settings.activation?.mode ?? 'selective';
+  const ruleSet = await loadRuleSet(app, store.id);
+  const products = await app.db
+    .select({
+      funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
+      productType: schema.shopifyProductGarments.productType,
+      tags: schema.shopifyProductGarments.tags,
+      vendor: schema.shopifyProductGarments.vendor,
+      collections: schema.shopifyProductGarments.collections,
+      title: schema.shopifyProductGarments.title,
+      enabled: schema.shopifyProductGarments.enabled,
+      excluded: schema.shopifyProductGarments.excluded,
+      inEnabledCollection: sql<boolean>`${inCollectionSetSql(schema.shopifyEnabledCollections)}`,
+      inExcludedCollection: sql<boolean>`${inCollectionSetSql(schema.shopifyExcludedCollections)}`,
+    })
+    .from(schema.shopifyProductGarments)
+    .where(
+      and(
+        eq(schema.shopifyProductGarments.storeId, store.id),
+        ne(schema.shopifyProductGarments.status, 'deleted'),
+      ),
+    );
+
+  const basketCounts: Record<string, number> = {};
+  let unrouted = 0;
+  let unroutedEnabled = 0;
+  for (const p of products) {
+    const resolved = resolveBasketFrom(ruleSet, p as BasketMatchTarget);
+    if (resolved) {
+      basketCounts[resolved.basketId] = (basketCounts[resolved.basketId] ?? 0) + 1;
+    } else {
+      unrouted++;
+      const effectivelyEnabled = computeEffectiveEnabled({
+        mode,
+        individuallyEnabled: p.enabled,
+        individuallyExcluded: p.excluded,
+        inEnabledCollection: p.inEnabledCollection,
+        inExcludedCollection: p.inExcludedCollection,
+      });
+      if (effectivelyEnabled) unroutedEnabled++;
+    }
+  }
+
+  return { countsOmitted: false, unrouted, unroutedEnabled, basketCounts };
 }
