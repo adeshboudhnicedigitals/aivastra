@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { markInAppNavigation } from '../../hooks/use-in-app-navigation';
 import { apiFetch } from '../../lib/data';
 import type {
   CatalogItem,
@@ -72,7 +73,14 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
   const rawTab = searchParams.get('tab') as AssetTab | null;
   const activeTab: AssetTab = rawTab && VALID_TABS.includes(rawTab) ? rawTab : 'garment-types';
   const setActiveTab = useCallback(
-    (tab: AssetTab) => setSearchParams({ tab }, { replace: true }),
+    (tab: AssetTab) => {
+      // Full replacement, not a merge: switching tabs intentionally drops any
+      // sub-view/modal/confirm params that belonged to the previous tab.
+      // Pushed (not `{ replace: true }`) so every tab switch is its own
+      // back-button stop.
+      markInAppNavigation();
+      setSearchParams({ tab });
+    },
     [setSearchParams],
   );
 
