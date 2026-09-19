@@ -580,7 +580,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const openDetail = async (j: Job) => {
     setDetail(j);
     setDetailLoading(false);
-    setJobIdParam(j.id);
+    if (jobIdParam !== j.id) setJobIdParam(j.id);
     try {
       const full = await apiFetch<JobDetail>(`/admin/jobs/${j.id}`);
       setDetail(full);

@@ -111,7 +111,6 @@ export default function UsersPage({ onNav, toast }: Props) {
     'confirmId',
   ]);
   const confirmSuspend = confirmParam === 'suspend' ? confirmId : null;
-  const confirmDelete = confirmParam === 'delete-user' ? confirmId : null;
   const showBulkDeleteConfirm = confirmParam === 'bulk-delete-users';
   const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
   const openConfirmSuspend = () => {
@@ -136,6 +135,12 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<User | null>(null);
+  // Only ever consider the delete-confirm dialog "resolved" when confirmId
+  // matches the currently-loaded detail — a stale/hand-edited confirmId
+  // (deleted record, stale bookmark) must fall back to the plain view
+  // instead of rendering a broken, still-destructive confirm prompt.
+  const confirmDelete =
+    confirmParam === 'delete-user' && confirmId === detail?.id ? confirmId : null;
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [deletingUser, setDeletingUser] = useState(false);
@@ -359,7 +364,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     setSelectedTier(u.tier);
     setSelectedMaxDevices(String(u.maxActiveDevices ?? 1));
     setShowAllCreditActivity(false);
-    setUserIdParam(u.id);
+    if (userIdParam !== u.id) setUserIdParam(u.id);
     setDetailLoading(true);
     try {
       const [full] = await Promise.all([
@@ -632,15 +637,20 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (detail?.id === targetId) setDetail(null);
       toast({ title: 'User data erased' });
       await load();
+      // Clear `user` together with `confirm`/`confirmId` in one navigation —
+      // the deleted user's id must not survive in the URL, or the
+      // reconstruction effect re-fetches it and shows a spurious 404 toast
+      // right after this success toast (and again on refresh).
+      navigate('/users', { replace: true });
     } catch (e) {
       toast({
         kind: 'error',
         title: 'Action failed',
         body: apiErrorMessage(e, 'Please try again.'),
       });
+      closeConfirm();
     } finally {
       setDeletingUser(false);
-      closeConfirm();
     }
   };
 
