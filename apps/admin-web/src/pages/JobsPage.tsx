@@ -206,13 +206,48 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCrumb } from '../context/BreadcrumbContext';
 import { useCloseOverlay } from '../hooks/use-close-overlay';
-import { useUrlState } from '../hooks/use-url-state';
+import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 
 export default function JobsPage({ onNav, toast }: Props) {
   const location = useLocation();
   const { hasPermission } = useAuth();
   const [jobIdParam, setJobIdParam] = useUrlState('job');
   const closeDetail = useCloseOverlay(['job']);
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const confirmCancelJobId = confirmParam === 'cancel-job' ? confirmId : null;
+  const confirmFlush = confirmParam === 'flush-queue';
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const openConfirmCancel = (jobId: string) =>
+    setConfirmParams({ confirm: 'cancel-job', confirmId: jobId });
+  const openConfirmFlush = () => setConfirmParams({ confirm: 'flush-queue', confirmId: null });
+
+  const [modalParam, setModalParam] = useUrlState('modal');
+  const deleteAssetsOpen = modalParam === 'delete-assets';
+  const closeDeleteAssetsModal = useCloseOverlay(['modal']);
+
+  useCrumb(
+    1,
+    confirmParam === 'cancel-job'
+      ? {
+          label: 'Cancel job',
+          href: `/jobs?job=${encodeURIComponent(jobIdParam ?? '')}&confirm=cancel-job&confirmId=${encodeURIComponent(confirmId ?? '')}`,
+        }
+      : confirmParam === 'flush-queue'
+        ? { label: 'Flush queue', href: '/jobs?confirm=flush-queue' }
+        : null,
+  );
+  useCrumb(
+    2,
+    deleteAssetsOpen
+      ? {
+          label: 'Delete assets',
+          href: `/jobs?job=${encodeURIComponent(jobIdParam ?? '')}&modal=delete-assets`,
+        }
+      : null,
+  );
   // Converted to a real URL param in Task 9 of the Jobs/Users rollout plan —
   // left on location.state for now so this task's diff stays scoped to the
   // detail view itself.
@@ -242,13 +277,10 @@ export default function JobsPage({ onNav, toast }: Props) {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
   const [actioning, setActioning] = useState(false);
-  const [confirmFlush, setConfirmFlush] = useState(false);
   const [deleteAssetsTargets, setDeleteAssetsTargets] = useState<Set<'result' | 'person'>>(
     new Set(),
   );
-  const [deleteAssetsOpen, setDeleteAssetsOpen] = useState(false);
   const [deleteAssetsPassword, setDeleteAssetsPassword] = useState('');
   const [deleteAssetsError, setDeleteAssetsError] = useState<string | null>(null);
   const [deletingAssets, setDeletingAssets] = useState(false);
@@ -380,9 +412,12 @@ export default function JobsPage({ onNav, toast }: Props) {
       : null,
   );
 
+  // deleteAssetsOpen is now derived from the URL, scoped to whichever job=
+  // is currently open — there's no path in this UI that changes `job=`
+  // directly from one id to another without first closing back to the list,
+  // so it never needs a manual reset here the way the local form fields do.
   useEffect(() => {
     setDeleteAssetsTargets(new Set());
-    setDeleteAssetsOpen(false);
     setDeleteAssetsPassword('');
   }, [detail?.id]);
 
@@ -418,9 +453,9 @@ export default function JobsPage({ onNav, toast }: Props) {
       });
     } finally {
       setFlushing(false);
-      setConfirmFlush(false);
+      closeConfirm();
     }
-  }, [load, toast]);
+  }, [load, toast, closeConfirm]);
 
   useAdminJobStream(
     useCallback((evt) => {
@@ -552,15 +587,16 @@ export default function JobsPage({ onNav, toast }: Props) {
   };
 
   const handleCancel = async () => {
-    if (!confirmCancel) return;
+    if (!confirmCancelJobId) return;
     setActioning(true);
     try {
-      await apiFetch(`/admin/jobs/${confirmCancel}/cancel`, { method: 'POST' });
+      await apiFetch(`/admin/jobs/${confirmCancelJobId}/cancel`, { method: 'POST' });
       toast({ title: `Job cancelled` });
-      setConfirmCancel(null);
-      if (detail?.id === confirmCancel) setDetail((d) => (d ? { ...d, status: 'CANCELLED' } : d));
+      closeConfirm();
+      if (detail?.id === confirmCancelJobId)
+        setDetail((d) => (d ? { ...d, status: 'CANCELLED' } : d));
       setJobs((prev) =>
-        prev.map((j) => (j.id === confirmCancel ? { ...j, status: 'CANCELLED' } : j)),
+        prev.map((j) => (j.id === confirmCancelJobId ? { ...j, status: 'CANCELLED' } : j)),
       );
     } catch (e) {
       toast({
@@ -611,7 +647,7 @@ export default function JobsPage({ onNav, toast }: Props) {
       );
       const labels = res.deleted.map((t) => (t === 'result' ? 'Result image' : 'Person image'));
       toast({ title: labels.length > 0 ? `Deleted: ${labels.join(', ')}` : 'Nothing to delete' });
-      setDeleteAssetsOpen(false);
+      closeDeleteAssetsModal();
       setDeleteAssetsPassword('');
       setDeleteAssetsTargets(new Set());
       void openDetail(detail);
@@ -630,7 +666,7 @@ export default function JobsPage({ onNav, toast }: Props) {
           title: 'Delete failed',
           body: apiErrorMessage(e, 'Please try again.'),
         });
-        setDeleteAssetsOpen(false);
+        closeDeleteAssetsModal();
         setDeleteAssetsPassword('');
         void openDetail(detail);
       }
@@ -726,7 +762,7 @@ export default function JobsPage({ onNav, toast }: Props) {
               <button
                 className="btn danger"
                 disabled={actioning}
-                onClick={() => setConfirmCancel(j.id)}
+                onClick={() => openConfirmCancel(j.id)}
               >
                 <Icon.Ban /> Cancel
               </button>
@@ -965,23 +1001,19 @@ export default function JobsPage({ onNav, toast }: Props) {
           </>
         )}
 
-        {confirmCancel && (
-          <div className="modal-overlay" onClick={() => setConfirmCancel(null)}>
+        {confirmCancelJobId && (
+          <div className="modal-overlay" onClick={closeConfirm}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h3>Cancel job</h3>
               </div>
               <div className="modal-body">
                 <p>
-                  Cancel job <strong>{confirmCancel}</strong>? Credits will be refunded.
+                  Cancel job <strong>{confirmCancelJobId}</strong>? Credits will be refunded.
                 </p>
               </div>
               <div className="modal-foot">
-                <button
-                  className="btn ghost"
-                  onClick={() => setConfirmCancel(null)}
-                  disabled={actioning}
-                >
+                <button className="btn ghost" onClick={closeConfirm} disabled={actioning}>
                   Back
                 </button>
                 <button className="btn danger" onClick={handleCancel} disabled={actioning}>
@@ -1025,7 +1057,7 @@ export default function JobsPage({ onNav, toast }: Props) {
               className="btn sm danger"
               onClick={() => {
                 setDeleteAssetsError(null);
-                setDeleteAssetsOpen(true);
+                setModalParam('delete-assets');
               }}
             >
               <Icon.Trash /> Delete
@@ -1038,7 +1070,7 @@ export default function JobsPage({ onNav, toast }: Props) {
             className="modal-overlay"
             onClick={() => {
               if (!deletingAssets) {
-                setDeleteAssetsOpen(false);
+                closeDeleteAssetsModal();
                 setDeleteAssetsPassword('');
                 setDeleteAssetsError(null);
               }
@@ -1088,7 +1120,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                   className="btn ghost"
                   disabled={deletingAssets}
                   onClick={() => {
-                    setDeleteAssetsOpen(false);
+                    closeDeleteAssetsModal();
                     setDeleteAssetsPassword('');
                     setDeleteAssetsError(null);
                   }}
@@ -1160,14 +1192,14 @@ export default function JobsPage({ onNav, toast }: Props) {
               >
                 {flushing ? 'Flushing…' : 'Confirm Flush'}
               </button>
-              <button className="btn sm ghost" onClick={() => setConfirmFlush(false)}>
+              <button className="btn sm ghost" onClick={closeConfirm}>
                 Cancel
               </button>
             </div>
           ) : (
             <button
               className="btn ghost sm"
-              onClick={() => setConfirmFlush(true)}
+              onClick={openConfirmFlush}
               title="Cancel all pending jobs in queue and refund credits"
             >
               Flush queue
@@ -1732,7 +1764,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                             title="Cancel"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setConfirmCancel(j.id);
+                              openConfirmCancel(j.id);
                             }}
                           >
                             <Icon.Ban />
@@ -2262,7 +2294,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                           <button
                             className="btn danger sm"
                             disabled={actioning}
-                            onClick={() => setConfirmCancel(j.id)}
+                            onClick={() => openConfirmCancel(j.id)}
                             style={{ flex: 1, justifyContent: 'center' }}
                           >
                             <Icon.Ban /> Cancel Job
@@ -2348,23 +2380,19 @@ export default function JobsPage({ onNav, toast }: Props) {
         </>
       )}
 
-      {confirmCancel && (
-        <div className="modal-overlay" onClick={() => setConfirmCancel(null)}>
+      {confirmCancelJobId && (
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Cancel job</h3>
             </div>
             <div className="modal-body">
               <p>
-                Cancel job <strong>{confirmCancel}</strong>? Credits will be refunded.
+                Cancel job <strong>{confirmCancelJobId}</strong>? Credits will be refunded.
               </p>
             </div>
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => setConfirmCancel(null)}
-                disabled={actioning}
-              >
+              <button className="btn ghost" onClick={closeConfirm} disabled={actioning}>
                 Back
               </button>
               <button className="btn danger" onClick={handleCancel} disabled={actioning}>
