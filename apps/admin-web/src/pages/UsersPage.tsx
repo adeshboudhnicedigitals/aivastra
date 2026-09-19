@@ -138,7 +138,6 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [deletingUser, setDeletingUser] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [grantUserId, setGrantUserId] = useState<string | null>(null);
   const [grantMode, setGrantMode] = useState<'grant' | 'deduct'>('grant');
   const [grantAmount, setGrantAmount] = useState('');
   const [grantReason, setGrantReason] = useState('');
@@ -149,7 +148,6 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [tierSaving, setTierSaving] = useState(false);
   const [selectedMaxDevices, setSelectedMaxDevices] = useState('1');
   const [deviceLimitSaving, setDeviceLimitSaving] = useState(false);
-  const [editingAccountField, setEditingAccountField] = useState<'plan' | 'devices' | null>(null);
   const [unlimitedPlanForm, setUnlimitedPlanForm] = useState<{
     startAt: string;
     endAt: string;
@@ -427,23 +425,40 @@ export default function UsersPage({ onNav, toast }: Props) {
           : null,
   );
 
+  const [modalParam, setModalParam] = useUrlState('modal');
+  const closeModal = useCloseOverlay(['modal']);
+  const grantUserId = modalParam === 'adjust-credits' ? (detail?.id ?? null) : null;
+  const editingAccountField: 'plan' | 'devices' | null =
+    modalParam === 'plan' || modalParam === 'devices' ? modalParam : null;
+  const showMonthlyPlanEditor = modalParam === 'monthly-plan';
+
   const openAdjustCredits = () => {
     if (!detail) return;
-    setGrantUserId(detail.id);
     setGrantMode('grant');
     setGrantAmount('');
     setGrantReason('');
+    setModalParam('adjust-credits');
   };
 
-  const closeAdjustCredits = () => {
-    setGrantUserId(null);
-    setGrantMode('grant');
-    setGrantAmount('');
-    setGrantReason('');
-  };
+  const closeAdjustCredits = closeModal;
 
   const openUnlimitedPlanEditor = () => {
-    if (!detail) return;
+    if (detail) setModalParam('monthly-plan');
+  };
+
+  const closeUnlimitedPlanEditor = () => {
+    setUnlimitedPlanForm(null);
+    closeModal();
+  };
+
+  // Unlike selectedTier/selectedMaxDevices, unlimitedPlanForm has no other
+  // sync point — a hard refresh or bookmark landing directly on
+  // ?modal=monthly-plan needs this effect to (re)build the form from
+  // `detail.unlimitedPlan`. Guarded on `unlimitedPlanForm` being null so it
+  // only runs once per "open" session, not on every unrelated `detail` update
+  // while the editor is already open (which would clobber in-progress edits).
+  useEffect(() => {
+    if (!showMonthlyPlanEditor || unlimitedPlanForm || !detail) return;
     const today = new Date().toISOString().slice(0, 10);
     const plan = detail.unlimitedPlan;
     const hasActive =
@@ -458,9 +473,32 @@ export default function UsersPage({ onNav, toast }: Props) {
       priceRupees: hasActive && plan?.pricePaise != null ? String(plan.pricePaise / 100) : '',
       queueStream: (hasActive && plan?.queueStream) || 'normal',
     });
-  };
+  }, [showMonthlyPlanEditor, unlimitedPlanForm, detail]);
 
-  const closeUnlimitedPlanEditor = () => setUnlimitedPlanForm(null);
+  useCrumb(
+    2,
+    modalParam === 'adjust-credits'
+      ? {
+          label: 'Adjust credits',
+          href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&modal=adjust-credits`,
+        }
+      : modalParam === 'monthly-plan'
+        ? {
+            label: 'Monthly plan',
+            href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&modal=monthly-plan`,
+          }
+        : modalParam === 'plan'
+          ? {
+              label: 'Change plan',
+              href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&modal=plan`,
+            }
+          : modalParam === 'devices'
+            ? {
+                label: 'Change device limit',
+                href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&modal=devices`,
+              }
+            : null,
+  );
 
   const handleGrantUnlimitedPlan = async () => {
     if (!detail || !unlimitedPlanForm) return;
@@ -530,13 +568,13 @@ export default function UsersPage({ onNav, toast }: Props) {
   const openPlanEditor = () => {
     if (!detail) return;
     setSelectedTier(detail.tier);
-    setEditingAccountField('plan');
+    setModalParam('plan');
   };
 
   const openDeviceLimitEditor = () => {
     if (!detail) return;
     setSelectedMaxDevices(String(detail.maxActiveDevices ?? 1));
-    setEditingAccountField('devices');
+    setModalParam('devices');
   };
 
   const closeAccountFieldEditor = () => {
@@ -544,7 +582,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       setSelectedTier(detail.tier);
       setSelectedMaxDevices(String(detail.maxActiveDevices ?? 1));
     }
-    setEditingAccountField(null);
+    closeModal();
   };
 
   const handleSuspendConfirm = async () => {
@@ -641,7 +679,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         prev.map((user) => (user.id === detail.id ? { ...user, tier: selectedTier } : user)),
       );
       toast({ title: 'User tier updated' });
-      setEditingAccountField(null);
+      closeModal();
     } catch (err) {
       toast({
         kind: 'error',
@@ -672,7 +710,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         prev.map((user) => (user.id === detail.id ? { ...user, maxActiveDevices } : user)),
       );
       toast({ title: 'Device limit updated' });
-      setEditingAccountField(null);
+      closeModal();
     } catch (err) {
       toast({
         kind: 'error',
@@ -1794,7 +1832,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           </EditDrawer>
         )}
 
-        {unlimitedPlanForm && (
+        {showMonthlyPlanEditor && unlimitedPlanForm && (
           <EditDrawer
             onClose={closeUnlimitedPlanEditor}
             title={`Monthly plan — ${userLabel(u)}`}
