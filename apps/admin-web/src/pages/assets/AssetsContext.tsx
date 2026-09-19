@@ -139,7 +139,13 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
     }
   }, [toast]);
 
-  // Preload shared data on mount so filters/dropdowns are populated immediately
+  // Preload shared data on mount so filters/dropdowns are populated immediately.
+  // garment-types' catch deliberately does NOT reset to [] on failure (unlike
+  // faces/backgrounds above) — this request races GarmentTypesTab's own
+  // loadGarmentTypes() call whenever that's the active tab, and if this one
+  // loses the race and fails after the other already populated real data,
+  // wiping to [] here would silently close a deep-linked garment-type overlay
+  // (same invariant loadGarmentTypes's own catch branch protects below).
   useEffect(() => {
     apiFetch<{ items: ModelFace[] }>('/admin/assets/faces')
       .then((r) => setFaces(r.items))
@@ -152,7 +158,7 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
       .catch(() => {});
     apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types')
       .then((r) => setGarmentTypes(r.items))
-      .catch(() => setGarmentTypes([]));
+      .catch(() => {});
   }, []);
 
   const value = useMemo<AssetsContextValue>(

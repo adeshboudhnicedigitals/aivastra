@@ -26,6 +26,17 @@ import { useAssetsContext } from './AssetsContext';
 type SubView = { kind: 'list' } | { kind: 'configs'; sub: GarmentType };
 type ConfirmDeleteGT = { type: 'garment-type'; id: string; label: string };
 
+function blankSubcatForm(sortOrder = 0) {
+  return {
+    slug: '',
+    label: '',
+    genderSlug: 'men' as GenderSlug,
+    requiresLowerUpload: false,
+    requiresThirdUpload: false,
+    sortOrder,
+  };
+}
+
 const GENDER_TABS = [
   { k: 'all' as const, l: 'All' },
   { k: 'men' as const, l: 'Men' },
@@ -168,14 +179,7 @@ export function GarmentTypesTab() {
   // field values and the picked File (not serializable into a URL) stay local.
   const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
   const showSubcatModal = modalParam === 'add-garment-type';
-  const [subcatForm, setSubcatForm] = useState({
-    slug: '',
-    label: '',
-    genderSlug: 'men' as GenderSlug,
-    requiresLowerUpload: false,
-    requiresThirdUpload: false,
-    sortOrder: 0,
-  });
+  const [subcatForm, setSubcatForm] = useState(blankSubcatForm());
   const [subcatSaving, setSubcatSaving] = useState(false);
   const [subcatImageFile, setSubcatImageFile] = useState<File | null>(null);
   const closeModal = useCloseOverlay(['modal', 'editId']);
@@ -470,14 +474,7 @@ export function GarmentTypesTab() {
             <button
               className="btn"
               onClick={() => {
-                setSubcatForm({
-                  slug: '',
-                  label: '',
-                  genderSlug: 'men',
-                  requiresLowerUpload: false,
-                  requiresThirdUpload: false,
-                  sortOrder: nextSortOrderFor('men'),
-                });
+                setSubcatForm(blankSubcatForm(nextSortOrderFor('men')));
                 setModalParams({ modal: 'add-garment-type', editId: null });
               }}
             >
@@ -1001,14 +998,7 @@ export function GarmentTypesTab() {
               await loadGarmentTypes();
               toast({ title: `${row.label} created` });
               setSubcatImageFile(null);
-              setSubcatForm({
-                slug: '',
-                label: '',
-                genderSlug: 'men',
-                requiresLowerUpload: false,
-                requiresThirdUpload: false,
-                sortOrder: 0,
-              });
+              setSubcatForm(blankSubcatForm());
               closeModal();
             } catch (e) {
               toast({
