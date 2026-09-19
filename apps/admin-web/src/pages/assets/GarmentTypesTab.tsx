@@ -145,8 +145,10 @@ export function GarmentTypesTab() {
     [garmentTypes],
   );
 
-  // Add garment type modal
-  const [showSubcatModal, setShowSubcatModal] = useState(false);
+  // Add garment type modal — only "is it open" is URL state; the form's own
+  // field values and the picked File (not serializable into a URL) stay local.
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const showSubcatModal = modalParam === 'add-garment-type';
   const [subcatForm, setSubcatForm] = useState({
     slug: '',
     label: '',
@@ -157,9 +159,26 @@ export function GarmentTypesTab() {
   });
   const [subcatSaving, setSubcatSaving] = useState(false);
   const [subcatImageFile, setSubcatImageFile] = useState<File | null>(null);
+  const closeAddModal = useCloseOverlay(tabHref);
 
   // Edit garment type modal
-  const [editingSubcat, setEditingSubcat] = useState<GarmentType | null>(null);
+  const editingSubcat: GarmentType | null =
+    modalParam === 'edit-garment-type' && editId
+      ? (garmentTypes.find((g) => g.id === editId) ?? null)
+      : null;
+  const openEditModal = useCallback(
+    (sub: GarmentType) => setModalParams({ modal: 'edit-garment-type', editId: sub.id }),
+    [setModalParams],
+  );
+  const closeEditModal = useCloseOverlay(tabHref);
+  useCrumb(
+    2,
+    showSubcatModal
+      ? { label: 'Add', href: `${tabHref}&modal=add-garment-type` }
+      : editingSubcat
+        ? { label: 'Edit', href: `${tabHref}&modal=edit-garment-type&editId=${editingSubcat.id}` }
+        : null,
+  );
 
   const loadPoseConfigs = useCallback(
     async (garmentTypeId: string) => {
@@ -422,7 +441,7 @@ export function GarmentTypesTab() {
                   requiresThirdUpload: false,
                   sortOrder: nextSortOrderFor('men'),
                 });
-                setShowSubcatModal(true);
+                setModalParams({ modal: 'add-garment-type', editId: null });
               }}
             >
               <Icon.Add /> Add garment type
@@ -633,7 +652,7 @@ export function GarmentTypesTab() {
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        <button className="btn sm ghost" onClick={() => setEditingSubcat(sub)}>
+                        <button className="btn sm ghost" onClick={() => openEditModal(sub)}>
                           <Icon.Edit />
                         </button>
                         <button
@@ -850,7 +869,7 @@ export function GarmentTypesTab() {
                         <button className="btn sm ghost" onClick={() => openConfigs(sub)}>
                           Setup Poses
                         </button>
-                        <button className="btn sm ghost" onClick={() => setEditingSubcat(sub)}>
+                        <button className="btn sm ghost" onClick={() => openEditModal(sub)}>
                           <Icon.Edit /> Edit
                         </button>
                         <button
@@ -913,8 +932,8 @@ export function GarmentTypesTab() {
       {showSubcatModal && (
         <EditDrawer
           onClose={() => {
-            setShowSubcatModal(false);
             setSubcatImageFile(null);
+            closeAddModal();
           }}
           title="Add garment type"
           width="min(560px, calc(100vw - 60px))"
@@ -949,8 +968,8 @@ export function GarmentTypesTab() {
               // gender server-side - refetch instead of patching just this one.
               await loadGarmentTypes();
               toast({ title: `${row.label} created` });
-              setShowSubcatModal(false);
               setSubcatImageFile(null);
+              closeAddModal();
             } catch (e) {
               toast({
                 kind: 'error',
@@ -1125,7 +1144,7 @@ export function GarmentTypesTab() {
             // refetch instead of patching just the edited row.
             void loadGarmentTypes();
           }}
-          onClose={() => setEditingSubcat(null)}
+          onClose={closeEditModal}
           toast={toast}
         />
       )}
