@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import './styles/tokens.css';
 import App from './App.tsx';
 import { AuthProvider } from './context/AuthContext.tsx';
+import { BreadcrumbProvider } from './context/BreadcrumbContext.tsx';
 
 // Admin now lives on its own subdomain (admin.aivastra.com), mounted at the
 // domain root — no /panel path prefix needed anymore.
@@ -14,7 +15,9 @@ createRoot(rootEl).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
+        <BreadcrumbProvider>
+          <App />
+        </BreadcrumbProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
