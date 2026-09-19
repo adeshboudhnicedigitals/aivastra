@@ -157,21 +157,17 @@ export default function UsersPage({ onNav, toast }: Props) {
   } | null>(null);
   const [savingUnlimitedPlan, setSavingUnlimitedPlan] = useState(false);
   const [revokingUnlimitedPlan, setRevokingUnlimitedPlan] = useState(false);
-  const [showGrantMerchant, setShowGrantMerchant] = useState(false);
   const [grantMerchantForm, setGrantMerchantForm] = useState(EMPTY_GRANT_MERCHANT_FORM);
   const [grantingMerchant, setGrantingMerchant] = useState(false);
-  const [showEditMerchant, setShowEditMerchant] = useState(false);
   const [merchantEditForm, setMerchantEditForm] = useState(EMPTY_EDIT_MERCHANT_FORM);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingLoadingVideo, setUploadingLoadingVideo] = useState(false);
   const [savingMerchantEdit, setSavingMerchantEdit] = useState(false);
   const [togglingMerchant, setTogglingMerchant] = useState(false);
   const [togglingDemoData, setTogglingDemoData] = useState(false);
-  const [showCreateUser, setShowCreateUser] = useState(false);
   const [createUserForm, setCreateUserForm] = useState(EMPTY_CREATE_USER_FORM);
   const [creatingUser, setCreatingUser] = useState(false);
   const [createUserError, setCreateUserError] = useState('');
-  const [resettingPassword, setResettingPassword] = useState(false);
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [creditActivity, setCreditActivity] = useState<CreditLedgerEntry[]>([]);
   const [creditActivityLoading, setCreditActivityLoading] = useState(false);
@@ -475,30 +471,30 @@ export default function UsersPage({ onNav, toast }: Props) {
     });
   }, [showMonthlyPlanEditor, unlimitedPlanForm, detail]);
 
+  const MODAL_LABELS: Record<string, string> = {
+    'adjust-credits': 'Adjust credits',
+    'monthly-plan': 'Monthly plan',
+    plan: 'Change plan',
+    devices: 'Change device limit',
+    'grant-merchant': 'Grant merchant access',
+    'edit-merchant': 'Edit merchant',
+    'create-user': 'Create user',
+    'reset-password': 'Reset password',
+  };
   useCrumb(
     2,
-    modalParam === 'adjust-credits'
+    modalParam && MODAL_LABELS[modalParam]
       ? {
-          label: 'Adjust credits',
-          href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&modal=adjust-credits`,
+          label: MODAL_LABELS[modalParam],
+          href: `/users?${detail ? `user=${encodeURIComponent(detail.id)}&` : ''}modal=${modalParam}`,
         }
-      : modalParam === 'monthly-plan'
-        ? {
-            label: 'Monthly plan',
-            href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&modal=monthly-plan`,
-          }
-        : modalParam === 'plan'
-          ? {
-              label: 'Change plan',
-              href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&modal=plan`,
-            }
-          : modalParam === 'devices'
-            ? {
-                label: 'Change device limit',
-                href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&modal=devices`,
-              }
-            : null,
+      : null,
   );
+
+  const showGrantMerchant = modalParam === 'grant-merchant';
+  const showEditMerchant = modalParam === 'edit-merchant';
+  const showCreateUser = modalParam === 'create-user';
+  const resettingPassword = modalParam === 'reset-password';
 
   const handleGrantUnlimitedPlan = async () => {
     if (!detail || !unlimitedPlanForm) return;
@@ -768,7 +764,7 @@ export default function UsersPage({ onNav, toast }: Props) {
 
   function openGrantMerchant() {
     setGrantMerchantForm(EMPTY_GRANT_MERCHANT_FORM);
-    setShowGrantMerchant(true);
+    setModalParam('grant-merchant');
   }
 
   async function handleGrantMerchant() {
@@ -786,7 +782,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         }),
       });
       toast({ title: `Merchant access granted to ${userLabel(detail)}` });
-      setShowGrantMerchant(false);
+      closeModal();
       await openDetail(detail);
       setUsers((prev) => prev.map((u) => (u.id === detail.id ? { ...u, isMerchant: true } : u)));
     } catch (err) {
@@ -806,8 +802,40 @@ export default function UsersPage({ onNav, toast }: Props) {
       businessAddress: m.businessAddress,
       jobRateLimitPerMin: m.jobRateLimitPerMin != null ? String(m.jobRateLimitPerMin) : '',
     });
-    setShowEditMerchant(true);
+    setModalParam('edit-merchant');
   }
+
+  // Unlike the plan/device-limit editor (Task 6), merchantEditForm has no
+  // other sync point — a hard refresh or bookmark landing directly on
+  // ?modal=edit-merchant needs this effect to rebuild it from `detail`.
+  //
+  // We guard with a ref rather than "every field blank" (which Task 6's
+  // unlimitedPlanForm-is-null check inspired but doesn't translate cleanly
+  // here): merchantEditForm is never null, and a blank-fields check would
+  // refire and clobber an in-progress edit if the user had deliberately
+  // cleared every field and `detail.merchant` then changed reference for an
+  // unrelated reason (e.g. a background refresh) while the drawer stayed
+  // open — the effect depends on `detail?.merchant`, so any new reference
+  // reruns it. The ref instead marks "already synced for this open session,"
+  // reset only when the modal is not showing edit-merchant, so a reference
+  // change on an already-open, already-synced session is a no-op.
+  const editMerchantSyncedRef = useRef(false);
+  useEffect(() => {
+    if (modalParam !== 'edit-merchant') {
+      editMerchantSyncedRef.current = false;
+      return;
+    }
+    if (!detail?.merchant || editMerchantSyncedRef.current) return;
+    const m = detail.merchant;
+    setMerchantEditForm({
+      companyName: m.companyName,
+      contactName: m.contactName,
+      phone: m.phone,
+      businessAddress: m.businessAddress,
+      jobRateLimitPerMin: m.jobRateLimitPerMin != null ? String(m.jobRateLimitPerMin) : '',
+    });
+    editMerchantSyncedRef.current = true;
+  }, [modalParam, detail?.merchant]);
 
   async function handleMerchantEditSave() {
     if (!detail?.merchant) return;
@@ -825,7 +853,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         }),
       });
       toast({ title: 'Merchant details updated' });
-      setShowEditMerchant(false);
+      closeModal();
       await openDetail(detail);
     } catch (err) {
       toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to update merchant') });
@@ -923,7 +951,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   function openCreateUser() {
     setCreateUserForm(EMPTY_CREATE_USER_FORM);
     setCreateUserError('');
-    setShowCreateUser(true);
+    setModalParam('create-user');
   }
 
   async function handleCreateUser() {
@@ -949,7 +977,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         }),
       });
       toast({ title: `Account created for ${createUserForm.displayName.trim()}` });
-      setShowCreateUser(false);
+      closeModal();
       setPage(0);
       await load();
     } catch (err) {
@@ -1075,7 +1103,7 @@ export default function UsersPage({ onNav, toast }: Props) {
               className="btn ghost"
               onClick={() => {
                 setNewPasswordInput('');
-                setResettingPassword(true);
+                setModalParam('reset-password');
               }}
             >
               <Icon.Refresh /> Reset Password
@@ -1436,12 +1464,12 @@ export default function UsersPage({ onNav, toast }: Props) {
 
         {resettingPassword && (
           <EditDrawer
-            onClose={() => setResettingPassword(false)}
+            onClose={closeModal}
             title="Reset Password"
             width="min(420px, calc(100vw - 40px))"
             onSave={async () => {
               await handleResetPassword(newPasswordInput);
-              setResettingPassword(false);
+              closeModal();
             }}
             saveLabel="Reset Password"
             saveDisabled={!newPasswordInput}
@@ -1986,7 +2014,7 @@ export default function UsersPage({ onNav, toast }: Props) {
 
         {showGrantMerchant && (
           <EditDrawer
-            onClose={() => setShowGrantMerchant(false)}
+            onClose={closeModal}
             title={`Grant merchant access — ${userLabel(u)}`}
             width="min(520px, calc(100vw - 40px))"
             saving={grantingMerchant}
@@ -2049,7 +2077,7 @@ export default function UsersPage({ onNav, toast }: Props) {
 
         {showEditMerchant && u.merchant && (
           <EditDrawer
-            onClose={() => setShowEditMerchant(false)}
+            onClose={closeModal}
             title="Edit merchant details"
             width="min(520px, calc(100vw - 40px))"
             saving={savingMerchantEdit}
@@ -2915,7 +2943,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       )}
       {showCreateUser && (
         <EditDrawer
-          onClose={() => setShowCreateUser(false)}
+          onClose={closeModal}
           title="Create User"
           width="min(480px, calc(100vw - 40px))"
           saving={creatingUser}
