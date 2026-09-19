@@ -193,6 +193,92 @@ describe('syncOneTask — reconcile mode', () => {
     }
   });
 
+  it('discovers and syncs a product Shopify has that this store has never seen (products/create backstop)', async () => {
+    const store = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 915,
+        shopDomain: 'r6.myshopify.com',
+        myshopifyDomain: 'r6.myshopify.com',
+        name: 'R6',
+        email: 'r6@r6.com',
+      },
+      'tok',
+      'read_products',
+    );
+
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: store.id,
+      shopifyProductId: 850,
+      shopifyVariantId: 0,
+      r2Key: 'known',
+      title: 'Already Known',
+      status: 'active',
+    });
+
+    let oneProductCalls = 0;
+    const originalFetch = global.fetch;
+    global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (!url.endsWith('/graphql.json')) throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(String(init?.body)) as { query: string };
+      if (body.query.includes('ProductIdsPage')) {
+        // Shopify has 850 (already known) and 851 (never synced before).
+        return new Response(
+          JSON.stringify({
+            data: {
+              products: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [{ id: 'gid://shopify/Product/850' }, { id: 'gid://shopify/Product/851' }],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (body.query.includes('OneProduct')) {
+        oneProductCalls++;
+        return new Response(
+          JSON.stringify({
+            data: {
+              product: {
+                id: 'gid://shopify/Product/851',
+                title: 'Brand New Product',
+                productType: null,
+                tags: [],
+                vendor: null,
+                featuredImage: null,
+                collections: { nodes: [] },
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`unexpected graphql query: ${body.query}`);
+    }) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId: store.id, mode: 'reconcile' });
+
+      // Only the genuinely-new id (851) triggers a OneProduct lookup — 850 was
+      // already known and must not be re-fetched by the reconcile backstop.
+      expect(oneProductCalls).toBe(1);
+
+      const rows = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(eq(schema.shopifyProductGarments.storeId, store.id));
+      const byId = new Map(rows.map((r) => [r.shopifyProductId, r]));
+
+      expect(byId.get(850)?.status).toBe('active');
+      expect(byId.get(850)?.title).toBe('Already Known'); // untouched
+      expect(byId.get(851)?.title).toBe('Brand New Product');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   it('marks every non-deleted row deleted when Shopify returns zero products', async () => {
     const store = await upsertShopifyStore(
       app,

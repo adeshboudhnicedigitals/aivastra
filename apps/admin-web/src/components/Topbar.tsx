@@ -1,10 +1,11 @@
 import { Fragment } from 'react';
 import { useAuth } from '../context/AuthContext';
+import type { Crumb } from '../context/BreadcrumbContext';
 import { Icon } from './Icons';
 
 interface TopbarProps {
-  trail: string[];
-  onNavTrail: (i: number) => void;
+  trail: Crumb[];
+  onNavTrail: (href: string) => void;
   theme: 'light' | 'dark' | 'system';
   onToggleTheme: () => void;
   onOpenMobileNav: () => void;
@@ -32,11 +33,11 @@ export function Topbar({ trail, onNavTrail, theme, onToggleTheme, onOpenMobileNa
           <Fragment key={i}>
             {i > 0 && <span className="sep">/</span>}
             {i < trail.length - 1 ? (
-              <button className="crumb-link" onClick={() => onNavTrail(i)}>
-                {crumb}
+              <button className="crumb-link" onClick={() => onNavTrail(crumb.href)}>
+                {crumb.label}
               </button>
             ) : (
-              <b>{crumb}</b>
+              <b>{crumb.label}</b>
             )}
           </Fragment>
         ))}

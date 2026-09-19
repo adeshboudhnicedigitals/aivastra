@@ -353,6 +353,60 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
     return token;
   };
 
+  // Shared by 'product' mode (a single webhook-driven id) and the new-product
+  // discovery branch of 'reconcile' mode below — both need to turn one
+  // Shopify product id into a garment row via the identical fetch/error path.
+  async function fetchAndSyncOneProduct(productId: number): Promise<void> {
+    let node: GraphQLProductNode | null;
+    try {
+      const data = await shopifyGraphQL<{ product: GraphQLProductNode | null }>(
+        shop,
+        token,
+        ONE_PRODUCT,
+        { id: toGid('Product', productId) },
+        { onUnauthorized },
+      );
+      node = data.product;
+    } catch (err) {
+      // SHOPIFY_REAUTH_REQUIRED is a store-wide auth failure, not a per-product
+      // one — blanking this one garment row doesn't address it, and the whole
+      // store needs reauth. Propagate it so the caller's mode aborts instead of
+      // recording a misleading per-product failure.
+      if (err instanceof AppError && err.code === 'SHOPIFY_REAUTH_REQUIRED') throw err;
+      app.log.warn(
+        { err, storeId: store.id, productId },
+        'shopify product fetch failed during sync',
+      );
+      await upsertGarmentFailure(
+        app,
+        store.id,
+        productId,
+        `product fetch failed: ${(err as Error).message}`,
+      );
+      return;
+    }
+
+    if (!node) {
+      // Shopify's products(...) query (and this single-product lookup) is
+      // never filtered by status, so "not found" reliably means gone, not
+      // merely draft/archived.
+      app.log.info(
+        { storeId: store.id, productId },
+        'shopify product not found during sync — marking deleted',
+      );
+      await upsertGarmentFailure(
+        app,
+        store.id,
+        productId,
+        'product not found on Shopify',
+        'deleted',
+      );
+      return;
+    }
+
+    await syncProduct(app, store.id, toShopifyProduct(node));
+  }
+
   if (task.mode === 'collection') {
     if (task.shopifyCollectionId === undefined) return;
     const { syncCollectionMembership, CollectionNotFoundError } = await import(
@@ -417,72 +471,21 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
   }
 
   if (task.mode === 'product' && task.shopifyProductId) {
-    let node: GraphQLProductNode | null;
-    try {
-      const data = await shopifyGraphQL<{ product: GraphQLProductNode | null }>(
-        shop,
-        token,
-        ONE_PRODUCT,
-        { id: toGid('Product', task.shopifyProductId) },
-        { onUnauthorized },
-      );
-      node = data.product;
-    } catch (err) {
-      // SHOPIFY_REAUTH_REQUIRED is a store-wide auth failure, not a per-product
-      // one — blanking this one garment row doesn't address it, and the whole
-      // store needs reauth. Propagate it exactly as the old REST code did,
-      // rather than letting it fall into the generic "couldn't fetch" path
-      // below and blank a healthy, previously-synced product out of the
-      // storefront widget until the next successful sync.
-      if (err instanceof AppError && err.code === 'SHOPIFY_REAUTH_REQUIRED') throw err;
-      // Previously a silent no-op: no row, no log — a persistently-failing
-      // product re-enqueued via customer.routes.ts on every try-on attempt and
-      // never left a trace to debug from.
-      app.log.warn(
-        { err, storeId: store.id, productId: task.shopifyProductId },
-        'shopify product fetch failed during sync',
-      );
-      await upsertGarmentFailure(
-        app,
-        store.id,
-        task.shopifyProductId,
-        `product fetch failed: ${(err as Error).message}`,
-      );
-      return;
-    }
-
-    if (!node) {
-      // Shopify's products(...) query (and this single-product lookup) is
-      // never filtered by status, so "not found" reliably means gone, not
-      // merely draft/archived — same confirmation the products/delete webhook
-      // acts on. Mark it deleted rather than 'failed' so it self-corrects the
-      // same stale-row problem the reconciliation sweep exists for, instead of
-      // sitting under a "failed to sync" count that never clears.
-      app.log.info(
-        { storeId: store.id, productId: task.shopifyProductId },
-        'shopify product not found during sync — marking deleted',
-      );
-      await upsertGarmentFailure(
-        app,
-        store.id,
-        task.shopifyProductId,
-        'product not found on Shopify',
-        'deleted',
-      );
-      return;
-    }
-
-    await syncProduct(app, store.id, toShopifyProduct(node));
+    await fetchAndSyncOneProduct(task.shopifyProductId);
     return;
   }
 
   if (task.mode === 'reconcile') {
-    // Cheap backstop for the products/delete webhook: pull just the ids
-    // Shopify currently has (no image/collection fields, so this can page at
-    // 250 and skips all the R2 image work a full sync does) and mark anything
-    // else deleted. See startProductResyncScheduler — this runs hourly for
-    // every store with synced products, independent of whether any webhook
-    // ever fired.
+    // Backstop for both the products/delete webhook AND the products/create
+    // webhook (a delivery can be dropped, or — for a store that installed
+    // before products/create existed — never registered at all until the
+    // store reinstalls). Pulls just the ids Shopify currently has (no
+    // image/collection fields, so this can page at 250 and skips all the R2
+    // image work a full sync does), marks anything missing as deleted, and
+    // fetches full data for any id Shopify has that this store has never seen
+    // before. See startProductResyncScheduler — this runs hourly for every
+    // store with synced products, independent of whether any webhook ever
+    // fired.
     let cursor: string | null = null;
     const liveProductIds: number[] = [];
     do {
@@ -499,6 +502,21 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
       cursor = data.products.pageInfo.hasNextPage ? data.products.pageInfo.endCursor : null;
       if (cursor) await new Promise((r) => setTimeout(r, 300)); // throttle
     } while (cursor);
+
+    // liveProductIds vs. every id this store has ANY row for (including
+    // 'deleted' ones — Shopify doesn't reuse product ids, so a live id this
+    // store has never had a row for is genuinely new, not a resurrection).
+    const existingRows = await app.db
+      .select({ id: schema.shopifyProductGarments.shopifyProductId })
+      .from(schema.shopifyProductGarments)
+      .where(eq(schema.shopifyProductGarments.storeId, store.id));
+    const existingIds = new Set(existingRows.map((r) => r.id));
+    const newProductIds = liveProductIds.filter((id) => !existingIds.has(id));
+    for (const productId of newProductIds) {
+      await fetchAndSyncOneProduct(productId);
+      await new Promise((r) => setTimeout(r, 300)); // throttle, same cadence as the id-page loop above
+    }
+
     await reconcileDeletedProducts(app, store.id, liveProductIds);
     return;
   }

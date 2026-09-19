@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { ImageLightbox } from '../components/ImageLightbox';
@@ -11,6 +11,9 @@ import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
 import type { CreditLedgerEntry, CreditPlan, User } from '../types';
 
@@ -101,10 +104,25 @@ interface Props {
 }
 
 export default function UsersPage({ onNav, toast }: Props) {
-  const location = useLocation();
-  const requestedUserId = (location.state as { userId?: string })?.userId;
-  const requestedJobId = (location.state as { jobId?: string })?.jobId;
+  const [userIdParam, setUserIdParam] = useUrlState('user');
+  const closeDetail = useCloseOverlay(['user']);
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const confirmSuspend = confirmParam === 'suspend' ? confirmId : null;
+  const showBulkDeleteConfirm = confirmParam === 'bulk-delete-users';
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const openConfirmSuspend = () => {
+    if (detail) setConfirmParams({ confirm: 'suspend', confirmId: detail.id });
+  };
+  const openConfirmDelete = () => {
+    if (detail) setConfirmParams({ confirm: 'delete-user', confirmId: detail.id });
+  };
+  const openBulkDeleteConfirm = () =>
+    setConfirmParams({ confirm: 'bulk-delete-users', confirmId: null });
   const { role: myRole } = useAuth();
+  const navigate = useNavigate();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
   const [merchantsOnly, setMerchantsOnly] = useState(false);
@@ -117,14 +135,16 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<User | null>(null);
+  // Only ever consider the delete-confirm dialog "resolved" when confirmId
+  // matches the currently-loaded detail — a stale/hand-edited confirmId
+  // (deleted record, stale bookmark) must fall back to the plain view
+  // instead of rendering a broken, still-destructive confirm prompt.
+  const confirmDelete =
+    confirmParam === 'delete-user' && confirmId === detail?.id ? confirmId : null;
   const [detailLoading, setDetailLoading] = useState(false);
-  const [confirmSuspend, setConfirmSuspend] = useState<string | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deletingUser, setDeletingUser] = useState(false);
-  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [grantUserId, setGrantUserId] = useState<string | null>(null);
   const [grantMode, setGrantMode] = useState<'grant' | 'deduct'>('grant');
   const [grantAmount, setGrantAmount] = useState('');
   const [grantReason, setGrantReason] = useState('');
@@ -135,7 +155,6 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [tierSaving, setTierSaving] = useState(false);
   const [selectedMaxDevices, setSelectedMaxDevices] = useState('1');
   const [deviceLimitSaving, setDeviceLimitSaving] = useState(false);
-  const [editingAccountField, setEditingAccountField] = useState<'plan' | 'devices' | null>(null);
   const [unlimitedPlanForm, setUnlimitedPlanForm] = useState<{
     startAt: string;
     endAt: string;
@@ -145,28 +164,35 @@ export default function UsersPage({ onNav, toast }: Props) {
   } | null>(null);
   const [savingUnlimitedPlan, setSavingUnlimitedPlan] = useState(false);
   const [revokingUnlimitedPlan, setRevokingUnlimitedPlan] = useState(false);
-  const [showGrantMerchant, setShowGrantMerchant] = useState(false);
   const [grantMerchantForm, setGrantMerchantForm] = useState(EMPTY_GRANT_MERCHANT_FORM);
   const [grantingMerchant, setGrantingMerchant] = useState(false);
-  const [showEditMerchant, setShowEditMerchant] = useState(false);
   const [merchantEditForm, setMerchantEditForm] = useState(EMPTY_EDIT_MERCHANT_FORM);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingLoadingVideo, setUploadingLoadingVideo] = useState(false);
   const [savingMerchantEdit, setSavingMerchantEdit] = useState(false);
   const [togglingMerchant, setTogglingMerchant] = useState(false);
   const [togglingDemoData, setTogglingDemoData] = useState(false);
-  const [showCreateUser, setShowCreateUser] = useState(false);
   const [createUserForm, setCreateUserForm] = useState(EMPTY_CREATE_USER_FORM);
   const [creatingUser, setCreatingUser] = useState(false);
   const [createUserError, setCreateUserError] = useState('');
-  const [resettingPassword, setResettingPassword] = useState(false);
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [creditActivity, setCreditActivity] = useState<CreditLedgerEntry[]>([]);
   const [creditActivityLoading, setCreditActivityLoading] = useState(false);
   const [showAllCreditActivity, setShowAllCreditActivity] = useState(false);
-  const [jobPreviewId, setJobPreviewId] = useState<string | null>(null);
+  const [jobPreviewId, setJobPreviewId] = useUrlState('jobPreview');
+  const closeJobPreview = useCloseOverlay(['jobPreview']);
   const [jobPreview, setJobPreview] = useState<JobPreview | null>(null);
   const [jobPreviewLoading, setJobPreviewLoading] = useState(false);
+
+  useCrumb(
+    3,
+    jobPreviewId
+      ? {
+          label: `Job ${jobPreviewId.slice(0, 8)}…`,
+          href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&jobPreview=${encodeURIComponent(jobPreviewId)}`,
+        }
+      : null,
+  );
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [exportFrom, setExportFrom] = useState('');
   const [exportTo, setExportTo] = useState('');
@@ -303,33 +329,42 @@ export default function UsersPage({ onNav, toast }: Props) {
     [toast],
   );
 
-  const openJobPreview = useCallback(
-    async (jobId: string) => {
-      setJobPreviewId(jobId);
+  const openJobPreview = useCallback((jobId: string) => setJobPreviewId(jobId), [setJobPreviewId]);
+
+  useEffect(() => {
+    if (!jobPreviewId) {
       setJobPreview(null);
-      setJobPreviewLoading(true);
-      try {
-        const full = await apiFetch<JobPreview>(`/admin/jobs/${jobId}`);
-        setJobPreview(full);
-      } catch (e) {
-        toast({
-          kind: 'error',
-          title: 'Failed to load job details',
-          body: apiErrorMessage(e, 'Please try again.'),
-        });
-        setJobPreviewId(null);
-      } finally {
-        setJobPreviewLoading(false);
-      }
-    },
-    [toast],
-  );
+      return;
+    }
+    let cancelled = false;
+    setJobPreview(null);
+    setJobPreviewLoading(true);
+    apiFetch<JobPreview>(`/admin/jobs/${jobPreviewId}`)
+      .then((full) => {
+        if (!cancelled) setJobPreview(full);
+      })
+      .catch((e) => {
+        if (!cancelled)
+          toast({
+            kind: 'error',
+            title: 'Failed to load job details',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
+      })
+      .finally(() => {
+        if (!cancelled) setJobPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobPreviewId, toast]);
 
   const openDetail = async (u: User) => {
     setDetail(u);
     setSelectedTier(u.tier);
     setSelectedMaxDevices(String(u.maxActiveDevices ?? 1));
     setShowAllCreditActivity(false);
+    if (userIdParam !== u.id) setUserIdParam(u.id);
     setDetailLoading(true);
     try {
       const [full] = await Promise.all([
@@ -350,24 +385,27 @@ export default function UsersPage({ onNav, toast }: Props) {
     }
   };
 
+  // Reconstructs the detail view from the URL alone — covers a hard refresh,
+  // a deep link, and the physical Back button restoring a previous `user=`
+  // value. Skipped when `openDetail` already seeded `detail` for this same
+  // id. The job-preview popup no longer needs special-casing here: once
+  // Task 8 lands, `jobPreview=<id>` is its own URL param, read by its own
+  // effect — landing on a URL that already contains it just opens it.
   useEffect(() => {
-    if (!requestedUserId) return;
+    if (!userIdParam) {
+      setDetail(null);
+      return;
+    }
+    if (detail?.id === userIdParam) return;
     let cancelled = false;
     setDetailLoading(true);
-    Promise.all([
-      apiFetch<User>(`/admin/users/${requestedUserId}`),
-      loadCreditActivity(requestedUserId),
-    ])
+    Promise.all([apiFetch<User>(`/admin/users/${userIdParam}`), loadCreditActivity(userIdParam)])
       .then(([full]) => {
         if (cancelled) return;
         setDetail(full);
         setSelectedTier(full.tier);
         setSelectedMaxDevices(String(full.maxActiveDevices ?? 1));
         setShowAllCreditActivity(false);
-        // Landed here via the job popup's "Go to job" link + the job page's
-        // "Back to user" — reopen the same popup instead of just the bare
-        // user detail, so the trip back feels like a round-trip, not a reset.
-        if (requestedJobId) void openJobPreview(requestedJobId);
       })
       .catch((e) => {
         if (!cancelled)
@@ -383,25 +421,66 @@ export default function UsersPage({ onNav, toast }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [requestedUserId, requestedJobId, loadCreditActivity, openJobPreview, toast]);
+  }, [userIdParam, detail?.id, loadCreditActivity, toast]);
+
+  useCrumb(
+    0,
+    detail
+      ? { label: userLabel(detail), href: `/users?user=${encodeURIComponent(detail.id)}` }
+      : null,
+  );
+
+  useCrumb(
+    1,
+    confirmParam === 'suspend'
+      ? {
+          label: 'Suspend',
+          href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&confirm=suspend&confirmId=${encodeURIComponent(confirmId ?? '')}`,
+        }
+      : confirmParam === 'delete-user'
+        ? {
+            label: 'Delete',
+            href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&confirm=delete-user&confirmId=${encodeURIComponent(confirmId ?? '')}`,
+          }
+        : confirmParam === 'bulk-delete-users'
+          ? { label: 'Delete selected', href: '/users?confirm=bulk-delete-users' }
+          : null,
+  );
+
+  const [modalParam, setModalParam] = useUrlState('modal');
+  const closeModal = useCloseOverlay(['modal']);
+  const grantUserId = modalParam === 'adjust-credits' ? (detail?.id ?? null) : null;
+  const editingAccountField: 'plan' | 'devices' | null =
+    modalParam === 'plan' || modalParam === 'devices' ? modalParam : null;
+  const showMonthlyPlanEditor = modalParam === 'monthly-plan';
 
   const openAdjustCredits = () => {
     if (!detail) return;
-    setGrantUserId(detail.id);
     setGrantMode('grant');
     setGrantAmount('');
     setGrantReason('');
+    setModalParam('adjust-credits');
   };
 
-  const closeAdjustCredits = () => {
-    setGrantUserId(null);
-    setGrantMode('grant');
-    setGrantAmount('');
-    setGrantReason('');
-  };
+  const closeAdjustCredits = closeModal;
 
   const openUnlimitedPlanEditor = () => {
-    if (!detail) return;
+    if (detail) setModalParam('monthly-plan');
+  };
+
+  const closeUnlimitedPlanEditor = () => {
+    setUnlimitedPlanForm(null);
+    closeModal();
+  };
+
+  // Unlike selectedTier/selectedMaxDevices, unlimitedPlanForm has no other
+  // sync point — a hard refresh or bookmark landing directly on
+  // ?modal=monthly-plan needs this effect to (re)build the form from
+  // `detail.unlimitedPlan`. Guarded on `unlimitedPlanForm` being null so it
+  // only runs once per "open" session, not on every unrelated `detail` update
+  // while the editor is already open (which would clobber in-progress edits).
+  useEffect(() => {
+    if (!showMonthlyPlanEditor || unlimitedPlanForm || !detail) return;
     const today = new Date().toISOString().slice(0, 10);
     const plan = detail.unlimitedPlan;
     const hasActive =
@@ -416,9 +495,32 @@ export default function UsersPage({ onNav, toast }: Props) {
       priceRupees: hasActive && plan?.pricePaise != null ? String(plan.pricePaise / 100) : '',
       queueStream: (hasActive && plan?.queueStream) || 'normal',
     });
-  };
+  }, [showMonthlyPlanEditor, unlimitedPlanForm, detail]);
 
-  const closeUnlimitedPlanEditor = () => setUnlimitedPlanForm(null);
+  const MODAL_LABELS: Record<string, string> = {
+    'adjust-credits': 'Adjust credits',
+    'monthly-plan': 'Monthly plan',
+    plan: 'Change plan',
+    devices: 'Change device limit',
+    'grant-merchant': 'Grant merchant access',
+    'edit-merchant': 'Edit merchant',
+    'create-user': 'Create user',
+    'reset-password': 'Reset password',
+  };
+  useCrumb(
+    2,
+    modalParam && MODAL_LABELS[modalParam]
+      ? {
+          label: MODAL_LABELS[modalParam],
+          href: `/users?${detail ? `user=${encodeURIComponent(detail.id)}&` : ''}modal=${modalParam}`,
+        }
+      : null,
+  );
+
+  const showGrantMerchant = modalParam === 'grant-merchant';
+  const showEditMerchant = modalParam === 'edit-merchant';
+  const showCreateUser = modalParam === 'create-user';
+  const resettingPassword = modalParam === 'reset-password';
 
   const handleGrantUnlimitedPlan = async () => {
     if (!detail || !unlimitedPlanForm) return;
@@ -488,13 +590,13 @@ export default function UsersPage({ onNav, toast }: Props) {
   const openPlanEditor = () => {
     if (!detail) return;
     setSelectedTier(detail.tier);
-    setEditingAccountField('plan');
+    setModalParam('plan');
   };
 
   const openDeviceLimitEditor = () => {
     if (!detail) return;
     setSelectedMaxDevices(String(detail.maxActiveDevices ?? 1));
-    setEditingAccountField('devices');
+    setModalParam('devices');
   };
 
   const closeAccountFieldEditor = () => {
@@ -502,7 +604,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       setSelectedTier(detail.tier);
       setSelectedMaxDevices(String(detail.maxActiveDevices ?? 1));
     }
-    setEditingAccountField(null);
+    closeModal();
   };
 
   const handleSuspendConfirm = async () => {
@@ -523,7 +625,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         body: apiErrorMessage(e, 'Please try again.'),
       });
     }
-    setConfirmSuspend(null);
+    closeConfirm();
   };
 
   const handleDeleteConfirm = async () => {
@@ -535,15 +637,20 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (detail?.id === targetId) setDetail(null);
       toast({ title: 'User data erased' });
       await load();
+      // Clear `user` together with `confirm`/`confirmId` in one navigation —
+      // the deleted user's id must not survive in the URL, or the
+      // reconstruction effect re-fetches it and shows a spurious 404 toast
+      // right after this success toast (and again on refresh).
+      navigate('/users', { replace: true });
     } catch (e) {
       toast({
         kind: 'error',
         title: 'Action failed',
         body: apiErrorMessage(e, 'Please try again.'),
       });
+      closeConfirm();
     } finally {
       setDeletingUser(false);
-      setConfirmDelete(null);
     }
   };
 
@@ -582,7 +689,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       });
     } finally {
       setBulkDeleting(false);
-      setShowBulkDeleteConfirm(false);
+      closeConfirm();
     }
   };
 
@@ -599,7 +706,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         prev.map((user) => (user.id === detail.id ? { ...user, tier: selectedTier } : user)),
       );
       toast({ title: 'User tier updated' });
-      setEditingAccountField(null);
+      closeModal();
     } catch (err) {
       toast({
         kind: 'error',
@@ -630,7 +737,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         prev.map((user) => (user.id === detail.id ? { ...user, maxActiveDevices } : user)),
       );
       toast({ title: 'Device limit updated' });
-      setEditingAccountField(null);
+      closeModal();
     } catch (err) {
       toast({
         kind: 'error',
@@ -688,7 +795,7 @@ export default function UsersPage({ onNav, toast }: Props) {
 
   function openGrantMerchant() {
     setGrantMerchantForm(EMPTY_GRANT_MERCHANT_FORM);
-    setShowGrantMerchant(true);
+    setModalParam('grant-merchant');
   }
 
   async function handleGrantMerchant() {
@@ -706,7 +813,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         }),
       });
       toast({ title: `Merchant access granted to ${userLabel(detail)}` });
-      setShowGrantMerchant(false);
+      closeModal();
       await openDetail(detail);
       setUsers((prev) => prev.map((u) => (u.id === detail.id ? { ...u, isMerchant: true } : u)));
     } catch (err) {
@@ -726,8 +833,40 @@ export default function UsersPage({ onNav, toast }: Props) {
       businessAddress: m.businessAddress,
       jobRateLimitPerMin: m.jobRateLimitPerMin != null ? String(m.jobRateLimitPerMin) : '',
     });
-    setShowEditMerchant(true);
+    setModalParam('edit-merchant');
   }
+
+  // Unlike the plan/device-limit editor (Task 6), merchantEditForm has no
+  // other sync point — a hard refresh or bookmark landing directly on
+  // ?modal=edit-merchant needs this effect to rebuild it from `detail`.
+  //
+  // We guard with a ref rather than "every field blank" (which Task 6's
+  // unlimitedPlanForm-is-null check inspired but doesn't translate cleanly
+  // here): merchantEditForm is never null, and a blank-fields check would
+  // refire and clobber an in-progress edit if the user had deliberately
+  // cleared every field and `detail.merchant` then changed reference for an
+  // unrelated reason (e.g. a background refresh) while the drawer stayed
+  // open — the effect depends on `detail?.merchant`, so any new reference
+  // reruns it. The ref instead marks "already synced for this open session,"
+  // reset only when the modal is not showing edit-merchant, so a reference
+  // change on an already-open, already-synced session is a no-op.
+  const editMerchantSyncedRef = useRef(false);
+  useEffect(() => {
+    if (modalParam !== 'edit-merchant') {
+      editMerchantSyncedRef.current = false;
+      return;
+    }
+    if (!detail?.merchant || editMerchantSyncedRef.current) return;
+    const m = detail.merchant;
+    setMerchantEditForm({
+      companyName: m.companyName,
+      contactName: m.contactName,
+      phone: m.phone,
+      businessAddress: m.businessAddress,
+      jobRateLimitPerMin: m.jobRateLimitPerMin != null ? String(m.jobRateLimitPerMin) : '',
+    });
+    editMerchantSyncedRef.current = true;
+  }, [modalParam, detail?.merchant]);
 
   async function handleMerchantEditSave() {
     if (!detail?.merchant) return;
@@ -745,7 +884,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         }),
       });
       toast({ title: 'Merchant details updated' });
-      setShowEditMerchant(false);
+      closeModal();
       await openDetail(detail);
     } catch (err) {
       toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to update merchant') });
@@ -843,7 +982,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   function openCreateUser() {
     setCreateUserForm(EMPTY_CREATE_USER_FORM);
     setCreateUserError('');
-    setShowCreateUser(true);
+    setModalParam('create-user');
   }
 
   async function handleCreateUser() {
@@ -869,7 +1008,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         }),
       });
       toast({ title: `Account created for ${createUserForm.displayName.trim()}` });
-      setShowCreateUser(false);
+      closeModal();
       setPage(0);
       await load();
     } catch (err) {
@@ -966,7 +1105,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       <>
         <div className="page-head">
           <div>
-            <button className="btn ghost" onClick={() => setDetail(null)}>
+            <button className="btn ghost" onClick={closeDetail}>
               <Icon.Back /> Back to users
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 12 }}>
@@ -995,7 +1134,7 @@ export default function UsersPage({ onNav, toast }: Props) {
               className="btn ghost"
               onClick={() => {
                 setNewPasswordInput('');
-                setResettingPassword(true);
+                setModalParam('reset-password');
               }}
             >
               <Icon.Refresh /> Reset Password
@@ -1028,12 +1167,12 @@ export default function UsersPage({ onNav, toast }: Props) {
               />
             )}
             {!u.isAdmin && (
-              <button className="btn danger" onClick={() => setConfirmSuspend(u.id)}>
+              <button className="btn danger" onClick={openConfirmSuspend}>
                 <Icon.Ban /> {u.isBanned ? 'Unsuspend' : 'Suspend'}
               </button>
             )}
             {isSuperAdmin && !u.isAdmin && (
-              <button className="btn danger" onClick={() => setConfirmDelete(u.id)}>
+              <button className="btn danger" onClick={openConfirmDelete}>
                 <Icon.Trash /> Delete
               </button>
             )}
@@ -1325,7 +1464,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                                   className="mono sub"
                                   style={{ cursor: 'pointer' }}
                                   title="Open job details"
-                                  onClick={() => void openJobPreview(l.jobId as string)}
+                                  onClick={() => openJobPreview(l.jobId as string)}
                                 >
                                   {l.jobId.slice(0, 8)}&hellip;
                                 </span>
@@ -1356,12 +1495,12 @@ export default function UsersPage({ onNav, toast }: Props) {
 
         {resettingPassword && (
           <EditDrawer
-            onClose={() => setResettingPassword(false)}
+            onClose={closeModal}
             title="Reset Password"
             width="min(420px, calc(100vw - 40px))"
             onSave={async () => {
               await handleResetPassword(newPasswordInput);
-              setResettingPassword(false);
+              closeModal();
             }}
             saveLabel="Reset Password"
             saveDisabled={!newPasswordInput}
@@ -1380,13 +1519,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         )}
 
         {jobPreviewId && (
-          <div
-            className="modal-overlay"
-            onClick={() => {
-              setJobPreviewId(null);
-              setJobPreview(null);
-            }}
-          >
+          <div className="modal-overlay" onClick={closeJobPreview}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h3 style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>
@@ -1515,29 +1648,20 @@ export default function UsersPage({ onNav, toast }: Props) {
                 )}
               </div>
               <div className="modal-foot">
-                {detail && (
+                {detail && jobPreviewId && (
                   <button
                     className="btn ghost"
                     style={{ marginRight: 'auto' }}
                     onClick={() =>
-                      onNav('jobs', {
-                        page: 'jobs',
-                        search: jobPreviewId,
-                        jobId: jobPreviewId,
-                        fromUserId: detail.id,
-                      })
+                      navigate(
+                        `/jobs?job=${encodeURIComponent(jobPreviewId)}&fromUser=${encodeURIComponent(detail.id)}`,
+                      )
                     }
                   >
                     Go to job <Icon.ExternalLink />
                   </button>
                 )}
-                <button
-                  className="btn ghost"
-                  onClick={() => {
-                    setJobPreviewId(null);
-                    setJobPreview(null);
-                  }}
-                >
+                <button className="btn ghost" onClick={closeJobPreview}>
                   Close
                 </button>
               </div>
@@ -1546,7 +1670,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         )}
 
         {confirmSuspend && (
-          <div className="modal-overlay" onClick={() => setConfirmSuspend(null)}>
+          <div className="modal-overlay" onClick={closeConfirm}>
             <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h3>{u.isBanned ? 'Unsuspend' : 'Suspend'} user</h3>
@@ -1558,7 +1682,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 </p>
               </div>
               <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setConfirmSuspend(null)}>
+                <button className="btn ghost" onClick={closeConfirm}>
                   Cancel
                 </button>
                 <button className="btn danger" onClick={handleSuspendConfirm}>
@@ -1570,7 +1694,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         )}
 
         {confirmDelete && (
-          <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+          <div className="modal-overlay" onClick={closeConfirm}>
             <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h3>Delete user</h3>
@@ -1593,11 +1717,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 </p>
               </div>
               <div className="modal-foot">
-                <button
-                  className="btn ghost"
-                  onClick={() => setConfirmDelete(null)}
-                  disabled={deletingUser}
-                >
+                <button className="btn ghost" onClick={closeConfirm} disabled={deletingUser}>
                   Cancel
                 </button>
                 <button
@@ -1756,7 +1876,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           </EditDrawer>
         )}
 
-        {unlimitedPlanForm && (
+        {showMonthlyPlanEditor && unlimitedPlanForm && (
           <EditDrawer
             onClose={closeUnlimitedPlanEditor}
             title={`Monthly plan — ${userLabel(u)}`}
@@ -1910,7 +2030,7 @@ export default function UsersPage({ onNav, toast }: Props) {
 
         {showGrantMerchant && (
           <EditDrawer
-            onClose={() => setShowGrantMerchant(false)}
+            onClose={closeModal}
             title={`Grant merchant access — ${userLabel(u)}`}
             width="min(520px, calc(100vw - 40px))"
             saving={grantingMerchant}
@@ -1973,7 +2093,7 @@ export default function UsersPage({ onNav, toast }: Props) {
 
         {showEditMerchant && u.merchant && (
           <EditDrawer
-            onClose={() => setShowEditMerchant(false)}
+            onClose={closeModal}
             title="Edit merchant details"
             width="min(520px, calc(100vw - 40px))"
             saving={savingMerchantEdit}
@@ -2546,7 +2666,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     <button
                       type="button"
                       className="btn sm danger"
-                      onClick={() => setShowBulkDeleteConfirm(true)}
+                      onClick={openBulkDeleteConfirm}
                       style={{ marginLeft: 'auto' }}
                     >
                       <Icon.Trash /> Delete selected ({selectedUserIds.length})
@@ -2839,7 +2959,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       )}
       {showCreateUser && (
         <EditDrawer
-          onClose={() => setShowCreateUser(false)}
+          onClose={closeModal}
           title="Create User"
           width="min(480px, calc(100vw - 40px))"
           saving={creatingUser}
@@ -2907,7 +3027,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       )}
 
       {showBulkDeleteConfirm && (
-        <div className="modal-overlay" onClick={() => setShowBulkDeleteConfirm(false)}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Delete selected users</h3>
@@ -2944,11 +3064,7 @@ export default function UsersPage({ onNav, toast }: Props) {
               </ul>
             </div>
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => setShowBulkDeleteConfirm(false)}
-                disabled={bulkDeleting}
-              >
+              <button className="btn ghost" onClick={closeConfirm} disabled={bulkDeleting}>
                 Cancel
               </button>
               <button
