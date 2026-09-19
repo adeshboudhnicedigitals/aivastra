@@ -172,9 +172,20 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [creditActivity, setCreditActivity] = useState<CreditLedgerEntry[]>([]);
   const [creditActivityLoading, setCreditActivityLoading] = useState(false);
   const [showAllCreditActivity, setShowAllCreditActivity] = useState(false);
-  const [jobPreviewId, setJobPreviewId] = useState<string | null>(null);
+  const [jobPreviewId, setJobPreviewId] = useUrlState('jobPreview');
+  const closeJobPreview = useCloseOverlay(['jobPreview']);
   const [jobPreview, setJobPreview] = useState<JobPreview | null>(null);
   const [jobPreviewLoading, setJobPreviewLoading] = useState(false);
+
+  useCrumb(
+    3,
+    jobPreviewId
+      ? {
+          label: `Job ${jobPreviewId.slice(0, 8)}…`,
+          href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&jobPreview=${encodeURIComponent(jobPreviewId)}`,
+        }
+      : null,
+  );
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [exportFrom, setExportFrom] = useState('');
   const [exportTo, setExportTo] = useState('');
@@ -311,27 +322,35 @@ export default function UsersPage({ onNav, toast }: Props) {
     [toast],
   );
 
-  const openJobPreview = useCallback(
-    async (jobId: string) => {
-      setJobPreviewId(jobId);
+  const openJobPreview = useCallback((jobId: string) => setJobPreviewId(jobId), [setJobPreviewId]);
+
+  useEffect(() => {
+    if (!jobPreviewId) {
       setJobPreview(null);
-      setJobPreviewLoading(true);
-      try {
-        const full = await apiFetch<JobPreview>(`/admin/jobs/${jobId}`);
-        setJobPreview(full);
-      } catch (e) {
-        toast({
-          kind: 'error',
-          title: 'Failed to load job details',
-          body: apiErrorMessage(e, 'Please try again.'),
-        });
-        setJobPreviewId(null);
-      } finally {
-        setJobPreviewLoading(false);
-      }
-    },
-    [toast],
-  );
+      return;
+    }
+    let cancelled = false;
+    setJobPreview(null);
+    setJobPreviewLoading(true);
+    apiFetch<JobPreview>(`/admin/jobs/${jobPreviewId}`)
+      .then((full) => {
+        if (!cancelled) setJobPreview(full);
+      })
+      .catch((e) => {
+        if (!cancelled)
+          toast({
+            kind: 'error',
+            title: 'Failed to load job details',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
+      })
+      .finally(() => {
+        if (!cancelled) setJobPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobPreviewId, toast]);
 
   const openDetail = async (u: User) => {
     setDetail(u);
@@ -1433,7 +1452,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                                   className="mono sub"
                                   style={{ cursor: 'pointer' }}
                                   title="Open job details"
-                                  onClick={() => void openJobPreview(l.jobId as string)}
+                                  onClick={() => openJobPreview(l.jobId as string)}
                                 >
                                   {l.jobId.slice(0, 8)}&hellip;
                                 </span>
@@ -1488,13 +1507,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         )}
 
         {jobPreviewId && (
-          <div
-            className="modal-overlay"
-            onClick={() => {
-              setJobPreviewId(null);
-              setJobPreview(null);
-            }}
-          >
+          <div className="modal-overlay" onClick={closeJobPreview}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h3 style={{ fontFamily: 'var(--mono)', fontSize: 13 }}>
@@ -1639,13 +1652,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     Go to job <Icon.ExternalLink />
                   </button>
                 )}
-                <button
-                  className="btn ghost"
-                  onClick={() => {
-                    setJobPreviewId(null);
-                    setJobPreview(null);
-                  }}
-                >
+                <button className="btn ghost" onClick={closeJobPreview}>
                   Close
                 </button>
               </div>
