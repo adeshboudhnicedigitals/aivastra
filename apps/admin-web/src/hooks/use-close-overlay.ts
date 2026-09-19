@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { hasInAppNavigation, recordInAppPop } from './use-in-app-navigation';
+import { hasInAppNavigation } from './use-in-app-navigation';
 
 /**
  * "Close" for any URL-tracked overlay (modal, drawer, sub-view, confirm
@@ -28,7 +28,6 @@ export function useCloseOverlay(ownParamKeys: readonly string[]): () => void {
 
   return useCallback(() => {
     if (hasInAppNavigation()) {
-      recordInAppPop();
       navigate(-1);
       return;
     }

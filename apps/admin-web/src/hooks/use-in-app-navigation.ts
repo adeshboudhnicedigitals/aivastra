@@ -1,33 +1,27 @@
-// A tiny module-level counter, not React state — deliberately not routed
-// through context. It tracks how many pushes this app's own navigation calls
-// (useUrlState/useUrlStateMulti/AssetsContext's setActiveTab) have made that
-// haven't yet been popped again by useCloseOverlay's own navigate(-1) call.
-// useCloseOverlay uses it to decide whether "close" can safely call browser
-// back (there's a push it made itself to land on) or must replace to a
-// computed parent URL instead.
-//
-// A one-way boolean was tried first and is unsound: once true, it stays true
-// even after every push it recorded has already been popped again, so a LATER
-// close (e.g. collapsing an accordion after an earlier modal was opened and
-// cancelled) would wrongly call navigate(-1) and could exit the app entirely.
-// A counter that increments on push and decrements on pop tracks this
-// correctly.
-//
-// Not every push in the app goes through markInAppNavigation — sidebar nav
-// and breadcrumb clicks don't. That only makes the counter under-count,
-// which is the safe direction: it can make useCloseOverlay use the fallback
-// replace in a case where navigate(-1) would also have been fine, never the
-// reverse (it can never make the counter claim a push exists that doesn't).
-let pushDepth = 0;
-
-export function markInAppNavigation(): void {
-  pushDepth += 1;
-}
-
-export function recordInAppPop(): void {
-  pushDepth = Math.max(0, pushDepth - 1);
-}
-
+/**
+ * Answers: "is there a history entry behind the current one, in this
+ * document's session?" — used by useCloseOverlay to decide whether closing
+ * an overlay can safely call browser back (navigate(-1)) or must replace to
+ * a computed parent URL instead (a fresh load/refresh landing directly on a
+ * URL that already has an overlay open has no prior entry to go back to).
+ *
+ * react-router-dom v6's routing engine (@remix-run/router) stamps
+ * `{ usr, key, idx }` into `window.history.state` for every entry it
+ * creates — `idx` starts at 0 on a fresh document load and is kept current
+ * across BOTH pushes and browser-initiated Back/Forward (verified against
+ * this repo's installed @remix-run/router@1.23.2: `getIndex()` always
+ * re-reads `history.state.idx` live, including from the `popstate` handler).
+ * That makes it the right signal here — a manually-maintained push/pop
+ * counter only ever saw pushes and pops THIS app's own code performed, so a
+ * physical Back press (dismissing an overlay exactly the way this app's own
+ * docs say it should work) went unrecorded and could make a LATER close
+ * wrongly think there was still an in-app push to go back to, popping the
+ * user out of the app entirely. Reading the router's own position avoids
+ * that class of bug outright — there's nothing left to keep in sync.
+ *
+ * `?? 0` fails toward the safe direction if this shape is ever unavailable:
+ * useCloseOverlay's fallback (replace), never a navigate(-1) into nothing.
+ */
 export function hasInAppNavigation(): boolean {
-  return pushDepth > 0;
+  return ((window.history.state as { idx?: number } | null)?.idx ?? 0) > 0;
 }

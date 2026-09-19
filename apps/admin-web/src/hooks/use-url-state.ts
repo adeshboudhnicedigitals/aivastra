@@ -1,6 +1,5 @@
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { markInAppNavigation } from './use-in-app-navigation';
 
 /**
  * Multiple query-param-backed values, read together and written atomically in
@@ -20,7 +19,6 @@ export function useUrlStateMulti(
 
   const setValues = useCallback(
     (next: Record<string, string | null>) => {
-      markInAppNavigation();
       setSearchParams((prev) => {
         const params = new URLSearchParams(prev);
         for (const [k, v] of Object.entries(next)) {

@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { markInAppNavigation } from '../../hooks/use-in-app-navigation';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type {
   CatalogItem,
@@ -79,7 +78,6 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
       // sub-view/modal/confirm params that belonged to the previous tab.
       // Pushed (not `{ replace: true }`) so every tab switch is its own
       // back-button stop.
-      markInAppNavigation();
       setSearchParams({ tab });
     },
     [activeTab, setSearchParams],
@@ -145,7 +143,7 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
   // loadGarmentTypes() call whenever that's the active tab, and if this one
   // loses the race and fails after the other already populated real data,
   // wiping to [] here would silently close a deep-linked garment-type overlay
-  // (same invariant loadGarmentTypes's own catch branch protects below).
+  // (same invariant loadGarmentTypes's own catch branch protects above).
   useEffect(() => {
     apiFetch<{ items: ModelFace[] }>('/admin/assets/faces')
       .then((r) => setFaces(r.items))
