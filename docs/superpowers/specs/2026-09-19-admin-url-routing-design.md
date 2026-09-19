@@ -140,3 +140,61 @@ Each of the above registers a breadcrumb entry while active: e.g.
 - No new automated test infra: `apps/admin-web` has no existing frontend test
   suite (no `.test.`/`.spec.` files, no `test` script in its `package.json`),
   so this stays manual, consistent with the rest of the app.
+
+## Sub-project B, first slice: `JobsPage.tsx` and `UsersPage.tsx`
+
+Same mechanism as the pilot — no new hooks. The only new decision this slice
+needs is *which* local state becomes a URL param. Governing rule (user's own
+formulation): **a param only if it affects navigation** — which record/dialog
+you're looking at. Filtering, sorting, and paging the same list is not
+navigation and stays local `useState`, exactly like the pilot's own
+`genderFilter` precedent.
+
+**`JobsPage.tsx`:**
+
+| State | Param(s) | Notes |
+|---|---|---|
+| Detail view (list ↔ one job) | `job=<id>` | Replaces local `detail` state and the existing `location.state.jobId` deep link |
+| Cancel-job confirm | `confirm=cancel-job`, `confirmId=<id>` | Reachable from list row or detail view |
+| Delete-assets modal | `modal=delete-assets` | Selected targets + password stay local; password never enters the URL |
+| Flush-queue confirm | `confirm=flush-queue` | List-level |
+| Mobile accordion row | `expanded=<jobId>` | Same pattern as the pilot's accordion |
+| Accordion's Input/Output/Events subtab | `expandedSubtab=input\|output\|events` | Only meaningful while `expanded` is set |
+
+Stays local: all filters/search/date-range/duration/sort/page/jump-to-page,
+`deleteAssetsTargets`/password/error, action-in-flight flags, `jobDetailsMap`
+cache, the image lightbox (`previewUrl`), the options popover.
+
+**`UsersPage.tsx`:**
+
+| State | Param(s) | Notes |
+|---|---|---|
+| Detail view (list ↔ one user) | `user=<id>` | Replaces local `detail` state and `location.state.userId` |
+| Suspend / Delete-user confirm | `confirm=suspend` / `confirm=delete-user` | Scoped to the open `user` |
+| Bulk-delete confirm | `confirm=bulk-delete-users` | `selectedUserIds` stays local; a refresh with this param but no selection falls back to the list, same graceful-degradation as the pilot's stale-id fallback |
+| Adjust credits | `modal=adjust-credits` | Amount/reason/mode stay local |
+| Monthly plan editor | `modal=monthly-plan` | Form fields local, prefilled from `detail.unlimitedPlan` on open exactly as today |
+| Plan / device-limit editor | `modal=plan` / `modal=devices` | Same `modal` enum |
+| Grant / edit merchant | `modal=grant-merchant` / `modal=edit-merchant` | Form fields local |
+| Create user | `modal=create-user` | List-level; form + error local |
+| Reset password | `modal=reset-password` | `newPasswordInput` stays local — never in the URL, no exceptions |
+| Job-preview popup (nested in detail) | `jobPreview=<jobId>` | Independent of `modal=` |
+
+Stays local: all filters/search/plan-filter/date-range/sort/page/export-format,
+`selectedUserIds`, `showAllCreditActivity` (display density, not navigation),
+every ephemeral form object, every saving/uploading flag, `creditActivity`
+cache, the image lightbox, the options popover.
+
+**Cross-page linking replaces `location.state`.** "View this user's jobs,"
+"Back to user," and "Go to job" currently pass data invisibly via
+`navigate(path, { state })`, lost on refresh. These become real query params:
+Users' job-preview "Go to job" becomes `navigate('/jobs?job=<id>')`; Jobs'
+"Back to user" becomes `navigate('/users?user=<id>&jobPreview=<jobId>')` so the
+round-trip reconstructs the exact popup, not just the bare detail. The
+search-by-email handoff from a user's "Jobs generated" card becomes a local
+`query` seed only (per the filters-stay-local rule) — it won't survive a
+refresh, a small, accepted regression versus today's `location.state` behavior.
+
+**Hard constraint:** no password field (`newPasswordInput`,
+`deleteAssetsPassword`) may ever be written into a URL param, in this slice or
+any future one.
