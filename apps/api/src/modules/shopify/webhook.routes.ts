@@ -72,6 +72,7 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
 
   const topics = [
     'app_uninstalled',
+    'products_create',
     'products_update',
     'products_delete',
     'customers_data_request',
@@ -145,6 +146,7 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
                 .where(eq(schema.shopifyStores.id, store.id));
             }
             break;
+          case 'products_create':
           case 'products_update':
             if (store)
               await enqueueSync(app.redis, {
@@ -426,6 +428,7 @@ export const registerWebhooksDecorator = fp(async (app: FastifyInstance) => {
     // per-shop registration call exists for them.
     const map: Record<string, string> = {
       'app/uninstalled': `${base}/app_uninstalled`,
+      'products/create': `${base}/products_create`,
       'products/update': `${base}/products_update`,
       'products/delete': `${base}/products_delete`,
       'app_purchases_one_time/update': `${base}/app_purchases_one_time_update`,
