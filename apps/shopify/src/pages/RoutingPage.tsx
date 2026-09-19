@@ -45,11 +45,10 @@ interface RulesResponse {
   counts: Record<string, number>;
   countsOmitted: boolean;
   // null when countsOmitted — the catalog was never scanned, so there is no
-  // count to report either way.
+  // count to report either way. Neither this nor `counts` above is read by
+  // RoutingTab itself — ManagePage.tsx fetches this same endpoint separately
+  // for its "Where your products land" card and the unrouted banner.
   unrouted: number | null;
-  // Subset of `unrouted` that's also effectively enabled for Try-On. Read by
-  // ManagePage.tsx's banner, not by this component — RoutingTab uses the raw
-  // `unrouted` for its "Where your products land" summary.
   unroutedEnabled: number | null;
 }
 
@@ -497,50 +496,6 @@ export default function RoutingTab({
                     </IndexTable.Row>
                   ))}
                 </IndexTable>
-              </BlockStack>
-            </Card>
-
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Where your products land
-                </Text>
-                {rules.countsOmitted ? (
-                  <Text as="p" tone="subdued">
-                    Catalog too large to summarize.
-                  </Text>
-                ) : Object.keys(rules.counts).length === 0 && !rules.unrouted ? (
-                  <Text as="p" tone="subdued">
-                    No products have matched a rule yet.
-                  </Text>
-                ) : (
-                  <BlockStack gap="200">
-                    {Object.entries(rules.counts)
-                      .sort(([a], [b]) => basketLabel(a).localeCompare(basketLabel(b)))
-                      .map(([basketId, productCount]) => (
-                        <InlineStack key={basketId} align="space-between">
-                          <Text as="span">{basketLabel(basketId)}</Text>
-                          <Text as="span" fontWeight="semibold">
-                            {productCount}
-                          </Text>
-                        </InlineStack>
-                      ))}
-                    {rules.unrouted !== null && (
-                      <InlineStack align="space-between">
-                        <Text as="span" tone={rules.unrouted > 0 ? 'critical' : 'subdued'}>
-                          Not routed (try-on unavailable)
-                        </Text>
-                        <Text
-                          as="span"
-                          fontWeight="semibold"
-                          tone={rules.unrouted > 0 ? 'critical' : 'subdued'}
-                        >
-                          {rules.unrouted}
-                        </Text>
-                      </InlineStack>
-                    )}
-                  </BlockStack>
-                )}
               </BlockStack>
             </Card>
           </>

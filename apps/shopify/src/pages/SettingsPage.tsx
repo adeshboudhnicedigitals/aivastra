@@ -1,10 +1,7 @@
 import {
-  Badge,
   BlockStack,
   Button,
   Card,
-  EmptyState,
-  IndexTable,
   InlineStack,
   Page,
   Select,
@@ -15,14 +12,9 @@ import {
 } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { ErrorBanner } from '../components/ErrorBanner';
-import { apiFetch, apiFetchResponse } from '../lib/api';
+import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import type {
-  ShopifyMe,
-  ShopifyShopperListItem,
-  ShopifyStoreLimits,
-  ShopifyStoreRetention,
-} from '../types';
+import type { ShopifyMe, ShopifyStoreLimits, ShopifyStoreRetention } from '../types';
 
 const OFF = 'off';
 
@@ -62,10 +54,8 @@ export default function SettingsPage() {
   const [retention, setRetention] = useState<ShopifyStoreRetention>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<ClassifiedError | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [shoppers, setShoppers] = useState<ShopifyShopperListItem[] | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -84,19 +74,6 @@ export default function SettingsPage() {
   useEffect(() => {
     load();
   }, [load]);
-
-  useEffect(() => {
-    if (selectedTab !== 1 || shoppers) return;
-    apiFetch<{ items: ShopifyShopperListItem[] }>('/v1/shopify/shoppers')
-      .then((res) => setShoppers(res.items))
-      .catch((err) => {
-        setError(classifyError(err));
-        // Without this the list stays null and IndexTable's `loading={!shoppers}`
-        // spins forever behind the error banner. An empty list is the honest
-        // rendering: we have nothing to show, and the banner says why.
-        setShoppers([]);
-      });
-  }, [selectedTab, shoppers]);
 
   async function save() {
     setSaving(true);
@@ -131,37 +108,11 @@ export default function SettingsPage() {
     }));
   }
 
-  async function exportCsv() {
-    // Not a plain <a href>: this SPA is served from a different origin than the
-    // API in production, and /v1/shopify/shoppers.csv is behind
-    // requireShopifySession, which needs the App Bridge bearer token that a
-    // link navigation cannot carry. Fetch it authenticated, then hand the
-    // browser a blob URL to download.
-    setExporting(true);
-    setError(null);
-    try {
-      const res = await apiFetchResponse('/v1/shopify/shoppers.csv');
-      const blob = await res.blob();
-      const href = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = href;
-      anchor.download = 'shoppers.csv';
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(href);
-    } catch (err) {
-      setError(classifyError(err));
-    } finally {
-      setExporting(false);
-    }
-  }
-
   if (loading) return <SkeletonPage title="Settings" />;
 
   const tabs = [
     { id: 'limits', content: 'Limits' },
-    { id: 'data', content: 'Data' },
+    { id: 'privacy', content: 'Privacy' },
   ];
 
   return (
@@ -237,7 +188,7 @@ export default function SettingsPage() {
                   </Text>
                   <Text as="p" tone="subdued">
                     After this many try-ons, shoppers are asked for their email before continuing.
-                    Collected addresses appear under the Data tab.
+                    Collected addresses appear on the Analytics page.
                   </Text>
                   <Select
                     label="Ask after"
@@ -269,9 +220,11 @@ export default function SettingsPage() {
                   Automatic deletion
                 </Text>
                 <Text as="p" tone="subdued">
-                  Shopper photos and generated images are deleted from storage on this schedule.
-                  Try-on records used for billing are always kept. Note that deleting shopper
-                  records also resets their limits — set it longer than your per-shopper window.
+                  Neither of us can view a shopper's photo or result, but they're stored on our
+                  servers and you're responsible for how long that lasts. This schedule deletes them
+                  automatically — useful for your own privacy policy — while try-on records used for
+                  billing are always kept. Deleting shopper records also resets their limits, so set
+                  that window longer than your per-shopper cap.
                 </Text>
                 <Select
                   label="Delete shopper photos after"
@@ -312,62 +265,6 @@ export default function SettingsPage() {
                     Save
                   </Button>
                 </InlineStack>
-              </BlockStack>
-            </Card>
-          )}
-
-          {selectedTab === 1 && (
-            <Card>
-              <BlockStack gap="300">
-                <InlineStack align="space-between" blockAlign="center">
-                  <Text as="h2" variant="headingMd">
-                    Collected emails
-                  </Text>
-                  <Button
-                    onClick={exportCsv}
-                    loading={exporting}
-                    disabled={!shoppers || shoppers.length === 0}
-                  >
-                    Export CSV
-                  </Button>
-                </InlineStack>
-                <Text as="p" tone="subdued">
-                  Only shoppers who ticked the consent box have agreed to marketing. Check the
-                  Consent column before adding an address to a mailing list.
-                </Text>
-                {shoppers && shoppers.length === 0 ? (
-                  <EmptyState heading="No emails collected yet" image="">
-                    <p>Turn on "Ask for an email" under Limits to start collecting.</p>
-                  </EmptyState>
-                ) : (
-                  <IndexTable
-                    resourceName={{ singular: 'shopper', plural: 'shoppers' }}
-                    itemCount={shoppers?.length ?? 0}
-                    selectable={false}
-                    loading={!shoppers}
-                    headings={[
-                      { title: 'Email' },
-                      { title: 'Consent' },
-                      { title: 'First seen' },
-                      { title: 'Try-ons' },
-                    ]}
-                  >
-                    {(shoppers ?? []).map((s, index) => (
-                      <IndexTable.Row id={s.id} key={s.id} position={index}>
-                        <IndexTable.Cell>{s.email}</IndexTable.Cell>
-                        <IndexTable.Cell>
-                          <Badge tone={s.emailConsent ? 'success' : undefined}>
-                            {s.emailConsent ? 'Consented' : 'No consent'}
-                          </Badge>
-                        </IndexTable.Cell>
-                        <IndexTable.Cell>
-                          {new Date(s.firstSeenAt).toLocaleDateString()}
-                        </IndexTable.Cell>
-                        <IndexTable.Cell>{String(s.tryOnCount)}</IndexTable.Cell>
-                      </IndexTable.Row>
-                    ))}
-                  </IndexTable>
-                )}
               </BlockStack>
             </Card>
           )}

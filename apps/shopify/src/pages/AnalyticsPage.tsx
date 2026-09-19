@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   DatePicker,
+  EmptyState,
   IndexTable,
   InlineGrid,
   InlineStack,
@@ -15,14 +16,13 @@ import {
   Text,
 } from '@shopify/polaris';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { BarChart } from '../components/BarChart';
 import { ChartTable } from '../components/ChartTable';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { ANALYTICS_PRESETS, type AnalyticsPreset, resolvePreset } from '../lib/analyticsRange';
-import { apiFetch } from '../lib/api';
+import { apiFetch, apiFetchResponse } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import type { ShopifyAnalytics, ShopifyMe } from '../types';
+import type { ShopifyAnalytics, ShopifyMe, ShopifyShopperListItem } from '../types';
 
 // A headline number and its label. Deliberately no sparkline and no decoration
 // — per the dataviz skill these are stat tiles, not charts.
@@ -45,7 +45,6 @@ function StatTile({ label, value, action }: { label: string; value: string; acti
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
 export default function AnalyticsPage() {
-  const navigate = useNavigate();
   const [installedAt, setInstalledAt] = useState<Date | null>(null);
   const [preset, setPreset] = useState<AnalyticsPreset | 'custom'>('30d');
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
@@ -57,6 +56,10 @@ export default function AnalyticsPage() {
     month: new Date().getMonth(),
     year: new Date().getFullYear(),
   });
+  // Independent of the date range above — the shopper list isn't range-scoped,
+  // same as it wasn't when it lived on Settings -> Data.
+  const [shoppers, setShoppers] = useState<ShopifyShopperListItem[] | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     apiFetch<ShopifyMe>('/v1/shopify/me')
@@ -83,6 +86,18 @@ export default function AnalyticsPage() {
       .finally(() => setLoading(false));
   }, [range]);
 
+  useEffect(() => {
+    apiFetch<{ items: ShopifyShopperListItem[] }>('/v1/shopify/shoppers')
+      .then((res) => setShoppers(res.items))
+      .catch((err) => {
+        setError(classifyError(err));
+        // Without this the list stays null and IndexTable's `loading={!shoppers}`
+        // spins forever behind the error banner. An empty list is the honest
+        // rendering: we have nothing to show, and the banner says why.
+        setShoppers([]);
+      });
+  }, []);
+
   const choosePreset = useCallback(
     (selected: string[]) => {
       const next = selected[0] as AnalyticsPreset;
@@ -92,6 +107,32 @@ export default function AnalyticsPage() {
     },
     [installedAt],
   );
+
+  async function exportCsv() {
+    // Not a plain <a href>: this SPA is served from a different origin than the
+    // API in production, and /v1/shopify/shoppers.csv is behind
+    // requireShopifySession, which needs the App Bridge bearer token that a
+    // link navigation cannot carry. Fetch it authenticated, then hand the
+    // browser a blob URL to download.
+    setExporting(true);
+    setError(null);
+    try {
+      const res = await apiFetchResponse('/v1/shopify/shoppers.csv');
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = 'shoppers.csv';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+    } catch (err) {
+      setError(classifyError(err));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const label =
     preset === 'custom'
@@ -154,18 +195,7 @@ export default function AnalyticsPage() {
               <StatTile label="Added to cart" value={String(data.cards.addedToCart)} />
               {/* Never "Conversion rate" — a merchant reads that as purchased. */}
               <StatTile label="Add-to-cart rate" value={pct(data.cards.addToCartRate)} />
-              {/* The list itself lives on Settings -> Data, where the GDPR
-                  delete controls are. Duplicating it here would mean two places
-                  to erase a shopper from, so this links across instead. */}
-              <StatTile
-                label="Emails captured"
-                value={String(data.cards.emailsCaptured)}
-                action={
-                  <Button variant="plain" onClick={() => navigate('/settings')}>
-                    View list
-                  </Button>
-                }
-              />
+              <StatTile label="Emails captured" value={String(data.cards.emailsCaptured)} />
               {/* A soft gate — most shoppers asked for an email submit it and
                   get their try-on anyway, so this is deliberately not part of
                   "Turned away" (which only counts genuinely lost traffic). */}
@@ -175,6 +205,60 @@ export default function AnalyticsPage() {
               />
               <StatTile label="Turned away" value={String(data.cards.turnedAway.total)} />
             </InlineGrid>
+
+            <Card>
+              <BlockStack gap="300">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="h2" variant="headingMd">
+                    Collected emails
+                  </Text>
+                  <Button
+                    onClick={exportCsv}
+                    loading={exporting}
+                    disabled={!shoppers || shoppers.length === 0}
+                  >
+                    Export CSV
+                  </Button>
+                </InlineStack>
+                <Text as="p" tone="subdued">
+                  Only shoppers who ticked the consent box have agreed to marketing. Check the
+                  Consent column before adding an address to a mailing list.
+                </Text>
+                {shoppers && shoppers.length === 0 ? (
+                  <EmptyState heading="No emails collected yet" image="">
+                    <p>Turn on "Ask for an email" under Settings to start collecting.</p>
+                  </EmptyState>
+                ) : (
+                  <IndexTable
+                    resourceName={{ singular: 'shopper', plural: 'shoppers' }}
+                    itemCount={shoppers?.length ?? 0}
+                    selectable={false}
+                    loading={!shoppers}
+                    headings={[
+                      { title: 'Email' },
+                      { title: 'Consent' },
+                      { title: 'First seen' },
+                      { title: 'Try-ons' },
+                    ]}
+                  >
+                    {(shoppers ?? []).map((s, index) => (
+                      <IndexTable.Row id={s.id} key={s.id} position={index}>
+                        <IndexTable.Cell>{s.email}</IndexTable.Cell>
+                        <IndexTable.Cell>
+                          <Badge tone={s.emailConsent ? 'success' : undefined}>
+                            {s.emailConsent ? 'Consented' : 'No consent'}
+                          </Badge>
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>
+                          {new Date(s.firstSeenAt).toLocaleDateString()}
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>{String(s.tryOnCount)}</IndexTable.Cell>
+                      </IndexTable.Row>
+                    ))}
+                  </IndexTable>
+                )}
+              </BlockStack>
+            </Card>
 
             {data.cards.turnedAway.total > 0 && (
               <Card>
