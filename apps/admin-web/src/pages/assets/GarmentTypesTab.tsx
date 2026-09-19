@@ -5,6 +5,9 @@ import { EditGarmentTypeModal } from '../../components/EditGarmentTypeModal';
 import { Icon } from '../../components/Icons';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
+import { useCrumb } from '../../context/BreadcrumbContext';
+import { useCloseOverlay } from '../../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type {
@@ -98,7 +101,30 @@ export function GarmentTypesTab() {
     toast,
   } = useAssetsContext();
 
-  const [subView, setSubView] = useState<SubView>({ kind: 'list' });
+  const tabHref = '/assets?tab=garment-types';
+  const [{ view: viewParam, gtId }, setSubViewParams] = useUrlStateMulti(['view', 'gtId']);
+  const subView: SubView = useMemo(() => {
+    if (viewParam === 'configs' && gtId) {
+      const sub = garmentTypes.find((g) => g.id === gtId);
+      if (sub) return { kind: 'configs', sub };
+    }
+    return { kind: 'list' };
+  }, [viewParam, gtId, garmentTypes]);
+  const openConfigs = useCallback(
+    (sub: GarmentType) => setSubViewParams({ view: 'configs', gtId: sub.id }),
+    [setSubViewParams],
+  );
+  const closeConfigs = useCloseOverlay(tabHref);
+  useCrumb(0, { label: 'Garment Types', href: tabHref });
+  useCrumb(
+    1,
+    subView.kind === 'configs'
+      ? {
+          label: `Configs: ${subView.sub.label}`,
+          href: `${tabHref}&view=configs&gtId=${subView.sub.id}`,
+        }
+      : null,
+  );
   const [poseConfigs, setPoseConfigs] = useState<PoseGarmentConfig[]>([]);
   const [configsLoading, setConfigsLoading] = useState(false);
   const [savingConfigId, setSavingConfigId] = useState<string | null>(null);
@@ -249,11 +275,6 @@ export function GarmentTypesTab() {
       setGarmentTypes((prev) =>
         prev.map((s) => (s.id === garmentTypeId ? { ...s, defaultPoseId: poseAssetId } : s)),
       );
-      setSubView((prev) =>
-        prev.kind === 'configs' && prev.sub.id === garmentTypeId
-          ? { kind: 'configs', sub: { ...prev.sub, defaultPoseId: poseAssetId } }
-          : prev,
-      );
       toast({ title: 'Default pose updated' });
     } catch (e) {
       toast({
@@ -375,7 +396,7 @@ export function GarmentTypesTab() {
           {subView.kind === 'configs' && (
             <button
               className="btn sm ghost"
-              onClick={() => setSubView({ kind: 'list' })}
+              onClick={closeConfigs}
               style={{ padding: '2px 8px', fontSize: 13, marginBottom: 10 }}
             >
               <Icon.ArrowLeft /> Back to Garment Types
@@ -485,11 +506,7 @@ export function GarmentTypesTab() {
               </thead>
               <tbody>
                 {filteredGarmentTypes.map((sub) => (
-                  <tr
-                    key={sub.id}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => setSubView({ kind: 'configs', sub })}
-                  >
+                  <tr key={sub.id} style={{ cursor: 'pointer' }} onClick={() => openConfigs(sub)}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <AssetThumb
@@ -830,10 +847,7 @@ export function GarmentTypesTab() {
                           paddingTop: 10,
                         }}
                       >
-                        <button
-                          className="btn sm ghost"
-                          onClick={() => setSubView({ kind: 'configs', sub })}
-                        >
+                        <button className="btn sm ghost" onClick={() => openConfigs(sub)}>
                           Setup Poses
                         </button>
                         <button className="btn sm ghost" onClick={() => setEditingSubcat(sub)}>
