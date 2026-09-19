@@ -2,6 +2,44 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-19 — Routing-aware enablement counts + hardened full-sync deletion race
+
+- **Change:** Implemented both findings from
+  `docs/superpowers/specs/2026-09-19-shopify-routing-and-sync-accuracy-design.md`.
+  1. `computeEffectiveEnabled` and `resolveBasketFrom` are now both required everywhere a
+     merchant or shopper sees an "enabled" signal, not just try-on creation: the storefront
+     `/enabled` route (`customer.routes.ts`), ManagePage's "Try-On Enabled" stat
+     (`activation.routes.ts`), and DashboardPage's independently-duplicated stat
+     (`me.routes.ts`) all now exclude products that are effectively enabled but resolve to no
+     basket. Mechanism: the per-product routing scan already living in
+     `funnel-rules.routes.ts` (for the Routing tab's `unroutedEnabled`) was extracted into a
+     shared `countUnroutedProducts` helper in `funnel-resolution.ts`; both stat routes subtract
+     its `unroutedEnabled` from their existing SQL-only counts rather than rewriting those
+     counts' own logic (`countEffectivelyEnabled` keeps its parity test with
+     `computeEffectiveEnabled` undisturbed).
+  2. `syncOneTask`'s `full` branch (`products.sync.ts`) no longer reconciles deletions against
+     `liveProductIds` collected during the (possibly minutes-long) detailed pass — a
+     `products/delete` webhook landing mid-pass for an already-fetched product was getting
+     silently overwritten back to `active` by that pass's own upsert. It now runs a fresh,
+     final id-only pass (reusing `reconcile` mode's own `PRODUCT_IDS_PAGE` query) after the
+     detailed pass completes, reconciles against that, and self-heals any product id the
+     detailed pass missed (created mid-sync) the same way `reconcile` mode already does for
+     newly-discovered products.
+- **Shipped via:** this branch (`chore/shopify-sync-routing-accuracy-audit`), implementation
+  plan `docs/superpowers/plans/2026-09-19-shopify-routing-and-sync-accuracy-implementation.md`.
+- **Test impact:** updated `shopify-activation-routes.test.ts`, `shopify-me.test.ts`,
+  `integration/shopify-customer.test.ts`, and `shopify-sync.test.ts` per the spec's Test impact
+  section; added one new self-heal test case to `shopify-sync.test.ts` beyond what the spec
+  called out. Full regression sweep across every test touching `resolveBasketFrom`/`loadRuleSet`
+  (funnel-rules, funnel-loader, basket-routing, refusal-events, limits, product-basket) confirmed
+  unaffected.
+- **Deferred (per spec, not in this work):** a "Not routed" link on Manage/Routing opening a
+  popup listing actual unrouted product names — agreed to revisit once the count itself is
+  accurate.
+- **Not addressed here (separately flagged in the prior 2026-09-19 entry):** production's
+  `NODE_TLS_REJECT_UNAUTHORIZED=0` and the missing `pnpm backfill:shopify-products-create-webhook`
+  script alias — both still open.
+
 ## 2026-09-19 — Shopify `products/create` webhook backfill run against production
 
 - **Context:** PR #384 (merged to `dev`, then promoted to `main` via PR #387 alongside PR #386's
