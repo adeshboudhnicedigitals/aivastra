@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { JobTypeBadge } from '../components/JobTypeBadge';
@@ -57,7 +57,7 @@ function jobContactEmail(j: Job): string | null {
   return j.userEmail ?? j.shopEmail ?? null;
 }
 
-/** Small corner toggle overlaid on an asset thumbnail — the click target for delete-selection, kept separate from the thumbnail's own click-to-view-full-size link. */
+/** Small corner toggle overlaid on an asset thumbnail â€” the click target for delete-selection, kept separate from the thumbnail's own click-to-view-full-size link. */
 function AssetSelectBadge({
   selected,
   onToggle,
@@ -72,7 +72,7 @@ function AssetSelectBadge({
       type="button"
       onClick={onToggle}
       aria-pressed={selected}
-      title={selected ? 'Selected for deletion — click to unselect' : 'Select for deletion'}
+      title={selected ? 'Selected for deletion â€” click to unselect' : 'Select for deletion'}
       style={{
         position: 'absolute',
         top: 6,
@@ -156,7 +156,7 @@ function EventRow({ ev }: { ev: JobEvent }) {
               style={{ fontSize: 11, padding: '2px 8px' }}
               onClick={handleCopy}
             >
-              {copied ? '✓ Copied' : 'Copy'}
+              {copied ? 'âœ“ Copied' : 'Copy'}
             </button>
             <button
               className="btn sm ghost"
@@ -204,11 +204,18 @@ interface Props {
 
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState } from '../hooks/use-url-state';
 
 export default function JobsPage({ onNav, toast }: Props) {
   const location = useLocation();
   const { hasPermission } = useAuth();
-  const requestedJobId = (location.state as { jobId?: string })?.jobId;
+  const [jobIdParam, setJobIdParam] = useUrlState('job');
+  const closeDetail = useCloseOverlay(['job']);
+  // Converted to a real URL param in Task 9 of the Jobs/Users rollout plan —
+  // left on location.state for now so this task's diff stays scoped to the
+  // detail view itself.
   const requestedFromUserId = (location.state as { fromUserId?: string })?.fromUserId;
   const [filter, setFilter] = useState<FilterKey>(
     (location.state as { filter?: FilterKey })?.filter || 'all',
@@ -331,11 +338,15 @@ export default function JobsPage({ onNav, toast }: Props) {
     void load();
   }, [load]);
 
+  // Reconstructs the detail view from the URL alone — covers a hard refresh,
+  // a deep link, and the physical Back button restoring a previous `job=`
+  // value. Skipped when `openDetail` already seeded `detail` optimistically
+  // for this same id (see Step 6), so a row click doesn't double-fetch.
   useEffect(() => {
-    if (!requestedJobId) return;
+    if (!jobIdParam || detail?.id === jobIdParam) return;
     let cancelled = false;
     setDetailLoading(true);
-    apiFetch<JobDetail>(`/admin/jobs/${requestedJobId}`)
+    apiFetch<JobDetail>(`/admin/jobs/${jobIdParam}`)
       .then((job) => {
         if (!cancelled) setDetail(job);
       })
@@ -353,7 +364,17 @@ export default function JobsPage({ onNav, toast }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [requestedJobId, toast]);
+  }, [jobIdParam, detail?.id, toast]);
+
+  useCrumb(
+    0,
+    detail
+      ? {
+          label: `Job ${detail.id.slice(0, 8)}…`,
+          href: `/jobs?job=${encodeURIComponent(detail.id)}`,
+        }
+      : null,
+  );
 
   useEffect(() => {
     setDeleteAssetsTargets(new Set());
@@ -361,17 +382,17 @@ export default function JobsPage({ onNav, toast }: Props) {
     setDeleteAssetsPassword('');
   }, [detail?.id]);
 
-  // Filter dropdown options — fetched once, not tied to the jobs list itself.
+  // Filter dropdown options â€” fetched once, not tied to the jobs list itself.
   useEffect(() => {
     apiFetch<string[]>('/admin/jobs/sources')
       .then(setJobTypeOptions)
       .catch(() => {
-        // Non-fatal — the job type filter dropdown just stays empty.
+        // Non-fatal â€” the job type filter dropdown just stays empty.
       });
     apiFetch<{ id: string; label: string }[]>('/admin/workers')
       .then((workers) => setWorkerOptions(workers.map((w) => ({ id: w.id, label: w.label }))))
       .catch(() => {
-        // Non-fatal — the worker filter dropdown just stays empty.
+        // Non-fatal â€” the worker filter dropdown just stays empty.
       });
   }, []);
 
@@ -405,7 +426,7 @@ export default function JobsPage({ onNav, toast }: Props) {
     }, []),
   );
 
-  // Polling fallback when active jobs exist — catches updates if SSE drops (proxy buffering etc.)
+  // Polling fallback when active jobs exist â€” catches updates if SSE drops (proxy buffering etc.)
   const hasActiveJobs = jobs.some((j) =>
     ['QUEUED', 'PREPROCESSING', 'GENERATING', 'UPLOADING'].includes(j.status),
   );
@@ -513,6 +534,7 @@ export default function JobsPage({ onNav, toast }: Props) {
   const openDetail = async (j: Job) => {
     setDetail(j);
     setDetailLoading(false);
+    setJobIdParam(j.id);
     try {
       const full = await apiFetch<JobDetail>(`/admin/jobs/${j.id}`);
       setDetail(full);
@@ -591,7 +613,7 @@ export default function JobsPage({ onNav, toast }: Props) {
       void openDetail(detail);
     } catch (e) {
       // Wrong password is the one failure the admin can fix by retrying in
-      // place — surfaced inline on the modal itself, not just a toast, since
+      // place â€” surfaced inline on the modal itself, not just a toast, since
       // it's the modal's own submit that failed. Every other error (404/409/500)
       // closes the dialog since retrying with the same input won't help, and
       // refetches the job so a stale selection doesn't linger against
@@ -628,7 +650,7 @@ export default function JobsPage({ onNav, toast }: Props) {
     return `${(ms / 1000).toFixed(1)}s`;
   };
 
-  const fmtTs = (ts?: string | null) => (ts ? new Date(ts).toLocaleString() : '—');
+  const fmtTs = (ts?: string | null) => (ts ? new Date(ts).toLocaleString() : 'â€”');
 
   if (detail) {
     const j = detail;
@@ -642,21 +664,21 @@ export default function JobsPage({ onNav, toast }: Props) {
         <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
         <div className="page-head">
           <div>
-            {requestedFromUserId && requestedJobId === j.id ? (
+            {requestedFromUserId && jobIdParam === j.id ? (
               <button
                 className="btn ghost"
                 onClick={() =>
                   onNav('users', {
                     page: 'users',
                     userId: requestedFromUserId,
-                    jobId: requestedJobId,
+                    jobId: jobIdParam,
                   })
                 }
               >
                 <Icon.Back /> Back to user
               </button>
             ) : (
-              <button className="btn ghost" onClick={() => setDetail(null)}>
+              <button className="btn ghost" onClick={closeDetail}>
                 <Icon.Back /> Back to jobs
               </button>
             )}
@@ -718,21 +740,21 @@ export default function JobsPage({ onNav, toast }: Props) {
         ) : (
           <>
             <div className="kv-grid-2-col" style={{ marginBottom: 20 }}>
-              <KV k="User" v={jobContactEmail(j) ?? '—'} />
+              <KV k="User" v={jobContactEmail(j) ?? 'â€”'} />
               {j.shopDomain && <KV k="Shop" v={j.shopDomain} />}
               <KV k="Job Type" v={<JobTypeBadge jobType={j.jobType} />} />
               <KV k="Status" v={<StatusBadge status={j.status} />} />
               <KV k="Credits charged" v={String(j.creditsCharged)} />
               <KV k="Priority" v={j.priority ? 'Priority' : 'Normal'} />
-              <KV k="Face" v={j.faceLabel ?? '—'} />
-              <KV k="Background" v={j.backgroundLabel ?? '—'} />
-              <KV k="Pose" v={j.poseLabel ?? '—'} />
-              <KV k="Workflow" v={j.workflowLabel ?? '—'} />
-              <KV k="Worker" v={j.workerId ?? '—'} />
+              <KV k="Face" v={j.faceLabel ?? 'â€”'} />
+              <KV k="Background" v={j.backgroundLabel ?? 'â€”'} />
+              <KV k="Pose" v={j.poseLabel ?? 'â€”'} />
+              <KV k="Workflow" v={j.workflowLabel ?? 'â€”'} />
+              <KV k="Worker" v={j.workerId ?? 'â€”'} />
               <KV k="Created" v={fmtTs(j.createdAt)} />
               <KV k="Started" v={fmtTs(j.startedAt)} />
               <KV k="Completed" v={fmtTs(j.completedAt)} />
-              <KV k="Duration" v={fmtDuration(j) ?? '—'} />
+              <KV k="Duration" v={fmtDuration(j) ?? 'â€”'} />
               {j.attempts != null && <KV k="Attempts" v={String(j.attempts)} />}
               {j.errorCode && <KV k="Error code" v={j.errorCode} />}
               <KV
@@ -753,7 +775,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                   v={<code style={{ fontSize: 12 }}>{j.parentJobId}</code>}
                 />
               )}
-              {j.parentJobId && <KV k="Regenerate reason" v={j.regenerateReason ?? '—'} />}
+              {j.parentJobId && <KV k="Regenerate reason" v={j.regenerateReason ?? 'â€”'} />}
             </div>
 
             {((j.inputImages && Object.values(j.inputImages).some(Boolean)) || j.outputUrl) && (
@@ -986,7 +1008,7 @@ export default function JobsPage({ onNav, toast }: Props) {
           >
             <span style={{ fontSize: 13, color: 'var(--danger-ink)', fontWeight: 600 }}>
               {deleteAssetsTargets.size} asset{deleteAssetsTargets.size > 1 ? 's' : ''} selected
-              <span style={{ fontWeight: 400 }}> — {selectedAssetLabels}</span>
+              <span style={{ fontWeight: 400 }}> â€” {selectedAssetLabels}</span>
             </span>
             <button
               className="btn sm ghost"
@@ -1074,7 +1096,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                   disabled={deletingAssets || !deleteAssetsPassword}
                   onClick={() => void handleDeleteAssets()}
                 >
-                  <Icon.Trash /> {deletingAssets ? 'Deleting…' : 'Delete assets'}
+                  <Icon.Trash /> {deletingAssets ? 'Deletingâ€¦' : 'Delete assets'}
                 </button>
               </div>
             </div>
@@ -1119,8 +1141,8 @@ export default function JobsPage({ onNav, toast }: Props) {
         <div>
           <h1>Jobs</h1>
           <p className="lede">
-            {loading ? 'Loading…' : `${total.toLocaleString()} jobs`} — real-time generation queue,
-            worker allocation &amp; processing history.
+            {loading ? 'Loadingâ€¦' : `${total.toLocaleString()} jobs`} â€” real-time generation
+            queue, worker allocation &amp; processing history.
           </p>
         </div>
         <div className="head-tools" style={{ flexWrap: 'wrap' }}>
@@ -1132,7 +1154,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                 onClick={() => void flushQueue()}
                 disabled={flushing}
               >
-                {flushing ? 'Flushing…' : 'Confirm Flush'}
+                {flushing ? 'Flushingâ€¦' : 'Confirm Flush'}
               </button>
               <button className="btn sm ghost" onClick={() => setConfirmFlush(false)}>
                 Cancel
@@ -1249,7 +1271,7 @@ export default function JobsPage({ onNav, toast }: Props) {
           <div className="filter-search-box">
             <Icon.Search />
             <input
-              placeholder="Search by Job ID, User ID, or user email…"
+              placeholder="Search by Job ID, User ID, or user emailâ€¦"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
             />
@@ -1471,7 +1493,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                     style={{ width: '100%', justifyContent: 'center' }}
                     title="Download Excel export"
                   >
-                    <Icon.Download /> {exportingXlsx ? 'Exporting…' : 'Export Excel'}
+                    <Icon.Download /> {exportingXlsx ? 'Exportingâ€¦' : 'Export Excel'}
                   </button>
                 </div>
               </div>
@@ -1554,7 +1576,7 @@ export default function JobsPage({ onNav, toast }: Props) {
               <span className="filter-chip">
                 Created:{' '}
                 <strong>
-                  {createdFrom || 'Anytime'} → {createdTo || 'Now'}
+                  {createdFrom || 'Anytime'} â†’ {createdTo || 'Now'}
                 </strong>
                 <button
                   type="button"
@@ -1575,7 +1597,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                 Duration:{' '}
                 <strong>
                   {durationMin || '0'}
-                  {durationUnit === 'minutes' ? 'm' : 's'} → {durationMax || 'Any'}
+                  {durationUnit === 'minutes' ? 'm' : 's'} â†’ {durationMax || 'Any'}
                   {durationMax ? (durationUnit === 'minutes' ? 'm' : 's') : ''}
                 </strong>
                 <button
@@ -1650,11 +1672,11 @@ export default function JobsPage({ onNav, toast }: Props) {
                   <tr key={j.id} onClick={() => void openDetail(j)} style={{ cursor: 'pointer' }}>
                     <td>
                       <span className="mono sub" style={{ fontSize: 11 }}>
-                        {j.id.slice(0, 8)}…
+                        {j.id.slice(0, 8)}â€¦
                       </span>
                     </td>
                     <td>
-                      <span className="semi">{jobContactEmail(j) ?? '—'}</span>
+                      <span className="semi">{jobContactEmail(j) ?? 'â€”'}</span>
                       {j.shopDomain && (
                         <div className="sub" style={{ fontSize: 11 }}>
                           {j.shopDomain}
@@ -1683,7 +1705,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                     </td>
                     <td>
                       <span className="mono sub" style={{ fontSize: 11 }}>
-                        {j.workerId ?? '—'}
+                        {j.workerId ?? 'â€”'}
                       </span>
                     </td>
                     <td>
@@ -1693,7 +1715,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                     </td>
                     <td>
                       <span className="mono sub" style={{ fontSize: 11 }}>
-                        {fmtDuration(j) ?? '—'}
+                        {fmtDuration(j) ?? 'â€”'}
                       </span>
                     </td>
                     <td>
@@ -1873,7 +1895,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                           }}
                         >
                           <span style={{ color: 'var(--muted)' }}>User Mail</span>
-                          <span className="semi">{jobContactEmail(j) ?? '—'}</span>
+                          <span className="semi">{jobContactEmail(j) ?? 'â€”'}</span>
                         </div>
                         <div
                           style={{
@@ -1959,7 +1981,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                           }}
                         >
                           <span style={{ color: 'var(--muted)' }}>Duration</span>
-                          <span className="mono sub">{fmtDuration(j) ?? '—'}</span>
+                          <span className="mono sub">{fmtDuration(j) ?? 'â€”'}</span>
                         </div>
                         <div
                           style={{
@@ -1989,7 +2011,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                           }}
                         >
                           <span style={{ color: 'var(--muted)' }}>Worker</span>
-                          <span className="mono sub">{j.workerId ?? '—'}</span>
+                          <span className="mono sub">{j.workerId ?? 'â€”'}</span>
                         </div>
                       </div>
 
