@@ -40,6 +40,49 @@
   `NODE_TLS_REJECT_UNAUTHORIZED=0` and the missing `pnpm backfill:shopify-products-create-webhook`
   script alias — both still open.
 
+### Final whole-branch review addendum (same day)
+
+- **Fixed in this same branch, before merge:** the full-sync deletion-race fix (above) had no
+  guard against its new final id-only pass returning zero ids after the detailed pass had
+  genuinely seen products — a transient Shopify anomaly on just that second network round-trip
+  could otherwise have mass-deleted a store's entire catalog with nothing to self-heal it. Now
+  skips reconciliation and logs an error in that case instead. Also added a cheap short-circuit
+  (skip the routing scan entirely when the raw enabled count is already 0) to `/v1/shopify/me`
+  and `/v1/shopify/activation`, since `/v1/shopify/me` in particular is fetched on every SPA page
+  navigation, not just the Routing page.
+- **Merchant-visible impact of this branch, worth knowing on deploy day:** "Try-On Enabled" counts
+  on both ManagePage and DashboardPage will drop, and storefront try-on buttons will stop
+  appearing, for any product that's individually/collection-enabled but has no funnel-rule pin or
+  matching rule — this is the fix working as intended, not a regression, but it will look like one
+  to anyone who doesn't know the unrouted-products banner already existed for exactly this gap.
+  ManagePage's stat caption (both activation modes) now says so explicitly; DashboardPage's does
+  not carry an equivalent caption (it never had one worth qualifying the same way).
+- **Deferred, not fixed on this branch (tracked here since `docs/audits/open-findings.md` is
+  gitignored and not present in this checkout):**
+  - `countUnroutedProducts`'s full per-product routing scan still runs on `/v1/shopify/me` for any
+    store with >0 effectively-enabled products (the 0-count short-circuit above only skips the
+    expensive path when there's nothing to correct). For a near-10,000-product-cap store this is
+    a real per-page-navigation cost. Needs either a short Redis memoization (invalidated on
+    rule/pin edits) or a lower product cap specific to this route — deliberately not attempted in
+    this fix wave since it's a real feature with its own invalidation design, not a one-line fix.
+  - `countEffectivelyEnabled` (`activation.ts`) has no `status <> 'deleted'` filter, unlike
+    `computeEnabledProductCount` (`me.routes.ts`) and `countUnroutedProducts` itself — so
+    ManagePage's "Try-On Enabled" stat can still count a deleted+enabled+unrouted product in its
+    raw figure without the routing correction ever seeing it to subtract (never goes negative,
+    but the two stats this branch set out to make consistent can still disagree by this margin).
+    Left untouched deliberately: the plan's Global Constraints kept `countEffectivelyEnabled`
+    off-limits specifically to protect its parity test with `computeEffectiveEnabled`, and
+    touching a parity-tested shared function in a final fix wave was judged the wrong moment to
+    take that risk.
+  - The storefront `/enabled` route (Task 4) still doesn't require `status = 'active'` the way the
+    try-on creation path does — a product whose image sync failed (`status: 'failed'`) can still
+    show the try-on button and dead-end at submission. Pre-existing gap, outside this branch's
+    routing-focused scope (Finding 1 was about basket resolution, not sync status).
+  - DashboardPage's onboarding checklist gate (`enabledProductCount > 0`) now implicitly depends
+    on routing too — a store whose only enabled products are all unrouted flips that onboarding
+    step back to incomplete. Likely the correct behavior, but wasn't called out in the original
+    spec or plan as a load-bearing consumer of this stat.
+
 ## 2026-09-19 — Shopify `products/create` webhook backfill run against production
 
 - **Context:** PR #384 (merged to `dev`, then promoted to `main` via PR #387 alongside PR #386's
