@@ -104,6 +104,24 @@ interface ActivationSummary {
   };
 }
 
+// Subset of GET /v1/shopify/funnel-rules's response consumed here — the full
+// shape (storeRules, globalRules) belongs to RoutingTab, which fetches the
+// same endpoint separately for its own rule tables.
+interface FunnelRulesSummary {
+  counts: Record<string, number>;
+  countsOmitted: boolean;
+  // null when countsOmitted — the catalog was never scanned, so there is no
+  // count to report either way.
+  unrouted: number | null;
+  // Subset of `unrouted` that's also effectively enabled for Try-On — this is
+  // what the banner above the tabs warns about.
+  unroutedEnabled: number | null;
+}
+
+function basketLabelFor(baskets: Basket[], id: string): string {
+  return baskets.find((b) => b.id === id)?.label ?? 'Unknown basket';
+}
+
 interface CollectionRow {
   shopifyCollectionId: number;
   title: string;
@@ -127,14 +145,14 @@ interface ProductListResponse {
 const PAGE_SIZE = 20;
 
 const TABS = [
+  { id: 'exclusion', content: 'Exclusion' },
   { id: 'collections', content: 'Collections' },
   { id: 'individual', content: 'Individual Products' },
-  { id: 'exclusion', content: 'Exclusion' },
 ] as const;
 
 const OUTER_TABS = [
-  { id: 'eligibility', content: 'Eligibility' },
   { id: 'routing', content: 'Routing' },
+  { id: 'eligibility', content: 'Eligibility' },
 ] as const;
 
 // Draft staging (mergeById, diffActions, DraftList — see lib/activationDraft.ts)
@@ -828,11 +846,13 @@ export default function ManagePage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState(0);
   const [outerTabIndex, setOuterTabIndex] = useState(0);
-  const [unrouted, setUnrouted] = useState<number | null>(null);
+  const [rulesSummary, setRulesSummary] = useState<FunnelRulesSummary | null>(null);
+  const [landingBaskets, setLandingBaskets] = useState<Basket[]>([]);
   // Bumped by any routing mutation (rule add/edit/delete, global rule
   // toggle, individual product pin) that isn't already covered by
-  // refreshToken (Sync / Eligibility Save) — so the banner reflects the
-  // merchant's own fix without requiring another Sync.
+  // refreshToken (Sync / Eligibility Save) — so the banner and the "Where
+  // your products land" card reflect the merchant's own fix without
+  // requiring another Sync.
   const [unroutedRefreshToken, setUnroutedRefreshToken] = useState(0);
   const [failedModalOpen, setFailedModalOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -862,17 +882,25 @@ export default function ManagePage() {
     loadSummary();
   }, [loadSummary]);
 
-  // Lightweight, independent of RoutingTab's own fetch — reads only the two
-  // fields this banner needs, so switching to the Routing tab isn't required
-  // to see it, and enabling this second GET doesn't require lifting
-  // RoutingTab's full state (rules, baskets, its own loading/error/toast)
-  // up into this component.
+  // Lightweight, independent of RoutingTab's own fetch — feeds both the
+  // unrouted banner below and the "Where your products land" card, so
+  // switching to the Routing tab isn't required to see either, and enabling
+  // this second GET doesn't require lifting RoutingTab's full state (its own
+  // loading/error/toast, rule editor) up into this component.
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken and unroutedRefreshToken are deliberate refetch triggers (bump after a successful Save/Sync or a routing mutation), not referenced in the body
   useEffect(() => {
-    apiFetch<{ unroutedEnabled: number | null; countsOmitted: boolean }>('/v1/shopify/funnel-rules')
-      .then((res) => setUnrouted(res.countsOmitted ? null : res.unroutedEnabled))
-      .catch(() => setUnrouted(null));
+    Promise.all([
+      apiFetch<{ items: Basket[] }>('/v1/shopify/baskets'),
+      apiFetch<FunnelRulesSummary>('/v1/shopify/funnel-rules'),
+    ])
+      .then(([basketsRes, rulesRes]) => {
+        setLandingBaskets(basketsRes.items);
+        setRulesSummary(rulesRes);
+      })
+      .catch(() => setRulesSummary(null));
   }, [refreshToken, unroutedRefreshToken]);
+
+  const unrouted = rulesSummary?.countsOmitted ? null : (rulesSummary?.unroutedEnabled ?? null);
 
   const isDirty =
     (draftMode !== null && draftMode !== summary?.mode) ||
@@ -1104,7 +1132,10 @@ export default function ManagePage() {
         {unrouted !== null && unrouted > 0 && (
           <Banner
             tone="warning"
-            action={{ content: 'View routing', onAction: () => setOuterTabIndex(1) }}
+            action={{
+              content: 'View routing',
+              onAction: () => setOuterTabIndex(OUTER_TABS.findIndex((t) => t.id === 'routing')),
+            }}
           >
             {unrouted} product{unrouted === 1 ? ' has' : 's have'} no basket assigned — Try-On won't
             work for {unrouted === 1 ? 'it' : 'them'} until you add a routing rule or pin{' '}
@@ -1214,6 +1245,56 @@ export default function ManagePage() {
             </button>
           </Card>
         </InlineGrid>
+
+        {rulesSummary && (
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">
+                Where your products land
+              </Text>
+              {rulesSummary.countsOmitted ? (
+                <Text as="p" tone="subdued">
+                  Catalog too large to summarize.
+                </Text>
+              ) : Object.keys(rulesSummary.counts).length === 0 && !rulesSummary.unrouted ? (
+                <Text as="p" tone="subdued">
+                  No products have matched a rule yet.
+                </Text>
+              ) : (
+                <BlockStack gap="200">
+                  {Object.entries(rulesSummary.counts)
+                    .sort(([a], [b]) =>
+                      basketLabelFor(landingBaskets, a).localeCompare(
+                        basketLabelFor(landingBaskets, b),
+                      ),
+                    )
+                    .map(([basketId, productCount]) => (
+                      <InlineStack key={basketId} align="space-between">
+                        <Text as="span">{basketLabelFor(landingBaskets, basketId)}</Text>
+                        <Text as="span" fontWeight="semibold">
+                          {productCount}
+                        </Text>
+                      </InlineStack>
+                    ))}
+                  {rulesSummary.unrouted !== null && (
+                    <InlineStack align="space-between">
+                      <Text as="span" tone={rulesSummary.unrouted > 0 ? 'critical' : 'subdued'}>
+                        Not routed (try-on unavailable)
+                      </Text>
+                      <Text
+                        as="span"
+                        fontWeight="semibold"
+                        tone={rulesSummary.unrouted > 0 ? 'critical' : 'subdued'}
+                      >
+                        {rulesSummary.unrouted}
+                      </Text>
+                    </InlineStack>
+                  )}
+                </BlockStack>
+              )}
+            </BlockStack>
+          </Card>
+        )}
 
         <Card>
           <Tabs
