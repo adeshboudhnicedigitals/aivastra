@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { JobTypeBadge } from '../components/JobTypeBadge';
@@ -57,7 +57,7 @@ function jobContactEmail(j: Job): string | null {
   return j.userEmail ?? j.shopEmail ?? null;
 }
 
-/** Small corner toggle overlaid on an asset thumbnail â€” the click target for delete-selection, kept separate from the thumbnail's own click-to-view-full-size link. */
+/** Small corner toggle overlaid on an asset thumbnail — the click target for delete-selection, kept separate from the thumbnail's own click-to-view-full-size link. */
 function AssetSelectBadge({
   selected,
   onToggle,
@@ -72,7 +72,7 @@ function AssetSelectBadge({
       type="button"
       onClick={onToggle}
       aria-pressed={selected}
-      title={selected ? 'Selected for deletion â€” click to unselect' : 'Select for deletion'}
+      title={selected ? 'Selected for deletion — click to unselect' : 'Select for deletion'}
       style={{
         position: 'absolute',
         top: 6,
@@ -156,7 +156,7 @@ function EventRow({ ev }: { ev: JobEvent }) {
               style={{ fontSize: 11, padding: '2px 8px' }}
               onClick={handleCopy}
             >
-              {copied ? 'âœ“ Copied' : 'Copy'}
+              {copied ? '✓ Copied' : 'Copy'}
             </button>
             <button
               className="btn sm ghost"
@@ -343,7 +343,11 @@ export default function JobsPage({ onNav, toast }: Props) {
   // value. Skipped when `openDetail` already seeded `detail` optimistically
   // for this same id (see Step 6), so a row click doesn't double-fetch.
   useEffect(() => {
-    if (!jobIdParam || detail?.id === jobIdParam) return;
+    if (!jobIdParam) {
+      setDetail(null);
+      return;
+    }
+    if (detail?.id === jobIdParam) return;
     let cancelled = false;
     setDetailLoading(true);
     apiFetch<JobDetail>(`/admin/jobs/${jobIdParam}`)
@@ -382,17 +386,17 @@ export default function JobsPage({ onNav, toast }: Props) {
     setDeleteAssetsPassword('');
   }, [detail?.id]);
 
-  // Filter dropdown options â€” fetched once, not tied to the jobs list itself.
+  // Filter dropdown options — fetched once, not tied to the jobs list itself.
   useEffect(() => {
     apiFetch<string[]>('/admin/jobs/sources')
       .then(setJobTypeOptions)
       .catch(() => {
-        // Non-fatal â€” the job type filter dropdown just stays empty.
+        // Non-fatal — the job type filter dropdown just stays empty.
       });
     apiFetch<{ id: string; label: string }[]>('/admin/workers')
       .then((workers) => setWorkerOptions(workers.map((w) => ({ id: w.id, label: w.label }))))
       .catch(() => {
-        // Non-fatal â€” the worker filter dropdown just stays empty.
+        // Non-fatal — the worker filter dropdown just stays empty.
       });
   }, []);
 
@@ -426,7 +430,7 @@ export default function JobsPage({ onNav, toast }: Props) {
     }, []),
   );
 
-  // Polling fallback when active jobs exist â€” catches updates if SSE drops (proxy buffering etc.)
+  // Polling fallback when active jobs exist — catches updates if SSE drops (proxy buffering etc.)
   const hasActiveJobs = jobs.some((j) =>
     ['QUEUED', 'PREPROCESSING', 'GENERATING', 'UPLOADING'].includes(j.status),
   );
@@ -613,7 +617,7 @@ export default function JobsPage({ onNav, toast }: Props) {
       void openDetail(detail);
     } catch (e) {
       // Wrong password is the one failure the admin can fix by retrying in
-      // place â€” surfaced inline on the modal itself, not just a toast, since
+      // place — surfaced inline on the modal itself, not just a toast, since
       // it's the modal's own submit that failed. Every other error (404/409/500)
       // closes the dialog since retrying with the same input won't help, and
       // refetches the job so a stale selection doesn't linger against
@@ -650,7 +654,7 @@ export default function JobsPage({ onNav, toast }: Props) {
     return `${(ms / 1000).toFixed(1)}s`;
   };
 
-  const fmtTs = (ts?: string | null) => (ts ? new Date(ts).toLocaleString() : 'â€”');
+  const fmtTs = (ts?: string | null) => (ts ? new Date(ts).toLocaleString() : '—');
 
   if (detail) {
     const j = detail;
@@ -740,21 +744,21 @@ export default function JobsPage({ onNav, toast }: Props) {
         ) : (
           <>
             <div className="kv-grid-2-col" style={{ marginBottom: 20 }}>
-              <KV k="User" v={jobContactEmail(j) ?? 'â€”'} />
+              <KV k="User" v={jobContactEmail(j) ?? '—'} />
               {j.shopDomain && <KV k="Shop" v={j.shopDomain} />}
               <KV k="Job Type" v={<JobTypeBadge jobType={j.jobType} />} />
               <KV k="Status" v={<StatusBadge status={j.status} />} />
               <KV k="Credits charged" v={String(j.creditsCharged)} />
               <KV k="Priority" v={j.priority ? 'Priority' : 'Normal'} />
-              <KV k="Face" v={j.faceLabel ?? 'â€”'} />
-              <KV k="Background" v={j.backgroundLabel ?? 'â€”'} />
-              <KV k="Pose" v={j.poseLabel ?? 'â€”'} />
-              <KV k="Workflow" v={j.workflowLabel ?? 'â€”'} />
-              <KV k="Worker" v={j.workerId ?? 'â€”'} />
+              <KV k="Face" v={j.faceLabel ?? '—'} />
+              <KV k="Background" v={j.backgroundLabel ?? '—'} />
+              <KV k="Pose" v={j.poseLabel ?? '—'} />
+              <KV k="Workflow" v={j.workflowLabel ?? '—'} />
+              <KV k="Worker" v={j.workerId ?? '—'} />
               <KV k="Created" v={fmtTs(j.createdAt)} />
               <KV k="Started" v={fmtTs(j.startedAt)} />
               <KV k="Completed" v={fmtTs(j.completedAt)} />
-              <KV k="Duration" v={fmtDuration(j) ?? 'â€”'} />
+              <KV k="Duration" v={fmtDuration(j) ?? '—'} />
               {j.attempts != null && <KV k="Attempts" v={String(j.attempts)} />}
               {j.errorCode && <KV k="Error code" v={j.errorCode} />}
               <KV
@@ -775,7 +779,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                   v={<code style={{ fontSize: 12 }}>{j.parentJobId}</code>}
                 />
               )}
-              {j.parentJobId && <KV k="Regenerate reason" v={j.regenerateReason ?? 'â€”'} />}
+              {j.parentJobId && <KV k="Regenerate reason" v={j.regenerateReason ?? '—'} />}
             </div>
 
             {((j.inputImages && Object.values(j.inputImages).some(Boolean)) || j.outputUrl) && (
@@ -1008,7 +1012,7 @@ export default function JobsPage({ onNav, toast }: Props) {
           >
             <span style={{ fontSize: 13, color: 'var(--danger-ink)', fontWeight: 600 }}>
               {deleteAssetsTargets.size} asset{deleteAssetsTargets.size > 1 ? 's' : ''} selected
-              <span style={{ fontWeight: 400 }}> â€” {selectedAssetLabels}</span>
+              <span style={{ fontWeight: 400 }}> — {selectedAssetLabels}</span>
             </span>
             <button
               className="btn sm ghost"
@@ -1096,7 +1100,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                   disabled={deletingAssets || !deleteAssetsPassword}
                   onClick={() => void handleDeleteAssets()}
                 >
-                  <Icon.Trash /> {deletingAssets ? 'Deletingâ€¦' : 'Delete assets'}
+                  <Icon.Trash /> {deletingAssets ? 'Deleting…' : 'Delete assets'}
                 </button>
               </div>
             </div>
@@ -1141,8 +1145,8 @@ export default function JobsPage({ onNav, toast }: Props) {
         <div>
           <h1>Jobs</h1>
           <p className="lede">
-            {loading ? 'Loadingâ€¦' : `${total.toLocaleString()} jobs`} â€” real-time generation
-            queue, worker allocation &amp; processing history.
+            {loading ? 'Loading…' : `${total.toLocaleString()} jobs`} — real-time generation queue,
+            worker allocation &amp; processing history.
           </p>
         </div>
         <div className="head-tools" style={{ flexWrap: 'wrap' }}>
@@ -1154,7 +1158,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                 onClick={() => void flushQueue()}
                 disabled={flushing}
               >
-                {flushing ? 'Flushingâ€¦' : 'Confirm Flush'}
+                {flushing ? 'Flushing…' : 'Confirm Flush'}
               </button>
               <button className="btn sm ghost" onClick={() => setConfirmFlush(false)}>
                 Cancel
@@ -1271,7 +1275,7 @@ export default function JobsPage({ onNav, toast }: Props) {
           <div className="filter-search-box">
             <Icon.Search />
             <input
-              placeholder="Search by Job ID, User ID, or user emailâ€¦"
+              placeholder="Search by Job ID, User ID, or user email…"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
             />
@@ -1493,7 +1497,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                     style={{ width: '100%', justifyContent: 'center' }}
                     title="Download Excel export"
                   >
-                    <Icon.Download /> {exportingXlsx ? 'Exportingâ€¦' : 'Export Excel'}
+                    <Icon.Download /> {exportingXlsx ? 'Exporting…' : 'Export Excel'}
                   </button>
                 </div>
               </div>
@@ -1576,7 +1580,7 @@ export default function JobsPage({ onNav, toast }: Props) {
               <span className="filter-chip">
                 Created:{' '}
                 <strong>
-                  {createdFrom || 'Anytime'} â†’ {createdTo || 'Now'}
+                  {createdFrom || 'Anytime'} → {createdTo || 'Now'}
                 </strong>
                 <button
                   type="button"
@@ -1597,7 +1601,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                 Duration:{' '}
                 <strong>
                   {durationMin || '0'}
-                  {durationUnit === 'minutes' ? 'm' : 's'} â†’ {durationMax || 'Any'}
+                  {durationUnit === 'minutes' ? 'm' : 's'} → {durationMax || 'Any'}
                   {durationMax ? (durationUnit === 'minutes' ? 'm' : 's') : ''}
                 </strong>
                 <button
@@ -1672,11 +1676,11 @@ export default function JobsPage({ onNav, toast }: Props) {
                   <tr key={j.id} onClick={() => void openDetail(j)} style={{ cursor: 'pointer' }}>
                     <td>
                       <span className="mono sub" style={{ fontSize: 11 }}>
-                        {j.id.slice(0, 8)}â€¦
+                        {j.id.slice(0, 8)}…
                       </span>
                     </td>
                     <td>
-                      <span className="semi">{jobContactEmail(j) ?? 'â€”'}</span>
+                      <span className="semi">{jobContactEmail(j) ?? '—'}</span>
                       {j.shopDomain && (
                         <div className="sub" style={{ fontSize: 11 }}>
                           {j.shopDomain}
@@ -1705,7 +1709,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                     </td>
                     <td>
                       <span className="mono sub" style={{ fontSize: 11 }}>
-                        {j.workerId ?? 'â€”'}
+                        {j.workerId ?? '—'}
                       </span>
                     </td>
                     <td>
@@ -1715,7 +1719,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                     </td>
                     <td>
                       <span className="mono sub" style={{ fontSize: 11 }}>
-                        {fmtDuration(j) ?? 'â€”'}
+                        {fmtDuration(j) ?? '—'}
                       </span>
                     </td>
                     <td>
@@ -1895,7 +1899,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                           }}
                         >
                           <span style={{ color: 'var(--muted)' }}>User Mail</span>
-                          <span className="semi">{jobContactEmail(j) ?? 'â€”'}</span>
+                          <span className="semi">{jobContactEmail(j) ?? '—'}</span>
                         </div>
                         <div
                           style={{
@@ -1981,7 +1985,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                           }}
                         >
                           <span style={{ color: 'var(--muted)' }}>Duration</span>
-                          <span className="mono sub">{fmtDuration(j) ?? 'â€”'}</span>
+                          <span className="mono sub">{fmtDuration(j) ?? '—'}</span>
                         </div>
                         <div
                           style={{
@@ -2011,7 +2015,7 @@ export default function JobsPage({ onNav, toast }: Props) {
                           }}
                         >
                           <span style={{ color: 'var(--muted)' }}>Worker</span>
-                          <span className="mono sub">{j.workerId ?? 'â€”'}</span>
+                          <span className="mono sub">{j.workerId ?? '—'}</span>
                         </div>
                       </div>
 
