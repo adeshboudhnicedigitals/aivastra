@@ -202,14 +202,15 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCrumb } from '../context/BreadcrumbContext';
 import { useCloseOverlay } from '../hooks/use-close-overlay';
 import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 
-export default function JobsPage({ onNav, toast }: Props) {
+export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { hasPermission } = useAuth();
   const [jobIdParam, setJobIdParam] = useUrlState('job');
   const closeDetail = useCloseOverlay(['job']);
@@ -248,10 +249,7 @@ export default function JobsPage({ onNav, toast }: Props) {
         }
       : null,
   );
-  // Converted to a real URL param in Task 9 of the Jobs/Users rollout plan —
-  // left on location.state for now so this task's diff stays scoped to the
-  // detail view itself.
-  const requestedFromUserId = (location.state as { fromUserId?: string })?.fromUserId;
+  const [fromUserId] = useUrlState('fromUser');
   const [filter, setFilter] = useState<FilterKey>(
     (location.state as { filter?: FilterKey })?.filter || 'all',
   );
@@ -719,15 +717,13 @@ export default function JobsPage({ onNav, toast }: Props) {
         <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
         <div className="page-head">
           <div>
-            {requestedFromUserId && jobIdParam === j.id ? (
+            {fromUserId && jobIdParam === j.id ? (
               <button
                 className="btn ghost"
                 onClick={() =>
-                  onNav('users', {
-                    page: 'users',
-                    userId: requestedFromUserId,
-                    jobId: jobIdParam,
-                  })
+                  navigate(
+                    `/users?user=${encodeURIComponent(fromUserId)}&jobPreview=${encodeURIComponent(j.id)}`,
+                  )
                 }
               >
                 <Icon.Back /> Back to user

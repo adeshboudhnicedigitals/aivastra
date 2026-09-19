@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { ImageLightbox } from '../components/ImageLightbox';
@@ -122,6 +123,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const openBulkDeleteConfirm = () =>
     setConfirmParams({ confirm: 'bulk-delete-users', confirmId: null });
   const { role: myRole } = useAuth();
+  const navigate = useNavigate();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
   const [merchantsOnly, setMerchantsOnly] = useState(false);
@@ -1636,17 +1638,14 @@ export default function UsersPage({ onNav, toast }: Props) {
                 )}
               </div>
               <div className="modal-foot">
-                {detail && (
+                {detail && jobPreviewId && (
                   <button
                     className="btn ghost"
                     style={{ marginRight: 'auto' }}
                     onClick={() =>
-                      onNav('jobs', {
-                        page: 'jobs',
-                        search: jobPreviewId,
-                        jobId: jobPreviewId,
-                        fromUserId: detail.id,
-                      })
+                      navigate(
+                        `/jobs?job=${encodeURIComponent(jobPreviewId)}&fromUser=${encodeURIComponent(detail.id)}`,
+                      )
                     }
                   >
                     Go to job <Icon.ExternalLink />
