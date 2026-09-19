@@ -1121,6 +1121,7 @@ async function processTryonDirectJob(
         workerUrl: w.url,
         workflowTemplateId,
         inputs: { personKey, garmentKey, personFile, garmentFile },
+        prompt: workflow,
       },
     });
 
@@ -1360,6 +1361,7 @@ async function processRegenerateJob(
         workerUrl: w.url,
         workflowTemplateId,
         inputs: { sourceImageKey, sourceFile },
+        prompt: workflow,
       },
     });
 
@@ -1715,6 +1717,7 @@ async function processSareeMannequinJob(
           palluKey: inputs.thirdGarmentKey,
           palluFile,
         },
+        prompt: workflow,
       },
     });
 
@@ -1943,6 +1946,7 @@ async function processSareeJob(
         workerUrl: w.url,
         workflowTemplateId,
         inputs: { modelKey, garmentKey, modelFile, sareeFile },
+        prompt: workflow,
       },
     });
 
@@ -2312,6 +2316,7 @@ async function processWidgetJob(
           garmentFilename,
           secondGarmentFilename: secondGarmentFilename ?? null,
         },
+        prompt: workflow,
       },
     });
 
@@ -2601,6 +2606,7 @@ async function processShopifyJob(
         workerUrl: w.url,
         workflowTemplateId,
         inputs: { customerPhotoKey, garmentKey, customerPhotoFile, garmentFile },
+        prompt: workflow,
       },
     });
 

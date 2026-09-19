@@ -42,7 +42,7 @@ export type BatchRow = z.infer<typeof BatchRowInputs>;
  */
 export const CreateBatchJobRequest = z.object({
   garmentTypeId: z.string().uuid(),
-  aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']),
+  aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5', '9:16', '16:9']),
   resolution: z.enum(['HD', '2K', '4K']),
   platform: z.string().optional(),
   params: z

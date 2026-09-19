@@ -53,7 +53,7 @@ export function TopBar({
       <div
         style={{
           height: 76,
-          background: C.white,
+          background: C.navbar,
           borderBottom: `1px solid ${C.border}`,
           padding: isDrawerMode ? '0 12px' : '0 24px',
           display: 'flex',
@@ -92,7 +92,7 @@ export function TopBar({
                 height: 40,
                 borderRadius: 8,
                 border: `1px solid ${C.border}`,
-                background: C.white,
+                background: C.navbar,
                 cursor: 'pointer',
                 flexShrink: 0,
               }}

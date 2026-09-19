@@ -146,7 +146,7 @@ export const DevCatalogGenerateJsonBody = z.object({
   // `thirdGarmentKey` — the same mechanism the internal Studio wizard uses.
   lowerGarment: z.string().min(1).optional(),
   thirdGarment: z.string().min(1).optional(),
-  aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']),
+  aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5', '9:16', '16:9']),
   resolution: z.enum(['HD', '2K', '4K']),
 });
 

@@ -6,12 +6,12 @@ import {
   type CreateCatalogVideoJobRequest,
   type CreateSimpleTryonRequest,
   type CreateTryOnJobRequest,
+  computeOutputDims,
   JOB_SOURCE,
   type JobSource,
   PIXVERSE_CUSTOM_VIDEO_PROMPT,
   type PixverseQuality,
   type Resolution,
-  resolutionFromDims,
   type SareeStep2Inputs,
 } from '@aivastra/types';
 import { aliasedTable, and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
@@ -21,10 +21,8 @@ import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { assertQueueCapacity } from '../../lib/queue-capacity-config.js';
 import {
-  getAspectDimensions,
-  getMaxOutputPx,
   getPixverseVideoCreditCost,
-  getResolutionCreditCost,
+  getResolutionTierConfig,
   getTryonCreditCost,
 } from '../../lib/resolution-config.js';
 import { assertGarmentObjectValid, assertOwnsUploadKey } from '../../lib/upload-ownership.js';
@@ -196,9 +194,7 @@ export interface TryonPlanCache {
   poses: Map<string, boolean>;
   catalogItems: Map<string, boolean>;
   garmentTypes: Map<string, boolean>;
-  maxOutputPx?: number;
-  resolutionCosts: Map<string, number>;
-  aspectDimensions: Map<string, { width: number; height: number }>;
+  resolutionTiers: Map<Resolution, { enabled: boolean; creditCost: number; longEdgePx: number }>;
 }
 
 export function createTryonPlanCache(): TryonPlanCache {
@@ -208,8 +204,7 @@ export function createTryonPlanCache(): TryonPlanCache {
     poses: new Map(),
     catalogItems: new Map(),
     garmentTypes: new Map(),
-    resolutionCosts: new Map(),
-    aspectDimensions: new Map(),
+    resolutionTiers: new Map(),
   };
 }
 
@@ -242,6 +237,7 @@ export async function resolveTryonPlan(
         params?: z.infer<typeof CreateTryOnJobRequest>['params'];
         userHint?: string;
         aspectRatio: string;
+        resolution: Resolution;
         platform?: string;
       },
   opts: {
@@ -267,58 +263,55 @@ export async function resolveTryonPlan(
   const platform: string | undefined = body.platform;
   const resolvedUpperGarmentKey = opts.resolvedUpperGarmentKey ?? undefined;
 
-  // S1: compute cost server-side from actual output dims — never trust client's `resolution`.
+  // S1: the client's aspect ratio and resolution tier are both validated
+  // choices (Zod already constrains resolution to HD|2K|4K), but every pixel
+  // number and credit cost is still resolved server-side — never trust a
+  // client-sent width/height or cost. See computeOutputDims in
+  // packages/types/src/jobs.ts.
+  //
+  // The tierConfig.enabled check below rejects a disabled tier with 400
+  // BAD_RESOLUTION because this path has a real end-user request to reject.
+  // The merchant-catalog auto-generation path (apps/api/src/modules/merchant/
+  // create-job.ts) deliberately does NOT enforce this same check — it has no
+  // end-user request to reject.
+  const resolution: Resolution = body.resolution;
+  const tierConfig =
+    opts.cache?.resolutionTiers.get(resolution) ??
+    (await (async () => {
+      const value = await getResolutionTierConfig(app, resolution);
+      opts.cache?.resolutionTiers.set(resolution, value);
+      return value;
+    })());
+  if (!tierConfig.enabled) {
+    throw new AppError(
+      'BAD_RESOLUTION',
+      400,
+      `resolution "${resolution}" is not currently enabled`,
+    );
+  }
   const customW = body.params?.outputWidth;
   const customH = body.params?.outputHeight;
   const isCustomDims = !!(customW && customH);
-  const requestedDims = isCustomDims
-    ? { width: customW, height: customH }
-    : (opts.cache?.aspectDimensions.get(aspectRatio) ??
-      (await (async () => {
-        const dims = (await getAspectDimensions(app, aspectRatio)) ?? {
-          width: 2688,
-          height: 2688,
+  // Custom dims (Studio's "custom" aspect option) are clamped to the
+  // SELECTED tier's longEdgePx — pick 4K, the ceiling is 4K's px value, not a
+  // single platform-wide number. Named ratios never take this branch; their
+  // dims are always exactly computeOutputDims(ratio, tierConfig.longEdgePx).
+  const outputDims = (() => {
+    if (!isCustomDims) return computeOutputDims(aspectRatio, tierConfig.longEdgePx);
+    const requestedDims = { width: customW, height: customH };
+    const requestedLongEdge = Math.max(requestedDims.width, requestedDims.height);
+    if (requestedLongEdge <= tierConfig.longEdgePx) return requestedDims;
+    return requestedDims.width >= requestedDims.height
+      ? {
+          width: tierConfig.longEdgePx,
+          height: Math.round(tierConfig.longEdgePx * (requestedDims.height / requestedDims.width)),
+        }
+      : {
+          width: Math.round(tierConfig.longEdgePx * (requestedDims.width / requestedDims.height)),
+          height: tierConfig.longEdgePx,
         };
-        opts.cache?.aspectDimensions.set(aspectRatio, dims);
-        return dims;
-      })()));
-  // Platform-wide resolution ceiling — admin-configured (see getMaxOutputPx) —
-  // only applies to a custom user-typed width/height (Studio's "custom" aspect
-  // option). The named-ratio table above is itself admin-curated (Settings →
-  // System → Aspect Ratio Sizes) and is already the intended output size, so
-  // it's never second-guessed here: clamping it would silently shrink exactly
-  // what the admin just configured for that ratio. Only fetched for the custom
-  // path — every named-ratio job would otherwise pay for a config read+parse
-  // whose result is never used (ceiling only ever gates isCustomDims below).
-  const maxOutputPx = isCustomDims
-    ? (opts.cache?.maxOutputPx ??
-      (await (async () => {
-        const value = await getMaxOutputPx(app);
-        if (opts.cache) opts.cache.maxOutputPx = value;
-        return value;
-      })()))
-    : undefined;
-  const requestedLongEdge = Math.max(requestedDims.width, requestedDims.height);
-  const outputDims =
-    isCustomDims && maxOutputPx !== undefined && requestedLongEdge > maxOutputPx
-      ? requestedDims.width >= requestedDims.height
-        ? {
-            width: maxOutputPx,
-            height: Math.round(maxOutputPx * (requestedDims.height / requestedDims.width)),
-          }
-        : {
-            width: Math.round(maxOutputPx * (requestedDims.width / requestedDims.height)),
-            height: maxOutputPx,
-          }
-      : requestedDims;
-  const resolution: Resolution = resolutionFromDims(outputDims.width, outputDims.height);
-  const COST =
-    opts.cache?.resolutionCosts.get(resolution) ??
-    (await (async () => {
-      const value = await getResolutionCreditCost(app, resolution);
-      opts.cache?.resolutionCosts.set(resolution, value);
-      return value;
-    })());
+  })();
+  const COST = tierConfig.creditCost;
 
   // Flat-saree (and any future two-pass) garment types resolve their garment
   // input from a completed mannequin job instead of a fresh upload, and use a
@@ -326,22 +319,32 @@ export async function resolveTryonPlan(
   // govern validation below) instead of each pose's own default workflow or any
   // pose_garment_configs override.
   let requiresMannequinStep = false;
+  // Whether this garment type demands the caller's own lower/third-piece photo —
+  // fetched here (not just validated client-side in dev/catalog.routes.ts) so
+  // resolveTryonPlan can assert every resolved pose's workflow actually has a
+  // matching node, instead of silently stripping an upload no node can consume.
+  let requiresLowerUpload = false;
+  let requiresThirdUpload = false;
   let sareeStep2: {
     workflowTemplateId: string | null;
     version: number | null;
     upperNodeIds: string[] | null;
     lowerNodeId: string | null;
     shoeNodeId: string | null;
+    thirdNodeId: string | null;
     sizeNodeIds: string[] | null;
   } | null = null;
   if (garmentTypeId) {
     const [gtRow] = await app.db
       .select({
         requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+        requiresLowerUpload: schema.garmentSubcategories.requiresLowerUpload,
+        requiresThirdUpload: schema.garmentSubcategories.requiresThirdUpload,
         sareeStep2WorkflowTemplateId: schema.garmentSubcategories.sareeStep2WorkflowTemplateId,
         sareeStep2UpperNodeIds: schema.workflowTemplates.upperNodeIds,
         sareeStep2LowerNodeId: schema.workflowTemplates.lowerNodeId,
         sareeStep2ShoeNodeId: schema.workflowTemplates.shoeNodeId,
+        sareeStep2ThirdNodeId: schema.workflowTemplates.thirdNodeId,
         sareeStep2SizeNodeIds: schema.workflowTemplates.sizeNodeIds,
         sareeStep2Version: schema.workflowTemplates.version,
       })
@@ -352,6 +355,8 @@ export async function resolveTryonPlan(
       )
       .where(eq(schema.garmentSubcategories.id, garmentTypeId));
     requiresMannequinStep = gtRow?.requiresMannequinStep ?? false;
+    requiresLowerUpload = gtRow?.requiresLowerUpload ?? false;
+    requiresThirdUpload = gtRow?.requiresThirdUpload ?? false;
     if (requiresMannequinStep) {
       sareeStep2 = {
         workflowTemplateId: gtRow?.sareeStep2WorkflowTemplateId ?? null,
@@ -359,6 +364,7 @@ export async function resolveTryonPlan(
         upperNodeIds: gtRow?.sareeStep2UpperNodeIds ?? null,
         lowerNodeId: gtRow?.sareeStep2LowerNodeId ?? null,
         shoeNodeId: gtRow?.sareeStep2ShoeNodeId ?? null,
+        thirdNodeId: gtRow?.sareeStep2ThirdNodeId ?? null,
         sizeNodeIds: gtRow?.sareeStep2SizeNodeIds ?? null,
       };
     }
@@ -598,6 +604,7 @@ export async function resolveTryonPlan(
             upperNodeIds: schema.workflowTemplates.upperNodeIds,
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
+            thirdNodeId: schema.workflowTemplates.thirdNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
             version: schema.workflowTemplates.version,
           })
@@ -669,6 +676,7 @@ export async function resolveTryonPlan(
             upperNodeIds: row.upperNodeIds,
             lowerNodeId: row.lowerNodeId,
             shoeNodeId: row.shoeNodeId,
+            thirdNodeId: row.thirdNodeId,
             sizeNodeIds: row.sizeNodeIds,
           };
         });
@@ -685,6 +693,7 @@ export async function resolveTryonPlan(
       defaultUpperNodeIds: defaultWorkflow.upperNodeIds,
       defaultLowerNodeId: defaultWorkflow.lowerNodeId,
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
+      defaultThirdNodeId: defaultWorkflow.thirdNodeId,
       defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
       defaultPromptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
       defaultPromptFacePhase: schema.modelPoseAssets.promptFacePhase,
@@ -696,6 +705,7 @@ export async function resolveTryonPlan(
       overrideUpperNodeIds: overrideWorkflow.upperNodeIds,
       overrideLowerNodeId: overrideWorkflow.lowerNodeId,
       overrideShoeNodeId: overrideWorkflow.shoeNodeId,
+      overrideThirdNodeId: overrideWorkflow.thirdNodeId,
       overrideSizeNodeIds: overrideWorkflow.sizeNodeIds,
     })
     .from(schema.modelPoseAssets)
@@ -754,6 +764,7 @@ export async function resolveTryonPlan(
         upperNodeIds: sareeStep2?.upperNodeIds ?? [],
         lowerNodeId: sareeStep2?.lowerNodeId ?? null,
         shoeNodeId: sareeStep2?.shoeNodeId ?? null,
+        thirdNodeId: sareeStep2?.thirdNodeId ?? null,
         sizeNodeIds: sareeStep2?.sizeNodeIds ?? null,
       }))
     : (mappingPoseWorkflows ??
@@ -771,6 +782,8 @@ export async function resolveTryonPlan(
         lowerNodeId:
           r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
         shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
+        thirdNodeId:
+          r.configWorkflowTemplateId != null ? r.overrideThirdNodeId : r.defaultThirdNodeId,
         sizeNodeIds:
           r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
       })));
@@ -794,6 +807,28 @@ export async function resolveTryonPlan(
     }
     if (pw.shoeNodeId && !shoeCatalogId) {
       throw new AppError('VALIDATION', 400, 'shoe catalog item required for this pose');
+    }
+    // A garmentType flagged requiresLowerUpload/requiresThirdUpload promises the
+    // caller's own second-piece photo will actually reach the output. Without
+    // this check, a pose whose resolved workflow has no matching node silently
+    // drops the upload below (see effectiveLowerGarmentKey) instead of failing —
+    // that gap is what let sherwani-pyjama etc. accept uploads, charge credits,
+    // and run jobs that never showed the second piece.
+    if (requiresLowerUpload && lowerGarmentKey && !pw.lowerNodeId) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        "garmentType requires a lower garment upload, but this pose's workflow has no lower " +
+          'garment node configured — fix pose_garment_configs or workflow_templates.lowerNodeId',
+      );
+    }
+    if (requiresThirdUpload && thirdGarmentKey && !pw.thirdNodeId) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        "garmentType requires a third garment upload, but this pose's workflow has no third " +
+          'garment node configured — fix pose_garment_configs or workflow_templates.thirdNodeId',
+      );
     }
   }
 
@@ -822,9 +857,10 @@ export async function resolveTryonPlan(
         ...(body.params ?? {}),
         dispatchTemplateVersion: pw?.version ?? null,
         ...(pw?.workflowTemplateId ? { workflowTemplateId: pw.workflowTemplateId } : {}),
-        // Always the server-computed dims — the admin-curated aspect-ratio table's
-        // dims as-is, or a custom request clamped to maxOutputPx (see above). This
-        // is what the dispatcher patches the workflow with.
+        // Always the server-computed dims — computeOutputDims(aspectRatio,
+        // tierConfig.longEdgePx), or a custom request clamped to the selected
+        // tier's longEdgePx (see above). This is what the dispatcher patches
+        // the workflow with.
         outputWidth: outputDims.width,
         outputHeight: outputDims.height,
         ...(aspectRatio ? { aspectRatio } : {}),

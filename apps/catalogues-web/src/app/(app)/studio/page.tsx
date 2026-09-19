@@ -1,4 +1,5 @@
 'use client';
+import { computeOutputDims, type Resolution } from '@aivastra/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { X as CloseIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -193,7 +194,7 @@ const BRAND_CONFIG: Record<string, BrandConfig> = {
   AJIO: { ratios: ['1:1', '2:3', '3:4'], default: '3:4' },
   Meesho: { ratios: ['1:1', '2:3'], default: '1:1' },
   'Nykaa Fashion': { ratios: ['2:3', '3:4'], default: '3:4' },
-  Shopify: { ratios: ['1:1', '2:3', '4:5'], default: '1:1' },
+  Shopify: { ratios: ['1:1', '2:3', '4:5', '9:16'], default: '1:1' },
 };
 const PLATFORMS = Object.keys(BRAND_CONFIG);
 const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
@@ -208,37 +209,15 @@ const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
   'Nykaa Fashion': { src: `${BASE}/assets/platform-logos/nykaa-logo.svg`, h: 16 },
   Shopify: { src: `${BASE}/assets/platform-logos/shopify-logo.svg`, h: 20 },
 };
-const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9'];
-// Defaults only — matches ASPECT_DIMENSIONS in packages/types/src/jobs.ts as of the
-// 2688 long-edge bump (2026-09-08, including 4:5). The admin can override
-// 1:1/2:3/3:4/4:5 at runtime (Settings → System → Aspect Ratio Sizes); this table is
-// only the fallback used before that config loads (see effectiveAspectPx/
-// effectiveAspectDims below) or if it's never been touched. 9:16 and 16:9 aren't in
-// ASPECT_DIMENSIONS server-side, so they're always these fixed values regardless of
-// admin config.
-const ASPECT_DIMS: Record<string, string> = {
-  '1:1': '2688 × 2688 px',
-  '2:3': '1792 × 2688 px',
-  '3:4': '2016 × 2688 px',
-  '4:5': '2150 × 2688 px',
-  '9:16': '1512 × 2688 px',
-  '16:9': '2688 × 1512 px',
+const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16'];
+// Fallback long-edge px per tier, used only until /v1/config/resolutions
+// resolves — the server (DEFAULT_RESOLUTION_CONFIG in
+// apps/api/src/lib/resolution-config.ts) is authoritative.
+const RESOLUTION_LONG_EDGE_PX_FALLBACK: Record<Resolution, number> = {
+  HD: 1536,
+  '2K': 2688,
+  '4K': 4096,
 };
-const ASPECT_PX: Record<string, { w: number; h: number }> = {
-  '1:1': { w: 2688, h: 2688 },
-  '2:3': { w: 1792, h: 2688 },
-  '3:4': { w: 2016, h: 2688 },
-  '4:5': { w: 2150, h: 2688 },
-};
-// Mirrors the server-authoritative resolutionFromDims in packages/types/src/jobs.ts
-// (>3000 → 4K, >1200 → 2K) — must use the same thresholds or this display badge/estimate
-// would disagree with what the server actually charges.
-function resolutionFromOutputDims(w: number, h: number): 'HD' | '2K' | '4K' {
-  const longer = Math.max(w, h);
-  if (longer > 3000) return '4K';
-  if (longer > 1200) return '2K';
-  return 'HD';
-}
 
 /**
  * Tracks .studio-5col-grid's actual column count (see its @media rules below in
@@ -432,9 +411,6 @@ function AspectRatioIcon({ ratio, active }: { ratio: string; active?: boolean })
   if (ratio === '2:3' || ratio === '3:4' || ratio === '4:5' || ratio === '9:16') {
     w = 9;
     h = 13;
-  } else if (ratio === '16:9') {
-    w = 14;
-    h = 9;
   }
   return (
     <div
@@ -461,16 +437,19 @@ export default function StudioPage(): React.ReactElement {
   const [batchGarmentModalOpen, setBatchGarmentModalOpen] = useState(false);
   const [platform, setPlatform] = useState('Amazon');
   const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
-  const [customRatio, setCustomRatio] = useState('');
+  const [resolution, setResolution] = useState<Resolution | null>(null);
   const [customWStr, setCustomWStr] = useState('');
   const [customHStr, setCustomHStr] = useState('');
+  // True once the user has typed into Width/Height directly — until then the
+  // fields just mirror the selected preset's computed dims for the current
+  // tier, and no outputWidth/outputHeight override is sent to the server.
+  const [customEdited, setCustomEdited] = useState(false);
   const [amazonPoseModalOpen, setAmazonPoseModalOpen] = useState(false);
   const [amazonMainPoseId, setAmazonMainPoseId] = useState('');
   // Bypassed: Amazon no longer forces white bg. Logic kept dormant for future use.
   const [amazonUseWhiteBg, _setAmazonUseWhiteBg] = useState(false);
 
   const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
-  const effectiveAspect = aspect === 'custom' && customRatio ? customRatio : aspect;
 
   // Prefill platform/aspect from the user's saved Account Preferences (Settings page),
   // once, so switching platforms later doesn't keep re-applying the saved default.
@@ -495,77 +474,69 @@ export default function StudioPage(): React.ReactElement {
   }, [meDefaults]);
 
   const { data: resolutionConfigData } = useQuery<{
-    resolutions: Record<string, { enabled: boolean; creditCost: number }>;
-    maxOutputPx: number;
-    aspectDimensions?: Record<string, { width: number; height: number }>;
+    resolutions: Record<string, { enabled: boolean; creditCost: number; longEdgePx: number }>;
   }>({
     queryKey: ['resolution-configs'],
     queryFn: () => api.get('/v1/config/resolutions'),
     staleTime: 10 * 60 * 1000,
   });
   const resolutionConfig = resolutionConfigData?.resolutions ?? {
-    HD: { enabled: true, creditCost: 25 },
-    '2K': { enabled: true, creditCost: 35 },
-    '4K': { enabled: true, creditCost: 40 },
-  };
-  // Admin-configured platform ceiling (Settings → Max Output Resolution) — falls back
-  // to 2560 only until the query resolves, never as a silent permanent cap.
-  const maxOutputPx = resolutionConfigData?.maxOutputPx ?? 2560;
-  // Admin-configured per-ratio output dims (Settings → System → Aspect Ratio Sizes)
-  // override the hardcoded ASPECT_PX/ASPECT_DIMS defaults above for the 4 ratios that
-  // are actually in ASPECT_DIMENSIONS server-side (9:16/16:9 aren't, so those two
-  // always fall back to the hardcoded table). Falls back entirely until the query
-  // resolves, same as maxOutputPx above.
-  const effectiveAspectPx: Record<string, { w: number; h: number }> = {
-    ...ASPECT_PX,
-    ...Object.fromEntries(
-      Object.entries(resolutionConfigData?.aspectDimensions ?? {}).map(([ratio, d]) => [
-        ratio,
-        { w: d.width, h: d.height },
-      ]),
-    ),
-  };
-  const effectiveAspectDims: Record<string, string> = {
-    ...ASPECT_DIMS,
-    ...Object.fromEntries(
-      Object.entries(resolutionConfigData?.aspectDimensions ?? {}).map(([ratio, d]) => [
-        ratio,
-        `${d.width} × ${d.height} px`,
-      ]),
-    ),
+    // HD is disabled by default server-side (DEFAULT_RESOLUTION_CONFIG) — mirrored
+    // here so the picker never shows a pill the server would reject with
+    // BAD_RESOLUTION during the brief window before /v1/config/resolutions resolves.
+    HD: { enabled: false, creditCost: 25, longEdgePx: RESOLUTION_LONG_EDGE_PX_FALLBACK.HD },
+    '2K': { enabled: true, creditCost: 35, longEdgePx: RESOLUTION_LONG_EDGE_PX_FALLBACK['2K'] },
+    '4K': { enabled: true, creditCost: 40, longEdgePx: RESOLUTION_LONG_EDGE_PX_FALLBACK['4K'] },
   };
 
-  // Custom dimension validation — computed at component level so handleSubmit and
-  // canGenerate can both reference them without re-deriving inside the render IIFE.
+  // Default-select the first enabled tier once config loads, same pattern as
+  // the platform/aspect default-selection effect above — never leaves the
+  // picker permanently empty, but never overrides a user's own pick either.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run only when the config query resolves, not on every resolution/resolutionConfig identity change (the fallback object literal is new every render)
+  useEffect(() => {
+    if (resolution || !resolutionConfigData) return;
+    const firstEnabled = (['2K', '4K', 'HD'] as const).find(
+      (r) => resolutionConfig[r]?.enabled !== false,
+    );
+    if (firstEnabled) setResolution(firstEnabled);
+  }, [resolutionConfigData]);
+
+  const tierPx = resolution
+    ? (resolutionConfig[resolution]?.longEdgePx ?? RESOLUTION_LONG_EDGE_PX_FALLBACK[resolution])
+    : undefined;
+
+  // Width/Height mirror the selected preset's own computed dims for the
+  // current tier until the user types into them directly (customEdited).
+  // Re-syncs whenever the preset or tier changes so an un-edited pair never
+  // goes stale, but never overwrites a value the user actually chose.
+  useEffect(() => {
+    if (customEdited || !tierPx) return;
+    const dims = computeOutputDims(aspect, tierPx);
+    setCustomWStr(String(dims.width));
+    setCustomHStr(String(dims.height));
+  }, [aspect, tierPx, customEdited]);
+
+  // Dimension validation — computed at component level so handleSubmit and
+  // canGenerate can both reference them without re-deriving inside the render
+  // IIFE. Bounded by the SELECTED tier's longEdgePx, not a single global
+  // ceiling — switching tiers re-validates against the new bound.
   const customWNum = Number(customWStr);
   const customHNum = Number(customHStr);
   const customWErr =
-    customWStr !== '' && (Number.isNaN(customWNum) || customWNum < 768 || customWNum > maxOutputPx);
+    customWStr !== '' &&
+    (Number.isNaN(customWNum) || customWNum < 768 || (!!tierPx && customWNum > tierPx));
   const customHErr =
-    customHStr !== '' && (Number.isNaN(customHNum) || customHNum < 768 || customHNum > maxOutputPx);
-  const customDimsReady =
-    aspect !== 'custom' ||
-    (!!customRatio && !!customWStr && !!customHStr && !customWErr && !customHErr);
+    customHStr !== '' &&
+    (Number.isNaN(customHNum) || customHNum < 768 || (!!tierPx && customHNum > tierPx));
+  const customDimsReady = !!customWStr && !!customHStr && !customWErr && !customHErr;
+  // Only an actual manual edit overrides the server's own tier-derived dims —
+  // an un-edited preset still submits as a plain aspectRatio, same as before.
   const customParams =
-    aspect === 'custom' && customDimsReady
-      ? { outputWidth: customWNum, outputHeight: customHNum }
-      : {};
-
-  const outputDims: { w: number; h: number } | null = (() => {
-    if (aspect === 'custom') {
-      return customDimsReady && customWNum > 0 && customHNum > 0
-        ? { w: customWNum, h: customHNum }
-        : null;
-    }
-    const d = effectiveAspectPx[effectiveAspect];
-    return d ?? null;
-  })();
-  const resolution: 'HD' | '2K' | '4K' | null = outputDims
-    ? resolutionFromOutputDims(outputDims.w, outputDims.h)
-    : null;
+    customEdited && customDimsReady ? { outputWidth: customWNum, outputHeight: customHNum } : {};
 
   const handlePlatformChange = (p: string) => {
     setPlatform(p);
+    setCustomEdited(false);
     const cfg = BRAND_CONFIG[p];
     if (cfg) setAspect(cfg.default);
   };
@@ -1406,7 +1377,7 @@ export default function StudioPage(): React.ReactElement {
             };
       const step2Body = {
         inputs: step2Inputs,
-        aspectRatio: effectiveAspect,
+        aspectRatio: aspect,
         resolution,
         ...(Object.keys(customParams).length ? { params: customParams } : {}),
         ...(effectivePlatform ? { platform: effectivePlatform } : {}),
@@ -1509,7 +1480,7 @@ export default function StudioPage(): React.ReactElement {
           shoeCatalogId: effectiveShoesId,
           thirdGarmentKey: thirdGarmentKey || undefined,
         },
-        aspectRatio: effectiveAspect,
+        aspectRatio: aspect,
         resolution,
         ...(Object.keys(customParams).length ? { params: customParams } : {}),
         platform: 'Amazon',
@@ -1545,7 +1516,7 @@ export default function StudioPage(): React.ReactElement {
             shoeCatalogId: effectiveShoesId,
             thirdGarmentKey: thirdGarmentKey || undefined,
           },
-          aspectRatio: effectiveAspect,
+          aspectRatio: aspect,
           resolution,
           ...(Object.keys(customParams).length ? { params: customParams } : {}),
         });
@@ -1588,7 +1559,9 @@ export default function StudioPage(): React.ReactElement {
   const sareeTwoInputActive = sareeTwoInputCapable && sareeUploadMode === 'two_input';
   const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload || sareeTwoInputActive;
 
-  const creditCost = resolution ? RESOLUTION_COSTS[resolution] * selectedCount : 0;
+  const creditCost = resolution
+    ? (resolutionConfig[resolution]?.creditCost ?? RESOLUTION_COSTS[resolution]) * selectedCount
+    : 0;
   const canGenerate =
     selectedCount > 0 &&
     !!garmentKey &&
@@ -1623,7 +1596,7 @@ export default function StudioPage(): React.ReactElement {
                   ? 'Select at least one pose'
                   : 'Select at least one look'
                 : !customDimsReady
-                  ? 'Enter valid width and height for custom size'
+                  ? 'Enter a valid width and height'
                   : '';
 
   // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
@@ -1639,8 +1612,8 @@ export default function StudioPage(): React.ReactElement {
     needsLower && !requiresLowerUpload && 'lower',
     needsShoes && 'shoes',
     'platform',
+    'resolution',
     'aspect',
-    resolution && 'resolution',
   ].filter((key): key is string => !!key);
   const stepNumberOf = (key: string) => extraSectionKeys.indexOf(key) + 5;
 
@@ -1959,9 +1932,9 @@ export default function StudioPage(): React.ReactElement {
             style={{
               padding: '6px 14px',
               borderRadius: 999,
-              border: `1px solid ${mode === m ? C.pink : C.border}`,
-              background: mode === m ? C.pink : 'transparent',
-              color: mode === m ? C.white : C.text,
+              border: `1px solid ${mode === m ? C.toggleActive : C.border}`,
+              background: mode === m ? C.toggleActive : 'transparent',
+              color: mode === m ? C.onDark : C.text,
               cursor: 'pointer',
             }}
           >
@@ -2092,16 +2065,18 @@ export default function StudioPage(): React.ReactElement {
             <BatchMode
               gender={gender}
               garmentTypeId={garmentTypeId}
-              aspectRatio={effectiveAspect}
-              resolution={resolution ?? 'HD'}
+              aspectRatio={aspect}
+              resolution={resolution ?? '2K'}
               platform={platform}
               params={
-                aspect === 'custom' && customDimsReady
+                customEdited && customDimsReady
                   ? { outputWidth: customWNum, outputHeight: customHNum }
                   : undefined
               }
               creditCostPerImage={
-                resolution ? RESOLUTION_COSTS[resolution] : (resolutionConfig.HD?.creditCost ?? 25)
+                resolution
+                  ? (resolutionConfig[resolution]?.creditCost ?? RESOLUTION_COSTS[resolution])
+                  : (resolutionConfig['2K']?.creditCost ?? 35)
               }
               balance={userCredits}
               unlimited={isUnlimitedPlan}
@@ -4356,246 +4331,193 @@ export default function StudioPage(): React.ReactElement {
               </section>
 
               <section className="studio-section-card" style={sectionCardStyle}>
+                <SectionHead title="Output Resolution" stepNumber={stepNumberOf('resolution')} />
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  {(
+                    [
+                      { key: 'HD' as const, label: 'HD' },
+                      { key: '2K' as const, label: '2K' },
+                      { key: '4K' as const, label: '4K' },
+                    ] as const
+                  )
+                    .filter((r) => resolutionConfig[r.key]?.enabled !== false)
+                    .map((r) => {
+                      const credits =
+                        resolutionConfig[r.key]?.creditCost ?? RESOLUTION_COSTS[r.key];
+                      const active = resolution === r.key;
+                      return (
+                        <button
+                          type="button"
+                          key={r.key}
+                          onClick={() => setResolution(r.key)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '8px 16px',
+                            borderRadius: 99,
+                            border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
+                            background: active ? 'rgba(245,92,122,0.04)' : C.white,
+                            boxSizing: 'border-box',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: '50%',
+                              border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
+                              background: C.white,
+                              flexShrink: 0,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 600,
+                              color: active ? C.pink : C.text,
+                            }}
+                          >
+                            {r.label}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 13,
+                              color: active ? C.pink : C.mid,
+                              fontWeight: 400,
+                            }}
+                          >
+                            ({credits} credits)
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </section>
+
+              <section className="studio-section-card" style={sectionCardStyle}>
                 <SectionHead
                   title="Aspect Ratio"
                   subtitle="Match your platform requirements"
                   stepNumber={stepNumberOf('aspect')}
                 />
 
-                {/* ── Pill row: hide presets when custom is active ── */}
+                {/* ── Pill row: presets, each backed by the same permanently
+                     visible width/height pair below. Picking a preset re-syncs
+                     the fields to its computed dims; editing a field directly
+                     is what turns this into a custom size (customEdited). ── */}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {aspect !== 'custom' &&
-                    ALL_ASPECTS.map((r) => {
-                      const supported = brandAspects.includes(r);
-                      return (
-                        <button
-                          type="button"
-                          key={r}
-                          onClick={supported ? () => setAspect(r) : undefined}
+                  {ALL_ASPECTS.map((r) => {
+                    const supported = brandAspects.includes(r);
+                    return (
+                      <button
+                        type="button"
+                        key={r}
+                        onClick={
+                          supported
+                            ? () => {
+                                setAspect(r);
+                                setCustomEdited(false);
+                              }
+                            : undefined
+                        }
+                        style={{
+                          ...pill(aspect === r && !customEdited),
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                        }}
+                      >
+                        <AspectRatioIcon ratio={r} active={aspect === r && !customEdited} />
+                        {r}
+                      </button>
+                    );
+                  })}
+
+                  {(() => {
+                    const [rW, rH] = aspect.split(':').map(Number);
+                    const inputBase: React.CSSProperties = {
+                      width: 86,
+                      padding: '6px 8px',
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: C.text,
+                      background: C.bg,
+                      outline: 'none',
+                    };
+                    const handleWChange = (val: string) => {
+                      setCustomWStr(val);
+                      setCustomEdited(true);
+                      if (rW && rH && val !== '') {
+                        setCustomHStr(String(Math.round((Number(val) * rH) / rW)));
+                      }
+                    };
+                    const handleHChange = (val: string) => {
+                      setCustomHStr(val);
+                      setCustomEdited(true);
+                      if (rW && rH && val !== '') {
+                        setCustomWStr(String(Math.round((Number(val) * rW) / rH)));
+                      }
+                    };
+
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div
                           style={{
-                            ...pill(aspect === r),
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                            width: 1,
+                            height: 24,
+                            background: C.border,
+                            flexShrink: 0,
+                            margin: '0 4px',
                           }}
-                        >
-                          <AspectRatioIcon ratio={r} active={aspect === r} />
-                          {r}
-                        </button>
-                      );
-                    })}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAspect('custom');
-                      setCustomRatio('');
-                      setCustomWStr('');
-                      setCustomHStr('');
-                    }}
-                    style={{
-                      ...pill(aspect === 'custom'),
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    <AspectRatioIcon ratio="custom" active={aspect === 'custom'} />
-                    Custom Ratio
-                  </button>
+                        />
 
-                  {/* ── Custom inline options ── */}
-                  {aspect === 'custom' &&
-                    (() => {
-                      const [rW, rH] = customRatio ? customRatio.split(':').map(Number) : [0, 0];
-                      const wErr = customWErr;
-                      const hErr = customHErr;
+                        <input
+                          type="number"
+                          placeholder="Width"
+                          value={customWStr}
+                          onChange={(e) => handleWChange(e.target.value)}
+                          style={{
+                            ...inputBase,
+                            border: `1px solid ${customWErr ? '#F55C7A' : C.border}`,
+                          }}
+                        />
 
-                      const handleWChange = (val: string) => {
-                        setCustomWStr(val);
-                        if (rW && rH && val !== '') {
-                          const n = Math.round((Number(val) * rH) / rW);
-                          setCustomHStr(String(n));
-                        }
-                      };
-                      const handleHChange = (val: string) => {
-                        setCustomHStr(val);
-                        if (rW && rH && val !== '') {
-                          const n = Math.round((Number(val) * rW) / rH);
-                          setCustomWStr(String(n));
-                        }
-                      };
+                        <span style={{ fontSize: 13, color: C.light, flexShrink: 0 }}>×</span>
 
-                      const inputBase: React.CSSProperties = {
-                        width: 86,
-                        padding: '6px 8px',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        color: C.text,
-                        background: C.bg,
-                        outline: 'none',
-                      };
-
-                      return (
-                        <>
-                          <span
-                            style={{ fontSize: 13, color: C.mid, marginLeft: 4, marginRight: 4 }}
-                          >
-                            Select aspect ratio
-                          </span>
-                          {ALL_ASPECTS.map((r) => (
-                            <button
-                              type="button"
-                              key={r}
-                              onClick={() => {
-                                setCustomRatio(r);
-                                setCustomWStr('');
-                                setCustomHStr('');
-                              }}
-                              style={{ ...pill(customRatio === r), flexShrink: 0 }}
-                            >
-                              {r}
-                            </button>
-                          ))}
-
-                          {customRatio && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div
-                                style={{
-                                  width: 1,
-                                  height: 24,
-                                  background: C.border,
-                                  flexShrink: 0,
-                                  margin: '0 4px',
-                                }}
-                              />
-
-                              <input
-                                type="number"
-                                placeholder="Width"
-                                value={customWStr}
-                                onChange={(e) => handleWChange(e.target.value)}
-                                style={{
-                                  ...inputBase,
-                                  border: `1px solid ${wErr ? '#F55C7A' : C.border}`,
-                                }}
-                              />
-
-                              <span style={{ fontSize: 13, color: C.light, flexShrink: 0 }}>×</span>
-
-                              <input
-                                type="number"
-                                placeholder="Height"
-                                value={customHStr}
-                                onChange={(e) => handleHChange(e.target.value)}
-                                style={{
-                                  ...inputBase,
-                                  border: `1px solid ${hErr ? '#F55C7A' : C.border}`,
-                                }}
-                              />
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
+                        <input
+                          type="number"
+                          placeholder="Height"
+                          value={customHStr}
+                          onChange={(e) => handleHChange(e.target.value)}
+                          style={{
+                            ...inputBase,
+                            border: `1px solid ${customHErr ? '#F55C7A' : C.border}`,
+                          }}
+                        />
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                {aspect === 'custom' && customRatio && (
-                  <p
-                    style={{
-                      fontSize: 11,
-                      color: customWErr || customHErr ? '#F55C7A' : C.light,
-                      margin: '8px 0 0',
-                    }}
-                  >
-                    {customWErr || customHErr
-                      ? `${(customWErr && customWNum < 768) || (customHErr && customHNum < 768) ? 'Min 768px' : `Max ${maxOutputPx}px`}`
-                      : `Min 768px · Max ${maxOutputPx}px`}
-                  </p>
-                )}
-
-                {/* ── Dimension hint ── */}
-                {aspect !== 'custom' && (
-                  <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
-                    {effectiveAspectDims[aspect]}
-                  </div>
-                )}
+                {/* ── Dimension hint / validation ── */}
+                <p
+                  style={{
+                    fontSize: 11,
+                    color: customWErr || customHErr ? '#F55C7A' : C.light,
+                    margin: '8px 0 0',
+                  }}
+                >
+                  {customWErr || customHErr
+                    ? (customWErr && customWNum < 768) || (customHErr && customHNum < 768)
+                      ? 'Min 768px'
+                      : `Max ${tierPx ?? RESOLUTION_LONG_EDGE_PX_FALLBACK['4K']}px`
+                    : `Min 768px · Max ${tierPx ?? RESOLUTION_LONG_EDGE_PX_FALLBACK['4K']}px`}
+                </p>
               </section>
-
-              {/* ── Resolution (read-only, auto-derived from output dims) ── */}
-              {resolution && (
-                <section className="studio-section-card" style={sectionCardStyle}>
-                  <SectionHead
-                    title="Output Resolution"
-                    stepNumber={stepNumberOf('resolution')}
-                    right={
-                      <span style={{ fontSize: 11, color: C.light, fontWeight: 400 }}>Auto</span>
-                    }
-                  />
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    {(
-                      [
-                        { key: 'HD' as const, label: 'HD' },
-                        { key: '2K' as const, label: '2K' },
-                        { key: '4K' as const, label: '4K' },
-                      ] as const
-                    )
-                      .filter((r) => resolutionConfig[r.key]?.enabled !== false)
-                      .map((r) => {
-                        const credits =
-                          resolutionConfig[r.key]?.creditCost ?? RESOLUTION_COSTS[r.key];
-                        const active = resolution === r.key;
-                        return (
-                          <div
-                            key={r.key}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              padding: '8px 16px',
-                              borderRadius: 99,
-                              border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
-                              background: active ? 'rgba(245,92,122,0.04)' : C.white,
-                              boxSizing: 'border-box',
-                              userSelect: 'none',
-                              opacity: active ? 1 : 0.45,
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: 16,
-                                height: 16,
-                                borderRadius: '50%',
-                                border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
-                                background: C.white,
-                                flexShrink: 0,
-                                boxSizing: 'border-box',
-                              }}
-                            />
-                            <span
-                              style={{
-                                fontSize: 14,
-                                fontWeight: 600,
-                                color: active ? C.pink : C.text,
-                              }}
-                            >
-                              {r.label}
-                            </span>
-                            <span
-                              style={{
-                                fontSize: 13,
-                                color: active ? C.pink : C.mid,
-                                fontWeight: 400,
-                              }}
-                            >
-                              ({credits} credits)
-                            </span>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </section>
-              )}
             </div>
 
             {/* Footer (pinned, left column only, block effect) */}
@@ -5150,6 +5072,7 @@ export default function StudioPage(): React.ReactElement {
                 Cancel
               </button>
               <GradBtn
+                final
                 onClick={() => submitAmazonPose(amazonMainPoseId)}
                 disabled={!amazonMainPoseId || isSubmitting}
                 style={{ padding: '10px 28px', gap: 8 }}

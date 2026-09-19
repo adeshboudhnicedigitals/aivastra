@@ -186,7 +186,7 @@ describe('POST /v1/jobs/saree-mannequin', () => {
         step2: {
           inputs: { faceId, backgroundId, poseIds: [poseId], garmentTypeId },
           aspectRatio: '1:1',
-          resolution: 'HD',
+          resolution: '2K',
         },
       },
     });
@@ -224,8 +224,8 @@ describe('POST /v1/jobs/saree-mannequin', () => {
       .select({ balance: schema.userCredits.balance })
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, userId));
-    // Granted 100, step2Job.creditsCharged deducted once (2K-tier cost since
-    // 1:1 @ default maxOutputPx resolves to 2K — 35 credits by default config).
+    // Granted 100, step2Job.creditsCharged deducted once (2K-tier cost, since
+    // the request selects resolution: '2K' — 35 credits by default config).
     expect(balance).toBe(100 - (step2Job?.creditsCharged ?? 0));
   });
 
@@ -317,7 +317,7 @@ describe('POST /v1/jobs/saree-mannequin', () => {
         step2: {
           inputs: { faceId, backgroundId, poseIds: [poseId], garmentTypeId },
           aspectRatio: '1:1',
-          resolution: 'HD',
+          resolution: '2K',
         },
       },
     });
@@ -383,7 +383,7 @@ describe('POST /v1/jobs/saree-mannequin', () => {
             poseIds: ['00000000-0000-0000-0000-000000000000'],
           },
           aspectRatio: '1:1',
-          resolution: 'HD',
+          resolution: '2K',
         },
       },
     });
@@ -459,7 +459,7 @@ describe('POST /v1/jobs/saree-mannequin', () => {
         step2: {
           inputs: { faceId, backgroundId, poseIds: [poseId], garmentTypeId },
           aspectRatio: '1:1',
-          resolution: 'HD',
+          resolution: '2K',
         },
       },
     });
@@ -488,7 +488,7 @@ describe('POST /v1/jobs/saree-mannequin', () => {
             poseIds: ['00000000-0000-0000-0000-000000000000'],
           },
           aspectRatio: '1:1',
-          resolution: 'HD',
+          resolution: '2K',
         },
       },
     });
@@ -517,7 +517,7 @@ describe('POST /v1/jobs/saree-mannequin', () => {
             poseIds: ['00000000-0000-0000-0000-000000000000'],
           },
           aspectRatio: '1:1',
-          resolution: 'HD',
+          resolution: '2K',
         },
       },
     });
@@ -544,7 +544,7 @@ describe('POST /v1/jobs/saree-mannequin', () => {
             poseIds: ['00000000-0000-0000-0000-000000000000'],
           },
           aspectRatio: '1:1',
-          resolution: 'HD',
+          resolution: '2K',
         },
       },
     });
