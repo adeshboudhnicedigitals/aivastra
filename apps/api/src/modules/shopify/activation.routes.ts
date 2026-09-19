@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { countEffectivelyEnabled } from './activation.js';
 import { searchCollections, syncCollectionMembership } from './collections.sync.js';
+import { countUnroutedProducts } from './funnel-resolution.js';
 import { shopifyGraphQL } from './service.js';
 import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
 import { getValidAccessToken } from './token.js';
@@ -84,7 +85,20 @@ async function summaryCounts(
   // Effective enablement, not the `enabled` column: a product turned on by
   // global mode or by an enabled collection counts here, and an excluded one
   // never does. See countEffectivelyEnabled for why this is SQL.
-  const tryonEnabledProducts = await countEffectivelyEnabled(app, store);
+  //
+  // Then subtract products that are effectively enabled but resolve to no
+  // basket (no pin, no matching store/global rule) — those can never actually
+  // complete a try-on (customer.routes.ts refuses them before enqueue), so
+  // counting them here would overstate what "Try-On Enabled" means. Left
+  // uncorrected (unroutedCounts.countsOmitted) for catalogs over the routing
+  // scan's product cap, same degradation the Routing tab already accepts.
+  const [rawTryonEnabledProducts, unroutedCounts] = await Promise.all([
+    countEffectivelyEnabled(app, store),
+    countUnroutedProducts(app, store),
+  ]);
+  const tryonEnabledProducts = unroutedCounts.countsOmitted
+    ? rawTryonEnabledProducts
+    : rawTryonEnabledProducts - (unroutedCounts.unroutedEnabled ?? 0);
 
   const totalProductCount = await fetchTotalProductCount(app, store);
 
