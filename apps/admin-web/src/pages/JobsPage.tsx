@@ -285,10 +285,15 @@ export default function JobsPage({ onNav, toast }: Props) {
   const [deleteAssetsError, setDeleteAssetsError] = useState<string | null>(null);
   const [deletingAssets, setDeletingAssets] = useState(false);
   const [flushing, setFlushing] = useState(false);
-  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
-  const [expandedSubTabsMap, setExpandedSubTabsMap] = useState<
-    Record<string, 'input' | 'output' | 'events' | null>
-  >({});
+  // Only the currently-expanded row's subtab is tracked — switching which
+  // row is expanded resets the subtab, trading away the old behavior's
+  // per-row subtab memory (a Record keyed by every job id ever expanded)
+  // for a URL that reflects exactly "what's open right now."
+  const [{ expanded: expandedJobId, expandedSubtab }, setAccordionParams] = useUrlStateMulti([
+    'expanded',
+    'expandedSubtab',
+  ]);
+  const closeAccordion = useCloseOverlay(['expanded', 'expandedSubtab']);
   const [jobDetailsMap, setJobDetailsMap] = useState<Record<string, JobDetail>>({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [exportingXlsx, setExportingXlsx] = useState(false);
@@ -309,7 +314,11 @@ export default function JobsPage({ onNav, toast }: Props) {
 
   const toggleMobileJobExpand = async (j: Job) => {
     const willExpand = expandedJobId !== j.id;
-    setExpandedJobId(willExpand ? j.id : null);
+    if (willExpand) {
+      setAccordionParams({ expanded: j.id, expandedSubtab: null });
+    } else {
+      closeAccordion();
+    }
     if (willExpand && !jobDetailsMap[j.id]) {
       try {
         const full = await apiFetch<JobDetail>(`/admin/jobs/${j.id}`);
@@ -691,6 +700,12 @@ export default function JobsPage({ onNav, toast }: Props) {
   };
 
   const fmtTs = (ts?: string | null) => (ts ? new Date(ts).toLocaleString() : '—');
+
+  const setAccordionSubtab = (jobId: string, tab: 'input' | 'output' | 'events') =>
+    setAccordionParams({
+      expanded: jobId,
+      expandedSubtab: expandedJobId === jobId && expandedSubtab === tab ? null : tab,
+    });
 
   if (detail) {
     const j = detail;
@@ -1805,7 +1820,7 @@ export default function JobsPage({ onNav, toast }: Props) {
               const isExpanded = expandedJobId === j.id;
               const fullJ =
                 (jobDetailsMap[j.id] as JobDetail | undefined) ?? (j as unknown as JobDetail);
-              const activeSubTab = expandedSubTabsMap[j.id] ?? null;
+              const activeSubTab = expandedJobId === j.id ? expandedSubtab : null;
 
               return (
                 <div
@@ -2055,36 +2070,21 @@ export default function JobsPage({ onNav, toast }: Props) {
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <button
                           className={`btn sm ${activeSubTab === 'input' ? 'primary' : 'ghost'}`}
-                          onClick={() =>
-                            setExpandedSubTabsMap((prev) => ({
-                              ...prev,
-                              [j.id]: prev[j.id] === 'input' ? null : 'input',
-                            }))
-                          }
+                          onClick={() => setAccordionSubtab(j.id, 'input')}
                           style={{ flex: 1, justifyContent: 'center' }}
                         >
                           Input Uploads
                         </button>
                         <button
                           className={`btn sm ${activeSubTab === 'output' ? 'primary' : 'ghost'}`}
-                          onClick={() =>
-                            setExpandedSubTabsMap((prev) => ({
-                              ...prev,
-                              [j.id]: prev[j.id] === 'output' ? null : 'output',
-                            }))
-                          }
+                          onClick={() => setAccordionSubtab(j.id, 'output')}
                           style={{ flex: 1, justifyContent: 'center' }}
                         >
                           Output Result
                         </button>
                         <button
                           className={`btn sm ${activeSubTab === 'events' ? 'primary' : 'ghost'}`}
-                          onClick={() =>
-                            setExpandedSubTabsMap((prev) => ({
-                              ...prev,
-                              [j.id]: prev[j.id] === 'events' ? null : 'events',
-                            }))
-                          }
+                          onClick={() => setAccordionSubtab(j.id, 'events')}
                           style={{ flex: 1, justifyContent: 'center' }}
                         >
                           Events
