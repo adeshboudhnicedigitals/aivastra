@@ -75,6 +75,7 @@ export async function modelsRoutes(app: FastifyInstance) {
       .select({
         id: schema.sampleVideos.id,
         title: schema.sampleVideos.title,
+        prompt: schema.sampleVideos.prompt,
         thumbnailR2Key: schema.sampleVideos.thumbnailR2Key,
         videoR2Key: schema.sampleVideos.videoR2Key,
         duration: schema.sampleVideos.duration,
@@ -101,6 +102,7 @@ export async function modelsRoutes(app: FastifyInstance) {
         return {
           id: row.id,
           title: row.title,
+          prompt: row.prompt,
           thumbnailUrl: thumbnail.url,
           previewVideoUrl: video.url,
           // The preset's own admin-set values — Motion Studio pre-fills its

@@ -2,6 +2,100 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-16 — Fixed HD/2K/4K output-resolution tiers replace auto-derived pixel classification
+
+- **Change:** Studio's Output Resolution was previously a read-only "Auto" badge whose
+  HD/2K/4K label was derived by comparing computed pixel dims against thresholds, with
+  per-ratio pixel sizes fixed in an admin-edited 9-cell table (`aspectDimensions`) capped
+  by a single platform-wide `maxOutputPx`. It's now a real, user-clickable HD/2K/4K
+  picker: an admin sets exactly one number per tier — `longEdgePx` — and the short edge
+  is derived from the requested aspect ratio via a shared formula,
+  `computeOutputDims(ratio, longEdgePx)` (`packages/types/src/jobs.ts`). `aspectRatio`
+  widened from 4 to 6 supported ratios (adds `9:16`, `16:9`) across all four schemas that
+  accept it. `resolveTryonPlan` (`apps/api/src/modules/jobs/create.ts`, the interactive
+  Studio/saree-mannequin path) now rejects a disabled tier with `400 BAD_RESOLUTION`
+  *before* any credit deduction — HD is disabled by default. The merchant-catalog
+  auto-generation path (`apps/api/src/modules/merchant/create-job.ts`) deliberately does
+  **not** enforce that same check (documented in both files) since it has no end-user
+  request to reject.
+- **This was a hard cutover with no dual-read/migration, per this repo's "no compat
+  shims" convention** — `maxOutputPx`/`aspectDimensions` are gone from
+  `SystemConfigBody` entirely, not deprecated alongside the new fields.
+- **A real, pre-existing rollout gap was found and fixed mid-branch, not merely
+  theorized:** both `GET /v1/config/resolutions` (public, read by Studio) and
+  `GET /admin/config` used a coarse whole-object `?? DEFAULT_RESOLUTION_CONFIG`
+  fallback that only fires when `resolutions` is entirely absent from Redis. This repo's
+  actual `config:system` key already held a `resolutions` object from *before*
+  `longEdgePx` existed, so both routes would have served every tier with
+  `longEdgePx: undefined` — which, combined with the new admin Job-Costs-tab save-time
+  validation guard, would have silently blocked every admin Settings save until someone
+  manually retyped all three tiers. Fixed with `fillResolutionDefaults()`
+  (`apps/api/src/modules/admin/config.routes.ts`), mirroring the per-field fallback
+  pattern `getResolutionTierConfig` already used correctly for the job-creation path
+  (which was never at risk from this gap). **Any other environment (staging, prod) whose
+  `config:system` Redis key predates this feature will hit the identical symptom on
+  first admin Settings load until this fix is deployed** — there is no separate action
+  needed beyond deploying this branch, since the fix reads and backfills in place; noting
+  it here so a "why did Settings suddenly work again" report isn't mysterious in
+  hindsight.
+- **Expected support signature (external-facing, not just internal):** the public
+  API-key-authed developer endpoint (`POST` under `/v1/dev/*`,
+  `DevCatalogGenerateJsonBody`) has always accepted `resolution: 'HD'` and silently
+  treated it as valid; it will now `400 BAD_RESOLUTION` for any external integrator
+  still sending `'HD'`, with no version bump or advance notice (consistent with this
+  plan's hard-cutover design, not an oversight) — if a developer-API consumer reports a
+  sudden failure, this is the first thing to check.
+- **4K's newly-reachable odd pixel dimensions were verified against a real GPU worker,
+  not assumed safe.** 4K defaults to `enabled: true`; for non-square ratios this makes
+  `computeOutputDims` produce odd numbers no prior config ever generated (e.g. `2:3` @
+  4K → 2731×4096). Ran a real end-to-end job (`aspectRatio: '2:3', resolution: '4K'`)
+  against a live ComfyUI backend (`w3.aivastra.com`) in this dev environment: completed
+  successfully, downloaded output file independently confirmed exactly 2731×4096px, no
+  artifact at the odd-width boundary. The workflow template used generates at an
+  internally-bounded resolution and only applies the caller's exact dims via a final
+  `ResizeAndPadImage` node before `SaveImage`, so the odd number never reaches the
+  diffusion latent grid (where divisibility constraints would actually matter). This
+  verifies the *currently deployed* workflow templates only — a workflow template that
+  patches requested dims directly into a latent-space node instead of a final resize
+  step was not ruled out and isn't currently known to exist; a static audit of
+  `workflow_templates.jsonContent` (not a repeat GPU test) would close that if anyone's
+  in doubt later. Full report: incidental artifact of this session, not committed to the
+  repo — see this entry as the durable record.
+- Incidentally found and fixed, unrelated to this feature: two worker rows
+  (`schema.workers`, boxes `w2`/`w3`) had `http://` stored in `url` instead of `https://`
+  — harmless for `GET` (301-redirected), but silently 404s any `POST` (e.g.
+  `/upload/image`) since a redirected POST is downgraded to a bodyless GET per the
+  `fetch` spec. Fixed via the real `PATCH /admin/workers/:id` route, which also
+  corrected the live Redis worker registry — would have broken every job (any
+  resolution) landing on either box until fixed. Not specific to this branch or this
+  dev environment's data; worth checking staging/prod's `workers.url` values for the
+  same `http://` vs `https://` mismatch.
+- **Design:** `docs/superpowers/specs/2026-09-15-resolution-tiers-design.md`.
+  Plan: `docs/superpowers/plans/2026-09-15-resolution-tiers.md`.
+- **Follow-up, same day (dispatcher latent canvas):** the resolution-tier feature above
+  deliberately left `apps/dispatcher/src/workflow/patcher.ts` untouched, but reading it
+  afterward surfaced that dual-size-group ComfyUI templates (a separate latent-canvas
+  node pair distinct from the final-output node pair) always rendered their diffusion
+  latent at a flat, template-level `latentMaxPx` (2048px default) regardless of which
+  tier was requested — HD/2K/4K diffused identically and differed only in the final
+  resize/pad step. First fix (`apps/dispatcher/src/workflow/patcher.ts`, commit
+  `84c965ec`) made the latent scale with the request but still capped at `latentMaxPx`
+  as a per-template technical ceiling — see
+  `docs/superpowers/specs/2026-09-16-dispatcher-latent-tier-scaling-design.md` and
+  `docs/superpowers/plans/2026-09-16-dispatcher-latent-tier-scaling.md`. **That ceiling
+  was then removed entirely** per direct product feedback (commit `68d4dfbd`): the
+  latent group now always mirrors the output group's exact resolved dims, with no cap
+  — matching how legacy single-group templates already behaved. `latentMaxPx` stays in
+  `workflow_templates` (still admin-editable) but is no longer read anywhere; `resizeToMax`
+  (`apps/dispatcher/src/workflow/resize-to-max.ts`) became fully unused as a result and
+  was deleted. **The two linked design/plan docs above describe the now-superseded
+  capped design** — read them for the reasoning history, not as the current behavior.
+  No GPU-capacity/VRAM validation was done for this final, uncapped version (the earlier
+  design's capped approach was the one validated by a real 4K generation, documented in
+  this same entry above) — worth a real large-custom-dims generation test on affected
+  dual-group templates before this reaches production, since a very large custom request
+  now reaches the latent grid directly and uncapped for the first time.
+
 ## 2026-09-15 — Removed the Shopify "default basket" fallback; merged Manage + Routing pages
 
 - **Change:** `resolveBasketFrom` (`apps/api/src/modules/shopify/funnel-resolution.ts`) no

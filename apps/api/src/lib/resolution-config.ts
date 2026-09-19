@@ -1,5 +1,4 @@
 import {
-  ASPECT_DIMENSIONS,
   computePixverseVideoCost,
   PIXVERSE_VIDEO_COST,
   type PixverseQuality,
@@ -16,38 +15,18 @@ const CONFIG_KEY = 'config:system';
 
 export const DEFAULT_RESOLUTION_CONFIG: Record<
   Resolution,
-  { enabled: boolean; creditCost: number }
+  { enabled: boolean; creditCost: number; longEdgePx: number }
 > = {
-  HD: { enabled: false, creditCost: RESOLUTION_COSTS.HD },
-  '2K': { enabled: true, creditCost: RESOLUTION_COSTS['2K'] },
-  '4K': { enabled: true, creditCost: RESOLUTION_COSTS['4K'] },
+  HD: { enabled: false, creditCost: RESOLUTION_COSTS.HD, longEdgePx: 1536 },
+  '2K': { enabled: true, creditCost: RESOLUTION_COSTS['2K'], longEdgePx: 2688 },
+  '4K': { enabled: true, creditCost: RESOLUTION_COSTS['4K'], longEdgePx: 4096 },
 };
 
-export const DEFAULT_MAX_OUTPUT_PX = 2688;
-
-// Re-exported under a DEFAULT_ name for symmetry with the other DEFAULT_*_CONFIG
-// constants in this file — the underlying object is unchanged. Only resizes an
-// existing ratio; mergeAspectDimensions() below deliberately ignores any key an
-// admin PATCH sends that isn't already one of these, since the fixed set of
-// ratios is also baked into the Studio UI and the dispatcher's node patching.
-export const DEFAULT_ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> =
-  ASPECT_DIMENSIONS;
-
-/**
- * Merges an admin override (partial — only the ratios actually edited) over the
- * hardcoded default, one ratio at a time, so editing one ratio in the admin
- * panel never has to carry every other ratio's dims along with it.
- */
-export function mergeAspectDimensions(
-  override?: Record<string, { width: number; height: number }>,
-): Record<string, { width: number; height: number }> {
-  return Object.fromEntries(
-    Object.keys(DEFAULT_ASPECT_DIMENSIONS).map((ratio) => [
-      ratio,
-      override?.[ratio] ?? DEFAULT_ASPECT_DIMENSIONS[ratio],
-    ]),
-  );
-}
+// Used by the merchant-catalog auto-generation path (apps/api/src/modules/merchant/
+// create-job.ts), which has no per-job tier picker. 2688 (2K's default longEdgePx
+// above) matches the output size every existing merchant-catalog job already
+// produces today, so a fresh deploy changes nothing until an admin retunes it.
+export const DEFAULT_MERCHANT_CATALOG_RESOLUTION: Resolution = '2K';
 
 export const DEFAULT_TRYON_CONFIG: { creditCost: number } = {
   creditCost: SIMPLE_TRYON_COST,
@@ -86,60 +65,30 @@ export const DEFAULT_SELLER_CONFIG: {
 };
 
 /**
- * Reads the admin-configured credit cost for a resolution from the same
- * `config:system` Redis key the admin panel edits (GET/PATCH /admin/config).
- * Falls back to the hardcoded RESOLUTION_COSTS default if nothing is stored
- * yet, or the entry is missing/malformed.
+ * Reads the admin-configured HD/2K/4K tier config — enabled, credit cost, and
+ * long-edge pixel value — from the same `config:system` Redis key. One Redis
+ * read replaces what used to be two separate lookups (one for output size,
+ * one for credit cost) now that a tier's price and its output size are both
+ * properties of the same admin-configured object.
+ * Falls back to DEFAULT_RESOLUTION_CONFIG if nothing is stored yet, or the
+ * entry is missing/malformed.
  */
-export async function getResolutionCreditCost(
+export async function getResolutionTierConfig(
   app: FastifyInstance,
   resolution: Resolution,
-): Promise<number> {
+): Promise<{ enabled: boolean; creditCost: number; longEdgePx: number }> {
   try {
     const raw = await app.redis.get(CONFIG_KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    const resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
-    const cost = resolutions?.[resolution]?.creditCost;
-    return typeof cost === 'number' ? cost : RESOLUTION_COSTS[resolution];
+    const stored = cfg.resolutions?.[resolution];
+    const fallback = DEFAULT_RESOLUTION_CONFIG[resolution];
+    return {
+      enabled: typeof stored?.enabled === 'boolean' ? stored.enabled : fallback.enabled,
+      creditCost: typeof stored?.creditCost === 'number' ? stored.creditCost : fallback.creditCost,
+      longEdgePx: typeof stored?.longEdgePx === 'number' ? stored.longEdgePx : fallback.longEdgePx,
+    };
   } catch {
-    return RESOLUTION_COSTS[resolution];
-  }
-}
-
-/**
- * Reads the admin-configured platform-wide max output resolution (long edge, px)
- * from the same `config:system` Redis key. Applies once, globally, to every
- * job-creation path that accepts a custom outputWidth/outputHeight — enforced
- * here, before enqueue, so the dispatcher never has to reason about it per template.
- */
-export async function getMaxOutputPx(app: FastifyInstance): Promise<number> {
-  try {
-    const raw = await app.redis.get(CONFIG_KEY);
-    const cfg = raw ? JSON.parse(raw) : {};
-    const max = cfg.maxOutputPx;
-    return typeof max === 'number' ? max : DEFAULT_MAX_OUTPUT_PX;
-  } catch {
-    return DEFAULT_MAX_OUTPUT_PX;
-  }
-}
-
-/**
- * Reads the admin-configured output pixel dimensions for one aspect ratio from
- * the same `config:system` Redis key. Falls back to the hardcoded
- * ASPECT_DIMENSIONS default if nothing is stored yet, the entry is malformed,
- * or the ratio isn't one of the fixed set (see DEFAULT_ASPECT_DIMENSIONS).
- */
-export async function getAspectDimensions(
-  app: FastifyInstance,
-  aspectRatio: string,
-): Promise<{ width: number; height: number } | undefined> {
-  try {
-    const raw = await app.redis.get(CONFIG_KEY);
-    const cfg = raw ? JSON.parse(raw) : {};
-    const dims = cfg.aspectDimensions?.[aspectRatio];
-    return dims ?? DEFAULT_ASPECT_DIMENSIONS[aspectRatio];
-  } catch {
-    return DEFAULT_ASPECT_DIMENSIONS[aspectRatio];
+    return DEFAULT_RESOLUTION_CONFIG[resolution];
   }
 }
 
@@ -247,7 +196,7 @@ export async function getShopifyTrialCredits(app: FastifyInstance): Promise<numb
  * lookup this replaces had, rather than guessing.
  *
  * Falls back to the code default when nothing is stored or the entry is
- * malformed, matching getResolutionCreditCost's try/catch behaviour.
+ * malformed, matching every other lookup in this file's try/catch behaviour.
  *
  * Note this is only consulted when a purchase row is INSERTed. The grant itself
  * reads the snapshotted `credits` column on that row, never this — see the

@@ -31,17 +31,17 @@ const NAV: {
   //   badge: 'New',
   // },
   {
-    id: 'catalogues',
-    href: '/catalogs',
-    label: 'Catalogs',
-    icon: `${BASE}/assets/catalog-icon.svg`,
-  },
-  {
     id: 'catalog-video',
     href: '/catalog-video',
     label: 'Motion Studio',
     icon: `${BASE}/assets/catalog-video-icon.svg`,
     catalogVideoOnly: true,
+  },
+  {
+    id: 'catalogues',
+    href: '/catalogs',
+    label: 'My Creations',
+    icon: `${BASE}/assets/catalog-icon.svg`,
   },
   {
     id: 'assets',

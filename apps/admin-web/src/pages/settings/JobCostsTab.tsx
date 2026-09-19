@@ -10,11 +10,11 @@ interface Props {
 
 export default function JobCostsTab({ toast }: Props) {
   const [resolutions, setResolutions] = useState<
-    Record<string, { enabled: boolean; creditCost: number }>
+    Record<string, { enabled: boolean; creditCost: number; longEdgePx: number }>
   >({
-    HD: { enabled: false, creditCost: 10 },
-    '2K': { enabled: true, creditCost: 25 },
-    '4K': { enabled: true, creditCost: 40 },
+    HD: { enabled: false, creditCost: 10, longEdgePx: 1536 },
+    '2K': { enabled: true, creditCost: 25, longEdgePx: 2688 },
+    '4K': { enabled: true, creditCost: 40, longEdgePx: 4096 },
   });
   const [tryonCreditCost, setTryonCreditCost] = useState(5);
   const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
@@ -27,7 +27,7 @@ export default function JobCostsTab({ toast }: Props) {
 
   useEffect(() => {
     apiFetch<{
-      resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
+      resolutions?: Record<string, { enabled: boolean; creditCost: number; longEdgePx: number }>;
       tryon?: { creditCost: number };
       sareeMannequinDev?: { creditCost: number };
       pixverseVideoPricing?: PixverseVideoPricingConfig;
@@ -49,6 +49,18 @@ export default function JobCostsTab({ toast }: Props) {
   }, [toast]);
 
   const save = async () => {
+    const badTier = Object.entries(resolutions).find(
+      ([, cfg]) =>
+        !Number.isInteger(cfg.longEdgePx) || cfg.longEdgePx < 512 || cfg.longEdgePx > 4096,
+    );
+    if (badTier) {
+      toast({
+        kind: 'error',
+        title: 'Invalid resolution tier',
+        body: `${badTier[0]}: long edge must be an integer between 512 and 4096px.`,
+      });
+      return;
+    }
     setSaving(true);
     try {
       await apiFetch('/admin/config', {
@@ -89,12 +101,12 @@ export default function JobCostsTab({ toast }: Props) {
                 Resolution Pricing
               </div>
               <div className="setting-desc" style={{ marginBottom: 12 }}>
-                Credit cost per image for each resolution. Disable resolutions to hide them from the
-                pricing page.
+                Credit cost and output long-edge (px) per resolution. The short edge is derived from
+                the requested aspect ratio. Disable a resolution to hide it from Studio.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {(['HD', '2K', '4K'] as const).map((res) => {
-                  const cfg = resolutions[res] ?? { enabled: false, creditCost: 0 };
+                  const cfg = resolutions[res] ?? { enabled: false, creditCost: 0, longEdgePx: 0 };
                   return (
                     <div
                       key={res}
@@ -145,6 +157,32 @@ export default function JobCostsTab({ toast }: Props) {
                         />
                         <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                           credits / image
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        <input
+                          className="input"
+                          type="number"
+                          min={512}
+                          max={4096}
+                          style={{ width: 80, textAlign: 'right' }}
+                          value={cfg.longEdgePx}
+                          disabled={saving}
+                          onChange={(e) =>
+                            setResolutions((prev) => ({
+                              ...prev,
+                              [res]: { ...cfg, longEdgePx: Number(e.target.value) },
+                            }))
+                          }
+                        />
+                        <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                          px, long edge
                         </span>
                       </div>
                     </div>

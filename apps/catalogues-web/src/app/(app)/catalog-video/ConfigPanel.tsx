@@ -22,6 +22,7 @@ import type { ImageSource } from './types';
 interface SampleVideoOption {
   id: string;
   title: string;
+  prompt: string;
   thumbnailUrl: string;
   previewVideoUrl: string;
   duration: number;
@@ -34,7 +35,14 @@ interface SampleVideosResponse {
   pixverseVideoPricing: PixverseVideoPricingConfig;
 }
 
-type Choice = { sampleVideoId: string; duration: number; quality: PixverseQuality };
+type Choice = {
+  sampleVideoId: string;
+  duration: number;
+  quality: PixverseQuality;
+  presetTitle: string;
+  prompt: string;
+  creditCost: number;
+};
 
 // The inline grid shows a fixed 4x2 page of presets; anything beyond that
 // only surfaces through the "View all" picker modal, so the panel doesn't
@@ -124,9 +132,16 @@ export function ConfigPanel({
   }
 
   function handleGenerate() {
-    if (!source || !sampleVideoId) return;
+    if (!source || !sampleVideoId || !selectedSample) return;
     if (insufficientCredits || submitting) return;
-    onSubmit({ sampleVideoId, duration, quality });
+    onSubmit({
+      sampleVideoId,
+      duration,
+      quality,
+      presetTitle: selectedSample.title,
+      prompt: selectedSample.prompt,
+      creditCost: cost ?? selectedSample.creditCost,
+    });
   }
 
   return (
