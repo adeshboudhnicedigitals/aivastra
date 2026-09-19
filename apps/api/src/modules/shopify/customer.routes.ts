@@ -614,6 +614,12 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         .select({
           enabled: schema.shopifyProductGarments.enabled,
           excluded: schema.shopifyProductGarments.excluded,
+          funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
+          productType: schema.shopifyProductGarments.productType,
+          tags: schema.shopifyProductGarments.tags,
+          vendor: schema.shopifyProductGarments.vendor,
+          collections: schema.shopifyProductGarments.collections,
+          title: schema.shopifyProductGarments.title,
         })
         .from(schema.shopifyProductGarments)
         .where(
@@ -627,11 +633,30 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       // Not-yet-synced products have no individual/exclusion state of their
       // own yet — fall through to whatever mode + collection membership say,
       // same as resolveEffectiveEnabled does for a garment that exists.
-      const enabled = await resolveEffectiveEnabled(app, store, {
+      let enabled = await resolveEffectiveEnabled(app, store, {
         shopifyProductId: productId,
         enabled: garment?.enabled ?? false,
         excluded: garment?.excluded ?? false,
       });
+
+      // Effectively enabled AND already synced (a garment row exists) —
+      // additionally require a resolvable basket, matching the actual
+      // try-on-creation refusal (see this file's presign/submit path above).
+      // A never-synced product (no row) skips this: that path already
+      // re-queues a sync and tells the shopper to check back, so promising a
+      // working button ahead of any basket data would be wrong in a
+      // different way, not righter.
+      if (enabled && garment) {
+        const resolvedBasket = await resolveBasket(app, storeId, {
+          funnelTemplateId: garment.funnelTemplateId,
+          productType: garment.productType,
+          tags: garment.tags,
+          vendor: garment.vendor,
+          collections: garment.collections,
+          title: garment.title,
+        });
+        if (!resolvedBasket) enabled = false;
+      }
 
       // Piggybacks on this call because it's the first request the widget makes
       // on init (see the comment above this route). true only when the env var
