@@ -15,6 +15,35 @@ let app: TestApp;
 let storeId: string;
 let token: string;
 
+/** Creates a workflow + basket and returns the basket id, for pinning a
+ *  product's funnelTemplateId so it resolves and counts as routed. */
+async function seedBasket(): Promise<string> {
+  const [workflow] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `me-test-${Date.now()}-${Math.random()}`,
+      label: 'Me-route test workflow',
+      jsonContent: {},
+      poseNodeId: '2',
+      upperNodeIds: ['4'],
+      garmentPhasePromptNode: '6',
+      workflowType: 'tryon',
+      tryonPersonNodeId: '10',
+      tryonGarmentNodeId: '11',
+      tryonOutputNodeId: '12',
+    })
+    .returning();
+  const [basket] = await app.db
+    .insert(schema.shopifyFunnelTemplates)
+    .values({
+      slug: `me-basket-${Date.now()}-${Math.random()}`,
+      label: 'Me-route test basket',
+      workflowTemplateId: workflow.id,
+    })
+    .returning();
+  return basket.id;
+}
+
 beforeAll(async () => {
   c = await startContainers();
   app = await buildTestApp(c, {
@@ -37,6 +66,8 @@ beforeAll(async () => {
   storeId = store.id;
   token = signSessionToken('m.myshopify.com', API_SECRET, API_KEY);
 
+  const basketId = await seedBasket();
+
   await app.db.insert(schema.shopifyProductGarments).values([
     {
       storeId,
@@ -45,6 +76,8 @@ beforeAll(async () => {
       r2Key: `shopify-garments/${storeId}/1/garment.jpg`,
       status: 'active',
       enabled: true,
+      funnelTemplateId: basketId,
+      funnelAssignmentSource: 'manual',
     },
     {
       storeId,
@@ -109,6 +142,33 @@ describe('GET /v1/shopify/me stats', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().stats).not.toHaveProperty('funnelConfigured');
     expect(res.json().stats).not.toHaveProperty('funnelCounts');
+  });
+
+  it('excludes an effectively-enabled product that resolves to no basket', async () => {
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId,
+      shopifyProductId: 5,
+      shopifyVariantId: null,
+      r2Key: `shopify-garments/${storeId}/5/garment.jpg`,
+      status: 'active',
+      enabled: true,
+      // No funnelTemplateId, no funnel rule configured for this store — this
+      // product can never resolve a basket, so it must not count.
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    // Still 1 (product 1, pinned) — product 5 is effectively enabled but
+    // unrouted, so it's excluded exactly like the ManagePage stat.
+    expect(res.json().stats.enabledProductCount).toBe(1);
+
+    await app.db
+      .delete(schema.shopifyProductGarments)
+      .where(eq(schema.shopifyProductGarments.shopifyProductId, 5));
   });
 });
 
@@ -209,6 +269,7 @@ describe('GET /v1/shopify/me stats — enabledProductCount is activation-aware',
       'read_products',
     );
     const modeToken = signSessionToken('global-mode.myshopify.com', API_SECRET, API_KEY);
+    const modeBasketId = await seedBasket();
 
     await app.db.insert(schema.shopifyProductGarments).values([
       {
@@ -218,17 +279,22 @@ describe('GET /v1/shopify/me stats — enabledProductCount is activation-aware',
         r2Key: `shopify-garments/${modeStore.id}/10/garment.jpg`,
         status: 'active',
         enabled: true,
+        funnelTemplateId: modeBasketId,
+        funnelAssignmentSource: 'manual',
       },
       {
         // Not individually enabled — under selective mode this should NOT
         // count; under global mode it SHOULD (global mode enables everything
-        // except exclusions).
+        // except exclusions). Routed, same as product 10, so routing itself
+        // isn't what this test is exercising.
         storeId: modeStore.id,
         shopifyProductId: 11,
         shopifyVariantId: null,
         r2Key: `shopify-garments/${modeStore.id}/11/garment.jpg`,
         status: 'processing',
         enabled: false,
+        funnelTemplateId: modeBasketId,
+        funnelAssignmentSource: 'manual',
       },
       {
         // Individually excluded — exclusion always wins, even under global
@@ -250,6 +316,17 @@ describe('GET /v1/shopify/me stats — enabledProductCount is activation-aware',
         status: 'deleted',
         enabled: true,
       },
+      {
+        // Effectively enabled under global mode (nothing excludes it) but
+        // unrouted — must not count in either mode, proving the routing
+        // subtraction applies under global mode too, not just selective.
+        storeId: modeStore.id,
+        shopifyProductId: 14,
+        shopifyVariantId: null,
+        r2Key: `shopify-garments/${modeStore.id}/14/garment.jpg`,
+        status: 'active',
+        enabled: false,
+      },
     ]);
 
     const selectiveRes = await app.inject({
@@ -269,6 +346,8 @@ describe('GET /v1/shopify/me stats — enabledProductCount is activation-aware',
       url: '/v1/shopify/me',
       headers: { authorization: `Bearer ${modeToken}` },
     });
+    // Products 10 and 11 (both routed) count; product 14 is effectively
+    // enabled under global mode too but stays excluded for being unrouted.
     expect(globalRes.json().stats.enabledProductCount).toBe(2);
   });
 });

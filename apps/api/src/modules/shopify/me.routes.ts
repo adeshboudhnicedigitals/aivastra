@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { and, count, eq, gte, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { countUnroutedProducts } from './funnel-resolution.js';
 import { computeRunway } from './runway.js';
 import { windowStart } from './store-day.js';
 
@@ -74,7 +75,16 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
       .from(schema.shopifyProductGarments)
       .where(eq(schema.shopifyProductGarments.storeId, store.id));
 
-    const enabledProductCount = await computeEnabledProductCount(app, store);
+    // Subtract products that are effectively enabled but resolve to no
+    // basket — see activation.routes.ts's summaryCounts for the identical
+    // correction and why computeEnabledProductCount itself stays untouched.
+    const [rawEnabledProductCount, unroutedCounts] = await Promise.all([
+      computeEnabledProductCount(app, store),
+      countUnroutedProducts(app, store),
+    ]);
+    const enabledProductCount = unroutedCounts.countsOmitted
+      ? rawEnabledProductCount
+      : rawEnabledProductCount - (unroutedCounts.unroutedEnabled ?? 0);
 
     const [{ activeCount, processingCount, failedCount, disabledCount }] = await app.db
       .select({
