@@ -92,13 +92,16 @@ async function summaryCounts(
   // counting them here would overstate what "Try-On Enabled" means. Left
   // uncorrected (unroutedCounts.countsOmitted) for catalogs over the routing
   // scan's product cap, same degradation the Routing tab already accepts.
-  const [rawTryonEnabledProducts, unroutedCounts] = await Promise.all([
-    countEffectivelyEnabled(app, store),
-    countUnroutedProducts(app, store),
-  ]);
-  const tryonEnabledProducts = unroutedCounts.countsOmitted
-    ? rawTryonEnabledProducts
-    : rawTryonEnabledProducts - (unroutedCounts.unroutedEnabled ?? 0);
+  //
+  // countUnroutedProducts is a full per-product routing scan (up to 10,000
+  // rows) — skip it entirely when there's nothing to correct.
+  const rawTryonEnabledProducts = await countEffectivelyEnabled(app, store);
+  const unroutedCounts =
+    rawTryonEnabledProducts > 0 ? await countUnroutedProducts(app, store) : null;
+  const tryonEnabledProducts =
+    !unroutedCounts || unroutedCounts.countsOmitted
+      ? rawTryonEnabledProducts
+      : rawTryonEnabledProducts - (unroutedCounts.unroutedEnabled ?? 0);
 
   const totalProductCount = await fetchTotalProductCount(app, store);
 

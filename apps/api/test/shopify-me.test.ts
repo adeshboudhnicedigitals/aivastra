@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
@@ -145,30 +145,40 @@ describe('GET /v1/shopify/me stats', () => {
   });
 
   it('excludes an effectively-enabled product that resolves to no basket', async () => {
-    await app.db.insert(schema.shopifyProductGarments).values({
-      storeId,
-      shopifyProductId: 5,
-      shopifyVariantId: null,
-      r2Key: `shopify-garments/${storeId}/5/garment.jpg`,
-      status: 'active',
-      enabled: true,
-      // No funnelTemplateId, no funnel rule configured for this store — this
-      // product can never resolve a basket, so it must not count.
-    });
+    try {
+      await app.db.insert(schema.shopifyProductGarments).values({
+        storeId,
+        shopifyProductId: 5,
+        shopifyVariantId: null,
+        r2Key: `shopify-garments/${storeId}/5/garment.jpg`,
+        status: 'active',
+        enabled: true,
+        // No funnelTemplateId, no funnel rule configured for this store — this
+        // product can never resolve a basket, so it must not count.
+      });
 
-    const res = await app.inject({
-      method: 'GET',
-      url: '/v1/shopify/me',
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(200);
-    // Still 1 (product 1, pinned) — product 5 is effectively enabled but
-    // unrouted, so it's excluded exactly like the ManagePage stat.
-    expect(res.json().stats.enabledProductCount).toBe(1);
-
-    await app.db
-      .delete(schema.shopifyProductGarments)
-      .where(eq(schema.shopifyProductGarments.shopifyProductId, 5));
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/shopify/me',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      // Still 1 (product 1, pinned) — product 5 is effectively enabled but
+      // unrouted, so it's excluded exactly like the ManagePage stat.
+      expect(res.json().stats.enabledProductCount).toBe(1);
+    } finally {
+      // Scoped to this test's own store — id 5 is only unique within a store,
+      // not globally, so an unscoped delete would touch every other store's
+      // product 5 in this shared test database too.
+      await app.db
+        .delete(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 5),
+          ),
+        );
+    }
   });
 });
 

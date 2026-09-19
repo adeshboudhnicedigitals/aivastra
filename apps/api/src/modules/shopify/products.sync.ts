@@ -575,6 +575,21 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
     await new Promise((r) => setTimeout(r, 300)); // throttle, same cadence as the id-page loop above
   }
 
+  // Guard against a degenerate fresh pass: unlike liveProductIds above (collected
+  // in the same pass that just upserted those products, so it can never disagree
+  // with itself), freshLiveProductIds is a SEPARATE network round-trip. A
+  // transient Shopify anomaly on just that second pass could return zero ids —
+  // and reconcileDeletedProducts treats an empty list as "delete everything for
+  // this store". Only skip when the detailed pass genuinely saw products, so a
+  // legitimately empty store (both passes see zero) still reconciles normally.
+  if (freshLiveProductIds.length === 0 && liveProductIds.length > 0) {
+    app.log.error(
+      { storeId: store.id, detailedPassCount: liveProductIds.length },
+      'full sync: fresh reconciliation pass returned zero ids after detailed pass saw products — skipping deletion reconciliation to avoid mass-deleting the catalog',
+    );
+    return;
+  }
+
   // Runs on every full sync, including the merchant's manual "Sync now"
   // button, so a deletion missed by the webhook is caught the moment they
   // click it, not just on the next hourly reconcile tick.

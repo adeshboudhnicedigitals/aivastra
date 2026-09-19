@@ -572,6 +572,101 @@ describe('syncOneTask — full sync pagination', () => {
       global.fetch = originalFetch;
     }
   });
+
+  it('skips deletion reconciliation when the fresh final pass returns zero ids after the detailed pass saw products', async () => {
+    const store = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 706,
+        shopDomain: 'empty-fresh-pass.myshopify.com',
+        myshopifyDomain: 'empty-fresh-pass.myshopify.com',
+        name: 'Empty Fresh Pass Store',
+        email: 'empty-fresh-pass@s.com',
+      },
+      'tok',
+      'read_products',
+    );
+
+    // Pre-existing row for a product neither pass returns. If the guard fails
+    // and reconciliation runs against an empty freshLiveProductIds list, this
+    // row would be wrongly flipped to 'deleted' along with the rest of the
+    // store's catalog.
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: store.id,
+      shopifyProductId: 902,
+      shopifyVariantId: 0,
+      r2Key: 'untouched',
+      title: 'Untouched Product',
+      status: 'active',
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (!url.endsWith('/graphql.json')) {
+        throw new Error(`unexpected fetch during full sync: ${url}`);
+      }
+      const body = JSON.parse(String(init?.body)) as { query: string };
+
+      // Fresh final pass returns zero ids — simulates a transient anomaly on
+      // this second, separate network round-trip.
+      if (body.query.includes('ProductIdsPage')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              products: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+
+      // Detailed pass genuinely saw a product.
+      return new Response(
+        JSON.stringify({
+          data: {
+            products: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [
+                {
+                  id: 'gid://shopify/Product/901',
+                  title: 'Detailed Pass Product',
+                  productType: null,
+                  tags: [],
+                  vendor: null,
+                  featuredImage: null,
+                  collections: { nodes: [] },
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId: store.id, mode: 'full' });
+
+      const [untouchedRow] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, store.id),
+            eq(schema.shopifyProductGarments.shopifyProductId, 902),
+          ),
+        );
+      // Still 'active' — proves reconciliation was skipped rather than
+      // treating the empty fresh pass as "delete everything for this store".
+      expect(untouchedRow?.status).toBe('active');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });
 
 describe('syncOneTask — product mode', () => {
