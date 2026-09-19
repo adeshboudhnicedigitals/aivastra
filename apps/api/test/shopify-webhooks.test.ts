@@ -112,6 +112,28 @@ describe('shopify webhooks', () => {
     expect(len).toBeGreaterThan(0);
   });
 
+  it('processes products/create: enqueues a sync task', async () => {
+    // A brand-new product fires products/create, not products/update — this
+    // topic must be handled the same way (enqueue a 'product' mode sync) or a
+    // newly-created product never enters shopify_product_garments until the
+    // merchant edits it or clicks "Sync now".
+    const raw = '{"id":556}';
+    const beforeLen = await app.redis.xlen('shopify:sync');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/webhooks/products_create',
+      headers: {
+        'x-shopify-hmac-sha256': sign(raw),
+        'x-shopify-shop-domain': 'w.myshopify.com',
+        'content-type': 'application/json',
+      },
+      payload: raw,
+    });
+    expect(res.statusCode).toBe(200);
+    const afterLen = await app.redis.xlen('shopify:sync');
+    expect(afterLen).toBeGreaterThan(beforeLen);
+  });
+
   it('responds 200 to GDPR customers/redact', async () => {
     const raw = '{"shop_id":999,"customer":{"id":1}}';
     const res = await app.inject({
