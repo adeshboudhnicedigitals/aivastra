@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { ImageLightbox } from '../components/ImageLightbox';
@@ -11,6 +10,9 @@ import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
 import type { CreditLedgerEntry, CreditPlan, User } from '../types';
 
@@ -101,9 +103,8 @@ interface Props {
 }
 
 export default function UsersPage({ onNav, toast }: Props) {
-  const location = useLocation();
-  const requestedUserId = (location.state as { userId?: string })?.userId;
-  const requestedJobId = (location.state as { jobId?: string })?.jobId;
+  const [userIdParam, setUserIdParam] = useUrlState('user');
+  const closeDetail = useCloseOverlay(['user']);
   const { role: myRole } = useAuth();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
@@ -330,6 +331,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     setSelectedTier(u.tier);
     setSelectedMaxDevices(String(u.maxActiveDevices ?? 1));
     setShowAllCreditActivity(false);
+    setUserIdParam(u.id);
     setDetailLoading(true);
     try {
       const [full] = await Promise.all([
@@ -350,24 +352,27 @@ export default function UsersPage({ onNav, toast }: Props) {
     }
   };
 
+  // Reconstructs the detail view from the URL alone — covers a hard refresh,
+  // a deep link, and the physical Back button restoring a previous `user=`
+  // value. Skipped when `openDetail` already seeded `detail` for this same
+  // id. The job-preview popup no longer needs special-casing here: once
+  // Task 8 lands, `jobPreview=<id>` is its own URL param, read by its own
+  // effect — landing on a URL that already contains it just opens it.
   useEffect(() => {
-    if (!requestedUserId) return;
+    if (!userIdParam) {
+      setDetail(null);
+      return;
+    }
+    if (detail?.id === userIdParam) return;
     let cancelled = false;
     setDetailLoading(true);
-    Promise.all([
-      apiFetch<User>(`/admin/users/${requestedUserId}`),
-      loadCreditActivity(requestedUserId),
-    ])
+    Promise.all([apiFetch<User>(`/admin/users/${userIdParam}`), loadCreditActivity(userIdParam)])
       .then(([full]) => {
         if (cancelled) return;
         setDetail(full);
         setSelectedTier(full.tier);
         setSelectedMaxDevices(String(full.maxActiveDevices ?? 1));
         setShowAllCreditActivity(false);
-        // Landed here via the job popup's "Go to job" link + the job page's
-        // "Back to user" — reopen the same popup instead of just the bare
-        // user detail, so the trip back feels like a round-trip, not a reset.
-        if (requestedJobId) void openJobPreview(requestedJobId);
       })
       .catch((e) => {
         if (!cancelled)
@@ -383,7 +388,14 @@ export default function UsersPage({ onNav, toast }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [requestedUserId, requestedJobId, loadCreditActivity, openJobPreview, toast]);
+  }, [userIdParam, detail?.id, loadCreditActivity, toast]);
+
+  useCrumb(
+    0,
+    detail
+      ? { label: userLabel(detail), href: `/users?user=${encodeURIComponent(detail.id)}` }
+      : null,
+  );
 
   const openAdjustCredits = () => {
     if (!detail) return;
@@ -966,7 +978,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       <>
         <div className="page-head">
           <div>
-            <button className="btn ghost" onClick={() => setDetail(null)}>
+            <button className="btn ghost" onClick={closeDetail}>
               <Icon.Back /> Back to users
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 12 }}>
