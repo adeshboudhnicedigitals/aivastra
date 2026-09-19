@@ -1194,7 +1194,7 @@ export default function ManagePage() {
               </Text>
               <Text as="p" tone="subdued">
                 {mode === 'global'
-                  ? 'All synced products, minus exclusions.'
+                  ? 'All synced products, minus exclusions and unrouted products.'
                   : 'Enabled individually or via a collection, minus exclusions and unrouted products.'}
               </Text>
             </BlockStack>
