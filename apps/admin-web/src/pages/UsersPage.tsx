@@ -12,7 +12,7 @@ import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
 import { useCrumb } from '../context/BreadcrumbContext';
 import { useCloseOverlay } from '../hooks/use-close-overlay';
-import { useUrlState } from '../hooks/use-url-state';
+import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch, apiFetchBlob } from '../lib/data';
 import type { CreditLedgerEntry, CreditPlan, User } from '../types';
 
@@ -105,6 +105,22 @@ interface Props {
 export default function UsersPage({ onNav, toast }: Props) {
   const [userIdParam, setUserIdParam] = useUrlState('user');
   const closeDetail = useCloseOverlay(['user']);
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const confirmSuspend = confirmParam === 'suspend' ? confirmId : null;
+  const confirmDelete = confirmParam === 'delete-user' ? confirmId : null;
+  const showBulkDeleteConfirm = confirmParam === 'bulk-delete-users';
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const openConfirmSuspend = () => {
+    if (detail) setConfirmParams({ confirm: 'suspend', confirmId: detail.id });
+  };
+  const openConfirmDelete = () => {
+    if (detail) setConfirmParams({ confirm: 'delete-user', confirmId: detail.id });
+  };
+  const openBulkDeleteConfirm = () =>
+    setConfirmParams({ confirm: 'bulk-delete-users', confirmId: null });
   const { role: myRole } = useAuth();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
@@ -119,11 +135,8 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<User | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [confirmSuspend, setConfirmSuspend] = useState<string | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deletingUser, setDeletingUser] = useState(false);
-  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [grantUserId, setGrantUserId] = useState<string | null>(null);
   const [grantMode, setGrantMode] = useState<'grant' | 'deduct'>('grant');
@@ -397,6 +410,23 @@ export default function UsersPage({ onNav, toast }: Props) {
       : null,
   );
 
+  useCrumb(
+    1,
+    confirmParam === 'suspend'
+      ? {
+          label: 'Suspend',
+          href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&confirm=suspend&confirmId=${encodeURIComponent(confirmId ?? '')}`,
+        }
+      : confirmParam === 'delete-user'
+        ? {
+            label: 'Delete',
+            href: `/users?user=${encodeURIComponent(detail?.id ?? '')}&confirm=delete-user&confirmId=${encodeURIComponent(confirmId ?? '')}`,
+          }
+        : confirmParam === 'bulk-delete-users'
+          ? { label: 'Delete selected', href: '/users?confirm=bulk-delete-users' }
+          : null,
+  );
+
   const openAdjustCredits = () => {
     if (!detail) return;
     setGrantUserId(detail.id);
@@ -535,7 +565,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         body: apiErrorMessage(e, 'Please try again.'),
       });
     }
-    setConfirmSuspend(null);
+    closeConfirm();
   };
 
   const handleDeleteConfirm = async () => {
@@ -555,7 +585,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       });
     } finally {
       setDeletingUser(false);
-      setConfirmDelete(null);
+      closeConfirm();
     }
   };
 
@@ -594,7 +624,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       });
     } finally {
       setBulkDeleting(false);
-      setShowBulkDeleteConfirm(false);
+      closeConfirm();
     }
   };
 
@@ -1040,12 +1070,12 @@ export default function UsersPage({ onNav, toast }: Props) {
               />
             )}
             {!u.isAdmin && (
-              <button className="btn danger" onClick={() => setConfirmSuspend(u.id)}>
+              <button className="btn danger" onClick={openConfirmSuspend}>
                 <Icon.Ban /> {u.isBanned ? 'Unsuspend' : 'Suspend'}
               </button>
             )}
             {isSuperAdmin && !u.isAdmin && (
-              <button className="btn danger" onClick={() => setConfirmDelete(u.id)}>
+              <button className="btn danger" onClick={openConfirmDelete}>
                 <Icon.Trash /> Delete
               </button>
             )}
@@ -1558,7 +1588,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         )}
 
         {confirmSuspend && (
-          <div className="modal-overlay" onClick={() => setConfirmSuspend(null)}>
+          <div className="modal-overlay" onClick={closeConfirm}>
             <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h3>{u.isBanned ? 'Unsuspend' : 'Suspend'} user</h3>
@@ -1570,7 +1600,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 </p>
               </div>
               <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setConfirmSuspend(null)}>
+                <button className="btn ghost" onClick={closeConfirm}>
                   Cancel
                 </button>
                 <button className="btn danger" onClick={handleSuspendConfirm}>
@@ -1582,7 +1612,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         )}
 
         {confirmDelete && (
-          <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+          <div className="modal-overlay" onClick={closeConfirm}>
             <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h3>Delete user</h3>
@@ -1605,11 +1635,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                 </p>
               </div>
               <div className="modal-foot">
-                <button
-                  className="btn ghost"
-                  onClick={() => setConfirmDelete(null)}
-                  disabled={deletingUser}
-                >
+                <button className="btn ghost" onClick={closeConfirm} disabled={deletingUser}>
                   Cancel
                 </button>
                 <button
@@ -2558,7 +2584,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     <button
                       type="button"
                       className="btn sm danger"
-                      onClick={() => setShowBulkDeleteConfirm(true)}
+                      onClick={openBulkDeleteConfirm}
                       style={{ marginLeft: 'auto' }}
                     >
                       <Icon.Trash /> Delete selected ({selectedUserIds.length})
@@ -2919,7 +2945,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       )}
 
       {showBulkDeleteConfirm && (
-        <div className="modal-overlay" onClick={() => setShowBulkDeleteConfirm(false)}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Delete selected users</h3>
@@ -2956,11 +2982,7 @@ export default function UsersPage({ onNav, toast }: Props) {
               </ul>
             </div>
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => setShowBulkDeleteConfirm(false)}
-                disabled={bulkDeleting}
-              >
+              <button className="btn ghost" onClick={closeConfirm} disabled={bulkDeleting}>
                 Cancel
               </button>
               <button
