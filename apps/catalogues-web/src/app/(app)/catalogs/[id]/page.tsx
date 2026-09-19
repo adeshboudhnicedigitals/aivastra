@@ -1186,6 +1186,31 @@ export default function CataloguePage({
             padding: 40,
           }}
         >
+          <button
+            type="button"
+            onClick={() => setZoom(null)}
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              background: 'rgba(255,255,255,0.15)',
+              border: 'none',
+              // Not C.white — this overlay is a fixed rgba(0,0,0,0.85) backdrop in
+              // both themes, but C.white flips to a near-black card color in dark
+              // mode (it's a surface token, not literal white), making the icon
+              // invisible there. C.onDark stays light in both themes.
+              color: C.onDark,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <XIcon size={20} />
+          </button>
           <ZoomableImage src={zoom.url} visible={zoomVisible} variant="slide" />
           {REGENERATE_ENABLED && zoom.job.status === 'COMPLETED' && !zoom.job.alreadyDownloaded && (
             <button

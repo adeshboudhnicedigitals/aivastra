@@ -1548,6 +1548,30 @@ export function GenerationPanel({
             padding: 40,
           }}
         >
+          <button
+            type="button"
+            onClick={() => {
+              setZoomVisible(false);
+              setTimeout(() => setZoomUrl(null), 300);
+            }}
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              background: 'rgba(255,255,255,0.15)',
+              border: 'none',
+              color: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <XIcon size={20} />
+          </button>
           <ZoomableImage src={zoomUrl} visible={zoomVisible} variant="scale" />
         </div>
       )}

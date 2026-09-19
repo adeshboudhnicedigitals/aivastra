@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { GarmentIcon, SearchIcon } from '@/components/icons';
+import { GarmentIcon, SearchIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { GradBtn } from '@/components/ui/grad-btn';
@@ -307,6 +307,28 @@ export default function AssetsPage(): React.ReactElement {
             padding: 40,
           }}
         >
+          <button
+            type="button"
+            onClick={() => setZoom(null)}
+            aria-label="Close preview"
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              background: 'rgba(255,255,255,0.15)',
+              border: 'none',
+              color: C.white,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <XIcon size={20} />
+          </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* biome-ignore lint/performance/noImgElement: presigned R2 URL */}
           <img
