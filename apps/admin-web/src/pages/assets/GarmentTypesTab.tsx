@@ -114,14 +114,19 @@ export function GarmentTypesTab() {
     (sub: GarmentType) => setSubViewParams({ view: 'configs', gtId: sub.id }),
     [setSubViewParams],
   );
-  const closeConfigs = useCloseOverlay(tabHref);
+  const closeConfigs = useCloseOverlay(['view', 'gtId']);
+  // Breadcrumb depth slots for this tab (numbers are offsets into the app-wide
+  // registry, appended after App.tsx's fixed "Aivastra"/page-name pair — see
+  // BreadcrumbContext.tsx): 0 = this tab itself, 1 = the configs sub-view,
+  // 2 = whichever of Add/Edit is open (mutually exclusive, share one slot),
+  // 3 = the delete-confirm dialog.
   useCrumb(0, { label: 'Garment Types', href: tabHref });
   useCrumb(
     1,
     subView.kind === 'configs'
       ? {
           label: `Configs: ${subView.sub.label}`,
-          href: `${tabHref}&view=configs&gtId=${subView.sub.id}`,
+          href: `${tabHref}&view=configs&gtId=${encodeURIComponent(subView.sub.id)}`,
         }
       : null,
   );
@@ -142,9 +147,10 @@ export function GarmentTypesTab() {
     (sub: GarmentType) => setConfirmParams({ confirm: 'delete-garment-type', confirmId: sub.id }),
     [setConfirmParams],
   );
-  const closeConfirmDelete = useCloseOverlay(tabHref);
+  const closeConfirmDelete = useCloseOverlay(['confirm', 'confirmId']);
   const [tryonCategories, setTryonCategories] = useState<TryonCategory[]>([]);
   const [expandedGarmentTypeId, setExpandedGarmentTypeId] = useUrlState('expanded');
+  const closeAccordion = useCloseOverlay(['expanded']);
 
   // Suggested "append at the end" position for a new garment type of this
   // gender - just a starting point shown in the field; picking a lower number
@@ -172,7 +178,7 @@ export function GarmentTypesTab() {
   });
   const [subcatSaving, setSubcatSaving] = useState(false);
   const [subcatImageFile, setSubcatImageFile] = useState<File | null>(null);
-  const closeAddModal = useCloseOverlay(tabHref);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
 
   // Edit garment type modal
   const editingSubcat: GarmentType | null =
@@ -183,13 +189,15 @@ export function GarmentTypesTab() {
     (sub: GarmentType) => setModalParams({ modal: 'edit-garment-type', editId: sub.id }),
     [setModalParams],
   );
-  const closeEditModal = useCloseOverlay(tabHref);
   useCrumb(
     2,
     showSubcatModal
       ? { label: 'Add', href: `${tabHref}&modal=add-garment-type` }
       : editingSubcat
-        ? { label: 'Edit', href: `${tabHref}&modal=edit-garment-type&editId=${editingSubcat.id}` }
+        ? {
+            label: 'Edit',
+            href: `${tabHref}&modal=edit-garment-type&editId=${encodeURIComponent(editingSubcat.id)}`,
+          }
         : null,
   );
   useCrumb(
@@ -197,7 +205,7 @@ export function GarmentTypesTab() {
     confirmDelete
       ? {
           label: 'Delete',
-          href: `${tabHref}&confirm=delete-garment-type&confirmId=${confirmDelete.id}`,
+          href: `${tabHref}&confirm=delete-garment-type&confirmId=${encodeURIComponent(confirmDelete.id)}`,
         }
       : null,
   );
@@ -232,28 +240,35 @@ export function GarmentTypesTab() {
       .catch(() => {});
   }, [setWorkflows]);
 
+  // `subView` is derived (Task 4) via a `useMemo` keyed on `garmentTypes`, so it is
+  // a NEW object every time `garmentTypes` changes reference — including every time
+  // `loadGarmentTypes` below finishes. Depending on `subView` itself here would
+  // refetch on every fetch's own completion, forever. Depend on the one primitive
+  // that actually determines which branch to take instead.
+  const activeConfigsId = subView.kind === 'configs' ? subView.sub.id : null;
+
   useEffect(() => {
-    if (subView.kind === 'list') {
+    if (activeConfigsId === null) {
       void loadGarmentTypes();
     } else {
-      void loadPoseConfigs(subView.sub.id);
+      void loadPoseConfigs(activeConfigsId);
     }
     refetchWorkflows();
-  }, [subView, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
+  }, [activeConfigsId, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
 
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
-      if (subView.kind === 'list') {
+      if (activeConfigsId === null) {
         void loadGarmentTypes();
       } else {
-        void loadPoseConfigs(subView.sub.id);
+        void loadPoseConfigs(activeConfigsId);
       }
       refetchWorkflows();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [subView, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
+  }, [activeConfigsId, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
 
   useEffect(() => {
     apiFetch<TryonCategory[]>('/admin/tryon-categories')
@@ -720,7 +735,9 @@ export function GarmentTypesTab() {
                 >
                   <button
                     type="button"
-                    onClick={() => setExpandedGarmentTypeId(isExpanded ? null : sub.id)}
+                    onClick={() =>
+                      isExpanded ? closeAccordion() : setExpandedGarmentTypeId(sub.id)
+                    }
                     style={{
                       padding: '14px 16px',
                       display: 'flex',
@@ -948,7 +965,7 @@ export function GarmentTypesTab() {
         <EditDrawer
           onClose={() => {
             setSubcatImageFile(null);
-            closeAddModal();
+            closeModal();
           }}
           title="Add garment type"
           width="min(560px, calc(100vw - 60px))"
@@ -984,7 +1001,15 @@ export function GarmentTypesTab() {
               await loadGarmentTypes();
               toast({ title: `${row.label} created` });
               setSubcatImageFile(null);
-              closeAddModal();
+              setSubcatForm({
+                slug: '',
+                label: '',
+                genderSlug: 'men',
+                requiresLowerUpload: false,
+                requiresThirdUpload: false,
+                sortOrder: 0,
+              });
+              closeModal();
             } catch (e) {
               toast({
                 kind: 'error',
@@ -1159,7 +1184,7 @@ export function GarmentTypesTab() {
             // refetch instead of patching just the edited row.
             void loadGarmentTypes();
           }}
-          onClose={closeEditModal}
+          onClose={closeModal}
           toast={toast}
         />
       )}

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { markInAppNavigation } from '../../hooks/use-in-app-navigation';
-import { apiFetch } from '../../lib/data';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type {
   CatalogItem,
   GarmentType,
@@ -74,6 +74,7 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
   const activeTab: AssetTab = rawTab && VALID_TABS.includes(rawTab) ? rawTab : 'garment-types';
   const setActiveTab = useCallback(
     (tab: AssetTab) => {
+      if (tab === activeTab) return;
       // Full replacement, not a merge: switching tabs intentionally drops any
       // sub-view/modal/confirm params that belonged to the previous tab.
       // Pushed (not `{ replace: true }`) so every tab switch is its own
@@ -81,7 +82,7 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
       markInAppNavigation();
       setSearchParams({ tab });
     },
-    [setSearchParams],
+    [activeTab, setSearchParams],
   );
 
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('all');
@@ -123,12 +124,20 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
     try {
       const res = await apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types');
       setGarmentTypes(res.items);
-    } catch (_e) {
-      setGarmentTypes([]);
+    } catch (e) {
+      // Leave the previous list in place rather than wiping to [] — GarmentTypesTab
+      // derives its open sub-view/modal/confirm-dialog from this list by id, so
+      // clearing it on a transient network failure would silently close whatever
+      // overlay is open and discard any in-progress form input.
+      toast({
+        kind: 'error',
+        title: 'Failed to refresh garment types',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   // Preload shared data on mount so filters/dropdowns are populated immediately
   useEffect(() => {
