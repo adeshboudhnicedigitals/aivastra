@@ -7,7 +7,7 @@ import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
 import { useCrumb } from '../../context/BreadcrumbContext';
 import { useCloseOverlay } from '../../hooks/use-close-overlay';
-import { useUrlStateMulti } from '../../hooks/use-url-state';
+import { useUrlState, useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type {
@@ -129,9 +129,22 @@ export function GarmentTypesTab() {
   const [configsLoading, setConfigsLoading] = useState(false);
   const [savingConfigId, setSavingConfigId] = useState<string | null>(null);
   const [savingDefaultPose, setSavingDefaultPose] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteGT | null>(null);
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const confirmDelete: ConfirmDeleteGT | null = useMemo(() => {
+    if (confirmParam !== 'delete-garment-type' || !confirmId) return null;
+    const sub = garmentTypes.find((g) => g.id === confirmId);
+    return sub ? { type: 'garment-type', id: sub.id, label: sub.label } : null;
+  }, [confirmParam, confirmId, garmentTypes]);
+  const openConfirmDelete = useCallback(
+    (sub: GarmentType) => setConfirmParams({ confirm: 'delete-garment-type', confirmId: sub.id }),
+    [setConfirmParams],
+  );
+  const closeConfirmDelete = useCloseOverlay(tabHref);
   const [tryonCategories, setTryonCategories] = useState<TryonCategory[]>([]);
-  const [expandedGarmentTypeId, setExpandedGarmentTypeId] = useState<string | null>(null);
+  const [expandedGarmentTypeId, setExpandedGarmentTypeId] = useUrlState('expanded');
 
   // Suggested "append at the end" position for a new garment type of this
   // gender - just a starting point shown in the field; picking a lower number
@@ -178,6 +191,15 @@ export function GarmentTypesTab() {
       : editingSubcat
         ? { label: 'Edit', href: `${tabHref}&modal=edit-garment-type&editId=${editingSubcat.id}` }
         : null,
+  );
+  useCrumb(
+    3,
+    confirmDelete
+      ? {
+          label: 'Delete',
+          href: `${tabHref}&confirm=delete-garment-type&confirmId=${confirmDelete.id}`,
+        }
+      : null,
   );
 
   const loadPoseConfigs = useCallback(
@@ -383,7 +405,7 @@ export function GarmentTypesTab() {
   const doDelete = async () => {
     if (!confirmDelete) return;
     const { id, label } = confirmDelete;
-    setConfirmDelete(null);
+    closeConfirmDelete();
 
     if (id.startsWith('gt_demo_')) {
       setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
@@ -655,12 +677,7 @@ export function GarmentTypesTab() {
                         <button className="btn sm ghost" onClick={() => openEditModal(sub)}>
                           <Icon.Edit />
                         </button>
-                        <button
-                          className="btn sm ghost"
-                          onClick={() =>
-                            setConfirmDelete({ type: 'garment-type', id: sub.id, label: sub.label })
-                          }
-                        >
+                        <button className="btn sm ghost" onClick={() => openConfirmDelete(sub)}>
                           <Icon.Trash />
                         </button>
                       </div>
@@ -874,9 +891,7 @@ export function GarmentTypesTab() {
                         </button>
                         <button
                           className="btn sm ghost danger"
-                          onClick={() =>
-                            setConfirmDelete({ type: 'garment-type', id: sub.id, label: sub.label })
-                          }
+                          onClick={() => openConfirmDelete(sub)}
                         >
                           <Icon.Trash /> Delete
                         </button>
@@ -906,7 +921,7 @@ export function GarmentTypesTab() {
       {/* ── Modals ── */}
 
       {confirmDelete && (
-        <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+        <div className="modal-overlay" onClick={closeConfirmDelete}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Delete garment type</h3>
@@ -917,7 +932,7 @@ export function GarmentTypesTab() {
               </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDelete(null)}>
+              <button className="btn ghost" onClick={closeConfirmDelete}>
                 Cancel
               </button>
               <button className="btn danger" onClick={doDelete}>
