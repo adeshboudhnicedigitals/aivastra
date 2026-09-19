@@ -5,6 +5,9 @@ import { EditGarmentTypeModal } from '../../components/EditGarmentTypeModal';
 import { Icon } from '../../components/Icons';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
+import { useCrumb } from '../../context/BreadcrumbContext';
+import { useCloseOverlay } from '../../hooks/use-close-overlay';
+import { useUrlState, useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type {
@@ -22,6 +25,17 @@ import { useAssetsContext } from './AssetsContext';
 
 type SubView = { kind: 'list' } | { kind: 'configs'; sub: GarmentType };
 type ConfirmDeleteGT = { type: 'garment-type'; id: string; label: string };
+
+function blankSubcatForm(sortOrder = 0) {
+  return {
+    slug: '',
+    label: '',
+    genderSlug: 'men' as GenderSlug,
+    requiresLowerUpload: false,
+    requiresThirdUpload: false,
+    sortOrder,
+  };
+}
 
 const GENDER_TABS = [
   { k: 'all' as const, l: 'All' },
@@ -98,14 +112,56 @@ export function GarmentTypesTab() {
     toast,
   } = useAssetsContext();
 
-  const [subView, setSubView] = useState<SubView>({ kind: 'list' });
+  const tabHref = '/assets?tab=garment-types';
+  const [{ view: viewParam, gtId }, setSubViewParams] = useUrlStateMulti(['view', 'gtId']);
+  const subView: SubView = useMemo(() => {
+    if (viewParam === 'configs' && gtId) {
+      const sub = garmentTypes.find((g) => g.id === gtId);
+      if (sub) return { kind: 'configs', sub };
+    }
+    return { kind: 'list' };
+  }, [viewParam, gtId, garmentTypes]);
+  const openConfigs = useCallback(
+    (sub: GarmentType) => setSubViewParams({ view: 'configs', gtId: sub.id }),
+    [setSubViewParams],
+  );
+  const closeConfigs = useCloseOverlay(['view', 'gtId']);
+  // Breadcrumb depth slots for this tab (numbers are offsets into the app-wide
+  // registry, appended after App.tsx's fixed "Aivastra"/page-name pair — see
+  // BreadcrumbContext.tsx): 0 = this tab itself, 1 = the configs sub-view,
+  // 2 = whichever of Add/Edit is open (mutually exclusive, share one slot),
+  // 3 = the delete-confirm dialog.
+  useCrumb(0, { label: 'Garment Types', href: tabHref });
+  useCrumb(
+    1,
+    subView.kind === 'configs'
+      ? {
+          label: `Configs: ${subView.sub.label}`,
+          href: `${tabHref}&view=configs&gtId=${encodeURIComponent(subView.sub.id)}`,
+        }
+      : null,
+  );
   const [poseConfigs, setPoseConfigs] = useState<PoseGarmentConfig[]>([]);
   const [configsLoading, setConfigsLoading] = useState(false);
   const [savingConfigId, setSavingConfigId] = useState<string | null>(null);
   const [savingDefaultPose, setSavingDefaultPose] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteGT | null>(null);
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const confirmDelete: ConfirmDeleteGT | null = useMemo(() => {
+    if (confirmParam !== 'delete-garment-type' || !confirmId) return null;
+    const sub = garmentTypes.find((g) => g.id === confirmId);
+    return sub ? { type: 'garment-type', id: sub.id, label: sub.label } : null;
+  }, [confirmParam, confirmId, garmentTypes]);
+  const openConfirmDelete = useCallback(
+    (sub: GarmentType) => setConfirmParams({ confirm: 'delete-garment-type', confirmId: sub.id }),
+    [setConfirmParams],
+  );
+  const closeConfirmDelete = useCloseOverlay(['confirm', 'confirmId']);
   const [tryonCategories, setTryonCategories] = useState<TryonCategory[]>([]);
-  const [expandedGarmentTypeId, setExpandedGarmentTypeId] = useState<string | null>(null);
+  const [expandedGarmentTypeId, setExpandedGarmentTypeId] = useUrlState('expanded');
+  const closeAccordion = useCloseOverlay(['expanded']);
 
   // Suggested "append at the end" position for a new garment type of this
   // gender - just a starting point shown in the field; picking a lower number
@@ -119,21 +175,44 @@ export function GarmentTypesTab() {
     [garmentTypes],
   );
 
-  // Add garment type modal
-  const [showSubcatModal, setShowSubcatModal] = useState(false);
-  const [subcatForm, setSubcatForm] = useState({
-    slug: '',
-    label: '',
-    genderSlug: 'men' as GenderSlug,
-    requiresLowerUpload: false,
-    requiresThirdUpload: false,
-    sortOrder: 0,
-  });
+  // Add garment type modal — only "is it open" is URL state; the form's own
+  // field values and the picked File (not serializable into a URL) stay local.
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const showSubcatModal = modalParam === 'add-garment-type';
+  const [subcatForm, setSubcatForm] = useState(blankSubcatForm());
   const [subcatSaving, setSubcatSaving] = useState(false);
   const [subcatImageFile, setSubcatImageFile] = useState<File | null>(null);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
 
   // Edit garment type modal
-  const [editingSubcat, setEditingSubcat] = useState<GarmentType | null>(null);
+  const editingSubcat: GarmentType | null =
+    modalParam === 'edit-garment-type' && editId
+      ? (garmentTypes.find((g) => g.id === editId) ?? null)
+      : null;
+  const openEditModal = useCallback(
+    (sub: GarmentType) => setModalParams({ modal: 'edit-garment-type', editId: sub.id }),
+    [setModalParams],
+  );
+  useCrumb(
+    2,
+    showSubcatModal
+      ? { label: 'Add', href: `${tabHref}&modal=add-garment-type` }
+      : editingSubcat
+        ? {
+            label: 'Edit',
+            href: `${tabHref}&modal=edit-garment-type&editId=${encodeURIComponent(editingSubcat.id)}`,
+          }
+        : null,
+  );
+  useCrumb(
+    3,
+    confirmDelete
+      ? {
+          label: 'Delete',
+          href: `${tabHref}&confirm=delete-garment-type&confirmId=${encodeURIComponent(confirmDelete.id)}`,
+        }
+      : null,
+  );
 
   const loadPoseConfigs = useCallback(
     async (garmentTypeId: string) => {
@@ -165,28 +244,35 @@ export function GarmentTypesTab() {
       .catch(() => {});
   }, [setWorkflows]);
 
+  // `subView` is derived (Task 4) via a `useMemo` keyed on `garmentTypes`, so it is
+  // a NEW object every time `garmentTypes` changes reference — including every time
+  // `loadGarmentTypes` below finishes. Depending on `subView` itself here would
+  // refetch on every fetch's own completion, forever. Depend on the one primitive
+  // that actually determines which branch to take instead.
+  const activeConfigsId = subView.kind === 'configs' ? subView.sub.id : null;
+
   useEffect(() => {
-    if (subView.kind === 'list') {
+    if (activeConfigsId === null) {
       void loadGarmentTypes();
     } else {
-      void loadPoseConfigs(subView.sub.id);
+      void loadPoseConfigs(activeConfigsId);
     }
     refetchWorkflows();
-  }, [subView, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
+  }, [activeConfigsId, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
 
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
-      if (subView.kind === 'list') {
+      if (activeConfigsId === null) {
         void loadGarmentTypes();
       } else {
-        void loadPoseConfigs(subView.sub.id);
+        void loadPoseConfigs(activeConfigsId);
       }
       refetchWorkflows();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [subView, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
+  }, [activeConfigsId, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
 
   useEffect(() => {
     apiFetch<TryonCategory[]>('/admin/tryon-categories')
@@ -248,11 +334,6 @@ export function GarmentTypesTab() {
       });
       setGarmentTypes((prev) =>
         prev.map((s) => (s.id === garmentTypeId ? { ...s, defaultPoseId: poseAssetId } : s)),
-      );
-      setSubView((prev) =>
-        prev.kind === 'configs' && prev.sub.id === garmentTypeId
-          ? { kind: 'configs', sub: { ...prev.sub, defaultPoseId: poseAssetId } }
-          : prev,
       );
       toast({ title: 'Default pose updated' });
     } catch (e) {
@@ -343,7 +424,7 @@ export function GarmentTypesTab() {
   const doDelete = async () => {
     if (!confirmDelete) return;
     const { id, label } = confirmDelete;
-    setConfirmDelete(null);
+    closeConfirmDelete();
 
     if (id.startsWith('gt_demo_')) {
       setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
@@ -375,7 +456,7 @@ export function GarmentTypesTab() {
           {subView.kind === 'configs' && (
             <button
               className="btn sm ghost"
-              onClick={() => setSubView({ kind: 'list' })}
+              onClick={closeConfigs}
               style={{ padding: '2px 8px', fontSize: 13, marginBottom: 10 }}
             >
               <Icon.ArrowLeft /> Back to Garment Types
@@ -393,15 +474,8 @@ export function GarmentTypesTab() {
             <button
               className="btn"
               onClick={() => {
-                setSubcatForm({
-                  slug: '',
-                  label: '',
-                  genderSlug: 'men',
-                  requiresLowerUpload: false,
-                  requiresThirdUpload: false,
-                  sortOrder: nextSortOrderFor('men'),
-                });
-                setShowSubcatModal(true);
+                setSubcatForm(blankSubcatForm(nextSortOrderFor('men')));
+                setModalParams({ modal: 'add-garment-type', editId: null });
               }}
             >
               <Icon.Add /> Add garment type
@@ -485,11 +559,7 @@ export function GarmentTypesTab() {
               </thead>
               <tbody>
                 {filteredGarmentTypes.map((sub) => (
-                  <tr
-                    key={sub.id}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => setSubView({ kind: 'configs', sub })}
-                  >
+                  <tr key={sub.id} style={{ cursor: 'pointer' }} onClick={() => openConfigs(sub)}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <AssetThumb
@@ -616,15 +686,10 @@ export function GarmentTypesTab() {
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        <button className="btn sm ghost" onClick={() => setEditingSubcat(sub)}>
+                        <button className="btn sm ghost" onClick={() => openEditModal(sub)}>
                           <Icon.Edit />
                         </button>
-                        <button
-                          className="btn sm ghost"
-                          onClick={() =>
-                            setConfirmDelete({ type: 'garment-type', id: sub.id, label: sub.label })
-                          }
-                        >
+                        <button className="btn sm ghost" onClick={() => openConfirmDelete(sub)}>
                           <Icon.Trash />
                         </button>
                       </div>
@@ -667,7 +732,9 @@ export function GarmentTypesTab() {
                 >
                   <button
                     type="button"
-                    onClick={() => setExpandedGarmentTypeId(isExpanded ? null : sub.id)}
+                    onClick={() =>
+                      isExpanded ? closeAccordion() : setExpandedGarmentTypeId(sub.id)
+                    }
                     style={{
                       padding: '14px 16px',
                       display: 'flex',
@@ -830,20 +897,15 @@ export function GarmentTypesTab() {
                           paddingTop: 10,
                         }}
                       >
-                        <button
-                          className="btn sm ghost"
-                          onClick={() => setSubView({ kind: 'configs', sub })}
-                        >
+                        <button className="btn sm ghost" onClick={() => openConfigs(sub)}>
                           Setup Poses
                         </button>
-                        <button className="btn sm ghost" onClick={() => setEditingSubcat(sub)}>
+                        <button className="btn sm ghost" onClick={() => openEditModal(sub)}>
                           <Icon.Edit /> Edit
                         </button>
                         <button
                           className="btn sm ghost danger"
-                          onClick={() =>
-                            setConfirmDelete({ type: 'garment-type', id: sub.id, label: sub.label })
-                          }
+                          onClick={() => openConfirmDelete(sub)}
                         >
                           <Icon.Trash /> Delete
                         </button>
@@ -873,7 +935,7 @@ export function GarmentTypesTab() {
       {/* ── Modals ── */}
 
       {confirmDelete && (
-        <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+        <div className="modal-overlay" onClick={closeConfirmDelete}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Delete garment type</h3>
@@ -884,7 +946,7 @@ export function GarmentTypesTab() {
               </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDelete(null)}>
+              <button className="btn ghost" onClick={closeConfirmDelete}>
                 Cancel
               </button>
               <button className="btn danger" onClick={doDelete}>
@@ -899,8 +961,8 @@ export function GarmentTypesTab() {
       {showSubcatModal && (
         <EditDrawer
           onClose={() => {
-            setShowSubcatModal(false);
             setSubcatImageFile(null);
+            closeModal();
           }}
           title="Add garment type"
           width="min(560px, calc(100vw - 60px))"
@@ -935,8 +997,9 @@ export function GarmentTypesTab() {
               // gender server-side - refetch instead of patching just this one.
               await loadGarmentTypes();
               toast({ title: `${row.label} created` });
-              setShowSubcatModal(false);
               setSubcatImageFile(null);
+              setSubcatForm(blankSubcatForm());
+              closeModal();
             } catch (e) {
               toast({
                 kind: 'error',
@@ -1111,7 +1174,7 @@ export function GarmentTypesTab() {
             // refetch instead of patching just the edited row.
             void loadGarmentTypes();
           }}
-          onClose={() => setEditingSubcat(null)}
+          onClose={closeModal}
           toast={toast}
         />
       )}

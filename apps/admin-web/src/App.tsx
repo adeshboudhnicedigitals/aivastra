@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { ToastStack } from './components/ToastStack';
 import { Topbar } from './components/Topbar';
 import { useAuth } from './context/AuthContext';
+import { useBreadcrumbContext } from './context/BreadcrumbContext';
 import { apiErrorMessage, apiFetch, patchAdminPreferences } from './lib/data';
 import AssetsPage from './pages/AssetsPage';
 import AuditLogsPage from './pages/AuditLogsPage';
@@ -79,6 +80,10 @@ export default function App() {
   const idRef = useRef(0);
   const navigate = useNavigate();
   const location = useLocation();
+  // Called unconditionally (not after the isLoading/!token early returns below) —
+  // Rules of Hooks requires every hook to run in the same order on every render,
+  // and the pre-commit lint (biome useHookAtTopLevel) enforces it.
+  const { crumbs: registeredCrumbs } = useBreadcrumbContext();
 
   // Apply theme to DOM + persist locally
   useEffect(() => {
@@ -210,7 +215,11 @@ export default function App() {
 
   const segment = location.pathname.slice(1).split('/')[0] || 'dashboard';
   const pageLabel = PATH_LABELS[segment] ?? 'Dashboard';
-  const trail = ['Aivastra', pageLabel];
+  const trail = [
+    { label: 'Aivastra', href: '/dashboard' },
+    { label: pageLabel, href: `/${segment}` },
+    ...registeredCrumbs,
+  ];
   const pageProps = { onNav: handleNavWithFilter, toast };
   const settingsProps = { onNav: handleNavWithFilter, toast, theme, setTheme };
 
@@ -231,7 +240,7 @@ export default function App() {
       <div className="main">
         <Topbar
           trail={trail}
-          onNavTrail={(i) => i === 0 && navigate('/dashboard')}
+          onNavTrail={(href) => navigate(href)}
           theme={theme}
           onToggleTheme={toggleTheme}
           onOpenMobileNav={() => setMobileNavOpen(true)}

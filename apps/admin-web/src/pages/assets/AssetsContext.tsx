@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { apiFetch } from '../../lib/data';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type {
   CatalogItem,
   GarmentType,
@@ -72,8 +72,15 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
   const rawTab = searchParams.get('tab') as AssetTab | null;
   const activeTab: AssetTab = rawTab && VALID_TABS.includes(rawTab) ? rawTab : 'garment-types';
   const setActiveTab = useCallback(
-    (tab: AssetTab) => setSearchParams({ tab }, { replace: true }),
-    [setSearchParams],
+    (tab: AssetTab) => {
+      if (tab === activeTab) return;
+      // Full replacement, not a merge: switching tabs intentionally drops any
+      // sub-view/modal/confirm params that belonged to the previous tab.
+      // Pushed (not `{ replace: true }`) so every tab switch is its own
+      // back-button stop.
+      setSearchParams({ tab });
+    },
+    [activeTab, setSearchParams],
   );
 
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('all');
@@ -115,14 +122,28 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
     try {
       const res = await apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types');
       setGarmentTypes(res.items);
-    } catch (_e) {
-      setGarmentTypes([]);
+    } catch (e) {
+      // Leave the previous list in place rather than wiping to [] — GarmentTypesTab
+      // derives its open sub-view/modal/confirm-dialog from this list by id, so
+      // clearing it on a transient network failure would silently close whatever
+      // overlay is open and discard any in-progress form input.
+      toast({
+        kind: 'error',
+        title: 'Failed to refresh garment types',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
-  // Preload shared data on mount so filters/dropdowns are populated immediately
+  // Preload shared data on mount so filters/dropdowns are populated immediately.
+  // garment-types' catch deliberately does NOT reset to [] on failure (unlike
+  // faces/backgrounds above) — this request races GarmentTypesTab's own
+  // loadGarmentTypes() call whenever that's the active tab, and if this one
+  // loses the race and fails after the other already populated real data,
+  // wiping to [] here would silently close a deep-linked garment-type overlay
+  // (same invariant loadGarmentTypes's own catch branch protects above).
   useEffect(() => {
     apiFetch<{ items: ModelFace[] }>('/admin/assets/faces')
       .then((r) => setFaces(r.items))
@@ -135,7 +156,7 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
       .catch(() => {});
     apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types')
       .then((r) => setGarmentTypes(r.items))
-      .catch(() => setGarmentTypes([]));
+      .catch(() => {});
   }, []);
 
   const value = useMemo<AssetsContextValue>(
