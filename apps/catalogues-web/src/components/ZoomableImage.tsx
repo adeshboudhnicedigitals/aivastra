@@ -51,6 +51,14 @@ export function ZoomableImage({
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  // Zoom/pan/click-to-stop-propagation all key off the <img>'s own rendered
+  // box, not the wrapper's — the wrapper can end up sized slightly larger
+  // than the visible image (flex shrink-wrap edge cases), which previously
+  // meant scrolling or clicking in that invisible slop still zoomed the
+  // image or ate a click meant for the backdrop. Anchoring interaction to
+  // the img itself makes "only when the pointer is on the image" exact,
+  // regardless of any wrapper sizing quirk.
+  const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ start: Point; origin: Point } | null>(null);
   // Active pointers for pinch-to-zoom, keyed by pointerId.
   const pinchPointers = useRef<Map<number, Point>>(new Map());
@@ -70,7 +78,7 @@ export function ZoomableImage({
     setScale((prev) => {
       const next = clampScale(prev * factor);
       if (next === prev) return prev;
-      const rect = containerRef.current?.getBoundingClientRect();
+      const rect = imgRef.current?.getBoundingClientRect();
       if (rect && clientX !== undefined && clientY !== undefined) {
         // Keep the point under the cursor/pinch-midpoint stationary while scaling,
         // rather than always zooming toward the image's center.
@@ -170,40 +178,56 @@ export function ZoomableImage({
 
   return (
     <>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: stops backdrop click-through and hosts wheel/pointer zoom-pan; keyboard users get the same zoom via the global +/-/0 listener above */}
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: onClick only stops the backdrop click from bubbling, not a real click action */}
+      {/* Purely a layout/clipping wrapper now — no handlers, no stopPropagation.
+          overflow:hidden here still clips the img while it's visually scaled up
+          during zoom/pan; sizing is otherwise irrelevant since nothing on this
+          element reacts to pointer/click/wheel events anymore. Any click that
+          lands anywhere in this wrapper but not on the <img> itself now falls
+          straight through to the backdrop's onClick, same as a click on open
+          background — which is the point. */}
       <div
         ref={containerRef}
-        onClick={(e) => e.stopPropagation()}
-        onWheel={handleWheel}
-        onDoubleClick={handleDoubleClick}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={endPointer}
-        onPointerCancel={endPointer}
-        onPointerLeave={endPointer}
         style={{
-          maxWidth: '100%',
-          maxHeight: '100%',
-          display: 'flex',
+          // display:'block' (the default), not flex — a flex container's
+          // main-axis (width) sizing against a percentage-sized child creates
+          // a circular dependency the browser resolves asymmetrically from
+          // the cross-axis (height). That's exactly what caused a too-wide
+          // box here: correct on top/bottom, letterboxed extra hit-area on
+          // left/right. inline-block shrink-wraps to its one child directly,
+          // no flex algorithm involved, no ambiguity.
+          display: 'inline-block',
+          lineHeight: 0,
           overflow: 'hidden',
           transform: entranceTransform,
           opacity: variant === 'scale' ? (visible ? 1 : 0) : 1,
           transition: 'transform 300ms ease-out, opacity 300ms ease-out',
-          touchAction: 'none',
-          cursor: scale > 1 ? (dragging ? 'grabbing' : 'grab') : 'zoom-in',
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {/* biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible */}
+        {/* biome-ignore lint/a11y/useKeyWithClickEvents: onClick only stops the backdrop click from bubbling when clicking the image, not a real click action */}
         <img
+          ref={imgRef}
           src={src}
           alt={alt}
           draggable={false}
           onContextMenu={(e) => e.preventDefault()}
+          onClick={(e) => e.stopPropagation()}
+          onWheel={handleWheel}
+          onDoubleClick={handleDoubleClick}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={endPointer}
+          onPointerCancel={endPointer}
+          onPointerLeave={endPointer}
           style={{
-            maxWidth: '100%',
-            maxHeight: '100%',
+            display: 'block',
+            // Sized against the true viewport, not a percentage of this
+            // wrapper — a percentage here would be the same circular
+            // dependency moved one level down. 40px padding on each side
+            // matches the dialog's own `padding: 40`.
+            maxWidth: 'calc(100vw - 80px)',
+            maxHeight: 'calc(100vh - 80px)',
             objectFit: 'contain',
             borderRadius: 8,
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
@@ -211,6 +235,8 @@ export function ZoomableImage({
               dragRef.current || pinchPointers.current.size > 0
                 ? 'none'
                 : 'transform 150ms ease-out',
+            touchAction: 'none',
+            cursor: scale > 1 ? (dragging ? 'grabbing' : 'grab') : 'zoom-in',
             WebkitTouchCallout: 'none',
             WebkitUserSelect: 'none',
             userSelect: 'none',
