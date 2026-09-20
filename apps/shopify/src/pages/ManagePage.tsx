@@ -391,6 +391,65 @@ function ProductPickerModal({
   );
 }
 
+interface UnroutedProductItem {
+  shopifyProductId: number;
+  title: string | null;
+}
+
+interface UnroutedProductsResponse {
+  items: UnroutedProductItem[];
+  truncated: boolean;
+  omitted: boolean;
+}
+
+function UnroutedProductsModal({ onClose }: { onClose: () => void }) {
+  const [items, setItems] = useState<UnroutedProductItem[]>([]);
+  const [truncated, setTruncated] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<ClassifiedError | null>(null);
+
+  useEffect(() => {
+    apiFetch<UnroutedProductsResponse>('/v1/shopify/funnel-rules/unrouted')
+      .then((res) => {
+        setItems(res.items);
+        setTruncated(res.truncated);
+      })
+      .catch((err) => setError(classifyError(err)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <Modal open title="Not routed (try-on unavailable)" onClose={onClose}>
+      <Modal.Section>
+        {loading ? (
+          <Text as="p" tone="subdued">
+            Loading…
+          </Text>
+        ) : error ? (
+          <ErrorBanner error={error} />
+        ) : items.length === 0 ? (
+          <Text as="p" tone="subdued">
+            No unrouted products.
+          </Text>
+        ) : (
+          <BlockStack gap="200">
+            {items.map((item) => (
+              <Text as="p" key={item.shopifyProductId}>
+                {item.title ?? `Product ${item.shopifyProductId}`}
+              </Text>
+            ))}
+            {truncated && (
+              <Text as="p" tone="subdued">
+                More not shown — add a routing rule or pin these individually to narrow the list.
+              </Text>
+            )}
+          </BlockStack>
+        )}
+      </Modal.Section>
+    </Modal>
+  );
+}
+
 function IndividualProductsPanel({
   editable,
   refreshToken,
@@ -855,6 +914,7 @@ export default function ManagePage() {
   // requiring another Sync.
   const [unroutedRefreshToken, setUnroutedRefreshToken] = useState(0);
   const [failedModalOpen, setFailedModalOpen] = useState(false);
+  const [unroutedModalOpen, setUnroutedModalOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -1130,13 +1190,7 @@ export default function ManagePage() {
         <ErrorBanner error={error} onRetry={loadSummary} onDismiss={() => setError(null)} />
 
         {unrouted !== null && unrouted > 0 && (
-          <Banner
-            tone="warning"
-            action={{
-              content: 'View routing',
-              onAction: () => setOuterTabIndex(OUTER_TABS.findIndex((t) => t.id === 'routing')),
-            }}
-          >
+          <Banner tone="warning">
             {unrouted} product{unrouted === 1 ? ' has' : 's have'} no basket assigned — Try-On won't
             work for {unrouted === 1 ? 'it' : 'them'} until you add a routing rule or pin{' '}
             {unrouted === 1 ? 'it' : 'them'} individually.
@@ -1194,8 +1248,8 @@ export default function ManagePage() {
               </Text>
               <Text as="p" tone="subdued">
                 {mode === 'global'
-                  ? 'All synced products, minus exclusions.'
-                  : 'Enabled individually or via a collection, minus exclusions.'}
+                  ? 'All synced products, minus exclusions and unrouted products.'
+                  : 'Enabled individually or via a collection, minus exclusions and unrouted products.'}
               </Text>
             </BlockStack>
           </Card>
@@ -1278,9 +1332,25 @@ export default function ManagePage() {
                     ))}
                   {rulesSummary.unrouted !== null && (
                     <InlineStack align="space-between">
-                      <Text as="span" tone={rulesSummary.unrouted > 0 ? 'critical' : 'subdued'}>
-                        Not routed (try-on unavailable)
-                      </Text>
+                      {rulesSummary.unrouted > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setUnroutedModalOpen(true)}
+                          style={{
+                            all: 'unset',
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          <Text as="span" tone="critical">
+                            Not routed (try-on unavailable)
+                          </Text>
+                        </button>
+                      ) : (
+                        <Text as="span" tone="subdued">
+                          Not routed (try-on unavailable)
+                        </Text>
+                      )}
                       <Text
                         as="span"
                         fontWeight="semibold"
@@ -1425,6 +1495,8 @@ export default function ManagePage() {
       {failedModalOpen && (
         <FailedProductsModal onClose={() => setFailedModalOpen(false)} setError={setError} />
       )}
+
+      {unroutedModalOpen && <UnroutedProductsModal onClose={() => setUnroutedModalOpen(false)} />}
 
       {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
     </Page>

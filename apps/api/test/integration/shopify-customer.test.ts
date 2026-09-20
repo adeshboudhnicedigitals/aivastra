@@ -576,9 +576,9 @@ describe('shopify customer routes', () => {
       expect(res.json()).toEqual({ enabled: false, verboseErrors: false });
     });
 
-    it('is enabled under selective mode for an individually enabled product', async () => {
+    it('is enabled under selective mode for an individually enabled, routed product', async () => {
       const store = await seedStore(null);
-      await seedGarment(store.id, 904);
+      await seedGarment(store.id, 904, await seedFunnelTemplate());
 
       const res = await app.inject({
         method: 'GET',
@@ -587,6 +587,21 @@ describe('shopify customer routes', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ enabled: true, verboseErrors: false });
+    });
+
+    it('is disabled once synced when effectively enabled but resolving to no basket', async () => {
+      const store = await seedStore(null);
+      // enabled: true, no funnelTemplateId pin, and no funnel rule configured
+      // for this store — resolveBasket can never resolve for it.
+      await seedGarment(store.id, 905);
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/shopify/customer/products/905/enabled',
+        headers: { 'x-widget-key': store.storeKey },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ enabled: false, verboseErrors: false });
     });
 
     it('rejects a non-numeric product id', async () => {

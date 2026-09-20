@@ -2,6 +2,142 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-19 — Routing-aware enablement counts + hardened full-sync deletion race
+
+- **Change:** Implemented both findings from
+  `docs/superpowers/specs/2026-09-19-shopify-routing-and-sync-accuracy-design.md`.
+  1. `computeEffectiveEnabled` and `resolveBasketFrom` are now both required everywhere a
+     merchant or shopper sees an "enabled" signal, not just try-on creation: the storefront
+     `/enabled` route (`customer.routes.ts`), ManagePage's "Try-On Enabled" stat
+     (`activation.routes.ts`), and DashboardPage's independently-duplicated stat
+     (`me.routes.ts`) all now exclude products that are effectively enabled but resolve to no
+     basket. Mechanism: the per-product routing scan already living in
+     `funnel-rules.routes.ts` (for the Routing tab's `unroutedEnabled`) was extracted into a
+     shared `countUnroutedProducts` helper in `funnel-resolution.ts`; both stat routes subtract
+     its `unroutedEnabled` from their existing SQL-only counts rather than rewriting those
+     counts' own logic (`countEffectivelyEnabled` keeps its parity test with
+     `computeEffectiveEnabled` undisturbed).
+  2. `syncOneTask`'s `full` branch (`products.sync.ts`) no longer reconciles deletions against
+     `liveProductIds` collected during the (possibly minutes-long) detailed pass — a
+     `products/delete` webhook landing mid-pass for an already-fetched product was getting
+     silently overwritten back to `active` by that pass's own upsert. It now runs a fresh,
+     final id-only pass (reusing `reconcile` mode's own `PRODUCT_IDS_PAGE` query) after the
+     detailed pass completes, reconciles against that, and self-heals any product id the
+     detailed pass missed (created mid-sync) the same way `reconcile` mode already does for
+     newly-discovered products.
+- **Shipped via:** this branch (`chore/shopify-sync-routing-accuracy-audit`), implementation
+  plan `docs/superpowers/plans/2026-09-19-shopify-routing-and-sync-accuracy-implementation.md`.
+- **Test impact:** updated `shopify-activation-routes.test.ts`, `shopify-me.test.ts`,
+  `integration/shopify-customer.test.ts`, and `shopify-sync.test.ts` per the spec's Test impact
+  section; added one new self-heal test case to `shopify-sync.test.ts` beyond what the spec
+  called out. Full regression sweep across every test touching `resolveBasketFrom`/`loadRuleSet`
+  (funnel-rules, funnel-loader, basket-routing, refusal-events, limits, product-basket) confirmed
+  unaffected.
+- **Deferred (per spec, not in this work):** a "Not routed" link on Manage/Routing opening a
+  popup listing actual unrouted product names — agreed to revisit once the count itself is
+  accurate.
+- **Not addressed here (separately flagged in the prior 2026-09-19 entry):** production's
+  `NODE_TLS_REJECT_UNAUTHORIZED=0` and the missing `pnpm backfill:shopify-products-create-webhook`
+  script alias — both still open.
+
+### Final whole-branch review addendum (same day)
+
+- **Fixed in this same branch, before merge:** the full-sync deletion-race fix (above) had no
+  guard against its new final id-only pass returning zero ids after the detailed pass had
+  genuinely seen products — a transient Shopify anomaly on just that second network round-trip
+  could otherwise have mass-deleted a store's entire catalog with nothing to self-heal it. Now
+  skips reconciliation and logs an error in that case instead. Also added a cheap short-circuit
+  (skip the routing scan entirely when the raw enabled count is already 0) to `/v1/shopify/me`
+  and `/v1/shopify/activation`, since `/v1/shopify/me` in particular is fetched on every SPA page
+  navigation, not just the Routing page.
+- **Merchant-visible impact of this branch, worth knowing on deploy day:** "Try-On Enabled" counts
+  on both ManagePage and DashboardPage will drop, and storefront try-on buttons will stop
+  appearing, for any product that's individually/collection-enabled but has no funnel-rule pin or
+  matching rule — this is the fix working as intended, not a regression, but it will look like one
+  to anyone who doesn't know the unrouted-products banner already existed for exactly this gap.
+  ManagePage's stat caption (both activation modes) now says so explicitly; DashboardPage's does
+  not carry an equivalent caption (it never had one worth qualifying the same way).
+- **Deferred, not fixed on this branch (tracked here since `docs/audits/open-findings.md` is
+  gitignored and not present in this checkout):**
+  - `countUnroutedProducts`'s full per-product routing scan still runs on `/v1/shopify/me` for any
+    store with >0 effectively-enabled products (the 0-count short-circuit above only skips the
+    expensive path when there's nothing to correct). For a near-10,000-product-cap store this is
+    a real per-page-navigation cost. Needs either a short Redis memoization (invalidated on
+    rule/pin edits) or a lower product cap specific to this route — deliberately not attempted in
+    this fix wave since it's a real feature with its own invalidation design, not a one-line fix.
+  - `countEffectivelyEnabled` (`activation.ts`) has no `status <> 'deleted'` filter, unlike
+    `computeEnabledProductCount` (`me.routes.ts`) and `countUnroutedProducts` itself — so
+    ManagePage's "Try-On Enabled" stat can still count a deleted+enabled+unrouted product in its
+    raw figure without the routing correction ever seeing it to subtract (never goes negative,
+    but the two stats this branch set out to make consistent can still disagree by this margin).
+    Left untouched deliberately: the plan's Global Constraints kept `countEffectivelyEnabled`
+    off-limits specifically to protect its parity test with `computeEffectiveEnabled`, and
+    touching a parity-tested shared function in a final fix wave was judged the wrong moment to
+    take that risk.
+  - The storefront `/enabled` route (Task 4) still doesn't require `status = 'active'` the way the
+    try-on creation path does — a product whose image sync failed (`status: 'failed'`) can still
+    show the try-on button and dead-end at submission. Pre-existing gap, outside this branch's
+    routing-focused scope (Finding 1 was about basket resolution, not sync status).
+  - DashboardPage's onboarding checklist gate (`enabledProductCount > 0`) now implicitly depends
+    on routing too — a store whose only enabled products are all unrouted flips that onboarding
+    step back to incomplete. Likely the correct behavior, but wasn't called out in the original
+    spec or plan as a load-bearing consumer of this stat.
+
+## 2026-09-19 — Shopify `products/create` webhook backfill run against production
+
+- **Context:** PR #384 (merged to `dev`, then promoted to `main` via PR #387 alongside PR #386's
+  admin URL-routing work and PR #385's zoomable-image fix) fixed a gap where the app never
+  registered the `products/create` Shopify webhook, so a merchant creating a new product never
+  entered `shopify_product_garments` automatically. The fix only applies to new installs going
+  forward, so `apps/api/scripts/backfill-shopify-products-create-webhook.mts` was run once
+  against every already-installed store to close the gap retroactively.
+- **Result:** 31 stores total — 12 ok (11 newly registered + 1 already-registered skip on
+  `aivastra.myshopify.com`), 19 failed. All 19 failures are pre-existing Shopify-side states,
+  not fixable by re-running the script: 4 are Shopify App Store review stores Shopify itself
+  tears down after review (404 on the shop domain), 5 have a dead/expired refresh token
+  (401) requiring the merchant to reopen the app and reauthorize, and 10 return HTTP 402
+  "Unavailable Shop" because the store is currently frozen/paused on Shopify's side (closed
+  store, unpaid Shopify bill, etc.). Full per-store breakdown is in this session's transcript,
+  not reproduced here since store domains for the 401/402 groups aren't otherwise load-bearing.
+- **Follow-up:** the script is idempotent and safe to re-run later to sweep up any store whose
+  underlying condition self-resolves (reauth, unfreeze) — no code change needed to do so.
+- **Discovered while verifying env vars for this run, unrelated to the task:** production's
+  `.env.production` has `NODE_TLS_REJECT_UNAUTHORIZED=0` set, which disables TLS certificate
+  verification for the entire API process (a warning fires on every Node process start because
+  of it). This is a real security weakening, not yet investigated — unclear whether it's load-bearing
+  for some internal service with a self-signed/mismatched cert or just leftover debugging config.
+  **Open question, needs a decision before touching it:** why was this set, and can it be removed.
+- **Separately, a documentation gap in the same PR:** the backfill script's own header comment
+  documents running it via `pnpm backfill:shopify-products-create-webhook`, but that alias does
+  not exist in `apps/api/package.json` — it must be invoked directly via `tsx`. Worth adding the
+  missing script alias so the documented usage actually works next time.
+
+## 2026-09-19 — Admin URL-driven navigation: pilot + Jobs/Users rollout merged to `main`
+
+- **Change:** `apps/admin-web` now drives browser Back-button navigation off real URL query
+  params instead of local React state for every tab, sub-view, modal, confirm dialog, and
+  accordion — first proven on `GarmentTypesTab.tsx` (Assets page, Sub-project A), then rolled
+  out to `JobsPage.tsx` and `UsersPage.tsx` (Sub-project B), including replacing the two
+  pages' `location.state`-based cross-linking with real, bookmarkable URLs. Mechanism: three
+  reusable pieces — `useUrlState`/`useUrlStateMulti` (push-based query-param state,
+  `apps/admin-web/src/hooks/use-url-state.ts`), `useCloseOverlay` (Back-button-parity close,
+  `apps/admin-web/src/hooks/use-close-overlay.ts`), and a breadcrumb registry
+  (`apps/admin-web/src/context/BreadcrumbContext.tsx`).
+- **Shipped via:** PR #386 (both sub-projects) → `dev`, promoted to `main` via PR #387 (bundled
+  with PR #385 and #384, unrelated work merged to `dev` around the same time).
+- **Known, accepted gap:** no browser automation was available anywhere in this environment
+  (Windows dev machine, this session), so every manual browser-check step across all tasks was
+  substituted with independent source-level tracing by code reviewers (reading actual
+  `@remix-run/router`/`react-router-dom` internals, tracing API route behavior) rather than
+  live-tested. A human should still walk the plan's manual QA checklists
+  (`docs/superpowers/plans/2026-09-19-admin-url-routing-pilot.md` and
+  `2026-09-19-admin-url-routing-jobs-users.md`) post-merge if not already done.
+- **Not yet started:** rolling the same mechanism out to the other ~12 admin-web files
+  identified in the original design spec (`docs/superpowers/specs/2026-09-19-admin-url-routing-design.md`)
+  — `BackgroundsTab`, `FacesTab`, `PoseAssetsTab`, `CatalogTab`, `CatalogPage`, `RecycleBinPage`,
+  `CreditAnalysisPage`, `WorkflowsPage`, `ShopifyStoresPage`, `ChatInboxPage`, `TelemetryPage`,
+  `DemoCatalogPage`.
+
 ## 2026-09-16 — Fixed HD/2K/4K output-resolution tiers replace auto-derived pixel classification
 
 - **Change:** Studio's Output Resolution was previously a read-only "Auto" badge whose

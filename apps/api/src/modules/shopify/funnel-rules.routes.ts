@@ -1,15 +1,9 @@
 import { schema } from '@aivastra/db';
-import { and, asc, count, eq, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, eq, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { computeEffectiveEnabled, inCollectionSetSql } from './activation.js';
-import { type BasketMatchTarget, loadRuleSet, resolveBasketFrom } from './funnel-resolution.js';
-
-// Above this many products the Routing page reports countsOmitted rather than
-// scanning the catalog — a large store must not turn its own settings page
-// into a slow query.
-const COUNTS_PRODUCT_CAP = 10_000;
+import { countUnroutedProducts, listUnroutedProducts } from './funnel-resolution.js';
 
 const Condition = z.object({
   field: z.enum(schema.FUNNEL_RULE_CONDITION_FIELDS),
@@ -76,7 +70,7 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/funnel-rules', auth, async (req) => {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
 
-    const [rows, suppressed, [{ total }]] = await Promise.all([
+    const [rows, suppressed, unroutedCounts] = await Promise.all([
       app.db
         .select()
         .from(schema.shopifyFunnelRules)
@@ -93,79 +87,12 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
         .select({ ruleId: schema.shopifyStoreDisabledFunnelRules.ruleId })
         .from(schema.shopifyStoreDisabledFunnelRules)
         .where(eq(schema.shopifyStoreDisabledFunnelRules.storeId, store.id)),
-      app.db
-        .select({ total: count() })
-        .from(schema.shopifyProductGarments)
-        .where(
-          and(
-            eq(schema.shopifyProductGarments.storeId, store.id),
-            ne(schema.shopifyProductGarments.status, 'deleted'),
-          ),
-        ),
+      countUnroutedProducts(app, store),
     ]);
 
     const suppressedIds = new Set(suppressed.map((s) => s.ruleId));
     const mine = rows.filter((r) => r.storeId === store.id);
     const globals = rows.filter((r) => r.storeId === null);
-
-    const counts: Record<string, number> = {};
-    // Products that resolve to nothing at all — no pin, no matching rule —
-    // are exactly the ones a try-on request refuses for before any credit
-    // deduct. Merchants have no other way to see this number: it never
-    // appears mid-catalog on the paginated product list.
-    //
-    // unrouted counts every synced, non-deleted product with no resolvable
-    // basket — this is pre-existing behavior the Routing tab's "Where your
-    // products land" summary already reads, and its meaning here is
-    // unchanged. unroutedEnabled narrows that to the subset a merchant would
-    // actually notice broken: products that are ALSO effectively enabled for
-    // Try-On per computeEffectiveEnabled. A catalog-sized store with 5,000
-    // synced products and 20 enabled must not tell the merchant "4,980
-    // products have no basket assigned" — the Manage page banner reads
-    // unroutedEnabled for exactly that reason.
-    let unrouted = 0;
-    let unroutedEnabled = 0;
-    const countsOmitted = total > COUNTS_PRODUCT_CAP;
-    if (!countsOmitted) {
-      const mode = store.settings.activation?.mode ?? 'selective';
-      const ruleSet = await loadRuleSet(app, store.id);
-      const products = await app.db
-        .select({
-          funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
-          productType: schema.shopifyProductGarments.productType,
-          tags: schema.shopifyProductGarments.tags,
-          vendor: schema.shopifyProductGarments.vendor,
-          collections: schema.shopifyProductGarments.collections,
-          title: schema.shopifyProductGarments.title,
-          enabled: schema.shopifyProductGarments.enabled,
-          excluded: schema.shopifyProductGarments.excluded,
-          inEnabledCollection: sql<boolean>`${inCollectionSetSql(schema.shopifyEnabledCollections)}`,
-          inExcludedCollection: sql<boolean>`${inCollectionSetSql(schema.shopifyExcludedCollections)}`,
-        })
-        .from(schema.shopifyProductGarments)
-        .where(
-          and(
-            eq(schema.shopifyProductGarments.storeId, store.id),
-            ne(schema.shopifyProductGarments.status, 'deleted'),
-          ),
-        );
-      for (const p of products) {
-        const resolved = resolveBasketFrom(ruleSet, p as BasketMatchTarget);
-        if (resolved) {
-          counts[resolved.basketId] = (counts[resolved.basketId] ?? 0) + 1;
-        } else {
-          unrouted++;
-          const effectivelyEnabled = computeEffectiveEnabled({
-            mode,
-            individuallyEnabled: p.enabled,
-            individuallyExcluded: p.excluded,
-            inEnabledCollection: p.inEnabledCollection,
-            inExcludedCollection: p.inExcludedCollection,
-          });
-          if (effectivelyEnabled) unroutedEnabled++;
-        }
-      }
-    }
 
     return {
       storeRules: mine.map((r) => ({
@@ -181,13 +108,20 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
         priority: r.priority,
         disabled: suppressedIds.has(r.id),
       })),
-      counts,
-      countsOmitted,
+      counts: unroutedCounts.basketCounts,
+      countsOmitted: unroutedCounts.countsOmitted,
       // null (not 0) when countsOmitted, matching counts' own omitted state —
       // a bare 0 would misreport "fully routed" for a catalog never scanned.
-      unrouted: countsOmitted ? null : unrouted,
-      unroutedEnabled: countsOmitted ? null : unroutedEnabled,
+      unrouted: unroutedCounts.unrouted,
+      unroutedEnabled: unroutedCounts.unroutedEnabled,
     };
+  });
+
+  // Titles behind the "Not routed" count on the Manage page — fetched only
+  // when the merchant opens that popup, not on every page load.
+  app.get('/v1/shopify/funnel-rules/unrouted', auth, async (req) => {
+    const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+    return listUnroutedProducts(app, store);
   });
 
   app.post(

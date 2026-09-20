@@ -12,6 +12,7 @@ let c: Containers;
 let app: TestApp;
 let storeId: string;
 let token: string;
+let basketId: string;
 
 beforeAll(async () => {
   c = await startContainers();
@@ -35,6 +36,34 @@ beforeAll(async () => {
   storeId = store.id;
   token = signSessionToken('a.myshopify.com', API_SECRET, API_KEY);
 
+  // A basket this test's routed products pin to, so "effectively enabled" and
+  // "resolves to a basket" both hold — the routing-aware fix under test only
+  // subtracts products missing this pin.
+  const [workflow] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `activation-test-${Date.now()}`,
+      label: 'Activation test workflow',
+      jsonContent: {},
+      poseNodeId: '2',
+      upperNodeIds: ['4'],
+      garmentPhasePromptNode: '6',
+      workflowType: 'tryon',
+      tryonPersonNodeId: '10',
+      tryonGarmentNodeId: '11',
+      tryonOutputNodeId: '12',
+    })
+    .returning();
+  const [basket] = await app.db
+    .insert(schema.shopifyFunnelTemplates)
+    .values({
+      slug: `activation-basket-${Date.now()}`,
+      label: 'Activation test basket',
+      workflowTemplateId: workflow.id,
+    })
+    .returning();
+  basketId = basket.id;
+
   await app.db.insert(schema.shopifyProductGarments).values([
     {
       storeId,
@@ -44,6 +73,8 @@ beforeAll(async () => {
       title: 'One',
       status: 'active',
       enabled: true,
+      funnelTemplateId: basketId,
+      funnelAssignmentSource: 'manual',
     },
     {
       storeId,
@@ -65,6 +96,31 @@ beforeAll(async () => {
       enabled: false,
       excluded: true,
     },
+    {
+      // Effectively enabled (individually enabled, not excluded) but pinned
+      // to no basket and matched by no rule — must NOT count as "Try-On
+      // Enabled", since a shopper's attempt on it would dead-end before
+      // enqueue (customer.routes.ts refuses it for no resolvable basket).
+      storeId,
+      shopifyProductId: 4,
+      shopifyVariantId: null,
+      r2Key: 'w',
+      title: 'Four',
+      status: 'active',
+      enabled: true,
+    },
+    {
+      // Soft-deleted — must not inflate syncedProductCount past Shopify's own
+      // live count (a merchant who deletes a product would otherwise see the
+      // numerator exceed the denominator, e.g. "5/4 Products Synced").
+      storeId,
+      shopifyProductId: 5,
+      shopifyVariantId: null,
+      r2Key: 'v',
+      title: 'Five',
+      status: 'deleted',
+      enabled: false,
+    },
   ]);
 });
 afterAll(async () => {
@@ -83,11 +139,14 @@ describe('GET /v1/shopify/activation', () => {
     const body = res.json();
     expect(body.mode).toBe('selective');
     expect(body.counts.failedToSync).toBe(1);
-    // Selective mode: only product 1 is individually enabled, product 3 is
-    // excluded, and no collections are enabled — so one product is live.
+    // Selective mode: product 1 is individually enabled AND resolves to a
+    // basket (pinned). Product 4 is individually enabled but resolves to no
+    // basket — routing-aware enablement excludes it. Product 3 is excluded.
+    // So exactly one product counts.
     expect(body.counts.tryonEnabledProducts).toBe(1);
-    // 3 rows seeded above, regardless of status/enabled/excluded.
-    expect(body.counts.syncedProductCount).toBe(3);
+    // 5 rows seeded above, but the soft-deleted one (product 5) must not
+    // count as synced.
+    expect(body.counts.syncedProductCount).toBe(4);
     // No real Shopify access token in this test, so the live productsCount
     // lookup fails and falls back to null rather than throwing.
     expect(body.counts.totalProductCount).toBeNull();

@@ -1,9 +1,10 @@
 import { schema } from '@aivastra/db';
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { countEffectivelyEnabled } from './activation.js';
 import { searchCollections, syncCollectionMembership } from './collections.sync.js';
+import { countUnroutedProducts } from './funnel-resolution.js';
 import { shopifyGraphQL } from './service.js';
 import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
 import { getValidAccessToken } from './token.js';
@@ -75,16 +76,40 @@ async function summaryCounts(
       ),
     );
 
-  // Every row we've ever created for this store, regardless of status.
+  // Currently-live rows only — a soft-deleted product (kept for audit/history,
+  // never hard-deleted) must not keep inflating this count past Shopify's own
+  // live productsCount below, or the page shows a numerator bigger than its
+  // denominator (e.g. "8/7 Products Synced") the moment anything gets deleted.
   const [{ totalSynced }] = await app.db
     .select({ totalSynced: count() })
     .from(schema.shopifyProductGarments)
-    .where(eq(schema.shopifyProductGarments.storeId, storeId));
+    .where(
+      and(
+        eq(schema.shopifyProductGarments.storeId, storeId),
+        ne(schema.shopifyProductGarments.status, 'deleted'),
+      ),
+    );
 
   // Effective enablement, not the `enabled` column: a product turned on by
   // global mode or by an enabled collection counts here, and an excluded one
   // never does. See countEffectivelyEnabled for why this is SQL.
-  const tryonEnabledProducts = await countEffectivelyEnabled(app, store);
+  //
+  // Then subtract products that are effectively enabled but resolve to no
+  // basket (no pin, no matching store/global rule) — those can never actually
+  // complete a try-on (customer.routes.ts refuses them before enqueue), so
+  // counting them here would overstate what "Try-On Enabled" means. Left
+  // uncorrected (unroutedCounts.countsOmitted) for catalogs over the routing
+  // scan's product cap, same degradation the Routing tab already accepts.
+  //
+  // countUnroutedProducts is a full per-product routing scan (up to 10,000
+  // rows) — skip it entirely when there's nothing to correct.
+  const rawTryonEnabledProducts = await countEffectivelyEnabled(app, store);
+  const unroutedCounts =
+    rawTryonEnabledProducts > 0 ? await countUnroutedProducts(app, store) : null;
+  const tryonEnabledProducts =
+    !unroutedCounts || unroutedCounts.countsOmitted
+      ? rawTryonEnabledProducts
+      : rawTryonEnabledProducts - (unroutedCounts.unroutedEnabled ?? 0);
 
   const totalProductCount = await fetchTotalProductCount(app, store);
 

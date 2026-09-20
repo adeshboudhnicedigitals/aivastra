@@ -491,4 +491,68 @@ describe('shopify merchant funnel rules routes', () => {
     expect(res.json().counts[upperBasketId]).toBe(1);
     expect(res.json().unrouted).toBe(1);
   });
+
+  it('lists the titles of unrouted products, excluding anything a rule resolves', async () => {
+    // Own store (E), following this file's post-split-fixture convention —
+    // asserts only on what it inserts, so it never depends on execution
+    // order relative to the other tests.
+    const storeE = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: tag + 6,
+        shopDomain: `merchant-rules-e-${tag}.myshopify.com`,
+        myshopifyDomain: `merchant-rules-e-${tag}.myshopify.com`,
+        name: 'Store E',
+        email: 'e@e.com',
+      },
+      'tok',
+      'read_products',
+    );
+    const authE = {
+      authorization: `Bearer ${signSessionToken(storeE.shopDomain, API_SECRET, API_KEY)}`,
+    };
+
+    await app.db.insert(schema.shopifyProductGarments).values([
+      {
+        // Matches the global rule (tags contains 'global-tag') — routed, must
+        // not appear in the unrouted list.
+        storeId: storeE.id,
+        shopifyProductId: tag + 130,
+        r2Key: `shopify-inputs/${storeE.id}/${tag}-e-routed/photo`,
+        status: 'active',
+        title: 'Routed Product',
+        tags: ['global-tag'],
+      },
+      {
+        // No pin, no matching rule at either tier — unrouted.
+        storeId: storeE.id,
+        shopifyProductId: tag + 131,
+        r2Key: `shopify-inputs/${storeE.id}/${tag}-e-unrouted/photo`,
+        status: 'active',
+        title: 'Unrouted Product',
+        tags: ['no-match-here'],
+      },
+      {
+        // Soft-deleted — must never surface as unrouted (same exclusion the
+        // counts endpoint applies).
+        storeId: storeE.id,
+        shopifyProductId: tag + 132,
+        r2Key: `shopify-inputs/${storeE.id}/${tag}-e-deleted/photo`,
+        status: 'deleted',
+        title: 'Deleted Product',
+        tags: ['no-match-here'],
+      },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/funnel-rules/unrouted',
+      headers: authE,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.omitted).toBe(false);
+    expect(body.truncated).toBe(false);
+    expect(body.items).toEqual([{ shopifyProductId: tag + 131, title: 'Unrouted Product' }]);
+  });
 });

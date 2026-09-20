@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, eq, or, sql } from 'drizzle-orm';
+import { and, count, eq, ne, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 export interface EffectiveEnablementInput {
@@ -123,6 +123,10 @@ export async function countEffectivelyEnabled(
     .where(
       and(
         eq(schema.shopifyProductGarments.storeId, store.id),
+        // Soft-deleted rows are kept for audit/history but must never count as
+        // enabled — mirrors computeEnabledProductCount's identical filter in
+        // me.routes.ts, which this function's own count is meant to match.
+        ne(schema.shopifyProductGarments.status, 'deleted'),
         // Exclusion wins first, exactly as in computeEffectiveEnabled.
         eq(schema.shopifyProductGarments.excluded, false),
         sql`not ${inCollectionSetSql(schema.shopifyExcludedCollections)}`,
