@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { countEffectivelyEnabled } from './activation.js';
@@ -76,11 +76,19 @@ async function summaryCounts(
       ),
     );
 
-  // Every row we've ever created for this store, regardless of status.
+  // Currently-live rows only — a soft-deleted product (kept for audit/history,
+  // never hard-deleted) must not keep inflating this count past Shopify's own
+  // live productsCount below, or the page shows a numerator bigger than its
+  // denominator (e.g. "8/7 Products Synced") the moment anything gets deleted.
   const [{ totalSynced }] = await app.db
     .select({ totalSynced: count() })
     .from(schema.shopifyProductGarments)
-    .where(eq(schema.shopifyProductGarments.storeId, storeId));
+    .where(
+      and(
+        eq(schema.shopifyProductGarments.storeId, storeId),
+        ne(schema.shopifyProductGarments.status, 'deleted'),
+      ),
+    );
 
   // Effective enablement, not the `enabled` column: a product turned on by
   // global mode or by an enabled collection counts here, and an excluded one

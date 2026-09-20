@@ -124,7 +124,9 @@ describe('GET /v1/shopify/me stats', () => {
     const body = res.json();
     expect(body.stats).toEqual({
       totalTryOns: 3,
-      syncedProductCount: 3,
+      // Product 3 is soft-deleted (status: 'deleted') — must not count as
+      // synced, so this is 2 of the 3 seeded rows, not 3.
+      syncedProductCount: 2,
       enabledProductCount: 1,
       statusCounts: { active: 1, processing: 0, failed: 0, disabled: 2 },
       todayTryOns: 3,

@@ -70,10 +70,17 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
     // round trip for the same number.
     const totalTryOns = runway.lifetimeJobs;
 
+    // Currently-live rows only — see activation.routes.ts's summaryCounts for
+    // why a soft-deleted product must not keep counting as synced.
     const [{ syncedProductCount }] = await app.db
       .select({ syncedProductCount: count() })
       .from(schema.shopifyProductGarments)
-      .where(eq(schema.shopifyProductGarments.storeId, store.id));
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, store.id),
+          ne(schema.shopifyProductGarments.status, 'deleted'),
+        ),
+      );
 
     // Subtract products that are effectively enabled but resolve to no
     // basket — see activation.routes.ts's summaryCounts for the identical

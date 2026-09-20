@@ -109,6 +109,18 @@ beforeAll(async () => {
       status: 'active',
       enabled: true,
     },
+    {
+      // Soft-deleted — must not inflate syncedProductCount past Shopify's own
+      // live count (a merchant who deletes a product would otherwise see the
+      // numerator exceed the denominator, e.g. "5/4 Products Synced").
+      storeId,
+      shopifyProductId: 5,
+      shopifyVariantId: null,
+      r2Key: 'v',
+      title: 'Five',
+      status: 'deleted',
+      enabled: false,
+    },
   ]);
 });
 afterAll(async () => {
@@ -132,7 +144,8 @@ describe('GET /v1/shopify/activation', () => {
     // basket — routing-aware enablement excludes it. Product 3 is excluded.
     // So exactly one product counts.
     expect(body.counts.tryonEnabledProducts).toBe(1);
-    // 4 rows seeded above, regardless of status/enabled/excluded.
+    // 5 rows seeded above, but the soft-deleted one (product 5) must not
+    // count as synced.
     expect(body.counts.syncedProductCount).toBe(4);
     // No real Shopify access token in this test, so the live productsCount
     // lookup fails and falls back to null rather than throwing.
