@@ -206,7 +206,7 @@ function RuleEditorModal({
             </Text>
             {conditions.map((condition, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: rows have no stable identity of their own until saved — index is fine for a client-only draft list that's never reordered.
-              <InlineStack key={index} gap="200" blockAlign="start" wrap={false}>
+              <InlineStack key={index} gap="200" blockAlign="end" wrap={false}>
                 <Select
                   label="Field"
                   labelHidden={index > 0}

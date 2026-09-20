@@ -407,6 +407,30 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
     await syncProduct(app, store.id, toShopifyProduct(node));
   }
 
+  // Shared by 'reconcile' mode and the full sync's final reconciliation pass
+  // below — both need the store's complete current-Shopify id set via the
+  // cheap 250/page id-only query, not the nested-field 25/page one
+  // fetchAndSyncOneProduct's callers use for full product data.
+  async function fetchLiveProductIds(): Promise<number[]> {
+    let cursor: string | null = null;
+    const ids: number[] = [];
+    do {
+      const data: ProductIdsPageData = await shopifyGraphQL<ProductIdsPageData>(
+        shop,
+        token,
+        PRODUCT_IDS_PAGE,
+        { cursor },
+        { onUnauthorized },
+      );
+      for (const node of data.products.nodes) {
+        ids.push(numericIdFromGid(node.id));
+      }
+      cursor = data.products.pageInfo.hasNextPage ? data.products.pageInfo.endCursor : null;
+      if (cursor) await new Promise((r) => setTimeout(r, 300)); // throttle
+    } while (cursor);
+    return ids;
+  }
+
   if (task.mode === 'collection') {
     if (task.shopifyCollectionId === undefined) return;
     const { syncCollectionMembership, CollectionNotFoundError } = await import(
@@ -486,22 +510,7 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
     // before. See startProductResyncScheduler — this runs hourly for every
     // store with synced products, independent of whether any webhook ever
     // fired.
-    let cursor: string | null = null;
-    const liveProductIds: number[] = [];
-    do {
-      const data: ProductIdsPageData = await shopifyGraphQL<ProductIdsPageData>(
-        shop,
-        token,
-        PRODUCT_IDS_PAGE,
-        { cursor },
-        { onUnauthorized },
-      );
-      for (const node of data.products.nodes) {
-        liveProductIds.push(numericIdFromGid(node.id));
-      }
-      cursor = data.products.pageInfo.hasNextPage ? data.products.pageInfo.endCursor : null;
-      if (cursor) await new Promise((r) => setTimeout(r, 300)); // throttle
-    } while (cursor);
+    const liveProductIds = await fetchLiveProductIds();
 
     // liveProductIds vs. every id this store has ANY row for (including
     // 'deleted' ones — Shopify doesn't reuse product ids, so a live id this
@@ -545,10 +554,44 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
     cursor = data.products.pageInfo.hasNextPage ? data.products.pageInfo.endCursor : null;
     if (cursor) await new Promise((r) => setTimeout(r, 500)); // throttle
   } while (cursor);
-  // Every product this pass saw was just upserted above; anything already in
-  // the DB that wasn't seen no longer exists on Shopify. Runs on every full
-  // sync, including the merchant's manual "Sync now" button, so a deletion
-  // that was missed by the webhook is caught the moment they click it, not
-  // just on the next hourly reconcile tick.
-  await reconcileDeletedProducts(app, store.id, liveProductIds);
+  // liveProductIds was collected DURING the pass above, which can run for
+  // minutes on a large catalog. If a products/delete webhook lands mid-pass
+  // for a product whose page was already fetched, this pass's own upsert for
+  // that product (a few lines above) unconditionally writes status:'active',
+  // silently overwriting the webhook's deletion. Reconciling against a fresh,
+  // final id-only pass — collected AFTER the detailed pass completes, same
+  // query 'reconcile' mode uses — closes that window down to this final
+  // pass's own duration instead of leaving it open until the next hourly
+  // reconcile tick.
+  const freshLiveProductIds = await fetchLiveProductIds();
+
+  // Self-heal: an id present in the fresh pass but missed by the detailed
+  // pass above was created while this sync was running. Same mechanism
+  // 'reconcile' mode already uses for newly-discovered products.
+  const detailedPassIds = new Set(liveProductIds);
+  for (const productId of freshLiveProductIds) {
+    if (detailedPassIds.has(productId)) continue;
+    await fetchAndSyncOneProduct(productId);
+    await new Promise((r) => setTimeout(r, 300)); // throttle, same cadence as the id-page loop above
+  }
+
+  // Guard against a degenerate fresh pass: unlike liveProductIds above (collected
+  // in the same pass that just upserted those products, so it can never disagree
+  // with itself), freshLiveProductIds is a SEPARATE network round-trip. A
+  // transient Shopify anomaly on just that second pass could return zero ids —
+  // and reconcileDeletedProducts treats an empty list as "delete everything for
+  // this store". Only skip when the detailed pass genuinely saw products, so a
+  // legitimately empty store (both passes see zero) still reconciles normally.
+  if (freshLiveProductIds.length === 0 && liveProductIds.length > 0) {
+    app.log.error(
+      { storeId: store.id, detailedPassCount: liveProductIds.length },
+      'full sync: fresh reconciliation pass returned zero ids after detailed pass saw products — skipping deletion reconciliation to avoid mass-deleting the catalog',
+    );
+    return;
+  }
+
+  // Runs on every full sync, including the merchant's manual "Sync now"
+  // button, so a deletion missed by the webhook is caught the moment they
+  // click it, not just on the next hourly reconcile tick.
+  await reconcileDeletedProducts(app, store.id, freshLiveProductIds);
 }

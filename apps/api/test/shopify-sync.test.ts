@@ -303,7 +303,7 @@ describe('syncProduct', () => {
 });
 
 describe('syncOneTask — full sync pagination', () => {
-  it('threads the cursor across pages, syncs products from both, and reconciles a product Shopify no longer returns', async () => {
+  it('threads the cursor across pages, syncs products from both, and reconciles against a fresh final id-only pass', async () => {
     // Isolated store: a full sync now reconciles deletions against every row
     // it finds for the store, and this test's mocked catalog (601, 602 only)
     // would otherwise wrongly mark other tests' unrelated products in the
@@ -332,16 +332,42 @@ describe('syncOneTask — full sync pagination', () => {
       status: 'active',
     });
 
-    let callCount = 0;
+    let detailedCallCount = 0;
+    let idsCallCount = 0;
     const originalFetch = global.fetch;
     global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (!url.endsWith('/graphql.json')) {
         throw new Error(`unexpected fetch during full sync: ${url}`);
       }
-      callCount++;
-      const body = JSON.parse(String(init?.body)) as { variables?: { cursor?: string | null } };
-      if (callCount === 1) {
+      const body = JSON.parse(String(init?.body)) as {
+        query: string;
+        variables?: { cursor?: string | null };
+      };
+
+      // The fresh final reconciliation pass — same query 'reconcile' mode
+      // uses. Returns both live ids in one page (page size 250, well above
+      // this test's 2 products), so no self-heal is triggered here (that's
+      // covered by the next test).
+      if (body.query.includes('ProductIdsPage')) {
+        idsCallCount++;
+        expect(body.variables?.cursor ?? null).toBeNull();
+        return new Response(
+          JSON.stringify({
+            data: {
+              products: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [{ id: 'gid://shopify/Product/601' }, { id: 'gid://shopify/Product/602' }],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+
+      // The main detailed pass (nested collections field, 25/page).
+      detailedCallCount++;
+      if (detailedCallCount === 1) {
         expect(body.variables?.cursor ?? null).toBeNull();
         return new Response(
           JSON.stringify({
@@ -391,7 +417,8 @@ describe('syncOneTask — full sync pagination', () => {
 
     try {
       await syncOneTask(app, { storeId: store.id, mode: 'full' });
-      expect(callCount).toBe(2);
+      expect(detailedCallCount).toBe(2);
+      expect(idsCallCount).toBe(1);
 
       const rows = await app.db
         .select()
@@ -424,6 +451,218 @@ describe('syncOneTask — full sync pagination', () => {
           ),
         );
       expect(staleRow.status).toBe('deleted');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('self-heals a product present in the fresh final pass but missed by the detailed pass (created mid-sync)', async () => {
+    const store = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 705,
+        shopDomain: 'self-heal.myshopify.com',
+        myshopifyDomain: 'self-heal.myshopify.com',
+        name: 'Self Heal Store',
+        email: 'self-heal@s.com',
+      },
+      'tok',
+      'read_products',
+    );
+
+    const originalFetch = global.fetch;
+    global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (!url.endsWith('/graphql.json')) {
+        throw new Error(`unexpected fetch during full sync: ${url}`);
+      }
+      const body = JSON.parse(String(init?.body)) as { query: string };
+
+      // Fresh final pass sees a product (805) the detailed pass below never
+      // returned — simulates it being created on Shopify while the detailed
+      // pass was already running.
+      if (body.query.includes('ProductIdsPage')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              products: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [{ id: 'gid://shopify/Product/801' }, { id: 'gid://shopify/Product/805' }],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+
+      // Self-heal fetches the missed product individually.
+      if (body.query.includes('OneProduct')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              product: {
+                id: 'gid://shopify/Product/805',
+                title: 'Mid-Sync Product',
+                productType: null,
+                tags: [],
+                vendor: null,
+                featuredImage: null,
+                collections: { nodes: [] },
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+
+      // Detailed pass only ever saw 801.
+      return new Response(
+        JSON.stringify({
+          data: {
+            products: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [
+                {
+                  id: 'gid://shopify/Product/801',
+                  title: 'Existing Product',
+                  productType: null,
+                  tags: [],
+                  vendor: null,
+                  featuredImage: null,
+                  collections: { nodes: [] },
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId: store.id, mode: 'full' });
+
+      const [row801] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, store.id),
+            eq(schema.shopifyProductGarments.shopifyProductId, 801),
+          ),
+        );
+      const [row805] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, store.id),
+            eq(schema.shopifyProductGarments.shopifyProductId, 805),
+          ),
+        );
+      expect(row801?.title).toBe('Existing Product');
+      // No featuredImage in the mocked OneProduct response, so the self-heal
+      // sync records it as 'failed' (no image to download) rather than
+      // 'active' — the point of this test is that the row exists at all
+      // (self-healed within this sync run) rather than being silently
+      // missing until the next hourly reconcile tick.
+      expect(row805?.title).toBe('Mid-Sync Product');
+      expect(row805?.status).toBe('failed');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('skips deletion reconciliation when the fresh final pass returns zero ids after the detailed pass saw products', async () => {
+    const store = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 706,
+        shopDomain: 'empty-fresh-pass.myshopify.com',
+        myshopifyDomain: 'empty-fresh-pass.myshopify.com',
+        name: 'Empty Fresh Pass Store',
+        email: 'empty-fresh-pass@s.com',
+      },
+      'tok',
+      'read_products',
+    );
+
+    // Pre-existing row for a product neither pass returns. If the guard fails
+    // and reconciliation runs against an empty freshLiveProductIds list, this
+    // row would be wrongly flipped to 'deleted' along with the rest of the
+    // store's catalog.
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: store.id,
+      shopifyProductId: 902,
+      shopifyVariantId: 0,
+      r2Key: 'untouched',
+      title: 'Untouched Product',
+      status: 'active',
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (!url.endsWith('/graphql.json')) {
+        throw new Error(`unexpected fetch during full sync: ${url}`);
+      }
+      const body = JSON.parse(String(init?.body)) as { query: string };
+
+      // Fresh final pass returns zero ids — simulates a transient anomaly on
+      // this second, separate network round-trip.
+      if (body.query.includes('ProductIdsPage')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              products: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+
+      // Detailed pass genuinely saw a product.
+      return new Response(
+        JSON.stringify({
+          data: {
+            products: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [
+                {
+                  id: 'gid://shopify/Product/901',
+                  title: 'Detailed Pass Product',
+                  productType: null,
+                  tags: [],
+                  vendor: null,
+                  featuredImage: null,
+                  collections: { nodes: [] },
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId: store.id, mode: 'full' });
+
+      const [untouchedRow] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, store.id),
+            eq(schema.shopifyProductGarments.shopifyProductId, 902),
+          ),
+        );
+      // Still 'active' — proves reconciliation was skipped rather than
+      // treating the empty fresh pass as "delete everything for this store".
+      expect(untouchedRow?.status).toBe('active');
     } finally {
       global.fetch = originalFetch;
     }

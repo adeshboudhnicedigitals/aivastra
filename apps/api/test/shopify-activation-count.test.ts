@@ -145,6 +145,46 @@ describe('countEffectivelyEnabled', () => {
     await expect(countEffectivelyEnabled(app, other)).resolves.toBe(0);
   });
 
+  it('never counts a soft-deleted product, even when otherwise effectively enabled', async () => {
+    // Regression for the count including deleted rows: global mode plus no
+    // exclusion makes computeEffectiveEnabled return true for this row's
+    // flags, but status: 'deleted' must still keep it out of the count —
+    // mirrors computeEnabledProductCount's identical status filter in
+    // me.routes.ts.
+    const other = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 994,
+        shopDomain: 'deleted-product.myshopify.com',
+        myshopifyDomain: 'deleted-product.myshopify.com',
+        name: 'Deleted Product',
+        email: 'd@example.com',
+      },
+      'tok',
+      'read_products',
+    );
+    await app.db
+      .update(schema.shopifyStores)
+      .set({
+        settings: { ...other.settings, activation: { mode: 'global' } },
+      })
+      .where(eq(schema.shopifyStores.id, other.id));
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId: other.id,
+      shopifyProductId: 2000,
+      shopifyVariantId: null,
+      r2Key: 'del',
+      title: 'Deleted product',
+      status: 'deleted',
+      enabled: true,
+    });
+    const [fresh] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, other.id));
+    await expect(countEffectivelyEnabled(app, fresh)).resolves.toBe(0);
+  });
+
   it('never counts another store rows', async () => {
     // Same product ids and collection ids as the seeded store, different store.
     const other = await upsertShopifyStore(
