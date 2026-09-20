@@ -333,3 +333,75 @@ export async function countUnroutedProducts(
 
   return { countsOmitted: false, unrouted, unroutedEnabled, basketCounts };
 }
+
+export interface UnroutedProductItem {
+  shopifyProductId: number;
+  title: string | null;
+}
+
+export interface UnroutedProductsList {
+  items: UnroutedProductItem[];
+  // More unrouted products exist than the cap below returns — the merchant
+  // sees a "+N more" hint rather than a silently incomplete list.
+  truncated: boolean;
+  // Mirrors countUnroutedProducts' own cap: a store past COUNTS_PRODUCT_CAP
+  // never gets a per-product scan here either.
+  omitted: boolean;
+}
+
+const UNROUTED_LIST_CAP = 200;
+
+/**
+ * Titles behind the "Not routed" count in `countUnroutedProducts` — fetched
+ * on demand (the popup, not the summary load) so a merchant can see exactly
+ * which products need a rule or a pin, not just how many.
+ */
+export async function listUnroutedProducts(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+): Promise<UnroutedProductsList> {
+  const [{ total }] = await app.db
+    .select({ total: count() })
+    .from(schema.shopifyProductGarments)
+    .where(
+      and(
+        eq(schema.shopifyProductGarments.storeId, store.id),
+        ne(schema.shopifyProductGarments.status, 'deleted'),
+      ),
+    );
+  if (total > COUNTS_PRODUCT_CAP) {
+    return { items: [], truncated: false, omitted: true };
+  }
+
+  const ruleSet = await loadRuleSet(app, store.id);
+  const products = await app.db
+    .select({
+      shopifyProductId: schema.shopifyProductGarments.shopifyProductId,
+      title: schema.shopifyProductGarments.title,
+      funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
+      productType: schema.shopifyProductGarments.productType,
+      tags: schema.shopifyProductGarments.tags,
+      vendor: schema.shopifyProductGarments.vendor,
+      collections: schema.shopifyProductGarments.collections,
+    })
+    .from(schema.shopifyProductGarments)
+    .where(
+      and(
+        eq(schema.shopifyProductGarments.storeId, store.id),
+        ne(schema.shopifyProductGarments.status, 'deleted'),
+      ),
+    );
+
+  const items: UnroutedProductItem[] = [];
+  for (const p of products) {
+    if (!resolveBasketFrom(ruleSet, p as BasketMatchTarget)) {
+      items.push({ shopifyProductId: p.shopifyProductId, title: p.title });
+    }
+  }
+
+  return {
+    items: items.slice(0, UNROUTED_LIST_CAP),
+    truncated: items.length > UNROUTED_LIST_CAP,
+    omitted: false,
+  };
+}

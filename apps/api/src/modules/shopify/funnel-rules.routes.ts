@@ -3,7 +3,7 @@ import { and, asc, count, eq, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { countUnroutedProducts } from './funnel-resolution.js';
+import { countUnroutedProducts, listUnroutedProducts } from './funnel-resolution.js';
 
 const Condition = z.object({
   field: z.enum(schema.FUNNEL_RULE_CONDITION_FIELDS),
@@ -115,6 +115,13 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
       unrouted: unroutedCounts.unrouted,
       unroutedEnabled: unroutedCounts.unroutedEnabled,
     };
+  });
+
+  // Titles behind the "Not routed" count on the Manage page — fetched only
+  // when the merchant opens that popup, not on every page load.
+  app.get('/v1/shopify/funnel-rules/unrouted', auth, async (req) => {
+    const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+    return listUnroutedProducts(app, store);
   });
 
   app.post(
