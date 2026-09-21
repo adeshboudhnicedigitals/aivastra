@@ -126,9 +126,17 @@ export default function UsersPage({ onNav, toast }: Props) {
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
   const [merchantsOnly, setMerchantsOnly] = useState(false);
+  // Applied filters — these drive load()/handleExport() and the active-filter
+  // chips. The popover edits a separate draft copy so nothing here changes
+  // until "Apply Filters" is clicked.
   const [showBanned, setShowBanned] = useState(false);
   const [planFilter, setPlanFilter] = useState('');
   const [excludeRoleFilter, setExcludeRoleFilter] = useState('');
+  const [draftShowBanned, setDraftShowBanned] = useState(false);
+  const [draftPlanFilter, setDraftPlanFilter] = useState('');
+  const [draftExcludeRoleFilter, setDraftExcludeRoleFilter] = useState('');
+  const [draftExportFrom, setDraftExportFrom] = useState('');
+  const [draftExportTo, setDraftExportTo] = useState('');
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof User>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -2261,6 +2269,11 @@ export default function UsersPage({ onNav, toast }: Props) {
     setExportTo('');
     setPlanFilter('');
     setExcludeRoleFilter('');
+    setDraftShowBanned(false);
+    setDraftExportFrom('');
+    setDraftExportTo('');
+    setDraftPlanFilter('');
+    setDraftExcludeRoleFilter('');
     setPage(0);
   };
 
@@ -2333,7 +2346,19 @@ export default function UsersPage({ onNav, toast }: Props) {
             <button
               type="button"
               className={`filter-toggle-btn ${menuOpen || showBanned || exportFrom || exportTo || planFilter || excludeRoleFilter ? 'active' : ''}`}
-              onClick={() => setMenuOpen(!menuOpen)}
+              onClick={() => {
+                if (!menuOpen) {
+                  // Opening — seed the draft with whatever's currently applied,
+                  // so reopening after an Apply (or a chip removal) doesn't show
+                  // stale, already-abandoned selections.
+                  setDraftShowBanned(showBanned);
+                  setDraftPlanFilter(planFilter);
+                  setDraftExcludeRoleFilter(excludeRoleFilter);
+                  setDraftExportFrom(exportFrom);
+                  setDraftExportTo(exportTo);
+                }
+                setMenuOpen(!menuOpen);
+              }}
               title="Filters & Export options"
             >
               <Icon.Filter />
@@ -2374,11 +2399,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                       <input
                         type="date"
                         className="filter-input"
-                        value={exportFrom}
-                        onChange={(e) => {
-                          setExportFrom(e.target.value);
-                          setPage(0);
-                        }}
+                        value={draftExportFrom}
+                        onChange={(e) => setDraftExportFrom(e.target.value)}
                         style={{ flex: 1, height: 32, fontSize: 12 }}
                       />
                     </div>
@@ -2387,11 +2409,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                       <input
                         type="date"
                         className="filter-input"
-                        value={exportTo}
-                        onChange={(e) => {
-                          setExportTo(e.target.value);
-                          setPage(0);
-                        }}
+                        value={draftExportTo}
+                        onChange={(e) => setDraftExportTo(e.target.value)}
                         style={{ flex: 1, height: 32, fontSize: 12 }}
                       />
                     </div>
@@ -2420,11 +2439,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                       { id: PAID_PLAN_FILTER, label: 'Any paid plan' },
                       ...tierOptions.map((slug) => ({ id: slug, label: slug })),
                     ]}
-                    value={planFilter}
-                    onChange={(v) => {
-                      setPlanFilter(v);
-                      setPage(0);
-                    }}
+                    value={draftPlanFilter}
+                    onChange={(v) => setDraftPlanFilter(v)}
                     emptyLabel="All plans"
                     style={{ width: '100%', height: 32, fontSize: 12.5 }}
                   />
@@ -2457,11 +2473,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                       { id: 'MODERATOR', label: 'Moderator' },
                       { id: 'SUPPORT', label: 'Support' },
                     ]}
-                    value={excludeRoleFilter}
-                    onChange={(v) => {
-                      setExcludeRoleFilter(v);
-                      setPage(0);
-                    }}
+                    value={draftExcludeRoleFilter}
+                    onChange={(v) => setDraftExcludeRoleFilter(v)}
                     emptyLabel="Don't exclude anyone"
                     style={{ width: '100%', height: 32, fontSize: 12.5 }}
                   />
@@ -2486,11 +2499,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                   </span>
                   <button
                     type="button"
-                    className={`filter-toggle-btn ${showBanned ? 'active' : ''}`}
-                    onClick={() => {
-                      setShowBanned(!showBanned);
-                      setPage(0);
-                    }}
+                    className={`filter-toggle-btn ${draftShowBanned ? 'active' : ''}`}
+                    onClick={() => setDraftShowBanned(!draftShowBanned)}
                     style={{
                       width: '100%',
                       justifyContent: 'flex-start',
@@ -2503,13 +2513,34 @@ export default function UsersPage({ onNav, toast }: Props) {
                         width: 6,
                         height: 6,
                         borderRadius: '50%',
-                        background: showBanned ? 'var(--accent)' : 'var(--muted)',
+                        background: draftShowBanned ? 'var(--accent)' : 'var(--muted)',
                         display: 'inline-block',
                       }}
                     />
                     Show suspended/deleted
                   </button>
                 </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* Apply — nothing above changes the table/exports until this
+                    is clicked, so multiple filters can be set at once. */}
+                <button
+                  type="button"
+                  className="btn primary sm"
+                  style={{ width: '100%', justifyContent: 'center', height: 36 }}
+                  onClick={() => {
+                    setShowBanned(draftShowBanned);
+                    setPlanFilter(draftPlanFilter);
+                    setExcludeRoleFilter(draftExcludeRoleFilter);
+                    setExportFrom(draftExportFrom);
+                    setExportTo(draftExportTo);
+                    setPage(0);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Apply Filters
+                </button>
 
                 <div style={{ borderTop: '1px solid var(--border)' }} />
 
@@ -2629,6 +2660,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                   className="filter-chip-remove"
                   onClick={() => {
                     setShowBanned(false);
+                    setDraftShowBanned(false);
                     setPage(0);
                   }}
                 >
@@ -2648,6 +2680,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                   onClick={() => {
                     setExportFrom('');
                     setExportTo('');
+                    setDraftExportFrom('');
+                    setDraftExportTo('');
                     setPage(0);
                   }}
                 >
@@ -2666,6 +2700,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                   className="filter-chip-remove"
                   onClick={() => {
                     setPlanFilter('');
+                    setDraftPlanFilter('');
                     setPage(0);
                   }}
                 >
@@ -2684,6 +2719,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                   className="filter-chip-remove"
                   onClick={() => {
                     setExcludeRoleFilter('');
+                    setDraftExcludeRoleFilter('');
                     setPage(0);
                   }}
                 >
