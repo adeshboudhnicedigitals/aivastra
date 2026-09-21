@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { TryonCategory, WorkflowOption } from '../types';
@@ -48,15 +51,18 @@ export default function TryonPage({ toast }: Props) {
     personSampleUrl: null,
     garmentSampleUrl: null,
   });
-  const [showSamplesModal, setShowSamplesModal] = useState(false);
   const [uploadingPerson, setUploadingPerson] = useState(false);
   const [uploadingGarment, setUploadingGarment] = useState(false);
   const personInputRef = useRef<HTMLInputElement>(null);
   const garmentInputRef = useRef<HTMLInputElement>(null);
 
-  // Category modal state
-  const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
-  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  // Category modal state — one shared enum since samples/create/edit are mutually exclusive.
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModalOverlay = useCloseOverlay(['modal', 'editId']);
+  const showSamplesModal = modalParam === 'samples';
+  const modalMode: 'create' | 'edit' | null =
+    modalParam === 'create' || modalParam === 'edit' ? modalParam : null;
+  const editingCategoryId = modalMode === 'edit' ? editId : null;
   const [formName, setFormName] = useState('');
   const [formSlug, setFormSlug] = useState('');
   const [formWorkflowId, setFormWorkflowId] = useState('');
@@ -66,7 +72,12 @@ export default function TryonPage({ toast }: Props) {
   const [slugEdited, setSlugEdited] = useState(false);
 
   // Delete category confirm
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const deletingId = confirmParam === 'delete-category' ? confirmId : null;
   const [deleteConfirming, setDeleteConfirming] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -102,8 +113,7 @@ export default function TryonPage({ toast }: Props) {
     setFormSortOrder(categories.length);
     setFormIsActive(true);
     setSlugEdited(false);
-    setEditingCategoryId(null);
-    setModalMode('create');
+    setModalParams({ modal: 'create', editId: null });
   };
 
   const openEdit = (cat: TryonCategory) => {
@@ -113,14 +123,12 @@ export default function TryonPage({ toast }: Props) {
     setFormSortOrder(cat.sortOrder);
     setFormIsActive(cat.isActive);
     setSlugEdited(true);
-    setEditingCategoryId(cat.id);
-    setModalMode('edit');
+    setModalParams({ modal: 'edit', editId: cat.id });
   };
 
   const closeModal = () => {
     if (formSaving) return;
-    setModalMode(null);
-    setEditingCategoryId(null);
+    closeModalOverlay();
   };
 
   const handleNameChange = (value: string) => {
@@ -147,8 +155,7 @@ export default function TryonPage({ toast }: Props) {
         });
         setCategories((prev) => [...prev, { ...created, samples: [] }]);
         toast({ title: `Category "${created.name}" created` });
-        setModalMode(null);
-        setEditingCategoryId(null);
+        closeModalOverlay();
       } else if (modalMode === 'edit' && editingCategoryId) {
         const updated = await apiFetch<TryonCategory>(
           `/admin/tryon-categories/${editingCategoryId}`,
@@ -166,8 +173,7 @@ export default function TryonPage({ toast }: Props) {
           prev.map((c) => (c.id === updated.id ? { ...updated, samples: c.samples } : c)),
         );
         toast({ title: `Category "${updated.name}" updated` });
-        setModalMode(null);
-        setEditingCategoryId(null);
+        closeModalOverlay();
       }
     } catch (e) {
       toast({
@@ -193,7 +199,7 @@ export default function TryonPage({ toast }: Props) {
         body: e instanceof Error ? e.message : String(e),
       });
     } finally {
-      setDeletingId(null);
+      closeConfirm();
       setDeleteConfirming(false);
     }
   };
@@ -243,6 +249,30 @@ export default function TryonPage({ toast }: Props) {
 
   const deletingCategory = deletingId ? categories.find((c) => c.id === deletingId) : null;
 
+  useCrumb(
+    0,
+    confirmParam === 'delete-category' && deletingId
+      ? {
+          label: 'Delete category',
+          href: `/tryon?confirm=delete-category&confirmId=${encodeURIComponent(deletingId)}`,
+        }
+      : null,
+  );
+  useCrumb(
+    1,
+    modalParam
+      ? {
+          label:
+            modalParam === 'samples'
+              ? 'Sample images'
+              : modalParam === 'create'
+                ? 'Add category'
+                : 'Edit category',
+          href: `/tryon?modal=${modalParam}${editId ? `&editId=${encodeURIComponent(editId)}` : ''}`,
+        }
+      : null,
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
@@ -254,7 +284,10 @@ export default function TryonPage({ toast }: Props) {
           </p>
         </div>
         <div className="head-tools">
-          <button className="btn ghost" onClick={() => setShowSamplesModal(true)}>
+          <button
+            className="btn ghost"
+            onClick={() => setModalParams({ modal: 'samples', editId: null })}
+          >
             <Icon.Image /> Edit sample images
           </button>
           <button className="btn primary" onClick={openCreate}>
@@ -380,7 +413,9 @@ export default function TryonPage({ toast }: Props) {
                   <button
                     className="btn sm ghost"
                     style={{ color: 'var(--danger)', marginLeft: 'auto' }}
-                    onClick={() => setDeletingId(cat.id)}
+                    onClick={() =>
+                      setConfirmParams({ confirm: 'delete-category', confirmId: cat.id })
+                    }
                     title="Delete category"
                   >
                     <Icon.Trash />
@@ -395,11 +430,11 @@ export default function TryonPage({ toast }: Props) {
       {/* Global sample images modal */}
       {showSamplesModal && (
         <EditDrawer
-          onClose={() => setShowSamplesModal(false)}
+          onClose={closeModalOverlay}
           title="Sample images"
           width="min(480px, calc(100vw - 40px))"
           saving={uploadingPerson || uploadingGarment}
-          onSave={() => setShowSamplesModal(false)}
+          onSave={closeModalOverlay}
           saveLabel="Close"
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -594,10 +629,7 @@ export default function TryonPage({ toast }: Props) {
 
       {/* Delete confirmation modal */}
       {deletingId && deletingCategory && (
-        <div
-          className="modal-overlay"
-          onClick={deleteConfirming ? undefined : () => setDeletingId(null)}
-        >
+        <div className="modal-overlay" onClick={deleteConfirming ? undefined : closeConfirm}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -612,11 +644,7 @@ export default function TryonPage({ toast }: Props) {
               </p>
             </div>
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => setDeletingId(null)}
-                disabled={deleteConfirming}
-              >
+              <button className="btn ghost" onClick={closeConfirm} disabled={deleteConfirming}>
                 Cancel
               </button>
               <button
