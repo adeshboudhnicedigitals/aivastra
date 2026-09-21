@@ -34,6 +34,25 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
   return node;
 }
 
+/**
+ * A template's latentMaxPx/outputMaxPx is a ceiling, not a target — it only ever
+ * shrinks the resolved dims (proportionally, preserving aspect ratio), never grows
+ * them. A cap below the current value is a deliberate per-template override of the
+ * job's aspect-ratio default; a cap above or equal is a no-op.
+ */
+function capDimsToMaxPx(
+  dims: { width: number; height: number },
+  maxPx: number | null | undefined,
+): { width: number; height: number } {
+  const longEdge = Math.max(dims.width, dims.height);
+  if (!maxPx || longEdge <= maxPx) return dims;
+  const scale = maxPx / longEdge;
+  return {
+    width: Math.round(dims.width * scale),
+    height: Math.round(dims.height * scale),
+  };
+}
+
 // ── Aspect ratio dimensions ───────────────────────────────────────────────
 
 export { ASPECT_DIMENSIONS };
@@ -173,47 +192,51 @@ export function applyWorkflowPatch(
   const outputDims = customDims ?? enumDims;
 
   // Dual-size-group templates. Both latent group (max-width/max-height) and output
-  // group (result-width/result-height) receive the same resolved outputDims — the two
-  // node groups exist for the workflow's own internal graph wiring, not because the
-  // diffusion canvas is meant to render at a different size than what's delivered.
-  // latentMaxPx is still stored per template (admin-editable) but is not read here.
+  // group (result-width/result-height) derive from the same resolved outputDims — the
+  // two node groups exist for the workflow's own internal graph wiring — but each is
+  // capped independently against its own template column (latentMaxPx/outputMaxPx),
+  // which is why there are two distinct DB columns instead of one.
   const latentSizeNodeIds = tmpl.latentSizeNodeIds ?? [];
   const outputSizeNodeIds = tmpl.outputSizeNodeIds ?? [];
   if (outputDims && (latentSizeNodeIds.length === 2 || outputSizeNodeIds.length === 2)) {
+    const latentDims = capDimsToMaxPx(outputDims, tmpl.latentMaxPx);
     const [lwId, lhId] = latentSizeNodeIds;
     const lwNode = lwId ? workflow[lwId] : undefined;
     const lhNode = lhId ? workflow[lhId] : undefined;
-    if (lwNode) lwNode.inputs.value = outputDims.width;
-    if (lhNode) lhNode.inputs.value = outputDims.height;
+    if (lwNode) lwNode.inputs.value = latentDims.width;
+    if (lhNode) lhNode.inputs.value = latentDims.height;
 
     if (outputSizeNodeIds.length === 2) {
+      const outputCappedDims = capDimsToMaxPx(outputDims, tmpl.outputMaxPx);
       const [widthId, heightId] = outputSizeNodeIds;
       const wNode = widthId ? workflow[widthId] : undefined;
       const hNode = heightId ? workflow[heightId] : undefined;
-      if (wNode) wNode.inputs.value = outputDims.width;
-      if (hNode) hNode.inputs.value = outputDims.height;
+      if (wNode) wNode.inputs.value = outputCappedDims.width;
+      if (hNode) hNode.inputs.value = outputCappedDims.height;
     }
   } else if (outputDims && tmpl.sizeNodeIds.length > 0) {
-    // Legacy single-group: patch all size-controlling nodes by class_type.
+    // Legacy single-group: patch all size-controlling nodes by class_type. Capped
+    // against outputMaxPx — the only ceiling a legacy (non-dual-group) template has.
     // sizeNodeIds[0] = width node, sizeNodeIds[1] = height node.
+    const legacyDims = capDimsToMaxPx(outputDims, tmpl.outputMaxPx);
     for (let i = 0; i < tmpl.sizeNodeIds.length; i++) {
       const nodeId = tmpl.sizeNodeIds[i];
       if (!nodeId) continue;
       const node = workflow[nodeId];
       if (!node) continue;
-      const dimValue = i === 0 ? outputDims.width : outputDims.height;
+      const dimValue = i === 0 ? legacyDims.width : legacyDims.height;
       if (node.class_type === 'PrimitiveInt') {
         node.inputs.value = dimValue;
       } else if (node.class_type === 'ResizeImageMaskNode') {
-        node.inputs['resize_type.width'] = outputDims.width;
-        node.inputs['resize_type.height'] = outputDims.height;
+        node.inputs['resize_type.width'] = legacyDims.width;
+        node.inputs['resize_type.height'] = legacyDims.height;
       } else if (node.class_type === 'ResizeAndPadImage') {
-        node.inputs.target_width = outputDims.width;
-        node.inputs.target_height = outputDims.height;
+        node.inputs.target_width = legacyDims.width;
+        node.inputs.target_height = legacyDims.height;
       } else {
         // EmptyLatentImage and generic fallback
-        node.inputs.width = outputDims.width;
-        node.inputs.height = outputDims.height;
+        node.inputs.width = legacyDims.width;
+        node.inputs.height = legacyDims.height;
       }
     }
   } else if (inputs.aspectRatio) {
