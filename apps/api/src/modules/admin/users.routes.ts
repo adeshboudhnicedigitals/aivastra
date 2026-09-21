@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import {
   BulkDeleteUsersBody,
+  BulkSetOrganizationBody,
   CreateUserBody,
   ResetPasswordBody,
   UpdateUserBody,
@@ -13,6 +14,7 @@ import {
   exists,
   gte,
   ilike,
+  inArray,
   isNotNull,
   isNull,
   lte,
@@ -51,6 +53,9 @@ const PaginatedSearch = z.object({
   // admin role at all is never excluded by this filter. 'ALL' excludes anyone
   // holding any admin role, regardless of which.
   excludeAdminRole: z.enum(['ALL', 'SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'SUPPORT']).optional(),
+  // Excludes users tagged as organization (internal team) members — a plain data
+  // flag, unrelated to admin_users roles, set via POST /admin/users/bulk-set-organization.
+  excludeOrganizationMembers: z.coerce.boolean().optional(),
 });
 
 export async function adminUsersRoutes(app: FastifyInstance) {
@@ -72,6 +77,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         tier,
         excludeFree,
         excludeAdminRole,
+        excludeOrganizationMembers,
       } = req.query as z.infer<typeof PaginatedSearch>;
 
       const searchWhere = search
@@ -101,6 +107,9 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           : excludeAdminRole
             ? or(isNull(schema.adminUsers.role), ne(schema.adminUsers.role, excludeAdminRole))
             : undefined,
+        excludeOrganizationMembers === true
+          ? eq(schema.users.isOrganizationMember, false)
+          : undefined,
       );
 
       const [{ total }] = await app.db
@@ -121,6 +130,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           maxActiveDevices: schema.users.maxActiveDevices,
           isBanned: schema.users.isBanned,
           banReason: schema.users.banReason,
+          isOrganizationMember: schema.users.isOrganizationMember,
           createdAt: schema.users.createdAt,
           updatedAt: schema.users.updatedAt,
           balance: sql<number>`COALESCE(${schema.userCredits.balance}, 0)`,
@@ -287,6 +297,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           maxActiveDevices: schema.users.maxActiveDevices,
           isBanned: schema.users.isBanned,
           banReason: schema.users.banReason,
+          isOrganizationMember: schema.users.isOrganizationMember,
           createdAt: schema.users.createdAt,
           updatedAt: schema.users.updatedAt,
           isAdmin: isNotNull(schema.adminUsers.id),
@@ -398,9 +409,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
-      const { tier, maxActiveDevices, isBanned, banReason, forceLogout } = req.body as z.infer<
-        typeof UpdateUserBody
-      >;
+      const { tier, maxActiveDevices, isBanned, banReason, forceLogout, isOrganizationMember } =
+        req.body as z.infer<typeof UpdateUserBody>;
 
       if (tier !== undefined) {
         const [plan] = await app.db
@@ -424,6 +434,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       if (maxActiveDevices !== undefined) patch.maxActiveDevices = maxActiveDevices;
       if (isBanned !== undefined) patch.isBanned = isBanned;
       if (banReason !== undefined) patch.banReason = banReason;
+      if (isOrganizationMember !== undefined) patch.isOrganizationMember = isOrganizationMember;
 
       await app.db.transaction(async (tx) => {
         const [existing] = await tx
@@ -670,6 +681,35 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       }
 
       return { succeeded, skipped };
+    },
+  );
+
+  // Bulk-tags/untags the organization flag — a plain data label distinct from
+  // admin_users roles: no password required, no admin-panel login granted, just
+  // marks these accounts as internal staff so they can be excluded from
+  // client-facing lists/exports without the friction of a real admin role grant.
+  app.post(
+    '/admin/users/bulk-set-organization',
+    { preHandler: WRITE, schema: { body: BulkSetOrganizationBody } },
+    async (req) => {
+      const { ids, isOrganizationMember } = req.body as z.infer<typeof BulkSetOrganizationBody>;
+
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.users)
+          .set({ isOrganizationMember, updatedAt: new Date() })
+          .where(inArray(schema.users.id, ids));
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: isOrganizationMember ? 'users.mark_organization' : 'users.unmark_organization',
+          resourceType: 'user',
+          after: { ids, isOrganizationMember },
+          request: req,
+        });
+      });
+
+      return { ok: true, count: ids.length };
     },
   );
 

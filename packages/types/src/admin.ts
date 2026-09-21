@@ -33,9 +33,14 @@ export const UpdateUserBody = z.object({
   isBanned: z.boolean().optional(),
   banReason: z.string().max(500).nullable().optional(),
   forceLogout: z.boolean().optional(),
+  isOrganizationMember: z.boolean().optional(),
 });
 export const BulkDeleteUsersBody = z.object({
   ids: z.array(z.string().uuid()).min(1),
+});
+export const BulkSetOrganizationBody = z.object({
+  ids: z.array(z.string().uuid()).min(1),
+  isOrganizationMember: z.boolean(),
 });
 export const CreateUserBody = z.object({
   username: z
