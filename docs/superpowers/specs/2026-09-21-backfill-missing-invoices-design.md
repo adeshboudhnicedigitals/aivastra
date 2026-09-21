@@ -62,6 +62,13 @@ storage logic.
 - No retroactive fix for payments that are `status != 'paid'` (e.g. `failed`,
   `created`) — those never should have an invoice.
 - No dedicated automated test for the script itself (see Testing below).
+- **No coverage of `unlimited_plan_charges`.** That table also reaches
+  `status: 'paid'` with real GST collected
+  (`apps/api/src/modules/credits/unlimited-plan-renewal.ts`), but nothing
+  calls `issueInvoiceIfNeeded` for it and `invoices.paymentId`'s FK to
+  `payments.id` can't represent one — a clean `DONE: N ok, 0 failed` from
+  this script does not mean every invoice gap in the system is closed, only
+  every gap in `payments`.
 
 ## Design
 
@@ -132,14 +139,27 @@ the required env vars (`DATABASE_URL`, `REDIS_URL`, `R2_*`).
 1. Commit the script + root `package.json` entry, PR into `dev` per
    `docs/version-control.md`, through the normal deploy pipeline.
 2. Promote `dev` → `main` the same way as any other change.
-3. Run `pnpm backfill:missing-invoices` (no flags) against the deployed
+3. **Hard gate — do not skip:** get explicit sign-off from whoever owns GST
+   filing before running `--apply`. `issueInvoiceIfNeeded` dates each
+   invoice as the payment's original `paidAt` but allocates today's next
+   sequential invoice number, so these 8 backfilled invoices will carry
+   serial numbers issued after (and numerically higher than) invoices
+   already dated later in FY2026-27, and may be dated into a GSTR-1 period
+   that's already been filed. This is a known, accepted consequence of
+   reusing `issueInvoiceIfNeeded` unchanged — see the script's own header
+   comment — not something this script can fix on its own.
+4. Run `pnpm backfill:missing-invoices` (no flags) against the deployed
    container — review the printed list matches the expected 8 rows.
-4. Run `pnpm backfill:missing-invoices --apply`.
-5. Spot-check: log in as `creationid2013@gmail.com` (or query
+5. Run `pnpm backfill:missing-invoices --apply`.
+6. Spot-check: log in as `creationid2013@gmail.com` (or query
    `tryon_prod` read-only), confirm Settings → Invoices now shows a download
    link for `order_TMRQUu9OTZ0I7j`.
-6. Record the run in `docs/progress.md` — payment IDs touched, ok/failed
+7. Record the run in `docs/progress.md` — payment IDs touched, ok/failed
    counts — same as the 2026-09-19 PR #384 webhook-backfill entry.
+
+`--apply` now acquires a Postgres advisory lock for its whole write pass, so
+only one instance can be applying at a time — a second concurrent `--apply`
+prints a message and exits 1 rather than racing the first.
 
 ## Testing
 

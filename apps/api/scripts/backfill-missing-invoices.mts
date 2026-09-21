@@ -19,11 +19,31 @@
  * resending a "payment confirmed" notification for a purchase from weeks
  * earlier.
  *
- * Safe to re-run: the selection query (LEFT JOIN invoices ... WHERE
- * invoices.id IS NULL) excludes rows once they're invoiced, and
- * issueInvoiceIfNeeded is independently idempotent (checks for an existing
- * invoices row first). Kept in the repo permanently, not deleted after use —
- * same convention as check-billing-api-enabled.mts.
+ * BACKDATED-INVOICE WARNING: issueInvoiceIfNeeded stamps the invoice's
+ * "Invoice Date" as the payment's original paidAt, but allocates the NEXT
+ * sequential invoice number as of when this script actually runs — so a
+ * backfilled invoice can carry a serial number issued after (and higher
+ * than) invoices already dated later in the same financial year, and can be
+ * dated into a GST filing period (GSTR-1) that's already been filed. This is
+ * a deliberate, out-of-scope consequence of reusing issueInvoiceIfNeeded
+ * unchanged (see docs/superpowers/specs/2026-09-21-backfill-missing-invoices-design.md).
+ * GET SIGN-OFF FROM WHOEVER OWNS GST FILING BEFORE RUNNING --apply AGAINST
+ * PRODUCTION.
+ *
+ * Concurrency: --apply acquires a Postgres advisory lock
+ * ('backfill-missing-invoices') for the whole write pass via
+ * @aivastra/db's withAdvisoryLock, so a second concurrent --apply run backs
+ * off immediately (prints a message, exits 1, writes nothing) instead of
+ * racing the first — two concurrent runs could otherwise allocate two
+ * different invoice numbers for the same gap and leave the DB's
+ * invoice_number disagreeing with whichever PDF actually landed in R2 last.
+ *
+ * Safe to re-run (sequentially, or exclusively via the lock above): the
+ * selection query (LEFT JOIN invoices ... WHERE invoices.id IS NULL)
+ * excludes rows once they're invoiced, and issueInvoiceIfNeeded is
+ * independently idempotent (checks for an existing invoices row first).
+ * Kept in the repo permanently, not deleted after use — same convention as
+ * check-billing-api-enabled.mts.
  *
  * Usage:
  *   pnpm backfill:missing-invoices                     # dry run — lists affected payments, writes nothing
@@ -49,7 +69,15 @@ function requireEnv(name: string): string {
   return v;
 }
 
-const { db, close } = createDb(process.env.DATABASE_URL ?? '');
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+if (paymentIdArg && !UUID_RE.test(paymentIdArg)) {
+  console.error(
+    `"${paymentIdArg}" does not look like a payment UUID — expected payments.id, not e.g. a Razorpay order id.`,
+  );
+  process.exit(1);
+}
+
+const { db, close, withAdvisoryLock } = createDb(requireEnv('DATABASE_URL'));
 
 try {
   const whereClause = paymentIdArg
@@ -122,24 +150,41 @@ try {
 
   let ok = 0;
   let failed = 0;
+  let lockAcquired = true;
   console.log('');
   try {
-    for (const r of rows) {
-      const result = await issueInvoiceIfNeeded(app, r.id);
-      if (result) {
-        console.log(`  issued ${result.invoiceNumber} for payment ${r.id} (${r.email})`);
-        ok++;
-      } else {
-        console.error(`  FAILED to issue invoice for payment ${r.id} (${r.email})`);
-        failed++;
+    const outcome = await withAdvisoryLock('backfill-missing-invoices', async () => {
+      for (const r of rows) {
+        const result = await issueInvoiceIfNeeded(app, r.id);
+        if (result) {
+          console.log(`  issued ${result.invoiceNumber} for payment ${r.id} (${r.email})`);
+          ok++;
+        } else {
+          console.error(`  FAILED to issue invoice for payment ${r.id} (${r.email})`);
+          failed++;
+        }
       }
+      // withAdvisoryLock returns T | undefined, and undefined also means "lock
+      // not acquired" — the callback must return something other than
+      // undefined so a successful, lock-held run is distinguishable below
+      // from a run that never got the lock at all.
+      return true;
+    });
+    if (outcome === undefined) {
+      lockAcquired = false;
+      console.error(
+        '\nAnother instance of backfill-missing-invoices appears to be running (could not acquire the advisory lock) — aborting without writing anything.',
+      );
+      process.exitCode = 1;
     }
   } finally {
     redis.disconnect();
   }
 
-  console.log(`\nDONE: ${ok} ok, ${failed} failed (${rows.length} total)`);
-  if (failed > 0) process.exitCode = 1;
+  if (lockAcquired) {
+    console.log(`\nDONE: ${ok} ok, ${failed} failed (${rows.length} total)`);
+    if (failed > 0) process.exitCode = 1;
+  }
 } finally {
   await close();
 }
