@@ -652,6 +652,7 @@ self-hosted MinIO, not Cloudflare R2 — see Stack above.
 | GPU workers (separate repo) | `aivastra-gpu` — profiling, runbook, per-box inventory, ComfyUI authoring rules |
 | Version control rules | `docs/version-control.md` |
 | Open findings | `docs/audits/open-findings.md` |
+| Admin URL-driven navigation standard | `docs/admin-url-routing-standard.md` |
 
 Design doc sections worth rereading before related work: §2 Tunnel, §3 Catalog
 model, §4 Dispatcher routing, §5 Admin surface, §6 DB schema, §11 Security
