@@ -2,6 +2,35 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-21 — /results grid thumbnails (stored output thumb + on-demand input thumbs)
+
+- **Change:** the `/results` webtool grid was loading full-res objects for every
+  cell. `apps/api/src/modules/results/routes.ts` now serves thumbnails while the
+  lightbox/download keep the full object:
+  1. `/results/data` returns `outputThumbUrl` — presigned `job_outputs.thumbnailKey`
+     (the dispatcher's stored 512px JPEG) with fallback to the on-demand endpoint
+     for pre-thumbnail rows; `outputUrl` is unchanged (full object).
+  2. New `GET /results/:id/thumb/:slot` (`garment-upper|garment-lower|garment-third|`
+     `person|output`, results-cookie auth, own 300/min bucket like
+     `/v1/jobs/:id/thumbnail`) — sharp-resizes to 256px JPEG
+     (`private, max-age=31536000, immutable`; inputs/outputs never change).
+     Keys resolve server-side from the job row, never from caller input.
+     Stored output thumbs and `.mp4` video outputs 302-redirect to R2 instead of
+     proxying bytes; corrupt/unsupported bytes redirect to the full object rather
+     than 500ing the cell.
+  3. Garment entries carry `{url (full), thumbUrl (endpoint), label}`; person/source
+     inputs get `personThumbUrl`/`poseFullUrl` (suppressed when a pose asset exists
+     so the pose thumbnail stays authoritative). Frontend `renderThumb` takes a
+     separate `fullUrl` for lightbox/download; video detection runs on the full URL.
+- **Not done:** no stored thumbnails for uploaded inputs (no new R2 keys, no
+  backfill) — input thumbs are resized on demand per fresh browser cache. If the QA
+  page gets heavy use, generate-and-cache input thumbs at dispatch time instead.
+- **Test impact:** new `apps/api/test/integration/results-thumbnails.test.ts`
+  (9 tests: data contract, resize size/format/headers, redirect paths, 404/400/401,
+  served `app.js` syntax-check via `node:vm`). Full api unit suite (678) and all
+  existing results integration tests (11) green. One Biome finding on the file
+  (`noUselessEscapeInString` in `isVideoUrl`) is pre-existing, verified via stash.
+
 ## 2026-09-19 — Routing-aware enablement counts + hardened full-sync deletion race
 
 - **Change:** Implemented both findings from
