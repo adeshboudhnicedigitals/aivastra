@@ -152,6 +152,14 @@ export function SearchableSelect({
                   key={o.id}
                   onMouseDown={(e) => {
                     e.preventDefault();
+                    // The dropdown is portaled to document.body, so it sits
+                    // outside the DOM subtree of whatever popover renders this
+                    // select. Without stopping propagation, an ancestor's own
+                    // "click outside to close" listener sees this mousedown as
+                    // outside itself and closes that popover immediately —
+                    // discarding the selection before a caller-owned Apply
+                    // button ever gets a chance to fire (see UsersPage.tsx).
+                    e.stopPropagation();
                     onChange(o.id);
                     setOpen(false);
                     setQuery('');
