@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { ImageLightbox } from '../components/ImageLightbox';
-
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { ContactRequest } from '../types';
 
@@ -54,9 +56,20 @@ export default function ContactRequestsPage({ toast }: Props) {
   });
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<ContactRequest | null>(null);
-  const [modalRow, setModalRow] = useState<ContactRequest | null>(null);
+  const [expandedId, setExpandedId] = useUrlState('expanded');
+  const closeExpanded = useCloseOverlay(['expanded']);
+  const selected = expandedId ? (rows.find((r) => r.id === expandedId) ?? null) : null;
+  const [modalRowId, setModalRowId] = useUrlState('row');
+  const closeModal = useCloseOverlay(['row']);
+  const modalRow = modalRowId ? (rows.find((r) => r.id === modalRowId) ?? null) : null;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useCrumb(
+    0,
+    modalRow
+      ? { label: modalRow.name, href: `/contacts?row=${encodeURIComponent(modalRow.id)}` }
+      : null,
+  );
 
   const notifPermRef = useRef(false);
   const prevNewCountRef = useRef<number | null>(null);
@@ -146,14 +159,13 @@ export default function ContactRequestsPage({ toast }: Props) {
   // Escape closes drawer / modal
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setSelected(null);
-        setModalRow(null);
-      }
+      if (e.key !== 'Escape') return;
+      if (modalRowId) closeModal();
+      else if (expandedId) closeExpanded();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [modalRowId, expandedId, closeModal, closeExpanded]);
 
   const setStatus = async (id: string, status: ContactRequest['status']) => {
     try {
@@ -162,8 +174,6 @@ export default function ContactRequestsPage({ toast }: Props) {
         body: JSON.stringify({ status }),
       });
       setRows((prev) => prev.map((r) => (r.id === id ? updated : r)));
-      if (selected?.id === id) setSelected(updated);
-      if (modalRow?.id === id) setModalRow(updated);
       toast({ title: `Marked as ${STATUS_LABEL[status]}` });
       void refreshSummary();
     } catch (e) {
@@ -564,7 +574,7 @@ export default function ContactRequestsPage({ toast }: Props) {
                 {filtered.map((r) => (
                   <tr
                     key={r.id}
-                    onClick={() => setModalRow(r)}
+                    onClick={() => setModalRowId(r.id)}
                     style={{
                       cursor: 'pointer',
                       background: r.status === 'new' ? 'var(--danger-soft)' : undefined,
@@ -623,7 +633,7 @@ export default function ContactRequestsPage({ toast }: Props) {
                   }}
                 >
                   <div
-                    onClick={() => setSelected(isSelected ? null : r)}
+                    onClick={() => (isSelected ? closeExpanded() : setExpandedId(r.id))}
                     style={{
                       padding: '16px 20px',
                       display: 'flex',
@@ -662,7 +672,7 @@ export default function ContactRequestsPage({ toast }: Props) {
 
       {/* ── Desktop detail modal ────────────────────────────────────── */}
       {modalRow && (
-        <div className="modal-overlay" onClick={() => setModalRow(null)}>
+        <div className="modal-overlay" onClick={closeModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>{modalRow.name}</h3>
@@ -673,7 +683,7 @@ export default function ContactRequestsPage({ toast }: Props) {
             </div>
             <div className="modal-body">{renderDetail(modalRow)}</div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setModalRow(null)}>
+              <button className="btn ghost" onClick={closeModal}>
                 Close
               </button>
             </div>
