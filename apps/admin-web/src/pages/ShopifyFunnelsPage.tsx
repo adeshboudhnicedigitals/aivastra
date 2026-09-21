@@ -3,6 +3,9 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../hooks/use-url-state';
 import { ApiError, apiErrorMessage, apiFetch } from '../lib/data';
 
 interface WorkflowOption {
@@ -203,27 +206,43 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   const [loading, setLoading] = useState(true);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const [showCreate, setShowCreate] = useState(false);
+  // One shared modal/confirm param pair for the whole page — basket
+  // create/edit/reassign and rule create/edit are mutually exclusive, as are
+  // the two delete confirms. Sharing one pair (rather than one per dialog)
+  // is what lets the delete→409→reassign transition below move from a
+  // confirm dialog to a modal in a single atomic push instead of a
+  // close-then-open (which would double-pop/push browser history).
+  const [{ modal: modalParam, editId, confirm: confirmParam, confirmId }, setParams] =
+    useUrlStateMulti(['modal', 'editId', 'confirm', 'confirmId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+
   const [slug, setSlug] = useState('');
   const [label, setLabel] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
   const [workflowTemplateId, setWorkflowTemplateId] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
   const [creating, setCreating] = useState(false);
+  const showCreate = modalParam === 'create-basket';
 
-  const [editingItem, setEditingItem] = useState<FunnelTemplate | null>(null);
+  const editingItem =
+    modalParam === 'edit-basket' && editId ? (items.find((i) => i.id === editId) ?? null) : null;
   const [editLabel, setEditLabel] = useState('');
   const [editWorkflowTemplateId, setEditWorkflowTemplateId] = useState('');
   const [editSortOrder, setEditSortOrder] = useState(0);
   const [editSaving, setEditSaving] = useState(false);
 
-  const [confirmDelete, setConfirmDelete] = useState<FunnelTemplate | null>(null);
+  const confirmDelete =
+    confirmParam === 'delete-basket' && confirmId
+      ? (items.find((i) => i.id === confirmId) ?? null)
+      : null;
   const [deleting, setDeleting] = useState(false);
 
-  // Preview fetched via GET .../delete-impact the moment "Delete" is clicked, so the
-  // confirm dialog can state real numbers before the irreversible DELETE fires.
-  // deleteImpactBasketId guards against showing a stale preview for a different basket
-  // (e.g. the 409→reassign redirect below reuses this same preview for the same id).
+  // Preview fetched via GET .../delete-impact — the confirm dialog states real
+  // numbers before the irreversible DELETE fires. deleteImpactBasketId guards
+  // against showing a stale preview for a different basket. Not URL state: it's
+  // fetched data keyed by whichever basket is currently the delete/reassign
+  // target, not navigation itself.
   const [deleteImpact, setDeleteImpact] = useState<DeleteImpact | null>(null);
   const [deleteImpactBasketId, setDeleteImpactBasketId] = useState<string | null>(null);
   const [loadingDeleteImpact, setLoadingDeleteImpact] = useState(false);
@@ -232,28 +251,122 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   // fetch (rapid double-click on two different baskets) and clobbering its result.
   const deleteImpactRequestRef = useRef(0);
 
-  const [reassignSource, setReassignSource] = useState<FunnelTemplate | null>(null);
-  const [reassignTargetId, setReassignTargetId] = useState('');
-  const [reassigning, setReassigning] = useState(false);
   // true when opened via a blocked delete (reassign, then delete the source);
   // false when opened via the standalone "Move products" action (reassign only).
-  const [reassignThenDelete, setReassignThenDelete] = useState(true);
+  // Encoded directly in the modal value (rather than a separate flag) so the
+  // URL fully describes which of the two the dialog is in.
+  const reassignThenDelete = modalParam === 'reassign-delete-basket';
+  const reassignSource =
+    (modalParam === 'reassign-basket' || modalParam === 'reassign-delete-basket') && editId
+      ? (items.find((i) => i.id === editId) ?? null)
+      : null;
+  const [reassignTargetId, setReassignTargetId] = useState('');
+  const [reassigning, setReassigning] = useState(false);
 
   const [rules, setRules] = useState<GlobalRule[]>([]);
 
-  const [showCreateRule, setShowCreateRule] = useState(false);
+  const showCreateRule = modalParam === 'create-rule';
   const [ruleFunnelTemplateId, setRuleFunnelTemplateId] = useState('');
   const [ruleConditions, setRuleConditions] = useState<Condition[]>([emptyCondition()]);
   const [rulePriority, setRulePriority] = useState(0);
   const [ruleSaving, setRuleSaving] = useState(false);
 
-  const [editingRule, setEditingRule] = useState<GlobalRule | null>(null);
+  const editingRule =
+    modalParam === 'edit-rule' && editId ? (rules.find((r) => r.id === editId) ?? null) : null;
   const [editRuleConditions, setEditRuleConditions] = useState<Condition[]>([]);
   const [editRulePriority, setEditRulePriority] = useState(0);
   const [editRuleSaving, setEditRuleSaving] = useState(false);
 
-  const [confirmDeleteRule, setConfirmDeleteRule] = useState<GlobalRule | null>(null);
+  const confirmDeleteRule =
+    confirmParam === 'delete-rule' && confirmId
+      ? (rules.find((r) => r.id === confirmId) ?? null)
+      : null;
   const [deletingRule, setDeletingRule] = useState(false);
+
+  // Id-keyed reconstruction: reseeds the edit-basket form once per distinct id,
+  // since editingItem is now derived from the URL rather than set at click time.
+  const editingItemId = editingItem?.id ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on id only, see comment above
+  useEffect(() => {
+    if (!editingItem) return;
+    setEditLabel(editingItem.label);
+    setEditWorkflowTemplateId(editingItem.workflowTemplateId);
+    setEditSortOrder(editingItem.sortOrder);
+  }, [editingItemId]);
+
+  const editingRuleId = editingRule?.id ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on id only, mirrors editingItem above
+  useEffect(() => {
+    if (!editingRule) return;
+    setEditRuleConditions(editingRule.conditions.map((c) => ({ ...c })));
+    setEditRulePriority(editingRule.priority);
+  }, [editingRuleId]);
+
+  // Drives the delete-impact preview fetch off whichever basket is currently the
+  // delete or reassign-then-delete target — reused across the 409→reassign
+  // transition since the target id doesn't change, and cleared whenever neither
+  // dialog is showing one (including the reassign-only "Move products" path).
+  const deleteImpactTargetId =
+    confirmDelete?.id ?? (reassignThenDelete ? reassignSource?.id : null) ?? null;
+  useEffect(() => {
+    if (!deleteImpactTargetId) {
+      deleteImpactRequestRef.current++;
+      setDeleteImpact(null);
+      setDeleteImpactBasketId(null);
+      setDeleteImpactError(null);
+      return;
+    }
+    if (deleteImpactBasketId === deleteImpactTargetId) return;
+    const requestId = ++deleteImpactRequestRef.current;
+    setDeleteImpact(null);
+    setDeleteImpactBasketId(deleteImpactTargetId);
+    setDeleteImpactError(null);
+    setLoadingDeleteImpact(true);
+    apiFetch<DeleteImpact>(`/admin/shopify/funnel-templates/${deleteImpactTargetId}/delete-impact`)
+      .then((impact) => {
+        if (deleteImpactRequestRef.current !== requestId) return;
+        setDeleteImpact(impact);
+      })
+      .catch((err) => {
+        if (deleteImpactRequestRef.current !== requestId) return;
+        setDeleteImpactError(
+          apiErrorMessage(err, 'Could not check what this delete would affect.'),
+        );
+      })
+      .finally(() => {
+        if (deleteImpactRequestRef.current === requestId) setLoadingDeleteImpact(false);
+      });
+  }, [deleteImpactTargetId, deleteImpactBasketId]);
+
+  useCrumb(
+    0,
+    confirmParam
+      ? {
+          label: confirmParam === 'delete-basket' ? 'Delete funnel template' : 'Delete global rule',
+          href: `/shopify-funnels?confirm=${confirmParam}&confirmId=${encodeURIComponent(confirmId ?? '')}`,
+        }
+      : null,
+  );
+  useCrumb(
+    1,
+    modalParam
+      ? {
+          label:
+            modalParam === 'create-basket'
+              ? 'New funnel template'
+              : modalParam === 'edit-basket'
+                ? 'Edit funnel template'
+                : modalParam === 'reassign-basket'
+                  ? 'Move products'
+                  : modalParam === 'reassign-delete-basket'
+                    ? 'Move products & delete'
+                    : modalParam === 'create-rule'
+                      ? 'New global rule'
+                      : 'Edit global rule',
+          href: `/shopify-funnels?modal=${modalParam}${editId ? `&editId=${encodeURIComponent(editId)}` : ''}`,
+        }
+      : null,
+  );
 
   const load = useCallback(() => {
     setLoading(true);
@@ -292,7 +405,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
       });
       toast({ title: 'Funnel template created' });
       resetCreateForm();
-      setShowCreate(false);
+      closeModal();
       load();
     } catch (err) {
       toast({
@@ -319,10 +432,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   }
 
   function openEdit(item: FunnelTemplate) {
-    setEditingItem(item);
-    setEditLabel(item.label);
-    setEditWorkflowTemplateId(item.workflowTemplateId);
-    setEditSortOrder(item.sortOrder);
+    setParams({ modal: 'edit-basket', editId: item.id });
   }
 
   async function saveEdit() {
@@ -338,41 +448,15 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
         }),
       });
       toast({ title: 'Funnel template updated' });
-      setEditingItem(null);
+      closeModal();
       load();
     } finally {
       setEditSaving(false);
     }
   }
 
-  function clearDeleteImpact() {
-    // Bump the request id too, so a still-in-flight preview fetch for the basket
-    // just closed can't land after the fact and repopulate this state.
-    deleteImpactRequestRef.current++;
-    setDeleteImpact(null);
-    setDeleteImpactBasketId(null);
-    setDeleteImpactError(null);
-  }
-
-  async function openConfirmDelete(item: FunnelTemplate) {
-    const requestId = ++deleteImpactRequestRef.current;
-    setConfirmDelete(item);
-    setDeleteImpact(null);
-    setDeleteImpactBasketId(item.id);
-    setDeleteImpactError(null);
-    setLoadingDeleteImpact(true);
-    try {
-      const impact = await apiFetch<DeleteImpact>(
-        `/admin/shopify/funnel-templates/${item.id}/delete-impact`,
-      );
-      if (deleteImpactRequestRef.current !== requestId) return; // superseded — drop it
-      setDeleteImpact(impact);
-    } catch (err) {
-      if (deleteImpactRequestRef.current !== requestId) return;
-      setDeleteImpactError(apiErrorMessage(err, 'Could not check what this delete would affect.'));
-    } finally {
-      if (deleteImpactRequestRef.current === requestId) setLoadingDeleteImpact(false);
-    }
+  function openConfirmDelete(item: FunnelTemplate) {
+    setParams({ confirm: 'delete-basket', confirmId: item.id });
   }
 
   async function handleDelete() {
@@ -382,27 +466,29 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
       await apiFetch(`/admin/shopify/funnel-templates/${confirmDelete.id}`, { method: 'DELETE' });
       toast({ title: `${confirmDelete.label} deleted` });
       load();
-      setConfirmDelete(null);
-      clearDeleteImpact();
+      closeConfirm();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         // Products are still assigned — offer to move them to another funnel
-        // template first instead of just reporting the block. Leave deleteImpact
-        // in place: it's the same basket id (deleteImpactBasketId still matches
-        // reassignSource.id below), so the reassign-then-delete modal can reuse
-        // the exact same preview instead of re-fetching it.
-        setReassignSource(confirmDelete);
+        // template first instead of just reporting the block. One atomic push
+        // (clearing confirm, setting modal) so this is a single history entry,
+        // not a close-then-open. deleteImpact is left in place: the target id
+        // is unchanged, so the effect above reuses the same preview instead of
+        // re-fetching it.
+        setParams({
+          confirm: null,
+          confirmId: null,
+          modal: 'reassign-delete-basket',
+          editId: confirmDelete.id,
+        });
         setReassignTargetId('');
-        setReassignThenDelete(true);
-        setConfirmDelete(null);
       } else {
         toast({
           kind: 'error',
           title: 'Failed to delete funnel template',
           body: apiErrorMessage(err, 'Please try again.'),
         });
-        setConfirmDelete(null);
-        clearDeleteImpact();
+        closeConfirm();
       }
     } finally {
       setDeleting(false);
@@ -410,12 +496,8 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   }
 
   function openMove(item: FunnelTemplate) {
-    setReassignSource(item);
+    setParams({ modal: 'reassign-basket', editId: item.id, confirm: null, confirmId: null });
     setReassignTargetId('');
-    setReassignThenDelete(false);
-    // No delete happens on this path — clear any leftover preview from a
-    // different basket's delete attempt so it can't bleed into this modal.
-    clearDeleteImpact();
   }
 
   async function handleReassignAndDelete() {
@@ -444,8 +526,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
           body: `${reassigned} product(s) moved to the selected funnel template.`,
         });
       }
-      setReassignSource(null);
-      clearDeleteImpact();
+      closeModal();
       load();
     } catch (err) {
       toast({
@@ -505,7 +586,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
       });
       toast({ title: 'Global rule created' });
       resetRuleForm();
-      setShowCreateRule(false);
+      closeModal();
       load();
     } catch (err) {
       toast({
@@ -519,9 +600,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   }
 
   function openEditRule(rule: GlobalRule) {
-    setEditingRule(rule);
-    setEditRuleConditions(rule.conditions.map((c) => ({ ...c })));
-    setEditRulePriority(rule.priority);
+    setParams({ modal: 'edit-rule', editId: rule.id });
   }
 
   async function saveEditRule() {
@@ -535,7 +614,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
         body: JSON.stringify({ conditions: trimmed, priority: editRulePriority }),
       });
       toast({ title: 'Global rule updated' });
-      setEditingRule(null);
+      closeModal();
       load();
     } catch (err) {
       toast({
@@ -555,14 +634,14 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
       await apiFetch(`/admin/shopify/funnel-rules/${confirmDeleteRule.id}`, { method: 'DELETE' });
       toast({ title: 'Global rule deleted' });
       load();
-      setConfirmDeleteRule(null);
+      closeConfirm();
     } catch (err) {
       toast({
         kind: 'error',
         title: 'Failed to delete global rule',
         body: apiErrorMessage(err, 'Please try again.'),
       });
-      setConfirmDeleteRule(null);
+      closeConfirm();
     } finally {
       setDeletingRule(false);
     }
@@ -580,7 +659,11 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
           </p>
         </div>
         <div className="head-tools">
-          <button type="button" className="btn primary" onClick={() => setShowCreate(true)}>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => setParams({ modal: 'create-basket', editId: null })}
+          >
             <Icon.Plus /> New funnel template
           </button>
         </div>
@@ -610,7 +693,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
             type="button"
             className="btn primary"
             style={{ marginTop: 12 }}
-            onClick={() => setShowCreate(true)}
+            onClick={() => setParams({ modal: 'create-basket', editId: null })}
           >
             <Icon.Plus /> New funnel template
           </button>
@@ -705,7 +788,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
                   ? 'Every active basket already has a global rule'
                   : undefined
               }
-              onClick={() => setShowCreateRule(true)}
+              onClick={() => setParams({ modal: 'create-rule', editId: null })}
             >
               <Icon.Plus /> New rule
             </button>
@@ -769,7 +852,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
                         <button
                           type="button"
                           className="btn sm ghost"
-                          onClick={() => setConfirmDeleteRule(rule)}
+                          onClick={() => setParams({ confirm: 'delete-rule', confirmId: rule.id })}
                           title="Delete this global rule"
                         >
                           <Icon.Trash /> Delete
@@ -787,7 +870,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
       {/* Create modal */}
       {showCreate && (
         <EditDrawer
-          onClose={() => setShowCreate(false)}
+          onClose={closeModal}
           title="New funnel template"
           width="min(420px, calc(100vw - 40px))"
           saving={creating}
@@ -848,7 +931,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
       {/* Edit modal */}
       {editingItem && (
         <EditDrawer
-          onClose={() => setEditingItem(null)}
+          onClose={closeModal}
           title="Edit funnel template"
           subtitle={editingItem.slug}
           width="min(420px, calc(100vw - 40px))"
@@ -924,25 +1007,12 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
           confirmLabel={deleting ? 'Deleting…' : 'Delete'}
           confirmDisabled={deleting || loadingDeleteImpact || !!deleteImpactError}
           onConfirm={handleDelete}
-          onClose={() => {
-            setConfirmDelete(null);
-            clearDeleteImpact();
-          }}
+          onClose={closeConfirm}
         />
       )}
 
       {reassignSource && (
-        <div
-          className="modal-overlay"
-          onClick={
-            reassigning
-              ? undefined
-              : () => {
-                  setReassignSource(null);
-                  clearDeleteImpact();
-                }
-          }
-        >
+        <div className="modal-overlay" onClick={reassigning ? undefined : closeModal}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -952,10 +1022,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
               <h3>{reassignThenDelete ? 'Move products & delete' : 'Move products'}</h3>
               <button
                 className="btn sm ghost"
-                onClick={() => {
-                  setReassignSource(null);
-                  clearDeleteImpact();
-                }}
+                onClick={closeModal}
                 disabled={reassigning}
                 style={{ marginLeft: 'auto' }}
               >
@@ -994,14 +1061,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
               </div>
             </div>
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => {
-                  setReassignSource(null);
-                  clearDeleteImpact();
-                }}
-                disabled={reassigning}
-              >
+              <button className="btn ghost" onClick={closeModal} disabled={reassigning}>
                 Cancel
               </button>
               <button
@@ -1019,7 +1079,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
       {/* Global rule create modal */}
       {showCreateRule && (
         <EditDrawer
-          onClose={() => setShowCreateRule(false)}
+          onClose={closeModal}
           title="New global rule"
           width="min(720px, calc(100vw - 40px))"
           saving={ruleSaving}
@@ -1071,7 +1131,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
       {/* Global rule edit modal */}
       {editingRule && (
         <EditDrawer
-          onClose={() => setEditingRule(null)}
+          onClose={closeModal}
           title="Edit global rule"
           subtitle={basketLabel(editingRule.funnelTemplateId)}
           width="min(720px, calc(100vw - 40px))"
@@ -1121,7 +1181,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
           danger
           confirmLabel={deletingRule ? 'Deleting…' : 'Delete'}
           onConfirm={handleDeleteRule}
-          onClose={() => setConfirmDeleteRule(null)}
+          onClose={closeConfirm}
         />
       )}
     </div>

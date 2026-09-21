@@ -3,6 +3,8 @@ import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../context/AuthContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState } from '../hooks/use-url-state';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { WorkflowOption } from '../types';
@@ -82,7 +84,9 @@ export default function SareePage({ toast, onNav }: Props) {
   const [settings, setSettings] = useState<AdminSareeSettings | null>(null);
   const [workers, setWorkers] = useState<AdminSareeWorker[]>([]);
 
-  const [wfModal, setWfModal] = useState(false);
+  const [wfModalParam, setWfModalParam] = useUrlState('modal');
+  const wfModal = wfModalParam === 'upload-workflow';
+  const closeWfModal = useCloseOverlay(['modal']);
   const [wfLabel, setWfLabel] = useState('');
   const [wfSlug, setWfSlug] = useState('');
   const [wfFile, setWfFile] = useState<File | null>(null);
@@ -130,7 +134,7 @@ export default function SareePage({ toast, onNav }: Props) {
     setWfSlug('');
     setWfFile(null);
     setSlugEdited(false);
-    setWfModal(true);
+    setWfModalParam('upload-workflow');
   };
 
   const handleWfLabelChange = (value: string) => {
@@ -150,7 +154,7 @@ export default function SareePage({ toast, onNav }: Props) {
       });
       setWorkflow(created);
       toast({ title: 'Saree workflow uploaded' });
-      setWfModal(false);
+      closeWfModal();
     } catch (e) {
       toast({
         kind: 'error',
@@ -681,7 +685,7 @@ export default function SareePage({ toast, onNav }: Props) {
 
       {wfModal && (
         <EditDrawer
-          onClose={() => setWfModal(false)}
+          onClose={closeWfModal}
           title="Upload saree workflow JSON"
           width="min(520px, calc(100vw - 40px))"
           saving={wfSaving}

@@ -6,6 +6,9 @@ import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { Switch } from '../components/Switch';
 import { useAuth } from '../context/AuthContext';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import JobCostsTab from './settings/JobCostsTab';
 import ProdSnapshotTab from './settings/ProdSnapshotTab';
@@ -254,9 +257,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const section = visibleSections.some((s) => s.k === requestedSection)
     ? requestedSection
     : 'appearance';
-  const [creditSubTab, setCreditSubTab] = useState<'purchasable' | 'job-costs' | 'shopify'>(
-    'purchasable',
-  );
+  const [creditTabParam, setCreditTabParam] = useUrlState('creditTab');
+  const creditSubTab: 'purchasable' | 'job-costs' | 'shopify' =
+    creditTabParam === 'job-costs' || creditTabParam === 'shopify' ? creditTabParam : 'purchasable';
   const [pageSize, setPageSize] = useState<number>(25);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -308,12 +311,42 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
   const [campaigns, setCampaigns] = useState<SignupCampaign[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(true);
-  const [campaignModal, setCampaignModal] = useState<{
-    open: boolean;
-    campaign: SignupCampaign | null;
-  }>({ open: false, campaign: null });
-  const [confirmDeleteCampaign, setConfirmDeleteCampaign] = useState<SignupCampaign | null>(null);
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const campaignModalOpen = modalParam === 'new-campaign' || modalParam === 'edit-campaign';
+  const campaignModalTarget =
+    modalParam === 'edit-campaign' && editId
+      ? (campaigns.find((c) => c.id === editId) ?? null)
+      : null;
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const confirmDeleteCampaign =
+    confirmParam === 'delete-campaign' && confirmId
+      ? (campaigns.find((c) => c.id === confirmId) ?? null)
+      : null;
   const [deletingCampaign, setDeletingCampaign] = useState(false);
+
+  useCrumb(
+    0,
+    confirmDeleteCampaign
+      ? {
+          label: 'Delete campaign',
+          href: `/settings?s=signup-campaigns&confirm=delete-campaign&confirmId=${encodeURIComponent(confirmDeleteCampaign.id)}`,
+        }
+      : null,
+  );
+  useCrumb(
+    1,
+    campaignModalOpen
+      ? {
+          label: modalParam === 'new-campaign' ? 'New campaign' : 'Edit campaign',
+          href: `/settings?s=signup-campaigns&modal=${modalParam}${editId ? `&editId=${encodeURIComponent(editId)}` : ''}`,
+        }
+      : null,
+  );
 
   useEffect(() => {
     apiFetch<{
@@ -534,7 +567,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       });
     } finally {
       setDeletingCampaign(false);
-      setConfirmDeleteCampaign(null);
+      closeConfirm();
     }
   };
 
@@ -696,7 +729,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
               <button
                 key={t.k}
                 className={`tab ${creditSubTab === t.k ? 'active' : ''}`}
-                onClick={() => setCreditSubTab(t.k)}
+                onClick={() => setCreditTabParam(t.k === 'purchasable' ? null : t.k)}
               >
                 {t.label}
               </button>
@@ -735,7 +768,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
             </h3>
             <button
               className="btn sm primary"
-              onClick={() => setCampaignModal({ open: true, campaign: null })}
+              onClick={() => setModalParams({ modal: 'new-campaign', editId: null })}
             >
               <Icon.Add /> Add campaign
             </button>
@@ -790,14 +823,16 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button
                             className="btn sm ghost"
-                            onClick={() => setCampaignModal({ open: true, campaign: c })}
+                            onClick={() => setModalParams({ modal: 'edit-campaign', editId: c.id })}
                             title="Edit"
                           >
                             <Icon.Edit />
                           </button>
                           <button
                             className="btn sm ghost"
-                            onClick={() => setConfirmDeleteCampaign(c)}
+                            onClick={() =>
+                              setConfirmParams({ confirm: 'delete-campaign', confirmId: c.id })
+                            }
                             title="Delete"
                             style={{ color: 'var(--danger)' }}
                           >
@@ -1357,11 +1392,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         </div>
       )}
 
-      {campaignModal.open && (
+      {campaignModalOpen && (
         <CampaignModal
-          campaign={campaignModal.campaign}
+          campaign={campaignModalTarget}
           onSaved={handleCampaignSaved}
-          onClose={() => setCampaignModal({ open: false, campaign: null })}
+          onClose={closeModal}
           toast={toast}
         />
       )}
@@ -1374,7 +1409,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           danger
           confirmLabel={deletingCampaign ? 'Deleting…' : 'Delete'}
           onConfirm={handleDeleteCampaign}
-          onClose={() => setConfirmDeleteCampaign(null)}
+          onClose={closeConfirm}
         />
       )}
     </>

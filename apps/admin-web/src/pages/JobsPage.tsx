@@ -250,6 +250,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       : null,
   );
   const [fromUserId] = useUrlState('fromUser');
+  const [fromStoreId] = useUrlState('fromStore');
   const [filter, setFilter] = useState<FilterKey>(
     (location.state as { filter?: FilterKey })?.filter || 'all',
   );
@@ -727,6 +728,13 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                 }
               >
                 <Icon.Back /> Back to user
+              </button>
+            ) : fromStoreId && jobIdParam === j.id ? (
+              <button
+                className="btn ghost"
+                onClick={() => navigate(`/shopify-stores?store=${encodeURIComponent(fromStoreId)}`)}
+              >
+                <Icon.Back /> Back to store
               </button>
             ) : (
               <button className="btn ghost" onClick={closeDetail}>

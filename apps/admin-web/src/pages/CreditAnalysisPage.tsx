@@ -3,6 +3,9 @@ import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import { Icon } from '../components/Icons';
 import { Pager } from '../components/Pager';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 type DayRange = '7' | '30' | '90' | 'all';
@@ -86,15 +89,19 @@ export default function CreditAnalysisPage({ toast }: Props) {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useUrlState('user');
+  const closeDetail = useCloseOverlay(['user']);
   const [detail, setDetail] = useState<CreditUserDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   const [isNavOpen, setIsNavOpen] = useState(false);
-  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
-  const [expandedSubTabMap, setExpandedSubTabMap] = useState<
-    Record<string, 'graph' | 'ledger' | null>
-  >({});
+  const [{ expanded: expandedUserId, expandedSubtab }, setAccordionParams] = useUrlStateMulti([
+    'expanded',
+    'expandedSubtab',
+  ]);
+  const closeAccordion = useCloseOverlay(['expanded', 'expandedSubtab']);
+  const activeSubTab =
+    expandedSubtab === 'graph' || expandedSubtab === 'ledger' ? expandedSubtab : null;
   const [showAllLedgerMap, setShowAllLedgerMap] = useState<Record<string, boolean>>({});
   const [userCreditDetailsMap, setUserCreditDetailsMap] = useState<
     Record<string, CreditUserDetail>
@@ -102,17 +109,19 @@ export default function CreditAnalysisPage({ toast }: Props) {
 
   const toggleMobileUserExpand = async (userId: string) => {
     const willExpand = expandedUserId !== userId;
-    setExpandedUserId(willExpand ? userId : null);
-    if (willExpand) {
-      try {
-        const params = new URLSearchParams({ days, source });
-        const data = await apiFetch<CreditUserDetail>(
-          `/admin/credit-analysis/users/${userId}?${params}`,
-        );
-        setUserCreditDetailsMap((prev) => ({ ...prev, [userId]: data }));
-      } catch {
-        // Ignore background fetch failure
-      }
+    if (!willExpand) {
+      closeAccordion();
+      return;
+    }
+    setAccordionParams({ expanded: userId, expandedSubtab: null });
+    try {
+      const params = new URLSearchParams({ days, source });
+      const data = await apiFetch<CreditUserDetail>(
+        `/admin/credit-analysis/users/${userId}?${params}`,
+      );
+      setUserCreditDetailsMap((prev) => ({ ...prev, [userId]: data }));
+    } catch {
+      // Ignore background fetch failure
     }
   };
 
@@ -170,7 +179,7 @@ export default function CreditAnalysisPage({ toast }: Props) {
             title: 'Failed to load user detail',
             body: apiErrorMessage(err, 'Please try again.'),
           });
-          setDetailId(null);
+          closeDetail();
         }
       } finally {
         if (!cancelled) setDetailLoading(false);
@@ -181,7 +190,7 @@ export default function CreditAnalysisPage({ toast }: Props) {
     };
     // Re-fetches whenever the opened user, or the day-range/source filter, changes —
     // this is what lets changing the filter while a detail view is open refresh it.
-  }, [detailId, days, source, toast]);
+  }, [detailId, days, source, toast, closeDetail]);
 
   const handleSearch = (q: string) => {
     setQuery(q);
@@ -190,12 +199,22 @@ export default function CreditAnalysisPage({ toast }: Props) {
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
+  useCrumb(
+    0,
+    detailId
+      ? {
+          label: detail?.displayName ?? detail?.email ?? detailId,
+          href: `/credit-analysis?user=${encodeURIComponent(detailId)}`,
+        }
+      : null,
+  );
+
   if (detailId) {
     return (
       <>
         <div className="page-head">
           <div>
-            <button className="btn ghost" onClick={() => setDetailId(null)}>
+            <button className="btn ghost" onClick={closeDetail}>
               <Icon.Back /> Back to credit analysis
             </button>
             {detail && (
@@ -651,7 +670,6 @@ export default function CreditAnalysisPage({ toast }: Props) {
             {rows.map((r) => {
               const isExpanded = expandedUserId === r.id;
               const userDetail = userCreditDetailsMap[r.id];
-              const activeSubTab = expandedSubTabMap[r.id] ?? null;
               const showAllLedger = showAllLedgerMap[r.id] ?? false;
 
               return (
@@ -846,10 +864,10 @@ export default function CreditAnalysisPage({ toast }: Props) {
                         <button
                           className={`btn sm ${activeSubTab === 'graph' ? 'primary' : 'ghost'}`}
                           onClick={() =>
-                            setExpandedSubTabMap((prev) => ({
-                              ...prev,
-                              [r.id]: prev[r.id] === 'graph' ? null : 'graph',
-                            }))
+                            setAccordionParams({
+                              expanded: r.id,
+                              expandedSubtab: activeSubTab === 'graph' ? null : 'graph',
+                            })
                           }
                           style={{ flex: 1, justifyContent: 'center' }}
                         >
@@ -858,10 +876,10 @@ export default function CreditAnalysisPage({ toast }: Props) {
                         <button
                           className={`btn sm ${activeSubTab === 'ledger' ? 'primary' : 'ghost'}`}
                           onClick={() =>
-                            setExpandedSubTabMap((prev) => ({
-                              ...prev,
-                              [r.id]: prev[r.id] === 'ledger' ? null : 'ledger',
-                            }))
+                            setAccordionParams({
+                              expanded: r.id,
+                              expandedSubtab: activeSubTab === 'ledger' ? null : 'ledger',
+                            })
                           }
                           style={{ flex: 1, justifyContent: 'center' }}
                         >

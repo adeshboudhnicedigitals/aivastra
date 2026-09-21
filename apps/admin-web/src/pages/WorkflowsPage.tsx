@@ -5,6 +5,9 @@ import { Icon } from '../components/Icons';
 import { ReplaceWorkflowModal } from '../components/ReplaceWorkflowModal';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { WorkflowUploadModal } from '../components/WorkflowUploadModal';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 import { ApiError, apiErrorMessage, apiFetch } from '../lib/data';
 import type { WorkflowOption } from '../types';
 
@@ -60,18 +63,37 @@ export default function WorkflowsPage({ toast }: Props) {
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [loading, setLoading] = useState(true);
-  const [showUpload, setShowUpload] = useState(false);
-  const [expandedWorkflowId, setExpandedWorkflowId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [expandedWorkflowId, setExpandedWorkflowId] = useUrlState('expanded');
+  const closeExpanded = useCloseOverlay(['expanded']);
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const deletingId = confirmParam === 'delete-workflow' ? confirmId : null;
   const [togglingId, setTogglingId] = useState<string | null>(null);
-  const [reassigning, setReassigning] = useState<WorkflowOption | null>(null);
   const [reassignTargetId, setReassignTargetId] = useState('');
   const [reassignSaving, setReassignSaving] = useState(false);
+  const [detailIdParam, setDetailIdParam] = useUrlState('view');
+  const closeViewDetail = useCloseOverlay(['view']);
   const [viewingDetail, setViewingDetail] = useState<WorkflowDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [jsonCopied, setJsonCopied] = useState(false);
-  const [editingWf, setEditingWf] = useState<WorkflowOption | null>(null);
-  const [replacingWf, setReplacingWf] = useState<WorkflowOption | null>(null);
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const showUpload = modalParam === 'upload-workflow';
+  const editingWf =
+    modalParam === 'edit-workflow' && editId
+      ? (workflows.find((w) => w.id === editId) ?? null)
+      : null;
+  const replacingWf =
+    modalParam === 'replace-workflow' && editId
+      ? (workflows.find((w) => w.id === editId) ?? null)
+      : null;
+  const reassigning =
+    modalParam === 'reassign-workflow' && editId
+      ? (workflows.find((w) => w.id === editId) ?? null)
+      : null;
   const [editForm, setEditForm] = useState({
     label: '',
     slug: '',
@@ -94,6 +116,59 @@ export default function WorkflowsPage({ toast }: Props) {
   });
   const [editSaving, setEditSaving] = useState(false);
 
+  const editingWfId = editingWf?.id ?? null;
+  // Reseeds the edit form once per distinct id when the URL opens the edit
+  // modal — an inline onClick can't seed it since editingWf is now derived
+  // from the URL + already-loaded list, not set at click time.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on id only, see comment above
+  useEffect(() => {
+    if (!editingWf) return;
+    setEditForm({
+      label: editingWf.label,
+      slug: editingWf.slug,
+      garmentPhasePrompt: editingWf.defaultGarmentPhasePrompt,
+      facePhasePrompt: editingWf.defaultFacePhasePrompt,
+      regenerationReasonPrompts: regenerationReasonPromptsFromWf(editingWf),
+      stage1PositivePrompt: editingWf.defaultStage1PositivePrompt,
+      stage1NegativePrompt: editingWf.defaultStage1NegativePrompt,
+      samSegmentationPrompt: editingWf.defaultSamSegmentationPrompt,
+      samSegmentationPromptNodeInput: editingWf.samSegmentationPromptNode ?? '',
+      latentMaxPx: String(editingWf.latentMaxPx ?? ''),
+      outputMaxPx: String(editingWf.outputMaxPx ?? ''),
+      ksamplerOverrides: ksamplerOverridesFromWf(editingWf),
+    });
+  }, [editingWfId]);
+
+  // Reconstructs from the URL alone — hard refresh or deep link. Skipped when
+  // viewingDetail already holds this same id, so opening from a row click
+  // doesn't double-fetch.
+  useEffect(() => {
+    if (!detailIdParam || viewingDetail?.id === detailIdParam) return;
+    let cancelled = false;
+    setViewingDetail(null);
+    setDetailLoading(true);
+    (async () => {
+      try {
+        const data = await apiFetch<WorkflowDetail>(`/admin/workflows/${detailIdParam}`);
+        if (!cancelled) setViewingDetail(data);
+      } catch (e) {
+        if (!cancelled) {
+          toast({
+            kind: 'error',
+            title: 'Failed to load workflow detail',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
+          closeViewDetail();
+        }
+      } finally {
+        if (!cancelled) setDetailLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [detailIdParam, viewingDetail?.id, toast, closeViewDetail]);
+
   const loadWorkflows = useCallback(async () => {
     setLoading(true);
     try {
@@ -112,16 +187,19 @@ export default function WorkflowsPage({ toast }: Props) {
 
   const handleCreated = (wf: WorkflowOption) => {
     setWorkflows((prev) => [wf, ...prev]);
-    setShowUpload(false);
+    closeModal();
   };
 
   const handleReplaced = (updated: WorkflowOption) => {
     setWorkflows((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
-    setReplacingWf(null);
+    closeModal();
   };
 
   const handleDelete = async (id: string) => {
-    setDeleting(null);
+    // Closes optimistically, once — closeConfirm() navigates back and a
+    // second call (as the old finally-block setDeleting(null) did when this
+    // was plain state) would double-pop browser history.
+    closeConfirm();
     if (id.startsWith('wf_demo_')) {
       setWorkflows((prev) => prev.filter((w) => w.id !== id));
       toast({ title: 'Workflow deleted' });
@@ -138,8 +216,6 @@ export default function WorkflowsPage({ toast }: Props) {
             'Failed to delete workflow')
           : 'Failed to delete workflow';
       toast({ kind: 'error', title: msg });
-    } finally {
-      setDeleting(null);
     }
   };
 
@@ -184,7 +260,7 @@ export default function WorkflowsPage({ toast }: Props) {
       toast({
         title: `Poses reassigned from "${reassigning.label}"`,
       });
-      setReassigning(null);
+      closeModal();
       setReassignTargetId('');
     } catch (e) {
       const msg =
@@ -194,23 +270,6 @@ export default function WorkflowsPage({ toast }: Props) {
       toast({ kind: 'error', title: msg });
     } finally {
       setReassignSaving(false);
-    }
-  };
-
-  const handleViewDetail = async (id: string) => {
-    setDetailLoading(true);
-    setViewingDetail(null);
-    try {
-      const detail = await apiFetch<WorkflowDetail>(`/admin/workflows/${id}`);
-      setViewingDetail(detail);
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Failed to load workflow detail',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
-    } finally {
-      setDetailLoading(false);
     }
   };
 
@@ -361,7 +420,7 @@ export default function WorkflowsPage({ toast }: Props) {
         ),
       );
       toast({ title: 'Workflow updated' });
-      setEditingWf(null);
+      closeModal();
     } catch (e) {
       const msg =
         e instanceof ApiError
@@ -373,7 +432,42 @@ export default function WorkflowsPage({ toast }: Props) {
     }
   };
 
-  const deletingWorkflow = deleting ? workflows.find((w) => w.id === deleting) : null;
+  const deletingWorkflow = deletingId ? workflows.find((w) => w.id === deletingId) : null;
+
+  useCrumb(
+    0,
+    detailIdParam
+      ? {
+          label: viewingDetail?.label ?? 'Workflow detail',
+          href: `/workflows?view=${encodeURIComponent(detailIdParam)}`,
+        }
+      : null,
+  );
+  useCrumb(
+    1,
+    deletingId
+      ? {
+          label: 'Delete workflow',
+          href: `/workflows?confirm=delete-workflow&confirmId=${encodeURIComponent(deletingId)}`,
+        }
+      : null,
+  );
+  useCrumb(
+    2,
+    modalParam
+      ? {
+          label:
+            modalParam === 'upload-workflow'
+              ? 'Add workflow'
+              : modalParam === 'edit-workflow'
+                ? 'Edit workflow'
+                : modalParam === 'replace-workflow'
+                  ? 'Replace workflow'
+                  : 'Reassign workflow',
+          href: `/workflows?modal=${modalParam}${editId ? `&editId=${encodeURIComponent(editId)}` : ''}`,
+        }
+      : null,
+  );
 
   const q = query.trim().toLowerCase();
   const filteredWorkflows = workflows
@@ -416,7 +510,10 @@ export default function WorkflowsPage({ toast }: Props) {
               />
             </>
           )}
-          <button className="btn primary" onClick={() => setShowUpload(true)}>
+          <button
+            className="btn primary"
+            onClick={() => setModalParams({ modal: 'upload-workflow', editId: null })}
+          >
             <Icon.Plus />
             Add workflow
           </button>
@@ -448,7 +545,7 @@ export default function WorkflowsPage({ toast }: Props) {
           <button
             className="btn primary"
             style={{ marginTop: 12 }}
-            onClick={() => setShowUpload(true)}
+            onClick={() => setModalParams({ modal: 'upload-workflow', editId: null })}
           >
             <Icon.Plus /> Add workflow
           </button>
@@ -600,7 +697,9 @@ export default function WorkflowsPage({ toast }: Props) {
                           <button
                             className="btn sm ghost"
                             disabled={Boolean(wf.draining)}
-                            onClick={() => setReplacingWf(wf)}
+                            onClick={() =>
+                              setModalParams({ modal: 'replace-workflow', editId: wf.id })
+                            }
                             title={
                               wf.draining
                                 ? 'Cannot replace while draining previous version'
@@ -611,23 +710,9 @@ export default function WorkflowsPage({ toast }: Props) {
                           </button>
                           <button
                             className="btn sm ghost"
-                            onClick={() => {
-                              setEditingWf(wf);
-                              setEditForm({
-                                label: wf.label,
-                                slug: wf.slug,
-                                garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
-                                facePhasePrompt: wf.defaultFacePhasePrompt,
-                                regenerationReasonPrompts: regenerationReasonPromptsFromWf(wf),
-                                stage1PositivePrompt: wf.defaultStage1PositivePrompt,
-                                stage1NegativePrompt: wf.defaultStage1NegativePrompt,
-                                samSegmentationPrompt: wf.defaultSamSegmentationPrompt,
-                                samSegmentationPromptNodeInput: wf.samSegmentationPromptNode ?? '',
-                                latentMaxPx: String(wf.latentMaxPx ?? ''),
-                                outputMaxPx: String(wf.outputMaxPx ?? ''),
-                                ksamplerOverrides: ksamplerOverridesFromWf(wf),
-                              });
-                            }}
+                            onClick={() =>
+                              setModalParams({ modal: 'edit-workflow', editId: wf.id })
+                            }
                             title="Edit workflow"
                           >
                             <Icon.Edit /> Edit
@@ -635,7 +720,7 @@ export default function WorkflowsPage({ toast }: Props) {
                           <button
                             className="btn sm ghost"
                             disabled={detailLoading}
-                            onClick={() => handleViewDetail(wf.id)}
+                            onClick={() => setDetailIdParam(wf.id)}
                             title="View parsed data"
                           >
                             <Icon.Eye /> View
@@ -653,7 +738,9 @@ export default function WorkflowsPage({ toast }: Props) {
                             className="btn sm ghost"
                             style={{ color: 'var(--danger)' }}
                             disabled={wf.poseCount > 0}
-                            onClick={() => setDeleting(wf.id)}
+                            onClick={() =>
+                              setConfirmParams({ confirm: 'delete-workflow', confirmId: wf.id })
+                            }
                             title={
                               wf.poseCount > 0
                                 ? 'Cannot delete — in use by poses'
@@ -689,7 +776,7 @@ export default function WorkflowsPage({ toast }: Props) {
                 >
                   <button
                     type="button"
-                    onClick={() => setExpandedWorkflowId(isExpanded ? null : wf.id)}
+                    onClick={() => (isExpanded ? closeExpanded() : setExpandedWorkflowId(wf.id))}
                     style={{
                       padding: '14px 16px',
                       display: 'flex',
@@ -896,7 +983,9 @@ export default function WorkflowsPage({ toast }: Props) {
                         <button
                           className="btn sm ghost"
                           disabled={Boolean(wf.draining)}
-                          onClick={() => setReplacingWf(wf)}
+                          onClick={() =>
+                            setModalParams({ modal: 'replace-workflow', editId: wf.id })
+                          }
                           title={
                             wf.draining
                               ? 'Cannot replace while draining previous version'
@@ -907,30 +996,14 @@ export default function WorkflowsPage({ toast }: Props) {
                         </button>
                         <button
                           className="btn sm ghost"
-                          onClick={() => {
-                            setEditingWf(wf);
-                            setEditForm({
-                              label: wf.label,
-                              slug: wf.slug,
-                              garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
-                              facePhasePrompt: wf.defaultFacePhasePrompt,
-                              regenerationReasonPrompts: regenerationReasonPromptsFromWf(wf),
-                              stage1PositivePrompt: wf.defaultStage1PositivePrompt,
-                              stage1NegativePrompt: wf.defaultStage1NegativePrompt,
-                              samSegmentationPrompt: wf.defaultSamSegmentationPrompt,
-                              samSegmentationPromptNodeInput: wf.samSegmentationPromptNode ?? '',
-                              latentMaxPx: String(wf.latentMaxPx ?? ''),
-                              outputMaxPx: String(wf.outputMaxPx ?? ''),
-                              ksamplerOverrides: ksamplerOverridesFromWf(wf),
-                            });
-                          }}
+                          onClick={() => setModalParams({ modal: 'edit-workflow', editId: wf.id })}
                         >
                           <Icon.Edit /> Edit
                         </button>
                         <button
                           className="btn sm ghost"
                           disabled={detailLoading}
-                          onClick={() => handleViewDetail(wf.id)}
+                          onClick={() => setDetailIdParam(wf.id)}
                         >
                           <Icon.Eye /> View
                         </button>
@@ -944,7 +1017,9 @@ export default function WorkflowsPage({ toast }: Props) {
                         <button
                           className="btn sm ghost danger"
                           disabled={wf.poseCount > 0}
-                          onClick={() => setDeleting(wf.id)}
+                          onClick={() =>
+                            setConfirmParams({ confirm: 'delete-workflow', confirmId: wf.id })
+                          }
                         >
                           <Icon.Trash /> Delete
                         </button>
@@ -959,11 +1034,8 @@ export default function WorkflowsPage({ toast }: Props) {
       )}
 
       {/* Detail modal */}
-      {(viewingDetail || detailLoading) && (
-        <div
-          className="modal-overlay"
-          onClick={detailLoading ? undefined : () => setViewingDetail(null)}
-        >
+      {detailIdParam && (
+        <div className="modal-overlay" onClick={detailLoading ? undefined : closeViewDetail}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -973,7 +1045,7 @@ export default function WorkflowsPage({ toast }: Props) {
               <h3>{viewingDetail ? viewingDetail.label : 'Loading…'}</h3>
               <button
                 className="btn sm ghost"
-                onClick={() => setViewingDetail(null)}
+                onClick={closeViewDetail}
                 disabled={detailLoading}
                 style={{ marginLeft: 'auto' }}
               >
@@ -1287,7 +1359,7 @@ export default function WorkflowsPage({ toast }: Props) {
               </div>
             ) : null}
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setViewingDetail(null)}>
+              <button className="btn ghost" onClick={closeViewDetail}>
                 Close
               </button>
             </div>
@@ -1298,7 +1370,7 @@ export default function WorkflowsPage({ toast }: Props) {
       {/* Edit label/slug modal */}
       {editingWf && (
         <EditDrawer
-          onClose={() => setEditingWf(null)}
+          onClose={closeModal}
           title="Edit workflow"
           width="min(640px, calc(100vw - 40px))"
           saving={editSaving}
@@ -1643,11 +1715,7 @@ export default function WorkflowsPage({ toast }: Props) {
 
       {/* Upload modal */}
       {showUpload && (
-        <WorkflowUploadModal
-          onCreated={handleCreated}
-          onClose={() => setShowUpload(false)}
-          toast={toast}
-        />
+        <WorkflowUploadModal onCreated={handleCreated} onClose={closeModal} toast={toast} />
       )}
 
       {/* Replace workflow modal */}
@@ -1655,20 +1723,20 @@ export default function WorkflowsPage({ toast }: Props) {
         <ReplaceWorkflowModal
           workflow={replacingWf}
           onReplaced={handleReplaced}
-          onClose={() => setReplacingWf(null)}
+          onClose={closeModal}
           toast={toast}
         />
       )}
 
       {/* Delete confirmation */}
-      {deleting && deletingWorkflow && (
+      {deletingId && deletingWorkflow && (
         <ConfirmModal
           title="Delete workflow"
           body={`Delete "${deletingWorkflow.label}"? This cannot be undone.`}
           confirmLabel="Delete"
           danger
-          onConfirm={() => handleDelete(deleting)}
-          onClose={() => setDeleting(null)}
+          onConfirm={() => handleDelete(deletingId)}
+          onClose={closeConfirm}
         />
       )}
 
@@ -1676,7 +1744,7 @@ export default function WorkflowsPage({ toast }: Props) {
       {reassigning && (
         <EditDrawer
           onClose={() => {
-            setReassigning(null);
+            closeModal();
             setReassignTargetId('');
           }}
           title="Reassign workflow"

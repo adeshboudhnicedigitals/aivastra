@@ -29,6 +29,7 @@ export const UsersExportQuery = z.object({
   tier: z.string().optional(),
   excludeFree: z.coerce.boolean().optional(),
   excludeAdminRole: z.enum(['ALL', 'SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'SUPPORT']).optional(),
+  excludeOrganizationMembers: z.coerce.boolean().optional(),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
 });
 export type UsersExportQuery = z.infer<typeof UsersExportQuery>;
@@ -68,6 +69,7 @@ export async function loadUsersForExport(
     tier,
     excludeFree,
     excludeAdminRole,
+    excludeOrganizationMembers,
     sortDir,
   }: UsersExportQuery,
 ): Promise<UserExportRow[]> {
@@ -100,6 +102,7 @@ export async function loadUsersForExport(
       : excludeAdminRole
         ? or(isNull(schema.adminUsers.role), ne(schema.adminUsers.role, excludeAdminRole))
         : undefined,
+    excludeOrganizationMembers === true ? eq(schema.users.isOrganizationMember, false) : undefined,
   );
 
   const [{ total }] = await app.db
