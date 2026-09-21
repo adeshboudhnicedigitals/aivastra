@@ -34,6 +34,12 @@ export const users = pgTable(
     tier: text('tier').notNull().default('free'),
     emailVerified: boolean('email_verified').notNull().default(false),
     isBanned: boolean('is_banned').notNull().default(false),
+    // Pure data tag for filtering/reporting — marks the account as belonging to the
+    // company's own team rather than a client, so it can be excluded from paid-plan
+    // reports (GET /admin/users, its exports) without granting any admin-panel access.
+    // Deliberately not tied to admin_users/roles: those grant a real login and require
+    // a password, which is unnecessary friction for what's just a "who is staff" label.
+    isOrganizationMember: boolean('is_organization_member').notNull().default(false),
     maxActiveDevices: integer('max_active_devices').notNull().default(1),
     banReason: text('ban_reason'),
     defaultResolution: text('default_resolution').notNull().default('HD'),
