@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { Switch } from '../components/Switch';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 type JobType = string;
@@ -35,14 +38,63 @@ export default function WorkersPage({ toast }: Props) {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [jobTypes, setJobTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [editTarget, setEditTarget] = useState<Worker | null>(null);
+
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModalOverlay = useCloseOverlay(['modal', 'editId']);
+  const showAdd = modalParam === 'add' || modalParam === 'edit';
+  const editTarget =
+    modalParam === 'edit' && editId ? (workers.find((w) => w.id === editId) ?? null) : null;
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<Worker | null>(null);
-  const [expandedWorkerId, setExpandedWorkerId] = useState<string | null>(null);
+
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const confirmDelete =
+    confirmParam === 'delete-worker' && confirmId
+      ? (workers.find((w) => w.id === confirmId) ?? null)
+      : null;
+
+  const [expandedWorkerId, setExpandedWorkerId] = useUrlState('expanded');
+  const closeExpanded = useCloseOverlay(['expanded']);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useCrumb(
+    0,
+    confirmDelete
+      ? {
+          label: 'Delete worker',
+          href: `/workers?confirm=delete-worker&confirmId=${encodeURIComponent(confirmDelete.id)}`,
+        }
+      : null,
+  );
+  useCrumb(
+    1,
+    modalParam
+      ? {
+          label: modalParam === 'add' ? 'Add worker' : `Edit ${editId ?? ''}`,
+          href: `/workers?modal=${modalParam}${editId ? `&editId=${encodeURIComponent(editId)}` : ''}`,
+        }
+      : null,
+  );
+
+  const editTargetId = editTarget?.id ?? null;
+  // Reseeds the form once per distinct id — editTarget is now derived from the
+  // URL + already-loaded worker list, not passed synchronously at click time.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on id only, see comment above
+  useEffect(() => {
+    if (!editTarget) return;
+    setForm({
+      id: editTarget.id,
+      label: editTarget.label,
+      url: editTarget.url,
+      apiKey: '',
+      allowedJobTypes: editTarget.allowedJobTypes ?? [],
+    });
+  }, [editTargetId]);
 
   const load = useCallback(async () => {
     try {
@@ -81,25 +133,15 @@ export default function WorkersPage({ toast }: Props) {
 
   function openAdd() {
     setForm(EMPTY_FORM);
-    setEditTarget(null);
-    setShowAdd(true);
+    setModalParams({ modal: 'add', editId: null });
   }
 
   function openEdit(w: Worker) {
-    setForm({
-      id: w.id,
-      label: w.label,
-      url: w.url,
-      apiKey: '',
-      allowedJobTypes: w.allowedJobTypes ?? [],
-    });
-    setEditTarget(w);
-    setShowAdd(true);
+    setModalParams({ modal: 'edit', editId: w.id });
   }
 
   function closeModal() {
-    setShowAdd(false);
-    setEditTarget(null);
+    closeModalOverlay();
     setForm(EMPTY_FORM);
   }
 
@@ -186,12 +228,12 @@ export default function WorkersPage({ toast }: Props) {
     }
   }
 
-  async function handleDelete(w: Worker) {
-    setConfirmDelete(w);
+  function handleDelete(w: Worker) {
+    setConfirmParams({ confirm: 'delete-worker', confirmId: w.id });
   }
 
   async function doDelete(id: string) {
-    setConfirmDelete(null);
+    closeConfirm();
     setDeleting(id);
     try {
       await apiFetch(`/admin/workers/${id}`, { method: 'DELETE' });
@@ -451,7 +493,7 @@ export default function WorkersPage({ toast }: Props) {
                 >
                   <button
                     type="button"
-                    onClick={() => setExpandedWorkerId(isExpanded ? null : w.id)}
+                    onClick={() => (isExpanded ? closeExpanded() : setExpandedWorkerId(w.id))}
                     style={{
                       padding: '14px 16px',
                       display: 'flex',
@@ -864,7 +906,7 @@ export default function WorkersPage({ toast }: Props) {
             justifyContent: 'center',
             zIndex: 200,
           }}
-          onClick={(e) => e.target === e.currentTarget && setConfirmDelete(null)}
+          onClick={(e) => e.target === e.currentTarget && closeConfirm()}
         >
           <div
             style={{
@@ -880,7 +922,7 @@ export default function WorkersPage({ toast }: Props) {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0 }}>Delete Worker</h3>
-              <button className="btn btn--ghost btn--sm" onClick={() => setConfirmDelete(null)}>
+              <button className="btn btn--ghost btn--sm" onClick={closeConfirm}>
                 <Icon.Close />
               </button>
             </div>
@@ -892,7 +934,7 @@ export default function WorkersPage({ toast }: Props) {
               ? This cannot be undone.
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn--ghost" onClick={() => setConfirmDelete(null)}>
+              <button className="btn btn--ghost" onClick={closeConfirm}>
                 Cancel
               </button>
               <button
