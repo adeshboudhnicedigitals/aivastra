@@ -45,6 +45,12 @@ const PaginatedSearch = z.object({
   createdTo: z.string().optional(),
   tier: z.string().optional(),
   excludeFree: z.coerce.boolean().optional(),
+  // Excludes users holding this admin role from the results — e.g. "any paid
+  // plan" + "exclude Support" surfaces paid clients without internal support
+  // staff whose own account happens to carry a paid tier. A user with no
+  // admin role at all is never excluded by this filter. 'ALL' excludes anyone
+  // holding any admin role, regardless of which.
+  excludeAdminRole: z.enum(['ALL', 'SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'SUPPORT']).optional(),
 });
 
 export async function adminUsersRoutes(app: FastifyInstance) {
@@ -65,6 +71,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         createdTo,
         tier,
         excludeFree,
+        excludeAdminRole,
       } = req.query as z.infer<typeof PaginatedSearch>;
 
       const searchWhere = search
@@ -89,12 +96,18 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
         tier ? eq(schema.users.tier, tier) : undefined,
         excludeFree === true ? ne(schema.users.tier, 'free') : undefined,
+        excludeAdminRole === 'ALL'
+          ? isNull(schema.adminUsers.role)
+          : excludeAdminRole
+            ? or(isNull(schema.adminUsers.role), ne(schema.adminUsers.role, excludeAdminRole))
+            : undefined,
       );
 
       const [{ total }] = await app.db
         .select({ total: count() })
         .from(schema.users)
         .leftJoin(schema.merchants, eq(schema.merchants.userId, schema.users.id))
+        .leftJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
         .where(where);
 
       const rows = await app.db

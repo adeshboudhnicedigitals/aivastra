@@ -26,6 +26,7 @@
     "db:seed": "pnpm --filter @aivastra/db run seed",
     "check:billing": "tsx --env-file=.env apps/api/scripts/check-billing-api-enabled.mts",
     "backfill:shopify-products-create-webhook": "tsx --env-file=.env apps/api/scripts/backfill-shopify-products-create-webhook.mts",
+    "backfill:missing-invoices": "tsx --env-file=.env apps/api/scripts/backfill-missing-invoices.mts",
     "docker:up": "docker compose -f infra/docker-compose.yml --env-file .env up -d",
     "docker:down": "docker compose -f infra/docker-compose.yml --env-file .env down",
     "docker:logs": "docker compose -f infra/docker-compose.yml --env-file .env logs -f",

@@ -2,6 +2,9 @@ import { schema } from '@aivastra/db';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { AppError } from '../../lib/errors.js';
+import { issueInvoiceIfNeeded } from '../payments/issue-invoice.js';
+import { recordAudit } from './audit.js';
 import { requireAdmin } from './guard.js';
 
 const STATUSES = ['created', 'paid', 'failed'] as const;
@@ -89,6 +92,47 @@ export async function adminPaymentsRoutes(app: FastifyInstance) {
       );
 
       return { page, pageSize, total: count, items };
+    },
+  );
+
+  // Manually (re)issue an invoice for a payment that predates the invoicing
+  // feature, or whose fire-and-forget issuance after the original purchase
+  // silently failed. issueInvoiceIfNeeded is idempotent — a payment that
+  // already has an invoice just returns it instead of allocating a new number.
+  app.post(
+    '/admin/payments/:id/generate-invoice',
+    { preHandler: ALL, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const result = await issueInvoiceIfNeeded(app, id);
+      if (!result) {
+        throw new AppError(
+          'BAD_REQUEST',
+          400,
+          'Could not generate an invoice — the payment must be marked paid and the customer must have an email on file.',
+        );
+      }
+
+      const [invoiceRow] = await app.db
+        .select({ r2Key: schema.invoices.r2Key })
+        .from(schema.invoices)
+        .where(eq(schema.invoices.paymentId, id));
+      const invoiceUrl = invoiceRow
+        ? (await app.storage.presignGet(invoiceRow.r2Key, 3600)).url
+        : null;
+
+      await app.db.transaction(async (tx) => {
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'payments.generate_invoice',
+          resourceType: 'payment',
+          resourceId: id,
+          after: { invoiceNumber: result.invoiceNumber },
+          request: req,
+        });
+      });
+
+      return { invoiceNumber: result.invoiceNumber, invoiceUrl };
     },
   );
 }
