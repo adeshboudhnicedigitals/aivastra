@@ -57,6 +57,7 @@ export default function PaymentsPage({ toast }: Props) {
   const [rows, setRows] = useState<PaymentRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,6 +91,31 @@ export default function PaymentsPage({ toast }: Props) {
   const handleSearch = (q: string) => {
     setQuery(q);
     setPage(0);
+  };
+
+  const handleGenerateInvoice = async (paymentId: string) => {
+    setGeneratingId(paymentId);
+    try {
+      const result = await apiFetch<{ invoiceNumber: string; invoiceUrl: string | null }>(
+        `/admin/payments/${paymentId}/generate-invoice`,
+        { method: 'POST' },
+      );
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === paymentId
+            ? { ...r, invoiceNumber: result.invoiceNumber, invoiceUrl: result.invoiceUrl }
+            : r,
+        ),
+      );
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to generate invoice',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setGeneratingId(null);
+    }
   };
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -230,6 +256,14 @@ export default function PaymentsPage({ toast }: Props) {
                               {p.invoiceNumber}
                             </span>
                           </a>
+                        ) : p.status === 'paid' ? (
+                          <button
+                            className="btn sm ghost"
+                            disabled={generatingId === p.id}
+                            onClick={() => void handleGenerateInvoice(p.id)}
+                          >
+                            {generatingId === p.id ? 'Generating…' : 'Generate invoice'}
+                          </button>
                         ) : (
                           <span style={{ color: 'var(--muted)' }}>—</span>
                         )}
@@ -313,6 +347,14 @@ export default function PaymentsPage({ toast }: Props) {
                         <Icon.Download />
                         {p.invoiceNumber}
                       </a>
+                    ) : p.status === 'paid' ? (
+                      <button
+                        className="btn sm ghost"
+                        disabled={generatingId === p.id}
+                        onClick={() => void handleGenerateInvoice(p.id)}
+                      >
+                        {generatingId === p.id ? 'Generating…' : 'Generate invoice'}
+                      </button>
                     ) : (
                       <span style={{ color: 'var(--muted)' }}>No invoice</span>
                     )}

@@ -1,5 +1,19 @@
 import { schema } from '@aivastra/db';
-import { and, asc, count, desc, eq, gte, ilike, isNotNull, lte, ne, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  ilike,
+  isNotNull,
+  isNull,
+  lte,
+  ne,
+  or,
+  sql,
+} from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -14,6 +28,7 @@ export const UsersExportQuery = z.object({
   createdTo: z.string().optional(),
   tier: z.string().optional(),
   excludeFree: z.coerce.boolean().optional(),
+  excludeAdminRole: z.enum(['ALL', 'SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'SUPPORT']).optional(),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
 });
 export type UsersExportQuery = z.infer<typeof UsersExportQuery>;
@@ -52,6 +67,7 @@ export async function loadUsersForExport(
     createdTo,
     tier,
     excludeFree,
+    excludeAdminRole,
     sortDir,
   }: UsersExportQuery,
 ): Promise<UserExportRow[]> {
@@ -79,12 +95,18 @@ export async function loadUsersForExport(
     toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
     tier ? eq(schema.users.tier, tier) : undefined,
     excludeFree === true ? ne(schema.users.tier, 'free') : undefined,
+    excludeAdminRole === 'ALL'
+      ? isNull(schema.adminUsers.role)
+      : excludeAdminRole
+        ? or(isNull(schema.adminUsers.role), ne(schema.adminUsers.role, excludeAdminRole))
+        : undefined,
   );
 
   const [{ total }] = await app.db
     .select({ total: count() })
     .from(schema.users)
     .leftJoin(schema.merchants, eq(schema.merchants.userId, schema.users.id))
+    .leftJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
     .where(where);
 
   if (total > MAX_EXPORT_ROWS) {
@@ -118,6 +140,7 @@ export async function loadUsersForExport(
     .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.users.id))
     .leftJoin(schema.jobs, eq(schema.jobs.userId, schema.users.id))
     .leftJoin(schema.creditPlans, eq(schema.creditPlans.slug, schema.users.tier))
+    .leftJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
     .where(where)
     .groupBy(
       schema.users.id,

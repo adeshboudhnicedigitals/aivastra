@@ -128,6 +128,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [merchantsOnly, setMerchantsOnly] = useState(false);
   const [showBanned, setShowBanned] = useState(false);
   const [planFilter, setPlanFilter] = useState('');
+  const [excludeRoleFilter, setExcludeRoleFilter] = useState('');
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof User>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -224,6 +225,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (exportTo) params.set('createdTo', exportTo);
       if (planFilter === PAID_PLAN_FILTER) params.set('excludeFree', 'true');
       else if (planFilter) params.set('tier', planFilter);
+      if (excludeRoleFilter) params.set('excludeAdminRole', excludeRoleFilter);
       const data = await apiFetch<{ items: User[]; total: number }>(`/admin/users?${params}`);
       setUsers(data.items);
       setTotal(data.total);
@@ -236,7 +238,17 @@ export default function UsersPage({ onNav, toast }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [page, query, merchantsOnly, showBanned, exportFrom, exportTo, planFilter, toast]);
+  }, [
+    page,
+    query,
+    merchantsOnly,
+    showBanned,
+    exportFrom,
+    exportTo,
+    planFilter,
+    excludeRoleFilter,
+    toast,
+  ]);
 
   useEffect(() => {
     load();
@@ -270,6 +282,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (exportTo) params.set('createdTo', exportTo);
       if (planFilter === PAID_PLAN_FILTER) params.set('excludeFree', 'true');
       else if (planFilter) params.set('tier', planFilter);
+      if (excludeRoleFilter) params.set('excludeAdminRole', excludeRoleFilter);
       const blob = await apiFetchBlob(`/admin/users/export.${format}?${params}`);
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -990,9 +1003,10 @@ export default function UsersPage({ onNav, toast }: Props) {
     if (
       !createUserForm.username.trim() ||
       !createUserForm.password ||
-      !createUserForm.displayName.trim()
+      !createUserForm.displayName.trim() ||
+      !createUserForm.email.trim()
     ) {
-      setCreateUserError('Username, password, and name are required.');
+      setCreateUserError('Username, password, name, and email are required.');
       return;
     }
     setCreatingUser(true);
@@ -2231,7 +2245,13 @@ export default function UsersPage({ onNav, toast }: Props) {
   }
 
   const hasActiveFilters = Boolean(
-    query || merchantsOnly || showBanned || exportFrom || exportTo || planFilter,
+    query ||
+      merchantsOnly ||
+      showBanned ||
+      exportFrom ||
+      exportTo ||
+      planFilter ||
+      excludeRoleFilter,
   );
   const clearFilters = () => {
     setQuery('');
@@ -2240,6 +2260,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     setExportFrom('');
     setExportTo('');
     setPlanFilter('');
+    setExcludeRoleFilter('');
     setPage(0);
   };
 
@@ -2311,13 +2332,13 @@ export default function UsersPage({ onNav, toast }: Props) {
           <div ref={menuRef} className="filter-popover-wrapper">
             <button
               type="button"
-              className={`filter-toggle-btn ${menuOpen || showBanned || exportFrom || exportTo || planFilter ? 'active' : ''}`}
+              className={`filter-toggle-btn ${menuOpen || showBanned || exportFrom || exportTo || planFilter || excludeRoleFilter ? 'active' : ''}`}
               onClick={() => setMenuOpen(!menuOpen)}
               title="Filters & Export options"
             >
               <Icon.Filter />
               <span>Options</span>
-              {(showBanned || exportFrom || exportTo || planFilter) && (
+              {(showBanned || exportFrom || exportTo || planFilter || excludeRoleFilter) && (
                 <span
                   style={{
                     width: 6,
@@ -2405,6 +2426,43 @@ export default function UsersPage({ onNav, toast }: Props) {
                       setPage(0);
                     }}
                     emptyLabel="All plans"
+                    style={{ width: '100%', height: 32, fontSize: 12.5 }}
+                  />
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* Exclude Admin Role — e.g. "any paid plan" + "exclude Support"
+                    surfaces paid clients without internal staff whose own
+                    account happens to carry a paid tier. */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Exclude Admin Role
+                  </span>
+                  <SearchableSelect
+                    options={[
+                      { id: 'ALL', label: 'All (any admin role)' },
+                      { id: 'SUPER_ADMIN', label: 'Super Admin' },
+                      { id: 'ADMIN', label: 'Admin' },
+                      { id: 'MODERATOR', label: 'Moderator' },
+                      { id: 'SUPPORT', label: 'Support' },
+                    ]}
+                    value={excludeRoleFilter}
+                    onChange={(v) => {
+                      setExcludeRoleFilter(v);
+                      setPage(0);
+                    }}
+                    emptyLabel="Don't exclude anyone"
                     style={{ width: '100%', height: 32, fontSize: 12.5 }}
                   />
                 </div>
@@ -2608,6 +2666,24 @@ export default function UsersPage({ onNav, toast }: Props) {
                   className="filter-chip-remove"
                   onClick={() => {
                     setPlanFilter('');
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {excludeRoleFilter && (
+              <span className="filter-chip">
+                Excluding:{' '}
+                <strong>
+                  {excludeRoleFilter === 'ALL' ? 'All admins' : adminRoleLabel(excludeRoleFilter)}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setExcludeRoleFilter('');
                     setPage(0);
                   }}
                 >
@@ -2968,8 +3044,8 @@ export default function UsersPage({ onNav, toast }: Props) {
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
-              Give the account a username and password now. Email and phone are optional here — the
-              customer will be prompted to add them the first time they log in.
+              Username, password, name, and email are all required. Phone is optional — the customer
+              can add it the first time they log in.
             </p>
             {createUserError && (
               <div className="banner warn">
@@ -3002,25 +3078,22 @@ export default function UsersPage({ onNav, toast }: Props) {
                 onChange={(e) => setCreateUserForm((f) => ({ ...f, displayName: e.target.value }))}
               />
             </div>
-            <div className="field-row">
-              <div className="field">
-                <label>Email</label>
-                <input
-                  className="input"
-                  value={createUserForm.email}
-                  onChange={(e) => setCreateUserForm((f) => ({ ...f, email: e.target.value }))}
-                  placeholder="Optional"
-                />
-              </div>
-              <div className="field">
-                <label>Phone</label>
-                <input
-                  className="input"
-                  value={createUserForm.phone}
-                  onChange={(e) => setCreateUserForm((f) => ({ ...f, phone: e.target.value }))}
-                  placeholder="Optional — 10-digit mobile number"
-                />
-              </div>
+            <div className="field">
+              <label>Email</label>
+              <input
+                className="input"
+                value={createUserForm.email}
+                onChange={(e) => setCreateUserForm((f) => ({ ...f, email: e.target.value }))}
+              />
+            </div>
+            <div className="field">
+              <label>Phone</label>
+              <input
+                className="input"
+                value={createUserForm.phone}
+                onChange={(e) => setCreateUserForm((f) => ({ ...f, phone: e.target.value }))}
+                placeholder="Optional — 10-digit mobile number"
+              />
             </div>
           </div>
         </EditDrawer>

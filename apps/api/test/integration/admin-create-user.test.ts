@@ -1,5 +1,4 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp } from '../helpers/api.js';
@@ -20,7 +19,7 @@ describe('admin create user', () => {
     await ctx.stop();
   });
 
-  it('creates a username-only account (no email) that can log in with the username', async () => {
+  it('rejects creating a user without an email — username-only walk-in accounts are no longer allowed', async () => {
     const username = `walkin${Date.now()}`;
     const createRes = await app.inject({
       method: 'POST',
@@ -28,22 +27,18 @@ describe('admin create user', () => {
       headers: authHeader,
       payload: { username, password: 'password123', displayName: 'Walk-in Customer' },
     });
-    expect(createRes.statusCode).toBe(201);
-    const { userId } = createRes.json() as { userId: string };
-    expect(userId).toBeTruthy();
+    expect(createRes.statusCode).toBe(400);
+  });
 
-    const [row] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
-    expect(row?.email).toBeNull();
-    expect(row?.username).toBe(username.toLowerCase());
-    expect(row?.emailVerified).toBe(true);
-
-    const loginRes = await app.inject({
+  it('rejects creating a user without a username', async () => {
+    const email = `nousername${Date.now()}@example.com`;
+    const createRes = await app.inject({
       method: 'POST',
-      url: '/v1/auth/login',
-      payload: { email: username, password: 'password123' },
+      url: '/admin/users',
+      headers: authHeader,
+      payload: { password: 'password123', displayName: 'No Username', email },
     });
-    expect(loginRes.statusCode).toBe(200);
-    expect(loginRes.json().accessToken).toBeTruthy();
+    expect(createRes.statusCode).toBe(400);
   });
 
   it('logging in with the username is case-insensitive', async () => {
@@ -52,7 +47,12 @@ describe('admin create user', () => {
       method: 'POST',
       url: '/admin/users',
       headers: authHeader,
-      payload: { username, password: 'password123', displayName: 'Case Test' },
+      payload: {
+        username,
+        password: 'password123',
+        displayName: 'Case Test',
+        email: `${username}@example.com`,
+      },
     });
 
     const loginRes = await app.inject({
@@ -69,13 +69,23 @@ describe('admin create user', () => {
       method: 'POST',
       url: '/admin/users',
       headers: authHeader,
-      payload: { username, password: 'password123', displayName: 'First' },
+      payload: {
+        username,
+        password: 'password123',
+        displayName: 'First',
+        email: `${username}.first@example.com`,
+      },
     });
     const second = await app.inject({
       method: 'POST',
       url: '/admin/users',
       headers: authHeader,
-      payload: { username, password: 'password123', displayName: 'Second' },
+      payload: {
+        username,
+        password: 'password123',
+        displayName: 'Second',
+        email: `${username}.second@example.com`,
+      },
     });
     expect(second.statusCode).toBe(409);
     expect(second.json().error.code).toBe('USERNAME_TAKEN');
@@ -86,12 +96,17 @@ describe('admin create user', () => {
       method: 'POST',
       url: '/admin/users',
       headers: authHeader,
-      payload: { username: 'not@allowed', password: 'password123', displayName: 'X' },
+      payload: {
+        username: 'not@allowed',
+        password: 'password123',
+        displayName: 'X',
+        email: `notallowed${Date.now()}@example.com`,
+      },
     });
     expect(res.statusCode).toBe(400);
   });
 
-  it('accepts an optional email/phone and rejects a duplicate email', async () => {
+  it('rejects a duplicate email', async () => {
     const existingEmail = `existing${Date.now()}@example.com`;
     await app.db.insert(schema.users).values({ email: existingEmail, tier: 'free' });
 

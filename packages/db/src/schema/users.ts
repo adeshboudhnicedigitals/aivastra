@@ -16,9 +16,10 @@ export const users = pgTable(
   'users',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    // Nullable -- admin-created accounts (see /admin/users) may have no email at
-    // creation time and log in via `username` instead. Self-registration and
-    // Google OAuth always set this.
+    // Nullable at the column level for pre-existing walk-in accounts created before
+    // POST /admin/users required an email — that endpoint no longer allows omitting
+    // it, so no new row should ever land here without one. Self-registration and
+    // Google OAuth always set this too.
     email: text('email').unique(),
     passwordHash: text('password_hash'), // nullable — Google-only users have no password
     displayName: text('display_name'),
