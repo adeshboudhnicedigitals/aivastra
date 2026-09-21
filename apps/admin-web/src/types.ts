@@ -247,6 +247,7 @@ export interface User {
   maxActiveDevices: number;
   isBanned: boolean;
   banReason: string | null;
+  isOrganizationMember: boolean;
   isAdmin: boolean;
   adminRole: string | null;
   hasPassword: boolean;
