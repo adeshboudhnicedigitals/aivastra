@@ -132,9 +132,11 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [showBanned, setShowBanned] = useState(false);
   const [planFilter, setPlanFilter] = useState('');
   const [excludeRoleFilter, setExcludeRoleFilter] = useState('');
+  const [excludeOrgMembers, setExcludeOrgMembers] = useState(false);
   const [draftShowBanned, setDraftShowBanned] = useState(false);
   const [draftPlanFilter, setDraftPlanFilter] = useState('');
   const [draftExcludeRoleFilter, setDraftExcludeRoleFilter] = useState('');
+  const [draftExcludeOrgMembers, setDraftExcludeOrgMembers] = useState(false);
   const [draftExportFrom, setDraftExportFrom] = useState('');
   const [draftExportTo, setDraftExportTo] = useState('');
   const [page, setPage] = useState(0);
@@ -154,6 +156,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [deletingUser, setDeletingUser] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkTaggingOrg, setBulkTaggingOrg] = useState(false);
   const [grantMode, setGrantMode] = useState<'grant' | 'deduct'>('grant');
   const [grantAmount, setGrantAmount] = useState('');
   const [grantReason, setGrantReason] = useState('');
@@ -234,6 +237,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (planFilter === PAID_PLAN_FILTER) params.set('excludeFree', 'true');
       else if (planFilter) params.set('tier', planFilter);
       if (excludeRoleFilter) params.set('excludeAdminRole', excludeRoleFilter);
+      if (excludeOrgMembers) params.set('excludeOrganizationMembers', 'true');
       const data = await apiFetch<{ items: User[]; total: number }>(`/admin/users?${params}`);
       setUsers(data.items);
       setTotal(data.total);
@@ -255,6 +259,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     exportTo,
     planFilter,
     excludeRoleFilter,
+    excludeOrgMembers,
     toast,
   ]);
 
@@ -291,6 +296,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (planFilter === PAID_PLAN_FILTER) params.set('excludeFree', 'true');
       else if (planFilter) params.set('tier', planFilter);
       if (excludeRoleFilter) params.set('excludeAdminRole', excludeRoleFilter);
+      if (excludeOrgMembers) params.set('excludeOrganizationMembers', 'true');
       const blob = await apiFetchBlob(`/admin/users/export.${format}?${params}`);
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -711,6 +717,32 @@ export default function UsersPage({ onNav, toast }: Props) {
     } finally {
       setBulkDeleting(false);
       closeConfirm();
+    }
+  };
+
+  const handleBulkSetOrganization = async (isOrganizationMember: boolean) => {
+    if (selectedUserIds.length === 0) return;
+    setBulkTaggingOrg(true);
+    try {
+      await apiFetch('/admin/users/bulk-set-organization', {
+        method: 'POST',
+        body: JSON.stringify({ ids: selectedUserIds, isOrganizationMember }),
+      });
+      toast({
+        title: `${selectedUserIds.length} user${selectedUserIds.length > 1 ? 's' : ''} ${
+          isOrganizationMember ? 'marked as' : 'removed from'
+        } Organization`,
+      });
+      setSelectedUserIds([]);
+      await load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update organization tag',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkTaggingOrg(false);
     }
   };
 
@@ -1141,6 +1173,7 @@ export default function UsersPage({ onNav, toast }: Props) {
             </div>
             <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
               {u.isAdmin && <span className="badge accent">{adminRoleLabel(u.adminRole)}</span>}
+              {u.isOrganizationMember && <span className="badge info">Organization</span>}
               {u.isMerchant && <span className="badge success">Merchant</span>}
               {u.hasShopifyStore && <span className="badge success">Shopify</span>}
               {!u.hasPassword && <span className="badge info">Google account</span>}
@@ -2259,7 +2292,8 @@ export default function UsersPage({ onNav, toast }: Props) {
       exportFrom ||
       exportTo ||
       planFilter ||
-      excludeRoleFilter,
+      excludeRoleFilter ||
+      excludeOrgMembers,
   );
   const clearFilters = () => {
     setQuery('');
@@ -2269,11 +2303,13 @@ export default function UsersPage({ onNav, toast }: Props) {
     setExportTo('');
     setPlanFilter('');
     setExcludeRoleFilter('');
+    setExcludeOrgMembers(false);
     setDraftShowBanned(false);
     setDraftExportFrom('');
     setDraftExportTo('');
     setDraftPlanFilter('');
     setDraftExcludeRoleFilter('');
+    setDraftExcludeOrgMembers(false);
     setPage(0);
   };
 
@@ -2345,7 +2381,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           <div ref={menuRef} className="filter-popover-wrapper">
             <button
               type="button"
-              className={`filter-toggle-btn ${menuOpen || showBanned || exportFrom || exportTo || planFilter || excludeRoleFilter ? 'active' : ''}`}
+              className={`filter-toggle-btn ${menuOpen || showBanned || exportFrom || exportTo || planFilter || excludeRoleFilter || excludeOrgMembers ? 'active' : ''}`}
               onClick={() => {
                 if (!menuOpen) {
                   // Opening — seed the draft with whatever's currently applied,
@@ -2354,6 +2390,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                   setDraftShowBanned(showBanned);
                   setDraftPlanFilter(planFilter);
                   setDraftExcludeRoleFilter(excludeRoleFilter);
+                  setDraftExcludeOrgMembers(excludeOrgMembers);
                   setDraftExportFrom(exportFrom);
                   setDraftExportTo(exportTo);
                 }
@@ -2363,7 +2400,12 @@ export default function UsersPage({ onNav, toast }: Props) {
             >
               <Icon.Filter />
               <span>Options</span>
-              {(showBanned || exportFrom || exportTo || planFilter || excludeRoleFilter) && (
+              {(showBanned ||
+                exportFrom ||
+                exportTo ||
+                planFilter ||
+                excludeRoleFilter ||
+                excludeOrgMembers) && (
                 <span
                   style={{
                     width: 6,
@@ -2482,6 +2524,50 @@ export default function UsersPage({ onNav, toast }: Props) {
 
                 <div style={{ borderTop: '1px solid var(--border)' }} />
 
+                {/* Exclude Organization Members — a plain data tag (see the bulk
+                    "Mark as Organization" action below the table), unrelated to
+                    admin_users roles: excludes internal team accounts from
+                    client-facing lists/exports without needing a real admin grant. */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Organization
+                  </span>
+                  <button
+                    type="button"
+                    className={`filter-toggle-btn ${draftExcludeOrgMembers ? 'active' : ''}`}
+                    onClick={() => setDraftExcludeOrgMembers(!draftExcludeOrgMembers)}
+                    style={{
+                      width: '100%',
+                      justifyContent: 'flex-start',
+                      height: 32,
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: draftExcludeOrgMembers ? 'var(--accent)' : 'var(--muted)',
+                        display: 'inline-block',
+                      }}
+                    />
+                    Exclude organization members
+                  </button>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
                 {/* 3. Show Suspended/Deleted Users */}
                 <div>
                   <span
@@ -2533,6 +2619,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     setShowBanned(draftShowBanned);
                     setPlanFilter(draftPlanFilter);
                     setExcludeRoleFilter(draftExcludeRoleFilter);
+                    setExcludeOrgMembers(draftExcludeOrgMembers);
                     setExportFrom(draftExportFrom);
                     setExportTo(draftExportTo);
                     setPage(0);
@@ -2727,6 +2814,22 @@ export default function UsersPage({ onNav, toast }: Props) {
                 </button>
               </span>
             )}
+            {excludeOrgMembers && (
+              <span className="filter-chip">
+                Filter: <strong>Excluding organization members</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setExcludeOrgMembers(false);
+                    setDraftExcludeOrgMembers(false);
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
           </div>
         )}
 
@@ -2773,6 +2876,23 @@ export default function UsersPage({ onNav, toast }: Props) {
                     onClick={() => setSelectedUserIds([])}
                   >
                     Clear selection
+                  </button>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    disabled={bulkTaggingOrg}
+                    onClick={() => void handleBulkSetOrganization(true)}
+                    title="Tag as internal team accounts — no admin login or permissions granted, just excludes them from client-facing lists/exports"
+                  >
+                    Mark as Organization
+                  </button>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    disabled={bulkTaggingOrg}
+                    onClick={() => void handleBulkSetOrganization(false)}
+                  >
+                    Remove from Organization
                   </button>
                   {isSuperAdmin && (
                     <button
