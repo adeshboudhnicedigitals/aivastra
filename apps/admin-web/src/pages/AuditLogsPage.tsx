@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 interface AuditLogItem {
@@ -432,7 +434,8 @@ export default function AuditLogsPage({ toast }: Props) {
   const [actorFilterLabel, setActorFilterLabel] = useState('');
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
-  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [expandedLogId, setExpandedLogId] = useUrlState('expanded');
+  const closeExpanded = useCloseOverlay(['expanded']);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const fetchLogs = useCallback(async () => {
@@ -895,7 +898,7 @@ export default function AuditLogsPage({ toast }: Props) {
                         <button
                           type="button"
                           className="btn sm ghost"
-                          onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                          onClick={() => (isExpanded ? closeExpanded() : setExpandedLogId(log.id))}
                         >
                           {isExpanded ? 'Hide Details' : 'View Details'}
                         </button>
@@ -949,7 +952,7 @@ export default function AuditLogsPage({ toast }: Props) {
               >
                 {/* Header row: WHEN and TEAM MEMBER name */}
                 <div
-                  onClick={() => setExpandedLogId(isMobileExpanded ? null : log.id)}
+                  onClick={() => (isMobileExpanded ? closeExpanded() : setExpandedLogId(log.id))}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -1155,7 +1158,7 @@ export default function AuditLogsPage({ toast }: Props) {
               }}
             >
               <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>What Changed</h3>
-              <button type="button" className="btn sm ghost" onClick={() => setExpandedLogId(null)}>
+              <button type="button" className="btn sm ghost" onClick={closeExpanded}>
                 <Icon.Close /> Close
               </button>
             </div>
