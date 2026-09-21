@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '../components/Icons';
 import { useAuth } from '../context/AuthContext';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 interface ShopifyStore {
@@ -34,18 +38,51 @@ function signedDelta(delta: number): string {
 }
 
 export default function ShopifyStoresPage({ toast }: Props) {
+  const navigate = useNavigate();
   const { role: myRole } = useAuth();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [stores, setStores] = useState<ShopifyStore[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedStore, setSelectedStore] = useState<ShopifyStore | null>(null);
-  const [expandedStoreId, setExpandedStoreId] = useState<string | null>(null);
+  // No GET-by-id endpoint exists for a single store, so the detail view is
+  // resolved against the already-loaded `stores` list (same approach as the
+  // GarmentTypesTab pilot), not a fresh fetch like Jobs/Users' `job=`/`user=`.
+  const [storeIdParam, setStoreIdParam] = useUrlState('store');
+  const closeDetail = useCloseOverlay(['store']);
+  const selectedStore = useMemo(
+    () => stores.find((s) => s.id === storeIdParam) ?? null,
+    [stores, storeIdParam],
+  );
+  const [expandedStoreId, setExpandedStoreIdParam] = useUrlState('expanded');
+  const closeAccordion = useCloseOverlay(['expanded']);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<ShopifyStore | null>(null);
+  // Delete is only ever reachable from the open store's own detail view, so
+  // no confirmId is needed — the target is always `selectedStore`.
+  const [confirmParam, setConfirmParam] = useUrlState('confirm');
+  const closeConfirm = useCloseOverlay(['confirm']);
+  const confirmDelete = confirmParam === 'delete-store' ? selectedStore : null;
   const [deleting, setDeleting] = useState(false);
+
+  useCrumb(
+    0,
+    selectedStore
+      ? {
+          label: selectedStore.shopDomain,
+          href: `/shopify-stores?store=${encodeURIComponent(selectedStore.id)}`,
+        }
+      : null,
+  );
+  useCrumb(
+    1,
+    confirmDelete
+      ? {
+          label: 'Delete store',
+          href: `/shopify-stores?store=${encodeURIComponent(confirmDelete.id)}&confirm=delete-store`,
+        }
+      : null,
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -94,11 +131,26 @@ export default function ShopifyStoresPage({ toast }: Props) {
   );
 
   function openStore(store: ShopifyStore) {
-    setSelectedStore(store);
+    setStoreIdParam(store.id);
+  }
+
+  function goToJob(jobId: string) {
+    if (!selectedStore) return;
+    navigate(
+      `/jobs?job=${encodeURIComponent(jobId)}&fromStore=${encodeURIComponent(selectedStore.id)}`,
+    );
+  }
+
+  // Reconstructs the ledger from the URL alone — covers a hard refresh, a
+  // deep link, and the physical Back button restoring a previous `store=`
+  // value, in addition to a plain row click. Resets pagination whenever the
+  // resolved store id changes.
+  useEffect(() => {
+    if (!selectedStore) return;
     setLedger([]);
     setNextCursor(null);
-    void loadLedger(store.id);
-  }
+    void loadLedger(selectedStore.id);
+  }, [selectedStore?.id, loadLedger]);
 
   async function handleDeleteConfirm() {
     if (!confirmDelete) return;
@@ -106,9 +158,12 @@ export default function ShopifyStoresPage({ toast }: Props) {
     try {
       await apiFetch(`/admin/shopify-stores/${confirmDelete.id}`, { method: 'DELETE' });
       toast({ title: `${confirmDelete.shopDomain} deleted` });
-      setConfirmDelete(null);
-      setSelectedStore(null);
       await load();
+      // Clear `store` together with `confirm` in one navigation — the
+      // deleted store's id must not survive in the URL, or the ledger
+      // reconstruction effect above re-fetches it and 404s right after this
+      // success toast (and again on refresh).
+      navigate('/shopify-stores', { replace: true });
     } catch (err) {
       toast({
         kind: 'error',
@@ -125,13 +180,13 @@ export default function ShopifyStoresPage({ toast }: Props) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div className="page-head">
           <div>
-            <button className="btn ghost" onClick={() => setSelectedStore(null)}>
+            <button className="btn ghost" onClick={closeDetail}>
               <Icon.Back /> Back to Shopify Stores
             </button>
             <h1 style={{ marginTop: 8 }}>{selectedStore.shopDomain}</h1>
           </div>
           {isSuperAdmin && (
-            <button className="btn danger" onClick={() => setConfirmDelete(selectedStore)}>
+            <button className="btn danger" onClick={() => setConfirmParam('delete-store')}>
               <Icon.Trash /> Delete store data
             </button>
           )}
@@ -193,7 +248,24 @@ export default function ShopifyStoresPage({ toast }: Props) {
                           <td>{formatDate(entry.createdAt)}</td>
                           <td>
                             {entry.jobId ? (
-                              <code style={{ fontSize: 12 }}>{entry.jobId}</code>
+                              <button
+                                type="button"
+                                onClick={() => goToJob(entry.jobId as string)}
+                                style={{
+                                  font: 'inherit',
+                                  fontFamily: 'var(--mono)',
+                                  fontSize: 12,
+                                  color: 'var(--accent)',
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: 0,
+                                  cursor: 'pointer',
+                                  textDecoration: 'underline',
+                                }}
+                                title={`View job ${entry.jobId}`}
+                              >
+                                {entry.jobId}
+                              </button>
                             ) : (
                               '—'
                             )}
@@ -316,15 +388,32 @@ export default function ShopifyStoresPage({ toast }: Props) {
                 </div>
 
                 {/* 4. Job ID */}
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontFamily: 'var(--mono)',
-                    color: 'var(--muted)',
-                    wordBreak: 'break-all',
-                  }}
-                >
-                  {entry.jobId ? `Job ID: ${entry.jobId}` : 'Job ID: —'}
+                <div style={{ fontSize: 11, wordBreak: 'break-all' }}>
+                  {entry.jobId ? (
+                    <span style={{ color: 'var(--muted)' }}>
+                      Job ID:{' '}
+                      <button
+                        type="button"
+                        onClick={() => goToJob(entry.jobId as string)}
+                        style={{
+                          font: 'inherit',
+                          fontFamily: 'var(--mono)',
+                          color: 'var(--accent)',
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        {entry.jobId}
+                      </button>
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                      Job ID: —
+                    </span>
+                  )}
                 </div>
               </div>
             ))
@@ -344,7 +433,7 @@ export default function ShopifyStoresPage({ toast }: Props) {
         </div>
 
         {confirmDelete && (
-          <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+          <div className="modal-overlay" onClick={closeConfirm}>
             <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h3>Delete Shopify store</h3>
@@ -357,11 +446,7 @@ export default function ShopifyStoresPage({ toast }: Props) {
                 </p>
               </div>
               <div className="modal-foot">
-                <button
-                  className="btn ghost"
-                  onClick={() => setConfirmDelete(null)}
-                  disabled={deleting}
-                >
+                <button className="btn ghost" onClick={closeConfirm} disabled={deleting}>
                   Cancel
                 </button>
                 <button className="btn danger" onClick={handleDeleteConfirm} disabled={deleting}>
@@ -458,7 +543,9 @@ export default function ShopifyStoresPage({ toast }: Props) {
                 >
                   {/* Shop domain header */}
                   <div
-                    onClick={() => setExpandedStoreId(isExpanded ? null : store.id)}
+                    onClick={() =>
+                      isExpanded ? closeAccordion() : setExpandedStoreIdParam(store.id)
+                    }
                     style={{
                       display: 'flex',
                       alignItems: 'center',

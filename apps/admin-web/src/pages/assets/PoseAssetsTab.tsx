@@ -6,6 +6,9 @@ import { Pager } from '../../components/Pager';
 import { PoseUploadModal } from '../../components/PoseUploadModal';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
+import { useCrumb } from '../../context/BreadcrumbContext';
+import { useCloseOverlay } from '../../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch, getToken } from '../../lib/data';
 import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../../types';
 import { useAssetsContext } from './AssetsContext';
@@ -32,6 +35,7 @@ export function PoseAssetsTab() {
     toast,
   } = useAssetsContext();
 
+  const tabHref = '/assets?tab=pose-assets';
   const [poseAssets, setPoseAssets] = useState<ModelPoseAsset[]>([]);
   const [paSearch, setPaSearch] = useState('');
   const [paFilterWorkflow, setPaFilterWorkflow] = useState('');
@@ -40,19 +44,66 @@ export function PoseAssetsTab() {
   const [paSortDir, setPaSortDir] = useState<'asc' | 'desc'>('asc');
   const [paPage, setPaPage] = useState(1);
   const [selectedPoseAssetIds, setSelectedPoseAssetIds] = useState<string[]>([]);
+  // Dialog open-ness is URL state; the specific ids being deleted are a
+  // snapshot of `selectedPoseAssetIds` taken at open time and stay local,
+  // same as UsersPage's bulk-delete precedent (confirm=bulk-delete-users).
   const [confirmBulkDeletePoseAssetIds, setConfirmBulkDeletePoseAssetIds] = useState<string[]>([]);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [confirmDeletePoseAssetId, setConfirmDeletePoseAssetId] = useState<string | null>(null);
-  const [showPoseAssetUpload, setShowPoseAssetUpload] = useState(false);
-  const [editingPoseAsset, setEditingPoseAsset] = useState<ModelPoseAsset | null>(null);
+
+  // One shared `modal` param for every single-record modal on this tab,
+  // mirroring UsersPage's modal enum. `editId` only matters for edit-pose,
+  // resolved against the already-loaded `poseAssets` list.
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const showPoseAssetUpload = modalParam === 'upload-pose';
+  const editingPoseAsset: ModelPoseAsset | null =
+    modalParam === 'edit-pose' && editId ? (poseAssets.find((a) => a.id === editId) ?? null) : null;
+  const showBulkRename = modalParam === 'bulk-rename';
+  const showBulkWorkflow = modalParam === 'bulk-workflow';
+  const showBulkImport = modalParam === 'bulk-import';
+
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const confirmDeletePoseAssetId = confirmParam === 'delete-pose' ? confirmId : null;
+
+  useCrumb(0, { label: 'Pose Assets', href: tabHref });
+  useCrumb(
+    1,
+    showPoseAssetUpload
+      ? { label: 'Upload pose', href: `${tabHref}&modal=upload-pose` }
+      : editingPoseAsset
+        ? {
+            label: 'Edit pose',
+            href: `${tabHref}&modal=edit-pose&editId=${encodeURIComponent(editingPoseAsset.id)}`,
+          }
+        : showBulkRename
+          ? { label: 'Rename', href: `${tabHref}&modal=bulk-rename` }
+          : showBulkWorkflow
+            ? { label: 'Change workflow', href: `${tabHref}&modal=bulk-workflow` }
+            : showBulkImport
+              ? { label: 'Bulk import', href: `${tabHref}&modal=bulk-import` }
+              : null,
+  );
+  useCrumb(
+    2,
+    confirmDeletePoseAssetId
+      ? {
+          label: 'Delete pose',
+          href: `${tabHref}&confirm=delete-pose&confirmId=${encodeURIComponent(confirmDeletePoseAssetId)}`,
+        }
+      : confirmParam === 'bulk-delete-poses'
+        ? { label: 'Move to recycle bin', href: `${tabHref}&confirm=bulk-delete-poses` }
+        : null,
+  );
 
   // Bulk rename state
-  const [showBulkRename, setShowBulkRename] = useState(false);
   const [bulkRenameDisplayName, setBulkRenameDisplayName] = useState('');
   const [bulkRenaming, setBulkRenaming] = useState(false);
 
   // Bulk workflow state
-  const [showBulkWorkflow, setShowBulkWorkflow] = useState(false);
   const [bulkWorkflowId, setBulkWorkflowId] = useState('');
   const [bulkWorkflowSaving, setBulkWorkflowSaving] = useState(false);
 
@@ -61,7 +112,6 @@ export function PoseAssetsTab() {
   const [bulkSortSaving, setBulkSortSaving] = useState(false);
 
   // Bulk import state
-  const [showBulkImport, setShowBulkImport] = useState(false);
   const [bulkImportGender, setBulkImportGender] = useState<GenderSlug>('men');
   const [bulkImportWorkflowId, setBulkImportWorkflowId] = useState('');
   const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
@@ -165,7 +215,7 @@ export function PoseAssetsTab() {
       toast({
         title: `${selectedPoseAssetIds.length} pose asset${selectedPoseAssetIds.length !== 1 ? 's' : ''} renamed`,
       });
-      setShowBulkRename(false);
+      closeModal();
       setSelectedPoseAssetIds([]);
     } catch (e) {
       toast({
@@ -193,7 +243,7 @@ export function PoseAssetsTab() {
       toast({
         title: `Workflow updated for ${selectedPoseAssetIds.length} pose asset${selectedPoseAssetIds.length !== 1 ? 's' : ''}`,
       });
-      setShowBulkWorkflow(false);
+      closeModal();
       setSelectedPoseAssetIds([]);
     } catch (e) {
       toast({
@@ -246,6 +296,7 @@ export function PoseAssetsTab() {
   const doBulkDeletePoseAssets = async () => {
     if (deleteConfirmText !== 'move to recycle bin') return;
     const ids = confirmBulkDeletePoseAssetIds;
+    closeConfirm();
     setConfirmBulkDeletePoseAssetIds([]);
     setDeleteConfirmText('');
     if (ids.length === 0) return;
@@ -319,7 +370,10 @@ export function PoseAssetsTab() {
           </p>
         </div>
         <div className="head-tools">
-          <button className="btn ghost" onClick={() => setShowPoseAssetUpload(true)}>
+          <button
+            className="btn ghost"
+            onClick={() => setModalParams({ modal: 'upload-pose', editId: null })}
+          >
             <Icon.Add /> Upload pose
           </button>
           <button
@@ -328,7 +382,7 @@ export function PoseAssetsTab() {
               setBulkImportGender('men');
               setBulkImportWorkflowId(workflows[0]?.id ?? '');
               setBulkImportFile(null);
-              setShowBulkImport(true);
+              setModalParams({ modal: 'bulk-import', editId: null });
             }}
           >
             <Icon.Upload /> Bulk import ZIP
@@ -457,7 +511,7 @@ export function PoseAssetsTab() {
                   className="btn sm"
                   onClick={() => {
                     setBulkRenameDisplayName('');
-                    setShowBulkRename(true);
+                    setModalParams({ modal: 'bulk-rename', editId: null });
                   }}
                 >
                   <Icon.Edit /> Rename ({selectedPoseAssetIds.length})
@@ -466,7 +520,7 @@ export function PoseAssetsTab() {
                   className="btn sm"
                   onClick={() => {
                     setBulkWorkflowId(workflows[0]?.id ?? '');
-                    setShowBulkWorkflow(true);
+                    setModalParams({ modal: 'bulk-workflow', editId: null });
                   }}
                 >
                   <Icon.Workflow /> Workflow ({selectedPoseAssetIds.length})
@@ -495,7 +549,10 @@ export function PoseAssetsTab() {
                 </div>
                 <button
                   className="btn sm danger"
-                  onClick={() => setConfirmBulkDeletePoseAssetIds([...selectedPoseAssetIds])}
+                  onClick={() => {
+                    setConfirmBulkDeletePoseAssetIds([...selectedPoseAssetIds]);
+                    setConfirmParams({ confirm: 'bulk-delete-poses', confirmId: null });
+                  }}
                 >
                   <Icon.Trash /> Move to recycle bin ({selectedPoseAssetIds.length})
                 </button>
@@ -611,7 +668,7 @@ export function PoseAssetsTab() {
                       <button
                         className="btn ghost"
                         style={{ fontSize: 10, padding: '3px 8px' }}
-                        onClick={() => setEditingPoseAsset(a)}
+                        onClick={() => setModalParams({ modal: 'edit-pose', editId: a.id })}
                       >
                         <Icon.Edit /> Edit
                       </button>
@@ -619,7 +676,7 @@ export function PoseAssetsTab() {
                     <button
                       className="btn danger"
                       style={{ width: '100%', marginTop: 4, fontSize: 11, padding: '3px 0' }}
-                      onClick={() => setConfirmDeletePoseAssetId(a.id)}
+                      onClick={() => setConfirmParams({ confirm: 'delete-pose', confirmId: a.id })}
                     >
                       <Icon.Trash /> Move to recycle bin
                     </button>
@@ -643,7 +700,7 @@ export function PoseAssetsTab() {
       {/* ── Modals ── */}
 
       {confirmDeletePoseAssetId && (
-        <div className="modal-overlay" onClick={() => setConfirmDeletePoseAssetId(null)}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Move to recycle bin</h3>
@@ -652,14 +709,14 @@ export function PoseAssetsTab() {
               <p>Move this pose asset to the recycle bin? You can restore it later.</p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDeletePoseAssetId(null)}>
+              <button className="btn ghost" onClick={closeConfirm}>
                 Cancel
               </button>
               <button
                 className="btn danger"
                 onClick={async () => {
                   const id = confirmDeletePoseAssetId;
-                  setConfirmDeletePoseAssetId(null);
+                  closeConfirm();
                   try {
                     await apiFetch(`/admin/assets/pose-assets/${id}?force=true`, {
                       method: 'DELETE',
@@ -678,8 +735,15 @@ export function PoseAssetsTab() {
         </div>
       )}
 
-      {confirmBulkDeletePoseAssetIds.length > 0 && (
-        <div className="modal-overlay" onClick={() => setConfirmBulkDeletePoseAssetIds([])}>
+      {confirmParam === 'bulk-delete-poses' && (
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            closeConfirm();
+            setConfirmBulkDeletePoseAssetIds([]);
+            setDeleteConfirmText('');
+          }}
+        >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Move {confirmBulkDeletePoseAssetIds.length} pose assets to recycle bin</h3>
@@ -710,6 +774,7 @@ export function PoseAssetsTab() {
               <button
                 className="btn ghost"
                 onClick={() => {
+                  closeConfirm();
                   setConfirmBulkDeletePoseAssetIds([]);
                   setDeleteConfirmText('');
                 }}
@@ -730,10 +795,7 @@ export function PoseAssetsTab() {
 
       {/* Bulk workflow change */}
       {showBulkWorkflow && (
-        <div
-          className="modal-overlay"
-          onClick={() => !bulkWorkflowSaving && setShowBulkWorkflow(false)}
-        >
+        <div className="modal-overlay" onClick={() => !bulkWorkflowSaving && closeModal()}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <div className="modal-head">
               <h3>
@@ -757,11 +819,7 @@ export function PoseAssetsTab() {
               </label>
             </div>
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                disabled={bulkWorkflowSaving}
-                onClick={() => setShowBulkWorkflow(false)}
-              >
+              <button className="btn ghost" disabled={bulkWorkflowSaving} onClick={closeModal}>
                 Cancel
               </button>
               <button
@@ -780,7 +838,7 @@ export function PoseAssetsTab() {
 
       {/* Bulk rename display name */}
       {showBulkRename && (
-        <div className="modal-overlay" onClick={() => !bulkRenaming && setShowBulkRename(false)}>
+        <div className="modal-overlay" onClick={() => !bulkRenaming && closeModal()}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <div className="modal-head">
               <h3>
@@ -814,11 +872,7 @@ export function PoseAssetsTab() {
               </label>
             </div>
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                disabled={bulkRenaming}
-                onClick={() => setShowBulkRename(false)}
-              >
+              <button className="btn ghost" disabled={bulkRenaming} onClick={closeModal}>
                 Cancel
               </button>
               <button
@@ -837,9 +891,7 @@ export function PoseAssetsTab() {
       {showBulkImport && (
         <div
           className="modal-overlay"
-          onClick={() =>
-            !(bulkImporting && bulkImportPhase === 'processing') && setShowBulkImport(false)
-          }
+          onClick={() => !(bulkImporting && bulkImportPhase === 'processing') && closeModal()}
         >
           <div className="modal" style={{ width: 480 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
@@ -945,7 +997,7 @@ export function PoseAssetsTab() {
                     bulkImportXhrRef.current.abort();
                     bulkImportXhrRef.current = null;
                   }
-                  setShowBulkImport(false);
+                  closeModal();
                 }}
               >
                 Cancel
@@ -1012,7 +1064,7 @@ export function PoseAssetsTab() {
                         created: { faces: number; backgrounds: number; poses: number };
                         errors: string[];
                       };
-                      setShowBulkImport(false);
+                      closeModal();
                       setBulkImportFile(null);
                       setBulkImportProgress(0);
                       const { faces: fCount, backgrounds: bCount, poses: pCount } = result.created;
@@ -1069,10 +1121,10 @@ export function PoseAssetsTab() {
         <PoseUploadModal
           garmentTypeGenderSlug={genderFilter !== 'all' ? genderFilter : 'men'}
           onDone={() => {
-            setShowPoseAssetUpload(false);
+            closeModal();
             void loadPoseAssets();
           }}
-          onClose={() => setShowPoseAssetUpload(false)}
+          onClose={closeModal}
           toast={toast}
         />
       )}
@@ -1084,7 +1136,7 @@ export function PoseAssetsTab() {
           onSaved={(updated) => {
             setPoseAssets((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
           }}
-          onClose={() => setEditingPoseAsset(null)}
+          onClose={closeModal}
           toast={toast}
         />
       )}

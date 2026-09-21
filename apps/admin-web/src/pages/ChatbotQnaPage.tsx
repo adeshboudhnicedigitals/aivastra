@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../hooks/use-url-state';
 import { apiFetch } from '../lib/data';
 
 interface Qna {
@@ -24,8 +27,38 @@ export default function ChatbotQnaPage({
 }) {
   const [rows, setRows] = useState<Qna[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
+  // Which record the editor targets is URL state; the live form buffer itself
+  // (question/answer/tags/isActive being typed) stays local, seeded from the
+  // row once per distinct edit id below.
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const editingRow =
+    modalParam === 'edit-qna' && editId ? (rows.find((r) => r.id === editId) ?? null) : null;
+  const showEditor = modalParam === 'new-qna' || (modalParam === 'edit-qna' && editingRow !== null);
   const [editing, setEditing] = useState<Partial<Qna> | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useCrumb(
+    0,
+    modalParam
+      ? {
+          label: modalParam === 'new-qna' ? 'New Q&A' : 'Edit Q&A',
+          href: `/chatbot-qna?modal=${modalParam}${editId ? `&editId=${encodeURIComponent(editId)}` : ''}`,
+        }
+      : null,
+  );
+
+  const editingRowId = editingRow?.id ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on id only, see comment above
+  useEffect(() => {
+    if (editingRow) setEditing(editingRow);
+  }, [editingRowId]);
+
+  // Fallback for a deep link straight to ?modal=new-qna (no prior click to seed
+  // the buffer synchronously) — a fresh, empty draft rather than a blank drawer.
+  useEffect(() => {
+    if (modalParam === 'new-qna' && !editing) setEditing({ isActive: true, tags: [] });
+  }, [modalParam, editing]);
 
   const load = useCallback(async () => {
     const [list, st] = await Promise.all([
@@ -59,6 +92,7 @@ export default function ChatbotQnaPage({
         body: JSON.stringify(body),
       });
     }
+    closeModal();
     setEditing(null);
     toast({ title: 'Saved' });
     await load();
@@ -127,7 +161,10 @@ export default function ChatbotQnaPage({
       <button
         className="btn primary"
         style={{ alignSelf: 'flex-start', marginBottom: 16 }}
-        onClick={() => setEditing({ isActive: true, tags: [] })}
+        onClick={() => {
+          setEditing({ isActive: true, tags: [] });
+          setModalParams({ modal: 'new-qna', editId: null });
+        }}
       >
         <Icon.Plus /> New Q&A
       </button>
@@ -177,7 +214,10 @@ export default function ChatbotQnaPage({
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn sm ghost" onClick={() => setEditing(r)}>
+                      <button
+                        className="btn sm ghost"
+                        onClick={() => setModalParams({ modal: 'edit-qna', editId: r.id })}
+                      >
                         Edit
                       </button>
                       <button className="btn sm ghost" onClick={() => void remove(r.id)}>
@@ -192,9 +232,12 @@ export default function ChatbotQnaPage({
         </div>
       )}
 
-      {editing && (
+      {showEditor && editing && (
         <EditDrawer
-          onClose={() => setEditing(null)}
+          onClose={() => {
+            closeModal();
+            setEditing(null);
+          }}
           title={`${editing.id ? 'Edit' : 'New'} Q&A`}
           onSave={save}
         >

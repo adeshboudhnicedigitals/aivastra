@@ -3,6 +3,9 @@ import { ConfirmModal } from '../../components/ConfirmModal';
 import { Icon } from '../../components/Icons';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
+import { useCrumb } from '../../context/BreadcrumbContext';
+import { useCloseOverlay } from '../../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type { CreditPlan } from '../../types';
 
@@ -648,17 +651,50 @@ interface Props {
 export default function PurchasablePlansTab({ toast }: Props) {
   const [plans, setPlans] = useState<CreditPlan[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
-  const [planModal, setPlanModal] = useState<{
-    open: boolean;
-    plan: CreditPlan | null;
-    initialType: PlanType;
-  }>({
-    open: false,
-    plan: null,
-    initialType: 'catalogue',
-  });
-  const [confirmDelete, setConfirmDelete] = useState<CreditPlan | null>(null);
+
+  // One shared modal enum: the two "add" variants encode plan type directly
+  // (mirrors ShopifyFunnelsPage's reassign-basket/reassign-delete-basket
+  // split) since edit doesn't need a separate type — the resolved plan
+  // already carries its own planType.
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const planModalPlan =
+    modalParam === 'edit-plan' && editId ? (plans.find((p) => p.id === editId) ?? null) : null;
+  const planModalOpen =
+    modalParam === 'add-catalogue-plan' ||
+    modalParam === 'add-tryon-plan' ||
+    (modalParam === 'edit-plan' && planModalPlan !== null);
+  const planModalInitialType: PlanType = modalParam === 'add-tryon-plan' ? 'tryon' : 'catalogue';
+
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const confirmDelete =
+    confirmParam === 'delete-plan' && confirmId
+      ? (plans.find((p) => p.id === confirmId) ?? null)
+      : null;
   const [deleting, setDeleting] = useState(false);
+
+  useCrumb(
+    0,
+    confirmDelete
+      ? {
+          label: 'Delete plan',
+          href: `/settings?s=credit-plans&confirm=delete-plan&confirmId=${encodeURIComponent(confirmDelete.id)}`,
+        }
+      : null,
+  );
+  useCrumb(
+    1,
+    planModalOpen
+      ? {
+          label: modalParam === 'edit-plan' ? 'Edit plan' : 'Add plan',
+          href: `/settings?s=credit-plans&modal=${modalParam}${editId ? `&editId=${encodeURIComponent(editId)}` : ''}`,
+        }
+      : null,
+  );
 
   useEffect(() => {
     apiFetch<CreditPlan[]>('/admin/credit-plans')
@@ -700,7 +736,7 @@ export default function PurchasablePlansTab({ toast }: Props) {
       });
     } finally {
       setDeleting(false);
-      setConfirmDelete(null);
+      closeConfirm();
     }
   };
 
@@ -807,9 +843,7 @@ export default function PurchasablePlansTab({ toast }: Props) {
             <div style={{ marginLeft: 16 }}>
               <button
                 className="btn"
-                onClick={() =>
-                  setPlanModal({ open: true, plan: freePlan, initialType: 'catalogue' })
-                }
+                onClick={() => setModalParams({ modal: 'edit-plan', editId: freePlan.id })}
               >
                 <Icon.Edit /> Edit
               </button>
@@ -828,9 +862,9 @@ export default function PurchasablePlansTab({ toast }: Props) {
         emptyLabel='No catalogue plans yet — click "Add Catalogue plan" to create one.'
         plans={cataloguePlans}
         loading={plansLoading}
-        onAdd={() => setPlanModal({ open: true, plan: null, initialType: 'catalogue' })}
-        onEdit={(p) => setPlanModal({ open: true, plan: p, initialType: 'catalogue' })}
-        onDelete={setConfirmDelete}
+        onAdd={() => setModalParams({ modal: 'add-catalogue-plan', editId: null })}
+        onEdit={(p) => setModalParams({ modal: 'edit-plan', editId: p.id })}
+        onDelete={(p) => setConfirmParams({ confirm: 'delete-plan', confirmId: p.id })}
       />
 
       <PlanTypeSection
@@ -839,17 +873,17 @@ export default function PurchasablePlansTab({ toast }: Props) {
         emptyLabel='No try-on plans yet — click "Add Try-On plan" to create one.'
         plans={tryonPlans}
         loading={plansLoading}
-        onAdd={() => setPlanModal({ open: true, plan: null, initialType: 'tryon' })}
-        onEdit={(p) => setPlanModal({ open: true, plan: p, initialType: 'tryon' })}
-        onDelete={setConfirmDelete}
+        onAdd={() => setModalParams({ modal: 'add-tryon-plan', editId: null })}
+        onEdit={(p) => setModalParams({ modal: 'edit-plan', editId: p.id })}
+        onDelete={(p) => setConfirmParams({ confirm: 'delete-plan', confirmId: p.id })}
       />
 
-      {planModal.open && (
+      {planModalOpen && (
         <PlanModal
-          plan={planModal.plan}
-          initialType={planModal.initialType}
+          plan={planModalPlan}
+          initialType={planModalInitialType}
           onSaved={handlePlanSaved}
-          onClose={() => setPlanModal({ open: false, plan: null, initialType: 'catalogue' })}
+          onClose={closeModal}
           toast={toast}
         />
       )}
@@ -862,7 +896,7 @@ export default function PurchasablePlansTab({ toast }: Props) {
           danger
           confirmLabel={deleting ? 'Deleting…' : 'Delete'}
           onConfirm={handleDelete}
-          onClose={() => setConfirmDelete(null)}
+          onClose={closeConfirm}
         />
       )}
     </>

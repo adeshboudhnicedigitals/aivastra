@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { EditCatalogueTemplateModal } from '../../components/EditCatalogueTemplateModal';
 import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
+import { useCrumb } from '../../context/BreadcrumbContext';
+import { useCloseOverlay } from '../../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type { CatalogueTemplate, ModelBackground, ModelPoseAsset } from '../../types';
 import { useAssetsContext } from './AssetsContext';
@@ -23,8 +26,45 @@ export function CatalogueTemplatesTab() {
   // scope-filtered (general only) for the Backgrounds tab, but this tab needs
   // template-scoped assets too, to resolve thumbnails for a template's own looks.
   const [backgrounds, setBackgrounds] = useState<ModelBackground[]>([]);
-  const [editingTemplate, setEditingTemplate] = useState<CatalogueTemplate | null | 'new'>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const tabHref = '/assets?tab=catalogue-templates';
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const editingTemplate: CatalogueTemplate | null | 'new' =
+    modalParam === 'new-template'
+      ? 'new'
+      : modalParam === 'edit-template' && editId
+        ? (templates.find((t) => t.id === editId) ?? null)
+        : null;
+
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const confirmDeleteId = confirmParam === 'delete-template' ? confirmId : null;
+
+  useCrumb(0, { label: 'Catalogue Templates', href: tabHref });
+  useCrumb(
+    1,
+    modalParam === 'new-template'
+      ? { label: 'New template', href: `${tabHref}&modal=new-template` }
+      : editingTemplate && editingTemplate !== 'new'
+        ? {
+            label: 'Edit template',
+            href: `${tabHref}&modal=edit-template&editId=${encodeURIComponent(editingTemplate.id)}`,
+          }
+        : null,
+  );
+  useCrumb(
+    2,
+    confirmDeleteId
+      ? {
+          label: 'Delete template',
+          href: `${tabHref}&confirm=delete-template&confirmId=${encodeURIComponent(confirmDeleteId)}`,
+        }
+      : null,
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,7 +113,7 @@ export function CatalogueTemplatesTab() {
   const doDelete = async () => {
     if (!confirmDeleteId) return;
     const id = confirmDeleteId;
-    setConfirmDeleteId(null);
+    closeConfirm();
     try {
       await apiFetch(`/admin/assets/catalogue-templates/${id}`, { method: 'DELETE' });
       setTemplates((prev) => prev.filter((t) => t.id !== id));
@@ -96,7 +136,10 @@ export function CatalogueTemplatesTab() {
           </p>
         </div>
         <div className="head-tools">
-          <button className="btn ghost" onClick={() => setEditingTemplate('new')}>
+          <button
+            className="btn ghost"
+            onClick={() => setModalParams({ modal: 'new-template', editId: null })}
+          >
             <Icon.Add /> New template
           </button>
         </div>
@@ -188,7 +231,7 @@ export function CatalogueTemplatesTab() {
                     <button
                       className="btn ghost"
                       style={{ fontSize: 10, padding: '3px 8px' }}
-                      onClick={() => setEditingTemplate(t)}
+                      onClick={() => setModalParams({ modal: 'edit-template', editId: t.id })}
                     >
                       <Icon.Edit /> Edit
                     </button>
@@ -196,7 +239,9 @@ export function CatalogueTemplatesTab() {
                   <button
                     className="btn danger"
                     style={{ width: '100%', marginTop: 4, fontSize: 11, padding: '3px 0' }}
-                    onClick={() => setConfirmDeleteId(t.id)}
+                    onClick={() =>
+                      setConfirmParams({ confirm: 'delete-template', confirmId: t.id })
+                    }
                   >
                     <Icon.Trash /> Delete
                   </button>
@@ -207,7 +252,7 @@ export function CatalogueTemplatesTab() {
         ))}
 
       {confirmDeleteId && (
-        <div className="modal-overlay" onClick={() => setConfirmDeleteId(null)}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Delete catalogue template</h3>
@@ -216,7 +261,7 @@ export function CatalogueTemplatesTab() {
               <p>Delete this template? Studio users will no longer see it.</p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDeleteId(null)}>
+              <button className="btn ghost" onClick={closeConfirm}>
                 Cancel
               </button>
               <button className="btn danger" onClick={doDelete}>
@@ -234,7 +279,7 @@ export function CatalogueTemplatesTab() {
           poseAssets={poseAssets}
           backgrounds={backgrounds}
           onSaved={() => void load()}
-          onClose={() => setEditingTemplate(null)}
+          onClose={closeModal}
           toast={toast}
         />
       )}

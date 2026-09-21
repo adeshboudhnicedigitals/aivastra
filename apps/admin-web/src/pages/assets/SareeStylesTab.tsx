@@ -4,6 +4,9 @@ import { EditDrawer } from '../../components/EditDrawer';
 import { Icon } from '../../components/Icons';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
+import { useCrumb } from '../../context/BreadcrumbContext';
+import { useCloseOverlay } from '../../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../../hooks/use-url-state';
 import {
   apiErrorMessage,
   apiFetch,
@@ -226,8 +229,28 @@ export function SareeStylesTab() {
   const [styles, setStyles] = useState<SareeMannequinStyle[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState<SareeMannequinStyle | null>(null);
+
+  const tabHref = '/assets?tab=saree-styles';
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const editing: SareeMannequinStyle | null =
+    modalParam === 'edit-style' && editId ? (styles.find((s) => s.id === editId) ?? null) : null;
+  // Falls back to no modal (not a phantom "new style" form) if `editId`
+  // doesn't resolve — a deleted style or stale bookmark.
+  const showModal = modalParam === 'new-style' || (modalParam === 'edit-style' && editing !== null);
+
+  useCrumb(0, { label: 'Saree Mannequin Styles', href: tabHref });
+  useCrumb(
+    1,
+    modalParam === 'new-style'
+      ? { label: 'New style', href: `${tabHref}&modal=new-style` }
+      : editing
+        ? {
+            label: 'Edit style',
+            href: `${tabHref}&modal=edit-style&editId=${encodeURIComponent(editing.id)}`,
+          }
+        : null,
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -297,10 +320,7 @@ export function SareeStylesTab() {
         <div className="head-tools">
           <button
             className="btn"
-            onClick={() => {
-              setEditing(null);
-              setShowModal(true);
-            }}
+            onClick={() => setModalParams({ modal: 'new-style', editId: null })}
           >
             <Icon.Add /> New style
           </button>
@@ -358,10 +378,7 @@ export function SareeStylesTab() {
                 <button
                   className="btn ghost"
                   style={{ fontSize: 10, padding: '3px 8px' }}
-                  onClick={() => {
-                    setEditing(style);
-                    setShowModal(true);
-                  }}
+                  onClick={() => setModalParams({ modal: 'edit-style', editId: style.id })}
                 >
                   <Icon.Edit /> Edit
                 </button>
@@ -384,7 +401,7 @@ export function SareeStylesTab() {
                 : [...previous, saved];
             });
           }}
-          onClose={() => setShowModal(false)}
+          onClose={closeModal}
           toast={toast}
         />
       )}

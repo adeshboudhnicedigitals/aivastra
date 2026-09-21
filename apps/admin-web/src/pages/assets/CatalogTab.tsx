@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
 import { BatchCatalogUploadModal } from '../../components/BatchCatalogUploadModal';
 import { EditDrawer } from '../../components/EditDrawer';
 import { Icon } from '../../components/Icons';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
+import { useCrumb } from '../../context/BreadcrumbContext';
+import { useCloseOverlay } from '../../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../../hooks/use-url-state';
 import {
   apiErrorMessage,
   apiFetch,
@@ -57,17 +60,45 @@ export function CatalogTab() {
     if (r2Url) setPreviewUrl(r2Url);
   }
 
+  const tabHref = `/assets?tab=${activeTab}`;
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
   const [catalogTypeIds, setCatalogTypeIds] = useState<Record<string, number>>({});
-  const [lowerCatView, setLowerCatView] = useState<
-    { kind: 'list' } | { kind: 'category'; cat: CatalogCategory }
-  >({ kind: 'list' });
+
+  // Sub-view (list ↔ category) — resolved against `catalogCategories` once
+  // loaded, same approach as BackgroundsTab/GarmentTypesTab. Switching between
+  // the lower/shoe tabs already clears `view`/`catId` (AssetsContext's
+  // setActiveTab replaces the whole query string), so no extra reset is
+  // needed here beyond what the URL itself already does.
+  const [{ view: viewParam, catId }, setViewParams] = useUrlStateMulti(['view', 'catId']);
+  const lowerCatView: { kind: 'list' } | { kind: 'category'; cat: CatalogCategory } =
+    useMemo(() => {
+      if (viewParam === 'category' && catId) {
+        const cat = catalogCategories.find((c) => String(c.id) === catId);
+        if (cat) return { kind: 'category', cat };
+      }
+      return { kind: 'list' };
+    }, [viewParam, catId, catalogCategories]);
+  const viewKey = lowerCatView.kind === 'category' ? `category:${lowerCatView.cat.id}` : 'list';
+  const openCategory = useCallback(
+    (cat: CatalogCategory) => setViewParams({ view: 'category', catId: String(cat.id) }),
+    [setViewParams],
+  );
+  const closeView = useCloseOverlay(['view', 'catId']);
+  const viewQuery =
+    lowerCatView.kind === 'category'
+      ? `&view=category&catId=${encodeURIComponent(String(lowerCatView.cat.id))}`
+      : '';
+
   const [selectedCatalogItemIds, setSelectedCatalogItemIds] = useState<string[]>([]);
 
-  // Modals
-  const [showCatalogUpload, setShowCatalogUpload] = useState(false);
-  const [showAddCategory, setShowAddCategory] = useState(false);
+  // One shared `modal` param for every single-record modal on this tab,
+  // mirroring UsersPage's modal enum. `editId` matters for edit-category /
+  // edit-catalog-item, resolved against already-loaded lists.
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const showCatalogUpload = modalParam === 'upload-catalog';
+  const showAddCategory = modalParam === 'add-category';
   const [catForm, setCatForm] = useState<{
     label: string;
     slug: string;
@@ -76,11 +107,17 @@ export function CatalogTab() {
   }>({ label: '', slug: '', genderSlug: 'men', sortOrder: 0 });
   const [catImageFile, setCatImageFile] = useState<File | null>(null);
   const [catSaving, setCatSaving] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<CatalogCategory | null>(null);
+  const editingCategory: CatalogCategory | null =
+    modalParam === 'edit-category' && editId
+      ? (catalogCategories.find((c) => String(c.id) === editId) ?? null)
+      : null;
   const [editCatLabel, setEditCatLabel] = useState('');
   const [editCatImageFile, setEditCatImageFile] = useState<File | null>(null);
   const [editCatSaving, setEditCatSaving] = useState(false);
-  const [editingCatalogItem, setEditingCatalogItem] = useState<CatalogItem | null>(null);
+  const editingCatalogItem: CatalogItem | null =
+    modalParam === 'edit-catalog-item' && editId
+      ? (catalogItems.find((c) => c.id === editId) ?? null)
+      : null;
   const [editCatalogLabel, setEditCatalogLabel] = useState('');
   const [editCatalogGender, setEditCatalogGender] = useState<string>('men');
   const [editCatalogSubcatIds, setEditCatalogSubcatIds] = useState<string[]>([]);
@@ -89,14 +126,102 @@ export function CatalogTab() {
   const [catalogReplacePreview, setCatalogReplacePreview] = useState<string | null>(null);
   const [catalogReplaceUploading, setCatalogReplaceUploading] = useState(false);
   const catalogReplaceRef = useRef<HTMLInputElement>(null);
-  const [confirmDeleteCatalog, setConfirmDeleteCatalog] = useState<string | null>(null);
-  const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<CatalogCategory | null>(null);
-  const [showBulkMapCatalog, setShowBulkMapCatalog] = useState(false);
+  const showBulkMapCatalog = modalParam === 'bulk-map-catalog';
   const [bulkMapCatalogSubcatIds, setBulkMapCatalogSubcatIds] = useState<Set<string>>(new Set());
   const [bulkMappingCatalog, setBulkMappingCatalog] = useState(false);
   const [bulkUnmappingCatalog, setBulkUnmappingCatalog] = useState(false);
+
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const confirmDeleteCatalog = confirmParam === 'delete-catalog-item' ? confirmId : null;
+  const confirmDeleteCategory: CatalogCategory | null =
+    confirmParam === 'delete-category' && confirmId
+      ? (catalogCategories.find((c) => String(c.id) === confirmId) ?? null)
+      : null;
+  // Dialog open-ness is URL state; the specific ids are a snapshot of
+  // `selectedCatalogItemIds` taken at open time and stay local, same as
+  // UsersPage's bulk-delete precedent (confirm=bulk-delete-users).
   const [confirmUnmapCatalogIds, setConfirmUnmapCatalogIds] = useState<string[]>([]);
   const [confirmBulkDeleteCatalogIds, setConfirmBulkDeleteCatalogIds] = useState<string[]>([]);
+
+  // Re-seeds the edit form whenever the resolved item id actually changes —
+  // covers both a fresh click-open and a deep link/refresh landing directly
+  // on ?modal=edit-catalog-item. Keyed on the id (not the object) so an
+  // unrelated catalogItems update (e.g. toggling another item's isActive)
+  // doesn't clobber an in-progress edit with a new object reference.
+  const editingCatalogItemId = editingCatalogItem?.id ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on id only, see comment above
+  useEffect(() => {
+    if (!editingCatalogItem) return;
+    setEditCatalogLabel(editingCatalogItem.label);
+    setEditCatalogGender(editingCatalogItem.genderSlug ?? 'men');
+    setEditCatalogSubcatIds(editingCatalogItem.subcategoryIds ?? []);
+    setCatalogReplaceFile(null);
+    setCatalogReplacePreview(null);
+  }, [editingCatalogItemId]);
+
+  // Re-seeds the edit-category form the same way.
+  const editingCategoryId = editingCategory?.id ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on id only, mirrors editingCatalogItem above
+  useEffect(() => {
+    if (!editingCategory) return;
+    setEditCatLabel(editingCategory.label);
+    setEditCatImageFile(null);
+  }, [editingCategoryId]);
+
+  useCrumb(
+    0,
+    lowerCatView.kind === 'category'
+      ? { label: lowerCatView.cat.label, href: `${tabHref}${viewQuery}` }
+      : null,
+  );
+  useCrumb(
+    1,
+    showCatalogUpload
+      ? { label: 'Batch upload', href: `${tabHref}${viewQuery}&modal=upload-catalog` }
+      : showAddCategory
+        ? { label: 'Add category', href: `${tabHref}&modal=add-category` }
+        : editingCategory
+          ? {
+              label: 'Edit category',
+              href: `${tabHref}&modal=edit-category&editId=${encodeURIComponent(String(editingCategory.id))}`,
+            }
+          : editingCatalogItem
+            ? {
+                label: 'Edit item',
+                href: `${tabHref}${viewQuery}&modal=edit-catalog-item&editId=${encodeURIComponent(editingCatalogItem.id)}`,
+              }
+            : showBulkMapCatalog
+              ? {
+                  label: 'Map to garment types',
+                  href: `${tabHref}${viewQuery}&modal=bulk-map-catalog`,
+                }
+              : null,
+  );
+  useCrumb(
+    2,
+    confirmDeleteCatalog
+      ? {
+          label: 'Delete item',
+          href: `${tabHref}${viewQuery}&confirm=delete-catalog-item&confirmId=${encodeURIComponent(confirmDeleteCatalog)}`,
+        }
+      : confirmDeleteCategory
+        ? {
+            label: 'Delete category',
+            href: `${tabHref}&confirm=delete-category&confirmId=${encodeURIComponent(String(confirmDeleteCategory.id))}`,
+          }
+        : confirmParam === 'unmap-catalog'
+          ? { label: 'Unmap', href: `${tabHref}${viewQuery}&confirm=unmap-catalog` }
+          : confirmParam === 'bulk-delete-catalog-items'
+            ? {
+                label: 'Delete items',
+                href: `${tabHref}${viewQuery}&confirm=bulk-delete-catalog-items`,
+              }
+            : null,
+  );
 
   const loadCatalogCategoriesAndTypes = useCallback(async () => {
     try {
@@ -138,12 +263,9 @@ export function CatalogTab() {
     [toast, setLoading],
   );
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: setLowerCatView/setSelectedCatalogItemIds are stable React setters
   useEffect(() => {
-    setLowerCatView({ kind: 'list' });
-    setSelectedCatalogItemIds([]);
     void loadCatalogCategoriesAndTypes();
-  }, [activeTab, loadCatalogCategoriesAndTypes]);
+  }, [loadCatalogCategoriesAndTypes]);
 
   useEffect(() => {
     const onVisible = () => {
@@ -152,6 +274,22 @@ export function CatalogTab() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [loadCatalogCategoriesAndTypes]);
+
+  // Resets selection whenever the resolved view changes — mirrors the
+  // pre-URL code's reset at every open/close call site and on tab switch
+  // (dropping `view`/`catId` already clears the resolved view to 'list').
+  // biome-ignore lint/correctness/useExhaustiveDependencies: viewKey change is the trigger, not read in the body
+  useEffect(() => {
+    setSelectedCatalogItemIds([]);
+  }, [viewKey]);
+
+  // Loads (or clears) the item list whenever the resolved view changes —
+  // covers a hard refresh/deep link into a category, not just a click.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: viewKey (not lowerCatView) is the intended trigger
+  useEffect(() => {
+    if (lowerCatView.kind === 'category') void loadCatalog(undefined, lowerCatView.cat.id);
+    else setCatalogItems([]);
+  }, [viewKey]);
 
   const tabLabel = activeTab === 'shoe' ? 'Shoes' : 'Lower garments';
   const pageTitle = lowerCatView.kind === 'category' ? lowerCatView.cat.label : tabLabel;
@@ -173,11 +311,7 @@ export function CatalogTab() {
             >
               <button
                 className="btn sm ghost"
-                onClick={() => {
-                  setLowerCatView({ kind: 'list' });
-                  setSelectedCatalogItemIds([]);
-                  setCatalogItems([]);
-                }}
+                onClick={closeView}
                 style={{ padding: '2px 8px', fontSize: 13 }}
               >
                 {tabLabel}
@@ -199,14 +333,17 @@ export function CatalogTab() {
               className="btn"
               onClick={() => {
                 setCatForm({ label: '', slug: '', genderSlug: 'men', sortOrder: 0 });
-                setShowAddCategory(true);
+                setModalParams({ modal: 'add-category', editId: null });
               }}
             >
               <Icon.Add /> Add {activeTab === 'lower' ? 'lower' : 'shoe'} category
             </button>
           )}
           {lowerCatView.kind === 'category' && (
-            <button className="btn" onClick={() => setShowCatalogUpload(true)}>
+            <button
+              className="btn"
+              onClick={() => setModalParams({ modal: 'upload-catalog', editId: null })}
+            >
               <Icon.Upload /> Batch upload
             </button>
           )}
@@ -250,12 +387,7 @@ export function CatalogTab() {
                   key={cat.id}
                   className="card"
                   style={{ padding: 14, cursor: 'pointer', opacity: cat.isActive ? 1 : 0.55 }}
-                  onClick={() => {
-                    setLowerCatView({ kind: 'category', cat });
-                    setSelectedCatalogItemIds([]);
-                    setCatalogItems([]);
-                    void loadCatalog(undefined, cat.id);
-                  }}
+                  onClick={() => openCategory(cat)}
                 >
                   {cat.thumbnailUrl ? (
                     // biome-ignore lint/performance/noImgElement: admin panel
@@ -339,14 +471,18 @@ export function CatalogTab() {
                     <button
                       className="btn sm ghost"
                       style={{ marginLeft: 'auto' }}
-                      onClick={() => {
-                        setEditingCategory(cat);
-                        setEditCatLabel(cat.label);
-                      }}
+                      onClick={() =>
+                        setModalParams({ modal: 'edit-category', editId: String(cat.id) })
+                      }
                     >
                       <Icon.Edit />
                     </button>
-                    <button className="btn sm ghost" onClick={() => setConfirmDeleteCategory(cat)}>
+                    <button
+                      className="btn sm ghost"
+                      onClick={() =>
+                        setConfirmParams({ confirm: 'delete-category', confirmId: String(cat.id) })
+                      }
+                    >
                       <Icon.Trash />
                     </button>
                   </div>
@@ -370,11 +506,7 @@ export function CatalogTab() {
           >
             <button
               className="btn sm ghost"
-              onClick={() => {
-                setLowerCatView({ kind: 'list' });
-                setSelectedCatalogItemIds([]);
-                setCatalogItems([]);
-              }}
+              onClick={closeView}
               style={{ display: 'flex', alignItems: 'center', gap: 4 }}
             >
               <Icon.Back />
@@ -399,7 +531,7 @@ export function CatalogTab() {
                   className="btn sm"
                   onClick={() => {
                     setBulkMapCatalogSubcatIds(new Set());
-                    setShowBulkMapCatalog(true);
+                    setModalParams({ modal: 'bulk-map-catalog', editId: null });
                   }}
                 >
                   Map to garment types ({selectedCatalogItemIds.length})
@@ -407,13 +539,19 @@ export function CatalogTab() {
                 <button
                   className="btn sm ghost"
                   disabled={bulkUnmappingCatalog}
-                  onClick={() => setConfirmUnmapCatalogIds([...selectedCatalogItemIds])}
+                  onClick={() => {
+                    setConfirmUnmapCatalogIds([...selectedCatalogItemIds]);
+                    setConfirmParams({ confirm: 'unmap-catalog', confirmId: null });
+                  }}
                 >
                   Unmap from all
                 </button>
                 <button
                   className="btn sm danger"
-                  onClick={() => setConfirmBulkDeleteCatalogIds([...selectedCatalogItemIds])}
+                  onClick={() => {
+                    setConfirmBulkDeleteCatalogIds([...selectedCatalogItemIds]);
+                    setConfirmParams({ confirm: 'bulk-delete-catalog-items', confirmId: null });
+                  }}
                 >
                   <Icon.Trash /> Delete ({selectedCatalogItemIds.length})
                 </button>
@@ -503,21 +641,16 @@ export function CatalogTab() {
                       <button
                         className="btn sm ghost"
                         style={{ marginLeft: 'auto', padding: '2px 4px' }}
-                        onClick={() => {
-                          setEditingCatalogItem(c);
-                          setEditCatalogLabel(c.label);
-                          setEditCatalogGender(c.genderSlug ?? 'men');
-                          setEditCatalogSubcatIds(c.subcategoryIds ?? []);
-                          setCatalogReplaceFile(null);
-                          setCatalogReplacePreview(null);
-                        }}
+                        onClick={() => setModalParams({ modal: 'edit-catalog-item', editId: c.id })}
                       >
                         <Icon.Edit />
                       </button>
                       <button
                         className="btn sm ghost"
                         style={{ padding: '2px 4px' }}
-                        onClick={() => setConfirmDeleteCatalog(c.id)}
+                        onClick={() =>
+                          setConfirmParams({ confirm: 'delete-catalog-item', confirmId: c.id })
+                        }
                       >
                         <Icon.Trash />
                       </button>
@@ -539,7 +672,7 @@ export function CatalogTab() {
       {/* ── Modals ── */}
 
       {confirmDeleteCatalog && (
-        <div className="modal-overlay" onClick={() => setConfirmDeleteCatalog(null)}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Delete catalog item</h3>
@@ -555,14 +688,14 @@ export function CatalogTab() {
               </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDeleteCatalog(null)}>
+              <button className="btn ghost" onClick={closeConfirm}>
                 Cancel
               </button>
               <button
                 className="btn danger"
                 onClick={async () => {
                   const id = confirmDeleteCatalog;
-                  setConfirmDeleteCatalog(null);
+                  closeConfirm();
                   try {
                     await apiFetch(`/admin/catalog/items/${id}`, { method: 'DELETE' });
                     setCatalogItems((prev) => prev.filter((c) => c.id !== id));
@@ -584,7 +717,7 @@ export function CatalogTab() {
       )}
 
       {confirmDeleteCategory && (
-        <div className="modal-overlay" onClick={() => setConfirmDeleteCategory(null)}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Delete category</h3>
@@ -596,14 +729,14 @@ export function CatalogTab() {
               </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDeleteCategory(null)}>
+              <button className="btn ghost" onClick={closeConfirm}>
                 Cancel
               </button>
               <button
                 className="btn danger"
                 onClick={async () => {
                   const cat = confirmDeleteCategory;
-                  setConfirmDeleteCategory(null);
+                  closeConfirm();
                   try {
                     await apiFetch(`/admin/catalog/categories/${cat.id}`, { method: 'DELETE' });
                     setCatalogCategories((prev) => prev.filter((c) => c.id !== cat.id));
@@ -623,8 +756,14 @@ export function CatalogTab() {
         </div>
       )}
 
-      {confirmUnmapCatalogIds.length > 0 && (
-        <div className="modal-overlay" onClick={() => setConfirmUnmapCatalogIds([])}>
+      {confirmParam === 'unmap-catalog' && (
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            closeConfirm();
+            setConfirmUnmapCatalogIds([]);
+          }}
+        >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Unmap from all garment types</h3>
@@ -637,7 +776,13 @@ export function CatalogTab() {
               </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmUnmapCatalogIds([])}>
+              <button
+                className="btn ghost"
+                onClick={() => {
+                  closeConfirm();
+                  setConfirmUnmapCatalogIds([]);
+                }}
+              >
                 Cancel
               </button>
               <button
@@ -645,6 +790,7 @@ export function CatalogTab() {
                 disabled={bulkUnmappingCatalog}
                 onClick={async () => {
                   const ids = confirmUnmapCatalogIds;
+                  closeConfirm();
                   setConfirmUnmapCatalogIds([]);
                   setBulkUnmappingCatalog(true);
                   try {
@@ -676,8 +822,14 @@ export function CatalogTab() {
         </div>
       )}
 
-      {confirmBulkDeleteCatalogIds.length > 0 && (
-        <div className="modal-overlay" onClick={() => setConfirmBulkDeleteCatalogIds([])}>
+      {confirmParam === 'bulk-delete-catalog-items' && (
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            closeConfirm();
+            setConfirmBulkDeleteCatalogIds([]);
+          }}
+        >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Delete items</h3>
@@ -689,13 +841,20 @@ export function CatalogTab() {
               </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmBulkDeleteCatalogIds([])}>
+              <button
+                className="btn ghost"
+                onClick={() => {
+                  closeConfirm();
+                  setConfirmBulkDeleteCatalogIds([]);
+                }}
+              >
                 Cancel
               </button>
               <button
                 className="btn danger"
                 onClick={async () => {
                   const ids = confirmBulkDeleteCatalogIds;
+                  closeConfirm();
                   setConfirmBulkDeleteCatalogIds([]);
                   try {
                     await Promise.all(
@@ -731,10 +890,10 @@ export function CatalogTab() {
           }
           defaultGenderSlug={genderFilter === 'all' ? 'men' : genderFilter}
           onDone={(added) => {
-            setShowCatalogUpload(false);
+            closeModal();
             setCatalogItems((prev) => [...prev, ...(added as unknown as CatalogItem[])]);
           }}
-          onClose={() => setShowCatalogUpload(false)}
+          onClose={closeModal}
           toast={toast}
         />
       )}
@@ -743,8 +902,8 @@ export function CatalogTab() {
       {showAddCategory && (
         <EditDrawer
           onClose={() => {
-            setShowAddCategory(false);
             setCatImageFile(null);
+            closeModal();
           }}
           title={`Add ${activeTab === 'lower' ? 'lower garment' : 'shoe'} category`}
           width="min(420px, calc(100vw - 40px))"
@@ -784,7 +943,7 @@ export function CatalogTab() {
                 }),
               });
               setCatalogCategories((prev) => [...prev, cat]);
-              setShowAddCategory(false);
+              closeModal();
               setCatImageFile(null);
               toast({ title: `Category "${cat.label}" created` });
             } catch (e) {
@@ -914,8 +1073,8 @@ export function CatalogTab() {
       {editingCategory && (
         <EditDrawer
           onClose={() => {
-            setEditingCategory(null);
             setEditCatImageFile(null);
+            closeModal();
           }}
           title="Edit category"
           width="min(380px, calc(100vw - 40px))"
@@ -963,13 +1122,10 @@ export function CatalogTab() {
                     : c,
                 ),
               );
-              if (lowerCatView.kind === 'category' && lowerCatView.cat.id === editingCategory.id) {
-                setLowerCatView({
-                  kind: 'category',
-                  cat: { ...lowerCatView.cat, label: editCatLabel.trim() },
-                });
-              }
-              setEditingCategory(null);
+              // No manual lowerCatView sync needed — it's derived from
+              // `catalogCategories` via useMemo, so the setCatalogCategories
+              // call above already flows through to the header label shown.
+              closeModal();
               setEditCatImageFile(null);
               toast({ title: 'Category updated' });
             } catch (e) {
@@ -1067,7 +1223,7 @@ export function CatalogTab() {
       {/* Edit catalog item modal */}
       {editingCatalogItem && (
         <EditDrawer
-          onClose={() => setEditingCatalogItem(null)}
+          onClose={closeModal}
           title="Edit catalog item"
           width="min(440px, calc(100vw - 40px))"
           thumbnail={{ thumbnailUrl: editingCatalogItem.thumbnailUrl }}
@@ -1096,7 +1252,7 @@ export function CatalogTab() {
                 ),
               );
               toast({ title: `${editingCatalogItem.label} updated` });
-              setEditingCatalogItem(null);
+              closeModal();
             } catch (e) {
               toast({
                 kind: 'error',
@@ -1301,16 +1457,8 @@ export function CatalogTab() {
                                 : x,
                             ),
                           );
-                          setEditingCatalogItem((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  r2Key: presign.r2Key,
-                                  thumbnailKey: presign.thumbnailKey,
-                                  isActive: true,
-                                }
-                              : prev,
-                          );
+                          // editingCatalogItem is derived from catalogItems by id, so the
+                          // setCatalogItems patch above already flows through here.
                           setCatalogReplaceFile(null);
                           setCatalogReplacePreview(null);
                           toast({ title: 'Image replaced' });
@@ -1337,10 +1485,7 @@ export function CatalogTab() {
 
       {/* Bulk map catalog items to garment types */}
       {showBulkMapCatalog && lowerCatView.kind === 'category' && (
-        <div
-          className="modal-overlay"
-          onClick={bulkMappingCatalog ? undefined : () => setShowBulkMapCatalog(false)}
-        >
+        <div className="modal-overlay" onClick={bulkMappingCatalog ? undefined : closeModal}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -1353,7 +1498,7 @@ export function CatalogTab() {
               </h3>
               <button
                 className="btn sm ghost"
-                onClick={() => setShowBulkMapCatalog(false)}
+                onClick={closeModal}
                 disabled={bulkMappingCatalog}
                 style={{ marginLeft: 'auto' }}
               >
@@ -1424,11 +1569,7 @@ export function CatalogTab() {
               </div>
             </div>
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => setShowBulkMapCatalog(false)}
-                disabled={bulkMappingCatalog}
-              >
+              <button className="btn ghost" onClick={closeModal} disabled={bulkMappingCatalog}>
                 Cancel
               </button>
               <button
@@ -1447,7 +1588,7 @@ export function CatalogTab() {
                         selectedCatalogItemIds.includes(c.id) ? { ...c, subcategoryIds } : c,
                       ),
                     );
-                    setShowBulkMapCatalog(false);
+                    closeModal();
                     toast({
                       title: `Mapped ${selectedCatalogItemIds.length} items to ${subcategoryIds.length} garment type${subcategoryIds.length !== 1 ? 's' : ''}`,
                     });

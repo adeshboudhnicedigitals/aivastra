@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Pager } from '../components/Pager';
 import { useAuth } from '../context/AuthContext';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { ModelBackground, ModelFace, ModelPoseAsset } from '../types';
 
@@ -46,6 +49,23 @@ function Thumb({ thumbnailUrl, label }: { thumbnailUrl: string | null; label: st
   );
 }
 
+const TAB_LABELS: Record<RbTab, string> = {
+  faces: 'Faces',
+  backgrounds: 'Backgrounds',
+  poseAssets: 'Pose assets',
+};
+
+const PERM_DELETE_TYPE: Record<string, 'face' | 'background' | 'poseAsset'> = {
+  'perm-delete-face': 'face',
+  'perm-delete-background': 'background',
+  'perm-delete-poseAsset': 'poseAsset',
+};
+const PERM_DELETE_CONFIRM: Record<'face' | 'background' | 'poseAsset', string> = {
+  face: 'perm-delete-face',
+  background: 'perm-delete-background',
+  poseAsset: 'perm-delete-poseAsset',
+};
+
 export default function RecycleBinPage({ toast }: Props) {
   const { hasPermission } = useAuth();
   const canHardDelete = hasPermission('assets.delete');
@@ -53,19 +73,31 @@ export default function RecycleBinPage({ toast }: Props) {
   const [faces, setFaces] = useState<ModelFace[]>([]);
   const [backgrounds, setBackgrounds] = useState<ModelBackground[]>([]);
   const [poseAssets, setPoseAssets] = useState<ModelPoseAsset[]>([]);
-  const [tab, setTab] = useState<RbTab>('faces');
+  const [tabParam, setTabParam] = useUrlState('tab');
+  const tab: RbTab = tabParam === 'backgrounds' || tabParam === 'poseAssets' ? tabParam : 'faces';
   const [selectedFaceIds, setSelectedFaceIds] = useState<string[]>([]);
   const [selectedBgIds, setSelectedBgIds] = useState<string[]>([]);
   const [selectedPaIds, setSelectedPaIds] = useState<string[]>([]);
-  const [permDel, setPermDel] = useState<{
-    type: 'face' | 'background' | 'poseAsset';
-    ids: string[];
-  } | null>(null);
+  const [confirmParam, setConfirmParam] = useUrlState('confirm');
+  const closeConfirm = useCloseOverlay(['confirm']);
+  const permDelType = confirmParam ? PERM_DELETE_TYPE[confirmParam] : undefined;
+  // The confirm dialog's target ids are a bulk-selection snapshot, not
+  // navigation state — only whether the dialog is open belongs in the URL.
+  const [permDelIds, setPermDelIds] = useState<string[]>([]);
+  const permDel = permDelType ? { type: permDelType, ids: permDelIds } : null;
   const [permDelText, setPermDelText] = useState('');
   const [working, setWorking] = useState(false);
   const [facePage, setFacePage] = useState(0);
   const [bgPage, setBgPage] = useState(0);
   const [paPage, setPaPage] = useState(0);
+
+  useCrumb(0, { label: TAB_LABELS[tab], href: `/recycle-bin?tab=${tab}` });
+  useCrumb(
+    1,
+    permDel
+      ? { label: 'Permanently delete', href: `/recycle-bin?tab=${tab}&confirm=${confirmParam}` }
+      : null,
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -161,7 +193,7 @@ export default function RecycleBinPage({ toast }: Props) {
             key={t.k}
             className={`tab ${tab === t.k ? 'active' : ''}`}
             onClick={() => {
-              setTab(t.k);
+              setTabParam(t.k === 'faces' ? null : t.k);
               setFacePage(0);
               setBgPage(0);
               setPaPage(0);
@@ -269,7 +301,8 @@ export default function RecycleBinPage({ toast }: Props) {
                     className="btn sm danger"
                     disabled={working}
                     onClick={() => {
-                      setPermDel({ type: currentType, ids: selectedIds });
+                      setPermDelIds(selectedIds);
+                      setConfirmParam(PERM_DELETE_CONFIRM[currentType]);
                       setPermDelText('');
                     }}
                   >
@@ -331,7 +364,8 @@ export default function RecycleBinPage({ toast }: Props) {
                                 className="btn sm danger"
                                 disabled={working}
                                 onClick={() => {
-                                  setPermDel({ type: 'face', ids: [f.id] });
+                                  setPermDelIds([f.id]);
+                                  setConfirmParam(PERM_DELETE_CONFIRM.face);
                                   setPermDelText('');
                                 }}
                               >
@@ -406,7 +440,8 @@ export default function RecycleBinPage({ toast }: Props) {
                                 className="btn sm danger"
                                 disabled={working}
                                 onClick={() => {
-                                  setPermDel({ type: 'background', ids: [b.id] });
+                                  setPermDelIds([b.id]);
+                                  setConfirmParam(PERM_DELETE_CONFIRM.background);
                                   setPermDelText('');
                                 }}
                               >
@@ -485,7 +520,8 @@ export default function RecycleBinPage({ toast }: Props) {
                                 className="btn sm danger"
                                 disabled={working}
                                 onClick={() => {
-                                  setPermDel({ type: 'poseAsset', ids: [p.id] });
+                                  setPermDelIds([p.id]);
+                                  setConfirmParam(PERM_DELETE_CONFIRM.poseAsset);
                                   setPermDelText('');
                                 }}
                               >
@@ -517,7 +553,7 @@ export default function RecycleBinPage({ toast }: Props) {
         <div
           className="modal-overlay"
           onClick={() => {
-            setPermDel(null);
+            closeConfirm();
             setPermDelText('');
           }}
         >
@@ -566,7 +602,7 @@ export default function RecycleBinPage({ toast }: Props) {
               <button
                 className="btn ghost"
                 onClick={() => {
-                  setPermDel(null);
+                  closeConfirm();
                   setPermDelText('');
                 }}
               >
@@ -588,7 +624,7 @@ export default function RecycleBinPage({ toast }: Props) {
                       body: JSON.stringify(permDel),
                     });
                     toast({ title: `${permDel.ids.length} permanently deleted` });
-                    setPermDel(null);
+                    closeConfirm();
                     setPermDelText('');
                     void load();
                   } catch (e) {

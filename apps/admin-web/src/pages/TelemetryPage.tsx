@@ -18,6 +18,8 @@ import JobDistributionChart, {
   PHASE_LABELS,
 } from '../components/JobDistributionChart';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 type DayRange = 7 | 14 | 30;
@@ -240,7 +242,11 @@ export default function TelemetryPage({ toast }: Props) {
   const [days, setDays] = useState<DayRange>(7);
   const [data, setData] = useState<TelemetryResponse | null>(null);
   const [dist, setDist] = useState<DistributionResponse | null>(null);
-  const [selectedPoint, setSelectedPoint] = useState<DistributionPoint | null>(null);
+  const [selectedJobId, setSelectedJobId] = useUrlState('job');
+  const closeSelectedJob = useCloseOverlay(['job']);
+  const selectedPoint: DistributionPoint | null = selectedJobId
+    ? (dist?.buckets.flatMap((b) => b.points).find((p) => p.jobId === selectedJobId) ?? null)
+    : null;
   const [loading, setLoading] = useState(true);
   const [zooming, setZooming] = useState(false);
 
@@ -266,7 +272,9 @@ export default function TelemetryPage({ toast }: Props) {
       ]);
       setData(res);
       setDist(distRes);
-      setSelectedPoint(null);
+      // No explicit reset needed: selectedPoint is derived from selectedJobId
+      // against dist, so it naturally resolves to null once the old job's id
+      // isn't present in the freshly-loaded data.
 
       // Open on the data rather than on a mostly-empty window. This changes the
       // view, which triggers the range refetch below and refines the buckets —
@@ -550,8 +558,8 @@ export default function TelemetryPage({ toast }: Props) {
                       boundsFrom={bounds.from}
                       boundsTo={bounds.to}
                       onViewChange={handleViewChange}
-                      onPointClick={setSelectedPoint}
-                      selectedJobId={selectedPoint?.jobId ?? null}
+                      onPointClick={(p) => setSelectedJobId(p.jobId)}
+                      selectedJobId={selectedJobId}
                       loading={zooming}
                     />
                     <div
@@ -591,7 +599,7 @@ export default function TelemetryPage({ toast }: Props) {
                     ) : null}
 
                     {selectedPoint ? (
-                      <PointDetail point={selectedPoint} onClose={() => setSelectedPoint(null)} />
+                      <PointDetail point={selectedPoint} onClose={closeSelectedJob} />
                     ) : null}
 
                     <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>
