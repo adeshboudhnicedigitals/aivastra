@@ -50,7 +50,7 @@ export const CreateUserBody = z.object({
     .regex(/[a-zA-Z]/, 'Password must contain at least one letter')
     .regex(/[0-9]/, 'Password must contain at least one number'),
   displayName: z.string().min(1).max(80),
-  email: z.string().email().max(254).optional(),
+  email: z.string().email().max(254),
   phone: z
     .string()
     .regex(/^\d{10}$/, 'phone must be a 10-digit number')
