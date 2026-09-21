@@ -464,41 +464,96 @@ describe('dual-size groups', () => {
     };
   }
 
-  it('patches both the latent group and the output group with the identical literal ASPECT_DIMENSIONS lookup', () => {
+  it('patches both the latent group and the output group with the identical literal ASPECT_DIMENSIONS lookup when both caps are above the resolved dims', () => {
     const wf = makeDualSizeWorkflow();
     applyWorkflowPatch(
       wf,
       makeTemplate({
         latentSizeNodeIds: ['max-width', 'max-height'],
-        latentMaxPx: 2048,
+        latentMaxPx: 4096,
         outputSizeNodeIds: ['result-width', 'result-height'],
+        outputMaxPx: 4096,
       }),
       { ...BASE_INPUTS, aspectRatio: '2:3' },
     );
-    // Latent group and output group both get the exact same resolved dims — no
-    // ceiling, no downscale. latentMaxPx (2048, above) is stored on the template but
-    // intentionally not read by this branch.
+    // Both caps sit above the resolved dims (2:3 → 2688 long edge), so both groups
+    // are a no-op pass-through of the exact resolved dims.
     expect(wf['max-width']?.inputs.value).toBe(ASPECT_DIMENSIONS['2:3']?.width);
     expect(wf['max-height']?.inputs.value).toBe(ASPECT_DIMENSIONS['2:3']?.height);
     expect(wf['result-width']?.inputs.value).toBe(ASPECT_DIMENSIONS['2:3']?.width);
     expect(wf['result-height']?.inputs.value).toBe(ASPECT_DIMENSIONS['2:3']?.height);
   });
 
-  it('renders the latent at the exact custom request size regardless of the template latentMaxPx column', () => {
+  it('caps the latent group to latentMaxPx, proportionally, when below the resolved dims', () => {
     const wf = makeDualSizeWorkflow();
     applyWorkflowPatch(
       wf,
       makeTemplate({
         latentSizeNodeIds: ['max-width', 'max-height'],
-        // Set well below the requested dims to prove this column no longer clamps
-        // anything for the latent group — it is intentionally unused here.
         latentMaxPx: 1024,
         outputSizeNodeIds: ['result-width', 'result-height'],
+        outputMaxPx: 4096,
       }),
       { ...BASE_INPUTS, outputWidth: 3000, outputHeight: 4000 },
     );
-    // Neither dimension is clamped, even though both exceed latentMaxPx (1024) — the
-    // latent group mirrors the request exactly, same as the output group.
+    // Long edge 4000 → scale 1024/4000 = 0.256, preserving aspect ratio.
+    expect(wf['max-width']?.inputs.value).toBe(Math.round(3000 * (1024 / 4000)));
+    expect(wf['max-height']?.inputs.value).toBe(1024);
+    // Output group has its own, much higher cap — unaffected by the latent cap.
+    expect(wf['result-width']?.inputs.value).toBe(3000);
+    expect(wf['result-height']?.inputs.value).toBe(4000);
+  });
+
+  it('caps the output group to outputMaxPx independently of the latent group', () => {
+    const wf = makeDualSizeWorkflow();
+    applyWorkflowPatch(
+      wf,
+      makeTemplate({
+        latentSizeNodeIds: ['max-width', 'max-height'],
+        latentMaxPx: 4096,
+        outputSizeNodeIds: ['result-width', 'result-height'],
+        outputMaxPx: 2000,
+      }),
+      { ...BASE_INPUTS, outputWidth: 3000, outputHeight: 4000 },
+    );
+    // Latent group uncapped (below its ceiling).
+    expect(wf['max-width']?.inputs.value).toBe(3000);
+    expect(wf['max-height']?.inputs.value).toBe(4000);
+    // Output group capped: long edge 4000 → scale 2000/4000 = 0.5.
+    expect(wf['result-width']?.inputs.value).toBe(1500);
+    expect(wf['result-height']?.inputs.value).toBe(2000);
+  });
+
+  it('treats a cap exactly equal to the resolved long edge as a no-op', () => {
+    const wf = makeDualSizeWorkflow();
+    applyWorkflowPatch(
+      wf,
+      makeTemplate({
+        latentSizeNodeIds: ['max-width', 'max-height'],
+        latentMaxPx: 4000,
+        outputSizeNodeIds: ['result-width', 'result-height'],
+        outputMaxPx: 4000,
+      }),
+      { ...BASE_INPUTS, outputWidth: 3000, outputHeight: 4000 },
+    );
+    expect(wf['max-width']?.inputs.value).toBe(3000);
+    expect(wf['max-height']?.inputs.value).toBe(4000);
+    expect(wf['result-width']?.inputs.value).toBe(3000);
+    expect(wf['result-height']?.inputs.value).toBe(4000);
+  });
+
+  it('treats a null/undefined maxPx as unbounded (protects backfilled templates)', () => {
+    const wf = makeDualSizeWorkflow();
+    applyWorkflowPatch(
+      wf,
+      makeTemplate({
+        latentSizeNodeIds: ['max-width', 'max-height'],
+        latentMaxPx: null as unknown as number,
+        outputSizeNodeIds: ['result-width', 'result-height'],
+        outputMaxPx: undefined as unknown as number,
+      }),
+      { ...BASE_INPUTS, outputWidth: 3000, outputHeight: 4000 },
+    );
     expect(wf['max-width']?.inputs.value).toBe(3000);
     expect(wf['max-height']?.inputs.value).toBe(4000);
     expect(wf['result-width']?.inputs.value).toBe(3000);
@@ -552,5 +607,16 @@ describe('dual-size groups', () => {
       aspectRatio: '1:1',
     });
     expect(wf['1345:874']?.inputs.width).toBe(ASPECT_DIMENSIONS['1:1']?.width);
+  });
+
+  it('caps the legacy single-group path to outputMaxPx, proportionally', () => {
+    const wf = makeWorkflow();
+    applyWorkflowPatch(
+      wf,
+      makeTemplate({ latentSizeNodeIds: [], outputSizeNodeIds: [], outputMaxPx: 1024 }),
+      { ...BASE_INPUTS, outputWidth: 3000, outputHeight: 4000 },
+    );
+    expect(wf['1345:874']?.inputs.width).toBe(Math.round(3000 * (1024 / 4000)));
+    expect(wf['1345:874']?.inputs.height).toBe(1024);
   });
 });
