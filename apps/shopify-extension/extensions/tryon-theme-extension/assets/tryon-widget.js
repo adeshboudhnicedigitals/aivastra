@@ -403,20 +403,36 @@
     const backBtn = root.querySelector('.aivastra-tryon__back-btn');
     const historyBtn = root.querySelector('.aivastra-tryon__history-btn');
     const historyBadge = root.querySelector('.aivastra-tryon__history-badge');
-    // Where backBtn should land while the result step is showing: 'flow'
-    // returns to the upload/ready flow via startOver(); 'history' means the
-    // shopper drilled into a single tile from the History grid, so back
-    // should pop one level to the grid instead of leaving history entirely.
-    let resultBackTarget = 'flow';
+    // What backBtn undoes, as a real stack rather than one remembered slot —
+    // History is reachable from almost every step (see syncHeaderButton), and
+    // a shopper can drill from that step into the grid and then into a tile,
+    // so a single "come back here" value isn't enough to unwind more than one
+    // level. Each entry is one of:
+    //   { type: 'step', name }  — return to a non-result step exactly as it
+    //                              was; 'progress' additionally checks
+    //                              whether the generation finished while
+    //                              away (see pendingResultView).
+    //   { type: 'grid' }        — return to the History grid.
+    //   { type: 'entry', entry } — return to one single-card result view.
+    // Cleared (not popped) whenever a fresh result/history-eligible view is
+    // entered other than by backing into it — that view is a new root, not a
+    // continuation of whatever chain led to the previous one.
+    let navStack = [];
     // The entry currently shown in the single-card result view (fresh
-    // generation or a History tile) — kept so the History button can restore
-    // it when back leaves the grid it opened.
+    // generation or a History tile) — kept so the History button can push it
+    // for backBtn to restore later.
     let currentResultEntry = null;
-    // Snapshot of { backTarget, entry } taken when the History button is
-    // pressed from a single-card view, so backBtn can pop the grid back to
-    // exactly that card instead of always leaving via startOver().
-    let historyReturn = null;
     const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
+
+    // Name of whichever non-result step is currently visible, or null if
+    // none is (e.g. already on 'result'). Used to push a return target onto
+    // navStack when History is opened from that step.
+    function activeStepName() {
+      for (const key in steps) {
+        if (key !== 'result' && steps[key] && !steps[key].hidden) return key;
+      }
+      return null;
+    }
 
     const CLIENT_ID_STORAGE_KEY = 'aivastra_client_id';
 
@@ -1061,32 +1077,57 @@
     // (single column, Add to Cart / Share) as the just-generated result —
     // browsing history shouldn't be a dead end without a purchase path.
     function openHistoryDetail(entry) {
-      resultBackTarget = 'history';
+      navStack.push({ type: 'grid' });
       renderSingleResult(entry);
       showStep('result');
     }
 
-    // backBtn's behavior depends on how the shopper got to the result step:
-    // popping one level back to the History grid when they drilled into a
-    // tile, restoring the single card they were viewing when they opened the
-    // grid via the History button, or otherwise leaving the result feed
-    // entirely for the main flow.
+    // backBtn pops one entry off navStack and restores it — the grid when a
+    // tile was drilled into, a single card when History was opened from one,
+    // or the exact non-result step History was opened from (see
+    // activeStepName). An empty stack means the result step was reached some
+    // other way (a fresh generation, a reopened modal) — that has no "back"
+    // of its own, so it leaves the result feed entirely via startOver().
     async function handleBack() {
-      if (resultBackTarget === 'history') {
-        resultBackTarget = 'flow';
+      const target = navStack.pop();
+      if (!target) {
+        startOver();
+        return;
+      }
+      if (target.type === 'grid') {
         await renderResultList();
         showStep('result');
         return;
       }
-      if (resultBackTarget === 'entry' && historyReturn) {
-        const { backTarget, entry } = historyReturn;
-        historyReturn = null;
-        resultBackTarget = backTarget;
-        renderSingleResult(entry);
+      if (target.type === 'entry') {
+        renderSingleResult(target.entry);
         showStep('result');
         return;
       }
-      startOver();
+      // target.type === 'step'. A prior History visit may have left the
+      // grid's fixed-height sizing on modalContent; every non-result step
+      // needs its own natural sizing back (showReady does the same when it's
+      // the entry point instead of a stack pop).
+      if (modalContent) modalContent.classList.remove('aivastra-tryon__modal-content--history');
+      if (target.name === 'progress') {
+        // The generation may have finished while History was open — that
+        // path stashes it in pendingResultView instead of rendering into a
+        // step nobody's looking at (see proceedWithPhoto). Prefer it over
+        // the progress step, which would otherwise show a stale spinner for
+        // a job that already completed.
+        if (pendingResultView) {
+          const entry = pendingResultView;
+          pendingResultView = null;
+          navStack = [];
+          renderSingleResult(entry);
+          showStep('result');
+          trackEvent('result_view');
+          return;
+        }
+        showStep('progress');
+        return;
+      }
+      showStep(target.name);
     }
 
     function resetReadyPreview() {
@@ -1127,12 +1168,19 @@
       fileInput.value = '';
       resetReadyPreview();
       if (reuseExpiredNote) reuseExpiredNote.hidden = true;
+      // Leaving the result/History feed for good — any back-chain a prior
+      // History detour built up no longer points anywhere meaningful.
+      navStack = [];
       enterMainFlow();
     }
 
     function openModal() {
       trackEvent('button_click');
       modal.hidden = false;
+      // Every (re)open is a new root context — a navStack entry pushed by
+      // browsing History before the modal was last closed no longer points
+      // anywhere a shopper asked to go back to.
+      navStack = [];
       // Show the generation they already paid for, not a fresh CTA to buy
       // another one. startOver() would reset to upload/ready and re-offer the
       // remembered photo — see generationInFlight.
@@ -1155,7 +1203,6 @@
       if (pendingResultView) {
         const entry = pendingResultView;
         pendingResultView = null;
-        resultBackTarget = 'flow';
         renderSingleResult(entry);
         showStep('result');
         trackEvent('result_view');
@@ -1528,10 +1575,17 @@
           // Held rather than rendered — see pendingResultView.
           pendingResultView = entry;
         } else if (isAwaitingGeneration()) {
-          resultBackTarget = 'flow';
+          navStack = [];
           renderSingleResult(entry);
           showStep('result');
           trackEvent('result_view');
+        } else {
+          // Modal open but the shopper left the progress step on purpose —
+          // most likely History, reachable from progress (see
+          // isAwaitingGeneration). Hold it the same way a closed modal does,
+          // so backing out of History lands on the finished result instead
+          // of a spinner for a generation that already ended.
+          pendingResultView = entry;
         }
       } catch (err) {
         // Failures are shown even if the shopper has navigated away, which is
@@ -1674,18 +1728,17 @@
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) {
       historyBtn.addEventListener('click', async () => {
-        // Opened from a single card (fresh generation or a tile detail)?
-        // Remember it — and what its own back target was — so backBtn pops
-        // the grid back to that exact card instead of always leaving via
-        // startOver().
+        // Push whatever's on screen now onto navStack so backBtn can restore
+        // it exactly — a single card (fresh generation or a tile detail), or
+        // the non-result step History was opened from (hidden while already
+        // on the grid — see syncHeaderButton — so those are the only two
+        // shapes this click can start from).
         const onResultView = steps.result ? !steps.result.hidden : false;
-        const onGrid = onResultView && !!resultList?.classList.contains(RESULT_LIST_GRID_CLASS);
-        if (onResultView && !onGrid && currentResultEntry) {
-          historyReturn = { backTarget: resultBackTarget, entry: currentResultEntry };
-          resultBackTarget = 'entry';
+        if (onResultView && currentResultEntry) {
+          navStack.push({ type: 'entry', entry: currentResultEntry });
         } else {
-          historyReturn = null;
-          resultBackTarget = 'flow';
+          const name = activeStepName();
+          if (name) navStack.push({ type: 'step', name });
         }
         try {
           await renderResultList();
