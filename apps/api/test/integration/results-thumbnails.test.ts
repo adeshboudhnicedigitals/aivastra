@@ -1,5 +1,7 @@
 import { Script } from 'node:vm';
 import { schema } from '@aivastra/db';
+import AdmZip from 'adm-zip';
+import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hashPassword } from '../../src/modules/auth/service.js';
@@ -20,6 +22,7 @@ describe('/results thumbnails', () => {
   let nextTestClient = 1;
   let cookie: string;
   let bigJpeg: Buffer;
+  let smallJpeg: Buffer;
 
   beforeAll(async () => {
     c = await startContainers();
@@ -28,6 +31,14 @@ describe('/results thumbnails', () => {
     // Large enough that a 256px thumbnail is observably smaller.
     bigJpeg = await sharp({
       create: { width: 800, height: 1000, channels: 3, background: { r: 30, g: 120, b: 200 } },
+    })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+    // Distinct fixture content stored under thumbnailKey — lets tests below
+    // prove the lightbox/bundle bytes came from r2Key (bigJpeg), not a
+    // regression back to serving the admin asset's thumbnailKey (smallJpeg).
+    smallJpeg = await sharp({
+      create: { width: 40, height: 50, channels: 3, background: { r: 200, g: 20, b: 20 } },
     })
       .jpeg({ quality: 90 })
       .toBuffer();
@@ -70,6 +81,8 @@ describe('/results thumbnails', () => {
     upperGarment?: boolean;
     customerPhoto?: boolean;
     poseAsset?: boolean;
+    background?: boolean;
+    shoeCatalog?: boolean;
     result?: boolean;
     resultThumb?: boolean;
     videoResult?: boolean;
@@ -97,23 +110,52 @@ describe('/results thumbnails', () => {
 
     let poseId: string | null = null;
     if (opts.poseAsset) {
+      const fullKey = `test/${jobId}/pose.jpg`;
       const thumbKey = `test/${jobId}/pose.thumb.jpg`;
-      await app.storage.putObject(thumbKey, bigJpeg, 'image/jpeg');
+      await app.storage.putObject(fullKey, bigJpeg, 'image/jpeg');
+      await app.storage.putObject(thumbKey, smallJpeg, 'image/jpeg');
       const [pose] = await app.db
         .insert(schema.modelPoseAssets)
-        .values({
-          label: 'thumb-test-pose',
-          r2Key: `test/${jobId}/pose.jpg`,
-          thumbnailKey: thumbKey,
-        })
+        .values({ label: 'thumb-test-pose', r2Key: fullKey, thumbnailKey: thumbKey })
         .returning();
       poseId = pose.id as string;
+    }
+
+    let backgroundId: string | null = null;
+    if (opts.background) {
+      const fullKey = `test/${jobId}/bg.jpg`;
+      const thumbKey = `test/${jobId}/bg.thumb.jpg`;
+      await app.storage.putObject(fullKey, bigJpeg, 'image/jpeg');
+      await app.storage.putObject(thumbKey, smallJpeg, 'image/jpeg');
+      const [bg] = await app.db
+        .insert(schema.modelBackgrounds)
+        .values({ label: 'thumb-test-bg', r2Key: fullKey, thumbnailKey: thumbKey })
+        .returning();
+      backgroundId = bg.id as string;
+    }
+
+    let shoeCatalogId: string | null = null;
+    if (opts.shoeCatalog) {
+      await app.storage.putObject(`test/${jobId}/shoe.jpg`, bigJpeg, 'image/jpeg');
+      await app.storage.putObject(`test/${jobId}/shoe.thumb.jpg`, smallJpeg, 'image/jpeg');
+      const [shoe] = await app.db
+        .insert(schema.catalogItems)
+        .values({
+          type: 'shoe',
+          label: 'thumb-test-shoe',
+          r2Key: `test/${jobId}/shoe.jpg`,
+          thumbnailKey: `test/${jobId}/shoe.thumb.jpg`,
+        })
+        .returning();
+      shoeCatalogId = shoe.id as string;
     }
 
     await app.db.insert(schema.jobInputs).values({
       jobId,
       upperGarmentKey,
       poseId,
+      backgroundId,
+      shoeCatalogId,
     });
 
     const resultKey = opts.videoResult
@@ -199,6 +241,56 @@ describe('/results thumbnails', () => {
     expect(poseItem.poseTag).toBeNull();
     expect(poseItem.personThumbUrl).toBeNull();
     expect(poseItem.poseUrl).toContain('pose.thumb.jpg');
+    // Lightbox/download must follow the pose asset's own full r2Key, not its
+    // thumbnailKey — the grid cell above and the lightbox target must differ.
+    expect(poseItem.poseFullUrl).toContain('/pose.jpg');
+    expect(poseItem.poseFullUrl).not.toContain('pose.thumb.jpg');
+  });
+
+  it('keeps the full-res object for background/shoe lightbox and download, not the thumbnail', async () => {
+    const { jobId } = await seedJob({
+      userEmail: 'thumb-bg-shoe@x.com',
+      background: true,
+      shoeCatalog: true,
+    });
+    const item = await fetchItem(jobId);
+    expect(item.backgroundUrl).toContain('bg.thumb.jpg');
+    expect(item.backgroundFullUrl).toContain('/bg.jpg');
+    expect(item.backgroundFullUrl).not.toContain('bg.thumb.jpg');
+    expect(item.shoeUrl).toContain('shoe.thumb.jpg');
+    expect(item.shoeFullUrl).toContain('/shoe.jpg');
+    expect(item.shoeFullUrl).not.toContain('shoe.thumb.jpg');
+  });
+
+  it('bundle download zips the full-res pose/background/shoe objects, not their thumbnails', async () => {
+    const { jobId } = await seedJob({
+      userEmail: 'thumb-bundle-full@x.com',
+      poseAsset: true,
+      background: true,
+      shoeCatalog: true,
+    });
+    await app.db
+      .update(schema.jobs)
+      .set({ flagged: true, flagReason: 'texture_issue', flaggedAt: new Date() })
+      .where(eq(schema.jobs.id, jobId));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/results/${jobId}/bundle`,
+      headers: { cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const zip = new AdmZip(res.rawPayload);
+    // Thumb and full fixtures are deliberately different images (bigJpeg vs.
+    // smallJpeg) — comparing bytes, not just entry presence, is what catches a
+    // regression back to zipping thumbnailKey instead of r2Key.
+    for (const name of ['inputs/pose.jpg', 'inputs/background.jpg', 'inputs/shoe.jpg']) {
+      const entry = zip.getEntry(name);
+      expect(entry, `missing ${name}`).toBeTruthy();
+      const data = entry!.getData();
+      expect(data.equals(bigJpeg), `${name} should be the full-res object`).toBe(true);
+      expect(data.equals(smallJpeg), `${name} should not be the thumbnail`).toBe(false);
+    }
   });
 
   it('resizes garment inputs to a small JPEG', async () => {

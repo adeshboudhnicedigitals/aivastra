@@ -273,6 +273,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
           poseThumbKey: schema.modelPoseAssets.thumbnailKey,
+          poseFullKey: schema.modelPoseAssets.r2Key,
           // No admin pose asset (poseThumbKey) means this job's "pose" slot
           // is actually whatever image the customer/system supplied instead —
           // a widget/kiosk customer photo (jobs.customerPhotoKey) or an
@@ -291,12 +292,16 @@ export async function resultsRoutes(app: FastifyInstance) {
             ELSE NULL
           END`,
           backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
+          backgroundFullKey: schema.modelBackgrounds.r2Key,
           lowerThumbKey: sql<
             string | null
           >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.lowerCatalogId})`,
           shoeThumbKey: sql<
             string | null
           >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
+          shoeFullKey: sql<
+            string | null
+          >`(select ${schema.catalogItems.r2Key} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
           outputKey: schema.jobOutputs.resultKey,
           // Stored 512px JPEG written by the dispatcher at finalize time
           // (apps/dispatcher/src/workflow/finalize.ts). NULL for jobs that
@@ -389,10 +394,17 @@ export async function resultsRoutes(app: FastifyInstance) {
           // shadow it with the person photo.
           personThumbUrl:
             r.poseThumbKey || !r.personOrSourceKey ? null : `/results/${r.id}/thumb/person`,
-          poseFullUrl: r.poseThumbKey ? null : await presign(r.personOrSourceKey),
+          // Full-res target for the lightbox/download: the pose asset's own
+          // r2Key when one is assigned (poseUrl above is that asset's
+          // thumbnailKey), otherwise the same person/source object as the grid.
+          poseFullUrl: r.poseThumbKey
+            ? await presign(r.poseFullKey)
+            : await presign(r.personOrSourceKey),
           backgroundUrl: await presign(r.backgroundThumbKey),
+          backgroundFullUrl: await presign(r.backgroundFullKey),
           lowerUrl: await presign(r.lowerThumbKey),
           shoeUrl: await presign(r.shoeThumbKey),
+          shoeFullUrl: await presign(r.shoeFullKey),
           outputUrl: await presign(r.outputKey),
           // Grid thumbnail: the dispatcher's stored 512px JPEG when present,
           // otherwise the on-demand endpoint resizes resultKey on the fly
@@ -674,8 +686,10 @@ export async function resultsRoutes(app: FastifyInstance) {
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
-          faceThumbKey: schema.modelFaces.thumbnailKey,
-          poseThumbKey: schema.modelPoseAssets.thumbnailKey,
+          // Bundle is a QA download, not a grid cell — every admin-curated
+          // asset below is selected by its full r2Key, never thumbnailKey.
+          faceKey: schema.modelFaces.r2Key,
+          poseAssetKey: schema.modelPoseAssets.r2Key,
           // See the matching fields in /results/data above — same fallback
           // for jobs with no admin pose asset.
           personOrSourceKey: sql<
@@ -687,13 +701,13 @@ export async function resultsRoutes(app: FastifyInstance) {
             WHEN ${schema.jobInputs.params}->>'sourceImageKey' IS NOT NULL THEN 'input'
             ELSE NULL
           END`,
-          backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
-          lowerThumbKey: sql<
+          backgroundKey: schema.modelBackgrounds.r2Key,
+          lowerKey: sql<
             string | null
-          >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.lowerCatalogId})`,
-          shoeThumbKey: sql<
+          >`(select ${schema.catalogItems.r2Key} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.lowerCatalogId})`,
+          shoeKey: sql<
             string | null
-          >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
+          >`(select ${schema.catalogItems.r2Key} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
           outputKey: schema.jobOutputs.resultKey,
         })
         .from(schema.jobs)
@@ -751,12 +765,12 @@ export async function resultsRoutes(app: FastifyInstance) {
       } else {
         await addKey('inputs', 'garment', uploadedGarmentKeys[0] ?? null);
       }
-      await addKey('inputs', 'face', row.faceThumbKey);
+      await addKey('inputs', 'face', row.faceKey);
       // No admin pose asset means this job's only "pose"-slot image is
       // whatever person/source photo it actually used — see the matching
       // field comment above.
-      if (row.poseThumbKey) {
-        await addKey('inputs', 'pose', row.poseThumbKey);
+      if (row.poseAssetKey) {
+        await addKey('inputs', 'pose', row.poseAssetKey);
       } else {
         await addKey(
           'inputs',
@@ -764,9 +778,9 @@ export async function resultsRoutes(app: FastifyInstance) {
           row.personOrSourceKey,
         );
       }
-      await addKey('inputs', 'background', row.backgroundThumbKey);
-      await addKey('inputs', 'lower', row.lowerThumbKey);
-      await addKey('inputs', 'shoe', row.shoeThumbKey);
+      await addKey('inputs', 'background', row.backgroundKey);
+      await addKey('inputs', 'lower', row.lowerKey);
+      await addKey('inputs', 'shoe', row.shoeKey);
       await addKey('output', 'output', row.outputKey);
 
       dispatchEvents.forEach((ev, i) => {
@@ -1310,11 +1324,11 @@ function appJs(): string {
   // element to render, since an <img> can't display a video file.
   function isVideoUrl(url) {
     var path = String(url == null ? '' : url).split('?')[0].split('#')[0];
-    return /.(mp4|webm|mov|m4v)$/i.test(path);
+    return /\.(mp4|webm|mov|m4v)$/i.test(path);
   }
   function extOf(url) {
     var path = String(url == null ? '' : url).split('?')[0].split('#')[0];
-    var m = path.match(/.([a-z0-9]+)$/i);
+    var m = path.match(/\.([a-z0-9]+)$/i);
     return m ? m[1] : 'jpg';
   }
 
@@ -1502,8 +1516,8 @@ function appJs(): string {
           '<td class="col-user"><div class="user-name">' + esc(item.userEmail || '—') + '</div><div class="user-email">' + esc(item.userEmail || '') + '</div></td>' +
           '<td class="col-garments">' + renderGarmentCell(item.garments) + '</td>' +
           '<td class="col-img">' + renderThumb(item.personThumbUrl || item.poseUrl, poseLabel, item.poseTag ? poseLabel : null, false, item.poseFullUrl || item.poseUrl) + '</td>' +
-          '<td class="col-img">' + renderThumb(item.backgroundUrl, 'Background') + '</td>' +
-          '<td class="col-img">' + renderThumb(item.shoeUrl, 'Shoes') + '</td>' +
+          '<td class="col-img">' + renderThumb(item.backgroundUrl, 'Background', null, false, item.backgroundFullUrl) + '</td>' +
+          '<td class="col-img">' + renderThumb(item.shoeUrl, 'Shoes', null, false, item.shoeFullUrl) + '</td>' +
           '<td class="col-img">' + renderThumb(item.outputThumbUrl || item.outputUrl, 'Output', null, false, item.outputUrl) + '</td>' +
           '<td class="col-credits"><span class="credits-num">' + item.creditsCharged + '</span></td>' +
           '<td class="col-when"><span class="when-text">' + fmtDate(item.createdAt) + '</span></td>' +
