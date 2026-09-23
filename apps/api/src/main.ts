@@ -11,6 +11,7 @@ import { startCollectionResyncScheduler } from './modules/shopify/collections-re
 import { startRedactionRetryScheduler } from './modules/shopify/gdpr-retry-scheduler.js';
 import { startProductResyncScheduler } from './modules/shopify/products-resync-scheduler.js';
 import { startSyncConsumer } from './modules/shopify/sync-consumer.js';
+import { startWebhookRegistrationReconciler } from './modules/shopify/webhook-registration-reconciler.js';
 import { startUploadSweeper } from './modules/uploads/sweeper.js';
 import { buildServer } from './server.js';
 
@@ -33,6 +34,7 @@ startUploadSweeper(app);
 startAlertScheduler(app);
 startAutorefillReconciler(app);
 startRedactionRetryScheduler(app);
+startWebhookRegistrationReconciler(app);
 startUserLowCreditAlertScheduler(app);
 startUnlimitedPlanReminderScheduler(app);
 
