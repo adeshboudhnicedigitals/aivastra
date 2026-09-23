@@ -144,6 +144,21 @@
     // streaming response isn't verified.
     const PROXY_BASE = '/apps/widget';
 
+    // ngrok's free tier serves an interstitial HTML warning page
+    // (ERR_NGROK_6024) to any request carrying a real browser's headers,
+    // instead of proxying through — every call below looks exactly like that
+    // to ngrok, since it's either the shopper's browser directly or Shopify's
+    // app proxy relaying the shopper's browser. The response still comes back
+    // 200, so it silently breaks every fail-open path in this file rather
+    // than erroring loudly. ngrok checks the REQUEST HEADER
+    // ngrok-skip-browser-warning, not a query parameter — confirmed live via
+    // curl after a query-param version of this same fix had no effect. A
+    // no-op against the real production domain (no ngrok in front of it
+    // there), so it's safe to always send rather than branch on environment.
+    function withDevTunnelBypass(options) {
+      return { ...options, headers: { ...options?.headers, 'ngrok-skip-browser-warning': 'true' } };
+    }
+
     // Set from the enabled-check response below when SHOPIFY_WIDGET_VERBOSE=true
     // on the API. Merchant/QA testing only — makes friendlyClientErrorMessage
     // and the hardcoded error branches in createJob show the real backend
@@ -161,7 +176,7 @@
       try {
         const res = await fetchWithTimeout(
           `${PROXY_BASE}/customer/products/${productId}/enabled`,
-          {},
+          withDevTunnelBypass({}),
           ENABLED_CHECK_TIMEOUT_MS,
         );
         if (!res.ok) throw new Error(`enabled check failed: ${res.status}`);
@@ -472,17 +487,20 @@
     // the very event that measures conversion.
     function trackEvent(type) {
       try {
-        fetch(`${PROXY_BASE}/customer/event`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type,
-            clientId: clientId || undefined,
-            shopifyProductId: productId || undefined,
-            device,
+        fetch(
+          `${PROXY_BASE}/customer/event`,
+          withDevTunnelBypass({
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type,
+              clientId: clientId || undefined,
+              shopifyProductId: productId || undefined,
+              device,
+            }),
+            keepalive: true,
           }),
-          keepalive: true,
-        }).catch(() => {});
+        ).catch(() => {});
       } catch {
         /* analytics must never break a try-on */
       }
@@ -618,11 +636,11 @@
         // shopper can only close. The catch below falls back to the upload step.
         const res = await fetchWithTimeout(
           `${PROXY_BASE}/customer/photo/preview`,
-          {
+          withDevTunnelBypass({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ r2Key: remembered.r2Key }),
-          },
+          }),
           REQUEST_TIMEOUT_MS,
         );
         if (!res.ok) {
@@ -1218,11 +1236,11 @@
     async function uploadPhoto(file) {
       const presignRes = await fetchWithTimeout(
         `${PROXY_BASE}/customer/presign`,
-        {
+        withDevTunnelBypass({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contentType: file.type, contentLength: file.size, clientId }),
-        },
+        }),
         REQUEST_TIMEOUT_MS,
       );
       if (!presignRes.ok) {
@@ -1267,7 +1285,7 @@
       try {
         res = await fetchWithTimeout(
           `${PROXY_BASE}/customer/jobs`,
-          {
+          withDevTunnelBypass({
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1283,7 +1301,7 @@
               // very first try-on without ever showing them the consent checkbox.
               ...(sentEmail ? { email: shopperEmail, emailConsent: shopperEmailConsent } : {}),
             }),
-          },
+          }),
           CREATE_JOB_TIMEOUT_MS,
         );
       } catch (err) {
@@ -1381,7 +1399,7 @@
     async function fetchJobStatus(jobId) {
       const res = await fetchWithTimeout(
         `${PROXY_BASE}/customer/jobs/${jobId}`,
-        {},
+        withDevTunnelBypass({}),
         REQUEST_TIMEOUT_MS,
       );
       if (!res.ok) {
@@ -1466,10 +1484,13 @@
         let terminal = null;
 
         try {
-          const res = await fetch(`${apiBase}/v1/shopify/customer/jobs/${jobId}/events`, {
-            headers: { 'x-widget-key': widgetKey },
-            signal: controller.signal,
-          });
+          const res = await fetch(
+            `${apiBase}/v1/shopify/customer/jobs/${jobId}/events`,
+            withDevTunnelBypass({
+              headers: { 'x-widget-key': widgetKey },
+              signal: controller.signal,
+            }),
+          );
           if (!res.ok || !res.body) throw new Error(`sse failed: ${res.status}`);
 
           const reader = res.body.getReader();

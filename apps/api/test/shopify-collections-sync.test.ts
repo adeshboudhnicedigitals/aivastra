@@ -71,7 +71,7 @@ describe('syncCollectionMembership', () => {
 
     try {
       const result = await syncCollectionMembership(app, store, 500);
-      expect(result).toEqual({ title: 'Summer', productCount: 2 });
+      expect(result).toEqual({ title: 'Summer', productCount: 2, productIds: [1, 2] });
 
       const rows = await app.db
         .select()
@@ -150,7 +150,7 @@ describe('syncCollectionMembership — pagination', () => {
     try {
       const result = await syncCollectionMembership(app, store, 900);
       expect(callCount).toBe(2);
-      expect(result).toEqual({ title: 'Multi Page', productCount: 2 });
+      expect(result).toEqual({ title: 'Multi Page', productCount: 2, productIds: [701, 702] });
 
       const rows = await app.db
         .select()

@@ -9,7 +9,7 @@ import { shopifyMeRoutes } from './me.routes.js';
 import { shopifyOnboardingRoutes } from './onboarding.routes.js';
 import { shopifyProductsRoutes } from './products.routes.js';
 import { shopifyPurchaseRoutes } from './purchase.routes.js';
-import { enqueueSync } from './service.js';
+import { enqueueSync, getProductSyncStatus, markProductSyncRunning } from './service.js';
 import { shopifySettingsRoutes } from './settings.routes.js';
 import { shopifyShoppersRoutes } from './shoppers.routes.js';
 import { shopifySupportRoutes } from './support.routes.js';
@@ -46,8 +46,26 @@ export async function shopifyRoutes(app: FastifyInstance) {
     { preHandler: app.requireShopifySession },
     async (req, reply) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      // Set before XADD, not after: the sync consumer can, on a fast/empty
+      // store, finish and clear this same key before the route ever gets
+      // back around to writing it, which would leave the button's poll
+      // watching a 'running' state nothing will ever clear.
+      await markProductSyncRunning(app.redis, store.id);
       await enqueueSync(app.redis, { storeId: store.id, mode: 'full' });
       return reply.code(202).send({ queued: true });
+    },
+  );
+
+  // Polled by ManagePage.tsx's "Sync products" button — the POST above only
+  // enqueues; the actual sync runs in the background consumer and can outlive
+  // the request by well over a page refetch's worth of time (see
+  // markProductSyncRunning/markProductSyncIdle in service.ts).
+  app.get(
+    '/v1/shopify/products/sync/status',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      return getProductSyncStatus(app.redis, store.id);
     },
   );
 }
