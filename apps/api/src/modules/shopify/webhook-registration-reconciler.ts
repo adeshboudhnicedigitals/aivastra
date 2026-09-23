@@ -79,12 +79,25 @@ const HOUR_MS = 60 * 60 * 1000;
 
 /**
  * Call once after `app.listen(...)`, alongside the other shopify schedulers —
- * mirrors their "start once, get a stop function back" shape.
+ * mirrors their "start once, get a stop function back" shape, with one
+ * deliberate difference: it also runs once immediately, rather than waiting
+ * for the first interval tick.
+ *
+ * Every other scheduler here (collections/products resync, alerts,
+ * auto-refill) is a freshness pass where a delayed first run costs nothing.
+ * This one is a backstop for a store that may have been missing webhooks for
+ * a long time already — on a fresh deploy, making it wait up to an hour
+ * before its first pass leaves that store broken for no reason. Confirmed
+ * live on both a dev and a staging store: neither self-healed until this was
+ * triggered by hand, because the process had only just (re)started.
  */
 export function startWebhookRegistrationReconciler(
   app: FastifyInstance,
   intervalMs: number = HOUR_MS,
 ): () => void {
+  void runWebhookReconcileTick(app).catch((err) => {
+    app.log.error({ err }, 'webhook reconcile initial run failed');
+  });
   const timer = setInterval(() => {
     void runWebhookReconcileTick(app).catch((err) => {
       app.log.error({ err }, 'webhook reconcile tick failed');
