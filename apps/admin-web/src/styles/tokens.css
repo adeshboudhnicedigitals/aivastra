@@ -2853,3 +2853,14 @@ p {
     box-shadow: var(--shadow-sm);
   }
 }
+
+/* Recharts gives its wrapper div tabindex="0" for keyboard a11y, so hovering
+   to trigger a tooltip can leave the browser's default focus ring (blue box)
+   sitting around the whole chart — reading as if the chart were a clickable
+   control, when hovering it only ever shows a tooltip. */
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus,
+.recharts-surface:focus-visible {
+  outline: none;
+}
