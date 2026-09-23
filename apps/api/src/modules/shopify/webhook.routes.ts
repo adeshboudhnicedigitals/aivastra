@@ -190,14 +190,19 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
                 .where(eq(schema.shopifyStores.id, store.id));
               const result = await redactShopperData(app, store.id, { matchAll: true });
               // Shoppers and job objects are only half of what this webhook is
-              // supposed to purge — shop_email is the shop owner's own PII,
-              // introduced this phase, and was left untouched here. Clear it
-              // along with the alert state that was derived from it, so a
-              // redacted store carries no residual contact info.
+              // supposed to purge — shop_email, shop_owner_name, shop_phone and
+              // shop_address are all the shop owner's own PII (see the schema
+              // comment on shopify_stores.shop_name for why shop_name itself,
+              // the storefront's business name rather than a person's, stays).
+              // Clear them along with the alert state derived from shop_email,
+              // so a redacted store carries no residual contact info.
               await app.db
                 .update(schema.shopifyStores)
                 .set({
                   shopEmail: null,
+                  shopOwnerName: null,
+                  shopPhone: null,
+                  shopAddress: null,
                   lastAlertLevel: null,
                   lastAlertAt: null,
                   // Cleared here only when this pass left nothing behind, so

@@ -54,7 +54,7 @@ const PATH_LABELS: Record<string, string> = {
   'shopify-funnels': 'Shopify',
   'credit-analysis': 'Credit Analysis',
   payments: 'Payments',
-  'shopify-stores': 'Shopify Stores',
+  'shopify-stores': 'Shopify Dashboard',
   telemetry: 'Telemetry',
   'audit-logs': 'Activity Logs',
 };
