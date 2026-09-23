@@ -155,7 +155,7 @@ const groups: NavGroup[] = [
       },
       {
         k: 'shopify-stores',
-        label: 'Shopify Stores',
+        label: 'Shopify Dashboard',
         icon: Icon.Coin,
         perm: 'shopify_stores.read',
       },
