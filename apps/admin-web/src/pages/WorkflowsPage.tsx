@@ -245,7 +245,12 @@ export default function WorkflowsPage({ toast }: Props) {
     if (!reassigning || !reassignTargetId) return;
     setReassignSaving(true);
     try {
-      await apiFetch(`/admin/workflows/${reassigning.id}/reassign`, {
+      const result = await apiFetch<{
+        ok: true;
+        updated: number;
+        clearedPosePromptCount: number;
+        clearedGarmentConfigPromptCount: number;
+      }>(`/admin/workflows/${reassigning.id}/reassign`, {
         method: 'POST',
         body: JSON.stringify({ targetWorkflowId: reassignTargetId }),
       });
@@ -257,8 +262,13 @@ export default function WorkflowsPage({ toast }: Props) {
           return w;
         }),
       );
+      const clearedCount = result.clearedPosePromptCount + result.clearedGarmentConfigPromptCount;
       toast({
         title: `Poses reassigned from "${reassigning.label}"`,
+        body:
+          clearedCount > 0
+            ? `Cleared ${clearedCount} prompt override${clearedCount === 1 ? '' : 's'} tuned to the old workflow — they'll now inherit the target's prompt.`
+            : undefined,
       });
       closeModal();
       setReassignTargetId('');
@@ -736,6 +746,20 @@ export default function WorkflowsPage({ toast }: Props) {
                           </button>
                           <button
                             className="btn sm ghost"
+                            disabled={wf.poseCount === 0}
+                            onClick={() =>
+                              setModalParams({ modal: 'reassign-workflow', editId: wf.id })
+                            }
+                            title={
+                              wf.poseCount === 0
+                                ? 'No poses use this workflow'
+                                : 'Move poses off this workflow onto another'
+                            }
+                          >
+                            <Icon.Refresh /> Reassign
+                          </button>
+                          <button
+                            className="btn sm ghost"
                             style={{ color: 'var(--danger)' }}
                             disabled={wf.poseCount > 0}
                             onClick={() =>
@@ -1013,6 +1037,15 @@ export default function WorkflowsPage({ toast }: Props) {
                           onClick={() => handleToggleActive(wf)}
                         >
                           {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button
+                          className="btn sm ghost"
+                          disabled={wf.poseCount === 0}
+                          onClick={() =>
+                            setModalParams({ modal: 'reassign-workflow', editId: wf.id })
+                          }
+                        >
+                          <Icon.Refresh /> Reassign
                         </button>
                         <button
                           className="btn sm ghost danger"
