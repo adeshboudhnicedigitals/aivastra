@@ -139,3 +139,37 @@ describe('POST /v1/shopify/onboarding/confirm-routing', () => {
     expect(second.json().settings.onboardingRoutingConfirmed).toBe(true);
   });
 });
+
+describe('POST /v1/shopify/onboarding/complete', () => {
+  it('sets settings.onboardingCompletedOnce to true', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/onboarding/complete',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().settings.onboardingCompletedOnce).toBe(true);
+
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, storeId));
+    expect(row.settings.onboardingCompletedOnce).toBe(true);
+  });
+
+  it('is idempotent — calling it twice does not error', async () => {
+    const first = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/onboarding/complete',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const second = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/onboarding/complete',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json().settings.onboardingCompletedOnce).toBe(true);
+  });
+});

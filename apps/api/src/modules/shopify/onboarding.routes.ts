@@ -84,6 +84,26 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
     },
   );
 
+  app.post(
+    '/v1/shopify/onboarding/complete',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      const settings = mergeStoreSettingsObject(storeSettingsJson(), [], {
+        onboardingCompletedOnce: true,
+      });
+
+      const [updated] = await app.db
+        .update(schema.shopifyStores)
+        .set({ settings, updatedAt: new Date() })
+        .where(eq(schema.shopifyStores.id, store.id))
+        .returning({ settings: schema.shopifyStores.settings });
+      if (!updated) throw new AppError('FORBIDDEN', 403, 'Store not installed');
+
+      return { settings: updated.settings };
+    },
+  );
+
   // Dashboard popup: the merchant confirms/edits their contact email in
   // exchange for a one-time bonus. `shopEmail` is auto-captured from
   // `shop.email` at install with no consent behind it — this is the

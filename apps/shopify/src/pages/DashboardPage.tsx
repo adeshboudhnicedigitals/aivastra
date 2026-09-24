@@ -20,6 +20,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { PackGrid } from '../components/PackGrid';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
+import { getOnboardingStep } from '../lib/onboarding';
 import type { ShopifyMe, ShopifyStats } from '../types';
 
 // Uses useNavigate() directly rather than accepting navigate as a prop: both
@@ -180,6 +181,13 @@ export default function DashboardPage() {
     );
   }
 
+  // routingConfirmed/themeBlockConfirmed are one-way latches that never flip
+  // back to false, so the only step that can ever regress here is
+  // 'products' (a merchant disabling every product after finishing
+  // onboarding once) — this is never null unless something has regressed,
+  // since a store that never completed onboarding at all cannot reach this
+  // page (see App.tsx's gate).
+  const onboardingStepNow = me ? getOnboardingStep(me) : null;
   const emailBonusClaimed = me?.store.settings.emailBonusClaimed ?? false;
   // The tile itself stays up until the store has bought a pack at least
   // once — claiming the bonus only changes what the tile says, not whether
@@ -192,6 +200,19 @@ export default function DashboardPage() {
     <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
       <BlockStack gap="400">
         <ErrorBanner error={error} onRetry={load} />
+
+        {onboardingStepNow !== null && (
+          <Banner
+            tone="warning"
+            title="Virtual try-on is currently off"
+            action={{ content: 'Go to Manage', onAction: () => navigate('/manage') }}
+          >
+            <Text as="p">
+              No products are enabled right now, so shoppers won't see the try-on button. Turn it
+              back on in Manage.
+            </Text>
+          </Banner>
+        )}
 
         {me && <LowCreditsBanner me={me} />}
 

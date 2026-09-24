@@ -24,7 +24,14 @@ import OnboardingThemePage from './pages/OnboardingThemePage';
 import PricingPage from './pages/PricingPage';
 import SettingsPage from './pages/SettingsPage';
 import SupportPage from './pages/SupportPage';
-import type { ShopifyMe } from './types';
+import type { ShopifyMe, ShopifyOnboardingConfirmResponse } from './types';
+
+// Shopify's own return URLs for a purchase/subscription confirmation — must
+// never be redirected away from mid-onboarding, or a merchant returning from
+// a real charge can't see whether it succeeded. BillingCallbackPage has no
+// background reconciler for one-time purchases (see its own header comment),
+// so a swallowed error here means a charged merchant never finds out.
+const GATE_EXEMPT_PATHS = ['/billing/callback', '/billing/autorefill-callback'];
 
 export default function App() {
   const [loading, setLoading] = useState(true);
@@ -89,12 +96,44 @@ export default function App() {
     if (!me) return;
     const step = getOnboardingStep(me);
     const onOnboardingRoute = location.pathname.startsWith('/onboarding');
-    if (step !== null && !onOnboardingRoute) {
+    const exempt = onOnboardingRoute || GATE_EXEMPT_PATHS.includes(location.pathname);
+    // The hard gate (redirect + hidden nav) only applies until a store
+    // finishes onboarding for the very first time. `productsDone` inside
+    // getOnboardingStep is re-derived live (see lib/onboarding.ts) — a store
+    // that later disables every product would otherwise be yanked back into
+    // a locked wizard with no way out. onboardingCompletedOnce latches
+    // permanently once true, so a later regression is surfaced as a normal
+    // Dashboard banner instead (see DashboardPage.tsx), not a re-triggered
+    // gate.
+    const neverCompletedOnboarding = !(me.store.settings.onboardingCompletedOnce ?? false);
+    if (step !== null && neverCompletedOnboarding && !exempt) {
       navigate(onboardingPath(step), { replace: true });
     } else if (step === null && onOnboardingRoute) {
       navigate('/', { replace: true });
     }
   }, [me, location.pathname, navigate]);
+
+  // Marks the store as having finished onboarding at least once. Fire-and-
+  // forget and idempotent (same pattern as confirm-theme-block/confirm-
+  // routing elsewhere in this codebase) — a lost request just means this
+  // fires again on the next render where step is still null, which keeps
+  // happening until it succeeds.
+  useEffect(() => {
+    if (!me) return;
+    if (getOnboardingStep(me) !== null) return;
+    if (me.store.settings.onboardingCompletedOnce) return;
+    apiFetch<ShopifyOnboardingConfirmResponse>('/v1/shopify/onboarding/complete', {
+      method: 'POST',
+    })
+      .then((res) => {
+        setMe((prev) =>
+          prev ? { ...prev, store: { ...prev.store, settings: res.settings } } : prev,
+        );
+      })
+      .catch(() => {
+        // Best-effort — see comment above.
+      });
+  }, [me]);
 
   if (loading) {
     return (
@@ -129,7 +168,8 @@ export default function App() {
   }
 
   const onboardingStep = getOnboardingStep(me);
-  const onboardingComplete = onboardingStep === null;
+  const neverCompletedOnboarding = !(me.store.settings.onboardingCompletedOnce ?? false);
+  const onboardingComplete = !(onboardingStep !== null && neverCompletedOnboarding);
 
   const devNavigation =
     !window.shopify && onboardingComplete ? (

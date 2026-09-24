@@ -71,6 +71,7 @@ export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
   onboardingRoutingConfirmed?: boolean;
+  onboardingCompletedOnce?: boolean;
   emailBonusClaimed?: boolean;
   emailBonusClaimedAt?: string;
   limits?: ShopifyStoreLimits;

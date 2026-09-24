@@ -19,8 +19,13 @@ export default function OnboardingProductsPage({
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<ClassifiedError | null>(null);
 
+  // Arriving here from the intro page's own Continue button is legitimate
+  // even though getOnboardingStep still reports 'intro' at that instant —
+  // nothing has synced yet, so the derived step can't have advanced. Only
+  // reject a genuinely wrong step (e.g. a merchant typing /onboarding/theme
+  // directly while still on 'routing').
   const currentStep = getOnboardingStep(me);
-  if (currentStep !== 'products') {
+  if (currentStep !== 'products' && currentStep !== 'intro') {
     return <Navigate to={onboardingPath(currentStep)} replace />;
   }
 
@@ -36,7 +41,12 @@ export default function OnboardingProductsPage({
       await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
       const globalModeOn = me.store.settings.activation?.mode === 'global';
       const alreadyEnabled = globalModeOn || me.stats.enabledProductCount > 0;
-      if (!alreadyEnabled) {
+      // A store that's already completed onboarding once (and later
+      // regressed here — see App.tsx's gate) may have a deliberate selective
+      // setup with nothing currently enabled. Only the genuine first-time
+      // path gets the "sync also turns try-on on" convenience.
+      const hasCompletedOnboardingOnce = me.store.settings.onboardingCompletedOnce ?? false;
+      if (!alreadyEnabled && !hasCompletedOnboardingOnce) {
         await apiFetch('/v1/shopify/activation/mode', {
           method: 'PATCH',
           body: JSON.stringify({ mode: 'global' }),
