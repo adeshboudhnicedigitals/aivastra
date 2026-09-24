@@ -533,6 +533,25 @@ describe('admin workflows - floor validation', () => {
       promptGarmentPhase: 'inherited config override',
     });
 
+    // Add a second garment subcategory for direct override testing
+    const [garmentType2] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `list-count-gt-direct-${Date.now()}-${Math.random()}`,
+        label: 'List Count GT Direct',
+        isActive: true,
+      })
+      .returning();
+
+    // Add a direct garment-config override (workflowTemplateId pointing explicitly at the template)
+    await app.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: poseWithOverride.id,
+      subcategoryId: garmentType2.id,
+      workflowTemplateId: templateId,
+      promptGarmentPhase: 'direct config override',
+    });
+
     const listRes = await app.inject({ method: 'GET', url: '/admin/workflows', headers });
     expect(listRes.statusCode).toBe(200);
     const row = (
@@ -543,7 +562,7 @@ describe('admin workflows - floor validation', () => {
       }[]
     ).find((w) => w.id === templateId);
     expect(row?.posePromptOverrideCount).toBe(1);
-    expect(row?.garmentConfigPromptOverrideCount).toBe(1);
+    expect(row?.garmentConfigPromptOverrideCount).toBe(2);
   });
 
   const jsonContentWithKSampler = {
