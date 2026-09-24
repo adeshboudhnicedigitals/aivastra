@@ -2,13 +2,11 @@ import {
   Badge,
   Banner,
   BlockStack,
-  Box,
   Button,
   Card,
   InlineGrid,
   InlineStack,
   Page,
-  ProgressBar,
   SkeletonBodyText,
   SkeletonPage,
   Text,
@@ -22,7 +20,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { PackGrid } from '../components/PackGrid';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import type { ShopifyMe, ShopifyOnboardingConfirmResponse, ShopifyStats } from '../types';
+import type { ShopifyMe, ShopifyStats } from '../types';
 
 // Uses useNavigate() directly rather than accepting navigate as a prop: both
 // call sites (Dashboard, Pricing) render this from within the SPA's router
@@ -133,55 +131,11 @@ const STATUS_LABEL: Record<StatusKey, string> = {
   disabled: 'Disabled',
 };
 
-// Global mode alone satisfies "enable try-on on a product" — under global
-// mode literally every synced product is enabled except exclusions, so this
-// must not depend on `enabledProductCount`'s precision (e.g. zero synced
-// products yet, or an edge case where every product is individually
-// excluded) to reflect that. See apps/api/src/modules/shopify/me.routes.ts.
-function isTryOnEnabled(me: ShopifyMe | null): boolean {
-  const globalModeOn = me?.store.settings.activation?.mode === 'global';
-  return globalModeOn || (me?.stats.enabledProductCount ?? 0) > 0;
-}
-
-function StepRow({
-  done,
-  title,
-  description,
-  children,
-}: {
-  done: boolean;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Box paddingBlockEnd="400" borderBlockEndWidth="025" borderColor="border">
-      <BlockStack gap="200">
-        <InlineStack align="space-between" blockAlign="start" gap="200">
-          <InlineStack gap="200" blockAlign="center">
-            <Badge tone={done ? 'success' : undefined}>{done ? 'Done' : 'To do'}</Badge>
-            <Text as="p" variant="bodyMd" fontWeight="semibold">
-              {title}
-            </Text>
-          </InlineStack>
-          <InlineStack gap="200">{children}</InlineStack>
-        </InlineStack>
-        <Text as="p" tone="subdued">
-          {description}
-        </Text>
-      </BlockStack>
-    </Box>
-  );
-}
-
 export default function DashboardPage() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
   const [error, setError] = useState<ClassifiedError | null>(null);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const [openingEditor, setOpeningEditor] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   // Auto-opens on first load (see showEmailBonusModal below); "Maybe later"
   // sets this false without touching emailBonusClaimed, so the persistent
@@ -201,32 +155,10 @@ export default function DashboardPage() {
     load();
   }, [load]);
 
-  async function syncProducts() {
-    setSyncing(true);
-    setError(null);
-    try {
-      await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
-      // Onboarding convenience: a merchant's first sync should make try-on
-      // live without a separate trip to Manage. Gated on nothing being
-      // enabled yet so a later re-sync (e.g. after adding products) never
-      // clobbers a deliberate switch to selective mode.
-      if (!isTryOnEnabled(me)) {
-        await apiFetch('/v1/shopify/activation/mode', {
-          method: 'PATCH',
-          body: JSON.stringify({ mode: 'global' }),
-        });
-        setToastMessage('Products synced — try-on is now live on your store.');
-      } else {
-        setToastMessage('Products synced from Shopify.');
-      }
-      load();
-    } catch (err) {
-      setError(classifyError(err));
-    } finally {
-      setSyncing(false);
-    }
-  }
-
+  // A merchant only ever reaches Dashboard once onboarding (sync/enable,
+  // routing, theme block) is fully done — see App.tsx's onboarding gate —
+  // so this button is the one remaining, purely optional follow-up: telling
+  // them where to go to restyle a block that's already in place.
   async function openThemeEditor() {
     setOpeningEditor(true);
     setError(null);
@@ -240,23 +172,6 @@ export default function DashboardPage() {
     }
   }
 
-  async function confirmThemeBlock() {
-    setConfirming(true);
-    setError(null);
-    try {
-      const { settings } = await apiFetch<ShopifyOnboardingConfirmResponse>(
-        '/v1/shopify/onboarding/confirm-theme-block',
-        { method: 'POST' },
-      );
-      setMe((prev) => (prev ? { ...prev, store: { ...prev.store, settings } } : prev));
-      setToastMessage('Got it — Try It On block confirmed.');
-    } catch (err) {
-      setError(classifyError(err));
-    } finally {
-      setConfirming(false);
-    }
-  }
-
   if (loading) {
     return (
       <SkeletonPage primaryAction>
@@ -265,12 +180,6 @@ export default function DashboardPage() {
     );
   }
 
-  const synced = (me?.stats.syncedProductCount ?? 0) > 0;
-  const enabled = isTryOnEnabled(me);
-  const themeBlockDone = me?.store.settings.themeBlockConfirmed ?? false;
-  const doneCount = [synced, enabled, themeBlockDone].filter(Boolean).length;
-  const allDone = doneCount === 3;
-  const collapsed = allDone && !expanded;
   const emailBonusClaimed = me?.store.settings.emailBonusClaimed ?? false;
   // The tile itself stays up until the store has bought a pack at least
   // once — claiming the bonus only changes what the tile says, not whether
@@ -332,81 +241,19 @@ export default function DashboardPage() {
         />
 
         <Card>
-          <BlockStack gap="400">
-            <ProgressBar progress={(doneCount / 3) * 100} size="small" />
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="h2" variant="headingMd">
-                Getting started ({doneCount}/3)
-              </Text>
-              <Button variant="plain" onClick={() => setExpanded((v) => !v)}>
-                {collapsed ? 'Show steps' : 'Hide steps'}
+          <BlockStack gap="200">
+            <Text as="h2" variant="headingMd">
+              Customize the button
+            </Text>
+            <Text as="p" tone="subdued">
+              Change the button's text, colors, promo message, or position by clicking the block in
+              the theme editor — that's where its settings live.
+            </Text>
+            <InlineStack align="end">
+              <Button onClick={openThemeEditor} loading={openingEditor}>
+                Open theme editor
               </Button>
             </InlineStack>
-
-            {collapsed ? (
-              <Text as="p" tone="success">
-                All set — virtual try-on is live on your store.
-              </Text>
-            ) : (
-              <BlockStack gap="400">
-                <StepRow
-                  done={synced}
-                  title="Sync your products"
-                  description="Import your Shopify catalog and turn on virtual try-on for every product — you can exclude specific ones afterward in Manage."
-                >
-                  <Button variant="primary" onClick={syncProducts} loading={syncing}>
-                    Sync products now
-                  </Button>
-                </StepRow>
-                <StepRow
-                  done={enabled}
-                  title="Enable try-on on a product"
-                  description="Turn on virtual try-on for at least one product."
-                >
-                  <Button variant="primary" onClick={() => navigate('/manage')}>
-                    Go to Manage
-                  </Button>
-                </StepRow>
-                <StepRow
-                  done={themeBlockDone}
-                  title="Add the Try It On block to your product page"
-                  description="Required — the try-on button only appears where you place this block. Open the theme editor, drag it directly above the Buy Buttons block, then save."
-                >
-                  <Button onClick={openThemeEditor} loading={openingEditor}>
-                    Open theme editor
-                  </Button>
-                  <Button variant="primary" onClick={confirmThemeBlock} loading={confirming}>
-                    I've added it
-                  </Button>
-                </StepRow>
-                {themeBlockDone && (
-                  // Informational, not a checklist item: customizing a block that
-                  // doesn't exist yet is meaningless, so this only appears once
-                  // themeBlockDone is true. Deliberately excluded from
-                  // doneCount/allDone/ProgressBar above — it's optional, not part
-                  // of the 3-step "getting started" completion criteria.
-                  <Box paddingBlockStart="200">
-                    <BlockStack gap="200">
-                      <InlineStack align="space-between" blockAlign="start" gap="200">
-                        <InlineStack gap="200" blockAlign="center">
-                          <Badge tone="info">Optional</Badge>
-                          <Text as="p" variant="bodyMd" fontWeight="semibold">
-                            Customize the button
-                          </Text>
-                        </InlineStack>
-                        <Button onClick={openThemeEditor} loading={openingEditor}>
-                          Open theme editor
-                        </Button>
-                      </InlineStack>
-                      <Text as="p" tone="subdued">
-                        Change the button's text, colors, promo message, or position by clicking the
-                        block in the theme editor — that's where its settings live.
-                      </Text>
-                    </BlockStack>
-                  </Box>
-                )}
-              </BlockStack>
-            )}
           </BlockStack>
         </Card>
 

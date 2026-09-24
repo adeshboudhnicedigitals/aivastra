@@ -23,7 +23,7 @@ export const NAV_ITEMS = [
   { path: '/support', label: 'Support', icon: QuestionCircleIcon },
 ];
 
-export function AppNavMenu() {
+export function AppNavMenu({ onboardingComplete }: { onboardingComplete: boolean }) {
   const navigate = useNavigate();
 
   // window.shopify is only defined inside the Shopify admin iframe
@@ -31,7 +31,10 @@ export function AppNavMenu() {
   // — the dev-mode nav is supplied by App.tsx instead, via Frame's own
   // `navigation` prop (Polaris's <Navigation> requires a <Frame> ancestor
   // providing frame context, which a sibling render here cannot give it).
-  if (!window.shopify) {
+  // Also hidden while onboarding is incomplete — a merchant mid-wizard has
+  // nowhere else to go yet, and nav items that just bounce back to the
+  // wizard would be confusing.
+  if (!window.shopify || !onboardingComplete) {
     return null;
   }
 
