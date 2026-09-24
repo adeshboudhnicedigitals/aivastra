@@ -1434,6 +1434,21 @@ export default function WorkflowsPage({ toast }: Props) {
                 disabled={editSaving}
                 onChange={(e) => setEditForm((f) => ({ ...f, garmentPhasePrompt: e.target.value }))}
               />
+              {((editingWf?.posePromptOverrideCount ?? 0) > 0 ||
+                (editingWf?.garmentConfigPromptOverrideCount ?? 0) > 0) && (
+                <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                  {editingWf?.posePromptOverrideCount
+                    ? `${editingWf.posePromptOverrideCount} pose${editingWf.posePromptOverrideCount === 1 ? '' : 's'}`
+                    : null}
+                  {editingWf?.posePromptOverrideCount && editingWf?.garmentConfigPromptOverrideCount
+                    ? ' and '
+                    : null}
+                  {editingWf?.garmentConfigPromptOverrideCount
+                    ? `${editingWf.garmentConfigPromptOverrideCount} garment-type config${editingWf.garmentConfigPromptOverrideCount === 1 ? '' : 's'}`
+                    : null}
+                  {" override this and won't use this text."}
+                </span>
+              )}
             </div>
             {editingWf?.facePhasePromptNode && (
               <div className="field">
