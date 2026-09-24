@@ -1558,22 +1558,65 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         if (!source) throw new AppError('NOT_FOUND', 404, 'source workflow not found');
 
         const [target] = await tx
-          .select({
-            id: schema.workflowTemplates.id,
-            defaultGarmentPhasePrompt: schema.workflowTemplates.defaultGarmentPhasePrompt,
-          })
+          .select({ id: schema.workflowTemplates.id })
           .from(schema.workflowTemplates)
           .where(eq(schema.workflowTemplates.id, targetWorkflowId));
         if (!target) throw new AppError('NOT_FOUND', 404, 'target workflow not found');
+
+        // Unlike /replace, a reassign never touches sourceId's own graph — it only
+        // moves which poses' workflowTemplateId points at it. So a pose's own prompt
+        // override is stale the moment its effective graph changes (source -> target),
+        // and gets nulled-and-inherited here, matching /replace's contract
+        // (docs/superpowers/specs/2026-09-11-workflow-replace-prompt-override-invalidation-design.md).
+        const posesOnSource = await tx
+          .select({
+            id: schema.modelPoseAssets.id,
+            promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
+            promptFacePhase: schema.modelPoseAssets.promptFacePhase,
+          })
+          .from(schema.modelPoseAssets)
+          .where(eq(schema.modelPoseAssets.workflowTemplateId, sourceId));
 
         const updatedRows = await tx
           .update(schema.modelPoseAssets)
           .set({
             workflowTemplateId: targetWorkflowId,
-            promptGarmentPhase: target.defaultGarmentPhasePrompt ?? null,
+            promptGarmentPhase: null,
+            promptFacePhase: null,
           })
           .where(eq(schema.modelPoseAssets.workflowTemplateId, sourceId))
           .returning({ id: schema.modelPoseAssets.id });
+
+        const clearedPosePromptCount = posesOnSource.filter(
+          (p) => p.promptGarmentPhase !== null || p.promptFacePhase !== null,
+        ).length;
+        const reassignedPoseIds = posesOnSource.map((p) => p.id);
+
+        // Only pose_garment_configs rows that INHERIT their workflow from the pose
+        // (workflowTemplateId IS NULL) are affected — their effective graph moved with
+        // the pose from sourceId to targetWorkflowId. A row with its own non-null
+        // workflowTemplateId resolves independently of the pose
+        // (apps/dispatcher/src/job/processor.ts:493) — if that id happens to be
+        // sourceId, sourceId's graph was NOT modified by this reassign (unlike
+        // /replace), so that row's prompt is still valid and must not be cleared.
+        const clearedGarmentConfigs =
+          reassignedPoseIds.length > 0
+            ? await tx
+                .update(schema.poseGarmentConfigs)
+                .set({ promptGarmentPhase: null, promptFacePhase: null, updatedAt: new Date() })
+                .where(
+                  and(
+                    isNull(schema.poseGarmentConfigs.workflowTemplateId),
+                    inArray(schema.poseGarmentConfigs.poseAssetId, reassignedPoseIds),
+                    or(
+                      isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+                      isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+                    ),
+                  ),
+                )
+                .returning({ id: schema.poseGarmentConfigs.id })
+            : [];
+        const clearedGarmentConfigPromptCount = clearedGarmentConfigs.length;
 
         await recordAudit(tx, {
           // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
@@ -1581,14 +1624,28 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           action: 'workflow.reassign',
           resourceType: 'workflow',
           resourceId: sourceId,
-          after: { targetWorkflowId, updatedPoses: updatedRows.length },
+          after: {
+            targetWorkflowId,
+            updatedPoses: updatedRows.length,
+            clearedPosePromptCount,
+            clearedGarmentConfigPromptCount,
+          },
           request: req,
         });
 
-        return updatedRows;
+        return {
+          updatedPoses: updatedRows,
+          clearedPosePromptCount,
+          clearedGarmentConfigPromptCount,
+        };
       });
 
-      return { ok: true, updated: result.length };
+      return {
+        ok: true,
+        updated: result.updatedPoses.length,
+        clearedPosePromptCount: result.clearedPosePromptCount,
+        clearedGarmentConfigPromptCount: result.clearedGarmentConfigPromptCount,
+      };
     },
   );
 
