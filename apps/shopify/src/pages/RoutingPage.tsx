@@ -426,10 +426,20 @@ export default function RoutingTab({
                           {basketLabel(rule.funnelTemplateId)}
                         </Text>
                       </IndexTable.Cell>
-                      <IndexTable.Cell>{describeConditions(rule.conditions)}</IndexTable.Cell>
+                      <IndexTable.Cell>
+                        {/* IndexTable cells are white-space: nowrap by default, which lets a
+                            long OR-joined condition list force the column — and the whole
+                            table — wider instead of wrapping. Override it here so this cell
+                            wraps once it runs out of room instead of squeezing the others. */}
+                        <div style={{ whiteSpace: 'normal' }}>
+                          <Text as="span" breakWord>
+                            {describeConditions(rule.conditions)}
+                          </Text>
+                        </div>
+                      </IndexTable.Cell>
                       <IndexTable.Cell>{rule.priority}</IndexTable.Cell>
                       <IndexTable.Cell>
-                        <InlineStack gap="200">
+                        <InlineStack gap="200" wrap={false}>
                           <Button size="slim" onClick={() => setEditorTarget(rule)}>
                             Edit
                           </Button>
@@ -478,8 +488,10 @@ export default function RoutingTab({
                         </InlineStack>
                       </IndexTable.Cell>
                       <IndexTable.Cell>
-                        <div style={{ opacity: rule.disabled ? 0.5 : 1 }}>
-                          {describeConditions(rule.conditions)}
+                        <div style={{ opacity: rule.disabled ? 0.5 : 1, whiteSpace: 'normal' }}>
+                          <Text as="span" breakWord>
+                            {describeConditions(rule.conditions)}
+                          </Text>
                         </div>
                       </IndexTable.Cell>
                       <IndexTable.Cell>
