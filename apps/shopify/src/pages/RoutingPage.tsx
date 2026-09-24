@@ -24,7 +24,7 @@ interface Condition {
   operator: 'equals' | 'contains';
   value: string;
 }
-interface Basket {
+export interface Basket {
   id: string;
   slug: string;
   label: string;
@@ -95,7 +95,7 @@ function emptyCondition(): Condition {
   return { field: 'product_type', operator: 'equals', value: '' };
 }
 
-function RuleEditorModal({
+export function RuleEditorModal({
   rule,
   baskets,
   takenBasketIds,
