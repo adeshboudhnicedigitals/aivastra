@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
@@ -478,6 +478,91 @@ describe('admin workflows - floor validation', () => {
       (w) => w.id === id,
     );
     expect(row?.facePhasePromptNode).toBe('negative_node');
+  });
+
+  it('GET /admin/workflows list includes posePromptOverrideCount and garmentConfigPromptOverrideCount', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `list_override_count_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        label: 'List override count',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const templateId = createRes.json().id as string;
+
+    const [poseWithOverride] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'List count pose with override',
+        genderSlug: 'women',
+        r2Key: `list-count-pose-${Date.now()}-${Math.random()}.jpg`,
+        thumbnailKey: 'list-count-pose-thumb.jpg',
+        scope: 'general',
+        workflowTemplateId: templateId,
+        promptGarmentPhase: 'has override',
+      })
+      .returning();
+    await app.db.insert(schema.modelPoseAssets).values({
+      label: 'List count pose without override',
+      genderSlug: 'women',
+      r2Key: `list-count-pose-no-override-${Date.now()}-${Math.random()}.jpg`,
+      thumbnailKey: 'list-count-pose-no-override-thumb.jpg',
+      scope: 'general',
+      workflowTemplateId: templateId,
+    });
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `list-count-gt-${Date.now()}-${Math.random()}`,
+        label: 'List Count GT',
+        isActive: true,
+      })
+      .returning();
+    await app.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: poseWithOverride.id,
+      subcategoryId: garmentType.id,
+      workflowTemplateId: null,
+      promptGarmentPhase: 'inherited config override',
+    });
+
+    // Add a second garment subcategory for direct override testing
+    const [garmentType2] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `list-count-gt-direct-${Date.now()}-${Math.random()}`,
+        label: 'List Count GT Direct',
+        isActive: true,
+      })
+      .returning();
+
+    // Add a direct garment-config override (workflowTemplateId pointing explicitly at the template)
+    await app.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: poseWithOverride.id,
+      subcategoryId: garmentType2.id,
+      workflowTemplateId: templateId,
+      promptGarmentPhase: 'direct config override',
+    });
+
+    const listRes = await app.inject({ method: 'GET', url: '/admin/workflows', headers });
+    expect(listRes.statusCode).toBe(200);
+    const row = (
+      listRes.json() as {
+        id: string;
+        posePromptOverrideCount: number;
+        garmentConfigPromptOverrideCount: number;
+      }[]
+    ).find((w) => w.id === templateId);
+    expect(row?.posePromptOverrideCount).toBe(1);
+    expect(row?.garmentConfigPromptOverrideCount).toBe(2);
   });
 
   const jsonContentWithKSampler = {
@@ -1467,6 +1552,199 @@ describe('admin workflows - floor validation', () => {
         .where(eq(schema.modelPoseAssets.id, poseOther.id));
       expect(updatedPoseOther.promptGarmentPhase).toBe('combined other pose text');
       expect(updatedPoseOther.promptFacePhase).toBe('combined other pose face text');
+    });
+  });
+
+  describe('workflow reassign prompt invalidation', () => {
+    async function seedWorkflowTemplate(labelSuffix: string) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `reassign_prompt_${labelSuffix}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          label: `Reassign Prompt ${labelSuffix}`,
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json().id as string;
+    }
+
+    async function reassign(sourceId: string, targetWorkflowId: string) {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${sourceId}/reassign`,
+        headers,
+        payload: { targetWorkflowId },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json();
+    }
+
+    it('nulls (not freezes) a pose default prompt override on reassign, moving workflowTemplateId to the target', async () => {
+      const sourceId = await seedWorkflowTemplate('pose_default_source');
+      const targetId = await seedWorkflowTemplate('pose_default_target');
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Reassign pose with default override',
+          genderSlug: 'women',
+          r2Key: `reassign-prompt-pose-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'reassign-prompt-pose-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: sourceId,
+          promptGarmentPhase: 'old garment phase text',
+          promptFacePhase: 'old face phase text',
+        })
+        .returning();
+
+      const result = await reassign(sourceId, targetId);
+      expect(result.updated).toBe(1);
+      expect(result.clearedPosePromptCount).toBe(1);
+      expect(result.clearedGarmentConfigPromptCount).toBe(0);
+
+      const [updatedPose] = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, pose.id));
+      expect(updatedPose.workflowTemplateId).toBe(targetId);
+      expect(updatedPose.promptGarmentPhase).toBeNull();
+      expect(updatedPose.promptFacePhase).toBeNull();
+    });
+
+    it('clears an inherited per-garment-type override when the pose it inherits from is reassigned', async () => {
+      const sourceId = await seedWorkflowTemplate('config_inherited_source');
+      const targetId = await seedWorkflowTemplate('config_inherited_target');
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Reassign pose with inherited config',
+          genderSlug: 'women',
+          r2Key: `reassign-prompt-inherited-pose-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'reassign-prompt-inherited-pose-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: sourceId,
+        })
+        .returning();
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({
+          genderSlug: 'women',
+          slug: `reassign-prompt-inherited-gt-${Date.now()}-${Math.random()}`,
+          label: 'Reassign Prompt Inherited GT',
+          isActive: true,
+        })
+        .returning();
+      const [config] = await app.db
+        .insert(schema.poseGarmentConfigs)
+        .values({
+          poseAssetId: pose.id,
+          subcategoryId: garmentType.id,
+          workflowTemplateId: null,
+          promptGarmentPhase: 'old inherited garment phase text',
+          promptFacePhase: 'old inherited face phase text',
+        })
+        .returning();
+
+      const result = await reassign(sourceId, targetId);
+      expect(result.clearedGarmentConfigPromptCount).toBe(1);
+
+      const [updatedConfig] = await app.db
+        .select()
+        .from(schema.poseGarmentConfigs)
+        .where(eq(schema.poseGarmentConfigs.id, config.id));
+      expect(updatedConfig.promptGarmentPhase).toBeNull();
+      expect(updatedConfig.promptFacePhase).toBeNull();
+      expect(updatedConfig.workflowTemplateId).toBeNull();
+    });
+
+    it('does NOT clear a garment-config override that explicitly points at the source template', async () => {
+      const sourceId = await seedWorkflowTemplate('config_direct_source');
+      const targetId = await seedWorkflowTemplate('config_direct_target');
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Reassign pose for direct config',
+          genderSlug: 'women',
+          r2Key: `reassign-prompt-direct-pose-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'reassign-prompt-direct-pose-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: sourceId,
+        })
+        .returning();
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({
+          genderSlug: 'women',
+          slug: `reassign-prompt-direct-gt-${Date.now()}-${Math.random()}`,
+          label: 'Reassign Prompt Direct GT',
+          isActive: true,
+        })
+        .returning();
+      // This config row explicitly pins sourceId as ITS OWN workflow — independent of
+      // the pose's own field, which is what's being reassigned. sourceId's graph is
+      // untouched by the reassign, so this row's prompt must survive.
+      const [config] = await app.db
+        .insert(schema.poseGarmentConfigs)
+        .values({
+          poseAssetId: pose.id,
+          subcategoryId: garmentType.id,
+          workflowTemplateId: sourceId,
+          promptGarmentPhase: 'untouched direct garment phase text',
+          promptFacePhase: 'untouched direct face phase text',
+        })
+        .returning();
+
+      const result = await reassign(sourceId, targetId);
+      expect(result.clearedGarmentConfigPromptCount).toBe(0);
+
+      const [updatedConfig] = await app.db
+        .select()
+        .from(schema.poseGarmentConfigs)
+        .where(eq(schema.poseGarmentConfigs.id, config.id));
+      expect(updatedConfig.promptGarmentPhase).toBe('untouched direct garment phase text');
+      expect(updatedConfig.promptFacePhase).toBe('untouched direct face phase text');
+      expect(updatedConfig.workflowTemplateId).toBe(sourceId);
+    });
+
+    it('records clearedPosePromptCount/clearedGarmentConfigPromptCount in the audit log', async () => {
+      const sourceId = await seedWorkflowTemplate('audit_source');
+      const targetId = await seedWorkflowTemplate('audit_target');
+      await app.db.insert(schema.modelPoseAssets).values({
+        label: 'Reassign pose for audit check',
+        genderSlug: 'women',
+        r2Key: `reassign-prompt-audit-pose-${Date.now()}-${Math.random()}.jpg`,
+        thumbnailKey: 'reassign-prompt-audit-pose-thumb.jpg',
+        scope: 'general',
+        workflowTemplateId: sourceId,
+        promptGarmentPhase: 'audit garment phase text',
+        promptFacePhase: 'audit face phase text',
+      });
+
+      await reassign(sourceId, targetId);
+
+      const [auditRow] = await app.db
+        .select()
+        .from(schema.auditLogs)
+        .where(
+          and(
+            eq(schema.auditLogs.action, 'workflow.reassign'),
+            eq(schema.auditLogs.resourceId, sourceId),
+          ),
+        )
+        .orderBy(sql`${schema.auditLogs.createdAt} desc`)
+        .limit(1);
+      const after = auditRow.after as {
+        clearedPosePromptCount: number;
+        clearedGarmentConfigPromptCount: number;
+      };
+      expect(after.clearedPosePromptCount).toBe(1);
+      expect(after.clearedGarmentConfigPromptCount).toBe(0);
     });
   });
 

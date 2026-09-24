@@ -341,6 +341,30 @@
   implementer this session) and a Grafana/alerting check for anything keyed on `level=error`
   for the now-`warn` refusal log message.
 
+## 2026-09-15 — Fresh local setup: `minio/minio` and `minio/mc` pulled from Docker Hub
+
+- **Found:** `pnpm docker:up` failed outright on a clean checkout —
+  `docker pull minio/minio:latest` / `minio/mc:latest` both return "pull access denied,
+  repository does not exist" from Docker Hub. Confirmed via direct `docker pull`, not
+  inferred. `quay.io/minio/minio:latest` and `quay.io/minio/mc:latest` pull fine — MinIO
+  appears to have stopped publishing to Docker Hub. `redis:7-alpine` and
+  `pgvector/pgvector:pg16` are unaffected.
+- **Fix already landed upstream:** independently repointed `infra/docker-compose.yml`'s
+  `minio`/`minio-bootstrap` services to `quay.io/minio/minio:latest` / `quay.io/minio/mc:latest`
+  locally, then found on pulling `dev` that PR #362 (`fix/minio-quay-registry`,
+  commit `61b0e373`) had already made the identical change — and, further, also covered
+  `infra/docker-compose.staging.yml` and `infra/docker-compose.prod.yml`, so staging/prod
+  are already fixed too. Local change dropped in favor of upstream's.
+- **Also found:** a fresh `pnpm install` + `pnpm dev` fails for `api`, `dispatcher`, and
+  `chatbot` with `ERR_MODULE_NOT_FOUND` on `@aivastra/db`, `@aivastra/logger`, and
+  `@aivastra/observability` — those packages resolve via `dist/` (their `package.json`
+  `main`/`exports`) and nothing builds that `dist/` before `pnpm dev` runs it. Root
+  `README`/`CLAUDE.md` setup steps don't mention a build-packages step. Worked around by
+  running `pnpm --filter "./packages/*" build` (plus `pnpm --filter @aivastra/types build:cjs`
+  for `apps/admin-web`'s Vite dep-scan, which needs the `require` condition) before `pnpm dev`.
+  Not yet folded into `package.json`'s `dev` script or documented as a setup step — worth
+  doing if this keeps tripping fresh checkouts.
+
 ## 2026-09-11 — Admin can edit a workflow's SAM3 segmentation prompt
 
 - **Change:** `workflow_templates`/`workflow_template_archives` gain

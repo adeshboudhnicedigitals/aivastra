@@ -312,8 +312,67 @@ export interface SyncTask {
   mode: 'full' | 'product' | 'collection' | 'reconcile';
   shopifyProductId?: number;
   shopifyCollectionId?: number;
+  /**
+   * 'collection' mode only. Set by the collections/update webhook handler,
+   * never by the hourly collections-resync-scheduler tick — that scheduler
+   * already runs on every relevant collection regardless of whether anything
+   * changed, so also refreshing every member product on every tick would
+   * multiply its Shopify call volume for no gain. The webhook only fires when
+   * Shopify says something about this specific collection changed, so paying
+   * for a per-member resync there is worth it: it's what actually refreshes
+   * shopify_product_garments.collections, the field routing reads.
+   */
+  refreshProducts?: boolean;
 }
 
 export async function enqueueSync(redis: Redis, task: SyncTask): Promise<void> {
   await redis.xadd('shopify:sync', '*', 'task', JSON.stringify(task));
+}
+
+export interface ProductSyncStatus {
+  state: 'running' | 'idle';
+  startedAt: number;
+  completedAt: number | null;
+}
+
+const PRODUCT_SYNC_STATUS_KEY = (storeId: string) => `shopify:sync:status:${storeId}`;
+// A crashed consumer must not leave the manual "Sync products" button's poll
+// stuck at 'running' forever — this bounds how long a stale key can mislead
+// it, well past any real full sync's duration.
+const PRODUCT_SYNC_STATUS_TTL_SECONDS = 60 * 60;
+
+/**
+ * Marks the manual, store-scoped "Sync products" run (mode: 'full', triggered
+ * from ManagePage) as in progress. Set by the enqueue route right before
+ * XADD, cleared by the sync consumer once that task finishes — see
+ * markProductSyncIdle. Deliberately not used for webhook-driven product/
+ * collection tasks: those run continuously in the background and have no UI
+ * waiting on a single run's completion.
+ */
+export async function markProductSyncRunning(redis: Redis, storeId: string): Promise<void> {
+  const status: ProductSyncStatus = { state: 'running', startedAt: Date.now(), completedAt: null };
+  await redis.set(
+    PRODUCT_SYNC_STATUS_KEY(storeId),
+    JSON.stringify(status),
+    'EX',
+    PRODUCT_SYNC_STATUS_TTL_SECONDS,
+  );
+}
+
+export async function markProductSyncIdle(redis: Redis, storeId: string): Promise<void> {
+  const key = PRODUCT_SYNC_STATUS_KEY(storeId);
+  const raw = await redis.get(key);
+  const startedAt = raw ? (JSON.parse(raw) as ProductSyncStatus).startedAt : Date.now();
+  const status: ProductSyncStatus = { state: 'idle', startedAt, completedAt: Date.now() };
+  await redis.set(key, JSON.stringify(status), 'EX', PRODUCT_SYNC_STATUS_TTL_SECONDS);
+}
+
+/** No key yet (never synced this store, or the TTL lapsed) reads as idle. */
+export async function getProductSyncStatus(
+  redis: Redis,
+  storeId: string,
+): Promise<ProductSyncStatus> {
+  const raw = await redis.get(PRODUCT_SYNC_STATUS_KEY(storeId));
+  if (!raw) return { state: 'idle', startedAt: 0, completedAt: null };
+  return JSON.parse(raw) as ProductSyncStatus;
 }

@@ -4,6 +4,7 @@ import {
   type BasketRuleSet,
   matchesCondition,
   resolveBasketFrom,
+  ruleSetReferencesCollectionTitle,
 } from '../src/modules/shopify/funnel-resolution.js';
 
 const SAREE = 'b-saree';
@@ -286,5 +287,63 @@ describe('resolveBasketFrom', () => {
   it('returns null when nothing matches', () => {
     const result = resolveBasketFrom(ruleSet(), product({ tags: ['unmatched'] }));
     expect(result).toBeNull();
+  });
+});
+
+describe('ruleSetReferencesCollectionTitle', () => {
+  it('matches a store rule collections condition case-insensitively', () => {
+    const rules = ruleSet({
+      storeRules: [
+        {
+          ruleId: 'r1',
+          basketId: SAREE,
+          priority: 1,
+          conditions: [{ field: 'collections', operator: 'equals', value: 'sarees' }],
+        },
+      ],
+    });
+    expect(ruleSetReferencesCollectionTitle(rules, 'Sarees')).toBe(true);
+  });
+
+  it('matches a global rule collections condition on contains', () => {
+    const rules = ruleSet({
+      globalRules: [
+        {
+          ruleId: 'g1',
+          basketId: UPPER,
+          priority: 1,
+          conditions: [{ field: 'collections', operator: 'contains', value: 'summer' }],
+        },
+      ],
+    });
+    expect(ruleSetReferencesCollectionTitle(rules, 'Summer 2026 Collection')).toBe(true);
+  });
+
+  it('ignores non-collections conditions', () => {
+    const rules = ruleSet({
+      storeRules: [
+        {
+          ruleId: 'r1',
+          basketId: SAREE,
+          priority: 1,
+          conditions: [{ field: 'tags', operator: 'equals', value: 'sarees' }],
+        },
+      ],
+    });
+    expect(ruleSetReferencesCollectionTitle(rules, 'Sarees')).toBe(false);
+  });
+
+  it('returns false for a collection no rule references', () => {
+    const rules = ruleSet({
+      storeRules: [
+        {
+          ruleId: 'r1',
+          basketId: SAREE,
+          priority: 1,
+          conditions: [{ field: 'collections', operator: 'equals', value: 'sarees' }],
+        },
+      ],
+    });
+    expect(ruleSetReferencesCollectionTitle(rules, 'Lookbook')).toBe(false);
   });
 });
