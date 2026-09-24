@@ -6,6 +6,7 @@ import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 import { PublicApiSlugField } from './PublicApiSlugField';
 import { SearchableSelect } from './SearchableSelect';
+import { Switch } from './Switch';
 
 async function putFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -173,6 +174,9 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
     (asset.genderSlug ?? 'men') as GenderSlug,
   );
   const [workflowTemplateId, setWorkflowTemplateId] = useState(asset.workflowTemplateId ?? '');
+  // A pinned override already exists iff promptGarmentPhase is non-null on the asset
+  // itself — mirrors GarmentTypesTab.tsx's PoseConfigsPanel edit-override modal.
+  const [promptOverrideEnabled, setPromptOverrideEnabled] = useState(!!asset.promptGarmentPhase);
   const [prompt, setPrompt] = useState(
     asset.promptGarmentPhase ??
       workflows.find((w) => w.id === asset.workflowTemplateId)?.defaultGarmentPhasePrompt ??
@@ -190,7 +194,10 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
         displayName: displayName.trim() || null,
         genderSlug,
         workflowTemplateId: workflowTemplateId || null,
-        promptGarmentPhase: prompt.trim() || null,
+        // Toggle off means "inherit" — send null regardless of what's in the
+        // (read-only preview) textarea so this pose keeps following the assigned
+        // workflow's live prompt instead of freezing today's snapshot of it.
+        promptGarmentPhase: promptOverrideEnabled ? prompt.trim() || null : null,
         sortOrder,
         publicApiSlug,
       };
@@ -327,9 +334,13 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
             placeholder="— search workflow —"
             onChange={(newId) => {
               setWorkflowTemplateId(newId);
-              // Always follow the newly selected workflow's default prompt — admin can
-              // still hand-edit the textarea below before saving if they want an override.
-              setPrompt(workflows.find((w) => w.id === newId)?.defaultGarmentPhasePrompt ?? '');
+              // Only follow the newly selected workflow's default prompt while the
+              // override toggle is off (the textarea is just a live preview then).
+              // When the toggle is on, leave the admin's own pinned text alone --
+              // switching workflows shouldn't silently discard it.
+              if (!promptOverrideEnabled) {
+                setPrompt(workflows.find((w) => w.id === newId)?.defaultGarmentPhasePrompt ?? '');
+              }
             }}
           />
         </div>
@@ -345,15 +356,41 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
         />
 
         <div className="field">
-          <label>Positive prompt</label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <label style={{ margin: 0 }}>Positive prompt</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Custom prompt</span>
+              <Switch
+                checked={promptOverrideEnabled}
+                disabled={saving}
+                onChange={(checked) => {
+                  setPromptOverrideEnabled(checked);
+                  if (!checked) {
+                    // Snap the preview back to the assigned workflow's live default --
+                    // the admin may have edited the textarea before turning this off.
+                    setPrompt(
+                      workflows.find((w) => w.id === workflowTemplateId)
+                        ?.defaultGarmentPhasePrompt ?? '',
+                    );
+                  }
+                }}
+              />
+            </div>
+          </div>
           <textarea
             className="input"
             value={prompt}
-            disabled={saving}
+            disabled={!promptOverrideEnabled || saving}
             rows={4}
+            placeholder="Inherited from workflow"
             onChange={(e) => setPrompt(e.target.value)}
             style={{ fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
           />
+          <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+            {promptOverrideEnabled
+              ? 'Pinned — future edits to the workflow prompt will not affect this pose.'
+              : "Read-only preview of the assigned workflow's live default prompt."}
+          </span>
         </div>
       </div>
     </EditDrawer>
