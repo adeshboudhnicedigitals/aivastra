@@ -379,6 +379,32 @@ export default function DashboardPage() {
                     I've added it
                   </Button>
                 </StepRow>
+                {themeBlockDone && (
+                  // Informational, not a checklist item: customizing a block that
+                  // doesn't exist yet is meaningless, so this only appears once
+                  // themeBlockDone is true. Deliberately excluded from
+                  // doneCount/allDone/ProgressBar above — it's optional, not part
+                  // of the 3-step "getting started" completion criteria.
+                  <Box paddingBlockStart="200">
+                    <BlockStack gap="200">
+                      <InlineStack align="space-between" blockAlign="start" gap="200">
+                        <InlineStack gap="200" blockAlign="center">
+                          <Badge tone="info">Optional</Badge>
+                          <Text as="p" variant="bodyMd" fontWeight="semibold">
+                            Customize the button
+                          </Text>
+                        </InlineStack>
+                        <Button onClick={openThemeEditor} loading={openingEditor}>
+                          Open theme editor
+                        </Button>
+                      </InlineStack>
+                      <Text as="p" tone="subdued">
+                        Change the button's text, colors, promo message, or position by clicking the
+                        block in the theme editor — that's where its settings live.
+                      </Text>
+                    </BlockStack>
+                  </Box>
+                )}
               </BlockStack>
             )}
           </BlockStack>
