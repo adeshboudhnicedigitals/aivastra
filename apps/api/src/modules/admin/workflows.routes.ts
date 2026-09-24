@@ -668,28 +668,83 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
   app.get('/admin/workflows', { preHandler: R }, async () => {
     const rows = await app.db.select().from(schema.workflowTemplates);
 
-    const [poseCounts, funnelCounts, archives] = await Promise.all([
-      app.db
-        .select({
-          workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
-          cnt: count(),
-        })
-        .from(schema.modelPoseAssets)
-        .groupBy(schema.modelPoseAssets.workflowTemplateId),
-      app.db
-        .select({
-          workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId,
-          cnt: count(),
-        })
-        .from(schema.shopifyFunnelTemplates)
-        .groupBy(schema.shopifyFunnelTemplates.workflowTemplateId),
-      app.db
-        .select({
-          workflowTemplateId: schema.workflowTemplateArchives.workflowTemplateId,
-          version: schema.workflowTemplateArchives.version,
-        })
-        .from(schema.workflowTemplateArchives),
-    ]);
+    const [poseCounts, funnelCounts, archives, posePromptOverrides, directConfigOverrides] =
+      await Promise.all([
+        app.db
+          .select({
+            workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+            cnt: count(),
+          })
+          .from(schema.modelPoseAssets)
+          .groupBy(schema.modelPoseAssets.workflowTemplateId),
+        app.db
+          .select({
+            workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId,
+            cnt: count(),
+          })
+          .from(schema.shopifyFunnelTemplates)
+          .groupBy(schema.shopifyFunnelTemplates.workflowTemplateId),
+        app.db
+          .select({
+            workflowTemplateId: schema.workflowTemplateArchives.workflowTemplateId,
+            version: schema.workflowTemplateArchives.version,
+          })
+          .from(schema.workflowTemplateArchives),
+        app.db
+          .select({
+            workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+            cnt: count(),
+          })
+          .from(schema.modelPoseAssets)
+          .where(
+            or(
+              isNotNull(schema.modelPoseAssets.promptGarmentPhase),
+              isNotNull(schema.modelPoseAssets.promptFacePhase),
+            ),
+          )
+          .groupBy(schema.modelPoseAssets.workflowTemplateId),
+        app.db
+          .select({
+            workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+            cnt: count(),
+          })
+          .from(schema.poseGarmentConfigs)
+          .where(
+            and(
+              isNotNull(schema.poseGarmentConfigs.workflowTemplateId),
+              or(
+                isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+                isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+              ),
+            ),
+          )
+          .groupBy(schema.poseGarmentConfigs.workflowTemplateId),
+      ]);
+
+    // Garment-config rows that inherit their workflow from a pose (workflowTemplateId
+    // IS NULL) count toward the POSE's template, not their own — same "case 3" logic
+    // as /replace's clearedGarmentConfigPromptCount
+    // (docs/superpowers/specs/2026-09-11-workflow-replace-prompt-override-invalidation-design.md).
+    const inheritedConfigOverrides = await app.db
+      .select({
+        workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+        cnt: count(),
+      })
+      .from(schema.poseGarmentConfigs)
+      .innerJoin(
+        schema.modelPoseAssets,
+        eq(schema.poseGarmentConfigs.poseAssetId, schema.modelPoseAssets.id),
+      )
+      .where(
+        and(
+          isNull(schema.poseGarmentConfigs.workflowTemplateId),
+          or(
+            isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+            isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+          ),
+        ),
+      )
+      .groupBy(schema.modelPoseAssets.workflowTemplateId);
 
     const countMap = Object.fromEntries(
       poseCounts.map((r) => [r.workflowTemplateId, Number(r.cnt)]),
@@ -699,6 +754,15 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     );
     const archiveMap = Object.fromEntries(
       archives.map((r) => [r.workflowTemplateId, { fromVersion: r.version }]),
+    );
+    const posePromptOverrideMap = Object.fromEntries(
+      posePromptOverrides.map((r) => [r.workflowTemplateId, Number(r.cnt)]),
+    );
+    const directConfigOverrideMap = Object.fromEntries(
+      directConfigOverrides.map((r) => [r.workflowTemplateId, Number(r.cnt)]),
+    );
+    const inheritedConfigOverrideMap = Object.fromEntries(
+      inheritedConfigOverrides.map((r) => [r.workflowTemplateId, Number(r.cnt)]),
     );
 
     return rows.map((r) => ({
@@ -710,6 +774,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       isActive: r.isActive,
       poseCount: countMap[r.id] ?? 0,
       funnelCount: funnelCountMap[r.id] ?? 0,
+      posePromptOverrideCount: posePromptOverrideMap[r.id] ?? 0,
+      garmentConfigPromptOverrideCount:
+        (directConfigOverrideMap[r.id] ?? 0) + (inheritedConfigOverrideMap[r.id] ?? 0),
       draining: archiveMap[r.id] ?? null,
       defaultFacePhasePrompt: r.defaultFacePhasePrompt,
       defaultGarmentPhasePrompt: r.defaultGarmentPhasePrompt,

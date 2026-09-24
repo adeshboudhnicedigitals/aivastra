@@ -480,6 +480,72 @@ describe('admin workflows - floor validation', () => {
     expect(row?.facePhasePromptNode).toBe('negative_node');
   });
 
+  it('GET /admin/workflows list includes posePromptOverrideCount and garmentConfigPromptOverrideCount', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `list_override_count_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        label: 'List override count',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const templateId = createRes.json().id as string;
+
+    const [poseWithOverride] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'List count pose with override',
+        genderSlug: 'women',
+        r2Key: `list-count-pose-${Date.now()}-${Math.random()}.jpg`,
+        thumbnailKey: 'list-count-pose-thumb.jpg',
+        scope: 'general',
+        workflowTemplateId: templateId,
+        promptGarmentPhase: 'has override',
+      })
+      .returning();
+    await app.db.insert(schema.modelPoseAssets).values({
+      label: 'List count pose without override',
+      genderSlug: 'women',
+      r2Key: `list-count-pose-no-override-${Date.now()}-${Math.random()}.jpg`,
+      thumbnailKey: 'list-count-pose-no-override-thumb.jpg',
+      scope: 'general',
+      workflowTemplateId: templateId,
+    });
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `list-count-gt-${Date.now()}-${Math.random()}`,
+        label: 'List Count GT',
+        isActive: true,
+      })
+      .returning();
+    await app.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: poseWithOverride.id,
+      subcategoryId: garmentType.id,
+      workflowTemplateId: null,
+      promptGarmentPhase: 'inherited config override',
+    });
+
+    const listRes = await app.inject({ method: 'GET', url: '/admin/workflows', headers });
+    expect(listRes.statusCode).toBe(200);
+    const row = (
+      listRes.json() as {
+        id: string;
+        posePromptOverrideCount: number;
+        garmentConfigPromptOverrideCount: number;
+      }[]
+    ).find((w) => w.id === templateId);
+    expect(row?.posePromptOverrideCount).toBe(1);
+    expect(row?.garmentConfigPromptOverrideCount).toBe(1);
+  });
+
   const jsonContentWithKSampler = {
     ...jsonContent,
     ksampler_node: {
