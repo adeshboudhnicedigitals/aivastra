@@ -276,7 +276,7 @@ export function ZoomableImage({
             minWidth: 44,
             textAlign: 'center',
             fontSize: 12,
-            color: C.white,
+            color: C.onDark,
             userSelect: 'none',
           }}
         >
@@ -323,7 +323,7 @@ function ZoomControlButton({
         borderRadius: '50%',
         border: 'none',
         background: 'transparent',
-        color: disabled ? 'rgba(255,255,255,0.35)' : C.white,
+        color: disabled ? 'rgba(255,255,255,0.35)' : C.onDark,
         fontSize: 18,
         lineHeight: 1,
         cursor: disabled ? 'default' : 'pointer',
