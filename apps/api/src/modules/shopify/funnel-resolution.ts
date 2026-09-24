@@ -98,6 +98,33 @@ function byPriorityThenId(a: BasketRule, b: BasketRule): number {
   return a.priority - b.priority || a.ruleId.localeCompare(b.ruleId);
 }
 
+/**
+ * Does any store or global rule route by this collection title? Used by the
+ * collections/update webhook handler (webhook.routes.ts) to decide whether a
+ * collection Shopify just told us about is worth an eager resync at all — a
+ * store may have hundreds of collections with nothing to do with try-on
+ * routing, and this is what keeps those from costing a single Shopify call.
+ *
+ * Reuses matchesText/norm rather than a separate comparison so "does this
+ * collection matter" and "does this product match" can never disagree about
+ * what counts as a match.
+ */
+export function ruleSetReferencesCollectionTitle(
+  ruleSet: BasketRuleSet,
+  collectionTitle: string,
+): boolean {
+  for (const tier of [ruleSet.storeRules, ruleSet.globalRules]) {
+    for (const rule of tier) {
+      for (const condition of rule.conditions) {
+        if (condition.field !== 'collections') continue;
+        const needle = norm(condition.value);
+        if (needle && matchesText(collectionTitle, condition.operator, needle)) return true;
+      }
+    }
+  }
+  return false;
+}
+
 function resolved(basket: BasketInfo, source: BasketSource): ResolvedBasket {
   return {
     basketId: basket.id,

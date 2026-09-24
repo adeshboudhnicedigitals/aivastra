@@ -1,7 +1,7 @@
 import { hostname } from 'node:os';
 import type { FastifyInstance } from 'fastify';
 import { syncOneTask } from './products.sync.js';
-import type { SyncTask } from './service.js';
+import { markProductSyncIdle, type SyncTask } from './service.js';
 
 const STREAM = 'shopify:sync';
 // Consumer group — mirrors the established Redis Streams idiom already used by
@@ -73,14 +73,24 @@ export function startSyncConsumer(app: FastifyInstance): () => void {
           continue;
         }
 
+        let task: SyncTask | undefined;
         try {
-          const task = JSON.parse(raw) as SyncTask;
+          task = JSON.parse(raw) as SyncTask;
           await syncOneTask(app, task);
         } catch (err) {
           // Log and move on — one bad/failed task must not stall the loop.
           // syncOneTask/syncProduct already record per-product failure state in
           // shopify_product_garments, so this is best-effort observability only.
           app.log.error({ err, messageId, raw }, 'shopify:sync task failed');
+        } finally {
+          // Clears the manual "Sync products" button's poll (ManagePage.tsx)
+          // whether this task succeeded or failed — a failed full sync must
+          // still unstick the UI, not leave it polling 'running' forever.
+          if (task?.mode === 'full') {
+            await markProductSyncIdle(app.redis, task.storeId).catch((err) => {
+              app.log.error({ err, storeId: task?.storeId }, 'failed to clear sync status');
+            });
+          }
         }
 
         await app.redisBlocking.xack(STREAM, GROUP, messageId);
