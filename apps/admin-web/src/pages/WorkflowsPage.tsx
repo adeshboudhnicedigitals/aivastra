@@ -254,14 +254,10 @@ export default function WorkflowsPage({ toast }: Props) {
         method: 'POST',
         body: JSON.stringify({ targetWorkflowId: reassignTargetId }),
       });
-      setWorkflows((prev) =>
-        prev.map((w) => {
-          if (w.id === reassigning.id) return { ...w, poseCount: 0 };
-          if (w.id === reassignTargetId)
-            return { ...w, poseCount: w.poseCount + reassigning.poseCount };
-          return w;
-        }),
-      );
+      // Counts can't be derived client-side after a reassign — direct config
+      // overrides pinned at the source template deliberately survive it, so
+      // an optimistic patch can't know the source's new override counts.
+      void loadWorkflows();
       const clearedCount = result.clearedPosePromptCount + result.clearedGarmentConfigPromptCount;
       toast({
         title: `Poses reassigned from "${reassigning.label}"`,
@@ -1479,7 +1475,15 @@ export default function WorkflowsPage({ toast }: Props) {
                   {editingWf?.garmentConfigPromptOverrideCount
                     ? `${editingWf.garmentConfigPromptOverrideCount} garment-type config${editingWf.garmentConfigPromptOverrideCount === 1 ? '' : 's'}`
                     : null}
-                  {" override this and won't use this text."}
+                  {(() => {
+                    const overrideCountIsSingular =
+                      (editingWf?.posePromptOverrideCount ?? 0) +
+                        (editingWf?.garmentConfigPromptOverrideCount ?? 0) ===
+                      1;
+                    return overrideCountIsSingular
+                      ? " overrides this and won't use this text."
+                      : " override this and won't use this text.";
+                  })()}
                 </span>
               )}
             </div>
@@ -1807,6 +1811,12 @@ export default function WorkflowsPage({ toast }: Props) {
               Poses use <strong>{reassigning.label}</strong>. Choose a target workflow to move them
               to.
             </p>
+            {(reassigning.posePromptOverrideCount ?? 0) > 0 && (
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12 }}>
+                {reassigning.posePromptOverrideCount} of these poses have a pinned prompt override.
+                Reassigning clears it — they'll inherit the target's prompt.
+              </p>
+            )}
             <div className="field">
               <label>Target workflow</label>
               <SearchableSelect
