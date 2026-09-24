@@ -69,3 +69,4 @@ affected.json
 # scripts/bulk-tryon moved out to its own standalone repo (D:\aivastra-bulk-tryon,
 # 2026-09-03) — no code or database dependency on this repo, see that repo's
 # README for why. Nothing left to ignore here.
+/theme_export__shopify-aivastra-com-copy-of-theme-export-shopify-demo-aivastra-com__23SEP2026-0353pm

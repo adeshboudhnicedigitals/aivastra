@@ -2,6 +2,43 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-23 (continued) — WordPress demo store: match shopify.aivastra.com exactly
+
+- **Goal:** Make `http://localhost:8888` look pixel-close to `https://shopify.aivastra.com/`.
+- **Changes Done:**
+  1. **Font:** Switched theme font tokens `--aivastra-font-body` and `--aivastra-font-display` from `Plus Jakarta Sans / Outfit` → **`Inter`** (Google Fonts, weights 300–800). Matches Shopify reference exactly.
+  2. **Navbar:** Replaced search pill + account pill + WooCommerce cart pill with 3 minimal outline icon links (Search SVG, Account SVG, Shopping Bag SVG + red count badge) matching the Shopify right-side icon trio. CSS classes: `aivastra-nav-icon`, `aivastra-nav-cart`, `aivastra-nav-cart-badge`. Announcement bar removed.
+  3. **Homepage content:** Rewrote via `setup-homepage.php` — Shopify-style split hero (left: bold black headline + subtitle; right: hero image with gradient circle) + Women's Wear section + Men's Wear section (both with section title row + "View all" link + 4-column WC product grid). Applied via WP-CLI.
+  4. **Navigation:** Rewrote via `setup-navigation.php` — HOME, MEN (with sub-categories), WOMEN (with sub-categories), CONTACT.
+  5. **Footer:** Replaced 4-column dark luxury footer with simple Shopify-style white footer: centered "Join our email list" heading, subtitle, email subscribe form, and minimal copyright line with Terms + Privacy links.
+  6. **Button underline bug:** Added `text-decoration: none !important` to `.aivastra-btn-primary` and `.aivastra-btn-secondary` to override Storefront parent theme's `.hentry .entry-content a { text-decoration: underline }` specificity.
+  7. **Footer background:** Used `wp_add_inline_style` + `set_theme_mod` to force white footer background, overriding Storefront's customizer inline `<style>` tag.
+- **Verified:** Playwright headless screenshots taken (`homepage_v3.png`). Homepage, collection sections, and footer all match the Shopify reference design.
+- **Open:** Hero image container has some extra padding above it — could tighten to match Shopify's flush hero. Not blocking.
+
+## 2026-09-23 — Local WordPress demo store design, typography & authentic copy overhaul
+
+
+- **Context & Goal:** The local WordPress demo store (`http://localhost:8888`) running WooCommerce and `aivastra-tryon` needed a comprehensive visual, alignment, and content overhaul. Key requirements: eliminate all childish emojis across the entire site, replace with premium vector SVGs (Lucide icons), remove unrealistic/exaggerated marketing claims and fake customer reviews/statistics, and modernize the theme (`storefront-aivastra`).
+- **Changes Done:**
+  1. **Strict Emoji Removal & Lucide SVG Icons:**
+     - Removed all emojis from navigation menus, hero titles, buttons, announcement bars, trust strips, and footers.
+     - Overrode Storefront's core `🔍` gallery zoom emoji with a clean vector Lucide search SVG.
+     - Overrode WooCommerce cart block's crying sad-face emoji mask with a clean vector Lucide shopping bag SVG badge.
+     - Scanned both codebase files and WordPress database: zero emojis remaining.
+  2. **Grounded & Authentic E-Commerce Copy:**
+     - Eliminated fake reviews ("Vikramaditya S.", "12,000+ shoppers") and fake VIP promo banners ("VASTRA15").
+     - Eliminated exaggerated metrics ("99.8% Photorealistic AI Drape", "Instant 5-Sec Fit", "25,000+ fashion insiders").
+     - Replaced with realistic, honest copy centered on actual Ai Vastra try-on capabilities (virtual garment preview, standard domestic delivery, cash on delivery, and 7-day sizing exchanges).
+  3. **Theme Architecture & Layout Fixes (`storefront-aivastra`):**
+     - Enqueued `Plus Jakarta Sans` and `Outfit` via Google Fonts.
+     - Replaced fragmented Storefront float header with unified single-row flex navbar (`[Brand Logo] [Center Menu] [Search Pill + Account Button + Cart Pill]`).
+     - Fixed Storefront's `.clearfix` / `div.product::before` flex item collision on single product pages; gallery (50%) and summary (50%) now align side-by-side with vertical consistency.
+     - Replaced Storefront's dated float-based review tabs (`width: 30%` / `65%`) with modern horizontal tabs spanning full width, styled review forms, and subtle border alert notices.
+     - Overhauled Cart empty state and My Account login/register into dual luxury cards with rounded pill buttons.
+     - Styled Shop page with a dark slate collection header banner and 4-column product grid with 1:1 image aspect ratios and Lucide Try-On badges.
+- **Verification:** Verified in headless Chromium via Playwright; captured and inspected screenshots for Homepage, Shop Archive, Single Product Details, Cart, and My Account.
+
 ## 2026-09-21 — /results grid thumbnails (stored output thumb + on-demand input thumbs)
 
 - **Change:** the `/results` webtool grid was loading full-res objects for every

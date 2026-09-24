@@ -1,12 +1,9 @@
 <?php
 /**
- * One-time nav menu build for the local demo store — Home/Shop plus a real
- * Men/Women category structure with subcategory dropdowns, assigned to the
- * "primary" location Storefront renders in the header.
+ * Navigation menu matching https://shopify.aivastra.com/:
+ * HOME, MEN, WOMEN, CONTACT.
  *
- * Re-runnable: clears and rebuilds the menu's items each time rather than
- * appending duplicates.
- *
+ * Re-runnable: clears and rebuilds the menu items each time.
  * Run with: wp eval-file wp-content/plugins/aivastra-tryon/local-wp/setup-navigation.php
  */
 
@@ -39,27 +36,37 @@ foreach (wp_get_nav_menu_items($menuId) ?: [] as $item) {
     wp_delete_post($item->ID, true);
 }
 
-aivastra_add_menu_item($menuId, 'Home', home_url('/'));
-aivastra_add_menu_item($menuId, 'Shop', (string) get_permalink(wc_get_page_id('shop')));
+// 1. HOME
+aivastra_add_menu_item($menuId, 'HOME', home_url('/'));
 
-foreach (['men' => 'Men', 'women' => 'Women'] as $slug => $label) {
-    $term = get_term_by('slug', $slug, 'product_cat');
-    if (!$term instanceof WP_Term) {
-        throw new RuntimeException("Category '{$slug}' not found — run import-products.php first.");
-    }
-    $parentItemId = aivastra_add_menu_item($menuId, $label, (string) get_term_link($term));
-
-    $children = get_terms(['taxonomy' => 'product_cat', 'parent' => $term->term_id, 'hide_empty' => false]);
-    foreach ($children as $child) {
-        aivastra_add_menu_item($menuId, $child->name, (string) get_term_link($child), $parentItemId);
+// 2. MEN
+$menTerm = get_term_by('slug', 'men', 'product_cat');
+if ($menTerm instanceof WP_Term) {
+    $menParentId = aivastra_add_menu_item($menuId, 'MEN', (string) get_term_link($menTerm));
+    $menChildren = get_terms(['taxonomy' => 'product_cat', 'parent' => $menTerm->term_id, 'hide_empty' => false]);
+    foreach ($menChildren as $child) {
+        aivastra_add_menu_item($menuId, $child->name, (string) get_term_link($child), $menParentId);
     }
 }
 
-aivastra_add_menu_item($menuId, 'Cart', (string) get_permalink(wc_get_page_id('cart')));
-aivastra_add_menu_item($menuId, 'My Account', (string) get_permalink(wc_get_page_id('myaccount')));
+// 3. WOMEN
+$womenTerm = get_term_by('slug', 'women', 'product_cat');
+if ($womenTerm instanceof WP_Term) {
+    $womenParentId = aivastra_add_menu_item($menuId, 'WOMEN', (string) get_term_link($womenTerm));
+    $womenChildren = get_terms(['taxonomy' => 'product_cat', 'parent' => $womenTerm->term_id, 'hide_empty' => false]);
+    foreach ($womenChildren as $child) {
+        aivastra_add_menu_item($menuId, $child->name, (string) get_term_link($child), $womenParentId);
+    }
+}
+
+// 4. CONTACT — a real page (matches shopify.aivastra.com/pages/contact),
+// not an anchor jump to the footer.
+$contactPage = get_page_by_path('contact');
+$contactUrl = $contactPage instanceof WP_Post ? (string) get_permalink($contactPage) : home_url('/contact');
+aivastra_add_menu_item($menuId, 'CONTACT', $contactUrl);
 
 $locations = get_theme_mod('nav_menu_locations', []);
 $locations['primary'] = $menuId;
 set_theme_mod('nav_menu_locations', $locations);
 
-WP_CLI::success("Main Menu built (menu id {$menuId}) and assigned to the primary location.");
+WP_CLI::success("Main Menu updated (HOME, MEN, WOMEN, CONTACT) matching shopify.aivastra.com.");
