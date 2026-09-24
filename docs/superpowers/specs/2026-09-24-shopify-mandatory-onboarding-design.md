@@ -172,7 +172,11 @@ New:
 - `apps/shopify/src/pages/OnboardingThemePage.tsx`
 - `apps/shopify/src/components/OnboardingLayout.tsx` — shared "Step N of 3"
   indicator (Products=1, Routing=2, Theme=3 — Intro is not counted, see below)
-  + Continue/Back row, wraps the body of those three step pages only
+  + a Continue button, wraps the body of those three step pages only. No Back
+  button: per the "Resuming mid-flow" rule above, navigating to an
+  already-completed step immediately redirects forward again, so a Back
+  control would be clickable but never actually land anywhere — omitted
+  rather than shipping a button that appears to do nothing.
 - `apps/shopify/src/lib/onboarding.ts` — `getOnboardingStep`
 - `apps/shopify/src/lib/onboarding.test.ts` — unit tests for the step matrix
 - `apps/shopify/src/assets/sample-garment.jpg` (or supplied extension) — new
