@@ -9,6 +9,7 @@ export * from './credits.js';
 export * from './demo-catalog.js';
 export * from './dev.js';
 export * from './google-drive.js';
+export * from './image-compression.js';
 export * from './job-taxonomy.js';
 export * from './jobs.js';
 export * from './posePresets.js';

@@ -16,6 +16,7 @@
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { keys } from '@aivastra/storage';
+import type { ImageCompressionJobConfig } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import type { Redis } from 'ioredis';
@@ -23,6 +24,13 @@ import sharp from 'sharp';
 import { loadEnv } from '../env.js';
 import { transitionJob } from '../job/state.js';
 import { applyWatermark, WATERMARK_VERSION } from './watermark.js';
+
+const WEBP_QUALITY: Record<Exclude<ImageCompressionJobConfig['level'], 'lossless'>, number> = {
+  q95: 95,
+  q90: 90,
+  q85: 85,
+  q80: 80,
+};
 
 export interface FinalizeOutputOpts {
   /** Raw image bytes downloaded from ComfyUI. */
@@ -32,8 +40,13 @@ export interface FinalizeOutputOpts {
   shopifyStoreId?: string;
   /** Whether this job has the watermark flag set (snapshotted at creation). */
   jobWatermark: boolean;
-  /** Result image encoding — defaults to 'png'. 'webp' re-encodes at q90 (smaller payload). */
-  outputFormat?: 'png' | 'webp';
+  /**
+   * Per-job-type compression setting, resolved by the caller via
+   * apps/dispatcher/src/config/image-compression.ts. Not enabled → PNG
+   * passthrough (today's default). Enabled → sharp WebP re-encode at the
+   * configured level.
+   */
+  compression?: ImageCompressionJobConfig;
   db: DB;
   pub: Redis;
   s3: S3Client;
@@ -79,12 +92,17 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
   }
 
   // Upload result to R2
-  const outputFormat = opts.outputFormat ?? 'png';
+  const compression = opts.compression;
+  const outputFormat: 'png' | 'webp' = compression?.enabled ? 'webp' : 'png';
   const resultKey = keys.output(jobId, outputFormat);
   const resultBuffer =
-    outputFormat === 'webp'
-      ? await sharp(finalBuffer).webp({ quality: 90 }).toBuffer()
-      : finalBuffer;
+    compression?.enabled && compression.level === 'lossless'
+      ? await sharp(finalBuffer).webp({ lossless: true }).toBuffer()
+      : compression?.enabled
+        ? await sharp(finalBuffer)
+            .webp({ quality: WEBP_QUALITY[compression.level as keyof typeof WEBP_QUALITY] })
+            .toBuffer()
+        : finalBuffer;
   await s3.send(
     new PutObjectCommand({
       Bucket: r2Bucket,

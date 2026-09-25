@@ -27,6 +27,7 @@ import {
   uploadImageToComfy,
 } from '../comfyui/client.js';
 import { JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
+import { getImageCompressionConfig } from '../config/image-compression.js';
 import { loadEnv } from '../env.js';
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
@@ -785,11 +786,13 @@ export async function processJob(
     );
 
     // 9. Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
+    const compression = await getImageCompressionConfig(redis, job.source);
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: job.watermark,
+      compression,
       db,
       pub,
       s3,
@@ -1153,14 +1156,15 @@ async function processTryonDirectJob(
     );
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
-    // outputFormat: 'webp' — tryon-direct is the only job kind (source='tryon' /
-    // 'api_tryon') whose result is WebP-encoded; see finalize.ts's doc comment.
+    // Compression is configurable per job source (admin Settings → Image
+    // Compression); tryon/api_tryon/merchant_tryon default to enabled q90.
+    const compression = await getImageCompressionConfig(redis, job.source);
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: job.watermark,
-      outputFormat: 'webp',
+      compression,
       db,
       pub,
       s3,
@@ -1392,14 +1396,13 @@ async function processRegenerateJob(
       firstImage.subfolder,
     );
 
-    // outputFormat: 'webp' — same convention as tryon-direct (processTryonDirectJob):
-    // a direct edit of an existing image, not a from-scratch catalogue render.
+    const compression = await getImageCompressionConfig(redis, job.source);
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: job.watermark,
-      outputFormat: 'webp',
+      compression,
       db,
       pub,
       s3,
@@ -1749,11 +1752,13 @@ async function processSareeMannequinJob(
     );
 
     // Mannequin images are never delivered to the user — no watermark applies.
+    const compression = await getImageCompressionConfig(redis, job.source);
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: false,
+      compression,
       db,
       pub,
       s3,
@@ -1978,11 +1983,13 @@ async function processSareeJob(
     );
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
+    const compression = await getImageCompressionConfig(redis, job.source);
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: job.watermark,
+      compression,
       db,
       pub,
       s3,
@@ -2637,12 +2644,14 @@ async function processShopifyJob(
       firstImage.subfolder,
     );
 
+    const compression = await getImageCompressionConfig(redis, job.source);
     const { resultKey } = await finalizeOutput({
       imageBytes,
       jobId,
       userId: '',
       shopifyStoreId,
       jobWatermark: job.watermark,
+      compression,
       db,
       pub,
       s3,
