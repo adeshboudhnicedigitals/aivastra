@@ -57,7 +57,18 @@ services:
       - aivastra-staging-net
 
   minio:
-    image: ghcr.io/adeshboudhnicedigitals/minio:RELEASE.2025-09-07T16-13-09Z
+    # Deliberately still quay.io, not the ghcr.io mirror ci.yml and dev's
+    # docker-compose.yml use — this VPS already has this exact image cached
+    # from before quay.io locked down anonymous pulls (see that mirror's
+    # commit message), and `docker compose up`/`run` never re-pulls an image
+    # it already has, so staging coasts on the cached copy with no ghcr.io
+    # login needed. Confirmed the hard way: CI run #1245 (dev push, deploy job)
+    # failed with `unauthorized` trying to pull this from ghcr.io — `api`'s
+    # `depends_on: minio` means even `docker compose run --rm api ...`
+    # (db:verify:prod) pulls minio, not just an explicit `up minio`. Only
+    # fresh-pulls this quay.io ref if the cache is ever cleared or the box is
+    # reprovisioned — repoint at the ghcr.io mirror first if so.
+    image: quay.io/minio/minio:latest
     container_name: aivastra-staging-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -80,7 +91,7 @@ services:
       - aivastra-staging-net
 
   minio-bootstrap:
-    image: ghcr.io/adeshboudhnicedigitals/mc:RELEASE.2025-08-13T08-35-41Z
+    image: quay.io/minio/mc:latest
     container_name: aivastra-staging-minio-bootstrap
     restart: "no"
     depends_on:
