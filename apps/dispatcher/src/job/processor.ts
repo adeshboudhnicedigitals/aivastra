@@ -18,7 +18,6 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
-import sharp from 'sharp';
 
 import {
   downloadOutputImage,
@@ -34,7 +33,7 @@ import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
-import { finalizeOutput } from '../workflow/finalize.js';
+import { encodeCompressedImage, finalizeOutput } from '../workflow/finalize.js';
 import { patchWorkflow } from '../workflow/patcher.js';
 import { resolveWorkflowTemplateVersion } from '../workflow/resolve-template-version.js';
 import { runMannequinPhase } from './mannequin-phase.js';
@@ -2354,15 +2353,22 @@ async function processWidgetJob(
       firstImage.subfolder,
     );
 
-    // Upload result to R2 as WebP (q90) — smaller payload for the merchant/kiosk clients.
-    const resultKey = `widget-outputs/${jobId}/result.webp`;
-    const webpBuffer = await sharp(imageBytes).webp({ quality: 90 }).toBuffer();
+    // Upload result to R2 — per-job-type compression config (admin Settings →
+    // Image Compression), defaults to enabled q90 for merchant_tryon so this
+    // matches today's previously-hardcoded behavior.
+    const compression = await getImageCompressionConfig(redis, job.source);
+    const {
+      buffer: encodedBuffer,
+      format: outputFormat,
+      contentType,
+    } = await encodeCompressedImage(imageBytes, compression);
+    const resultKey = `widget-outputs/${jobId}/result.${outputFormat}`;
     await s3.send(
       new PutObjectCommand({
         Bucket: r2Bucket,
         Key: resultKey,
-        Body: webpBuffer,
-        ContentType: 'image/webp',
+        Body: encodedBuffer,
+        ContentType: contentType,
       }),
     );
 

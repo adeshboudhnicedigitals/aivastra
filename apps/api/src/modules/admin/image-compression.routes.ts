@@ -40,7 +40,12 @@ export async function adminImageCompressionRoutes(app: FastifyInstance) {
       const before = fillImageCompressionDefaults(
         JSON.parse((await app.redis.get(KEY)) ?? '{}') as Partial<ImageCompressionConfig>,
       );
-      const after = req.body as ImageCompressionConfig;
+      // Merge onto the existing (default-filled) config — the schema allows a
+      // partial body (only the sources the caller means to change), so a
+      // wholesale overwrite here would silently revert every other source to
+      // its default on the next read. Same reasoning as /admin/config's PATCH
+      // (config.routes.ts's `next = { ...cur, ...body }`).
+      const after: ImageCompressionConfig = { ...before, ...(req.body as ImageCompressionConfig) };
 
       // Redis-backed, not Postgres — write the audit record first so a config
       // change can never land without a Team Activity entry for who made it,

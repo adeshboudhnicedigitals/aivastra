@@ -33,10 +33,13 @@ describe('admin image compression config', () => {
     });
     expect(res.statusCode).toBe(200);
     const cfg = res.json();
-    // tryon/api_tryon/regenerate are the two hardcoded webp q90 paths today —
-    // must default to enabled so shipping this doesn't silently change output.
+    // tryon/api_tryon/merchant_tryon/wordpress_tryon/regenerate were all
+    // hardcoded webp q90 before this config existed — must default to
+    // enabled so shipping this doesn't silently change output.
     expect(cfg.tryon).toEqual({ enabled: true, level: 'q90' });
     expect(cfg.api_tryon).toEqual({ enabled: true, level: 'q90' });
+    expect(cfg.merchant_tryon).toEqual({ enabled: true, level: 'q90' });
+    expect(cfg.wordpress_tryon).toEqual({ enabled: true, level: 'q90' });
     expect(cfg.regenerate).toEqual({ enabled: true, level: 'q90' });
     // Catalogue/saree paths are currently uncompressed PNG.
     expect(cfg.catalog).toEqual({ enabled: false, level: 'q90' });
@@ -67,6 +70,36 @@ describe('admin image compression config', () => {
     expect(cfg.catalog).toEqual({ enabled: true, level: 'lossless' });
     // Untouched source in the same PATCH body still defaults correctly.
     expect(cfg.saree).toEqual({ enabled: false, level: 'q90' });
+  });
+
+  it('a later partial PATCH does not revert a source set by an earlier PATCH', async () => {
+    await app.inject({
+      method: 'PATCH',
+      url: '/admin/image-compression',
+      headers: { ...superAdminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ saree: { enabled: true, level: 'q80' } }),
+    });
+
+    // A second, unrelated PATCH that never mentions `saree` must not wipe it
+    // back to default — the route merges onto the stored config rather than
+    // overwriting wholesale.
+    const secondPatch = await app.inject({
+      method: 'PATCH',
+      url: '/admin/image-compression',
+      headers: { ...superAdminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ catalog: { enabled: true, level: 'q95' } }),
+    });
+    expect(secondPatch.statusCode).toBe(200);
+    expect(secondPatch.json().saree).toEqual({ enabled: true, level: 'q80' });
+
+    const getRes = await app.inject({
+      method: 'GET',
+      url: '/admin/image-compression',
+      headers: superAdminAuth,
+    });
+    const cfg = getRes.json();
+    expect(cfg.saree).toEqual({ enabled: true, level: 'q80' });
+    expect(cfg.catalog).toEqual({ enabled: true, level: 'q95' });
   });
 
   it('rejects a non-SUPER_ADMIN admin role', async () => {

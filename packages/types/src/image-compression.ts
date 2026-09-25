@@ -25,15 +25,21 @@ export const imageCompressionConfigSchema = z.record(
 );
 export type ImageCompressionConfig = Partial<Record<JobSource, ImageCompressionJobConfig>>;
 
-// Preserves today's real behavior on ship — tryon-direct and regenerate are the
-// only two paths currently hardcoded to sharp(...).webp({ quality: 90 })
-// (apps/dispatcher/src/workflow/finalize.ts); merchant_tryon shares the same
-// processTryonDirectJob code path so gets the same default. Every other job
-// source is currently uncompressed PNG.
+// Preserves today's real behavior on ship — every one of these was hardcoded
+// to sharp(...).webp({ quality: 90 }) before this config existed: tryon,
+// api_tryon and regenerate via processTryonDirectJob/processRegenerateJob
+// (apps/dispatcher/src/workflow/finalize.ts); wordpress_tryon also routes
+// through processTryonDirectJob (job_inputs.params.personKey with no
+// merchantId — see apps/api/src/modules/dev/create-job.ts); merchant_tryon
+// instead routes through processWidgetJob's merchant/kiosk branch (its own
+// separate sharp call in apps/dispatcher/src/job/processor.ts, since a
+// merchantId-bearing job never reaches processJob's routing at all). Every
+// other job source is currently uncompressed PNG.
 const COMPRESSED_BY_DEFAULT: JobSource[] = [
   JOB_SOURCE.TRYON,
   JOB_SOURCE.API_TRYON,
   JOB_SOURCE.MERCHANT_TRYON,
+  JOB_SOURCE.WORDPRESS_TRYON,
   JOB_SOURCE.REGENERATE,
 ];
 

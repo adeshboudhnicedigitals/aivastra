@@ -32,6 +32,28 @@ const WEBP_QUALITY: Record<Exclude<ImageCompressionJobConfig['level'], 'lossless
   q80: 80,
 };
 
+/**
+ * Shared sharp re-encode used by every code path that writes a job's final
+ * image — not just finalizeOutput below. processWidgetJob's merchant/kiosk
+ * branch (apps/dispatcher/src/job/processor.ts) uploads its own result key
+ * outside of finalizeOutput's job_outputs/thumbnail bookkeeping, but must
+ * still honor the same per-job-type compression config, so it calls this
+ * directly rather than duplicating the level→quality mapping.
+ */
+export async function encodeCompressedImage(
+  buffer: Uint8Array,
+  compression: ImageCompressionJobConfig | undefined,
+): Promise<{ buffer: Uint8Array; format: 'png' | 'webp'; contentType: string }> {
+  if (!compression?.enabled) {
+    return { buffer, format: 'png', contentType: 'image/png' };
+  }
+  const encoded =
+    compression.level === 'lossless'
+      ? await sharp(buffer).webp({ lossless: true }).toBuffer()
+      : await sharp(buffer).webp({ quality: WEBP_QUALITY[compression.level] }).toBuffer();
+  return { buffer: encoded, format: 'webp', contentType: 'image/webp' };
+}
+
 export interface FinalizeOutputOpts {
   /** Raw image bytes downloaded from ComfyUI. */
   imageBytes: Uint8Array;
@@ -92,23 +114,18 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
   }
 
   // Upload result to R2
-  const compression = opts.compression;
-  const outputFormat: 'png' | 'webp' = compression?.enabled ? 'webp' : 'png';
+  const {
+    buffer: resultBuffer,
+    format: outputFormat,
+    contentType,
+  } = await encodeCompressedImage(finalBuffer, opts.compression);
   const resultKey = keys.output(jobId, outputFormat);
-  const resultBuffer =
-    compression?.enabled && compression.level === 'lossless'
-      ? await sharp(finalBuffer).webp({ lossless: true }).toBuffer()
-      : compression?.enabled
-        ? await sharp(finalBuffer)
-            .webp({ quality: WEBP_QUALITY[compression.level as keyof typeof WEBP_QUALITY] })
-            .toBuffer()
-        : finalBuffer;
   await s3.send(
     new PutObjectCommand({
       Bucket: r2Bucket,
       Key: resultKey,
       Body: resultBuffer,
-      ContentType: outputFormat === 'webp' ? 'image/webp' : 'image/png',
+      ContentType: contentType,
     }),
   );
 
