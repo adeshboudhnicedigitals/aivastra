@@ -245,20 +245,26 @@ export default function WorkflowsPage({ toast }: Props) {
     if (!reassigning || !reassignTargetId) return;
     setReassignSaving(true);
     try {
-      await apiFetch(`/admin/workflows/${reassigning.id}/reassign`, {
+      const result = await apiFetch<{
+        ok: true;
+        updated: number;
+        clearedPosePromptCount: number;
+        clearedGarmentConfigPromptCount: number;
+      }>(`/admin/workflows/${reassigning.id}/reassign`, {
         method: 'POST',
         body: JSON.stringify({ targetWorkflowId: reassignTargetId }),
       });
-      setWorkflows((prev) =>
-        prev.map((w) => {
-          if (w.id === reassigning.id) return { ...w, poseCount: 0 };
-          if (w.id === reassignTargetId)
-            return { ...w, poseCount: w.poseCount + reassigning.poseCount };
-          return w;
-        }),
-      );
+      // Counts can't be derived client-side after a reassign — direct config
+      // overrides pinned at the source template deliberately survive it, so
+      // an optimistic patch can't know the source's new override counts.
+      void loadWorkflows();
+      const clearedCount = result.clearedPosePromptCount + result.clearedGarmentConfigPromptCount;
       toast({
         title: `Poses reassigned from "${reassigning.label}"`,
+        body:
+          clearedCount > 0
+            ? `Cleared ${clearedCount} prompt override${clearedCount === 1 ? '' : 's'} tuned to the old workflow — they'll now inherit the target's prompt.`
+            : undefined,
       });
       closeModal();
       setReassignTargetId('');
@@ -355,7 +361,10 @@ export default function WorkflowsPage({ toast }: Props) {
         .filter((o) => Object.keys(o).length > 1);
       if (ksamplerOverrides.length > 0) patch.ksamplerOverrides = ksamplerOverrides;
 
-      await apiFetch(`/admin/workflows/${editingWf.id}`, {
+      const patched = await apiFetch<{
+        clearedPosePromptCount?: number;
+        clearedGarmentConfigPromptCount?: number;
+      }>(`/admin/workflows/${editingWf.id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
@@ -419,7 +428,15 @@ export default function WorkflowsPage({ toast }: Props) {
             : w,
         ),
       );
-      toast({ title: 'Workflow updated' });
+      const clearedCount =
+        (patched.clearedPosePromptCount ?? 0) + (patched.clearedGarmentConfigPromptCount ?? 0);
+      toast({
+        title: 'Workflow updated',
+        body:
+          clearedCount > 0
+            ? `Synced the new prompt to ${clearedCount} pinned override${clearedCount === 1 ? '' : 's'} that were tuned to the old text.`
+            : undefined,
+      });
       closeModal();
     } catch (e) {
       const msg =
@@ -736,6 +753,20 @@ export default function WorkflowsPage({ toast }: Props) {
                           </button>
                           <button
                             className="btn sm ghost"
+                            disabled={wf.poseCount === 0}
+                            onClick={() =>
+                              setModalParams({ modal: 'reassign-workflow', editId: wf.id })
+                            }
+                            title={
+                              wf.poseCount === 0
+                                ? 'No poses use this workflow'
+                                : 'Move poses off this workflow onto another'
+                            }
+                          >
+                            <Icon.Refresh /> Reassign
+                          </button>
+                          <button
+                            className="btn sm ghost"
                             style={{ color: 'var(--danger)' }}
                             disabled={wf.poseCount > 0}
                             onClick={() =>
@@ -1013,6 +1044,15 @@ export default function WorkflowsPage({ toast }: Props) {
                           onClick={() => handleToggleActive(wf)}
                         >
                           {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button
+                          className="btn sm ghost"
+                          disabled={wf.poseCount === 0}
+                          onClick={() =>
+                            setModalParams({ modal: 'reassign-workflow', editId: wf.id })
+                          }
+                        >
+                          <Icon.Refresh /> Reassign
                         </button>
                         <button
                           className="btn sm ghost danger"
@@ -1434,6 +1474,29 @@ export default function WorkflowsPage({ toast }: Props) {
                 disabled={editSaving}
                 onChange={(e) => setEditForm((f) => ({ ...f, garmentPhasePrompt: e.target.value }))}
               />
+              {((editingWf?.posePromptOverrideCount ?? 0) > 0 ||
+                (editingWf?.garmentConfigPromptOverrideCount ?? 0) > 0) && (
+                <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                  {editingWf?.posePromptOverrideCount
+                    ? `${editingWf.posePromptOverrideCount} pose${editingWf.posePromptOverrideCount === 1 ? '' : 's'}`
+                    : null}
+                  {editingWf?.posePromptOverrideCount && editingWf?.garmentConfigPromptOverrideCount
+                    ? ' and '
+                    : null}
+                  {editingWf?.garmentConfigPromptOverrideCount
+                    ? `${editingWf.garmentConfigPromptOverrideCount} garment-type config${editingWf.garmentConfigPromptOverrideCount === 1 ? '' : 's'}`
+                    : null}
+                  {(() => {
+                    const overrideCountIsSingular =
+                      (editingWf?.posePromptOverrideCount ?? 0) +
+                        (editingWf?.garmentConfigPromptOverrideCount ?? 0) ===
+                      1;
+                    return overrideCountIsSingular
+                      ? " overrides this and won't use this text."
+                      : " override this and won't use this text.";
+                  })()}
+                </span>
+              )}
             </div>
             {editingWf?.facePhasePromptNode && (
               <div className="field">
@@ -1759,6 +1822,12 @@ export default function WorkflowsPage({ toast }: Props) {
               Poses use <strong>{reassigning.label}</strong>. Choose a target workflow to move them
               to.
             </p>
+            {(reassigning.posePromptOverrideCount ?? 0) > 0 && (
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12 }}>
+                {reassigning.posePromptOverrideCount} of these poses have a pinned prompt override.
+                Reassigning clears it — they'll inherit the target's prompt.
+              </p>
+            )}
             <div className="field">
               <label>Target workflow</label>
               <SearchableSelect

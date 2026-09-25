@@ -668,7 +668,14 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
   app.get('/admin/workflows', { preHandler: R }, async () => {
     const rows = await app.db.select().from(schema.workflowTemplates);
 
-    const [poseCounts, funnelCounts, archives] = await Promise.all([
+    const [
+      poseCounts,
+      funnelCounts,
+      archives,
+      posePromptOverrides,
+      directConfigOverrides,
+      inheritedConfigOverrides,
+    ] = await Promise.all([
       app.db
         .select({
           workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
@@ -689,6 +696,59 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           version: schema.workflowTemplateArchives.version,
         })
         .from(schema.workflowTemplateArchives),
+      app.db
+        .select({
+          workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+          cnt: count(),
+        })
+        .from(schema.modelPoseAssets)
+        .where(
+          or(
+            isNotNull(schema.modelPoseAssets.promptGarmentPhase),
+            isNotNull(schema.modelPoseAssets.promptFacePhase),
+          ),
+        )
+        .groupBy(schema.modelPoseAssets.workflowTemplateId),
+      app.db
+        .select({
+          workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+          cnt: count(),
+        })
+        .from(schema.poseGarmentConfigs)
+        .where(
+          and(
+            isNotNull(schema.poseGarmentConfigs.workflowTemplateId),
+            or(
+              isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+              isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+            ),
+          ),
+        )
+        .groupBy(schema.poseGarmentConfigs.workflowTemplateId),
+      // Garment-config rows that inherit their workflow from a pose (workflowTemplateId
+      // IS NULL) count toward the POSE's template, not their own — same "case 3" logic
+      // as /replace's clearedGarmentConfigPromptCount
+      // (docs/superpowers/specs/2026-09-11-workflow-replace-prompt-override-invalidation-design.md).
+      app.db
+        .select({
+          workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+          cnt: count(),
+        })
+        .from(schema.poseGarmentConfigs)
+        .innerJoin(
+          schema.modelPoseAssets,
+          eq(schema.poseGarmentConfigs.poseAssetId, schema.modelPoseAssets.id),
+        )
+        .where(
+          and(
+            isNull(schema.poseGarmentConfigs.workflowTemplateId),
+            or(
+              isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+              isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+            ),
+          ),
+        )
+        .groupBy(schema.modelPoseAssets.workflowTemplateId),
     ]);
 
     const countMap = Object.fromEntries(
@@ -700,6 +760,15 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     const archiveMap = Object.fromEntries(
       archives.map((r) => [r.workflowTemplateId, { fromVersion: r.version }]),
     );
+    const posePromptOverrideMap = Object.fromEntries(
+      posePromptOverrides.map((r) => [r.workflowTemplateId, Number(r.cnt)]),
+    );
+    const directConfigOverrideMap = Object.fromEntries(
+      directConfigOverrides.map((r) => [r.workflowTemplateId, Number(r.cnt)]),
+    );
+    const inheritedConfigOverrideMap = Object.fromEntries(
+      inheritedConfigOverrides.map((r) => [r.workflowTemplateId, Number(r.cnt)]),
+    );
 
     return rows.map((r) => ({
       id: r.id,
@@ -710,6 +779,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       isActive: r.isActive,
       poseCount: countMap[r.id] ?? 0,
       funnelCount: funnelCountMap[r.id] ?? 0,
+      posePromptOverrideCount: posePromptOverrideMap[r.id] ?? 0,
+      garmentConfigPromptOverrideCount:
+        (directConfigOverrideMap[r.id] ?? 0) + (inheritedConfigOverrideMap[r.id] ?? 0),
       draining: archiveMap[r.id] ?? null,
       defaultFacePhasePrompt: r.defaultFacePhasePrompt,
       defaultGarmentPhasePrompt: r.defaultGarmentPhasePrompt,
@@ -1132,6 +1204,18 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         defaultFacePhasePrompt = extracted.defaultFacePhasePrompt;
         defaultGarmentPhasePrompt = extracted.defaultGarmentPhasePrompt;
       }
+      // Whether this save actually changes the effective default text (a direct
+      // edit, or a garmentPhasePromptNode/facePhasePromptNode repoint that lands
+      // on a node with different baked text) — not just "was the field present in
+      // the body," since the Edit modal always resends both prompt fields on
+      // every save, including ones that only touch label/slug/etc. Poses and
+      // pose_garment_configs rows with a pinned override of their own are stale
+      // the moment this template's own default text changes, the same way they
+      // already are on /replace — see docs/superpowers/specs/
+      // 2026-09-11-workflow-replace-prompt-override-invalidation-design.md.
+      const promptTextChanged =
+        defaultGarmentPhasePrompt !== existing.defaultGarmentPhasePrompt ||
+        defaultFacePhasePrompt !== existing.defaultFacePhasePrompt;
 
       let defaultStage1PositivePrompt = existing.defaultStage1PositivePrompt;
       let defaultStage1NegativePrompt = existing.defaultStage1NegativePrompt;
@@ -1247,45 +1331,119 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           .filter((p) => p.reason.length > 0);
       }
 
-      await app.db.transaction(async (tx) => {
-        const [locked] = await tx
-          .select()
-          .from(schema.workflowTemplates)
-          .where(eq(schema.workflowTemplates.id, id))
-          .for('update');
-        if (!locked) throw new AppError('NOT_FOUND', 404, 'workflow not found');
+      const { clearedPosePromptCount, clearedGarmentConfigPromptCount } = await app.db.transaction(
+        async (tx) => {
+          const [locked] = await tx
+            .select()
+            .from(schema.workflowTemplates)
+            .where(eq(schema.workflowTemplates.id, id))
+            .for('update');
+          if (!locked) throw new AppError('NOT_FOUND', 404, 'workflow not found');
 
-        if (locked.workflowType === 'regeneration' && body.isActive === true) {
+          if (locked.workflowType === 'regeneration' && body.isActive === true) {
+            await tx
+              .update(schema.workflowTemplates)
+              .set({ isActive: false, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(schema.workflowTemplates.workflowType, 'regeneration'),
+                  eq(schema.workflowTemplates.isActive, true),
+                  ne(schema.workflowTemplates.id, id),
+                ),
+              );
+          }
+
           await tx
             .update(schema.workflowTemplates)
-            .set({ isActive: false, updatedAt: new Date() })
-            .where(
-              and(
-                eq(schema.workflowTemplates.workflowType, 'regeneration'),
-                eq(schema.workflowTemplates.isActive, true),
-                ne(schema.workflowTemplates.id, id),
-              ),
-            );
-        }
+            .set(updateValues)
+            .where(eq(schema.workflowTemplates.id, id));
 
-        await tx
-          .update(schema.workflowTemplates)
-          .set(updateValues)
-          .where(eq(schema.workflowTemplates.id, id));
+          // Same "direct + inherited" clear as /replace and /reassign (see
+          // 2026-09-11-workflow-replace-prompt-override-invalidation-design.md):
+          // a pinned pose/garment-config prompt was tuned to THIS template's old
+          // default text, so it's just as stale here as it is after a full
+          // graph replace. workflowTemplateId is never touched — only the
+          // prompt-override text columns.
+          let clearedPosePromptCount = 0;
+          let clearedGarmentConfigPromptCount = 0;
+          if (promptTextChanged) {
+            const posesOnTemplate = await tx
+              .select({
+                id: schema.modelPoseAssets.id,
+                promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
+                promptFacePhase: schema.modelPoseAssets.promptFacePhase,
+              })
+              .from(schema.modelPoseAssets)
+              .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
 
-        await recordAudit(tx, {
-          // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
-          actor: { userId: req.userId, role: req.adminRole! },
-          action: 'workflow.update',
-          resourceType: 'workflow',
-          resourceId: id,
-          before: locked,
-          after: { ...locked, ...updateValues },
-          request: req,
-        });
-      });
+            await tx
+              .update(schema.modelPoseAssets)
+              .set({ promptGarmentPhase: null, promptFacePhase: null })
+              .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
 
-      return { ok: true };
+            clearedPosePromptCount = posesOnTemplate.filter(
+              (p) => p.promptGarmentPhase !== null || p.promptFacePhase !== null,
+            ).length;
+            const inheritingPoseIds = posesOnTemplate.map((p) => p.id);
+
+            const clearedGarmentConfigsDirect = await tx
+              .update(schema.poseGarmentConfigs)
+              .set({ promptGarmentPhase: null, promptFacePhase: null, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(schema.poseGarmentConfigs.workflowTemplateId, id),
+                  or(
+                    isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+                    isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+                  ),
+                ),
+              )
+              .returning({ id: schema.poseGarmentConfigs.id });
+
+            const clearedGarmentConfigsInherited =
+              inheritingPoseIds.length > 0
+                ? await tx
+                    .update(schema.poseGarmentConfigs)
+                    .set({ promptGarmentPhase: null, promptFacePhase: null, updatedAt: new Date() })
+                    .where(
+                      and(
+                        isNull(schema.poseGarmentConfigs.workflowTemplateId),
+                        inArray(schema.poseGarmentConfigs.poseAssetId, inheritingPoseIds),
+                        or(
+                          isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+                          isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+                        ),
+                      ),
+                    )
+                    .returning({ id: schema.poseGarmentConfigs.id })
+                : [];
+
+            clearedGarmentConfigPromptCount =
+              clearedGarmentConfigsDirect.length + clearedGarmentConfigsInherited.length;
+          }
+
+          await recordAudit(tx, {
+            // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'workflow.update',
+            resourceType: 'workflow',
+            resourceId: id,
+            before: locked,
+            after: {
+              ...locked,
+              ...updateValues,
+              ...(promptTextChanged
+                ? { clearedPosePromptCount, clearedGarmentConfigPromptCount }
+                : {}),
+            },
+            request: req,
+          });
+
+          return { clearedPosePromptCount, clearedGarmentConfigPromptCount };
+        },
+      );
+
+      return { ok: true, clearedPosePromptCount, clearedGarmentConfigPromptCount };
     },
   );
 
@@ -1558,22 +1716,65 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         if (!source) throw new AppError('NOT_FOUND', 404, 'source workflow not found');
 
         const [target] = await tx
-          .select({
-            id: schema.workflowTemplates.id,
-            defaultGarmentPhasePrompt: schema.workflowTemplates.defaultGarmentPhasePrompt,
-          })
+          .select({ id: schema.workflowTemplates.id })
           .from(schema.workflowTemplates)
           .where(eq(schema.workflowTemplates.id, targetWorkflowId));
         if (!target) throw new AppError('NOT_FOUND', 404, 'target workflow not found');
+
+        // Unlike /replace, a reassign never touches sourceId's own graph — it only
+        // moves which poses' workflowTemplateId points at it. So a pose's own prompt
+        // override is stale the moment its effective graph changes (source -> target),
+        // and gets nulled-and-inherited here, matching /replace's contract
+        // (docs/superpowers/specs/2026-09-11-workflow-replace-prompt-override-invalidation-design.md).
+        const posesOnSource = await tx
+          .select({
+            id: schema.modelPoseAssets.id,
+            promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
+            promptFacePhase: schema.modelPoseAssets.promptFacePhase,
+          })
+          .from(schema.modelPoseAssets)
+          .where(eq(schema.modelPoseAssets.workflowTemplateId, sourceId));
 
         const updatedRows = await tx
           .update(schema.modelPoseAssets)
           .set({
             workflowTemplateId: targetWorkflowId,
-            promptGarmentPhase: target.defaultGarmentPhasePrompt ?? null,
+            promptGarmentPhase: null,
+            promptFacePhase: null,
           })
           .where(eq(schema.modelPoseAssets.workflowTemplateId, sourceId))
           .returning({ id: schema.modelPoseAssets.id });
+
+        const clearedPosePromptCount = posesOnSource.filter(
+          (p) => p.promptGarmentPhase !== null || p.promptFacePhase !== null,
+        ).length;
+        const reassignedPoseIds = posesOnSource.map((p) => p.id);
+
+        // Only pose_garment_configs rows that INHERIT their workflow from the pose
+        // (workflowTemplateId IS NULL) are affected — their effective graph moved with
+        // the pose from sourceId to targetWorkflowId. A row with its own non-null
+        // workflowTemplateId resolves independently of the pose
+        // (apps/dispatcher/src/job/processor.ts:493) — if that id happens to be
+        // sourceId, sourceId's graph was NOT modified by this reassign (unlike
+        // /replace), so that row's prompt is still valid and must not be cleared.
+        const clearedGarmentConfigs =
+          reassignedPoseIds.length > 0
+            ? await tx
+                .update(schema.poseGarmentConfigs)
+                .set({ promptGarmentPhase: null, promptFacePhase: null, updatedAt: new Date() })
+                .where(
+                  and(
+                    isNull(schema.poseGarmentConfigs.workflowTemplateId),
+                    inArray(schema.poseGarmentConfigs.poseAssetId, reassignedPoseIds),
+                    or(
+                      isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+                      isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+                    ),
+                  ),
+                )
+                .returning({ id: schema.poseGarmentConfigs.id })
+            : [];
+        const clearedGarmentConfigPromptCount = clearedGarmentConfigs.length;
 
         await recordAudit(tx, {
           // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
@@ -1581,14 +1782,28 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           action: 'workflow.reassign',
           resourceType: 'workflow',
           resourceId: sourceId,
-          after: { targetWorkflowId, updatedPoses: updatedRows.length },
+          after: {
+            targetWorkflowId,
+            updatedPoses: updatedRows.length,
+            clearedPosePromptCount,
+            clearedGarmentConfigPromptCount,
+          },
           request: req,
         });
 
-        return updatedRows;
+        return {
+          updatedPoses: updatedRows,
+          clearedPosePromptCount,
+          clearedGarmentConfigPromptCount,
+        };
       });
 
-      return { ok: true, updated: result.length };
+      return {
+        ok: true,
+        updated: result.updatedPoses.length,
+        clearedPosePromptCount: result.clearedPosePromptCount,
+        clearedGarmentConfigPromptCount: result.clearedGarmentConfigPromptCount,
+      };
     },
   );
 

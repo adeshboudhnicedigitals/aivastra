@@ -50,6 +50,13 @@ interface JobDetail extends Job {
   inputImages?: InputImages;
   workflowLabel?: string | null;
   regenerateReason?: string | null;
+  // The actual text ComfyUI received, extracted server-side from the dispatched
+  // graph itself — null until the job has actually dispatched.
+  dispatchedGarmentPrompt?: string | null;
+  dispatchedFacePrompt?: string | null;
+  dispatchedAspectRatio?: string | null;
+  dispatchedOutputWidth?: number | null;
+  dispatchedOutputHeight?: number | null;
 }
 
 /** Platform user email, falling back to the Shopify merchant's contact email for shopify-sourced jobs. */
@@ -967,6 +974,96 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       );
                     })}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {(j.dispatchedGarmentPrompt ||
+              j.dispatchedFacePrompt ||
+              j.dispatchedAspectRatio ||
+              j.dispatchedOutputWidth ||
+              j.dispatchedOutputHeight) && (
+              <div className="card" style={{ marginBottom: 14 }}>
+                <div className="card-head">
+                  <h3>Prompt sent to ComfyUI</h3>
+                </div>
+                <div
+                  className="card-body"
+                  style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+                >
+                  {(j.dispatchedAspectRatio ||
+                    j.dispatchedOutputWidth ||
+                    j.dispatchedOutputHeight) && (
+                    <div className="kv-grid-2-col">
+                      {j.dispatchedAspectRatio && (
+                        <KV k="Aspect ratio" v={j.dispatchedAspectRatio} />
+                      )}
+                      {j.dispatchedOutputWidth && (
+                        <KV k="Output width" v={`${j.dispatchedOutputWidth}px`} />
+                      )}
+                      {j.dispatchedOutputHeight && (
+                        <KV k="Output height" v={`${j.dispatchedOutputHeight}px`} />
+                      )}
+                    </div>
+                  )}
+                  {j.dispatchedGarmentPrompt && (
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: 'var(--muted)',
+                          marginBottom: 4,
+                        }}
+                      >
+                        Positive prompt
+                      </div>
+                      <pre
+                        style={{
+                          margin: 0,
+                          fontSize: 12,
+                          fontFamily: 'var(--mono)',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          background: 'var(--bg-2)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 6,
+                          padding: '10px 12px',
+                        }}
+                      >
+                        {j.dispatchedGarmentPrompt}
+                      </pre>
+                    </div>
+                  )}
+                  {j.dispatchedFacePrompt && (
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: 'var(--muted)',
+                          marginBottom: 4,
+                        }}
+                      >
+                        Negative prompt
+                      </div>
+                      <pre
+                        style={{
+                          margin: 0,
+                          fontSize: 12,
+                          fontFamily: 'var(--mono)',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          background: 'var(--bg-2)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 6,
+                          padding: '10px 12px',
+                        }}
+                      >
+                        {j.dispatchedFacePrompt}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

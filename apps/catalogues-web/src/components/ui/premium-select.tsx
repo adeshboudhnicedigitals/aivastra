@@ -3,6 +3,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { C } from '../tokens';
 
+const POPUP_MAX_HEIGHT = 240;
+
 export type PremiumSelectOption = {
   value: string | number;
   label: string;
@@ -54,9 +56,13 @@ export function PremiumSelect({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [hoverIdx, setHoverIdx] = useState<number>(-1);
-  const [popupRect, setPopupRect] = useState<{ top: number; left: number; width: number } | null>(
-    null,
-  );
+  const [popupRect, setPopupRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+    openUp: boolean;
+  } | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
@@ -97,7 +103,21 @@ export function PremiumSelect({
       const el = wrapRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      setPopupRect({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+      const GAP = 4;
+      const spaceBelow = window.innerHeight - rect.bottom - GAP;
+      const spaceAbove = rect.top - GAP;
+      // Flip above the trigger when there isn't room to fit even a scrolled-down
+      // sliver below it but there's more room above — otherwise a trigger near
+      // the bottom of a short panel (e.g. the video-config sidebar) always opens
+      // downward and gets clipped by the viewport.
+      const openUp = spaceBelow < POPUP_MAX_HEIGHT && spaceAbove > spaceBelow;
+      setPopupRect({
+        top: openUp ? rect.top - GAP : rect.bottom + GAP,
+        left: rect.left,
+        width: rect.width,
+        maxHeight: Math.max(120, Math.min(POPUP_MAX_HEIGHT, openUp ? spaceAbove : spaceBelow)),
+        openUp,
+      });
     };
     updateRect();
     window.addEventListener('scroll', updateRect, true);
@@ -239,12 +259,14 @@ export function PremiumSelect({
             role="listbox"
             style={{
               position: 'fixed',
-              top: popupRect.top,
+              ...(popupRect.openUp
+                ? { bottom: window.innerHeight - popupRect.top }
+                : { top: popupRect.top }),
               ...(align === 'right'
                 ? { right: window.innerWidth - (popupRect.left + popupRect.width) }
                 : { left: popupRect.left }),
               minWidth: popupRect.width,
-              maxHeight: 240,
+              maxHeight: popupRect.maxHeight,
               overflowY: 'auto',
               background: popupBackground,
               border: `1px solid ${popupBorder}`,
