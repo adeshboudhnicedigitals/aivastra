@@ -2,6 +2,79 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-25 (later) — Pose pin leaking into a redirected workflow's prompt
+
+**Root cause:** when a `pose_garment_configs` row overrides a pose+garmentType to a
+*different* workflow template than the pose's own default, and that config row has no
+`promptGarmentPhase`/`promptFacePhase` of its own, both `resolveTryonPlan`
+(`apps/api/src/modules/jobs/create.ts`) and the dispatcher's non-snapshot standard path
+(`apps/dispatcher/src/job/processor.ts`) fell back to the **pose's own pin**
+(`model_pose_assets.promptGarmentPhase`/`promptFacePhase`) regardless of which workflow was
+actually selected. That pin was written for the pose's own default workflow's graph, so a
+redirected job sent a prompt describing the wrong graph to ComfyUI. PR #355 (merge 9ecc3fe7,
+code commit eedfff93) introduced the `configPromptGarmentPhase || defaultPromptGarmentPhase`
+fallback into the **api snapshot path** (`resolveTryonPlan`) — before that PR, `resolveTryonPlan`
+hardcoded the prompt fields to `null` for every non-mapped job, so the override never reached
+`job_inputs.params` at all. That's why every snapshotted job started carrying this bug from
+#355 onward. The **dispatcher's non-snapshot path** (`poseRow` default init +
+`if (cfgRow.promptGarmentPhase)` override, `processor.ts`) already had the identical flaw
+before #355 — traced to commit `d8325a9d` (2026-06-16, `feat(admin): per-garment-type pose
+workflow/prompt overrides + pose asset admin polish`), nearly three months earlier; PR #355
+didn't touch that branch. It only matters for jobs that never got a `workflowTemplateId`
+snapshotted into `params` (the dispatcher's own lookup is unreachable once a snapshot exists).
+
+**Done**
+- `apps/api/src/modules/jobs/create.ts`: added a `poseDefaultApplies` helper (only the
+  standard-branch `poseWorkflows` map, ~line 762) — the pose's default prompt now only
+  applies when the config row's `workflowTemplateId` is null or equals the pose's own
+  `defaultWorkflowTemplateId`; otherwise the field is left `null` so the dispatcher patcher
+  leaves the redirected workflow's own baked-in prompt untouched.
+- `apps/dispatcher/src/job/processor.ts`: the non-snapshot `else if (cfgRow?.workflowTemplateId)`
+  branch now nulls `effectivePromptGarmentPhase`/`effectivePromptFacePhase` when
+  `cfgRow.workflowTemplateId !== poseRow.workflowTemplateId` and the config row has no prompt
+  of its own.
+- `promptByPose` (`create.ts` ~line 747, feeds the `requiresMannequinStep`/saree branch) and
+  the snapshot/`requiresMannequinStep` branches of `processor.ts` are **deliberately
+  unchanged** — the config-workflow-override is already ignored for that path by design (see
+  the existing comment at `create.ts`), so the same gating doesn't apply there.
+- Regression tests: 4 new cases in `apps/api/test/integration/jobs-create-looks.test.ts`
+  (redirect+no-prompt, no override, override equals pose default, config has its own prompt)
+  and a new `apps/dispatcher/test/integration/pose-garment-config-workflow-override.test.ts`
+  (3 cases for the dispatcher's non-snapshot path, previously uncovered — existing dispatcher
+  coverage of `pose_garment_configs` was all `requiresMannequinStep` saree tests). The two
+  redirect-case tests (one api, one dispatcher — the actual bug reproduction) were confirmed
+  FAILING on pre-fix code and PASSING after via stash/pop; the other five new tests assert
+  unchanged behaviour (no override, override equals pose default, config has its own prompt)
+  and pass either way.
+- `pnpm --filter @aivastra/api typecheck`, `tsc --noEmit` in `apps/dispatcher` (no `typecheck`
+  script exists there), full `test`/`test:unit`/`test:integration` for both packages, and
+  `biome check` on all 4 changed files all clean.
+
+**Not fixed by this change**
+- Already-created jobs keep whatever prompt was snapshotted into `job_inputs.params` at
+  creation time — this fix only changes what gets resolved for jobs created *after* it ships.
+  ~354 production jobs (2026-09-11 to 2026-09-25) and 39 staging jobs were already dispatched
+  with the wrong (pose-pin) prompt under this bug and are not corrected retroactively. These
+  counts were measured on 2026-09-25 by read-only SQL directly against the staging and
+  production databases (not reproducible from local dev, which has no path to either). The
+  counts mean "the job's snapshotted `params` carried the pose's own prompt while the config
+  row overrode the workflow and had no prompt of its own" — a structural match on the bug's
+  precondition, not a per-job judgement that the resulting image was actually wrong.
+
+**Open question**
+- 208 production poses carry a `promptGarmentPhase`/`promptFacePhase` pin identical to their
+  assigned workflow template's own default prompt — a side effect of the old
+  `EditPoseAssetModal` silently pinning the template default onto the pose the first time it
+  was opened, rather than leaving the field null (also measured 2026-09-25, read-only SQL
+  against prod). These 208 pins were the actual source of the leak in production: whenever a
+  config row redirected one of these poses to a different workflow, the pin was the wrong
+  prompt fed to that redirected graph. After this fix they're harmless, because the pose pin is
+  now only used when the job is actually running the pose's own workflow — a redirect either
+  gets the config's own prompt or falls through to the new workflow's baked-in default.
+  "Does this pose have a real prompt override" still can't be read off `IS NOT NULL` alone,
+  though. Nulling the pins that are pure duplicates of their template's default would still
+  need a data migration — not attempted here.
+
 ## 2026-09-25 — `quay.io/minio/minio` now also returns 401 on anonymous pull (CI-blocking)
 
 - **Found:** PR #414's CI failed both `Unit tests (@aivastra/api)` and

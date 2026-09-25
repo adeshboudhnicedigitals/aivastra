@@ -448,6 +448,325 @@ describe('createJob — atomic multi-background looks[] form', () => {
     });
   });
 
+  it('omits the pose pin prompt when pose_garment_configs redirects to a DIFFERENT workflow with no prompt of its own', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-config-redirect-no-prompt@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [workflowA] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `redirect-workflow-a-${poseAId}`,
+        label: 'Redirect workflow A (pose default)',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    const [workflowB] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `redirect-workflow-b-${poseAId}`,
+        label: 'Redirect workflow B (config override)',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({
+        workflowTemplateId: workflowA.id,
+        promptGarmentPhase: 'pose default garment prompt for workflow A',
+        promptFacePhase: 'pose default face prompt for workflow A',
+      })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'men',
+        slug: `redirect-no-prompt-${poseAId}`,
+        label: 'Redirected shirt, no override prompt',
+      })
+      .returning();
+    await app.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: poseAId,
+      subcategoryId: garmentType.id,
+      workflowTemplateId: workflowB.id,
+    });
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, response.json().jobIds[0]));
+    expect(inputs?.params).toMatchObject({ workflowTemplateId: workflowB.id });
+    // Workflow B's own baked-in prompt must be used — NOT the pin written for
+    // pose A's default workflow (A), which describes a different graph.
+    expect(inputs?.params).not.toHaveProperty('promptGarmentPhase');
+    expect(inputs?.params).not.toHaveProperty('promptFacePhase');
+  });
+
+  it('uses the pose pin when pose_garment_configs has no workflow override (workflowTemplateId NULL)', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-config-null-workflow@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [workflowA] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `null-workflow-a-${poseAId}`,
+        label: 'Null-override workflow A (pose default)',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({
+        workflowTemplateId: workflowA.id,
+        promptGarmentPhase: 'pose default garment prompt (null-override case)',
+        promptFacePhase: 'pose default face prompt (null-override case)',
+      })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'men',
+        slug: `null-workflow-override-${poseAId}`,
+        label: 'Config row present but no workflow override',
+      })
+      .returning();
+    // Config row exists (e.g. so admin can toggle it active/inactive) but never
+    // set its own workflowTemplateId — the pose's own workflow still applies.
+    await app.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: poseAId,
+      subcategoryId: garmentType.id,
+    });
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, response.json().jobIds[0]));
+    expect(inputs?.params).toMatchObject({
+      workflowTemplateId: workflowA.id,
+      promptGarmentPhase: 'pose default garment prompt (null-override case)',
+      promptFacePhase: 'pose default face prompt (null-override case)',
+    });
+  });
+
+  it("uses the pose pin when the config workflow override equals the pose's OWN workflow", async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-config-same-workflow@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [workflowA] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `same-workflow-a-${poseAId}`,
+        label: 'Same-workflow A (pose default AND config override)',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({
+        workflowTemplateId: workflowA.id,
+        promptGarmentPhase: 'pose default garment prompt (same-workflow case)',
+        promptFacePhase: 'pose default face prompt (same-workflow case)',
+      })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'men',
+        slug: `same-workflow-override-${poseAId}`,
+        label: 'Config points back at the pose default workflow',
+      })
+      .returning();
+    await app.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: poseAId,
+      subcategoryId: garmentType.id,
+      workflowTemplateId: workflowA.id,
+    });
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, response.json().jobIds[0]));
+    expect(inputs?.params).toMatchObject({
+      workflowTemplateId: workflowA.id,
+      promptGarmentPhase: 'pose default garment prompt (same-workflow case)',
+      promptFacePhase: 'pose default face prompt (same-workflow case)',
+    });
+  });
+
+  it('a config prompt wins even when the config also redirects to a different workflow', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-config-redirect-with-prompt@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [workflowA] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `redirect-with-prompt-a-${poseAId}`,
+        label: 'Redirect-with-prompt workflow A (pose default)',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    const [workflowB] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `redirect-with-prompt-b-${poseAId}`,
+        label: 'Redirect-with-prompt workflow B (config override)',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({
+        workflowTemplateId: workflowA.id,
+        promptGarmentPhase: 'pose default garment prompt (should NOT be used)',
+        promptFacePhase: 'pose default face prompt (should NOT be used)',
+      })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'men',
+        slug: `redirect-with-prompt-${poseAId}`,
+        label: 'Redirected shirt with its own override prompt',
+      })
+      .returning();
+    await app.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: poseAId,
+      subcategoryId: garmentType.id,
+      workflowTemplateId: workflowB.id,
+      promptGarmentPhase: 'config override garment prompt for workflow B',
+      promptFacePhase: 'config override face prompt for workflow B',
+    });
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, response.json().jobIds[0]));
+    expect(inputs?.params).toMatchObject({
+      workflowTemplateId: workflowB.id,
+      promptGarmentPhase: 'config override garment prompt for workflow B',
+      promptFacePhase: 'config override face prompt for workflow B',
+    });
+  });
+
   it('rejects duplicate (poseId, backgroundId) pairs within one looks[] request', async () => {
     await seedCreditPlan('free', false);
     const { token, userId } = await registerUser('looks-dup@x.com');

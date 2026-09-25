@@ -754,6 +754,15 @@ export async function resolveTryonPlan(
     ]),
   );
 
+  // A pose's own prompt pin was written for its own default workflow's graph.
+  // If a config row redirects this pose+garmentType to a different workflow
+  // template, that pin no longer describes the graph actually being run, so it
+  // must not fall back into effect — only a config row's own prompt (or the
+  // workflow's baked-in prompt, via leaving this null) applies then.
+  const poseDefaultApplies = (r: (typeof poseWorkflowRows)[number]) =>
+    r.configWorkflowTemplateId == null ||
+    r.configWorkflowTemplateId === r.defaultWorkflowTemplateId;
+
   const poseWorkflows = requiresMannequinStep
     ? distinctPoseIds.map((poseId) => ({
         poseId,
@@ -773,8 +782,14 @@ export async function resolveTryonPlan(
         workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
         version:
           r.configWorkflowTemplateId != null ? r.overrideWorkflowVersion : r.defaultWorkflowVersion,
-        promptGarmentPhase: r.configPromptGarmentPhase || r.defaultPromptGarmentPhase || null,
-        promptFacePhase: r.configPromptFacePhase || r.defaultPromptFacePhase || null,
+        promptGarmentPhase:
+          r.configPromptGarmentPhase ||
+          (poseDefaultApplies(r) ? r.defaultPromptGarmentPhase : null) ||
+          null,
+        promptFacePhase:
+          r.configPromptFacePhase ||
+          (poseDefaultApplies(r) ? r.defaultPromptFacePhase : null) ||
+          null,
         upperNodeIds:
           r.configWorkflowTemplateId != null
             ? (r.overrideUpperNodeIds ?? [])
