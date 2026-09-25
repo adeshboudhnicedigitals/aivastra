@@ -264,7 +264,13 @@ export default function OnboardingProductsPage({
                 Choose a basket for your products
               </Text>
               {selectionDone ? (
-                <BasketAssignmentStage me={me} onRefresh={onRefresh} />
+                <BasketAssignmentStage
+                  globalMode={me.store.settings.activation?.mode === 'global'}
+                  // Step 1 can add or remove products while this list is on screen.
+                  reloadKey={me.stats.enabledProductCount + (me.stats.unroutedEnabledCount ?? 0)}
+                  unrouted={me.stats.unroutedEnabledCount ?? 0}
+                  onChanged={onRefresh}
+                />
               ) : (
                 <Text as="p" tone="subdued">
                   Confirm your products above, then choose a basket for them here.

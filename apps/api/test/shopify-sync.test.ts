@@ -247,6 +247,97 @@ describe('syncProduct', () => {
     }
   });
 
+  describe('download retry', () => {
+    const okResponse = () =>
+      ({
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        headers: new Map([['content-type', 'image/jpeg']]),
+      }) as unknown as Response;
+
+    const rowFor = async (productId: number) => {
+      const [row] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, productId),
+          ),
+        );
+      return row;
+    };
+
+    it('retries once after a dropped connection and ends up active', async () => {
+      let calls = 0;
+      const flaky = (async () => {
+        calls++;
+        if (calls === 1) throw new TypeError('fetch failed');
+        return okResponse();
+      }) as typeof fetch;
+      await syncProduct(
+        app,
+        storeId,
+        { id: 60, title: 'Flaky', imageUrl: 'https://cdn.shopify.com/x.jpg' },
+        flaky,
+      );
+      expect(calls).toBe(2);
+      expect((await rowFor(60)).status).toBe('active');
+    });
+
+    it('retries once after a CDN 503 and ends up active', async () => {
+      let calls = 0;
+      const flaky = (async () => {
+        calls++;
+        return calls === 1 ? ({ ok: false, status: 503 } as unknown as Response) : okResponse();
+      }) as typeof fetch;
+      await syncProduct(
+        app,
+        storeId,
+        { id: 61, title: 'Busy CDN', imageUrl: 'https://cdn.shopify.com/x.jpg' },
+        flaky,
+      );
+      expect(calls).toBe(2);
+      expect((await rowFor(61)).status).toBe('active');
+    });
+
+    it('does not retry a 404, and fails with the status', async () => {
+      let calls = 0;
+      const gone = (async () => {
+        calls++;
+        return { ok: false, status: 404 } as unknown as Response;
+      }) as typeof fetch;
+      await syncProduct(
+        app,
+        storeId,
+        { id: 62, title: 'Gone', imageUrl: 'https://cdn.shopify.com/x.jpg' },
+        gone,
+      );
+      expect(calls).toBe(1);
+      const row = await rowFor(62);
+      expect(row.status).toBe('failed');
+      expect(row.failedReason).toBe('download HTTP 404');
+    });
+
+    it('gives up after the second failure and records the underlying cause, not just "fetch failed"', async () => {
+      let calls = 0;
+      const down = (async () => {
+        calls++;
+        throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ETIMEDOUT' } });
+      }) as typeof fetch;
+      await syncProduct(
+        app,
+        storeId,
+        { id: 63, title: 'Down', imageUrl: 'https://cdn.shopify.com/x.jpg' },
+        down,
+      );
+      expect(calls).toBe(2);
+      const row = await rowFor(63);
+      expect(row.status).toBe('failed');
+      expect(row.failedReason).toBe('fetch failed (ETIMEDOUT)');
+    });
+  });
+
   it('persists product_type/tags/vendor', async () => {
     await syncProduct(
       app,

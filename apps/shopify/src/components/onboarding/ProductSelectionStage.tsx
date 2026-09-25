@@ -71,14 +71,31 @@ const STATUS_TONE: Record<string, 'success' | 'attention' | 'critical'> = {
 export function ProductSelectionStage({
   onPickChange,
   initial,
+  startFilter = DEFAULT_SELECTION_FILTER,
+  locked,
+  allowSelectAll = true,
 }: {
   onPickChange: (pick: StagePick) => void;
   /** Where to start from — reopening the picker restores the last confirmed pick. */
   initial?: StagePick;
+  /** The filter a fresh picker opens on (ignored when `initial` is given). */
+  startFilter?: ProductFilterState;
+  /**
+   * Filter fields the merchant cannot change — e.g. the Manage page's "Add
+   * products" only lists active, not-yet-enabled products. Applied over the
+   * merchant's own filter on every request. Must be a stable reference (declare
+   * it at module level). A locked `status` also hides the Status filter.
+   */
+  locked?: Partial<ProductFilterState>;
+  /**
+   * Offer "Select all N matching". Off ticks one page at a time (ticks survive
+   * paging), for callers that need concrete product ids rather than a filter.
+   */
+  allowSelectAll?: boolean;
 }) {
-  const [filter, setFilter] = useState<ProductFilterState>(
-    initial?.filter ?? DEFAULT_SELECTION_FILTER,
-  );
+  const [userFilter, setFilter] = useState<ProductFilterState>(initial?.filter ?? startFilter);
+  const filter = useMemo(() => ({ ...userFilter, ...locked }), [userFilter, locked]);
+  const statusLocked = locked?.status != null;
   const [queryInput, setQueryInput] = useState(initial?.filter.q ?? '');
   const [page, setPage] = useState(1);
   const [selection, setSelection] = useState<Selection>(initial?.selection ?? EMPTY_SELECTION);
@@ -158,7 +175,9 @@ export function ProductSelectionStage({
   ) {
     switch (type) {
       case IndexTableSelectionType.All:
-        setSelection(selecting ? selectAllMatching() : EMPTY_SELECTION);
+        // Only reachable from the "select all matching" banner, which is not
+        // shown when allowSelectAll is off; guard anyway so it can never mean it.
+        setSelection(selecting && allowSelectAll ? selectAllMatching() : EMPTY_SELECTION);
         break;
       case IndexTableSelectionType.Page:
         setSelection((s) =>
@@ -209,20 +228,24 @@ export function ProductSelectionStage({
         shortcut: true,
       }),
     ),
-    {
-      key: 'status',
-      label: 'Status',
-      filter: (
-        <ChoiceList
-          title="Status"
-          titleHidden
-          choices={STATUS_CHOICES}
-          selected={filter.status ? [filter.status] : []}
-          onChange={(value) => updateFilter({ status: value[0] ?? null })}
-        />
-      ),
-      pinned: true,
-    },
+    ...(statusLocked
+      ? []
+      : [
+          {
+            key: 'status',
+            label: 'Status',
+            filter: (
+              <ChoiceList
+                title="Status"
+                titleHidden
+                choices={STATUS_CHOICES}
+                selected={filter.status ? [filter.status] : []}
+                onChange={(value) => updateFilter({ status: value[0] ?? null })}
+              />
+            ),
+            pinned: true,
+          },
+        ]),
   ];
 
   const appliedFilters = [
@@ -231,7 +254,7 @@ export function ProductSelectionStage({
       label: `${label}: ${filter[key].join(', ')}`,
       onRemove: () => updateFilter({ [key]: [] }),
     })),
-    ...(filter.status
+    ...(filter.status && !statusLocked
       ? [
           {
             key: 'status',
@@ -286,7 +309,7 @@ export function ProductSelectionStage({
         itemCount={items.length}
         selectedItemsCount={allSelectedNoExclusions ? 'All' : pageSelectedCount}
         onSelectionChange={handleSelectionChange}
-        hasMoreItems={total > items.length}
+        hasMoreItems={allowSelectAll && total > items.length}
         paginatedSelectAllText={`All ${total} matching products are selected`}
         // Polaris defaults this to "Select all {itemCount}", i.e. the page size, not the match count.
         paginatedSelectAllActionText={`Select all ${total} matching products`}

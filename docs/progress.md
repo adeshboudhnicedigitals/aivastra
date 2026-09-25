@@ -2,6 +2,77 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-25 — Manage page: failed products no longer counted as synced, and can be retried
+
+- **Done:** the Manage page's "Products Synced" numerator counted every non-deleted row, so a store
+  with one failed product read "9/9". It now counts `status = 'active'` only (`activation.routes.ts`),
+  and the separate "Failed to Sync" tile is gone — a red "N failed to sync" link under the synced
+  count opens the same modal.
+- **Retry:** `syncProduct` retries the image download once after a 500ms pause on a thrown network
+  error or an HTTP 429/5xx (not on a 4xx). The failed modal has a **Retry sync** button calling
+  `POST /v1/shopify/products/retry-failed`, which enqueues one `mode: 'product'` task per failed
+  product (cap 100); each re-reads the product from Shopify, so a newly added image is picked up.
+- **Failure reasons are clearer:** Node's bare "fetch failed" now records its cause, e.g.
+  `fetch failed (ETIMEDOUT)`.
+- **Per-product basket routing on Manage → Routing:** the step-2 basket picker from onboarding
+  (tiles, "Apply to all N products", a Basket dropdown per enabled product) now also sits in a card
+  titled "Individual product routing" above "Your rules". `BasketAssignmentStage` was changed to take
+  plain props (`globalMode`, `reloadKey`, `unrouted`, `onChanged`, `bulk`) instead of the
+  `/me` payload so both places share it; onboarding is unchanged. Manage shows only the per-product
+  list (`bulk={false}`: no tiles, no "Apply to all", which would overwrite every pin on a live
+  store); onboarding keeps the tiles and bulk apply. Changing a basket re-reads the rules
+  quietly (no tab spinner) and bumps the parent's unrouted banner. Lists enabled products only, as
+  in onboarding.
+- **Manage → Eligibility pickers match onboarding's:** "Add products" and "Exclude products" were a
+  search box with one Add/Exclude button per row. They are now the same picker as onboarding step 2
+  (search, Product type / Vendor / Tag / Collection / Category / Status filters, tick boxes, "N of M
+  selected", one "Add N products" confirm), via a shared `ProductPickerModal` around
+  `ProductSelectionStage`. The stage gained `startFilter`, `locked` (fields the merchant can't
+  change) and `allowSelectAll`. "Add products" locks `enabled=false, status=active` (only active
+  products can be enabled), so it hides the Status filter; "Exclude products" locks only
+  `excluded=false`. Ticks survive paging and are staged in the existing draft lists — nothing is sent
+  until Save. **No "Select all N matching" here:** a draft is a list of concrete ids and Save sends
+  one PATCH per product, so a filter-wide select would mean thousands of parallel requests. The
+  fix, if wanted, is bulk endpoints for enable/exclude/disable that Save can call. The collection
+  pickers are unchanged.
+- **Collection pickers list the store's collections:** "Add collections" / "Exclude collections"
+  used to show nothing until a name was typed. They now open on the full list (fetched once from
+  `GET /v1/shopify/activation/collections/search`, whose `q` is now optional and results sorted by
+  title), with an in-browser search box, tick boxes that survive paging/searching, and one
+  "Add/Exclude N collections" confirm. Collections already in the list are left out. Same shared
+  component for both tabs (`components/CollectionPickerModal.tsx`). The list is a live Shopify
+  read on each open, as the per-keystroke search already was.
+- **Add/Edit rule popup:** default modal width (620px — it was briefly `size="large"`, which was too
+  wide); each condition row is a grid with fixed-width Field (170px) and Match (120px) selects and a Value box that takes all the
+  remaining space, plus Remove. The per-row character counter was dropped (the 200-character
+  `maxLength` still applies) because it made the Value box taller than its neighbours and threw the
+  row's alignment off. The fixed widths don't shrink, so on a very narrow window the row can overflow.
+- **Rule editor Value is selectable:** the Value box in Add/Edit rule is now a combobox listing the
+  store's own values for the chosen field (product types, tags, vendors, collections — from
+  `GET /v1/shopify/products/facets`, the same lists the product filters use). Typing narrows the
+  list, and what is typed is kept as-is, so "contains" rules can still use a fragment, a value past
+  the facet cap (200) can still be entered, and an old rule whose value has left the catalog still
+  loads. Product title has no list, so it stays a text box. Changing a row's Field clears its Value.
+- **Trap (now closed):** nothing revisited a failed product automatically. The hourly `reconcile`
+  only fetched ids it had never seen, and `product` tasks come from webhooks, so a one-off dropped
+  download, or a CSV-imported product created before Shopify had attached its image (which
+  `products/create` reports as `no product image`), stayed failed until the merchant edited it.
+- **Products imported in Shopify (CSV etc.) now arrive without pressing Sync:**
+  1. `reconcile` also gives up to 50 failed products a second chance per pass (newest ids first,
+     after the deletion pass so a product that is really gone is marked deleted, and skipping ids it
+     just fetched). Cost: at most 50 extra Shopify calls per store per hour.
+  2. New `POST /v1/shopify/products/catch-up`, called when Manage opens: if Shopify's live product
+     count is above our non-deleted rows, it queues a `reconcile`. Rate-limited per store in Redis
+     (one live-count check per 30s, cached; one reconcile queued per 30 min). The page shows an info
+     banner and polls the counts every 5s for up to ~3 minutes, then refreshes the lists.
+- **Finding on the dev store (`ai-vastra-store`):** it had **no product webhooks registered**
+  (REST `webhooks.json` returned an empty list), and ngrok saw no webhook deliveries during the CSV
+  import, so its products only arrived via the manual Sync. The registration reconciler is
+  deliberately skipped when `NODE_ENV=development` (commit 9fb5dfbe: local stores may carry
+  production-encrypted tokens), so nothing repairs that locally. Not changed here; the catch-up above
+  covers the merchant-facing effect. To fix the dev store itself, register the topics in
+  `buildWebhookTopicMap` against the ngrok URL, or run the reconciler once by hand.
+
 ## 2026-09-25 — Onboarding gains contact (page 3) and shopper-limits (page 4) pages; theme becomes page 5
 
 - **Change:** new `/onboarding/contact` page between baskets and the theme embed: "Emergency contact

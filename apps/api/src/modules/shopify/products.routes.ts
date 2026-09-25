@@ -10,7 +10,7 @@ import { type BulkBody, BulkBodySchema, bulkUpdateProducts } from './products.bu
 import { loadProductFacets } from './products.facets.js';
 import { buildProductFilter, ProductListQuerySchema } from './products.filter.js';
 import { assertShopifyCdn } from './products.sync.js';
-import { numericIdFromGid, shopifyGraphQL, toGid } from './service.js';
+import { enqueueSync, numericIdFromGid, shopifyGraphQL, toGid } from './service.js';
 import { getValidAccessToken } from './token.js';
 
 const PatchProductBody = z
@@ -147,6 +147,34 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
     async (req) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
       return bulkUpdateProducts(app, store, req.body as BulkBody);
+    },
+  );
+
+  // Re-runs the single-product sync for every product that failed to sync. Each
+  // task re-reads the product from Shopify, so a product whose image was added
+  // or replaced since the failure picks up the new one, not the stale URL. The
+  // hourly reconcile only discovers *new* products and never revisits a failed
+  // one, so without this a single dropped download stays failed until the
+  // merchant edits the product. Capped like the failed list the modal shows.
+  app.post(
+    '/v1/shopify/products/retry-failed',
+    { preHandler: app.requireShopifySession },
+    async (req, reply) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      const failed = await app.db
+        .select({ shopifyProductId: schema.shopifyProductGarments.shopifyProductId })
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, store.id),
+            eq(schema.shopifyProductGarments.status, 'failed'),
+          ),
+        )
+        .limit(100);
+      for (const { shopifyProductId } of failed) {
+        await enqueueSync(app.redis, { storeId: store.id, mode: 'product', shopifyProductId });
+      }
+      return reply.code(202).send({ queued: failed.length });
     },
   );
 

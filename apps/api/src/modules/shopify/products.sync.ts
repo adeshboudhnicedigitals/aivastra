@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, eq, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, notInArray, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
@@ -36,6 +36,14 @@ type FetchLike = (url: string, init?: RequestInit) => Promise<FetchLikeResponse>
 
 const ALLOWED_HOSTS = /(^|\.)(myshopify\.com|shopify\.com|cdn\.shopify\.com)$/;
 const FETCH_TIMEOUT_MS = 10_000;
+// One retry, not a loop: a dropped connection or a CDN 5xx/429 is usually gone a
+// moment later, while anything longer would stall the sync consumer (which runs
+// products one at a time) for a product that is genuinely broken.
+const DOWNLOAD_ATTEMPTS = 2;
+const DOWNLOAD_RETRY_DELAY_MS = 500;
+// How many failed products one reconcile pass gives a second chance (see the
+// 'reconcile' branch of syncOneTask).
+const FAILED_RETRY_PER_RECONCILE = 50;
 
 // Shopify product-level garment rows (no specific variant) are stored with this
 // sentinel instead of NULL. Postgres UNIQUE constraints treat every NULL as distinct
@@ -258,6 +266,42 @@ async function reconcileDeletedProducts(
     );
 }
 
+/** Downloads a product image, retrying once on failures that are likely to be
+ *  momentary: a thrown network error/timeout, or an HTTP 429/5xx. A 4xx (gone,
+ *  forbidden) is final, so it is not retried. */
+async function downloadWithRetry(src: string, fetchFn: FetchLike): Promise<FetchLikeResponse> {
+  for (let attempt = 1; ; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let res: FetchLikeResponse;
+    try {
+      res = await fetchFn(src, { redirect: 'error', signal: controller.signal });
+    } catch (err) {
+      if (attempt >= DOWNLOAD_ATTEMPTS) throw err;
+      await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
+      continue;
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (res.ok) return res;
+    const status = res.status ?? 0;
+    if (attempt < DOWNLOAD_ATTEMPTS && (status === 429 || status >= 500)) {
+      await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
+      continue;
+    }
+    throw new Error(`download HTTP ${res.status}`);
+  }
+}
+
+/** Node's fetch reports every network-level failure as the bare message
+ *  "fetch failed", with the real reason (ETIMEDOUT, ENOTFOUND, an unexpected
+ *  redirect…) on `cause` — surface it so a failed row says why. */
+function describeError(err: unknown): string {
+  const e = err as Error & { cause?: { code?: string; message?: string } };
+  const detail = e.cause?.code ?? e.cause?.message;
+  return detail ? `${e.message} (${detail})` : e.message;
+}
+
 export async function syncProduct(
   app: FastifyInstance,
   storeId: string,
@@ -290,15 +334,7 @@ export async function syncProduct(
   }
   try {
     assertShopifyCdn(src);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let res: FetchLikeResponse;
-    try {
-      res = await fetchFn(src, { redirect: 'error', signal: controller.signal });
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (!res.ok) throw new Error(`download HTTP ${res.status}`);
+    const res = await downloadWithRetry(src, fetchFn);
     const maxSyncBytes = await getUploadLimitBytes(app, 'shopifyProductSyncMaxBytes');
     const contentLength = res.headers.get('content-length');
     if (contentLength && parseInt(contentLength, 10) > maxSyncBytes) {
@@ -338,7 +374,7 @@ export async function syncProduct(
       vendor,
       collections,
       category,
-      (err as Error).message,
+      describeError(err),
     );
   }
 }
@@ -580,6 +616,36 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
     }
 
     await reconcileDeletedProducts(app, store.id, liveProductIds);
+
+    // Second chance for products that failed to sync. Nothing else revisits a
+    // failed row: this pass only fetches ids it has never seen, and a product
+    // task only comes from a webhook. So a product whose image had not attached
+    // yet when it was created (a CSV import fetches images after the product
+    // exists), whose products/update delivery was dropped, or whose download hit
+    // a momentary error, would stay failed until the merchant edited it. Runs
+    // after the deletion pass so a failed product that is really gone is marked
+    // deleted rather than re-fetched, and skips ids just tried above. Newest
+    // first, capped: a store with hundreds of genuinely image-less products
+    // costs at most this many Shopify calls an hour, and a fresh import is
+    // what should be retried first.
+    const failedRows = await app.db
+      .select({ id: schema.shopifyProductGarments.shopifyProductId })
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, store.id),
+          eq(schema.shopifyProductGarments.status, 'failed'),
+          newProductIds.length > 0
+            ? notInArray(schema.shopifyProductGarments.shopifyProductId, newProductIds)
+            : sql`true`,
+        ),
+      )
+      .orderBy(desc(schema.shopifyProductGarments.shopifyProductId))
+      .limit(FAILED_RETRY_PER_RECONCILE);
+    for (const { id } of failedRows) {
+      await fetchAndSyncOneProduct(id);
+      await new Promise((r) => setTimeout(r, 300)); // throttle, same cadence as the new-product loop above
+    }
     return;
   }
 

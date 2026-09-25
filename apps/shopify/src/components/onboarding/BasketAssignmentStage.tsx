@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../lib/api';
 import { type ClassifiedError, classifyError } from '../../lib/errors';
 import { CLEARED_FILTER, filterToBody, filterToParams } from '../../lib/products';
-import type { ShopifyMe, ShopifyProductsResponse } from '../../types';
+import type { ShopifyProductsResponse } from '../../types';
 import { ErrorBanner } from '../ErrorBanner';
 import { BasketTiles } from './BasketTiles';
 
@@ -26,16 +26,37 @@ interface Basket {
 }
 
 /**
- * Stage 2: the products the merchant just enabled, each with a basket. "Apply to
- * all" pins one basket to every listed product; each row's own dropdown changes
- * just that product and saves immediately.
+ * The enabled products, each with a basket. "Apply to all" pins one basket to
+ * every listed product; each row's own dropdown changes just that product and
+ * saves immediately. Used by onboarding's step 2 and by Manage → Routing, so it
+ * takes plain values rather than the `/me` payload the wizard holds.
  */
 export function BasketAssignmentStage({
-  me,
-  onRefresh,
+  globalMode,
+  reloadKey,
+  unrouted,
+  onChanged,
+  bulk = true,
 }: {
-  me: ShopifyMe;
-  onRefresh: () => Promise<void>;
+  /** Global activation mode: every non-excluded product counts as enabled. */
+  globalMode: boolean;
+  /**
+   * Reload cue: reloads the list whenever it changes. Products can be enabled or
+   * disabled elsewhere while this is on screen, so the caller passes something
+   * that moves only then (onboarding uses the enabled total — pinning a basket
+   * shifts products between routed and unrouted but never changes the sum).
+   */
+  reloadKey: number;
+  /** Enabled products still without a basket, for the intro line. */
+  unrouted: number;
+  /** Called after any basket change, so the caller can refresh what it shows. */
+  onChanged: () => Promise<void> | void;
+  /**
+   * Show the tiles and "Apply to all" above the list. Off leaves just the
+   * per-product list, for a live store where one click overwriting every pinned
+   * basket is more risk than it is worth.
+   */
+  bulk?: boolean;
 }) {
   const [baskets, setBaskets] = useState<Basket[]>([]);
   const [chosen, setChosen] = useState('');
@@ -47,13 +68,12 @@ export function BasketAssignmentStage({
   const [busyRow, setBusyRow] = useState<number | null>(null);
 
   // In global mode every non-excluded product is enabled without its own
-  // `enabled` flag (a legacy store mid-wizard), so filtering on it would show an
-  // empty list. Otherwise stage 1 set `enabled` on exactly the products to list.
+  // `enabled` flag, so filtering on it would show an empty list. Otherwise list
+  // the products whose `enabled` flag is set.
   // No status filter: unroutedEnabledCount counts enabled products of every
   // status, so a failed or processing one left out of this list could never be
   // given a basket and would keep Continue disabled forever. Pinning a basket
   // ignores status, so listing them is harmless.
-  const globalMode = me.store.settings.activation?.mode === 'global';
   const listFilter = useMemo(
     () => ({
       ...CLEARED_FILTER,
@@ -78,14 +98,10 @@ export function BasketAssignmentStage({
     }
   }, [page, listFilter]);
 
-  // Products can be added or removed in step 1 while this list is on screen. The
-  // enabled total (routed + unrouted) moves only then — pinning a basket shifts
-  // products between the two but never changes the sum — so it is the reload cue.
-  const enabledTotal = me.stats.enabledProductCount + (me.stats.unroutedEnabledCount ?? 0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: enabledTotal is a reload trigger, not read
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey is a reload trigger, not read
   useEffect(() => {
     void load();
-  }, [load, enabledTotal]);
+  }, [load, reloadKey]);
 
   useEffect(() => {
     apiFetch<{ items: Basket[] }>('/v1/shopify/baskets')
@@ -95,7 +111,6 @@ export function BasketAssignmentStage({
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
-  const unrouted = me.stats.unroutedEnabledCount ?? 0;
   const basketOptions = [
     { label: 'Choose a basket', value: '', disabled: true },
     ...baskets.map((b) => ({ label: b.label, value: b.id })),
@@ -113,7 +128,7 @@ export function BasketAssignmentStage({
           funnelTemplateId: chosen,
         }),
       });
-      await Promise.all([load(), onRefresh()]);
+      await Promise.all([load(), onChanged()]);
     } catch (err) {
       setError(classifyError(err));
     } finally {
@@ -129,7 +144,7 @@ export function BasketAssignmentStage({
         method: 'PATCH',
         body: JSON.stringify({ funnelTemplateId: basketId }),
       });
-      await Promise.all([load(), onRefresh()]);
+      await Promise.all([load(), onChanged()]);
     } catch (err) {
       setError(classifyError(err));
     } finally {
@@ -142,20 +157,30 @@ export function BasketAssignmentStage({
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <BlockStack gap="200">
         <Text as="p">
-          A basket decides which try-on experience a product uses. Pick one for everything, then
-          change individual products below if they need a different one.
+          {bulk
+            ? 'A basket decides which try-on experience a product uses. Pick one for everything, then change individual products below if they need a different one.'
+            : 'A basket decides which try-on experience a product uses. Choose one for each product below.'}
           {unrouted > 0 &&
             ` ${unrouted} product${unrouted === 1 ? ' still needs' : 's still need'} a basket.`}
         </Text>
-        <BasketTiles baskets={baskets} value={chosen} disabled={applying} onChange={setChosen} />
-        <div style={{ textAlign: 'center' }}>
-          <Button onClick={applyToAll} loading={applying} disabled={!chosen || total === 0}>
-            {`Apply to all ${total} product${total === 1 ? '' : 's'}`}
-          </Button>
-        </div>
-        <Text as="p" tone="subdued" variant="bodySm">
-          This replaces any basket these products already have.
-        </Text>
+        {bulk && (
+          <>
+            <BasketTiles
+              baskets={baskets}
+              value={chosen}
+              disabled={applying}
+              onChange={setChosen}
+            />
+            <div style={{ textAlign: 'center' }}>
+              <Button onClick={applyToAll} loading={applying} disabled={!chosen || total === 0}>
+                {`Apply to all ${total} product${total === 1 ? '' : 's'}`}
+              </Button>
+            </div>
+            <Text as="p" tone="subdued" variant="bodySm">
+              This replaces any basket these products already have.
+            </Text>
+          </>
+        )}
       </BlockStack>
       <IndexTable
         selectable={false}

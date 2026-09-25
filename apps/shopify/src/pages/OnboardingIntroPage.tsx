@@ -22,7 +22,7 @@ export default function OnboardingIntroPage({ me }: { me: ShopifyMe }) {
             out at 28px, short of the size wanted here. 700 is the heaviest
             weight Roboto Mono ships. */}
         <h1 style={{ margin: 0, fontSize: 36, lineHeight: 1.15, fontWeight: 700 }}>
-          Welcome to Ai Vastra
+          Welcome to AI Vastra
         </h1>
         <p
           style={{

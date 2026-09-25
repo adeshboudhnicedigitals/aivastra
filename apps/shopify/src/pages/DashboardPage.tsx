@@ -184,8 +184,7 @@ export default function DashboardPage() {
   }, [me, refreshMe]);
 
   // Opens the theme editor's App embeds panel with our embed switched on. The
-  // merchant still has to press Save there; the Dashboard banner and the
-  // "Customize the button" card both use it.
+  // merchant still has to press Save there; only the Dashboard banner uses it.
   async function openThemeEditor() {
     if (openingEditor) return;
     setOpeningEditor(true);
@@ -271,23 +270,6 @@ export default function DashboardPage() {
         <BalanceCard me={me} />
 
         <PackGrid onError={setError} />
-
-        <Card>
-          <BlockStack gap="200">
-            <Text as="h2" variant="headingMd">
-              Customize the button
-            </Text>
-            <Text as="p" tone="subdued">
-              Change the button's text, colors, promo message, or position in the theme editor,
-              under App embeds → Try It On — that's where its settings live.
-            </Text>
-            <InlineStack align="end">
-              <Button onClick={openThemeEditor} loading={openingEditor}>
-                Open theme editor
-              </Button>
-            </InlineStack>
-          </BlockStack>
-        </Card>
 
         <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
           <Card>
