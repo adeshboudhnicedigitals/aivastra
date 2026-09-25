@@ -22,6 +22,7 @@ export interface ShopifyActivationSettings {
 export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
+  themeEmbedConfirmed?: boolean;
   onboardingRoutingConfirmed?: boolean;
   onboardingCompletedOnce?: boolean;
   emailBonusClaimed?: boolean;
@@ -71,6 +72,9 @@ export interface ShopifyStats {
   totalTryOns: number;
   syncedProductCount: number;
   enabledProductCount: number;
+  // Enabled products that still resolve to no basket. Null when the API skipped
+  // the routing scan for a very large catalogue.
+  unroutedEnabledCount: number | null;
   statusCounts: { active: number; processing: number; failed: number; disabled: number };
   todayTryOns: number;
   storeDailyCap: number | null;
@@ -81,6 +85,8 @@ export interface ShopifyMe {
   store: {
     shopDomain: string;
     shopEmail: string | null;
+    shopOwnerName: string | null;
+    shopPhone: string | null;
     settings: ShopifyStoreSettings;
     connectedSince: string;
   };
@@ -108,7 +114,7 @@ export interface ShopifyOnboardingConfirmResponse {
   settings: ShopifyStoreSettings;
 }
 
-export interface ShopifyEmailBonusClaimResponse {
+export interface ShopifyWelcomeCreditsResponse {
   creditsGranted: number;
   creditBalance: number;
   settings: ShopifyStoreSettings;
@@ -131,6 +137,37 @@ export interface ShopifyProductListItem {
   // still clearable via "Reset to automatic" even though it's invisible in
   // `basket` itself.
   pinnedBasketId: string | null;
+  productType: string | null;
+  vendor: string | null;
+  tags: string[] | null;
+  collections: string[] | null;
+  category: string | null;
+}
+
+export interface ShopifyProductsResponse {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: ShopifyProductListItem[];
+}
+
+export interface FacetList {
+  values: string[];
+  // True when the API cut the list off at its cap — the UI then leans on search.
+  truncated: boolean;
+}
+
+export interface ShopifyProductFacets {
+  productTypes: FacetList;
+  vendors: FacetList;
+  tags: FacetList;
+  collections: FacetList;
+  categories: FacetList;
+}
+
+export interface ShopifyBulkResult {
+  updated: number;
+  skipped: { notActive: number; excluded: number };
 }
 
 export interface ShopifyProductImage {

@@ -1,28 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { and, count, eq, ilike, ne } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { type BasketMatchTarget, loadRuleSet, resolveBasketFrom } from './funnel-resolution.js';
+import { type BulkBody, BulkBodySchema, bulkUpdateProducts } from './products.bulk.js';
+import { loadProductFacets } from './products.facets.js';
+import { buildProductFilter, ProductListQuerySchema } from './products.filter.js';
 import { assertShopifyCdn } from './products.sync.js';
 import { numericIdFromGid, shopifyGraphQL, toGid } from './service.js';
 import { getValidAccessToken } from './token.js';
-
-const queryBoolean = z
-  .enum(['true', 'false'])
-  .optional()
-  .transform((v) => (v === undefined ? undefined : v === 'true'));
-
-const ProductsQuery = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  enabled: queryBoolean,
-  excluded: queryBoolean,
-  status: z.enum(['active', 'processing', 'failed', 'deleted']).optional(),
-  q: z.string().optional(),
-});
 
 const PatchProductBody = z
   .object({
@@ -79,25 +68,12 @@ export async function fetchLiveProductImages(
 export async function shopifyProductsRoutes(app: FastifyInstance) {
   app.get(
     '/v1/shopify/products',
-    { preHandler: app.requireShopifySession, schema: { querystring: ProductsQuery } },
+    { preHandler: app.requireShopifySession, schema: { querystring: ProductListQuerySchema } },
     async (req) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-      const { page, pageSize, enabled, excluded, status, q } = req.query as z.infer<
-        typeof ProductsQuery
-      >;
+      const { page, pageSize, ...filter } = req.query as z.infer<typeof ProductListQuerySchema>;
 
-      const conditions = [eq(schema.shopifyProductGarments.storeId, store.id)];
-      conditions.push(
-        status
-          ? eq(schema.shopifyProductGarments.status, status)
-          : ne(schema.shopifyProductGarments.status, 'deleted'),
-      );
-      if (enabled !== undefined)
-        conditions.push(eq(schema.shopifyProductGarments.enabled, enabled));
-      if (excluded !== undefined)
-        conditions.push(eq(schema.shopifyProductGarments.excluded, excluded));
-      if (q) conditions.push(ilike(schema.shopifyProductGarments.title, `%${q}%`));
-      const where = and(...conditions);
+      const where = buildProductFilter(store.id, filter);
 
       const [{ total }] = await app.db
         .select({ total: count() })
@@ -117,6 +93,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
           tags: schema.shopifyProductGarments.tags,
           vendor: schema.shopifyProductGarments.vendor,
           collections: schema.shopifyProductGarments.collections,
+          category: schema.shopifyProductGarments.category,
         })
         .from(schema.shopifyProductGarments)
         .where(where)
@@ -138,6 +115,11 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
             status: r.status,
             enabled: r.enabled,
             excluded: r.excluded,
+            productType: r.productType,
+            vendor: r.vendor,
+            tags: r.tags,
+            collections: r.collections,
+            category: r.category,
             basket: basket && { id: basket.basketId, label: basket.label, source: basket.source },
             // The raw pin on this row, independent of whether it's currently being
             // honored. Lets the client distinguish "no pin" from "pin exists but its
@@ -149,6 +131,22 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
       );
 
       return { page, pageSize, total, items };
+    },
+  );
+
+  app.get('/v1/shopify/products/facets', { preHandler: app.requireShopifySession }, async (req) => {
+    const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+    return loadProductFacets(app, store.id);
+  });
+
+  // Registered before the `:id` routes; `bulk` is a literal segment, so it can
+  // never be read as a product id (and this is a POST while `:id` is PATCH/GET).
+  app.post(
+    '/v1/shopify/products/bulk',
+    { preHandler: app.requireShopifySession, schema: { body: BulkBodySchema } },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      return bulkUpdateProducts(app, store, req.body as BulkBody);
     },
   );
 

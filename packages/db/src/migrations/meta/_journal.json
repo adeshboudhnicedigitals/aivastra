@@ -1436,6 +1436,20 @@
       "when": 1790141854037,
       "tag": "0204_silly_psylocke",
       "breakpoints": true
+    },
+    {
+      "idx": 205,
+      "version": "7",
+      "when": 1790279072241,
+      "tag": "0205_big_monster_badoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1790302144547,
+      "tag": "0206_overconfident_nightmare",
+      "breakpoints": true
     }
   ]
 }

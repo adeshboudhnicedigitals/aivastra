@@ -2,6 +2,106 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-25 — Onboarding gains contact (page 3) and shopper-limits (page 4) pages; theme becomes page 5
+
+- **Change:** new `/onboarding/contact` page between baskets and the theme embed: "Emergency contact
+  details" with Your name (required), Your email address (required), Phone number (optional), all
+  prefilled; no skip (Continue waits for valid name + email). `POST /v1/shopify/onboarding/contact` writes the existing
+  `shopify_stores` columns `shop_owner_name`, `shop_email`, `shop_phone` (no migration), so the
+  admin store list, the low-credit alert emails and GDPR redaction keep reading one place. `/me`
+  now returns `shopOwnerName` and `shopPhone` for the prefill. Page 2's Continue goes to contact;
+  contact's Continue goes to `/onboarding/limits`.
+- **Shopper limits (page 4, `/onboarding/limits`):** the Per-shopper limit (+ "Resets every") and
+  Ask-for-an-email cards from Settings → Limits, shared via `ShopperLimitCards` / `lib/limits.ts` so
+  the two places cannot drift; Settings keeps them (and the Store daily limit, which is not on
+  this page). Continue PATCHes only those three keys (the API merges `limits`) and writes nothing if
+  they are unchanged; all default to off. Contact's Continue → limits → theme.
+- **Welcome credits are automatic.** No claim tile, popup or email step any more: the Dashboard calls
+  `POST /v1/shopify/onboarding/welcome-credits` on arrival when `emailBonusClaimed` isn't set, and
+  shows a "N free credits added" toast. Idempotent (flag + ledger `external_ref`
+  `shopify_email_bonus:{storeId}`, tested under two concurrent arrivals); the amount is the
+  admin-configured `shopify.trialCredits` (default 25). Removed `claim-email-bonus`,
+  `EmailBonusModal`, `CreditsSection` and the Dashboard's free-credits tile. **Side effect:** any
+  existing store that never claimed gets the credits the next time it opens the Dashboard, whether or
+  not it skipped the contact step. Contact details saving is now independent of credits.
+- **Not a gate in the wizard's derived step:** nothing on this page is stored as a flag, and the derived step (`getOnboardingStep`) is unchanged
+  (`canShowPostBasketPage` = step `theme` or finished, shared by contact and limits).
+- **Progress bar is now per page** (`getOnboardingProgress(me, page)`): page N of 5 reads N/6
+  (17, 33→46 within page 2 as products are picked / baskets assigned, 50, 67, 83) and only reaches
+  100% once the app embed is confirmed. Previously it was a three-milestone formula that could not
+  tell the contact and limits pages apart.
+- **Caveat:** a reinstall re-reads Shopify's owner name/email/phone over the merchant's entry.
+- **Reverted mid-session:** a first attempt moved the credit packs + free-credits tile onto a
+  page 3 and off the Dashboard; that was a misreading and was undone. `CreditsSection` (packs +
+  free tile + popup) is now the Dashboard's component, behaving as before.
+
+## 2026-09-25 — Try-on button: app block → app embed (onboarding page 3)
+
+- **Change:** the theme extension's `tryon-button.liquid` is now `target: "body"` (app embed)
+  instead of `target: "section"`. `tryon-widget.js` re-gains `placeWidget`: it inserts the
+  button into the product form directly above the buy buttons (`.product-form__buttons`,
+  `[data-shopify="payment-button"]`, `button[name="add"]`, …), waits up to 3s via a
+  `MutationObserver` for JS-rendered forms, honours a new optional `placement_selector`
+  setting (text, no default — Shopify rejects `"default": ""`), and otherwise adds
+  `.aivastra-tryon--floating` (fixed bottom-left). `buildThemeEditorDeepLink` now returns
+  `?context=apps&template=product&activateAppId={key}/tryon-button`. Page 3 is "Enable the Try It On
+  app embed" with an "Enable app embed" button. New setting `themeEmbedConfirmed` (no migration);
+  stores with `themeBlockConfirmed` but not `themeEmbedConfirmed` get a Dashboard banner
+  (`needsEmbedEnable`).
+- **No manual "I've added it" button.** `POST /v1/shopify/onboarding/confirm-theme-block` is
+  removed (now 404). Instead the widget's first request on a live product page —
+  `GET …/customer/products/:id/enabled` — calls `markThemeEmbedSeen`, which sets both flags. Only
+  Shopify-signed App Proxy requests count (the legacy `X-Widget-Key` is public in the page HTML), and
+  the widget adds `dm=1` in the theme editor / unpublished themes (`Shopify.designMode`,
+  `Shopify.theme.role !== 'main'`) so a toggled-but-unsaved embed isn't counted. Page 3 polls `/me`
+  every 5s and on tab focus. **Trap:** detection needs one real product-page view; a merchant whose
+  storefront is password-protected, or who never opens a product page, stays on page 3 with Continue
+  disabled and no override.
+- **Decision reversed:** 2026-07-31 moved embed → block because guessed selectors broke on
+  theme switches. Chosen again for one-toggle setup and vintage-theme support; CLAUDE.md updated.
+- **Must do before this reaches merchants:** `make shopify-deploy` publishes the extension (CI never
+  does), and existing merchants keep the old block until they enable the embed — placed blocks
+  no longer exist in the extension after deploy, so their button disappears until then.
+  Verify the deep link and placement on a dev store; neither has been run against a real theme.
+
+## 2026-09-25 — Basket description + image (admin-authored, shown to merchants)
+
+- **Change:** each basket (`shopify_funnel_templates`) can carry a short description and an
+  image. Migration `0206` adds nullable `description` and `image_key`; applied to local
+  `tryon_dev` only, ships via CI → `db:migrate:prod`. Admin: image presign route
+  (`POST /admin/shopify/funnel-templates/image/presign`), `description`/`imageKey` on create and
+  patch, and an upload + textarea in the Funnels page drawers. `imageKey` must match
+  `shopify/baskets/<uuid>.jpg` and the object must exist (else 400); the old file is deleted
+  after a replace/clear and on basket delete. Merchant: `GET /v1/shopify/baskets` returns
+  `description` and a 1h signed `imageUrl` (never the key); onboarding step 2 shows the chosen
+  "Apply to all" basket's image and text.
+- **Not done:** merchant Routing page does not show the image yet (decide later). Not looked at in
+  a browser. `packages/storage` must be rebuilt (`dist/` is git-ignored) for the new key builder.
+
+## 2026-09-25 — Shopify onboarding: pick products, then baskets
+
+- **Change:** onboarding page 2 is now two stages (spec:
+  `docs/superpowers/specs/2026-09-25-shopify-onboarding-product-basket-design.md`).
+  1. New product filters on `GET /v1/shopify/products` (type, vendor, tag, collection,
+     category, status, title search with literal `%`/`_`), a facets endpoint, and a
+     transactional `POST /v1/shopify/products/bulk` (enable and/or pin, by ids or by
+     filter + `excludeIds`, store-scoped, 404 on an inactive basket).
+  2. New nullable `shopify_product_garments.category` (Shopify taxonomy `fullName`),
+     filled by the product sync. **Migration `0205_big_monster_badoon.sql` is generated
+     locally and ships via CI → `db:migrate:prod`; existing stores get categories only
+     after their next sync.**
+  3. `/me` returns `stats.unroutedEnabledCount`. The SPA derives wizard progress from it
+     (no new flag): Intro → Page 2 (pick, then baskets) → Theme, progress 25/50/75/100%.
+  4. The Routing onboarding page is removed; `/onboarding/routing` redirects to page 2.
+     `confirm-routing` and `onboardingRoutingConfirmed` are left in place, unused.
+- **Behaviour change:** the wizard's sync no longer switches the store to global mode.
+- **Not done:** assigning baskets by filter group, a Back control between the stages,
+  removing the unused `confirm-routing` route/flag, backfilling categories for existing
+  stores without waiting for a re-sync. The `category { fullName }` GraphQL field has not
+  been exercised against a live Shopify store (needs a dev-store sync to confirm).
+- **Open question:** none blocking. The page-2 layout has only been checked by typecheck
+  and build; it needs a browser pass inside the Shopify admin iframe (dev store).
+
 ## 2026-09-21 — /results grid thumbnails (stored output thumb + on-demand input thumbs)
 
 - **Change:** the `/results` webtool grid was loading full-res objects for every

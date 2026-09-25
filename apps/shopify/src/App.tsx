@@ -17,9 +17,10 @@ import AutorefillCallbackPage from './pages/AutorefillCallbackPage';
 import BillingCallbackPage from './pages/BillingCallbackPage';
 import DashboardPage from './pages/DashboardPage';
 import ManagePage from './pages/ManagePage';
+import OnboardingContactPage from './pages/OnboardingContactPage';
 import OnboardingIntroPage from './pages/OnboardingIntroPage';
+import OnboardingLimitsPage from './pages/OnboardingLimitsPage';
 import OnboardingProductsPage from './pages/OnboardingProductsPage';
-import OnboardingRoutingPage from './pages/OnboardingRoutingPage';
 import OnboardingThemePage from './pages/OnboardingThemePage';
 import PricingPage from './pages/PricingPage';
 import SettingsPage from './pages/SettingsPage';
@@ -32,6 +33,7 @@ import type { ShopifyMe, ShopifyOnboardingConfirmResponse } from './types';
 // background reconciler for one-time purchases (see its own header comment),
 // so a swallowed error here means a charged merchant never finds out.
 const GATE_EXEMPT_PATHS = ['/billing/callback', '/billing/autorefill-callback'];
+const THEME_PAGE_PATH = onboardingPath('theme');
 
 export default function App() {
   const [loading, setLoading] = useState(true);
@@ -70,7 +72,7 @@ export default function App() {
 
   // Onboarding pages call this (via the `onRefresh` prop passed to their
   // routes below) after an action that changes onboarding progress (sync,
-  // confirm-routing, confirm-theme-block), before navigating to the next
+  // product/basket changes, confirm-theme-block), before navigating to the next
   // step. Keeping exactly one `me` here — rather than letting each
   // onboarding page independently re-fetch its own copy — is what keeps the
   // gate effect below and each page's own step-order check from disagreeing
@@ -98,24 +100,28 @@ export default function App() {
     const onOnboardingRoute = location.pathname.startsWith('/onboarding');
     const exempt = onOnboardingRoute || GATE_EXEMPT_PATHS.includes(location.pathname);
     // The hard gate (redirect + hidden nav) only applies until a store
-    // finishes onboarding for the very first time. `productsDone` inside
-    // getOnboardingStep is re-derived live (see lib/onboarding.ts) — a store
-    // that later disables every product would otherwise be yanked back into
-    // a locked wizard with no way out. onboardingCompletedOnce latches
+    // finishes onboarding for the very first time. getOnboardingStep is
+    // derived live from /me (isSelectionDone/isBasketsDone in
+    // lib/onboarding.ts) — a store that later disables every product, or adds
+    // one with no basket, would otherwise be yanked back into a locked wizard
+    // with no way out. onboardingCompletedOnce latches
     // permanently once true, so a later regression is surfaced as a normal
     // Dashboard banner instead (see DashboardPage.tsx), not a re-triggered
     // gate.
     const neverCompletedOnboarding = !(me.store.settings.onboardingCompletedOnce ?? false);
     if (step !== null && neverCompletedOnboarding && !exempt) {
       navigate(onboardingPath(step), { replace: true });
-    } else if (step === null && onOnboardingRoute) {
+    } else if (step === null && onOnboardingRoute && location.pathname !== THEME_PAGE_PATH) {
+      // Not the theme page: detecting the embed is what finishes onboarding, and
+      // the merchant is meant to see that and press Continue rather than be
+      // moved on the moment it happens. Its Continue button navigates itself.
       navigate('/', { replace: true });
     }
   }, [me, location.pathname, navigate]);
 
   // Marks the store as having finished onboarding at least once. Fire-and-
-  // forget and idempotent (same pattern as confirm-theme-block/confirm-
-  // routing elsewhere in this codebase) — a lost request just means this
+  // forget and idempotent (same pattern as confirm-theme-block elsewhere in
+  // this codebase) — a lost request just means this
   // fires again on the next render where step is still null, which keeps
   // happening until it succeeds.
   useEffect(() => {
@@ -206,9 +212,19 @@ export default function App() {
             path="/onboarding/products"
             element={<OnboardingProductsPage me={me} onRefresh={refreshMe} />}
           />
+          {/* Old wizard step, removed when basket choice moved into page 2 —
+              merchants may have it bookmarked. */}
           <Route
             path="/onboarding/routing"
-            element={<OnboardingRoutingPage me={me} onRefresh={refreshMe} />}
+            element={<Navigate to="/onboarding/products" replace />}
+          />
+          <Route
+            path="/onboarding/contact"
+            element={<OnboardingContactPage me={me} onRefresh={refreshMe} />}
+          />
+          <Route
+            path="/onboarding/limits"
+            element={<OnboardingLimitsPage me={me} onRefresh={refreshMe} />}
           />
           <Route
             path="/onboarding/theme"

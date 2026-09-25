@@ -95,6 +95,14 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
       !unroutedCounts || unroutedCounts.countsOmitted
         ? rawEnabledProductCount
         : rawEnabledProductCount - (unroutedCounts.unroutedEnabled ?? 0);
+    // How many enabled products still resolve to no basket. Null when the routing
+    // scan was skipped for a catalogue over COUNTS_PRODUCT_CAP (the client then
+    // treats it as zero); zero when nothing is enabled, so there was nothing to scan.
+    const unroutedEnabledCount = !unroutedCounts
+      ? 0
+      : unroutedCounts.countsOmitted
+        ? null
+        : (unroutedCounts.unroutedEnabled ?? 0);
 
     const [{ activeCount, processingCount, failedCount, disabledCount }] = await app.db
       .select({
@@ -156,6 +164,8 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         // Prefills the email-bonus popup — auto-captured from `shop.email` at
         // install, so it's usually already correct and just needs confirming.
         shopEmail: store.shopEmail,
+        shopOwnerName: store.shopOwnerName,
+        shopPhone: store.shopPhone,
         settings: store.settings,
         connectedSince: store.installedAt.toISOString(),
       },
@@ -185,6 +195,7 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         totalTryOns,
         syncedProductCount,
         enabledProductCount,
+        unroutedEnabledCount,
         statusCounts: {
           active: activeCount,
           processing: processingCount,

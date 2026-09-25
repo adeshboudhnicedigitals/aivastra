@@ -12,16 +12,15 @@ import {
   Text,
   Toast,
 } from '@shopify/polaris';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BalanceCard } from '../components/BalanceCard';
-import { EmailBonusModal } from '../components/EmailBonusModal';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { PackGrid } from '../components/PackGrid';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import { getOnboardingStep } from '../lib/onboarding';
-import type { ShopifyMe, ShopifyStats } from '../types';
+import { isTryOnOff, needsEmbedEnable, unroutedWarningCount } from '../lib/onboarding';
+import type { ShopifyMe, ShopifyStats, ShopifyWelcomeCreditsResponse } from '../types';
 
 // Uses useNavigate() directly rather than accepting navigate as a prop: both
 // call sites (Dashboard, Pricing) render this from within the SPA's router
@@ -137,11 +136,6 @@ export default function DashboardPage() {
   const [error, setError] = useState<ClassifiedError | null>(null);
   const [loading, setLoading] = useState(true);
   const [openingEditor, setOpeningEditor] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  // Auto-opens on first load (see showEmailBonusModal below); "Maybe later"
-  // sets this false without touching emailBonusClaimed, so the persistent
-  // card further down stays as the way back in.
-  const [emailBonusModalOpen, setEmailBonusModalOpen] = useState(true);
   const navigate = useNavigate();
 
   const load = useCallback(() => {
@@ -156,11 +150,44 @@ export default function DashboardPage() {
     load();
   }, [load]);
 
-  // A merchant only ever reaches Dashboard once onboarding (sync/enable,
-  // routing, theme block) is fully done — see App.tsx's onboarding gate —
-  // so this button is the one remaining, purely optional follow-up: telling
-  // them where to go to restyle a block that's already in place.
+  // A re-read that does not flip `loading`, so the page stays up (and the toast
+  // below stays on screen) while the balance updates.
+  const refreshMe = useCallback(
+    () =>
+      apiFetch<ShopifyMe>('/v1/shopify/me')
+        .then(setMe)
+        .catch((err) => setError(classifyError(err))),
+    [],
+  );
+
+  // The welcome credits are granted the first time a store lands here — no claim
+  // button, no popup. The server checks `emailBonusClaimed` and is idempotent, so
+  // this is safe on a reload or a second tab; the ref just stops this mount asking
+  // twice. Best-effort: if it fails the next visit tries again.
+  const welcomeRequested = useRef(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  useEffect(() => {
+    if (!me || welcomeRequested.current || me.store.settings.emailBonusClaimed) return;
+    welcomeRequested.current = true;
+    apiFetch<ShopifyWelcomeCreditsResponse>('/v1/shopify/onboarding/welcome-credits', {
+      method: 'POST',
+    })
+      .then((res) => {
+        if (res.creditsGranted > 0) {
+          setToastMessage(
+            `${res.creditsGranted.toLocaleString()} free credits added to your balance!`,
+          );
+        }
+        return refreshMe();
+      })
+      .catch(() => {});
+  }, [me, refreshMe]);
+
+  // Opens the theme editor's App embeds panel with our embed switched on. The
+  // merchant still has to press Save there; the Dashboard banner and the
+  // "Customize the button" card both use it.
   async function openThemeEditor() {
+    if (openingEditor) return;
     setOpeningEditor(true);
     setError(null);
     try {
@@ -181,27 +208,38 @@ export default function DashboardPage() {
     );
   }
 
-  // routingConfirmed/themeBlockConfirmed are one-way latches that never flip
-  // back to false, so the only step that can ever regress here is
-  // 'products' (a merchant disabling every product after finishing
-  // onboarding once) — this is never null unless something has regressed,
-  // since a store that never completed onboarding at all cannot reach this
-  // page (see App.tsx's gate).
-  const onboardingStepNow = me ? getOnboardingStep(me) : null;
-  const emailBonusClaimed = me?.store.settings.emailBonusClaimed ?? false;
-  // The tile itself stays up until the store has bought a pack at least
-  // once — claiming the bonus only changes what the tile says, not whether
-  // it's there. The popup auto-open is still gated on the bonus itself,
-  // since re-showing it after it's claimed would have nothing left to offer.
-  const showFreeCreditsTile = me != null && !me.hasPurchasedPack;
-  const showEmailBonusModal = me != null && !emailBonusClaimed && emailBonusModalOpen;
-
+  // Keyed off live product data, not getOnboardingStep: the onboarding step is
+  // now derived from whether every enabled product has a basket, so a finished
+  // store with hundreds of live products would read "not done" the moment one
+  // new product (e.g. one no global rule matches) lands without a basket. The
+  // "off" banner is for the true condition — nothing enabled resolves to a
+  // basket — and the partial case gets its own, milder warning below.
+  const tryOnOff = me != null && isTryOnOff(me);
+  const unroutedCount = me ? unroutedWarningCount(me) : 0;
+  const embedNeeded = me != null && needsEmbedEnable(me);
   return (
     <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
       <BlockStack gap="400">
         <ErrorBanner error={error} onRetry={load} />
 
-        {onboardingStepNow !== null && (
+        {embedNeeded && (
+          <Banner
+            tone="warning"
+            title="Turn on the Try It On app embed"
+            action={{
+              content: 'Enable app embed',
+              onAction: openThemeEditor,
+            }}
+          >
+            <Text as="p">
+              The try-on button is now switched on with one toggle instead of being placed in your
+              theme, so shoppers won't see it until you enable the app embed and save. This message
+              goes away once we see the button on a product page of your store.
+            </Text>
+          </Banner>
+        )}
+
+        {tryOnOff && (
           <Banner
             tone="warning"
             title="Virtual try-on is currently off"
@@ -214,52 +252,25 @@ export default function DashboardPage() {
           </Banner>
         )}
 
+        {unroutedCount > 0 && (
+          <Banner
+            tone="warning"
+            title="Some products have no basket"
+            action={{ content: 'Go to Manage', onAction: () => navigate('/manage') }}
+          >
+            <Text as="p">
+              {unroutedCount === 1
+                ? "1 enabled product has no basket, so try-on can't run on it — assign one in Manage."
+                : `${unroutedCount} enabled products have no basket, so try-on can't run on them — assign one in Manage.`}
+            </Text>
+          </Banner>
+        )}
+
         {me && <LowCreditsBanner me={me} />}
 
         <BalanceCard me={me} />
 
-        <PackGrid
-          onError={setError}
-          leadingCard={
-            showFreeCreditsTile ? (
-              <Card>
-                <BlockStack gap="300">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text as="h2" variant="headingMd">
-                      Free
-                    </Text>
-                    <Badge tone="success">
-                      {emailBonusClaimed ? 'Credits availed' : 'No purchase required'}
-                    </Badge>
-                  </InlineStack>
-
-                  <Text as="p" variant="headingLg">
-                    Free Credits
-                  </Text>
-
-                  {emailBonusClaimed ? (
-                    <Text as="p" tone="subdued">
-                      Already added to your balance.
-                    </Text>
-                  ) : (
-                    <>
-                      <BlockStack gap="100">
-                        <Text as="p">5 try-ons</Text>
-                        <Text as="p" tone="subdued">
-                          Confirm your contact email to claim them.
-                        </Text>
-                      </BlockStack>
-
-                      <Button variant="primary" onClick={() => setEmailBonusModalOpen(true)}>
-                        Claim credits
-                      </Button>
-                    </>
-                  )}
-                </BlockStack>
-              </Card>
-            ) : undefined
-          }
-        />
+        <PackGrid onError={setError} />
 
         <Card>
           <BlockStack gap="200">
@@ -267,8 +278,8 @@ export default function DashboardPage() {
               Customize the button
             </Text>
             <Text as="p" tone="subdued">
-              Change the button's text, colors, promo message, or position by clicking the block in
-              the theme editor — that's where its settings live.
+              Change the button's text, colors, promo message, or position in the theme editor,
+              under App embeds → Try It On — that's where its settings live.
             </Text>
             <InlineStack align="end">
               <Button onClick={openThemeEditor} loading={openingEditor}>
@@ -363,22 +374,6 @@ export default function DashboardPage() {
           )}
         </InlineStack>
       </BlockStack>
-
-      {showEmailBonusModal && me && (
-        <EmailBonusModal
-          me={me}
-          onClose={() => setEmailBonusModalOpen(false)}
-          onClaimed={(result) => {
-            load();
-            setToastMessage(
-              result.creditsGranted > 0
-                ? `You got ${result.creditsGranted.toLocaleString()} free credits!`
-                : 'Thanks for confirming your email.',
-            );
-          }}
-        />
-      )}
-
       {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
     </Page>
   );

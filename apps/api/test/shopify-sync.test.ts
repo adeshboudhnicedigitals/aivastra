@@ -300,6 +300,41 @@ describe('syncProduct', () => {
       );
     expect(row.collections).toEqual(['Summer Sale', 'New Arrivals']);
   });
+
+  it('stores the product category, and clears it when Shopify stops reporting one', async () => {
+    await syncProduct(
+      app,
+      storeId,
+      {
+        id: 90,
+        title: 'Categorised',
+        imageUrl: 'https://cdn.shopify.com/x.jpg',
+        category: 'Apparel & Accessories > Clothing > Dresses',
+      },
+      mockFetch,
+    );
+    const read = async () => {
+      const [row] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 90),
+          ),
+        );
+      return row;
+    };
+    expect((await read()).category).toBe('Apparel & Accessories > Clothing > Dresses');
+
+    await syncProduct(
+      app,
+      storeId,
+      { id: 90, title: 'Categorised', imageUrl: 'https://cdn.shopify.com/x.jpg' },
+      mockFetch,
+    );
+    expect((await read()).category).toBeNull();
+  });
 });
 
 describe('syncOneTask — full sync pagination', () => {

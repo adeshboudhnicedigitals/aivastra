@@ -1,19 +1,20 @@
 {% comment %}
   Renders a "Try It On" button + upload modal for the current product.
 
-  App BLOCK (not an app embed): the merchant drags this into their product
-  template in the theme editor, so it renders exactly where they put it. That
-  is why there is no placement setting and no placement JS — the
-  previous app-embed version injected at the end of <body> and then had to
-  relocate itself through a chain of guessed CSS selectors, which broke every
-  time a merchant switched themes.
+  App EMBED (target: "body"): the merchant switches it on once under Theme
+  editor -> App embeds, and Shopify injects it on every page. There is no
+  per-template placement, so tryon-widget.js moves the button into the product
+  form, directly above the buy buttons, and falls back to a floating button
+  when the theme's form can't be found.
 
-  App blocks require an Online Store 2.0 (JSON) template. Vintage themes cannot
-  accept them and are unsupported.
+  Only product pages render anything: `product` is blank everywhere else, and
+  so is `widget_key` until install has finished writing the metafield.
 
-  `enabled_on.templates` pins this to product templates: `product` is blank
-  everywhere else, so the guard below would render nothing anyway, and the
-  block would just be dead weight in the theme editor's picker.
+  History: this was an embed, then an app block (2026-07-31), then an embed
+  again. The block asked merchants to drag it into the right section; the embed
+  is one toggle. The cost is that placement is code again — see placeWidget in
+  tryon-widget.js, and the `placement_selector` escape hatch below for themes
+  it can't place on its own. Embeds also work on vintage (non-JSON) themes.
 
   Rendered `hidden` on purpose: Liquid has no access to the merchant's
   Postgres activation state (global/selective mode, per-product/collection
@@ -46,6 +47,7 @@
       data-customer-email="{{ customer.email }}"
     {% endif %}
     data-api-base="{{ block.settings.api_base | default: 'https://app.aivastra.com' | escape }}"
+    data-placement-selector="{{ block.settings.placement_selector | escape }}"
     style="--aivastra-button-color: {{ block.settings.button_color }}; --aivastra-text-color: {{ block.settings.text_color }}; --aivastra-border-radius: {{ block.settings.border_radius }}px;{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
   >
     {%- if block.settings.promo_text != blank -%}
@@ -259,8 +261,7 @@
 {% schema %}
 {
   "name": "Try It On",
-  "target": "section",
-  "enabled_on": { "templates": ["product"] },
+  "target": "body",
   "settings": [
     {
       "type": "text",
@@ -300,6 +301,12 @@
       "step": 1,
       "unit": "px",
       "default": 4
+    },
+    {
+      "type": "text",
+      "id": "placement_selector",
+      "label": "Place button above this element (advanced)",
+      "info": "Leave blank to place the button above your Add to cart button automatically. If it lands in the wrong spot on your theme, enter a CSS selector for the element it should sit above."
     }
   ]
 }

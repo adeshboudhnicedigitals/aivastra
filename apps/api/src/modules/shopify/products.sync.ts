@@ -21,6 +21,7 @@ export interface ShopifyProduct {
   tags?: string[] | null;
   vendor?: string | null;
   collections?: string[] | null;
+  category?: string | null;
 }
 
 /** Minimal shape we need from a fetch Response — lets tests pass a plain object
@@ -66,6 +67,7 @@ const PRODUCT_FIELDS = `
   vendor
   featuredImage { url }
   collections(first: 25) { nodes { title } }
+  category { fullName }
 `;
 
 const PRODUCTS_PAGE = `
@@ -114,6 +116,7 @@ interface GraphQLProductNode {
   vendor?: string | null;
   featuredImage?: { url?: string | null } | null;
   collections?: { nodes: Array<{ title: string }> } | null;
+  category?: { fullName?: string | null } | null;
 }
 
 interface ProductsPageData {
@@ -134,6 +137,7 @@ function toShopifyProduct(node: GraphQLProductNode): ShopifyProduct {
     tags: node.tags && node.tags.length > 0 ? node.tags : null,
     vendor: node.vendor || null,
     collections: node.collections?.nodes.map((c) => c.title) ?? null,
+    category: node.category?.fullName || null,
   };
 }
 
@@ -148,6 +152,7 @@ async function upsertGarment(
   tags: string[] | null,
   vendor: string | null,
   collections: string[] | null,
+  category: string | null,
   failedReason?: string,
 ) {
   const [row] = await app.db
@@ -163,6 +168,7 @@ async function upsertGarment(
       tags,
       vendor,
       collections,
+      category,
       failedReason,
     })
     .onConflictDoUpdate({
@@ -178,6 +184,7 @@ async function upsertGarment(
         tags,
         vendor,
         collections,
+        category,
         failedReason: failedReason ?? null,
         syncedAt: sql`now()`,
       },
@@ -188,7 +195,7 @@ async function upsertGarment(
 
 /** Records a failed (or, for a confirmed-gone product, deleted) sync for a
  *  product we couldn't fetch from Shopify — no product data is available, so
- *  title/productType/tags/vendor/collections stay null. Upserts rather than
+ *  title/productType/tags/vendor/collections/category stay null. Upserts rather than
  *  requiring an existing row, so this also covers a product that's never been
  *  synced before (e.g. a shopper's on-demand try-on of an ID that turns out to
  *  already be gone from Shopify). */
@@ -207,6 +214,7 @@ async function upsertGarmentFailure(
     r2Key,
     '',
     status,
+    null,
     null,
     null,
     null,
@@ -261,6 +269,7 @@ export async function syncProduct(
   const tags = product.tags ?? null;
   const vendor = product.vendor ?? null;
   const collections = product.collections ?? null;
+  const category = product.category ?? null;
   const src = product.imageUrl;
   if (!src) {
     await upsertGarment(
@@ -274,6 +283,7 @@ export async function syncProduct(
       tags,
       vendor,
       collections,
+      category,
       'no product image',
     );
     return;
@@ -312,6 +322,7 @@ export async function syncProduct(
       tags,
       vendor,
       collections,
+      category,
     );
   } catch (err) {
     app.log.warn({ err, storeId, productId: product.id }, 'product sync failed');
@@ -326,6 +337,7 @@ export async function syncProduct(
       tags,
       vendor,
       collections,
+      category,
       (err as Error).message,
     );
   }
