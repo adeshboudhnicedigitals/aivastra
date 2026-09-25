@@ -2103,18 +2103,21 @@ function PoseConfigsPanel({
 
   const openEdit = (item: PoseGarmentConfig) => {
     const workflowId = item.config?.workflowTemplateId ?? '';
-    const wf = workflowId ? workflows.find((w) => w.id === workflowId) : null;
+    // For the read-only preview, resolve the EFFECTIVE workflow — the override
+    // if one is selected, else the pose's own default workflow
+    // (defaultWorkflowTemplateId) — never item.defaultPromptGarmentPhase, which
+    // is a different field entirely (model_pose_assets.promptGarmentPhase, the
+    // pose's own PIN text, not a template default). That field is correctly
+    // null whenever this pose has no pin of its own, which is exactly when this
+    // preview needs to fall back to a template's baked-in default instead.
+    const effectiveWorkflowId = workflowId || item.defaultWorkflowTemplateId || '';
+    const wf = effectiveWorkflowId ? workflows.find((w) => w.id === effectiveWorkflowId) : null;
     setEditing(item);
     setEditWorkflow(workflowId);
     // A pinned override already exists iff promptGarmentPhase is non-null — reopen
     // with the toggle reflecting that, not just whatever text happens to be there.
     setEditPromptOverrideEnabled(!!item.config?.promptGarmentPhase);
-    setEditGarmentPrompt(
-      item.config?.promptGarmentPhase ??
-        wf?.defaultGarmentPhasePrompt ??
-        item.defaultPromptGarmentPhase ??
-        '',
-    );
+    setEditGarmentPrompt(item.config?.promptGarmentPhase ?? wf?.defaultGarmentPhasePrompt ?? '');
   };
 
   const closeEdit = () => {
@@ -2496,10 +2499,14 @@ function PoseConfigsPanel({
                 // until the admin explicitly turns "Custom prompt" on. When it's already on,
                 // leave the admin's own text alone; switching workflows shouldn't clobber it.
                 if (!editPromptOverrideEnabled) {
-                  const wf = newId ? workflows.find((w) => w.id === newId) : null;
-                  setEditGarmentPrompt(
-                    wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
-                  );
+                  // Same effective-workflow resolution as openEdit: fall back to
+                  // the pose's own default workflow when "Use default" is
+                  // selected, never to editing.defaultPromptGarmentPhase (the
+                  // pose's own pin text — a different field, not a template
+                  // default, and correctly null whenever there's nothing pinned).
+                  const effectiveId = newId || editing.defaultWorkflowTemplateId || '';
+                  const wf = effectiveId ? workflows.find((w) => w.id === effectiveId) : null;
+                  setEditGarmentPrompt(wf?.defaultGarmentPhasePrompt ?? '');
                 }
               }}
               emptyLabel={`Use default (${
@@ -2528,10 +2535,11 @@ function PoseConfigsPanel({
                     if (!checked) {
                       // Snap the preview back to whatever's actually live right now —
                       // the admin may have edited the textarea before turning this off.
-                      const wf = editWorkflow ? workflows.find((w) => w.id === editWorkflow) : null;
-                      setEditGarmentPrompt(
-                        wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
-                      );
+                      // Same effective-workflow resolution as openEdit — fall back to
+                      // the pose's own default workflow when no override is selected.
+                      const effectiveId = editWorkflow || editing.defaultWorkflowTemplateId || '';
+                      const wf = effectiveId ? workflows.find((w) => w.id === effectiveId) : null;
+                      setEditGarmentPrompt(wf?.defaultGarmentPhasePrompt ?? '');
                     }
                   }}
                 />
@@ -2548,7 +2556,7 @@ function PoseConfigsPanel({
             />
             <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
               {editPromptOverrideEnabled
-                ? 'Pinned — future edits to the workflow prompt will not affect this pose.'
+                ? 'Pinned — overrides the workflow’s default. Cleared automatically (and replaced with the new text) if the workflow’s own prompt is edited.'
                 : 'Read-only preview of the assigned workflow’s live default prompt.'}
             </span>
           </div>

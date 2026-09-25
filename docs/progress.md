@@ -2,6 +2,41 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-25 — `quay.io/minio/minio` now also returns 401 on anonymous pull (CI-blocking)
+
+- **Found:** PR #414's CI failed both `Unit tests (@aivastra/api)` and
+  `Integration tests (@aivastra/api)` at the exact same step —
+  `docker compose -f infra/docker-compose.yml up -d --wait postgres redis minio` —
+  with `minio Error unauthorized: access to the requested resource is not
+  authorized`. Confirmed this is **not** caused by that PR's diff (which never
+  touches `infra/docker-compose.yml`): reproduced the identical `401
+  UNAUTHORIZED` locally via a direct `docker pull quay.io/minio/minio:latest`,
+  and also against a specific older pinned tag
+  (`RELEASE.2024-01-16T16-07-38Z`) — the whole `quay.io/minio/minio` repo is
+  behind auth now, not just a `:latest`-tag rate limit. `docker.io/minio/minio`
+  (the original Docker Hub path) fails too, with "repository does not exist,"
+  consistent with the 2026-09-15 entry below.
+- **This escalates the 2026-09-15 finding below**, not a new independent
+  issue: this repo already migrated Docker Hub → quay.io for MinIO in PR #362
+  after Docker Hub lockdown, confirmed working then. quay.io has since locked
+  down the same repo too. Every fresh CI run and every fresh local clone is
+  now blocked at `docker compose up`/`pnpm docker:up` on `minio` — this is
+  repo-wide/team-wide, not specific to any one branch or PR.
+- **Why local dev machines may not notice:** a machine that pulled the image
+  before quay.io's lockdown (confirmed here: a `quay.io/minio/minio:latest`
+  image cached ~12 months ago, digest
+  `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+  still runs fine via the existing container) has no reason to re-pull, so
+  `docker compose up` silently keeps working there while failing on every
+  CI runner and every fresh checkout.
+- **Not fixed here** — this needs a team decision (mirror the still-good
+  cached digest to a registry this org controls, e.g. GHCR; authenticate CI to
+  quay.io if MinIO now permits pulls for registered/authenticated accounts; or
+  switch the S3-compatible test double entirely) and touches
+  `infra/docker-compose.yml`, `infra/docker-compose.staging.yml`,
+  `infra/docker-compose.prod.yml`, and `.github/workflows/ci.yml` uniformly —
+  out of scope for a one-off PR to patch silently.
+
 ## 2026-09-21 — /results grid thumbnails (stored output thumb + on-demand input thumbs)
 
 - **Change:** the `/results` webtool grid was loading full-res objects for every
