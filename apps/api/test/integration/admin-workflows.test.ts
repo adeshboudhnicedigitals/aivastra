@@ -1555,6 +1555,202 @@ describe('admin workflows - floor validation', () => {
     });
   });
 
+  describe('workflow PATCH prompt-edit invalidation', () => {
+    async function seedWorkflowTemplate(labelSuffix: string) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `patch_prompt_${labelSuffix}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          label: `Patch Prompt ${labelSuffix}`,
+          jsonContent,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json().id as string;
+    }
+
+    async function patchPrompt(id: string, garmentPhasePrompt: string) {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${id}`,
+        headers,
+        payload: { garmentPhasePrompt },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json();
+    }
+
+    it('clears a pose default prompt override when the workflow default text is edited, leaving workflowTemplateId intact', async () => {
+      const templateId = await seedWorkflowTemplate('pose_default');
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Pose with pinned override',
+          genderSlug: 'women',
+          r2Key: `patch-prompt-pose-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'patch-prompt-pose-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: templateId,
+          promptGarmentPhase: 'old pinned garment phase text',
+          promptFacePhase: 'old pinned face phase text',
+        })
+        .returning();
+
+      const patched = await patchPrompt(templateId, 'a brand new default garment prompt');
+      expect(patched.clearedPosePromptCount).toBe(1);
+      expect(patched.clearedGarmentConfigPromptCount).toBe(0);
+
+      const [updatedPose] = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, pose.id));
+      expect(updatedPose.promptGarmentPhase).toBeNull();
+      expect(updatedPose.promptFacePhase).toBeNull();
+      expect(updatedPose.workflowTemplateId).toBe(templateId);
+    });
+
+    it('clears an explicit per-garment-type prompt override when the referenced workflow default text is edited', async () => {
+      const templateId = await seedWorkflowTemplate('config_direct');
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Pose for direct config override',
+          genderSlug: 'women',
+          r2Key: `patch-prompt-direct-pose-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'patch-prompt-direct-pose-thumb.jpg',
+          scope: 'general',
+        })
+        .returning();
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({
+          genderSlug: 'women',
+          slug: `patch-prompt-direct-gt-${Date.now()}-${Math.random()}`,
+          label: 'Patch Prompt Direct GT',
+          isActive: true,
+        })
+        .returning();
+      const [config] = await app.db
+        .insert(schema.poseGarmentConfigs)
+        .values({
+          poseAssetId: pose.id,
+          subcategoryId: garmentType.id,
+          workflowTemplateId: templateId,
+          promptGarmentPhase: 'old config garment phase text',
+          promptFacePhase: 'old config face phase text',
+        })
+        .returning();
+
+      const patched = await patchPrompt(templateId, 'a brand new default garment prompt');
+      expect(patched.clearedPosePromptCount).toBe(0);
+      expect(patched.clearedGarmentConfigPromptCount).toBe(1);
+
+      const [updatedConfig] = await app.db
+        .select()
+        .from(schema.poseGarmentConfigs)
+        .where(eq(schema.poseGarmentConfigs.id, config.id));
+      expect(updatedConfig.promptGarmentPhase).toBeNull();
+      expect(updatedConfig.promptFacePhase).toBeNull();
+      expect(updatedConfig.workflowTemplateId).toBe(templateId);
+    });
+
+    it('clears an inherited per-garment-type prompt override when the pose default it relies on is edited', async () => {
+      const templateId = await seedWorkflowTemplate('config_inherited');
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Pose whose default is inherited',
+          genderSlug: 'women',
+          r2Key: `patch-prompt-inherited-pose-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'patch-prompt-inherited-pose-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: templateId,
+        })
+        .returning();
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({
+          genderSlug: 'women',
+          slug: `patch-prompt-inherited-gt-${Date.now()}-${Math.random()}`,
+          label: 'Patch Prompt Inherited GT',
+          isActive: true,
+        })
+        .returning();
+      const [config] = await app.db
+        .insert(schema.poseGarmentConfigs)
+        .values({
+          poseAssetId: pose.id,
+          subcategoryId: garmentType.id,
+          workflowTemplateId: null,
+          promptGarmentPhase: 'old inherited config garment text',
+          promptFacePhase: 'old inherited config face text',
+        })
+        .returning();
+
+      const patched = await patchPrompt(templateId, 'a brand new default garment prompt');
+      expect(patched.clearedPosePromptCount).toBe(0);
+      expect(patched.clearedGarmentConfigPromptCount).toBe(1);
+
+      const [updatedConfig] = await app.db
+        .select()
+        .from(schema.poseGarmentConfigs)
+        .where(eq(schema.poseGarmentConfigs.id, config.id));
+      expect(updatedConfig.promptGarmentPhase).toBeNull();
+      expect(updatedConfig.promptFacePhase).toBeNull();
+      expect(updatedConfig.workflowTemplateId).toBeNull();
+    });
+
+    it('does not clear overrides on an unrelated field edit, or when the resubmitted prompt text is unchanged', async () => {
+      const templateId = await seedWorkflowTemplate('unchanged');
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Pose with pinned override, unrelated edit',
+          genderSlug: 'women',
+          r2Key: `patch-prompt-unchanged-pose-${Date.now()}-${Math.random()}.jpg`,
+          thumbnailKey: 'patch-prompt-unchanged-pose-thumb.jpg',
+          scope: 'general',
+          workflowTemplateId: templateId,
+          promptGarmentPhase: 'a pinned prompt that must survive',
+          promptFacePhase: 'a pinned face prompt that must survive',
+        })
+        .returning();
+
+      // Label-only edit — the admin-web Edit modal always resends the current
+      // garmentPhasePrompt value on every save regardless of what changed, so
+      // this asserts resubmitting the SAME text is a no-op for overrides, not
+      // just that omitting the field is.
+      const [{ defaultGarmentPhasePrompt }] = await app.db
+        .select({ defaultGarmentPhasePrompt: schema.workflowTemplates.defaultGarmentPhasePrompt })
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, templateId));
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/admin/workflows/${templateId}`,
+        headers,
+        payload: { label: 'Renamed only', garmentPhasePrompt: defaultGarmentPhasePrompt },
+      });
+      expect(res.statusCode).toBe(200);
+      const patched = res.json();
+      expect(patched.clearedPosePromptCount).toBe(0);
+      expect(patched.clearedGarmentConfigPromptCount).toBe(0);
+
+      const [updatedPose] = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, pose.id));
+      expect(updatedPose.promptGarmentPhase).toBe('a pinned prompt that must survive');
+      expect(updatedPose.promptFacePhase).toBe('a pinned face prompt that must survive');
+    });
+  });
+
   describe('workflow reassign prompt invalidation', () => {
     async function seedWorkflowTemplate(labelSuffix: string) {
       const res = await app.inject({

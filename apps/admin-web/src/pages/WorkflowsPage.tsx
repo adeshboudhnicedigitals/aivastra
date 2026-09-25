@@ -361,7 +361,10 @@ export default function WorkflowsPage({ toast }: Props) {
         .filter((o) => Object.keys(o).length > 1);
       if (ksamplerOverrides.length > 0) patch.ksamplerOverrides = ksamplerOverrides;
 
-      await apiFetch(`/admin/workflows/${editingWf.id}`, {
+      const patched = await apiFetch<{
+        clearedPosePromptCount?: number;
+        clearedGarmentConfigPromptCount?: number;
+      }>(`/admin/workflows/${editingWf.id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
@@ -425,7 +428,15 @@ export default function WorkflowsPage({ toast }: Props) {
             : w,
         ),
       );
-      toast({ title: 'Workflow updated' });
+      const clearedCount =
+        (patched.clearedPosePromptCount ?? 0) + (patched.clearedGarmentConfigPromptCount ?? 0);
+      toast({
+        title: 'Workflow updated',
+        body:
+          clearedCount > 0
+            ? `Synced the new prompt to ${clearedCount} pinned override${clearedCount === 1 ? '' : 's'} that were tuned to the old text.`
+            : undefined,
+      });
       closeModal();
     } catch (e) {
       const msg =
