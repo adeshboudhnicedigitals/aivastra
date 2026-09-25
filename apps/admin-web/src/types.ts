@@ -129,6 +129,8 @@ export interface WorkflowOption {
   tryonOutputNodeId: string | null;
   version?: number;
   funnelCount?: number;
+  posePromptOverrideCount?: number;
+  garmentConfigPromptOverrideCount?: number;
   clearedPosePromptCount?: number;
   clearedGarmentConfigPromptCount?: number;
   draining?: { fromVersion: number } | null;
