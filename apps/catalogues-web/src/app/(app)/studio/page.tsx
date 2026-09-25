@@ -102,6 +102,7 @@ interface PoseItem {
   id: string;
   label: string;
   thumbnailUrl: string;
+  hasUpper: boolean;
   hasLower: boolean;
   hasShoes: boolean;
 }
@@ -113,6 +114,7 @@ interface TemplateLook {
   backgroundId: string;
   backgroundLabel: string;
   backgroundThumbnailUrl: string;
+  hasUpper: boolean;
   hasLower: boolean;
   hasShoes: boolean;
 }
@@ -1051,6 +1053,21 @@ export default function StudioPage(): React.ReactElement {
     catalogueTemplateId === 'custom'
       ? selectedPoses.some((p) => p.hasShoes)
       : selectedLooks.some((l) => l.hasShoes);
+  // Every selected pose runs a workflow that consumes only a lower garment (no upper
+  // node). The API rejects those without a lower upload (jobs/create.ts), so the one
+  // upload box below is sent as the lower garment. `=== false` (not `!p.hasUpper`)
+  // so a response from an API that predates the flag never counts as lower-only.
+  const isLowerOnlyRole = (p: { hasUpper: boolean; hasLower: boolean }) =>
+    p.hasLower && p.hasUpper === false;
+  const lowerOnly =
+    !selectedGarmentType?.requiresLowerUpload &&
+    !selectedGarmentType?.requiresMannequinStep &&
+    (catalogueTemplateId === 'custom'
+      ? selectedPoses.length > 0 && selectedPoses.every(isLowerOnlyRole)
+      : selectedLooks.length > 0 && selectedLooks.every(isLowerOnlyRole));
+  // createJob's schema requires upperGarmentKey, and strips it for a lower-only pose
+  // (create.ts effectiveUpperGarmentKey), so the same key is sent in both slots.
+  const lowerGarmentKeyForSubmit = lowerOnly ? garmentKey : lowerGarmentKey;
   const previousCatalogNeeds = useRef({ lower: false, shoes: false });
   useEffect(() => {
     if (needsLower && !previousCatalogNeeds.current.lower && !lowerCatalogId) {
@@ -1352,9 +1369,10 @@ export default function StudioPage(): React.ReactElement {
       // The aspectRatio (1:1) is already captured in `aspect` independently.
       const effectivePlatform =
         platform === 'Amazon' ? (amazonUseWhiteBg ? 'Amazon' : undefined) : platform;
-      const effectiveLowerId =
-        lowerCatalogId ||
-        (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
+      const effectiveLowerId = lowerOnly
+        ? undefined
+        : lowerCatalogId ||
+          (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
       const effectiveShoesId =
         shoeCatalogId ||
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
@@ -1363,7 +1381,7 @@ export default function StudioPage(): React.ReactElement {
         faceId,
         garmentTypeId: garmentTypeId || undefined,
         lowerCatalogId: effectiveLowerId,
-        lowerGarmentKey: lowerGarmentKey || undefined,
+        lowerGarmentKey: lowerGarmentKeyForSubmit || undefined,
         shoeCatalogId: effectiveShoesId,
         thirdGarmentKey: thirdGarmentKey || undefined,
       };
@@ -1457,9 +1475,10 @@ export default function StudioPage(): React.ReactElement {
     setIsSubmitting(true);
     setSubmitError('');
     try {
-      const effectiveLowerId =
-        lowerCatalogId ||
-        (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
+      const effectiveLowerId = lowerOnly
+        ? undefined
+        : lowerCatalogId ||
+          (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
       const effectiveShoesId =
         shoeCatalogId ||
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
@@ -1476,7 +1495,7 @@ export default function StudioPage(): React.ReactElement {
           poseIds: [mainPoseId],
           garmentTypeId: garmentTypeId || undefined,
           lowerCatalogId: effectiveLowerId,
-          lowerGarmentKey: lowerGarmentKey || undefined,
+          lowerGarmentKey: lowerGarmentKeyForSubmit || undefined,
           shoeCatalogId: effectiveShoesId,
           thirdGarmentKey: thirdGarmentKey || undefined,
         },
@@ -1512,7 +1531,7 @@ export default function StudioPage(): React.ReactElement {
             poseIds: remainingPoseIds,
             garmentTypeId: garmentTypeId || undefined,
             lowerCatalogId: effectiveLowerId,
-            lowerGarmentKey: lowerGarmentKey || undefined,
+            lowerGarmentKey: lowerGarmentKeyForSubmit || undefined,
             shoeCatalogId: effectiveShoesId,
             thirdGarmentKey: thirdGarmentKey || undefined,
           },
@@ -1609,7 +1628,7 @@ export default function StudioPage(): React.ReactElement {
     hasCatalogueTemplates && 'templates',
     catalogueTemplateId === 'custom' && 'background',
     catalogueTemplateId === 'custom' && 'poses',
-    needsLower && !requiresLowerUpload && 'lower',
+    needsLower && !requiresLowerUpload && !lowerOnly && 'lower',
     needsShoes && 'shoes',
     'platform',
     'resolution',
@@ -4104,6 +4123,7 @@ export default function StudioPage(): React.ReactElement {
 
               {needsLower &&
                 !requiresLowerUpload &&
+                !lowerOnly &&
                 (() => {
                   const lowerNodes =
                     lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
