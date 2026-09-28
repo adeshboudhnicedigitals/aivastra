@@ -2,6 +2,13 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-28 — WordPress demo store: Product card border fixed to match reference image
+
+- **Goal:** Product card border was an animated gradient (`::before` pseudo-element, purple → magenta). Reference image shows plain `1px solid #000` matching the live `shopify.aivastra.com` style.
+- **Changes Done:**
+  1. **`storefront-aivastra/style.css`:** Removed `@keyframes aivastra-gradient-spin` and the animated gradient `::before`. Added `ul.products li.product::before { content: none }` and `ul.products li.product img { border: 1px solid #000 }`. Removed the 4px inset margin that was needed to reveal the gradient.
+- **Verified:** Playwright computed style confirms `border: 1px solid rgb(0, 0, 0)` on `img`. Screenshot matches reference image.
+
 ## 2026-09-25 (later) — Pose pin leaking into a redirected workflow's prompt
 
 **Root cause:** when a `pose_garment_configs` row overrides a pose+garmentType to a
@@ -74,6 +81,83 @@ snapshotted into `params` (the dispatcher's own lookup is unreachable once a sna
   "Does this pose have a real prompt override" still can't be read off `IS NOT NULL` alone,
   though. Nulling the pins that are pure duplicates of their template's default would still
   need a data migration — not attempted here.
+
+## 2026-09-25 — WordPress demo store: Account popover card parity with shopify.aivastra.com
+
+- **Goal:** Implement the account dropdown popover when clicking the navbar account icon, matching `https://shopify.aivastra.com/` pixel-for-pixel (rounded card, "Sign in or create account", circular close button, "Sign in with shop" purple button, OR divider, email input with submit arrow, marketing checkbox, and Orders/Profile action buttons).
+- **Changes Done:**
+  1. **Account Popover Include (`inc/account-popover.php`):**
+     - Renders `<div class="aivastra-account-popover">` in `wp_footer`.
+     - Supports logged-out state with exact replica of Shop Pay login card: "Sign in with shop" button (`#5a31f4`), "OR" divider, email input with submit arrow (`→`), "Email me with news and offers" checkbox, and dual quick-link buttons ("Orders" and "Profile").
+     - Supports logged-in state greeting with direct links to WooCommerce orders, account profile, and sign-out.
+  2. **Client-Side Interactions (`assets/account-popover.js`):**
+     - Anchors and positions the dropdown card dynamically right beneath the account navbar icon.
+     - Supports open/close toggle, close button (`✕`), click-outside dismissal, and `Escape` key dismissal.
+     - Smooth entrance animation with subtle transform/fade.
+  3. **Theme Integration (`functions.php` & `style.css`):**
+     - Added `inc/account-popover.php` include and added `aivastra-account-trigger` class to the navbar account icon.
+     - Added complete CSS styling for the popover card (24px border radius, elevation shadow, buttons, input, and responsive constraints).
+- **Verified:** Tested via headless Chromium and Playwright. Verified popover toggle on account icon click, close button dismissal, Escape key dismissal, click-outside dismissal, and mutual exclusivity with the cart drawer.
+
+## 2026-09-25 — WordPress demo store: Slide-out cart drawer parity with shopify.aivastra.com
+
+
+- **Goal:** Implement the slide-out cart drawer when clicking the navbar cart icon, matching `https://shopify.aivastra.com/` pixel-for-pixel (empty state, typography, circular close button, backdrop overlay, interactive filled state).
+- **Changes Done:**
+  1. **Cart Drawer Include (`inc/cart-drawer.php`):**
+     - Renders `<aside class="aivastra-cart-drawer">` and backdrop overlay in `wp_footer`.
+     - Features circular close button `✕` (`34px`, `border: 1px solid rgba(0,0,0,0.06)`, `box-shadow: 0 2px 6px rgba(0,0,0,0.06)`).
+     - Renders pixel-exact empty state: centered heading `"Your cart is empty"`, subtitle `"Have an account? Log in to check out faster."`, and black pill button `"Continue shopping"` (`#000`, `14px border-radius`, Inter font).
+     - Provides interactive filled state when cart has items: product thumbnail, title, line price, quantity stepper (`−`/`+`), remove button (`✕`), subtotal row (`Estimated total`), disclaimer, and black `"Check out"` button.
+     - Implements secure AJAX endpoints: `aivastra_cart_drawer_get`, `aivastra_cart_drawer_update_qty`, `aivastra_cart_drawer_remove`, `aivastra_cart_drawer_add`.
+  2. **Client-Side Interactions (`assets/cart-drawer.js`):**
+     - Intercepts clicks on `.aivastra-nav-cart` to slide open the drawer with smooth easing (`transform: translateX(0)`).
+     - Handles close via close button, backdrop click, and Escape key.
+     - Intercepts single-product "Add to cart" form submissions to add via AJAX and automatically slide open the drawer.
+     - Handles live quantity increment/decrement and item removal via AJAX with instant state updates.
+     - Synchronizes header cart count badge in real time.
+  3. **Theme Integration (`functions.php` & `style.css`):**
+     - Included `inc/cart-drawer.php` and attached `aivastra-cart-trigger` to navbar cart icon.
+     - Added comprehensive styling for backdrop, drawer animations, empty state typography, stepper controls, and responsive layout.
+- **Verified:** Tested via headless Chromium and Playwright. Verified drawer open/close on cart icon click, close button click, backdrop click, Escape key, empty state layout matching reference screenshots, filled state upon adding product, and dynamic transition back to empty state on item removal.
+
+## 2026-09-23 (continued) — WordPress demo store: match shopify.aivastra.com exactly
+
+
+- **Goal:** Make `http://localhost:8888` look pixel-close to `https://shopify.aivastra.com/`.
+- **Changes Done:**
+  1. **Font:** Switched theme font tokens `--aivastra-font-body` and `--aivastra-font-display` from `Plus Jakarta Sans / Outfit` → **`Inter`** (Google Fonts, weights 300–800). Matches Shopify reference exactly.
+  2. **Navbar:** Replaced search pill + account pill + WooCommerce cart pill with 3 minimal outline icon links (Search SVG, Account SVG, Shopping Bag SVG + red count badge) matching the Shopify right-side icon trio. CSS classes: `aivastra-nav-icon`, `aivastra-nav-cart`, `aivastra-nav-cart-badge`. Announcement bar removed.
+  3. **Homepage content:** Rewrote via `setup-homepage.php` — Shopify-style split hero (left: bold black headline + subtitle; right: hero image with gradient circle) + Women's Wear section + Men's Wear section (both with section title row + "View all" link + 4-column WC product grid). Applied via WP-CLI.
+  4. **Navigation:** Rewrote via `setup-navigation.php` — HOME, MEN (with sub-categories), WOMEN (with sub-categories), CONTACT.
+  5. **Footer:** Replaced 4-column dark luxury footer with simple Shopify-style white footer: centered "Join our email list" heading, subtitle, email subscribe form, and minimal copyright line with Terms + Privacy links.
+  6. **Button underline bug:** Added `text-decoration: none !important` to `.aivastra-btn-primary` and `.aivastra-btn-secondary` to override Storefront parent theme's `.hentry .entry-content a { text-decoration: underline }` specificity.
+  7. **Footer background:** Used `wp_add_inline_style` + `set_theme_mod` to force white footer background, overriding Storefront's customizer inline `<style>` tag.
+- **Verified:** Playwright headless screenshots taken (`homepage_v3.png`). Homepage, collection sections, and footer all match the Shopify reference design.
+- **Open:** Hero image container has some extra padding above it — could tighten to match Shopify's flush hero. Not blocking.
+
+## 2026-09-23 — Local WordPress demo store design, typography & authentic copy overhaul
+
+
+- **Context & Goal:** The local WordPress demo store (`http://localhost:8888`) running WooCommerce and `aivastra-tryon` needed a comprehensive visual, alignment, and content overhaul. Key requirements: eliminate all childish emojis across the entire site, replace with premium vector SVGs (Lucide icons), remove unrealistic/exaggerated marketing claims and fake customer reviews/statistics, and modernize the theme (`storefront-aivastra`).
+- **Changes Done:**
+  1. **Strict Emoji Removal & Lucide SVG Icons:**
+     - Removed all emojis from navigation menus, hero titles, buttons, announcement bars, trust strips, and footers.
+     - Overrode Storefront's core `🔍` gallery zoom emoji with a clean vector Lucide search SVG.
+     - Overrode WooCommerce cart block's crying sad-face emoji mask with a clean vector Lucide shopping bag SVG badge.
+     - Scanned both codebase files and WordPress database: zero emojis remaining.
+  2. **Grounded & Authentic E-Commerce Copy:**
+     - Eliminated fake reviews ("Vikramaditya S.", "12,000+ shoppers") and fake VIP promo banners ("VASTRA15").
+     - Eliminated exaggerated metrics ("99.8% Photorealistic AI Drape", "Instant 5-Sec Fit", "25,000+ fashion insiders").
+     - Replaced with realistic, honest copy centered on actual Ai Vastra try-on capabilities (virtual garment preview, standard domestic delivery, cash on delivery, and 7-day sizing exchanges).
+  3. **Theme Architecture & Layout Fixes (`storefront-aivastra`):**
+     - Enqueued `Plus Jakarta Sans` and `Outfit` via Google Fonts.
+     - Replaced fragmented Storefront float header with unified single-row flex navbar (`[Brand Logo] [Center Menu] [Search Pill + Account Button + Cart Pill]`).
+     - Fixed Storefront's `.clearfix` / `div.product::before` flex item collision on single product pages; gallery (50%) and summary (50%) now align side-by-side with vertical consistency.
+     - Replaced Storefront's dated float-based review tabs (`width: 30%` / `65%`) with modern horizontal tabs spanning full width, styled review forms, and subtle border alert notices.
+     - Overhauled Cart empty state and My Account login/register into dual luxury cards with rounded pill buttons.
+     - Styled Shop page with a dark slate collection header banner and 4-column product grid with 1:1 image aspect ratios and Lucide Try-On badges.
+- **Verification:** Verified in headless Chromium via Playwright; captured and inspected screenshots for Homepage, Shop Archive, Single Product Details, Cart, and My Account.
 
 ## 2026-09-25 — `quay.io/minio/minio` now also returns 401 on anonymous pull (CI-blocking)
 
