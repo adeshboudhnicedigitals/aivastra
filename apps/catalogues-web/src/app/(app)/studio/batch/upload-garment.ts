@@ -1,6 +1,6 @@
 import { api } from '@/lib/api';
 
-export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 /**
  * Presigns and uploads one file, resolving to its R2 key. Each call gets its own

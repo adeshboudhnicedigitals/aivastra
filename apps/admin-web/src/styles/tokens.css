@@ -1766,6 +1766,18 @@ p {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  /* No-op on the <a> tags this was originally written for (already
+     transparent/borderless by default) — needed so a <button className="link">
+     doesn't keep the browser's default button chrome (grey background, border,
+     padding). */
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+}
+.link[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .code-block {
   margin: 0;

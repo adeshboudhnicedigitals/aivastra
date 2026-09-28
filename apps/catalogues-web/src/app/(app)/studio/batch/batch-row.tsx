@@ -392,7 +392,7 @@ export function BatchRow({
       previewUrl: URL.createObjectURL(file),
       fileName: file.name,
       progress: 0,
-      error: file.size > MAX_FILE_BYTES ? 'Over 10 MB' : null,
+      error: file.size > MAX_FILE_BYTES ? 'Over 20 MB' : null,
     });
     onPatch({ garmentId: id });
     if (file.size > MAX_FILE_BYTES) return;

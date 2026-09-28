@@ -684,6 +684,27 @@ export const ReassignWorkflowBody = z.object({
   targetWorkflowId: z.string().uuid(),
 });
 
+// ── Workflow governance: propose -> approve/reject ─────────────────────────
+// MODERATOR/ADMIN reach workflow_templates only through this queue; SUPER_ADMIN
+// can still write workflow_templates directly. See
+// apps/api/src/modules/admin/workflow-change-requests.routes.ts.
+
+export const ProposeWorkflowChangeRequestBody = z.object({
+  changeType: z.enum(['create', 'update']),
+  targetWorkflowId: z.string().uuid(),
+  reason: z.string().min(1).max(2000),
+  previousLimitations: z.string().min(1).max(2000),
+  proposedFields: z.record(z.any()),
+});
+
+export const ApproveWorkflowChangeRequestBody = z.object({
+  reviewNote: z.string().max(2000).optional(),
+});
+
+export const RejectWorkflowChangeRequestBody = z.object({
+  reviewNote: z.string().min(1).max(2000),
+});
+
 // ── Pose schemas ──────────────────────────────────────────────────────────
 
 // Poses are per (garment type × face × background) combo, e.g. m1bg1p1

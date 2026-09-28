@@ -57,6 +57,7 @@ import { adminTryonRoutes } from './modules/admin/tryon.routes.js';
 import { adminUnlimitedPlanRoutes } from './modules/admin/unlimitedPlan.routes.js';
 import { adminUsersRoutes } from './modules/admin/users.routes.js';
 import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
+import { adminWorkflowChangeRequestsRoutes } from './modules/admin/workflow-change-requests.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
 import { googleAuthRoutes } from './modules/auth/google.routes.js';
 import { authRoutes } from './modules/auth/routes.js';
@@ -442,6 +443,7 @@ export async function buildServer(env: Env) {
   await app.register(adminShopifyFunnelRulesRoutes);
   await app.register(adminShopifyStoresRoutes);
   await app.register(adminWorkflowsRoutes);
+  await app.register(adminWorkflowChangeRequestsRoutes);
   await app.register(adminTryonRoutes);
   await app.register(adminDevApiRoutes);
   await app.register(adminSareeRoutes);

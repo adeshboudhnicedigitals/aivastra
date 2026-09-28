@@ -454,8 +454,8 @@ export function EmbedStudioWizard() {
 
   async function handleGarmentUpload(file: File) {
     if (isUploading) return;
-    if (file.size > 10 * 1024 * 1024) {
-      setUploadError('File exceeds 10 MB. Please choose a smaller image.');
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadError('File exceeds 20 MB. Please choose a smaller image.');
       return;
     }
     if (!(await isSupportedImageBytes(file))) {
@@ -484,8 +484,8 @@ export function EmbedStudioWizard() {
 
   async function handleLowerGarmentUpload(file: File) {
     if (isUploadingLower) return;
-    if (file.size > 10 * 1024 * 1024) {
-      setUploadError('File exceeds 10 MB. Please choose a smaller image.');
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadError('File exceeds 20 MB. Please choose a smaller image.');
       return;
     }
     if (!(await isSupportedImageBytes(file))) {
@@ -514,8 +514,8 @@ export function EmbedStudioWizard() {
 
   async function handleThirdGarmentUpload(file: File) {
     if (isUploadingThird) return;
-    if (file.size > 10 * 1024 * 1024) {
-      setUploadError('File exceeds 10 MB. Please choose a smaller image.');
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadError('File exceeds 20 MB. Please choose a smaller image.');
       return;
     }
     if (!(await isSupportedImageBytes(file))) {
@@ -673,7 +673,7 @@ export function EmbedStudioWizard() {
                     ? (selectedGarmentType?.upperUploadLabel ?? 'Upload Top Wear')
                     : 'Click to choose a garment photo'}
                 </span>
-                <span style={{ fontSize: 11, color: C.mid }}>JPG, PNG, WebP · Max 10MB</span>
+                <span style={{ fontSize: 11, color: C.mid }}>JPG, PNG, WebP · Max 20MB</span>
               </>
             )}
             {isUploading && (
@@ -746,7 +746,7 @@ export function EmbedStudioWizard() {
                   >
                     {selectedGarmentType?.lowerUploadLabel ?? 'Bottom Wear'}
                   </span>
-                  <span style={{ fontSize: 11, color: C.mid }}>JPG, PNG, WebP · Max 10MB</span>
+                  <span style={{ fontSize: 11, color: C.mid }}>JPG, PNG, WebP · Max 20MB</span>
                 </>
               )}
               {isUploadingLower && (
@@ -820,7 +820,7 @@ export function EmbedStudioWizard() {
                   >
                     {selectedGarmentType?.thirdUploadLabel ?? 'Upload Third Garment'}
                   </span>
-                  <span style={{ fontSize: 11, color: C.mid }}>JPG, PNG, WebP · Max 10MB</span>
+                  <span style={{ fontSize: 11, color: C.mid }}>JPG, PNG, WebP · Max 20MB</span>
                 </>
               )}
               {isUploadingThird && (
