@@ -226,7 +226,7 @@ export function BatchMode({
           previewUrl: URL.createObjectURL(file),
           fileName: file.name,
           progress: 0,
-          error: file.size > MAX_FILE_BYTES ? 'Over 10 MB' : null,
+          error: file.size > MAX_FILE_BYTES ? 'Over 20 MB' : null,
         },
       }));
       setGarments((prev) => [...prev, ...added.map((a) => a.garment)]);

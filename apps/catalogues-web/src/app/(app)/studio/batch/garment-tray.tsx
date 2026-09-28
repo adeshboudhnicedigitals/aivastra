@@ -99,7 +99,7 @@ function BulkUploadControl({
             <span style={{ fontSize: 13, color: C.mid }}>
               Select multiple garment photos at once — one row is added per image
             </span>
-            <span style={{ fontSize: 12, color: C.light }}>JPG, PNG or WEBP · up to 10MB each</span>
+            <span style={{ fontSize: 12, color: C.light }}>JPG, PNG or WEBP · up to 20MB each</span>
           </>
         )}
       </button>

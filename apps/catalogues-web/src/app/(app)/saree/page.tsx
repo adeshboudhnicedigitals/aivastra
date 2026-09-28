@@ -210,7 +210,7 @@ function SareeUploadZone({
                 lineHeight: 1.5,
               }}
             >
-              Drag and drop an image here · JPG, PNG · Max 10MB
+              Drag and drop an image here · JPG, PNG · Max 20MB
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.text }}>
               {/* biome-ignore lint/performance/noImgElement: presigned/static asset URL */}
