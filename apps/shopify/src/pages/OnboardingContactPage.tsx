@@ -5,12 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { OnboardingLayout } from '../components/OnboardingLayout';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import {
-  canShowPostBasketPage,
-  getOnboardingProgress,
-  getOnboardingStep,
-  onboardingPath,
-} from '../lib/onboarding';
+import { canShowPostBasketPage, getOnboardingStep, onboardingPath } from '../lib/onboarding';
 import type { ShopifyMe } from '../types';
 
 // Same shape the API accepts, so an address the form lets through is not
@@ -30,7 +25,7 @@ export default function OnboardingContactPage({
   onRefresh,
 }: {
   me: ShopifyMe;
-  onRefresh: () => Promise<void>;
+  onRefresh: () => Promise<ShopifyMe>;
 }) {
   const navigate = useNavigate();
   const [name, setName] = useState(me.store.shopOwnerName ?? '');
@@ -83,8 +78,8 @@ export default function OnboardingContactPage({
 
   return (
     <OnboardingLayout
-      progress={getOnboardingProgress(me, 'contact')}
-      title="Emergency contact details"
+      page="contact"
+      title="Contact details"
       titleAlign="center"
       largeTitle
       onContinue={saveAndContinue}

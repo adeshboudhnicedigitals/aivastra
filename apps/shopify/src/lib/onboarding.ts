@@ -50,31 +50,25 @@ export function getOnboardingStep(me: ShopifyMe): OnboardingStep | null {
   return null;
 }
 
-/** The wizard's pages, in order. Contact and limits are not part of the derived step. */
+/**
+ * The wizard's pages, in order. Contact and limits are not part of the derived
+ * step. Exported so the shell's numbered step header can render "you are here"
+ * without duplicating this order. The intro is a welcome screen, not a step:
+ * numbering starts at the products page (see STEP_PAGES).
+ */
 export type OnboardingPage = 'intro' | 'products' | 'contact' | 'limits' | 'theme';
 
-const PAGE_ORDER: OnboardingPage[] = ['intro', 'products', 'contact', 'limits', 'theme'];
+export const PAGE_ORDER: OnboardingPage[] = ['intro', 'products', 'contact', 'limits', 'theme'];
 
-/**
- * How far through getting started the merchant is, as a 0–1 fraction for the
- * footer's progress bar. It follows the page they are on: each page reads as
- * "you are here" (page N of the wizard), out of one more than the number of
- * pages, so the bar can only reach full when setup is genuinely finished — the
- * last page sits at 5/6 until the app embed is detected.
- *
- * Page 2 has two stages, so it moves a little within its slot as products are
- * picked (half a page) and then every basket is assigned (three quarters).
- */
-export function getOnboardingProgress(me: ShopifyMe, page: OnboardingPage): number {
-  const slots = PAGE_ORDER.length + 1;
-  if (page === 'theme' && (me.store.settings.themeEmbedConfirmed ?? false)) return 1;
+/** The pages that count as numbered steps: everything after the welcome intro. */
+export type StepPage = Exclude<OnboardingPage, 'intro'>;
+export const STEP_PAGES = PAGE_ORDER.filter((p): p is StepPage => p !== 'intro');
 
-  let position = PAGE_ORDER.indexOf(page) + 1;
-  if (page === 'products') {
-    if (isBasketsDone(me)) position += 0.75;
-    else if (isSelectionDone(me)) position += 0.5;
-  }
-  return position / slots;
+/** The route of the page before this one in the wizard; null on the first page. */
+export function previousPagePath(page: OnboardingPage): string | null {
+  const previous = PAGE_ORDER[PAGE_ORDER.indexOf(page) - 1];
+  if (!previous) return null;
+  return previous === 'intro' ? '/onboarding' : `/onboarding/${previous}`;
 }
 
 /** The route for a given step; null (onboarding complete) routes to the app root. */

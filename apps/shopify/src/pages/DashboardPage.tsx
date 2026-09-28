@@ -14,6 +14,7 @@ import {
 } from '@shopify/polaris';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AppFont } from '../components/AppFont';
 import { BalanceCard } from '../components/BalanceCard';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { PackGrid } from '../components/PackGrid';
@@ -201,9 +202,11 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <SkeletonPage primaryAction>
-        <SkeletonBodyText />
-      </SkeletonPage>
+      <AppFont>
+        <SkeletonPage primaryAction>
+          <SkeletonBodyText />
+        </SkeletonPage>
+      </AppFont>
     );
   }
 
@@ -217,146 +220,150 @@ export default function DashboardPage() {
   const unroutedCount = me ? unroutedWarningCount(me) : 0;
   const embedNeeded = me != null && needsEmbedEnable(me);
   return (
-    <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
-      <BlockStack gap="400">
-        <ErrorBanner error={error} onRetry={load} />
+    <AppFont>
+      <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
+        <BlockStack gap="400">
+          <ErrorBanner error={error} onRetry={load} />
 
-        {embedNeeded && (
-          <Banner
-            tone="warning"
-            title="Turn on the Try It On app embed"
-            action={{
-              content: 'Enable app embed',
-              onAction: openThemeEditor,
-            }}
-          >
-            <Text as="p">
-              The try-on button is now switched on with one toggle instead of being placed in your
-              theme, so shoppers won't see it until you enable the app embed and save. This message
-              goes away once we see the button on a product page of your store.
-            </Text>
-          </Banner>
-        )}
-
-        {tryOnOff && (
-          <Banner
-            tone="warning"
-            title="Virtual try-on is currently off"
-            action={{ content: 'Go to Manage', onAction: () => navigate('/manage') }}
-          >
-            <Text as="p">
-              No products are enabled right now, so shoppers won't see the try-on button. Turn it
-              back on in Manage.
-            </Text>
-          </Banner>
-        )}
-
-        {unroutedCount > 0 && (
-          <Banner
-            tone="warning"
-            title="Some products have no basket"
-            action={{ content: 'Go to Manage', onAction: () => navigate('/manage') }}
-          >
-            <Text as="p">
-              {unroutedCount === 1
-                ? "1 enabled product has no basket, so try-on can't run on it — assign one in Manage."
-                : `${unroutedCount} enabled products have no basket, so try-on can't run on them — assign one in Manage.`}
-            </Text>
-          </Banner>
-        )}
-
-        {me && <LowCreditsBanner me={me} />}
-
-        <BalanceCard me={me} />
-
-        <PackGrid onError={setError} />
-
-        <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Try-Ons
+          {embedNeeded && (
+            <Banner
+              tone="warning"
+              title="Turn on the Try It On app embed"
+              action={{
+                content: 'Enable app embed',
+                onAction: openThemeEditor,
+              }}
+            >
+              <Text as="p">
+                The try-on button is now switched on with one toggle instead of being placed in your
+                theme, so shoppers won't see it until you enable the app embed and save. This
+                message goes away once we see the button on a product page of your store.
               </Text>
-              <Text as="p" variant="heading2xl">
-                {me?.stats.totalTryOns ?? 0}
-              </Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Products Synced
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {me?.stats.syncedProductCount ?? 0}
-              </Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Try-On Enabled
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {me?.stats.enabledProductCount ?? 0}
-              </Text>
-              <Text as="p" tone="subdued">
-                of {me?.stats.syncedProductCount ?? 0} synced
-              </Text>
-            </BlockStack>
-          </Card>
-        </InlineGrid>
-
-        <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">
-                Today's try-ons
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {me?.stats.storeDailyCap
-                  ? `${me.stats.todayTryOns} / ${me.stats.storeDailyCap}`
-                  : (me?.stats.todayTryOns ?? 0)}
-              </Text>
-              {me?.stats.storeDailyCap != null &&
-                me.stats.todayTryOns >= me.stats.storeDailyCap && (
-                  <Banner tone="warning">
-                    Your daily limit is reached. Try-on is paused until tomorrow.
-                  </Banner>
-                )}
-              <Text as="p" tone="subdued">
-                {me?.stats.capturedEmailCount ?? 0} emails collected
-              </Text>
-            </BlockStack>
-          </Card>
-
-          <Card>
-            <BlockStack gap="300">
-              <Text as="p" tone="subdued">
-                Sync status
-              </Text>
-              {(['active', 'processing', 'failed', 'disabled'] as const).map((key) => (
-                <InlineStack key={key} align="space-between" blockAlign="center">
-                  <Text as="span">{STATUS_LABEL[key]}</Text>
-                  <Badge tone={STATUS_TONE[key]}>{String(me?.stats.statusCounts[key] ?? 0)}</Badge>
-                </InlineStack>
-              ))}
-            </BlockStack>
-          </Card>
-        </InlineGrid>
-
-        <InlineStack align="space-between" blockAlign="center">
-          <Button variant="plain" onClick={() => navigate('/manage')}>
-            Manage Products
-          </Button>
-          {me?.store.connectedSince && (
-            <Text as="span" tone="subdued">
-              Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
-            </Text>
+            </Banner>
           )}
-        </InlineStack>
-      </BlockStack>
-      {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
-    </Page>
+
+          {tryOnOff && (
+            <Banner
+              tone="warning"
+              title="Virtual try-on is currently off"
+              action={{ content: 'Go to Manage', onAction: () => navigate('/manage') }}
+            >
+              <Text as="p">
+                No products are enabled right now, so shoppers won't see the try-on button. Turn it
+                back on in Manage.
+              </Text>
+            </Banner>
+          )}
+
+          {unroutedCount > 0 && (
+            <Banner
+              tone="warning"
+              title="Some products have no try-on style"
+              action={{ content: 'Go to Manage', onAction: () => navigate('/manage') }}
+            >
+              <Text as="p">
+                {unroutedCount === 1
+                  ? "1 enabled product has no try-on style, so try-on can't run on it — assign one in Manage."
+                  : `${unroutedCount} enabled products have no try-on style, so try-on can't run on them — assign one in Manage.`}
+              </Text>
+            </Banner>
+          )}
+
+          {me && <LowCreditsBanner me={me} />}
+
+          <BalanceCard me={me} />
+
+          <PackGrid onError={setError} />
+
+          <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">
+                  Try-Ons
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {me?.stats.totalTryOns ?? 0}
+                </Text>
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">
+                  Products Synced
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {me?.stats.syncedProductCount ?? 0}
+                </Text>
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">
+                  Try-On Enabled
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {me?.stats.enabledProductCount ?? 0}
+                </Text>
+                <Text as="p" tone="subdued">
+                  of {me?.stats.syncedProductCount ?? 0} synced
+                </Text>
+              </BlockStack>
+            </Card>
+          </InlineGrid>
+
+          <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
+            <Card>
+              <BlockStack gap="200">
+                <Text as="h2" variant="headingMd">
+                  Today's try-ons
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {me?.stats.storeDailyCap
+                    ? `${me.stats.todayTryOns} / ${me.stats.storeDailyCap}`
+                    : (me?.stats.todayTryOns ?? 0)}
+                </Text>
+                {me?.stats.storeDailyCap != null &&
+                  me.stats.todayTryOns >= me.stats.storeDailyCap && (
+                    <Banner tone="warning">
+                      Your daily limit is reached. Try-on is paused until tomorrow.
+                    </Banner>
+                  )}
+                <Text as="p" tone="subdued">
+                  {me?.stats.capturedEmailCount ?? 0} emails collected
+                </Text>
+              </BlockStack>
+            </Card>
+
+            <Card>
+              <BlockStack gap="300">
+                <Text as="p" tone="subdued">
+                  Sync status
+                </Text>
+                {(['active', 'processing', 'failed', 'disabled'] as const).map((key) => (
+                  <InlineStack key={key} align="space-between" blockAlign="center">
+                    <Text as="span">{STATUS_LABEL[key]}</Text>
+                    <Badge tone={STATUS_TONE[key]}>
+                      {String(me?.stats.statusCounts[key] ?? 0)}
+                    </Badge>
+                  </InlineStack>
+                ))}
+              </BlockStack>
+            </Card>
+          </InlineGrid>
+
+          <InlineStack align="space-between" blockAlign="center">
+            <Button variant="plain" onClick={() => navigate('/manage')}>
+              Manage Products
+            </Button>
+            {me?.store.connectedSince && (
+              <Text as="span" tone="subdued">
+                Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
+              </Text>
+            )}
+          </InlineStack>
+        </BlockStack>
+        {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
+      </Page>
+    </AppFont>
   );
 }

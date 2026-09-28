@@ -1,8 +1,9 @@
 import { schema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
 import { syncOneTask, syncProduct } from '../src/modules/shopify/products.sync.js';
+import { isProductSyncActive } from '../src/modules/shopify/service.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 
@@ -299,6 +300,53 @@ describe('syncProduct', () => {
       );
       expect(calls).toBe(2);
       expect((await rowFor(61)).status).toBe('active');
+    });
+
+    it('aborts and retries a body that stalls after the headers arrived', async () => {
+      // The abort timer used to be cleared once headers came back, so a body
+      // that stalled mid-stream had no bound. Fake only the timers: the DB and
+      // MinIO calls are real socket I/O and finish on their own.
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        let calls = 0;
+        const stallsOnce = (async (_url: string, init?: RequestInit) => {
+          calls++;
+          if (calls > 1) {
+            // Fake timers must not outlive the download: the MinIO client's own
+            // request timers would fire under them and fail the put.
+            vi.useRealTimers();
+            return okResponse();
+          }
+          return {
+            ok: true,
+            headers: new Map([['content-type', 'image/jpeg']]),
+            arrayBuffer: () =>
+              new Promise<ArrayBuffer>((_resolve, reject) => {
+                init?.signal?.addEventListener('abort', () => reject(new TypeError('aborted')));
+              }),
+          } as unknown as Response;
+        }) as unknown as typeof fetch;
+        const done = syncProduct(
+          app,
+          storeId,
+          { id: 460, title: 'Stalled Body', imageUrl: 'https://cdn.shopify.com/stall.jpg' },
+          stallsOnce,
+        );
+        const tick = () => new Promise((r) => setImmediate(r));
+        // The abort timer is only armed once the first fetch is under way.
+        while (calls < 1) await tick();
+        await vi.advanceTimersByTimeAsync(30_001);
+        while (calls < 2) {
+          await vi.advanceTimersByTimeAsync(500);
+          await tick();
+        }
+        await done;
+        expect(calls).toBe(2);
+        expect((await rowFor(460)).failedReason).toBeNull();
+        expect((await rowFor(460)).status).toBe('active');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('does not retry a 404, and fails with the status', async () => {
@@ -1050,5 +1098,103 @@ describe('syncOneTask — collection mode, refreshProducts', () => {
     } finally {
       global.fetch = originalFetch;
     }
+  });
+});
+
+describe('syncOneTask — full sync concurrency', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('downloads products within a page in parallel, capped at 5, and still syncs every one', async () => {
+    const store = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 9705,
+        shopDomain: 'concurrency.myshopify.com',
+        myshopifyDomain: 'concurrency.myshopify.com',
+        name: 'Concurrency Store',
+        email: 'concurrency@s.com',
+      },
+      'tok',
+      'read_products',
+    );
+    const ids = Array.from({ length: 12 }, (_, i) => 7000 + i);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const originalFetch = global.fetch;
+    global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/graphql.json')) {
+        const body = JSON.parse(String(init?.body)) as { query: string };
+        const nodes = ids.map((id) => ({
+          id: `gid://shopify/Product/${id}`,
+          title: `P${id}`,
+          productType: null,
+          tags: [],
+          vendor: null,
+          featuredImage: { url: `https://cdn.shopify.com/p${id}.jpg` },
+          collections: { nodes: [] },
+        }));
+        return new Response(
+          JSON.stringify({
+            data: {
+              products: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: body.query.includes('ProductIdsPage')
+                  ? nodes.map((n) => ({ id: n.id }))
+                  : nodes,
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 40));
+      inFlight--;
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { 'Content-Type': 'image/jpeg' },
+      });
+    }) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId: store.id, mode: 'full' });
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    const rows = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(eq(schema.shopifyProductGarments.storeId, store.id));
+    expect(rows).toHaveLength(12);
+    expect(rows.every((r) => r.status === 'active')).toBe(true);
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(maxInFlight).toBeLessThanOrEqual(5);
+  });
+});
+
+describe('isProductSyncActive', () => {
+  const now = 1_000_000_000;
+  it('is active while running and recent', () => {
+    expect(
+      isProductSyncActive({ state: 'running', startedAt: now - 60_000, completedAt: null }, now),
+    ).toBe(true);
+  });
+  it('is not active once idle', () => {
+    expect(
+      isProductSyncActive({ state: 'idle', startedAt: now - 60_000, completedAt: now - 1 }, now),
+    ).toBe(false);
+  });
+  it('stops trusting a stale running status, so a crashed consumer cannot lock re-imports out', () => {
+    expect(
+      isProductSyncActive(
+        { state: 'running', startedAt: now - 16 * 60 * 1000, completedAt: null },
+        now,
+      ),
+    ).toBe(false);
   });
 });

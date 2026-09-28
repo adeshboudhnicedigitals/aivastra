@@ -33,12 +33,10 @@ export function PerShopperLimitCard({ limits, onChange, bare }: CardProps) {
           variant={bare ? 'headingLg' : 'headingMd'}
           fontWeight={bare ? 'bold' : undefined}
         >
-          Per-shopper limit
+          Per-user limit
         </Text>
         <Text as="p" tone="subdued">
-          Reduces casual overuse by one shopper. Treat it as friction, not as a spend guarantee — a
-          shopper who clears their browser storage gets a fresh allowance. Set a store daily limit
-          as well if you want a hard ceiling.
+          Limits try-ons per user. It is friction, not a hard spend cap.
         </Text>
         <Select
           label="Try-ons per shopper"
@@ -76,8 +74,7 @@ export function AskForEmailCard({ limits, onChange, bare }: CardProps) {
           Ask for an email
         </Text>
         <Text as="p" tone="subdued">
-          After this many try-ons, shoppers are asked for their email before continuing. Collected
-          addresses appear on the Analytics page.
+          Asks users for their email after this many try-ons.
         </Text>
         <Select
           label="Ask after"

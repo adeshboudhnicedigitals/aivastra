@@ -2,6 +2,70 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-25 — Onboarding: numbered steps, Previous button, baskets chosen in the product picker
+
+- **Done:** every onboarding page drops the bottom progress bar for a numbered step row pinned
+  at the top (`OnboardingSteps`, driven by `STEP_PAGES`). The welcome intro is not a step and shows
+  no row; numbering starts at page 2 (products = 1 … theme = 4). Pages 2–5 get a **Previous** button (same
+  primary style as Continue, equal widths). The intro page always renders now so page 2 can go
+  back to it; the theme page hides Previous once the embed is detected, because the App gate
+  bounces every `/onboarding/*` route to the dashboard at that point.
+- **Page 2 is one step:** the separate "Choose a basket" card is gone. The "Select products" popup
+  has a last **Basket** column (picking one also ticks the row) plus a "Basket for all selected
+  products" control, needed because "select all matching" rows are never loaded. The popup's
+  Select button stays disabled until every picked product has a basket. Confirm enables and pins
+  in one `POST /products/bulk` per distinct basket (`toBasketedBulkBodies`); "all matching" goes
+  first under the shared basket, then the exceptions are re-pinned by id. Not atomic across calls.
+- **After Confirm:** the enabled-products list carries a basket dropdown per row, which is also how
+  a resumed setup fixes an unrouted product. In global mode it lists every non-excluded product
+  and shows no remove button.
+- **Removed:** `getOnboardingProgress` (+ tests), the unused `step`/`totalSteps` text, `BasketTiles`
+  and the bulk "Apply to all" path of `BasketAssignmentStage` (Manage → Routing keeps the
+  per-product list).
+- **Inline picker (2026-09-27):** the "Select products" popup is gone: step 1 embeds the same
+  picker (search, filters, tick boxes, Basket column) directly in the card, with "Confirm N
+  products" at its bottom right. After confirming, the enabled list shows on top and an "Add more
+  products" picker (locked to active, not-yet-enabled products) sits below it; global-mode stores
+  get no add-more picker. `SelectProductsModal` and `SelectedProductsList` were deleted.
+- **Not verified in a browser** — typecheck, Biome and the vitest suite only.
+
+## 2026-09-27 — Onboarding welcome page redesigned
+
+- **Done:** `OnboardingIntroPage` is now the AI Vastra logo, the headline "Let your customers see
+  themselves in your products.", and three photo cards (Customer Photo + Your Product Image =
+  Virtual Try-On) joined by "+" / "=" connectors, then a three-item benefits row. The old single
+  composite hero (`onboarding-hero.jpg`) is unwired but left on disk. The three photos come from
+  `person.png` / `garment.png` / `result.png` (2.6MB each, in the repo root, untracked), resized
+  to 720px-wide JPEGs under `src/assets/welcome-*.jpg` (~60-70KB each). Card size follows viewport
+  height, so it fits without scrolling at 1440x900 and 1280x720 (checked with headless Chromium).
+- **Logo:** copied `logo.svg` / `logo-text.svg` from `apps/catalogues-web/public/assets` — the
+  real brand mark is the colourful gradient one, not the grey mark in the mockup.
+
+## 2026-09-27 — Dev: product thumbnails were blank (Chrome blocks loopback fetch from the ngrok origin)
+
+- **Root cause:** presigned thumbnail URLs point at `R2_ENDPOINT` (`http://127.0.0.1:9000` in dev).
+  The Shopify admin SPA loads from the public `https://<tunnel>.ngrok-free.dev` origin, and Chrome's
+  Private Network Access policy blocks a public-origin page from fetching a bare loopback address
+  outright (`net::ERR_FAILED`, "Permission was denied ... `loopback` address space") — every product
+  row showed with no image, though sync itself worked (rows were `active`, files existed in MinIO).
+- **First attempt (reverted):** pointing `R2_PUBLIC_PRESIGN_BASE` at `<tunnel>/minio` fixed Shopify
+  but was wrong — that env var is one process-wide setting on the single shared `app.storage`, so it
+  would follow every other app (admin-web, catalogues-web) into their own local dev too, breaking
+  their images whenever the Shopify app's Vite server + tunnel weren't also running.
+- **Fix:** a new dev-only proxy, `apps/api/src/modules/dev/minio-proxy.routes.ts`, mounted at
+  `/minio/*` and registered in `server.ts` only when `NODE_ENV === 'development'`; it forwards to
+  `R2_ENDPOINT` and streams the response back. `apps/shopify/vite.config.ts` gets a matching
+  `/minio` proxy entry (same shape as the existing `/v1` one). `R2_PUBLIC_PRESIGN_BASE` stays at
+  the plain `http://127.0.0.1:9000` it always was — every app keeps getting ordinary loopback
+  URLs. Instead, `apps/shopify/src/lib/images.ts`'s `resolveImageUrl` rewrites a thumbnail URL to
+  go through this same-origin `/minio` proxy client-side, and only when the page itself isn't
+  already on a loopback origin (i.e. only when actually viewed through the tunnel) — used at every
+  `<img>`/`<Thumbnail source=...>` site in `apps/shopify` (`ProductRow`, `ProductSelectionStage`,
+  `BasketAssignmentStage`, `ManagePage`). Production URLs are never loopback, so it's a no-op there
+  by construction, no `NODE_ENV` check needed.
+  Verified end to end: curled a live presigned URL through both the API (port 4000) and the Vite
+  dev server (port 5174) and got the real JPEG back.
+
 ## 2026-09-25 — Manage page: failed products no longer counted as synced, and can be retried
 
 - **Done:** the Manage page's "Products Synced" numerator counted every non-deleted row, so a store

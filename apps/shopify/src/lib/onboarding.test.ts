@@ -5,13 +5,13 @@ import {
   canShowPostBasketPage,
   canShowProductsPage,
   canShowThemePage,
-  getOnboardingProgress,
   getOnboardingStep,
   isBasketsDone,
   isSelectionDone,
   isTryOnOff,
   needsEmbedEnable,
   onboardingPath,
+  previousPagePath,
   unroutedWarningCount,
 } from './onboarding';
 
@@ -232,40 +232,6 @@ describe('onboardingPath', () => {
   });
 });
 
-describe('getOnboardingProgress', () => {
-  it('advances one slot per page: 1/6 on the intro up to 5/6 on the theme page', () => {
-    const me = baseMe();
-    expect(getOnboardingProgress(me, 'intro')).toBeCloseTo(1 / 6);
-    expect(getOnboardingProgress(me, 'contact')).toBeCloseTo(3 / 6);
-    expect(getOnboardingProgress(me, 'limits')).toBeCloseTo(4 / 6);
-    expect(getOnboardingProgress(me, 'theme')).toBeCloseTo(5 / 6);
-  });
-
-  it('moves within page 2 as products are picked and then every basket is assigned', () => {
-    const start = getOnboardingProgress(baseMe({ syncedProductCount: 3 }), 'products');
-    const picked = getOnboardingProgress(
-      baseMe({ syncedProductCount: 3, unroutedEnabledCount: 3 }),
-      'products',
-    );
-    const done = getOnboardingProgress(
-      baseMe({ syncedProductCount: 3, enabledProductCount: 3 }),
-      'products',
-    );
-    expect(start).toBeCloseTo(2 / 6);
-    expect(picked).toBeCloseTo(2.5 / 6);
-    expect(done).toBeCloseTo(2.75 / 6);
-    // Still short of the contact page's slot, so the bar never runs backwards.
-    expect(done).toBeLessThan(getOnboardingProgress(baseMe(), 'contact'));
-  });
-
-  it('only reaches 100% once the app embed is confirmed on the theme page', () => {
-    const me = baseMe({ syncedProductCount: 3, enabledProductCount: 3 });
-    expect(getOnboardingProgress(me, 'theme')).toBeLessThan(1);
-    me.store.settings.themeEmbedConfirmed = true;
-    expect(getOnboardingProgress(me, 'theme')).toBe(1);
-  });
-});
-
 describe('needsEmbedEnable', () => {
   it('flags a store that confirmed the old block but never enabled the embed', () => {
     expect(needsEmbedEnable(baseMe({ themeBlockConfirmed: true }))).toBe(true);
@@ -300,5 +266,18 @@ describe('canShowPostBasketPage', () => {
   it('sends a merchant with products or baskets outstanding back to them', () => {
     expect(canShowPostBasketPage('intro')).toBe(false);
     expect(canShowPostBasketPage('products')).toBe(false);
+  });
+});
+
+describe('previousPagePath', () => {
+  it('steps back one page at a time, ending at the intro', () => {
+    expect(previousPagePath('theme')).toBe('/onboarding/limits');
+    expect(previousPagePath('limits')).toBe('/onboarding/contact');
+    expect(previousPagePath('contact')).toBe('/onboarding/products');
+    expect(previousPagePath('products')).toBe('/onboarding');
+  });
+
+  it('has nothing before the intro', () => {
+    expect(previousPagePath('intro')).toBeNull();
   });
 });

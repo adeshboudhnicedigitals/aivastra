@@ -1,21 +1,21 @@
 import { BlockStack, Card, Text } from '@shopify/polaris';
 import type { ReactNode } from 'react';
+import type { OnboardingPage } from '../lib/onboarding';
 import { OnboardingShell } from './OnboardingShell';
 
-// No Back button: a merchant navigating to an already-completed step is
-// immediately redirected forward again by each onboarding page's own
-// getOnboardingStep check (see lib/onboarding.ts) — a Back control here
-// would be clickable but never actually land anywhere.
+// Back is derived from the page's position in the wizard (OnboardingShell). Each
+// page's own guard decides whether the earlier page may render; the App gate
+// bounces a finished wizard to the dashboard, hence hideBack on the last page.
 export function OnboardingLayout({
-  step,
-  totalSteps,
-  progress,
+  page,
+  hideBack,
   heading,
   title,
   titleAlign = 'start',
   largeTitle = false,
   bare = false,
   fullWidth = false,
+  padding = 'var(--p-space-1600) var(--p-space-800)',
   card = true,
   continueLabel = 'Continue',
   onContinue,
@@ -24,9 +24,8 @@ export function OnboardingLayout({
   secondaryAction,
   children,
 }: {
-  step?: number;
-  totalSteps?: number;
-  progress: number;
+  page: OnboardingPage;
+  hideBack?: boolean;
   /** Optional page-level heading above the step header. */
   heading?: string;
   title?: string;
@@ -38,6 +37,8 @@ export function OnboardingLayout({
   bare?: boolean;
   /** Drop the 1000px content cap so the page uses the whole panel width. */
   fullWidth?: boolean;
+  /** CSS padding of the content column, for a page that wants tighter top or wider sides. */
+  padding?: string;
   /** Wrap the content in a bordered Polaris Card (default). Off leaves it on the bare panel. */
   card?: boolean;
   continueLabel?: string;
@@ -50,7 +51,8 @@ export function OnboardingLayout({
 }) {
   return (
     <OnboardingShell
-      progress={progress}
+      page={page}
+      hideBack={hideBack}
       continueLabel={continueLabel}
       onContinue={onContinue}
       continueDisabled={continueDisabled}
@@ -66,7 +68,7 @@ export function OnboardingLayout({
           maxWidth: fullWidth ? 'none' : 1000,
           width: '100%',
           margin: '0 auto',
-          padding: 'var(--p-space-1600) var(--p-space-800)',
+          padding,
         }}
       >
         <BlockStack gap="400">
@@ -76,8 +78,12 @@ export function OnboardingLayout({
             <h1
               style={{
                 margin: 0,
-                fontSize: 36,
-                lineHeight: 1.15,
+                marginBottom: 8,
+                // Smaller than the other onboarding titles' fixed 36px — the
+                // only caller (products page) passes a much longer sentence,
+                // and 36px wrapped it awkwardly.
+                fontSize: 30,
+                lineHeight: 1.25,
                 fontWeight: 700,
                 textAlign: 'center',
               }}
@@ -89,15 +95,10 @@ export function OnboardingLayout({
             children
           ) : (
             <>
-              {step != null && totalSteps != null && (
-                <Text as="p" tone="subdued">
-                  Step {step} of {totalSteps}
-                </Text>
-              )}
               <div style={{ textAlign: titleAlign === 'center' ? 'center' : undefined }}>
                 {largeTitle ? (
-                  // Plain h1: Polaris Text tops out at 28px. 700 is the heaviest weight
-                  // Roboto Mono ships.
+                  // Plain h1: Polaris Text tops out at 28px. 700 is a bold, heavy weight
+                  // for the wizard's Public Sans.
                   <h1 style={{ margin: 0, fontSize: 32, lineHeight: 1.2, fontWeight: 700 }}>
                     {title}
                   </h1>

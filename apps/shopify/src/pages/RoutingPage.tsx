@@ -288,7 +288,7 @@ export function RuleEditorModal({
             disabled={rule !== null}
             helpText={
               rule !== null
-                ? "The basket a rule routes to can't be changed after it's created — delete this rule and add a new one to route it elsewhere."
+                ? "The try-on style a rule routes to can't be changed after it's created — delete this rule and add a new one to route it elsewhere."
                 : undefined
             }
           />
@@ -376,7 +376,7 @@ export function RuleEditorModal({
 }
 
 function basketLabelFor(baskets: Basket[], id: string): string {
-  return baskets.find((b) => b.id === id)?.label ?? 'Unknown basket';
+  return baskets.find((b) => b.id === id)?.label ?? 'Unknown try-on style';
 }
 
 export default function RoutingTab({
@@ -515,7 +515,6 @@ export default function RoutingTab({
                   reloadKey={refreshToken}
                   unrouted={rules.unroutedEnabled ?? 0}
                   onChanged={refreshRules}
-                  bulk={false}
                 />
               </BlockStack>
             </Card>
@@ -535,7 +534,7 @@ export default function RoutingTab({
                   itemCount={rules.storeRules.length}
                   resourceName={{ singular: 'rule', plural: 'rules' }}
                   headings={[
-                    { title: 'Basket' },
+                    { title: 'Try-on style' },
                     { title: 'Conditions' },
                     { title: 'Priority' },
                     { title: '' },
@@ -601,7 +600,7 @@ export default function RoutingTab({
                   itemCount={rules.globalRules.length}
                   resourceName={{ singular: 'global rule', plural: 'global rules' }}
                   headings={[
-                    { title: 'Basket' },
+                    { title: 'Try-on style' },
                     { title: 'Conditions' },
                     { title: 'Priority' },
                     { title: 'Enabled' },

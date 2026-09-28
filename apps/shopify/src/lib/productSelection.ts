@@ -54,3 +54,67 @@ export function toBulkTarget(
     ? { filter: filterToBody(filter), excludeIds: [...s.excluded] }
     : { filter: filterToBody(filter) };
 }
+
+/**
+ * The basket a picked product will get: its own choice, else the one chosen for
+ * everything. the empty string means none yet.
+ */
+export function effectiveBasket(
+  id: number,
+  baskets: Readonly<Record<number, string>>,
+  defaultBasket: string,
+): string {
+  return baskets[id] || defaultBasket;
+}
+
+/**
+ * Every picked product has a basket. With "all matching" most products were
+ * never loaded and cannot have a choice of their own, so the one for everything
+ * has to be set.
+ */
+export function basketsComplete(
+  s: Selection,
+  baskets: Readonly<Record<number, string>>,
+  defaultBasket: string,
+): boolean {
+  if (s.kind === 'all') return defaultBasket !== '';
+  for (const id of s.ids) if (!effectiveBasket(id, baskets, defaultBasket)) return false;
+  return true;
+}
+
+/**
+ * The POST /v1/shopify/products/bulk calls that enable a pick and pin its
+ * baskets: one call per distinct basket, since the endpoint applies one basket
+ * to a target. "All matching" is enabled under the basket for everything first;
+ * products with a different choice are then re-pinned by id.
+ */
+export function toBasketedBulkBodies(
+  s: Selection,
+  filter: ProductFilterState,
+  baskets: Readonly<Record<number, string>>,
+  defaultBasket: string,
+): Array<Record<string, unknown>> {
+  const bodies: Array<Record<string, unknown>> = [];
+  const byBasket = new Map<string, number[]>();
+  const pin = (id: number) => {
+    const basket = effectiveBasket(id, baskets, defaultBasket);
+    if (basket && (s.kind === 'ids' || basket !== defaultBasket)) {
+      byBasket.set(basket, [...(byBasket.get(basket) ?? []), id]);
+    }
+  };
+
+  if (s.kind === 'ids') {
+    for (const id of s.ids) pin(id);
+  } else {
+    bodies.push({
+      target: toBulkTarget(s, filter),
+      enabled: true,
+      funnelTemplateId: defaultBasket,
+    });
+    for (const id of Object.keys(baskets).map(Number)) if (!s.excluded.has(id)) pin(id);
+  }
+  for (const [funnelTemplateId, ids] of byBasket) {
+    bodies.push({ target: { ids }, enabled: true, funnelTemplateId });
+  }
+  return bodies;
+}

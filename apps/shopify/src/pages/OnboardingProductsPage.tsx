@@ -1,24 +1,29 @@
-import { Banner, BlockStack, Button, Card, InlineStack, Spinner, Text } from '@shopify/polaris';
+import { Banner, BlockStack, Button, Card, Spinner, Text } from '@shopify/polaris';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { OnboardingLayout } from '../components/OnboardingLayout';
-import { BasketAssignmentStage } from '../components/onboarding/BasketAssignmentStage';
-import { EnabledProductsList } from '../components/onboarding/EnabledProductsList';
-import type { StagePick } from '../components/onboarding/ProductSelectionStage';
-import { SelectedProductsList } from '../components/onboarding/SelectedProductsList';
-import { SelectProductsModal } from '../components/onboarding/SelectProductsModal';
+import {
+  ProductSelectionStage,
+  type StagePick,
+} from '../components/onboarding/ProductSelectionStage';
 import { apiFetch } from '../lib/api';
+import { useBaskets } from '../lib/baskets';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import {
   canShowProductsPage,
-  getOnboardingProgress,
   getOnboardingStep,
   isBasketsDone,
   isSelectionDone,
   onboardingPath,
 } from '../lib/onboarding';
-import { EMPTY_SELECTION, selectedCount, toBulkTarget } from '../lib/productSelection';
+import {
+  basketsComplete,
+  EMPTY_SELECTION,
+  isSelected,
+  selectedCount,
+  toBasketedBulkBodies,
+} from '../lib/productSelection';
 import { DEFAULT_SELECTION_FILTER } from '../lib/products';
 import type { ShopifyBulkResult, ShopifyMe } from '../types';
 
@@ -27,6 +32,8 @@ const EMPTY_PICK: StagePick = {
   filter: DEFAULT_SELECTION_FILTER,
   total: 0,
   items: [],
+  baskets: {},
+  defaultBasket: '',
 };
 
 export default function OnboardingProductsPage({
@@ -34,20 +41,23 @@ export default function OnboardingProductsPage({
   onRefresh,
 }: {
   me: ShopifyMe;
-  onRefresh: () => Promise<void>;
+  onRefresh: () => Promise<ShopifyMe>;
 }) {
   const navigate = useNavigate();
+  const { baskets } = useBaskets();
   const [syncing, setSyncing] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<ClassifiedError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  // The confirmed pick: what the picker modal last returned, and what Continue commits.
+  // The picker's current draft: every product it's ever seen is ticked here
+  // exactly when the merchant wants it enabled (an already-enabled one starts
+  // ticked — see ProductSelectionStage's seeding), with the style chosen for
+  // each. Nothing here is saved until Continue is pressed.
   const [pick, setPick] = useState<StagePick>(EMPTY_PICK);
 
   // Which steps may render this page lives in canShowProductsPage: 'intro' (just
   // arrived from the intro page, nothing synced yet) and 'theme' once baskets
-  // are done (stage 2 stays up until the merchant presses Continue) are both
+  // are done (the page stays up until the merchant presses Continue) are both
   // legitimate. Only a finished wizard is redirected away.
   const currentStep = getOnboardingStep(me);
 
@@ -93,49 +103,88 @@ export default function OnboardingProductsPage({
     }
   }, [me.stats.syncedProductCount, runSync]);
 
-  if (!canShowProductsPage(currentStep, me)) {
-    return <Navigate to={onboardingPath(currentStep)} replace />;
-  }
-
-  // The stage follows the data, so a reload lands on the right one. There is no
-  // Back between stages: the selection is committed when stage 1 is left, and
-  // changing it afterwards happens in Manage.
+  // Gates the global-mode "nothing to add" case below; Continue's own gate is
+  // the draft's own routed check (picked/routed), not this server snapshot,
+  // since nothing here is saved until Continue runs.
   const selectionDone = isSelectionDone(me);
-  const basketsDone = isBasketsDone(me);
   const picked = selectedCount(pick.selection, pick.total);
+  const routed = basketsComplete(pick.selection, pick.baskets, pick.defaultBasket);
 
-  // Enables a pick. Used for the first confirmation and for "add more" afterwards.
-  async function enablePick(toEnable: StagePick) {
-    if (selectedCount(toEnable.selection, toEnable.total) === 0 || committing) return;
+  // Saves the whole draft, then moves on — the one place anything in this
+  // table reaches the server. A product the merchant unticked that was already
+  // live is disabled individually (the bulk endpoint deliberately only ever
+  // enables — see products.bulk.ts's comment); everything still ticked is
+  // enabled/re-pinned in one bulk call per distinct style, harmless to re-send
+  // for a row that was already exactly this.
+  const saveAndContinue = useCallback(async () => {
+    if (committing || (picked > 0 && !routed)) return;
     setCommitting(true);
     setError(null);
     setNotice(null);
     try {
-      const res = await apiFetch<ShopifyBulkResult>('/v1/shopify/products/bulk', {
-        method: 'POST',
-        body: JSON.stringify({
-          target: toBulkTarget(toEnable.selection, toEnable.filter),
-          enabled: true,
-        }),
-      });
-      const skipped = res.skipped.notActive + res.skipped.excluded;
-      if (res.updated === 0) {
-        setNotice(
-          'None of the selected products could be enabled — they are still processing, failed to sync, or excluded.',
+      const toDisable = pick.items
+        .filter((item) => item.enabled && !isSelected(pick.selection, item.shopifyProductId))
+        .map((item) => item.shopifyProductId);
+      await Promise.all(
+        toDisable.map((id) =>
+          apiFetch(`/v1/shopify/products/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled: false }),
+          }),
+        ),
+      );
+
+      if (selectedCount(pick.selection, pick.total) > 0) {
+        const bodies = toBasketedBulkBodies(
+          pick.selection,
+          pick.filter,
+          pick.baskets,
+          pick.defaultBasket,
         );
-      } else if (skipped > 0) {
-        setNotice(
-          `${skipped} selected product${skipped === 1 ? ' was' : 's were'} skipped: ${res.skipped.notActive} still processing or failed, ${res.skipped.excluded} excluded.`,
-        );
+        let res: ShopifyBulkResult | null = null;
+        let updated = 0;
+        for (const body of bodies) {
+          const result = await apiFetch<ShopifyBulkResult>('/v1/shopify/products/bulk', {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+          res ??= result;
+          updated = Math.max(updated, result.updated);
+        }
+        const skipped = res ? res.skipped.notActive + res.skipped.excluded : 0;
+        if (skipped > 0 && res) {
+          setNotice(
+            `${skipped} selected product${skipped === 1 ? ' was' : 's were'} skipped: ${res.skipped.notActive} still processing or failed, ${res.skipped.excluded} excluded.`,
+          );
+        }
+        if (res && updated === 0 && toDisable.length === 0) {
+          setNotice(
+            'None of the selected products could be enabled — they are still processing, failed to sync, or excluded.',
+          );
+        }
       }
-      // The products are enabled now; the draft has done its job and would only go stale.
-      setPick(EMPTY_PICK);
-      await onRefresh();
+
+      const freshMe = await onRefresh();
+      if (!isBasketsDone(freshMe)) {
+        setError(
+          classifyError(
+            new Error(
+              'At least one product needs to be enabled with a try-on style before you can continue.',
+            ),
+          ),
+        );
+        return;
+      }
+      navigate('/onboarding/contact');
     } catch (err) {
       setError(classifyError(err));
     } finally {
       setCommitting(false);
     }
+  }, [committing, picked, routed, pick, onRefresh, navigate]);
+
+  if (!canShowProductsPage(currentStep, me)) {
+    return <Navigate to={onboardingPath(currentStep)} replace />;
   }
 
   // A failed import also leaves 0 synced products; the ErrorBanner (with Retry)
@@ -143,21 +192,32 @@ export default function OnboardingProductsPage({
   const noProducts = !syncing && !error && syncStarted.current && me.stats.syncedProductCount === 0;
 
   const globalMode = me.store.settings.activation?.mode === 'global';
-  const enabledTotal = me.stats.enabledProductCount + (me.stats.unroutedEnabledCount ?? 0);
   const hasCatalogue = !syncing && !noProducts && me.stats.syncedProductCount > 0;
 
   return (
     <OnboardingLayout
       bare
-      progress={getOnboardingProgress(me, 'products')}
-      heading="Set up your first try-on"
-      continueDisabled={!(selectionDone && basketsDone)}
-      onContinue={() => navigate('/onboarding/contact')}
+      page="products"
+      heading="Describe Your Garment type for Accurate Virtual Try-On Results"
+      // Less top padding than the default — this page's heading is a long
+      // sentence, not a short title, so the default's generous top gap left
+      // too much dead space above it.
+      padding="var(--p-space-800) var(--p-space-800) var(--p-space-1600) var(--p-space-800)"
+      continueDisabled={picked > 0 && !routed}
+      continueLoading={committing}
+      onContinue={saveAndContinue}
     >
-      {/* Retry only makes sense for a failed import; a failed bulk save is retried by pressing Confirm again. */}
+      {/* Retry re-imports on a failed sync, or replays the save Continue just
+          attempted. */}
       <ErrorBanner
         error={error}
-        onRetry={me.stats.syncedProductCount === 0 && !syncing ? runSync : undefined}
+        onRetry={
+          me.stats.syncedProductCount === 0 && !syncing
+            ? runSync
+            : picked === 0 || routed
+              ? saveAndContinue
+              : undefined
+        }
         onDismiss={() => setError(null)}
       />
       {notice && (
@@ -184,101 +244,27 @@ export default function OnboardingProductsPage({
         </BlockStack>
       )}
       {hasCatalogue && (
-        <>
-          <Card>
-            <BlockStack gap="300">
-              <Text as="p" tone="subdued">
-                Step 1
-              </Text>
-              <Text as="h2" variant="headingLg">
-                Choose your products
-              </Text>
-              {selectionDone ? (
-                <>
-                  <Text as="p">
-                    {enabledTotal} product{enabledTotal === 1 ? '' : 's'} enabled for try-on. You
-                    can still add or remove products here.
+        <Card>
+          <BlockStack gap="300">
+            <Text as="p" tone="subdued">
+              Tick the products you want shoppers to try on, then give each one a try-on style.
+              Nothing is saved until you press Continue.
+            </Text>
+            {/* In global mode every product is already enabled without a flag of its
+                own, so this table couldn't show them as picks and there is nothing to
+                tick. */}
+            {!(selectionDone && globalMode) && (
+              <>
+                <ProductSelectionStage onPickChange={setPick} baskets={baskets} />
+                {picked > 0 && !routed && (
+                  <Text as="p" tone="caution">
+                    Choose a try-on style for every selected product to continue.
                   </Text>
-                  <div>
-                    <Button loading={committing} onClick={() => setPickerOpen(true)}>
-                      Add more products
-                    </Button>
-                  </div>
-                  {/* In global mode products have no per-product enabled flag, so
-                      there is nothing to list or remove; Manage handles those stores. */}
-                  {!globalMode && (
-                    <EnabledProductsList version={enabledTotal} onChanged={onRefresh} />
-                  )}
-                </>
-              ) : (
-                <>
-                  <Text as="p" tone={picked === 0 ? 'subdued' : undefined}>
-                    {picked === 0
-                      ? 'Choose the products you want shoppers to try on.'
-                      : `${picked} product${picked === 1 ? '' : 's'} selected.`}
-                  </Text>
-                  {/* Wrapped so the buttons keep their natural width while the list below fills the card. */}
-                  <div>
-                    <InlineStack gap="200">
-                      <Button
-                        variant={picked === 0 ? 'primary' : undefined}
-                        onClick={() => setPickerOpen(true)}
-                      >
-                        Select products
-                      </Button>
-                      {picked > 0 && (
-                        <Button
-                          variant="primary"
-                          loading={committing}
-                          onClick={() => enablePick(pick)}
-                        >
-                          {`Confirm ${picked} product${picked === 1 ? '' : 's'}`}
-                        </Button>
-                      )}
-                    </InlineStack>
-                  </div>
-                  <SelectedProductsList pick={pick} onChange={setPick} />
-                </>
-              )}
-              <SelectProductsModal
-                open={pickerOpen}
-                initial={selectionDone ? EMPTY_PICK : pick}
-                onCancel={() => setPickerOpen(false)}
-                onConfirm={(confirmed) => {
-                  setPickerOpen(false);
-                  // Before the first confirmation the pick is a draft; after it, the
-                  // selection is live, so adding takes effect immediately.
-                  if (selectionDone) void enablePick(confirmed);
-                  else setPick(confirmed);
-                }}
-              />
-            </BlockStack>
-          </Card>
-          {/* Locked until step 1 is confirmed: baskets are assigned to enabled products. */}
-          <Card>
-            <BlockStack gap="300">
-              <Text as="p" tone="subdued">
-                Step 2
-              </Text>
-              <Text as="h2" variant="headingLg">
-                Choose a basket for your products
-              </Text>
-              {selectionDone ? (
-                <BasketAssignmentStage
-                  globalMode={me.store.settings.activation?.mode === 'global'}
-                  // Step 1 can add or remove products while this list is on screen.
-                  reloadKey={me.stats.enabledProductCount + (me.stats.unroutedEnabledCount ?? 0)}
-                  unrouted={me.stats.unroutedEnabledCount ?? 0}
-                  onChanged={onRefresh}
-                />
-              ) : (
-                <Text as="p" tone="subdued">
-                  Confirm your products above, then choose a basket for them here.
-                </Text>
-              )}
-            </BlockStack>
-          </Card>
-        </>
+                )}
+              </>
+            )}
+          </BlockStack>
+        </Card>
       )}
     </OnboardingLayout>
   );

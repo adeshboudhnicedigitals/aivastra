@@ -1,5 +1,10 @@
 import '@shopify/polaris/build/esm/styles.css';
 import { AppProvider, Banner, Box, Frame, Navigation, Spinner } from '@shopify/polaris';
+// AppProvider has no built-in default strings — an empty i18n object silently
+// blanks every one of Polaris's own labels (pagination Previous/Next,
+// IndexFilters' "Add filter", select-all checkboxes, …), not just their visible
+// text but their aria-labels too.
+import enTranslations from '@shopify/polaris/locales/en.json';
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppNavMenu, NAV_ITEMS } from './components/AppNavMenu';
@@ -77,9 +82,14 @@ export default function App() {
   // onboarding page independently re-fetch its own copy — is what keeps the
   // gate effect below and each page's own step-order check from disagreeing
   // about where the merchant currently is.
+  // Returns the freshly-fetched `me` (not just void) so a caller that needs to
+  // validate against it right away — the products page's Continue, checking
+  // whether what it just saved actually leaves the store in a valid state —
+  // doesn't have to wait a render for the prop to catch up.
   const refreshMe = useCallback(async () => {
     const res = await apiFetch<ShopifyMe>('/v1/shopify/me');
     setMe(res);
+    return res;
   }, []);
 
   useEffect(() => {
@@ -143,7 +153,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <AppProvider i18n={{}}>
+      <AppProvider i18n={enTranslations}>
         <Spinner accessibilityLabel="Loading" size="large" />
       </AppProvider>
     );
@@ -151,7 +161,7 @@ export default function App() {
 
   if (error) {
     return (
-      <AppProvider i18n={{}}>
+      <AppProvider i18n={enTranslations}>
         <Box padding="800">
           <Banner
             title="Couldn't load AiVastra"
@@ -195,7 +205,7 @@ export default function App() {
     ) : undefined;
 
   return (
-    <AppProvider i18n={{}}>
+    <AppProvider i18n={enTranslations}>
       <AppNavMenu onboardingComplete={onboardingComplete} />
       <Frame navigation={devNavigation}>
         <Routes>
@@ -207,7 +217,7 @@ export default function App() {
           <Route path="/support" element={<SupportPage />} />
           <Route path="/billing/callback" element={<BillingCallbackPage />} />
           <Route path="/billing/autorefill-callback" element={<AutorefillCallbackPage />} />
-          <Route path="/onboarding" element={<OnboardingIntroPage me={me} />} />
+          <Route path="/onboarding" element={<OnboardingIntroPage />} />
           <Route
             path="/onboarding/products"
             element={<OnboardingProductsPage me={me} onRefresh={refreshMe} />}

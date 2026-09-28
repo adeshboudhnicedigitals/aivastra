@@ -22,6 +22,7 @@ import {
   Toast,
 } from '@shopify/polaris';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { AppFont } from '../components/AppFont';
 import { CollectionPickerModal } from '../components/CollectionPickerModal';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { ProductPickerModal } from '../components/ProductPickerModal';
@@ -35,6 +36,7 @@ import {
 import { isTabEditable } from '../lib/activationTabState';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
+import { resolveImageUrl } from '../lib/images';
 import { setNavGuard } from '../lib/navGuard';
 import { CLEARED_FILTER, type ProductFilterState } from '../lib/products';
 import type { ShopifyProductListItem } from '../types';
@@ -128,7 +130,7 @@ interface FunnelRulesSummary {
 }
 
 function basketLabelFor(baskets: Basket[], id: string): string {
-  return baskets.find((b) => b.id === id)?.label ?? 'Unknown basket';
+  return baskets.find((b) => b.id === id)?.label ?? 'Unknown try-on style';
 }
 
 interface CollectionRow {
@@ -461,7 +463,12 @@ function IndividualProductsPanel({
         loading={loading}
         itemCount={items.length}
         resourceName={{ singular: 'product', plural: 'products' }}
-        headings={[{ title: 'Product' }, { title: 'Status' }, { title: 'Basket' }, { title: '' }]}
+        headings={[
+          { title: 'Product' },
+          { title: 'Status' },
+          { title: 'Try-on style' },
+          { title: '' },
+        ]}
         emptyState={<EmptyState heading="No individually enabled products" image="" />}
       >
         {items.map((item, index) => {
@@ -477,7 +484,7 @@ function IndividualProductsPanel({
               <IndexTable.Cell>
                 <InlineStack gap="300" blockAlign="center">
                   <Thumbnail
-                    source={item.thumbnailUrl}
+                    source={resolveImageUrl(item.thumbnailUrl)}
                     alt={item.title ?? 'Product'}
                     size="small"
                   />
@@ -503,7 +510,7 @@ function IndividualProductsPanel({
                     </Text>
                     {item.pinnedBasketId !== null && (
                       <Text as="span" tone="subdued">
-                        Pinned basket unavailable, no fallback configured
+                        Pinned try-on style unavailable, no fallback configured
                       </Text>
                     )}
                     {item.pinnedBasketId !== null && (
@@ -531,12 +538,12 @@ function IndividualProductsPanel({
                         "Reset to automatic" (below) has a reason to still be offered. */}
                     {item.pinnedBasketId !== null && item.basket.source !== 'manual' && (
                       <Text as="span" tone="subdued">
-                        Pinned basket unavailable, using {item.basket.label}
+                        Pinned try-on style unavailable, using {item.basket.label}
                       </Text>
                     )}
                     <InlineStack gap="200" blockAlign="center">
                       <Select
-                        label="Basket"
+                        label="Try-on style"
                         labelHidden
                         disabled={!editable || basketBusy || baskets.length === 0}
                         options={baskets.map((b) => ({ value: b.id, label: b.label }))}
@@ -664,7 +671,7 @@ function ExclusionPanel({
               <IndexTable.Cell>
                 <InlineStack gap="300" blockAlign="center">
                   <Thumbnail
-                    source={item.thumbnailUrl}
+                    source={resolveImageUrl(item.thumbnailUrl)}
                     alt={item.title ?? 'Product'}
                     size="small"
                   />
@@ -800,7 +807,7 @@ function FailedProductsModal({
               <IndexTable.Cell>
                 <InlineStack gap="300" blockAlign="center">
                   <Thumbnail
-                    source={item.thumbnailUrl}
+                    source={resolveImageUrl(item.thumbnailUrl)}
                     alt={item.title ?? 'Product'}
                     size="small"
                   />
@@ -1154,11 +1161,13 @@ export default function ManagePage() {
 
   if (!summary) {
     return (
-      <Page title="Manage">
-        <Card>
-          <Text as="p">Loading…</Text>
-        </Card>
-      </Page>
+      <AppFont>
+        <Page title="Manage">
+          <Card>
+            <Text as="p">Loading…</Text>
+          </Card>
+        </Page>
+      </AppFont>
     );
   }
 
@@ -1166,214 +1175,283 @@ export default function ManagePage() {
   const activeTabId = TABS[selectedTab].id;
 
   return (
-    <Page
-      title="Manage"
-      subtitle="Control which products offer Try-On."
-      primaryAction={{ content: 'Sync products', onAction: syncProducts, loading: syncing }}
-    >
-      {isDirty && (
-        <ContextualSaveBar
-          message="Unsaved changes"
-          saveAction={{ content: 'Save', onAction: saveChanges, loading: saving }}
-          discardAction={{ content: 'Discard', onAction: discardChanges, disabled: saving }}
-        />
-      )}
-      <BlockStack gap="400">
-        <ErrorBanner error={error} onRetry={loadSummary} onDismiss={() => setError(null)} />
-
-        {catchingUp && (
-          <Banner tone="info">
-            Bringing in products you added in Shopify. The counts below update as they arrive.
-          </Banner>
+    <AppFont>
+      <Page
+        title="Manage"
+        subtitle="Control which products offer Try-On."
+        primaryAction={{ content: 'Sync products', onAction: syncProducts, loading: syncing }}
+      >
+        {isDirty && (
+          <ContextualSaveBar
+            message="Unsaved changes"
+            saveAction={{ content: 'Save', onAction: saveChanges, loading: saving }}
+            discardAction={{ content: 'Discard', onAction: discardChanges, disabled: saving }}
+          />
         )}
+        <BlockStack gap="400">
+          <ErrorBanner error={error} onRetry={loadSummary} onDismiss={() => setError(null)} />
 
-        {unrouted !== null && unrouted > 0 && (
-          <Banner tone="warning">
-            {unrouted} product{unrouted === 1 ? ' has' : 's have'} no basket assigned — Try-On won't
-            work for {unrouted === 1 ? 'it' : 'them'} until you add a routing rule or pin{' '}
-            {unrouted === 1 ? 'it' : 'them'} individually.
-          </Banner>
-        )}
+          {catchingUp && (
+            <Banner tone="info">
+              Bringing in products you added in Shopify. The counts below update as they arrive.
+            </Banner>
+          )}
 
-        <Card>
-          <BlockStack gap="200">
-            <Checkbox
-              label="Enable Try-On on all products (except exclusions)"
-              checked={mode === 'global'}
-              onChange={stageMode}
-            />
-            <Text as="p" tone="subdued">
-              When on, every synced product offers Try-On unless it — or a collection it belongs to
-              — is excluded below. Click Save above to apply.
-            </Text>
-          </BlockStack>
-        </Card>
+          {unrouted !== null && unrouted > 0 && (
+            <Banner tone="warning">
+              {unrouted} product{unrouted === 1 ? ' has' : 's have'} no try-on style assigned —
+              Try-On won't work for {unrouted === 1 ? 'it' : 'them'} until you add a routing rule or
+              pin {unrouted === 1 ? 'it' : 'them'} individually.
+            </Banner>
+          )}
 
-        <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
           <Card>
             <BlockStack gap="200">
+              <Checkbox
+                label="Enable Try-On on all products (except exclusions)"
+                checked={mode === 'global'}
+                onChange={stageMode}
+              />
               <Text as="p" tone="subdued">
-                Products Synced
+                When on, every synced product offers Try-On unless it — or a collection it belongs
+                to — is excluded below. Click Save above to apply.
               </Text>
-              <Text as="p" variant="heading2xl">
-                {summary.counts.syncedProductCount}
-                {summary.counts.totalProductCount !== null && (
+            </BlockStack>
+          </Card>
+
+          <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">
+                  Products Synced
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {summary.counts.syncedProductCount}
+                  {summary.counts.totalProductCount !== null && (
+                    <Text as="span" tone="subdued">
+                      {' '}
+                      / {summary.counts.totalProductCount}
+                    </Text>
+                  )}
+                </Text>
+                {summary.counts.totalProductCount !== null &&
+                  summary.counts.syncedProductCount < summary.counts.totalProductCount && (
+                    <Text as="p" tone="subdued">
+                      Use Sync products above to import the rest.
+                    </Text>
+                  )}
+                {/* Products that failed to sync can't be tried on, so they sit next
+                  to the synced count; the modal lists them. */}
+                {summary.counts.failedToSync > 0 && (
+                  <div>
+                    <Button
+                      variant="plain"
+                      tone="critical"
+                      onClick={() => setFailedModalOpen(true)}
+                    >
+                      {`${summary.counts.failedToSync} failed to sync`}
+                    </Button>
+                  </div>
+                )}
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">
+                  Try-On Enabled
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {summary.counts.tryonEnabledProducts}
                   <Text as="span" tone="subdued">
                     {' '}
-                    / {summary.counts.totalProductCount}
+                    / {summary.counts.syncedProductCount}
                   </Text>
-                )}
-              </Text>
-              {summary.counts.totalProductCount !== null &&
-                summary.counts.syncedProductCount < summary.counts.totalProductCount && (
-                  <Text as="p" tone="subdued">
-                    Use Sync products above to import the rest.
+                </Text>
+                <Text as="p" tone="subdued">
+                  {mode === 'global'
+                    ? 'All synced products, minus exclusions and unrouted products.'
+                    : 'Enabled individually or via a collection, minus exclusions and unrouted products.'}
+                </Text>
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">
+                  Collections
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {summary.counts.enabledCollections}
+                  <Text as="span" tone="subdued">
+                    {' '}
+                    enabled
                   </Text>
-                )}
-              {/* Products that failed to sync can't be tried on, so they sit next
-                  to the synced count; the modal lists them. */}
-              {summary.counts.failedToSync > 0 && (
-                <div>
-                  <Button variant="plain" tone="critical" onClick={() => setFailedModalOpen(true)}>
-                    {`${summary.counts.failedToSync} failed to sync`}
-                  </Button>
-                </div>
-              )}
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Try-On Enabled
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {summary.counts.tryonEnabledProducts}
-                <Text as="span" tone="subdued">
-                  {' '}
-                  / {summary.counts.syncedProductCount}
                 </Text>
-              </Text>
-              <Text as="p" tone="subdued">
-                {mode === 'global'
-                  ? 'All synced products, minus exclusions and unrouted products.'
-                  : 'Enabled individually or via a collection, minus exclusions and unrouted products.'}
-              </Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Collections
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {summary.counts.enabledCollections}
-                <Text as="span" tone="subdued">
-                  {' '}
-                  enabled
+                <Text as="p" tone="subdued">
+                  {summary.counts.excludedCollections} excluded
                 </Text>
-              </Text>
-              <Text as="p" tone="subdued">
-                {summary.counts.excludedCollections} excluded
-              </Text>
-            </BlockStack>
-          </Card>
-        </InlineGrid>
+              </BlockStack>
+            </Card>
+          </InlineGrid>
 
-        {rulesSummary && (
-          <Card>
-            <BlockStack gap="300">
-              <Text as="h2" variant="headingMd">
-                Where your products land
-              </Text>
-              {rulesSummary.countsOmitted ? (
-                <Text as="p" tone="subdued">
-                  Catalog too large to summarize.
+          {rulesSummary && (
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Where your products land
                 </Text>
-              ) : Object.keys(rulesSummary.counts).length === 0 && !rulesSummary.unrouted ? (
-                <Text as="p" tone="subdued">
-                  No products have matched a rule yet.
-                </Text>
-              ) : (
-                <BlockStack gap="200">
-                  {Object.entries(rulesSummary.counts)
-                    .sort(([a], [b]) =>
-                      basketLabelFor(landingBaskets, a).localeCompare(
-                        basketLabelFor(landingBaskets, b),
-                      ),
-                    )
-                    .map(([basketId, productCount]) => (
-                      <InlineStack key={basketId} align="space-between">
-                        <Text as="span">{basketLabelFor(landingBaskets, basketId)}</Text>
-                        <Text as="span" fontWeight="semibold">
-                          {productCount}
-                        </Text>
-                      </InlineStack>
-                    ))}
-                  {rulesSummary.unrouted !== null && (
-                    <InlineStack align="space-between">
-                      {rulesSummary.unrouted > 0 ? (
-                        <button
-                          type="button"
-                          onClick={() => setUnroutedModalOpen(true)}
-                          style={{
-                            all: 'unset',
-                            cursor: 'pointer',
-                            textDecoration: 'underline',
-                          }}
-                        >
-                          <Text as="span" tone="critical">
+                {rulesSummary.countsOmitted ? (
+                  <Text as="p" tone="subdued">
+                    Catalog too large to summarize.
+                  </Text>
+                ) : Object.keys(rulesSummary.counts).length === 0 && !rulesSummary.unrouted ? (
+                  <Text as="p" tone="subdued">
+                    No products have matched a rule yet.
+                  </Text>
+                ) : (
+                  <BlockStack gap="200">
+                    {Object.entries(rulesSummary.counts)
+                      .sort(([a], [b]) =>
+                        basketLabelFor(landingBaskets, a).localeCompare(
+                          basketLabelFor(landingBaskets, b),
+                        ),
+                      )
+                      .map(([basketId, productCount]) => (
+                        <InlineStack key={basketId} align="space-between">
+                          <Text as="span">{basketLabelFor(landingBaskets, basketId)}</Text>
+                          <Text as="span" fontWeight="semibold">
+                            {productCount}
+                          </Text>
+                        </InlineStack>
+                      ))}
+                    {rulesSummary.unrouted !== null && (
+                      <InlineStack align="space-between">
+                        {rulesSummary.unrouted > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setUnroutedModalOpen(true)}
+                            style={{
+                              all: 'unset',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                            }}
+                          >
+                            <Text as="span" tone="critical">
+                              Not routed (try-on unavailable)
+                            </Text>
+                          </button>
+                        ) : (
+                          <Text as="span" tone="subdued">
                             Not routed (try-on unavailable)
                           </Text>
-                        </button>
-                      ) : (
-                        <Text as="span" tone="subdued">
-                          Not routed (try-on unavailable)
+                        )}
+                        <Text
+                          as="span"
+                          fontWeight="semibold"
+                          tone={rulesSummary.unrouted > 0 ? 'critical' : 'subdued'}
+                        >
+                          {rulesSummary.unrouted}
                         </Text>
-                      )}
-                      <Text
-                        as="span"
-                        fontWeight="semibold"
-                        tone={rulesSummary.unrouted > 0 ? 'critical' : 'subdued'}
-                      >
-                        {rulesSummary.unrouted}
-                      </Text>
-                    </InlineStack>
-                  )}
-                </BlockStack>
-              )}
-            </BlockStack>
-          </Card>
-        )}
+                      </InlineStack>
+                    )}
+                  </BlockStack>
+                )}
+              </BlockStack>
+            </Card>
+          )}
 
-        <Card>
-          <Tabs
-            // Polaris's TabProps[] is mutable; OUTER_TABS's `as const` tuple
-            // is readonly (TS4104), same reason TABS below is never passed
-            // directly either — .map(...) produces a fresh mutable array.
-            tabs={OUTER_TABS.map((t) => ({ ...t }))}
-            selected={outerTabIndex}
-            onSelect={setOuterTabIndex}
-          >
-            <Box padding="400">
-              {OUTER_TABS[outerTabIndex].id === 'eligibility' && (
-                <Tabs
-                  tabs={TABS.map((t) => ({ ...t, disabled: !isTabEditable(mode, t.id) }))}
-                  selected={selectedTab}
-                  onSelect={setSelectedTab}
-                >
-                  <Box padding="400">
-                    {activeTabId === 'collections' && (
-                      <DisabledTabView disabled={!isTabEditable(mode, 'collections')}>
-                        <CollectionsPanel
-                          basePath="/v1/shopify/activation/collections"
-                          editable={isTabEditable(mode, 'collections')}
-                          addLabel="Add collections"
-                          confirmVerb="Add"
-                          emptyHeading="No enabled collections"
+          <Card>
+            <Tabs
+              // Polaris's TabProps[] is mutable; OUTER_TABS's `as const` tuple
+              // is readonly (TS4104), same reason TABS below is never passed
+              // directly either — .map(...) produces a fresh mutable array.
+              tabs={OUTER_TABS.map((t) => ({ ...t }))}
+              selected={outerTabIndex}
+              onSelect={setOuterTabIndex}
+            >
+              <Box padding="400">
+                {OUTER_TABS[outerTabIndex].id === 'eligibility' && (
+                  <Tabs
+                    tabs={TABS.map((t) => ({ ...t, disabled: !isTabEditable(mode, t.id) }))}
+                    selected={selectedTab}
+                    onSelect={setSelectedTab}
+                  >
+                    <Box padding="400">
+                      {activeTabId === 'collections' && (
+                        <DisabledTabView disabled={!isTabEditable(mode, 'collections')}>
+                          <CollectionsPanel
+                            basePath="/v1/shopify/activation/collections"
+                            editable={isTabEditable(mode, 'collections')}
+                            addLabel="Add collections"
+                            confirmVerb="Add"
+                            emptyHeading="No enabled collections"
+                            refreshToken={refreshToken}
+                            draft={enabledCollections}
+                            onAdd={(result) =>
+                              setEnabledCollections((d) => {
+                                const actions = new Map(d.actions).set(
+                                  result.shopifyCollectionId,
+                                  'add',
+                                );
+                                const meta = new Map(d.meta).set(result.shopifyCollectionId, {
+                                  ...result,
+                                  productCount: null,
+                                });
+                                return { actions, meta };
+                              })
+                            }
+                            onRemove={(id) =>
+                              setEnabledCollections((d) => ({
+                                actions: new Map(d.actions).set(id, 'remove'),
+                                meta: d.meta,
+                              }))
+                            }
+                            setError={setError}
+                          />
+                        </DisabledTabView>
+                      )}
+                      {activeTabId === 'individual' && (
+                        <DisabledTabView disabled={!isTabEditable(mode, 'individual')}>
+                          <IndividualProductsPanel
+                            editable={isTabEditable(mode, 'individual')}
+                            refreshToken={refreshToken}
+                            draft={individualProducts}
+                            onAdd={(item) =>
+                              setIndividualProducts((d) => ({
+                                actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
+                                meta: new Map(d.meta).set(item.shopifyProductId, item),
+                              }))
+                            }
+                            onRemove={(id) =>
+                              setIndividualProducts((d) => ({
+                                actions: new Map(d.actions).set(id, 'remove'),
+                                meta: d.meta,
+                              }))
+                            }
+                            onBasketChanged={() => setUnroutedRefreshToken((n) => n + 1)}
+                            setError={setError}
+                          />
+                        </DisabledTabView>
+                      )}
+                      {activeTabId === 'exclusion' && (
+                        <ExclusionPanel
+                          mode={mode}
                           refreshToken={refreshToken}
-                          draft={enabledCollections}
-                          onAdd={(result) =>
-                            setEnabledCollections((d) => {
+                          productDraft={excludedProducts}
+                          collectionDraft={excludedCollections}
+                          onAddProduct={(item) =>
+                            setExcludedProducts((d) => ({
+                              actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
+                              meta: new Map(d.meta).set(item.shopifyProductId, item),
+                            }))
+                          }
+                          onRemoveProduct={(id) =>
+                            setExcludedProducts((d) => ({
+                              actions: new Map(d.actions).set(id, 'remove'),
+                              meta: d.meta,
+                            }))
+                          }
+                          onAddCollection={(result) =>
+                            setExcludedCollections((d) => {
                               const actions = new Map(d.actions).set(
                                 result.shopifyCollectionId,
                                 'add',
@@ -1385,105 +1463,42 @@ export default function ManagePage() {
                               return { actions, meta };
                             })
                           }
-                          onRemove={(id) =>
-                            setEnabledCollections((d) => ({
+                          onRemoveCollection={(id) =>
+                            setExcludedCollections((d) => ({
                               actions: new Map(d.actions).set(id, 'remove'),
                               meta: d.meta,
                             }))
                           }
                           setError={setError}
                         />
-                      </DisabledTabView>
-                    )}
-                    {activeTabId === 'individual' && (
-                      <DisabledTabView disabled={!isTabEditable(mode, 'individual')}>
-                        <IndividualProductsPanel
-                          editable={isTabEditable(mode, 'individual')}
-                          refreshToken={refreshToken}
-                          draft={individualProducts}
-                          onAdd={(item) =>
-                            setIndividualProducts((d) => ({
-                              actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
-                              meta: new Map(d.meta).set(item.shopifyProductId, item),
-                            }))
-                          }
-                          onRemove={(id) =>
-                            setIndividualProducts((d) => ({
-                              actions: new Map(d.actions).set(id, 'remove'),
-                              meta: d.meta,
-                            }))
-                          }
-                          onBasketChanged={() => setUnroutedRefreshToken((n) => n + 1)}
-                          setError={setError}
-                        />
-                      </DisabledTabView>
-                    )}
-                    {activeTabId === 'exclusion' && (
-                      <ExclusionPanel
-                        mode={mode}
-                        refreshToken={refreshToken}
-                        productDraft={excludedProducts}
-                        collectionDraft={excludedCollections}
-                        onAddProduct={(item) =>
-                          setExcludedProducts((d) => ({
-                            actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
-                            meta: new Map(d.meta).set(item.shopifyProductId, item),
-                          }))
-                        }
-                        onRemoveProduct={(id) =>
-                          setExcludedProducts((d) => ({
-                            actions: new Map(d.actions).set(id, 'remove'),
-                            meta: d.meta,
-                          }))
-                        }
-                        onAddCollection={(result) =>
-                          setExcludedCollections((d) => {
-                            const actions = new Map(d.actions).set(
-                              result.shopifyCollectionId,
-                              'add',
-                            );
-                            const meta = new Map(d.meta).set(result.shopifyCollectionId, {
-                              ...result,
-                              productCount: null,
-                            });
-                            return { actions, meta };
-                          })
-                        }
-                        onRemoveCollection={(id) =>
-                          setExcludedCollections((d) => ({
-                            actions: new Map(d.actions).set(id, 'remove'),
-                            meta: d.meta,
-                          }))
-                        }
-                        setError={setError}
-                      />
-                    )}
-                  </Box>
-                </Tabs>
-              )}
-              {OUTER_TABS[outerTabIndex].id === 'routing' && (
-                <RoutingTab
-                  refreshToken={refreshToken}
-                  globalMode={summary?.mode === 'global'}
-                  onChanged={() => setUnroutedRefreshToken((n) => n + 1)}
-                />
-              )}
-            </Box>
-          </Tabs>
-        </Card>
-      </BlockStack>
+                      )}
+                    </Box>
+                  </Tabs>
+                )}
+                {OUTER_TABS[outerTabIndex].id === 'routing' && (
+                  <RoutingTab
+                    refreshToken={refreshToken}
+                    globalMode={summary?.mode === 'global'}
+                    onChanged={() => setUnroutedRefreshToken((n) => n + 1)}
+                  />
+                )}
+              </Box>
+            </Tabs>
+          </Card>
+        </BlockStack>
 
-      {failedModalOpen && (
-        <FailedProductsModal
-          onClose={() => setFailedModalOpen(false)}
-          onRetried={loadSummary}
-          setError={setError}
-        />
-      )}
+        {failedModalOpen && (
+          <FailedProductsModal
+            onClose={() => setFailedModalOpen(false)}
+            onRetried={loadSummary}
+            setError={setError}
+          />
+        )}
 
-      {unroutedModalOpen && <UnroutedProductsModal onClose={() => setUnroutedModalOpen(false)} />}
+        {unroutedModalOpen && <UnroutedProductsModal onClose={() => setUnroutedModalOpen(false)} />}
 
-      {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
-    </Page>
+        {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
+      </Page>
+    </AppFont>
   );
 }

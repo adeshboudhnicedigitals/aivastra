@@ -35,7 +35,22 @@ interface FetchLikeResponse {
 type FetchLike = (url: string, init?: RequestInit) => Promise<FetchLikeResponse>;
 
 const ALLOWED_HOSTS = /(^|\.)(myshopify\.com|shopify\.com|cdn\.shopify\.com)$/;
-const FETCH_TIMEOUT_MS = 10_000;
+// Two stages, one AbortController: a dead connection or stalled CDN fails fast
+// (headers), while the body of a legitimately large image (cap: 20MB by
+// default) gets longer. Before this the timer was cleared once headers
+// arrived, so a body that stalled mid-stream had no bound at all and held the
+// single sync consumer — and every task queued behind it — for as long as the
+// socket stayed open.
+const HEADERS_TIMEOUT_MS = 10_000;
+const BODY_TIMEOUT_MS = 30_000;
+// Products fetched/uploaded in parallel within one page of a full sync. Each
+// product is dominated by waiting (CDN round trip + MinIO put), not CPU, so a
+// handful in flight cuts wall-clock roughly by that factor. Not higher: the
+// image downloads all hit the same CDN from one process.
+const SYNC_CONCURRENCY = 5;
+// Above this, one product is logged at warn so a stalling step stands out from
+// the per-product debug lines.
+const SLOW_PRODUCT_MS = 5_000;
 // One retry, not a loop: a dropped connection or a CDN 5xx/429 is usually gone a
 // moment later, while anything longer would stall the sync consumer (which runs
 // products one at a time) for a product that is genuinely broken.
@@ -266,30 +281,52 @@ async function reconcileDeletedProducts(
     );
 }
 
+/** A size-cap breach or a final HTTP status (404, 403…) is a property of the
+ *  image, not of the network, so it must not be retried the way a dropped
+ *  connection is. */
+class NonRetryableDownloadError extends Error {}
+
 /** Downloads a product image, retrying once on failures that are likely to be
- *  momentary: a thrown network error/timeout, or an HTTP 429/5xx. A 4xx (gone,
- *  forbidden) is final, so it is not retried. */
-async function downloadWithRetry(src: string, fetchFn: FetchLike): Promise<FetchLikeResponse> {
+ *  momentary: a thrown network error/timeout (including a body that stalls
+ *  mid-stream), or an HTTP 429/5xx. A 4xx (gone, forbidden) is final, so it is
+ *  not retried. The size cap is enforced here, before the body is read when
+ *  Content-Length is present, so an oversized image is never downloaded. */
+async function downloadWithRetry(
+  src: string,
+  fetchFn: FetchLike,
+  maxBytes: number,
+): Promise<{ buf: Buffer; contentType: string }> {
+  const tooLarge = () =>
+    new NonRetryableDownloadError(`product image exceeds ${maxBytes / (1024 * 1024)}MB`);
   for (let attempt = 1; ; attempt++) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let res: FetchLikeResponse;
+    let timer = setTimeout(() => controller.abort(), HEADERS_TIMEOUT_MS);
     try {
-      res = await fetchFn(src, { redirect: 'error', signal: controller.signal });
+      const res = await fetchFn(src, { redirect: 'error', signal: controller.signal });
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), BODY_TIMEOUT_MS);
+      if (!res.ok) {
+        const status = res.status ?? 0;
+        if (attempt < DOWNLOAD_ATTEMPTS && (status === 429 || status >= 500)) {
+          await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
+          continue;
+        }
+        throw new NonRetryableDownloadError(`download HTTP ${res.status}`);
+      }
+      const contentLength = res.headers.get('content-length');
+      if (contentLength && parseInt(contentLength, 10) > maxBytes) throw tooLarge();
+      const arrayBuffer = await res.arrayBuffer();
+      if (arrayBuffer.byteLength > maxBytes) throw tooLarge();
+      return {
+        buf: Buffer.from(arrayBuffer),
+        contentType: res.headers.get('content-type') ?? 'image/jpeg',
+      };
     } catch (err) {
-      if (attempt >= DOWNLOAD_ATTEMPTS) throw err;
+      if (err instanceof NonRetryableDownloadError || attempt >= DOWNLOAD_ATTEMPTS) throw err;
       await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
-      continue;
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(timer);
     }
-    if (res.ok) return res;
-    const status = res.status ?? 0;
-    if (attempt < DOWNLOAD_ATTEMPTS && (status === 429 || status >= 500)) {
-      await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
-      continue;
-    }
-    throw new Error(`download HTTP ${res.status}`);
   }
 }
 
@@ -332,21 +369,20 @@ export async function syncProduct(
     );
     return;
   }
+  // Per-step wall-clock, so a slow import can be attributed to the CDN download,
+  // the storage put or the DB write instead of guessed at.
+  const t0 = Date.now();
+  let downloadMs = 0;
+  let putMs = 0;
+  let bytes = 0;
   try {
     assertShopifyCdn(src);
-    const res = await downloadWithRetry(src, fetchFn);
     const maxSyncBytes = await getUploadLimitBytes(app, 'shopifyProductSyncMaxBytes');
-    const contentLength = res.headers.get('content-length');
-    if (contentLength && parseInt(contentLength, 10) > maxSyncBytes) {
-      throw new Error(`product image exceeds ${maxSyncBytes / (1024 * 1024)}MB`);
-    }
-    const arrayBuffer = await res.arrayBuffer();
-    if (arrayBuffer.byteLength > maxSyncBytes) {
-      throw new Error(`product image exceeds ${maxSyncBytes / (1024 * 1024)}MB`);
-    }
-    const buf = Buffer.from(arrayBuffer);
-    const ct = res.headers.get('content-type') ?? 'image/jpeg';
-    await app.storage.putObject(r2Key, buf, ct);
+    const { buf, contentType } = await downloadWithRetry(src, fetchFn, maxSyncBytes);
+    downloadMs = Date.now() - t0;
+    bytes = buf.byteLength;
+    await app.storage.putObject(r2Key, buf, contentType);
+    putMs = Date.now() - t0 - downloadMs;
     await upsertGarment(
       app,
       storeId,
@@ -360,8 +396,22 @@ export async function syncProduct(
       collections,
       category,
     );
+    const timing = {
+      storeId,
+      productId: product.id,
+      bytes,
+      downloadMs,
+      putMs,
+      dbMs: Date.now() - t0 - downloadMs - putMs,
+      totalMs: Date.now() - t0,
+    };
+    if (timing.totalMs >= SLOW_PRODUCT_MS) app.log.warn(timing, 'slow product sync');
+    else app.log.debug(timing, 'product sync timing');
   } catch (err) {
-    app.log.warn({ err, storeId, productId: product.id }, 'product sync failed');
+    app.log.warn(
+      { err, storeId, productId: product.id, downloadMs, putMs, totalMs: Date.now() - t0 },
+      'product sync failed',
+    );
     await upsertGarment(
       app,
       storeId,
@@ -377,6 +427,33 @@ export async function syncProduct(
       describeError(err),
     );
   }
+}
+
+/**
+ * Runs `fn` over `items` with at most `limit` in flight. A throw stops further
+ * items from starting, lets the ones already running finish (so none is left
+ * dangling behind the caller's back), then rethrows the first error — the same
+ * abort-the-task behaviour the sequential loop had.
+ */
+async function forEachLimit<T>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  let failure: { err: unknown } | null = null;
+  const worker = async () => {
+    while (!failure && next < items.length) {
+      const item = items[next++];
+      try {
+        await fn(item);
+      } catch (err) {
+        failure ??= { err };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  if (failure) throw (failure as { err: unknown }).err;
 }
 
 export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise<void> {
@@ -654,10 +731,13 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
   // roughly 25 + 25×25 = 650.
   let cursor: string | null = null;
   const liveProductIds: number[] = [];
+  const fullSyncStart = Date.now();
+  let graphqlMs = 0;
   do {
     // onUnauthorized reassigns the outer `token`: a full sync of a large catalog
     // outlives the one-hour token, and this runs unattended with no merchant
     // present to reauthorize.
+    const pageStart = Date.now();
     const data: ProductsPageData = await shopifyGraphQL<ProductsPageData>(
       shop,
       token,
@@ -665,14 +745,36 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
       { cursor },
       { onUnauthorized },
     );
-    for (const node of data.products.nodes) {
-      const product = toShopifyProduct(node);
-      liveProductIds.push(product.id);
-      await syncProduct(app, store.id, product);
-    }
+    const fetchedMs = Date.now() - pageStart;
+    graphqlMs += fetchedMs;
+    const products = data.products.nodes.map(toShopifyProduct);
+    for (const product of products) liveProductIds.push(product.id);
+    // Concurrent within a page, sequential across pages — the page fetch above
+    // is what the Shopify cost budget and the throttle below pace.
+    await forEachLimit(products, SYNC_CONCURRENCY, (product) =>
+      syncProduct(app, store.id, product),
+    );
+    app.log.info(
+      {
+        storeId: store.id,
+        products: products.length,
+        graphqlMs: fetchedMs,
+        pageMs: Date.now() - pageStart,
+      },
+      'full sync page done',
+    );
     cursor = data.products.pageInfo.hasNextPage ? data.products.pageInfo.endCursor : null;
     if (cursor) await new Promise((r) => setTimeout(r, 500)); // throttle
   } while (cursor);
+  app.log.info(
+    {
+      storeId: store.id,
+      products: liveProductIds.length,
+      graphqlMs,
+      totalMs: Date.now() - fullSyncStart,
+    },
+    'full sync detailed pass done',
+  );
   // liveProductIds was collected DURING the pass above, which can run for
   // minutes on a large catalog. If a products/delete webhook lands mid-pass
   // for a product whose page was already fetched, this pass's own upsert for

@@ -1,4 +1,7 @@
 import { AppProvider, Banner, Box } from '@shopify/polaris';
+// See App.tsx's own import of this — an empty i18n object blanks every one of
+// Polaris's default labels, not just their visible text but their aria-labels.
+import enTranslations from '@shopify/polaris/locales/en.json';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 interface Props {
@@ -28,7 +31,7 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <AppProvider i18n={{}}>
+        <AppProvider i18n={enTranslations}>
           <Box padding="800">
             <Banner
               title="Something went wrong"

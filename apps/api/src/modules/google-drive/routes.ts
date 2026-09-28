@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { GoogleDriveExportResponse, GoogleDriveStatusResponse } from '@aivastra/types';
+import type { GoogleDriveExportResponse, GoogleDriveStatusResponse } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { buildAuthUrl, exchangeCode, fetchGoogleEmail } from './oauth.js';

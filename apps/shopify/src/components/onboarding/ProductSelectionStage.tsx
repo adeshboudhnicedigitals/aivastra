@@ -7,18 +7,21 @@ import {
   IndexTable,
   IndexTableSelectionType,
   InlineStack,
+  Select,
   Text,
   Thumbnail,
 } from '@shopify/polaris';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '../../lib/api';
+import { type Basket, basketOptions } from '../../lib/baskets';
 import { type ClassifiedError, classifyError } from '../../lib/errors';
+import { resolveImageUrl } from '../../lib/images';
 import {
   EMPTY_SELECTION,
+  effectiveBasket,
   isSelected,
   type Selection,
   selectAllMatching,
-  selectedCount,
   setMany,
 } from '../../lib/productSelection';
 import {
@@ -44,6 +47,10 @@ export interface StagePick {
   total: number;
   /** Every product the picker has loaded, so the page can list the ticked ones without refetching. */
   items: ShopifyProductListItem[];
+  /** Basket chosen for one product, by id; beats `defaultBasket`. Empty when the picker has no basket column. */
+  baskets: Record<number, string>;
+  /** Basket chosen for every selected product ('' = none). */
+  defaultBasket: string;
 }
 
 type ListKey = 'productType' | 'vendor' | 'tag' | 'collection' | 'category';
@@ -74,6 +81,7 @@ export function ProductSelectionStage({
   startFilter = DEFAULT_SELECTION_FILTER,
   locked,
   allowSelectAll = true,
+  baskets,
 }: {
   onPickChange: (pick: StagePick) => void;
   /** Where to start from — reopening the picker restores the last confirmed pick. */
@@ -92,6 +100,19 @@ export function ProductSelectionStage({
    * paging), for callers that need concrete product ids rather than a filter.
    */
   allowSelectAll?: boolean;
+  /**
+   * Adds a last "Try-on style" column plus one control that sets the basket for
+   * every selected product. When given, this same table doubles as the one
+   * place a merchant sees their products: an already-enabled row loads ticked
+   * with its current style seeded in (see the fetch effect), so it reads and
+   * behaves exactly like a fresh pick — ticking, unticking and changing style
+   * are all just local draft edits here, nothing is sent to the server until
+   * the caller commits the reported `selection`/`baskets` (onboarding's
+   * Continue button does this once, not per edit — see OnboardingProductsPage).
+   * Omit for pickers that only choose products and stage everything anyway
+   * (Manage's eligibility lists).
+   */
+  baskets?: Basket[];
 }) {
   const [userFilter, setFilter] = useState<ProductFilterState>(initial?.filter ?? startFilter);
   const filter = useMemo(() => ({ ...userFilter, ...locked }), [userFilter, locked]);
@@ -102,19 +123,36 @@ export function ProductSelectionStage({
   const [seen, setSeen] = useState<Map<number, ShopifyProductListItem>>(
     () => new Map((initial?.items ?? []).map((i) => [i.shopifyProductId, i])),
   );
+  const [basketChoices, setBasketChoices] = useState<Record<number, string>>(
+    initial?.baskets ?? {},
+  );
+  const [defaultBasket, setDefaultBasket] = useState(initial?.defaultBasket ?? '');
   const [data, setData] = useState<ShopifyProductsResponse | null>(null);
   const [facets, setFacets] = useState<ShopifyProductFacets | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ClassifiedError | null>(null);
+  // Each already-enabled id is ticked (and its style seeded) the first time it's
+  // seen, then never again — otherwise a page refetch after the merchant's own
+  // untick would stomp the tick right back in.
+  const seededRef = useRef<Set<number>>(new Set());
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
 
-  // Report the latest pick upward so the picker's confirm button can act on it.
+  // Report the latest pick upward. The caller commits it (bulk-enables/pins
+  // everything ticked, individually disables an already-live id that got
+  // unticked) once, on its own trigger — nothing here talks to the server.
   const seenItems = useMemo(() => [...seen.values()], [seen]);
   useEffect(() => {
-    onPickChange({ selection, filter, total, items: seenItems });
-  }, [selection, filter, total, seenItems, onPickChange]);
+    onPickChange({
+      selection,
+      filter,
+      total,
+      items: seenItems,
+      baskets: basketChoices,
+      defaultBasket,
+    });
+  }, [selection, filter, total, seenItems, basketChoices, defaultBasket, onPickChange]);
 
   const updateFilter = useCallback((patch: Partial<ProductFilterState>) => {
     setFilter((prev) => ({ ...prev, ...patch }));
@@ -153,6 +191,20 @@ export function ProductSelectionStage({
           for (const item of res.items) next.set(item.shopifyProductId, item);
           return next;
         });
+        // Seed ticks/styles for products that were already enabled before this
+        // table ever loaded them, once each — only relevant when this table
+        // doubles as the merchant's whole product list (baskets given).
+        if (baskets) {
+          for (const item of res.items) {
+            if (seededRef.current.has(item.shopifyProductId)) continue;
+            seededRef.current.add(item.shopifyProductId);
+            if (!item.enabled) continue;
+            const id = item.shopifyProductId;
+            const basketId = item.basket?.id;
+            setSelection((s) => (isSelected(s, id) ? s : setMany(s, [id], true)));
+            if (basketId) setBasketChoices((prev) => ({ ...prev, [id]: basketId }));
+          }
+        }
         setError(null);
       })
       .catch((err) => {
@@ -164,7 +216,7 @@ export function ProductSelectionStage({
     return () => {
       cancelled = true;
     };
-  }, [filter, page]);
+  }, [filter, page, baskets]);
 
   const pageIds = items.map((i) => i.shopifyProductId);
 
@@ -198,6 +250,19 @@ export function ProductSelectionStage({
         setSelection((s) => setMany(s, pageIds.slice(from, to + 1), selecting));
       }
     }
+  }
+
+  // The basket for everything selected replaces any per-product choices made
+  // before it, so the last thing the merchant did is what they see.
+  function applyBasketToAll(basketId: string) {
+    setDefaultBasket(basketId);
+    setBasketChoices({});
+  }
+
+  // Picking a basket for a row is also picking the product.
+  function chooseBasket(id: number, basketId: string) {
+    setBasketChoices((prev) => ({ ...prev, [id]: basketId }));
+    setSelection((s) => (isSelected(s, id) ? s : setMany(s, [id], true)));
   }
 
   const facetOptions = (list: FacetList | undefined) =>
@@ -267,10 +332,28 @@ export function ProductSelectionStage({
 
   const allSelectedNoExclusions = selection.kind === 'all' && selection.excluded.size === 0;
   const pageSelectedCount = items.filter((i) => isSelected(selection, i.shopifyProductId)).length;
-  const count = selectedCount(selection, total);
 
   return (
     <BlockStack gap="300">
+      {/* Polaris makes this sticky by default at >=48em (its own IndexTable.css
+          media query) — pinned to the bottom of the viewport, it floats over
+          the rows while scrolling. Force it back into normal flow at every
+          width instead, using Polaris's own stable public class name. */}
+      <style>{`.Polaris-IndexTable__PaginationWrapper {
+        position: static;
+      }
+      /* Selecting a row switches Polaris into "select mode": a sticky
+         BulkActionsWrapper bar (its own opaque surface, positioned over the
+         real column headings) fades in and covers them — that's what read as
+         "the table heading goes invisible". This table has no bulk actions
+         and this app already dropped the selected-count line (see
+         OnboardingProductsPage.tsx), so there is nothing useful the bar would
+         show anyway — keep it permanently hidden instead of letting it cover
+         the headings. */
+      .Polaris-IndexTable__BulkActionsWrapper.Polaris-IndexTable__BulkActionsWrapperVisible {
+        visibility: hidden !important;
+        opacity: 0 !important;
+      }`}</style>
       <ErrorBanner error={error} onRetry={() => updateFilter({})} />
       <IndexFilters
         tabs={[]}
@@ -299,11 +382,20 @@ export function ProductSelectionStage({
         loading={loading}
         disableStickyMode
       />
-      <InlineStack align="space-between" blockAlign="center">
-        <Text as="p" tone="subdued">
-          {count} of {total} product{total === 1 ? '' : 's'} selected
-        </Text>
-      </InlineStack>
+      {baskets && (
+        <InlineStack align="end" blockAlign="center" gap="300">
+          <div style={{ minWidth: 260 }}>
+            <Select
+              label="Try-on style for all selected products"
+              labelInline
+              options={basketOptions(baskets)}
+              value={defaultBasket}
+              disabled={baskets.length === 0}
+              onChange={applyBasketToAll}
+            />
+          </div>
+        </InlineStack>
+      )}
       <IndexTable
         resourceName={{ singular: 'product', plural: 'products' }}
         itemCount={items.length}
@@ -319,6 +411,7 @@ export function ProductSelectionStage({
           { title: 'Type' },
           { title: 'Vendor' },
           { title: 'Status' },
+          ...(baskets ? [{ title: 'Try-on style' }] : []),
         ]}
         pagination={{
           hasPrevious: page > 1,
@@ -336,7 +429,11 @@ export function ProductSelectionStage({
           >
             <IndexTable.Cell>
               <InlineStack gap="300" blockAlign="center">
-                <Thumbnail source={item.thumbnailUrl} alt={item.title ?? 'Product'} size="small" />
+                <Thumbnail
+                  source={resolveImageUrl(item.thumbnailUrl)}
+                  alt={item.title ?? 'Product'}
+                  size="small"
+                />
                 <Text as="span" fontWeight="semibold">
                   {item.title}
                 </Text>
@@ -347,6 +444,26 @@ export function ProductSelectionStage({
             <IndexTable.Cell>
               <Badge tone={STATUS_TONE[item.status]}>{item.status}</Badge>
             </IndexTable.Cell>
+            {baskets && (
+              <IndexTable.Cell>
+                {/* Keeps a click on the dropdown from also toggling the row's tick. */}
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: click is only stopped from bubbling to the row; the Select inside is the interactive control */}
+                <div
+                  role="presentation"
+                  style={{ minWidth: 180 }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Select
+                    label="Try-on style"
+                    labelHidden
+                    options={basketOptions(baskets)}
+                    value={effectiveBasket(item.shopifyProductId, basketChoices, defaultBasket)}
+                    disabled={baskets.length === 0}
+                    onChange={(value) => chooseBasket(item.shopifyProductId, value)}
+                  />
+                </div>
+              </IndexTable.Cell>
+            )}
           </IndexTable.Row>
         ))}
       </IndexTable>
