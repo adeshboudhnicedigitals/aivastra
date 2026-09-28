@@ -802,23 +802,53 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         body: z.object({
           userId: z.string().uuid(),
           role: z.enum(['ADMIN', 'MODERATOR', 'SUPPORT']).default('ADMIN'),
+          // Sets a login password dedicated to admin.aivastra.com, distinct from the
+          // account's own password. Required when the account has none of its own
+          // (a Google-only signup) — there's nothing to fall back to. Optional
+          // otherwise: leave blank to keep reusing whatever's on record (the
+          // account's password on first grant, or the admin password already set on
+          // a re-grant), or set one to rotate the admin login password on demand —
+          // this is also how an admin panel password gets rotated now, replacing the
+          // old separate "sync admin password" action.
+          password: z.string().min(8).optional(),
         }),
       },
     },
     async (req) => {
-      const { userId, role } = req.body as { userId: string; role: string };
+      const { userId, role, password } = req.body as {
+        userId: string;
+        role: string;
+        password?: string;
+      };
       await app.db.transaction(async (tx) => {
         const [user] = await tx
           .select({ id: schema.users.id, passwordHash: schema.users.passwordHash })
           .from(schema.users)
           .where(eq(schema.users.id, userId));
         if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
+
+        const [existingAdmin] = await tx
+          .select({ passwordHash: schema.adminUsers.passwordHash })
+          .from(schema.adminUsers)
+          .where(eq(schema.adminUsers.userId, userId));
+
+        const passwordHash = password
+          ? await hashPassword(password)
+          : (existingAdmin?.passwordHash ?? user.passwordHash);
+        if (!passwordHash) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'An admin login password is required — this account has no password of its own to use',
+          );
+        }
+
         await tx
           .insert(schema.adminUsers)
-          .values({ userId, role, status: 'active', passwordHash: user.passwordHash })
+          .values({ userId, role, status: 'active', passwordHash })
           .onConflictDoUpdate({
             target: schema.adminUsers.userId,
-            set: { role, status: 'active', passwordHash: user.passwordHash },
+            set: { role, status: 'active', passwordHash },
           });
 
         await recordAudit(tx, {

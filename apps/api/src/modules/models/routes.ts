@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { getPixverseVideoPricingConfig } from '../../lib/resolution-config.js';
+import { poseGarmentRoles } from './garment-roles.js';
 
 export async function modelsRoutes(app: FastifyInstance) {
   app.get(
@@ -300,6 +301,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           label: schema.modelPoseAssets.label,
           thumbnailUrl: schema.modelPoseAssets.thumbnailKey,
           // Default workflow from pose asset
+          upperNodeIds: schema.workflowTemplates.upperNodeIds,
           lowerNodeId: schema.workflowTemplates.lowerNodeId,
           shoeNodeId: schema.workflowTemplates.shoeNodeId,
           sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
@@ -326,7 +328,12 @@ export async function modelsRoutes(app: FastifyInstance) {
       // touching its global isActive flag or its visibility under other garment types).
       let configMap = new Map<
         string,
-        { lowerNodeId: string | null; shoeNodeId: string | null; sizeNodeIds: string[] | null }
+        {
+          upperNodeIds: string[] | null;
+          lowerNodeId: string | null;
+          shoeNodeId: string | null;
+          sizeNodeIds: string[] | null;
+        }
       >();
       let inactiveForType = new Set<string>();
       if (garmentTypeId && items.length > 0) {
@@ -336,6 +343,7 @@ export async function modelsRoutes(app: FastifyInstance) {
             poseAssetId: schema.poseGarmentConfigs.poseAssetId,
             workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
             isActive: schema.poseGarmentConfigs.isActive,
+            upperNodeIds: schema.workflowTemplates.upperNodeIds,
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
@@ -360,6 +368,7 @@ export async function modelsRoutes(app: FastifyInstance) {
             .map((c) => [
               c.poseAssetId,
               {
+                upperNodeIds: c.upperNodeIds ?? null,
                 lowerNodeId: c.lowerNodeId ?? null,
                 shoeNodeId: c.shoeNodeId ?? null,
                 sizeNodeIds: c.sizeNodeIds ?? null,
@@ -377,6 +386,7 @@ export async function modelsRoutes(app: FastifyInstance) {
             .filter((i) => !inactiveForType.has(i.id))
             .map(async (i) => {
               const cfg = configMap.get(i.id);
+              const upperNodeIds = cfg !== undefined ? cfg.upperNodeIds : i.upperNodeIds;
               const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : i.lowerNodeId;
               const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : i.shoeNodeId;
               const sizeNodeIds = cfg !== undefined ? cfg.sizeNodeIds : i.sizeNodeIds;
@@ -384,8 +394,7 @@ export async function modelsRoutes(app: FastifyInstance) {
                 id: i.id,
                 label: i.displayName ?? i.label,
                 thumbnailUrl: (await app.storage.presignGet(i.thumbnailUrl, 3600)).url,
-                hasLower: lowerNodeId != null,
-                hasShoes: shoeNodeId != null,
+                ...poseGarmentRoles({ upperNodeIds, lowerNodeId, shoeNodeId }),
                 hasAspectRatio: (sizeNodeIds?.length ?? 0) > 0,
               };
             }),
@@ -448,6 +457,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           poseLabel: schema.modelPoseAssets.label,
           poseDisplayName: schema.modelPoseAssets.displayName,
           poseThumbnailKey: schema.modelPoseAssets.thumbnailKey,
+          upperNodeIds: schema.workflowTemplates.upperNodeIds,
           lowerNodeId: schema.workflowTemplates.lowerNodeId,
           shoeNodeId: schema.workflowTemplates.shoeNodeId,
           backgroundId: schema.modelBackgrounds.id,
@@ -543,8 +553,7 @@ export async function modelsRoutes(app: FastifyInstance) {
                 backgroundThumbnailUrl: (
                   await app.storage.presignGet(r.backgroundThumbnailKey, 3600)
                 ).url,
-                hasLower: r.lowerNodeId != null,
-                hasShoes: r.shoeNodeId != null,
+                ...poseGarmentRoles(r),
               })),
             );
             return {

@@ -102,6 +102,7 @@ interface PoseItem {
   id: string;
   label: string;
   thumbnailUrl: string;
+  hasUpper: boolean;
   hasLower: boolean;
   hasShoes: boolean;
 }
@@ -113,6 +114,7 @@ interface TemplateLook {
   backgroundId: string;
   backgroundLabel: string;
   backgroundThumbnailUrl: string;
+  hasUpper: boolean;
   hasLower: boolean;
   hasShoes: boolean;
 }
@@ -139,6 +141,19 @@ interface CatalogNode {
 
 function flattenNode(node: CatalogNode): CatalogItem[] {
   return [...node.items, ...node.children.flatMap((c) => flattenNode(c))];
+}
+
+// Fisher-Yates. Re-run only when `backgrounds` refetches (i.e. on page load/refresh),
+// not on every render, so the order doesn't jump around while the user is selecting.
+function shuffle<T>(items: T[]): T[] {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = arr[i] as T;
+    arr[i] = arr[j] as T;
+    arr[j] = tmp;
+  }
+  return arr;
 }
 
 const TAG_LABELS: Record<string, string> = {
@@ -812,8 +827,8 @@ export default function StudioPage(): React.ReactElement {
 
   async function handleMyBackgroundUpload(file: File) {
     if (isUploadingBackground) return;
-    if (file.size > 10 * 1024 * 1024) {
-      showToast('File exceeds 10 MB. Please choose a smaller image.');
+    if (file.size > 20 * 1024 * 1024) {
+      showToast('File exceeds 20 MB. Please choose a smaller image.');
       return;
     }
     if (!(await isSupportedImageBytes(file))) {
@@ -1009,6 +1024,12 @@ export default function StudioPage(): React.ReactElement {
     for (const b of backgrounds?.items ?? []) for (const t of b.tags ?? []) set.add(t);
     return Array.from(set).sort();
   }, [backgrounds]);
+  // Curated backgrounds — shuffled on every load so the row doesn't go stale.
+  const shuffledBackgrounds = useMemo(() => shuffle(backgrounds?.items ?? []), [backgrounds]);
+  // Uploaded ("My") backgrounds are also shuffled per load, but stay ahead of the
+  // curated group as a whole — newest-first only in the sense that the upload group
+  // itself leads the row; within that group the order is randomized each refresh.
+  const shuffledMyBackgrounds = useMemo(() => shuffle(myBackgrounds?.items ?? []), [myBackgrounds]);
   const faceTags = useMemo(() => {
     const set = new Set<string>();
     for (const f of faces?.items ?? []) for (const t of f.tags ?? []) set.add(t);
@@ -1051,6 +1072,21 @@ export default function StudioPage(): React.ReactElement {
     catalogueTemplateId === 'custom'
       ? selectedPoses.some((p) => p.hasShoes)
       : selectedLooks.some((l) => l.hasShoes);
+  // Every selected pose runs a workflow that consumes only a lower garment (no upper
+  // node). The API rejects those without a lower upload (jobs/create.ts), so the one
+  // upload box below is sent as the lower garment. `=== false` (not `!p.hasUpper`)
+  // so a response from an API that predates the flag never counts as lower-only.
+  const isLowerOnlyRole = (p: { hasUpper: boolean; hasLower: boolean }) =>
+    p.hasLower && p.hasUpper === false;
+  const lowerOnly =
+    !selectedGarmentType?.requiresLowerUpload &&
+    !selectedGarmentType?.requiresMannequinStep &&
+    (catalogueTemplateId === 'custom'
+      ? selectedPoses.length > 0 && selectedPoses.every(isLowerOnlyRole)
+      : selectedLooks.length > 0 && selectedLooks.every(isLowerOnlyRole));
+  // createJob's schema requires upperGarmentKey, and strips it for a lower-only pose
+  // (create.ts effectiveUpperGarmentKey), so the same key is sent in both slots.
+  const lowerGarmentKeyForSubmit = lowerOnly ? garmentKey : lowerGarmentKey;
   const previousCatalogNeeds = useRef({ lower: false, shoes: false });
   useEffect(() => {
     if (needsLower && !previousCatalogNeeds.current.lower && !lowerCatalogId) {
@@ -1133,8 +1169,8 @@ export default function StudioPage(): React.ReactElement {
 
   async function handleGarmentUpload(file: File) {
     if (isUploading) return;
-    if (file.size > 10 * 1024 * 1024) {
-      showToast('File exceeds 10 MB. Please choose a smaller image.');
+    if (file.size > 20 * 1024 * 1024) {
+      showToast('File exceeds 20 MB. Please choose a smaller image.');
       return;
     }
     if (!(await isSupportedImageBytes(file))) {
@@ -1170,8 +1206,8 @@ export default function StudioPage(): React.ReactElement {
 
   async function handleLowerGarmentUpload(file: File) {
     if (isUploadingLower) return;
-    if (file.size > 10 * 1024 * 1024) {
-      showToast('File exceeds 10 MB. Please choose a smaller image.');
+    if (file.size > 20 * 1024 * 1024) {
+      showToast('File exceeds 20 MB. Please choose a smaller image.');
       return;
     }
     if (!(await isSupportedImageBytes(file))) {
@@ -1207,8 +1243,8 @@ export default function StudioPage(): React.ReactElement {
 
   async function handleThirdGarmentUpload(file: File) {
     if (isUploadingThird) return;
-    if (file.size > 10 * 1024 * 1024) {
-      showToast('File exceeds 10 MB. Please choose a smaller image.');
+    if (file.size > 20 * 1024 * 1024) {
+      showToast('File exceeds 20 MB. Please choose a smaller image.');
       return;
     }
     if (!(await isSupportedImageBytes(file))) {
@@ -1244,8 +1280,8 @@ export default function StudioPage(): React.ReactElement {
 
   async function handlePalluGarmentUpload(file: File) {
     if (isUploadingPallu) return;
-    if (file.size > 10 * 1024 * 1024) {
-      showToast('File exceeds 10 MB. Please choose a smaller image.');
+    if (file.size > 20 * 1024 * 1024) {
+      showToast('File exceeds 20 MB. Please choose a smaller image.');
       return;
     }
     if (!(await isSupportedImageBytes(file))) {
@@ -1352,9 +1388,10 @@ export default function StudioPage(): React.ReactElement {
       // The aspectRatio (1:1) is already captured in `aspect` independently.
       const effectivePlatform =
         platform === 'Amazon' ? (amazonUseWhiteBg ? 'Amazon' : undefined) : platform;
-      const effectiveLowerId =
-        lowerCatalogId ||
-        (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
+      const effectiveLowerId = lowerOnly
+        ? undefined
+        : lowerCatalogId ||
+          (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
       const effectiveShoesId =
         shoeCatalogId ||
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
@@ -1363,7 +1400,7 @@ export default function StudioPage(): React.ReactElement {
         faceId,
         garmentTypeId: garmentTypeId || undefined,
         lowerCatalogId: effectiveLowerId,
-        lowerGarmentKey: lowerGarmentKey || undefined,
+        lowerGarmentKey: lowerGarmentKeyForSubmit || undefined,
         shoeCatalogId: effectiveShoesId,
         thirdGarmentKey: thirdGarmentKey || undefined,
       };
@@ -1457,9 +1494,10 @@ export default function StudioPage(): React.ReactElement {
     setIsSubmitting(true);
     setSubmitError('');
     try {
-      const effectiveLowerId =
-        lowerCatalogId ||
-        (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
+      const effectiveLowerId = lowerOnly
+        ? undefined
+        : lowerCatalogId ||
+          (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
       const effectiveShoesId =
         shoeCatalogId ||
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
@@ -1476,7 +1514,7 @@ export default function StudioPage(): React.ReactElement {
           poseIds: [mainPoseId],
           garmentTypeId: garmentTypeId || undefined,
           lowerCatalogId: effectiveLowerId,
-          lowerGarmentKey: lowerGarmentKey || undefined,
+          lowerGarmentKey: lowerGarmentKeyForSubmit || undefined,
           shoeCatalogId: effectiveShoesId,
           thirdGarmentKey: thirdGarmentKey || undefined,
         },
@@ -1512,7 +1550,7 @@ export default function StudioPage(): React.ReactElement {
             poseIds: remainingPoseIds,
             garmentTypeId: garmentTypeId || undefined,
             lowerCatalogId: effectiveLowerId,
-            lowerGarmentKey: lowerGarmentKey || undefined,
+            lowerGarmentKey: lowerGarmentKeyForSubmit || undefined,
             shoeCatalogId: effectiveShoesId,
             thirdGarmentKey: thirdGarmentKey || undefined,
           },
@@ -1609,7 +1647,7 @@ export default function StudioPage(): React.ReactElement {
     hasCatalogueTemplates && 'templates',
     catalogueTemplateId === 'custom' && 'background',
     catalogueTemplateId === 'custom' && 'poses',
-    needsLower && !requiresLowerUpload && 'lower',
+    needsLower && !requiresLowerUpload && !lowerOnly && 'lower',
     needsShoes && 'shoes',
     'platform',
     'resolution',
@@ -2467,8 +2505,8 @@ export default function StudioPage(): React.ReactElement {
                                 }}
                               >
                                 {hasMultipleUploadBoxes
-                                  ? 'JPG, PNG · Max 10MB'
-                                  : 'Drag and drop an image here · JPG, PNG · Max 10MB'}
+                                  ? 'JPG, PNG · Max 20MB'
+                                  : 'Drag and drop an image here · JPG, PNG · Max 20MB'}
                               </span>
                             </div>
                             <div
@@ -2648,7 +2686,7 @@ export default function StudioPage(): React.ReactElement {
                                     textAlign: 'center',
                                   }}
                                 >
-                                  JPG, PNG · Max 10MB
+                                  JPG, PNG · Max 20MB
                                 </span>
                               </div>
                               <div
@@ -2829,7 +2867,7 @@ export default function StudioPage(): React.ReactElement {
                                     textAlign: 'center',
                                   }}
                                 >
-                                  JPG, PNG · Max 10MB
+                                  JPG, PNG · Max 20MB
                                 </span>
                               </div>
                               <div
@@ -3010,7 +3048,7 @@ export default function StudioPage(): React.ReactElement {
                                     textAlign: 'center',
                                   }}
                                 >
-                                  JPG, PNG · Max 10MB
+                                  JPG, PNG · Max 20MB
                                 </span>
                               </div>
                               <div
@@ -3353,7 +3391,8 @@ export default function StudioPage(): React.ReactElement {
                     title="Select Background"
                     stepNumber={stepNumberOf('background')}
                     right={
-                      (backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
+                      (myBackgrounds?.items.length ?? 0) + (backgrounds?.items.length ?? 0) >
+                        backgroundVisibleCount - 1 && (
                         <button
                           type="button"
                           onClick={() => {
@@ -3379,103 +3418,131 @@ export default function StudioPage(): React.ReactElement {
                       )
                     }
                   />
-                  <div style={{ marginBottom: 20 }}>
-                    <p style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 8 }}>
-                      My backgrounds
-                    </p>
-                    <div className="studio-5col-grid">
-                      <button
-                        type="button"
-                        onClick={() => setUploadModalOpen(true)}
+                  <div className="studio-5col-grid">
+                    <button
+                      type="button"
+                      onClick={() => setUploadModalOpen(true)}
+                      style={{
+                        width: '100%',
+                        borderRadius: 12,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        color: C.text,
+                        textAlign: 'center',
+                        padding: 0,
+                        background: 'none',
+                        border: 'none',
+                      }}
+                    >
+                      <span
                         style={{
                           width: '100%',
-                          borderRadius: 12,
+                          aspectRatio: 215.2 / 212.67,
+                          borderRadius: 10,
+                          border: `1.5px dashed ${C.border}`,
                           display: 'flex',
-                          flexDirection: 'column',
                           alignItems: 'center',
-                          cursor: 'pointer',
-                          color: C.text,
-                          textAlign: 'center',
-                          padding: 0,
-                          background: 'none',
-                          border: 'none',
+                          justifyContent: 'center',
+                          boxSizing: 'border-box',
                         }}
                       >
                         <span
                           style={{
-                            width: '100%',
-                            aspectRatio: 215.2 / 212.67,
+                            width: 36,
+                            height: 36,
                             borderRadius: 10,
-                            border: `1.5px dashed ${C.border}`,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            boxSizing: 'border-box',
+                            display: 'grid',
+                            placeItems: 'center',
+                            background: C.card,
+                            border: `1px solid ${C.border}`,
+                            color: C.pink,
                           }}
                         >
-                          <span
-                            style={{
-                              width: 36,
-                              height: 36,
-                              borderRadius: 10,
-                              display: 'grid',
-                              placeItems: 'center',
-                              background: C.card,
-                              border: `1px solid ${C.border}`,
-                              color: C.pink,
-                            }}
-                          >
-                            <ImagePlusIcon size={18} />
-                          </span>
+                          <ImagePlusIcon size={18} />
                         </span>
-                        <span
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          padding: '8px 4px 6px',
+                          width: '100%',
+                        }}
+                      >
+                        Add background
+                      </span>
+                    </button>
+                    {shuffledMyBackgrounds.map((b) => (
+                      <div key={b.id} style={{ position: 'relative' }}>
+                        <SelCard
+                          selected={backgroundId === b.id}
+                          onClick={() => handleBackgroundSelect(b.id)}
+                          imageUrl={b.thumbnailUrl}
+                          label={b.label}
+                          w="100%"
+                          ratio={215.2 / 212.67}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteMyBackground(b.id);
+                          }}
                           style={{
+                            position: 'absolute',
+                            top: 4,
+                            right: 4,
+                            width: 22,
+                            height: 22,
+                            borderRadius: '50%',
+                            border: 'none',
+                            background: 'rgba(0,0,0,0.55)',
+                            color: C.white,
+                            cursor: 'pointer',
                             fontSize: 12,
-                            fontWeight: 600,
-                            padding: '8px 4px 6px',
-                            width: '100%',
+                            lineHeight: 1,
                           }}
+                          aria-label={`Delete ${b.label}`}
                         >
-                          Add background
-                        </span>
-                      </button>
-                      {(myBackgrounds?.items ?? []).map((b) => (
-                        <div key={b.id} style={{ position: 'relative' }}>
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    {backgrounds &&
+                      !backgroundsError &&
+                      (() => {
+                        const frontIds = new Set(
+                          backgrounds.items.filter((b) => b.specialTag).map((b) => b.id),
+                        );
+                        const allItems = [...shuffledBackgrounds].sort(
+                          (a, b) => (frontIds.has(a.id) ? 0 : 1) - (frontIds.has(b.id) ? 0 : 1),
+                        );
+                        const rowCapacity = Math.max(
+                          0,
+                          backgroundVisibleCount - 1 - (myBackgrounds?.items.length ?? 0),
+                        );
+                        const firstN = allItems.slice(0, rowCapacity);
+                        const inFirstN = firstN.some((b) => b.id === backgroundId);
+                        const selected = allItems.find((b) => b.id === backgroundId);
+                        const visibleItems =
+                          selected && !inFirstN
+                            ? [selected, ...firstN].slice(0, rowCapacity)
+                            : firstN;
+                        return visibleItems.map((b) => (
                           <SelCard
+                            key={b.id}
                             selected={backgroundId === b.id}
                             onClick={() => handleBackgroundSelect(b.id)}
                             imageUrl={b.thumbnailUrl}
                             label={b.label}
                             w="100%"
                             ratio={215.2 / 212.67}
+                            badges={<TagBadge tag={b.specialTag} />}
                           />
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteMyBackground(b.id);
-                            }}
-                            style={{
-                              position: 'absolute',
-                              top: 4,
-                              right: 4,
-                              width: 22,
-                              height: 22,
-                              borderRadius: '50%',
-                              border: 'none',
-                              background: 'rgba(0,0,0,0.55)',
-                              color: C.white,
-                              cursor: 'pointer',
-                              fontSize: 12,
-                              lineHeight: 1,
-                            }}
-                            aria-label={`Delete ${b.label}`}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                        ));
+                      })()}
                   </div>
                   {uploadModalOpen && (
                     // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
@@ -3556,7 +3623,7 @@ export default function StudioPage(): React.ReactElement {
                           <ImagePlusIcon size={22} />
                           {isUploadingBackground ? 'Uploading…' : 'Upload an image'}
                           <span style={{ fontSize: 11, fontWeight: 400, color: C.mid }}>
-                            JPEG, PNG, or WebP — up to 10 MB
+                            JPEG, PNG, or WebP — up to 20 MB
                           </span>
                           <input
                             type="file"
@@ -3642,41 +3709,11 @@ export default function StudioPage(): React.ReactElement {
                     >
                       <SpinnerIcon />
                     </div>
-                  ) : backgrounds.items.length === 0 ? (
+                  ) : backgrounds.items.length === 0 && (myBackgrounds?.items.length ?? 0) === 0 ? (
                     <p style={{ fontSize: 14, color: C.mid }}>
                       No backgrounds available for this model yet. Try a different model.
                     </p>
-                  ) : (
-                    <div className="studio-5col-grid">
-                      {(() => {
-                        const frontIds = new Set(
-                          backgrounds.items.filter((b) => b.specialTag).map((b) => b.id),
-                        );
-                        const allItems = [...backgrounds.items].sort(
-                          (a, b) => (frontIds.has(a.id) ? 0 : 1) - (frontIds.has(b.id) ? 0 : 1),
-                        );
-                        const firstN = allItems.slice(0, backgroundVisibleCount);
-                        const inFirstN = firstN.some((b) => b.id === backgroundId);
-                        const selected = allItems.find((b) => b.id === backgroundId);
-                        const visibleItems =
-                          selected && !inFirstN
-                            ? [selected, ...firstN].slice(0, backgroundVisibleCount)
-                            : firstN;
-                        return visibleItems.map((b) => (
-                          <SelCard
-                            key={b.id}
-                            selected={backgroundId === b.id}
-                            onClick={() => handleBackgroundSelect(b.id)}
-                            imageUrl={b.thumbnailUrl}
-                            label={b.label}
-                            w="100%"
-                            ratio={215.2 / 212.67}
-                            badges={<TagBadge tag={b.specialTag} />}
-                          />
-                        ));
-                      })()}
-                    </div>
-                  )}
+                  ) : null}
                   {backgroundModalOpen &&
                     (() => {
                       const byCategory =
@@ -4104,6 +4141,7 @@ export default function StudioPage(): React.ReactElement {
 
               {needsLower &&
                 !requiresLowerUpload &&
+                !lowerOnly &&
                 (() => {
                   const lowerNodes =
                     lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
