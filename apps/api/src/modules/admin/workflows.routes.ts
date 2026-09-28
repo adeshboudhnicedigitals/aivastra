@@ -7,17 +7,31 @@ import {
   ReplaceWorkflowBody,
   UpdateWorkflowBody,
 } from '@aivastra/types';
-import { and, count, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { verifyPassword } from '../auth/service.js';
 import { recordAudit } from './audit.js';
-import { requirePermission } from './guard.js';
+import { requireAnyPermission, requirePermission } from './guard.js';
 import { detectTryonMappings } from './tryon-detect.js';
 import { detectTryonTwoInputMappings } from './tryon-two-input-detect.js';
 import { detectTwoStageMappings } from './two-stage-detect.js';
 import { classifyNode, detectMappings, type NodeCategory } from './workflow-detect.js';
+import { recordWorkflowVersion } from './workflow-versions.js';
 
 // Statuses that mean a job is done touching its stamped template version.
 // Kept in sync by hand with apps/dispatcher/src/workflow/drain-cleanup.ts's
@@ -657,11 +671,513 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
   };
 }
 
+// ── Reusable row mutations ───────────────────────────────────────────────
+//
+// Both used identically by the direct-write routes below (SUPER_ADMIN, no
+// queue) and by the change-request approval handler in
+// workflow-change-requests.routes.ts (any change type, after SUPER_ADMIN
+// review) — never duplicate this validation/write logic between the two
+// paths. Each always records a workflow_versions row in the same
+// transaction as its mutation; opts.changeRequestId is left undefined for a
+// direct edit (recorded as `null` — see workflow-versions.ts).
+
+export async function createWorkflowRow(
+  tx: DbTransaction,
+  body: z.infer<typeof CreateWorkflowBody>,
+  actor: { userId: string; role: string },
+  opts?: { changeRequestId?: string; continuesFromWorkflowId?: string },
+  request?: FastifyRequest,
+): Promise<typeof schema.workflowTemplates.$inferSelect> {
+  const [existingSlug] = await tx
+    .select({ id: schema.workflowTemplates.id })
+    .from(schema.workflowTemplates)
+    .where(eq(schema.workflowTemplates.slug, body.slug));
+  if (existingSlug) {
+    throw new AppError('CONFLICT', 409, `Workflow with slug "${body.slug}" already exists`);
+  }
+
+  // Every new workflow starts with the default reason pool (blank prompts —
+  // "no override yet") so the regenerate reason picker is never empty — but
+  // only for the one workflow type where reasons are actually used.
+  // /replace intentionally never sets this field, so an existing workflow's
+  // curated list survives a jsonContent swap untouched.
+  const values = {
+    ...extractWorkflowInsertFields(body),
+    regenerationReasonPrompts:
+      body.workflowType === 'regeneration' ? DEFAULT_REGENERATION_REASON_PROMPTS : [],
+  };
+
+  // Single-active invariant: only one 'regeneration' template is ever live —
+  // every regenerate click uses whichever one is active, with no per-job
+  // selection. Mirrors admin/saree.routes.ts's demote-on-create.
+  if (values.workflowType === 'regeneration') {
+    await tx
+      .update(schema.workflowTemplates)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.workflowTemplates.workflowType, 'regeneration'),
+          eq(schema.workflowTemplates.isActive, true),
+        ),
+      );
+  }
+
+  const [inserted] = await tx.insert(schema.workflowTemplates).values(values).returning();
+  if (!inserted) throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
+
+  await recordWorkflowVersion(tx, {
+    workflowTemplateId: inserted.id,
+    appliedBy: actor.userId,
+    changeRequestId: opts?.changeRequestId,
+    continuesFromWorkflowId: opts?.continuesFromWorkflowId,
+  });
+
+  await recordAudit(tx, {
+    actor,
+    action: 'workflow.create',
+    resourceType: 'workflow',
+    resourceId: inserted.id,
+    after: {
+      id: inserted.id,
+      slug: inserted.slug,
+      label: inserted.label,
+      workflowType: inserted.workflowType,
+    },
+    request,
+  });
+
+  return inserted;
+}
+
+export async function updateWorkflowRow(
+  tx: DbTransaction,
+  id: string,
+  body: z.infer<typeof UpdateWorkflowBody>,
+  actor: { userId: string; role: string },
+  opts?: { changeRequestId?: string },
+  request?: FastifyRequest,
+): Promise<{ clearedPosePromptCount: number; clearedGarmentConfigPromptCount: number }> {
+  const [existing] = await tx
+    .select()
+    .from(schema.workflowTemplates)
+    .where(eq(schema.workflowTemplates.id, id))
+    .for('update');
+  if (!existing) throw new AppError('NOT_FOUND', 404, 'workflow not found');
+
+  const json = existing.jsonContent as Record<string, unknown>;
+
+  if (body.faceNodeId) {
+    validateNodeExists(json, body.faceNodeId, 'face');
+    validateNodeType(json, body.faceNodeId, 'image', 'face');
+  }
+  if (body.poseNodeId) {
+    validateNodeExists(json, body.poseNodeId, 'pose');
+    validateNodeType(json, body.poseNodeId, 'image', 'pose');
+  }
+  if (body.bgNodeId) {
+    validateNodeExists(json, body.bgNodeId, 'background');
+    validateNodeType(json, body.bgNodeId, 'image', 'background');
+  }
+  if (body.upperNodeIds) {
+    for (const uid of body.upperNodeIds) {
+      validateNodeExists(json, uid, 'upper garment');
+      validateNodeType(json, uid, 'image', 'upper garment');
+    }
+  }
+  if (body.lowerNodeId) {
+    validateNodeExists(json, body.lowerNodeId, 'lower garment');
+    validateNodeType(json, body.lowerNodeId, 'image', 'lower garment');
+  }
+  if (body.shoeNodeId) {
+    validateNodeExists(json, body.shoeNodeId, 'shoes');
+    validateNodeType(json, body.shoeNodeId, 'image', 'shoes');
+  }
+  if (body.thirdNodeId) {
+    validateNodeExists(json, body.thirdNodeId, 'third garment');
+    validateNodeType(json, body.thirdNodeId, 'image', 'third garment');
+  }
+  if (body.facePhasePromptNode) {
+    validateNodeExists(json, body.facePhasePromptNode, 'negative prompt');
+    validateNodeType(json, body.facePhasePromptNode, 'prompt', 'negative prompt');
+  }
+  if (body.garmentPhasePromptNode) {
+    validateNodeExists(json, body.garmentPhasePromptNode, 'positive prompt');
+    validateNodeType(json, body.garmentPhasePromptNode, 'prompt', 'positive prompt');
+  }
+  if (body.stage1PositivePromptNode) {
+    validateNodeExists(json, body.stage1PositivePromptNode, 'stage-1 positive prompt');
+    validateNodeType(json, body.stage1PositivePromptNode, 'prompt', 'stage-1 positive prompt');
+  }
+  if (body.stage1NegativePromptNode) {
+    validateNodeExists(json, body.stage1NegativePromptNode, 'stage-1 negative prompt');
+    validateNodeType(json, body.stage1NegativePromptNode, 'prompt', 'stage-1 negative prompt');
+  }
+  if (body.samSegmentationPromptNode) {
+    // No validateNodeType call here — see extractWorkflowInsertFields's
+    // comment (Task 3): a SAM3 node's class_type won't classify as
+    // 'prompt' under the TextEncode-based check. validateHasPromptInput
+    // is the structural check that stands in for it (Fix 2).
+    validateNodeExists(json, body.samSegmentationPromptNode, 'SAM3 segmentation prompt');
+    validateHasPromptInput(json, body.samSegmentationPromptNode, 'SAM3 segmentation prompt');
+  }
+
+  const mergedUpperNodeIds = body.upperNodeIds ?? existing.upperNodeIds;
+  const mergedLowerNodeId =
+    body.lowerNodeId !== undefined ? body.lowerNodeId : existing.lowerNodeId;
+  const mergedFaceNodeId = body.faceNodeId !== undefined ? body.faceNodeId : existing.faceNodeId;
+  const mergedFacePhasePromptNode =
+    body.facePhasePromptNode !== undefined
+      ? body.facePhasePromptNode
+      : existing.facePhasePromptNode;
+
+  if (existing.workflowType === 'regular') {
+    const hasUpper = mergedUpperNodeIds.length > 0;
+    const hasLower = !!mergedLowerNodeId;
+    if (!hasUpper && !hasLower) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'cannot clear the last garment role - at least one of upperNodeIds/lowerNodeId must remain set',
+      );
+    }
+    if (mergedFaceNodeId && !mergedFacePhasePromptNode) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'cannot leave faceNodeId set without facePhasePromptNode',
+      );
+    }
+  }
+
+  const newNegNode = body.facePhasePromptNode ?? existing.facePhasePromptNode;
+  const newPosNode = body.garmentPhasePromptNode ?? existing.garmentPhasePromptNode;
+  const newStage1PosNode = body.stage1PositivePromptNode ?? existing.stage1PositivePromptNode;
+  const newStage1NegNode = body.stage1NegativePromptNode ?? existing.stage1NegativePromptNode;
+  // Nullable field (Fix 1) — 'in' presence check rather than `??`, same
+  // pattern as resultNodeId below, so an explicit null (clearing the node)
+  // is honored instead of falling through to the existing value.
+  const newSamNode =
+    'samSegmentationPromptNode' in body
+      ? (body.samSegmentationPromptNode ?? null)
+      : existing.samSegmentationPromptNode;
+
+  if (body.garmentPhasePrompt !== undefined) {
+    if (!body.garmentPhasePrompt.trim()) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'garmentPhasePrompt cannot be empty — an empty positive prompt causes ComfyUI to reject the job',
+      );
+    }
+    writePromptText(json, newPosNode, body.garmentPhasePrompt);
+  }
+  if (body.facePhasePrompt !== undefined) {
+    if (!newNegNode) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'cannot set facePhasePrompt: this workflow has no face-phase prompt node',
+      );
+    }
+    writePromptText(json, newNegNode, body.facePhasePrompt);
+  }
+  if (body.stage1PositivePrompt !== undefined) {
+    if (!body.stage1PositivePrompt.trim()) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'stage1PositivePrompt cannot be empty — an empty positive prompt causes ComfyUI to reject the job',
+      );
+    }
+    if (!newStage1PosNode) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'cannot set stage1PositivePrompt: this workflow has no stage-1 positive prompt node',
+      );
+    }
+    writePromptText(json, newStage1PosNode, body.stage1PositivePrompt);
+  }
+  if (body.stage1NegativePrompt !== undefined) {
+    if (!newStage1NegNode) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'cannot set stage1NegativePrompt: this workflow has no stage-1 negative prompt node',
+      );
+    }
+    writePromptText(json, newStage1NegNode, body.stage1NegativePrompt);
+  }
+  if (body.samSegmentationPrompt !== undefined) {
+    if (!body.samSegmentationPrompt.trim()) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'samSegmentationPrompt cannot be empty — an empty segmentation target likely causes ComfyUI to reject the job',
+      );
+    }
+    if (!newSamNode) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'cannot set samSegmentationPrompt: this workflow has no SAM3 segmentation prompt node',
+      );
+    }
+    writePromptText(json, newSamNode, body.samSegmentationPrompt);
+  }
+  for (const override of body.ksamplerOverrides ?? []) {
+    writeKSamplerOverride(json, override);
+  }
+
+  let defaultFacePhasePrompt = existing.defaultFacePhasePrompt;
+  let defaultGarmentPhasePrompt = existing.defaultGarmentPhasePrompt;
+  if (
+    body.facePhasePromptNode ||
+    body.garmentPhasePromptNode ||
+    body.facePhasePrompt !== undefined ||
+    body.garmentPhasePrompt !== undefined
+  ) {
+    const extracted = extractDefaultPrompts(json, newNegNode, newPosNode);
+    defaultFacePhasePrompt = extracted.defaultFacePhasePrompt;
+    defaultGarmentPhasePrompt = extracted.defaultGarmentPhasePrompt;
+  }
+  // Whether this save actually changes the effective default text (a direct
+  // edit, or a garmentPhasePromptNode/facePhasePromptNode repoint that lands
+  // on a node with different baked text) — not just "was the field present in
+  // the body," since the Edit modal always resends both prompt fields on
+  // every save, including ones that only touch label/slug/etc. Poses and
+  // pose_garment_configs rows with a pinned override of their own are stale
+  // the moment this template's own default text changes, the same way they
+  // already are on /replace — see docs/superpowers/specs/
+  // 2026-09-11-workflow-replace-prompt-override-invalidation-design.md.
+  const promptTextChanged =
+    defaultGarmentPhasePrompt !== existing.defaultGarmentPhasePrompt ||
+    defaultFacePhasePrompt !== existing.defaultFacePhasePrompt;
+
+  let defaultStage1PositivePrompt = existing.defaultStage1PositivePrompt;
+  let defaultStage1NegativePrompt = existing.defaultStage1NegativePrompt;
+  if (
+    body.stage1PositivePromptNode ||
+    body.stage1NegativePromptNode ||
+    body.stage1PositivePrompt !== undefined ||
+    body.stage1NegativePrompt !== undefined
+  ) {
+    defaultStage1PositivePrompt = extractPromptText(
+      newStage1PosNode ? (json[newStage1PosNode] as WorkflowNode | undefined) : undefined,
+    );
+    defaultStage1NegativePrompt = extractPromptText(
+      newStage1NegNode ? (json[newStage1NegNode] as WorkflowNode | undefined) : undefined,
+    );
+  }
+
+  let defaultSamSegmentationPrompt = existing.defaultSamSegmentationPrompt;
+  if ('samSegmentationPromptNode' in body || body.samSegmentationPrompt !== undefined) {
+    // Recomputed from the (possibly null, Fix 1) newSamNode: clearing the
+    // node clears the default back to '' via extractPromptText's fallback
+    // for an undefined node — there's nothing left to derive a default from.
+    defaultSamSegmentationPrompt = extractPromptText(
+      newSamNode ? (json[newSamNode] as WorkflowNode | undefined) : undefined,
+    );
+  }
+
+  const updateValues: Record<string, unknown> = {
+    updatedAt: new Date(),
+    defaultFacePhasePrompt,
+    defaultGarmentPhasePrompt,
+    defaultStage1PositivePrompt,
+    defaultStage1NegativePrompt,
+    defaultSamSegmentationPrompt,
+  };
+  if (
+    body.garmentPhasePrompt !== undefined ||
+    body.facePhasePrompt !== undefined ||
+    body.stage1PositivePrompt !== undefined ||
+    body.stage1NegativePrompt !== undefined ||
+    body.samSegmentationPrompt !== undefined ||
+    (body.ksamplerOverrides?.length ?? 0) > 0
+  ) {
+    updateValues.jsonContent = json;
+  }
+  if (body.label !== undefined) updateValues.label = body.label;
+  if (body.slug !== undefined) {
+    const [conflict] = await tx
+      .select({ id: schema.workflowTemplates.id })
+      .from(schema.workflowTemplates)
+      .where(
+        and(eq(schema.workflowTemplates.slug, body.slug), ne(schema.workflowTemplates.id, id)),
+      );
+    if (conflict) throw new AppError('CONFLICT', 409, `Slug "${body.slug}" already taken`);
+    updateValues.slug = body.slug;
+  }
+  if (body.isActive !== undefined) updateValues.isActive = body.isActive;
+  if (body.faceNodeId !== undefined) updateValues.faceNodeId = body.faceNodeId;
+  if (body.poseNodeId !== undefined) updateValues.poseNodeId = body.poseNodeId;
+  if (body.bgNodeId !== undefined) updateValues.bgNodeId = body.bgNodeId;
+  if (body.upperNodeIds !== undefined) updateValues.upperNodeIds = body.upperNodeIds;
+  if ('lowerNodeId' in body) updateValues.lowerNodeId = body.lowerNodeId ?? null;
+  if ('shoeNodeId' in body) updateValues.shoeNodeId = body.shoeNodeId ?? null;
+  if ('thirdNodeId' in body) updateValues.thirdNodeId = body.thirdNodeId ?? null;
+  if ('sizeNodeIds' in body) updateValues.sizeNodeIds = body.sizeNodeIds ?? [];
+  if ('latentSizeNodeIds' in body) updateValues.latentSizeNodeIds = body.latentSizeNodeIds ?? [];
+  if (body.latentMaxPx !== undefined) updateValues.latentMaxPx = body.latentMaxPx;
+  if ('outputSizeNodeIds' in body) updateValues.outputSizeNodeIds = body.outputSizeNodeIds ?? [];
+  if (body.outputMaxPx !== undefined) updateValues.outputMaxPx = body.outputMaxPx;
+  if ('resultNodeId' in body) updateValues.resultNodeId = body.resultNodeId ?? null;
+  if (body.facePhasePromptNode !== undefined)
+    updateValues.facePhasePromptNode = body.facePhasePromptNode;
+  if (body.garmentPhasePromptNode !== undefined)
+    updateValues.garmentPhasePromptNode = body.garmentPhasePromptNode;
+  if (body.stage1PositivePromptNode !== undefined)
+    updateValues.stage1PositivePromptNode = body.stage1PositivePromptNode;
+  if (body.stage1NegativePromptNode !== undefined)
+    updateValues.stage1NegativePromptNode = body.stage1NegativePromptNode;
+  if ('samSegmentationPromptNode' in body)
+    updateValues.samSegmentationPromptNode = body.samSegmentationPromptNode ?? null;
+  if ('tryonPersonNodeId' in body) updateValues.tryonPersonNodeId = body.tryonPersonNodeId ?? null;
+  if ('tryonGarmentNodeId' in body)
+    updateValues.tryonGarmentNodeId = body.tryonGarmentNodeId ?? null;
+  if ('tryonGarmentNodeId2' in body)
+    updateValues.tryonGarmentNodeId2 = body.tryonGarmentNodeId2 ?? null;
+  if ('tryonOutputNodeId' in body) updateValues.tryonOutputNodeId = body.tryonOutputNodeId ?? null;
+  if (body.regenerationReasonPrompts !== undefined) {
+    if (existing.workflowType !== 'regeneration') {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'regenerationReasonPrompts can only be set on a regeneration-type workflow',
+      );
+    }
+    // Trim + drop rows with a blank REASON here rather than trusting the
+    // client's array verbatim — an admin backspacing a reason label to
+    // empty shouldn't leave a nameless row the picker can't render. A
+    // blank PROMPT/INSTRUCTION is kept deliberately: it means "no
+    // override configured yet" for that reason (regenerate then falls
+    // back to the original prompt/instruction) — dropping it would
+    // silently erase default reasons an admin hasn't gotten to yet every
+    // time they save an unrelated field.
+    updateValues.regenerationReasonPrompts = body.regenerationReasonPrompts
+      .map((p) => ({
+        reason: p.reason.trim(),
+        prompt: p.prompt.trim(),
+        instruction: (p.instruction ?? '').trim(),
+      }))
+      .filter((p) => p.reason.length > 0);
+  }
+
+  if (existing.workflowType === 'regeneration' && body.isActive === true) {
+    await tx
+      .update(schema.workflowTemplates)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.workflowTemplates.workflowType, 'regeneration'),
+          eq(schema.workflowTemplates.isActive, true),
+          ne(schema.workflowTemplates.id, id),
+        ),
+      );
+  }
+
+  await tx
+    .update(schema.workflowTemplates)
+    .set(updateValues)
+    .where(eq(schema.workflowTemplates.id, id));
+
+  // Same "direct + inherited" clear as /replace and /reassign (see
+  // 2026-09-11-workflow-replace-prompt-override-invalidation-design.md):
+  // a pinned pose/garment-config prompt was tuned to THIS template's old
+  // default text, so it's just as stale here as it is after a full
+  // graph replace. workflowTemplateId is never touched — only the
+  // prompt-override text columns.
+  let clearedPosePromptCount = 0;
+  let clearedGarmentConfigPromptCount = 0;
+  if (promptTextChanged) {
+    const posesOnTemplate = await tx
+      .select({
+        id: schema.modelPoseAssets.id,
+        promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
+        promptFacePhase: schema.modelPoseAssets.promptFacePhase,
+      })
+      .from(schema.modelPoseAssets)
+      .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
+
+    await tx
+      .update(schema.modelPoseAssets)
+      .set({ promptGarmentPhase: null, promptFacePhase: null })
+      .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
+
+    clearedPosePromptCount = posesOnTemplate.filter(
+      (p) => p.promptGarmentPhase !== null || p.promptFacePhase !== null,
+    ).length;
+    const inheritingPoseIds = posesOnTemplate.map((p) => p.id);
+
+    const clearedGarmentConfigsDirect = await tx
+      .update(schema.poseGarmentConfigs)
+      .set({ promptGarmentPhase: null, promptFacePhase: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.poseGarmentConfigs.workflowTemplateId, id),
+          or(
+            isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+            isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+          ),
+        ),
+      )
+      .returning({ id: schema.poseGarmentConfigs.id });
+
+    const clearedGarmentConfigsInherited =
+      inheritingPoseIds.length > 0
+        ? await tx
+            .update(schema.poseGarmentConfigs)
+            .set({ promptGarmentPhase: null, promptFacePhase: null, updatedAt: new Date() })
+            .where(
+              and(
+                isNull(schema.poseGarmentConfigs.workflowTemplateId),
+                inArray(schema.poseGarmentConfigs.poseAssetId, inheritingPoseIds),
+                or(
+                  isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
+                  isNotNull(schema.poseGarmentConfigs.promptFacePhase),
+                ),
+              ),
+            )
+            .returning({ id: schema.poseGarmentConfigs.id })
+        : [];
+
+    clearedGarmentConfigPromptCount =
+      clearedGarmentConfigsDirect.length + clearedGarmentConfigsInherited.length;
+  }
+
+  await recordWorkflowVersion(tx, {
+    workflowTemplateId: id,
+    appliedBy: actor.userId,
+    changeRequestId: opts?.changeRequestId,
+  });
+
+  await recordAudit(tx, {
+    actor,
+    action: 'workflow.update',
+    resourceType: 'workflow',
+    resourceId: id,
+    before: existing,
+    after: {
+      ...existing,
+      ...updateValues,
+      ...(promptTextChanged ? { clearedPosePromptCount, clearedGarmentConfigPromptCount } : {}),
+    },
+    request,
+  });
+
+  return { clearedPosePromptCount, clearedGarmentConfigPromptCount };
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────
 
 export async function adminWorkflowsRoutes(app: FastifyInstance) {
   const W = requirePermission('workflows.write');
   const R = requirePermission('workflows.read');
+  // Parsing a JSON file into node-mapping suggestions writes nothing — it's a
+  // shared first step for both a direct create (workflows.write) and a
+  // proposed one (workflow_change_requests.propose), so it must accept either.
+  const ParseAccess = requireAnyPermission(['workflows.write', 'workflow_change_requests.propose']);
   const uuidParam = z.object({ id: z.string().uuid() });
 
   // GET /admin/workflows
@@ -817,7 +1333,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/workflows/parse',
     {
-      preHandler: W,
+      preHandler: ParseAccess,
       schema: { body: ParseWorkflowBody },
     },
     async (req) => {
@@ -863,62 +1379,16 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     async (req) => {
       const body = req.body as z.infer<typeof CreateWorkflowBody>;
 
-      const [existing] = await app.db
-        .select({ id: schema.workflowTemplates.id })
-        .from(schema.workflowTemplates)
-        .where(eq(schema.workflowTemplates.slug, body.slug));
-      if (existing) {
-        throw new AppError('CONFLICT', 409, `Workflow with slug "${body.slug}" already exists`);
-      }
-
-      // Every new workflow starts with the default reason pool (blank prompts —
-      // "no override yet") so the regenerate reason picker is never empty — but
-      // only for the one workflow type where reasons are actually used.
-      // /replace intentionally never sets this field, so an existing workflow's
-      // curated list survives a jsonContent swap untouched.
-      const values = {
-        ...extractWorkflowInsertFields(body),
-        regenerationReasonPrompts:
-          body.workflowType === 'regeneration' ? DEFAULT_REGENERATION_REASON_PROMPTS : [],
-      };
-
-      const row = await app.db.transaction(async (tx) => {
-        // Single-active invariant: only one 'regeneration' template is ever
-        // live — every regenerate click uses whichever one is active, with no
-        // per-job selection. Mirrors admin/saree.routes.ts's demote-on-create.
-        if (values.workflowType === 'regeneration') {
-          await tx
-            .update(schema.workflowTemplates)
-            .set({ isActive: false, updatedAt: new Date() })
-            .where(
-              and(
-                eq(schema.workflowTemplates.workflowType, 'regeneration'),
-                eq(schema.workflowTemplates.isActive, true),
-              ),
-            );
-        }
-
-        const [inserted] = await tx.insert(schema.workflowTemplates).values(values).returning();
-        if (!inserted)
-          throw new AppError('INSERT_FAILED', 500, 'failed to insert workflow template');
-
-        await recordAudit(tx, {
+      const row = await app.db.transaction((tx) =>
+        createWorkflowRow(
+          tx,
+          body,
           // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
-          actor: { userId: req.userId, role: req.adminRole! },
-          action: 'workflow.create',
-          resourceType: 'workflow',
-          resourceId: inserted.id,
-          after: {
-            id: inserted.id,
-            slug: inserted.slug,
-            label: inserted.label,
-            workflowType: inserted.workflowType,
-          },
-          request: req,
-        });
-
-        return inserted;
-      });
+          { userId: req.userId, role: req.adminRole! },
+          undefined,
+          req,
+        ),
+      );
 
       return {
         ...row,
@@ -970,6 +1440,158 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     },
   );
 
+  // GET /admin/workflows/:id/versions
+  app.get(
+    '/admin/workflows/:id/versions',
+    { preHandler: R, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+
+      const rows = await app.db
+        .select({
+          id: schema.workflowVersions.id,
+          versionNumber: schema.workflowVersions.versionNumber,
+          changeRequestId: schema.workflowVersions.changeRequestId,
+          appliedAt: schema.workflowVersions.appliedAt,
+          appliedByEmail: schema.users.email,
+          // Left-joined from the originating change request — a direct edit has
+          // no change request, so reason/previousLimitations come back null.
+          reason: schema.workflowChangeRequests.reason,
+          previousLimitations: schema.workflowChangeRequests.previousLimitations,
+        })
+        .from(schema.workflowVersions)
+        .innerJoin(schema.users, eq(schema.users.id, schema.workflowVersions.appliedBy))
+        .leftJoin(
+          schema.workflowChangeRequests,
+          eq(schema.workflowChangeRequests.id, schema.workflowVersions.changeRequestId),
+        )
+        .where(eq(schema.workflowVersions.workflowTemplateId, id))
+        .orderBy(desc(schema.workflowVersions.versionNumber));
+
+      return rows;
+    },
+  );
+
+  // GET /admin/workflows/:id/stats
+  // Only meaningful for the four workflow types a job can actually be traced
+  // back to (regular, tryon, saree_step1, regeneration) — every other type
+  // returns { tracked: false } rather than a misleading all-zero payload.
+  const JOB_LINKABLE_WORKFLOW_TYPES = ['regular', 'tryon', 'saree_step1', 'regeneration'];
+  app.get(
+    '/admin/workflows/:id/stats',
+    { preHandler: R, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+
+      const [wf] = await app.db
+        .select({ workflowType: schema.workflowTemplates.workflowType })
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, id));
+      if (!wf) throw new AppError('NOT_FOUND', 404, 'workflow not found');
+
+      if (!JOB_LINKABLE_WORKFLOW_TYPES.includes(wf.workflowType)) {
+        return { tracked: false as const };
+      }
+
+      // Same job -> template resolution as hasInFlightJobsForTemplateVersion
+      // above: an explicit per-job stamp first, falling back to whichever
+      // pose/garment-type currently maps to this template.
+      const [row] = await app.db
+        .select({
+          totalJobs: count(),
+          completedJobs: sql<number>`count(*) filter (where ${schema.jobs.status} = 'COMPLETED')`,
+          failedJobs: sql<number>`count(*) filter (where ${schema.jobs.status} = 'FAILED')`,
+          avgGenerationSeconds: sql<
+            number | null
+          >`avg(extract(epoch from (${schema.jobs.completedAt} - ${schema.jobs.startedAt}))) filter (where ${schema.jobs.status} = 'COMPLETED')`,
+          lastUsedAt: sql<string | null>`max(${schema.jobs.createdAt})`,
+        })
+        .from(schema.jobs)
+        .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
+        .leftJoin(
+          schema.garmentSubcategories,
+          eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+        )
+        .where(
+          or(
+            sql`${schema.jobInputs.params} ->> 'workflowTemplateId' = ${id}`,
+            eq(schema.modelPoseAssets.workflowTemplateId, id),
+            eq(schema.garmentSubcategories.sareeStep2WorkflowTemplateId, id),
+            eq(schema.garmentSubcategories.mannequinWorkflowTemplateId, id),
+            eq(schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId, id),
+            eq(schema.garmentSubcategories.twoInputTryonWorkflowTemplateId, id),
+          ),
+        );
+
+      const totalJobs = Number(row?.totalJobs ?? 0);
+      const completedJobs = Number(row?.completedJobs ?? 0);
+      const failedJobs = Number(row?.failedJobs ?? 0);
+      const terminalJobs = completedJobs + failedJobs;
+
+      return {
+        tracked: true as const,
+        totalJobs,
+        completedJobs,
+        failedJobs,
+        successRatePct:
+          terminalJobs > 0 ? Math.round((completedJobs / terminalJobs) * 1000) / 10 : null,
+        avgGenerationSeconds:
+          row?.avgGenerationSeconds != null ? Math.round(Number(row.avgGenerationSeconds)) : null,
+        lastUsedAt: row?.lastUsedAt ?? null,
+      };
+    },
+  );
+
+  // GET /admin/workflows/:id/replaced-by
+  // "Why is this inactive" — the most recent approved 'create' change request
+  // whose targetWorkflowId is this workflow, if any. Null means the workflow
+  // was deactivated some other way (a direct SUPER_ADMIN toggle, or
+  // auto-demotion because another active workflow of the same shape/type was
+  // uploaded) — the UI must tell that apart from "replaced, here's the story."
+  app.get(
+    '/admin/workflows/:id/replaced-by',
+    { preHandler: R, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+
+      const proposer = alias(schema.users, 'proposer');
+      const approver = alias(schema.users, 'approver');
+      const resultingWorkflow = alias(schema.workflowTemplates, 'resulting_workflow');
+
+      const [row] = await app.db
+        .select({
+          reason: schema.workflowChangeRequests.reason,
+          previousLimitations: schema.workflowChangeRequests.previousLimitations,
+          proposedByEmail: proposer.email,
+          proposedByRole: schema.workflowChangeRequests.proposedByRole,
+          proposedAt: schema.workflowChangeRequests.createdAt,
+          approvedByEmail: approver.email,
+          approvedAt: schema.workflowChangeRequests.reviewedAt,
+          resultingWorkflowId: schema.workflowChangeRequests.resultingWorkflowId,
+          resultingWorkflowLabel: resultingWorkflow.label,
+        })
+        .from(schema.workflowChangeRequests)
+        .innerJoin(proposer, eq(proposer.id, schema.workflowChangeRequests.proposedBy))
+        .leftJoin(approver, eq(approver.id, schema.workflowChangeRequests.reviewedBy))
+        .leftJoin(
+          resultingWorkflow,
+          eq(resultingWorkflow.id, schema.workflowChangeRequests.resultingWorkflowId),
+        )
+        .where(
+          and(
+            eq(schema.workflowChangeRequests.targetWorkflowId, id),
+            eq(schema.workflowChangeRequests.changeType, 'create'),
+            eq(schema.workflowChangeRequests.status, 'approved'),
+          ),
+        )
+        .orderBy(desc(schema.workflowChangeRequests.reviewedAt))
+        .limit(1);
+
+      return { replacedBy: row ?? null };
+    },
+  );
+
   // PATCH /admin/workflows/:id
   app.patch(
     '/admin/workflows/:id',
@@ -979,468 +1601,19 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
-      const body = req.body as {
-        label?: string;
-        slug?: string;
-        isActive?: boolean;
-        faceNodeId?: string;
-        poseNodeId?: string;
-        bgNodeId?: string;
-        upperNodeIds?: string[];
-        lowerNodeId?: string | null;
-        shoeNodeId?: string | null;
-        thirdNodeId?: string | null;
-        sizeNodeIds?: string[];
-        latentSizeNodeIds?: string[];
-        latentMaxPx?: number;
-        outputSizeNodeIds?: string[];
-        outputMaxPx?: number;
-        resultNodeId?: string | null;
-        facePhasePromptNode?: string;
-        garmentPhasePromptNode?: string;
-        garmentPhasePrompt?: string;
-        facePhasePrompt?: string;
-        regenerationReasonPrompts?: { reason: string; prompt: string; instruction?: string }[];
-        ksamplerOverrides?: {
-          nodeId: string;
-          steps?: number;
-          cfg?: number;
-          denoise?: number;
-          seed?: number;
-        }[];
-        tryonPersonNodeId?: string | null;
-        tryonGarmentNodeId?: string | null;
-        tryonGarmentNodeId2?: string | null;
-        tryonOutputNodeId?: string | null;
-        stage1PositivePromptNode?: string;
-        stage1NegativePromptNode?: string;
-        stage1PositivePrompt?: string;
-        stage1NegativePrompt?: string;
-        samSegmentationPromptNode?: string | null;
-        samSegmentationPrompt?: string;
-      };
-
-      const [existing] = await app.db
-        .select()
-        .from(schema.workflowTemplates)
-        .where(eq(schema.workflowTemplates.id, id));
-      if (!existing) throw new AppError('NOT_FOUND', 404, 'workflow not found');
-
-      const json = existing.jsonContent as Record<string, unknown>;
-
-      if (body.faceNodeId) {
-        validateNodeExists(json, body.faceNodeId, 'face');
-        validateNodeType(json, body.faceNodeId, 'image', 'face');
-      }
-      if (body.poseNodeId) {
-        validateNodeExists(json, body.poseNodeId, 'pose');
-        validateNodeType(json, body.poseNodeId, 'image', 'pose');
-      }
-      if (body.bgNodeId) {
-        validateNodeExists(json, body.bgNodeId, 'background');
-        validateNodeType(json, body.bgNodeId, 'image', 'background');
-      }
-      if (body.upperNodeIds) {
-        for (const uid of body.upperNodeIds) {
-          validateNodeExists(json, uid, 'upper garment');
-          validateNodeType(json, uid, 'image', 'upper garment');
-        }
-      }
-      if (body.lowerNodeId) {
-        validateNodeExists(json, body.lowerNodeId, 'lower garment');
-        validateNodeType(json, body.lowerNodeId, 'image', 'lower garment');
-      }
-      if (body.shoeNodeId) {
-        validateNodeExists(json, body.shoeNodeId, 'shoes');
-        validateNodeType(json, body.shoeNodeId, 'image', 'shoes');
-      }
-      if (body.thirdNodeId) {
-        validateNodeExists(json, body.thirdNodeId, 'third garment');
-        validateNodeType(json, body.thirdNodeId, 'image', 'third garment');
-      }
-      if (body.facePhasePromptNode) {
-        validateNodeExists(json, body.facePhasePromptNode, 'negative prompt');
-        validateNodeType(json, body.facePhasePromptNode, 'prompt', 'negative prompt');
-      }
-      if (body.garmentPhasePromptNode) {
-        validateNodeExists(json, body.garmentPhasePromptNode, 'positive prompt');
-        validateNodeType(json, body.garmentPhasePromptNode, 'prompt', 'positive prompt');
-      }
-      if (body.stage1PositivePromptNode) {
-        validateNodeExists(json, body.stage1PositivePromptNode, 'stage-1 positive prompt');
-        validateNodeType(json, body.stage1PositivePromptNode, 'prompt', 'stage-1 positive prompt');
-      }
-      if (body.stage1NegativePromptNode) {
-        validateNodeExists(json, body.stage1NegativePromptNode, 'stage-1 negative prompt');
-        validateNodeType(json, body.stage1NegativePromptNode, 'prompt', 'stage-1 negative prompt');
-      }
-      if (body.samSegmentationPromptNode) {
-        // No validateNodeType call here — see extractWorkflowInsertFields's
-        // comment (Task 3): a SAM3 node's class_type won't classify as
-        // 'prompt' under the TextEncode-based check. validateHasPromptInput
-        // is the structural check that stands in for it (Fix 2).
-        validateNodeExists(json, body.samSegmentationPromptNode, 'SAM3 segmentation prompt');
-        validateHasPromptInput(json, body.samSegmentationPromptNode, 'SAM3 segmentation prompt');
-      }
-
-      const mergedUpperNodeIds = body.upperNodeIds ?? existing.upperNodeIds;
-      const mergedLowerNodeId =
-        body.lowerNodeId !== undefined ? body.lowerNodeId : existing.lowerNodeId;
-      const mergedFaceNodeId =
-        body.faceNodeId !== undefined ? body.faceNodeId : existing.faceNodeId;
-      const mergedFacePhasePromptNode =
-        body.facePhasePromptNode !== undefined
-          ? body.facePhasePromptNode
-          : existing.facePhasePromptNode;
-
-      if (existing.workflowType === 'regular') {
-        const hasUpper = mergedUpperNodeIds.length > 0;
-        const hasLower = !!mergedLowerNodeId;
-        if (!hasUpper && !hasLower) {
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'cannot clear the last garment role - at least one of upperNodeIds/lowerNodeId must remain set',
-          );
-        }
-        if (mergedFaceNodeId && !mergedFacePhasePromptNode) {
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'cannot leave faceNodeId set without facePhasePromptNode',
-          );
-        }
-      }
-
-      const newNegNode = body.facePhasePromptNode ?? existing.facePhasePromptNode;
-      const newPosNode = body.garmentPhasePromptNode ?? existing.garmentPhasePromptNode;
-      const newStage1PosNode = body.stage1PositivePromptNode ?? existing.stage1PositivePromptNode;
-      const newStage1NegNode = body.stage1NegativePromptNode ?? existing.stage1NegativePromptNode;
-      // Nullable field (Fix 1) — 'in' presence check rather than `??`, same
-      // pattern as resultNodeId below, so an explicit null (clearing the node)
-      // is honored instead of falling through to the existing value.
-      const newSamNode =
-        'samSegmentationPromptNode' in body
-          ? (body.samSegmentationPromptNode ?? null)
-          : existing.samSegmentationPromptNode;
-
-      if (body.garmentPhasePrompt !== undefined) {
-        if (!body.garmentPhasePrompt.trim()) {
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'garmentPhasePrompt cannot be empty — an empty positive prompt causes ComfyUI to reject the job',
-          );
-        }
-        writePromptText(json, newPosNode, body.garmentPhasePrompt);
-      }
-      if (body.facePhasePrompt !== undefined) {
-        if (!newNegNode) {
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'cannot set facePhasePrompt: this workflow has no face-phase prompt node',
-          );
-        }
-        writePromptText(json, newNegNode, body.facePhasePrompt);
-      }
-      if (body.stage1PositivePrompt !== undefined) {
-        if (!body.stage1PositivePrompt.trim()) {
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'stage1PositivePrompt cannot be empty — an empty positive prompt causes ComfyUI to reject the job',
-          );
-        }
-        if (!newStage1PosNode) {
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'cannot set stage1PositivePrompt: this workflow has no stage-1 positive prompt node',
-          );
-        }
-        writePromptText(json, newStage1PosNode, body.stage1PositivePrompt);
-      }
-      if (body.stage1NegativePrompt !== undefined) {
-        if (!newStage1NegNode) {
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'cannot set stage1NegativePrompt: this workflow has no stage-1 negative prompt node',
-          );
-        }
-        writePromptText(json, newStage1NegNode, body.stage1NegativePrompt);
-      }
-      if (body.samSegmentationPrompt !== undefined) {
-        if (!body.samSegmentationPrompt.trim()) {
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'samSegmentationPrompt cannot be empty — an empty segmentation target likely causes ComfyUI to reject the job',
-          );
-        }
-        if (!newSamNode) {
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'cannot set samSegmentationPrompt: this workflow has no SAM3 segmentation prompt node',
-          );
-        }
-        writePromptText(json, newSamNode, body.samSegmentationPrompt);
-      }
-      for (const override of body.ksamplerOverrides ?? []) {
-        writeKSamplerOverride(json, override);
-      }
-
-      let defaultFacePhasePrompt = existing.defaultFacePhasePrompt;
-      let defaultGarmentPhasePrompt = existing.defaultGarmentPhasePrompt;
-      if (
-        body.facePhasePromptNode ||
-        body.garmentPhasePromptNode ||
-        body.facePhasePrompt !== undefined ||
-        body.garmentPhasePrompt !== undefined
-      ) {
-        const extracted = extractDefaultPrompts(json, newNegNode, newPosNode);
-        defaultFacePhasePrompt = extracted.defaultFacePhasePrompt;
-        defaultGarmentPhasePrompt = extracted.defaultGarmentPhasePrompt;
-      }
-      // Whether this save actually changes the effective default text (a direct
-      // edit, or a garmentPhasePromptNode/facePhasePromptNode repoint that lands
-      // on a node with different baked text) — not just "was the field present in
-      // the body," since the Edit modal always resends both prompt fields on
-      // every save, including ones that only touch label/slug/etc. Poses and
-      // pose_garment_configs rows with a pinned override of their own are stale
-      // the moment this template's own default text changes, the same way they
-      // already are on /replace — see docs/superpowers/specs/
-      // 2026-09-11-workflow-replace-prompt-override-invalidation-design.md.
-      const promptTextChanged =
-        defaultGarmentPhasePrompt !== existing.defaultGarmentPhasePrompt ||
-        defaultFacePhasePrompt !== existing.defaultFacePhasePrompt;
-
-      let defaultStage1PositivePrompt = existing.defaultStage1PositivePrompt;
-      let defaultStage1NegativePrompt = existing.defaultStage1NegativePrompt;
-      if (
-        body.stage1PositivePromptNode ||
-        body.stage1NegativePromptNode ||
-        body.stage1PositivePrompt !== undefined ||
-        body.stage1NegativePrompt !== undefined
-      ) {
-        defaultStage1PositivePrompt = extractPromptText(
-          newStage1PosNode ? (json[newStage1PosNode] as WorkflowNode | undefined) : undefined,
-        );
-        defaultStage1NegativePrompt = extractPromptText(
-          newStage1NegNode ? (json[newStage1NegNode] as WorkflowNode | undefined) : undefined,
-        );
-      }
-
-      let defaultSamSegmentationPrompt = existing.defaultSamSegmentationPrompt;
-      if ('samSegmentationPromptNode' in body || body.samSegmentationPrompt !== undefined) {
-        // Recomputed from the (possibly null, Fix 1) newSamNode: clearing the
-        // node clears the default back to '' via extractPromptText's fallback
-        // for an undefined node — there's nothing left to derive a default from.
-        defaultSamSegmentationPrompt = extractPromptText(
-          newSamNode ? (json[newSamNode] as WorkflowNode | undefined) : undefined,
-        );
-      }
-
-      const updateValues: Record<string, unknown> = {
-        updatedAt: new Date(),
-        defaultFacePhasePrompt,
-        defaultGarmentPhasePrompt,
-        defaultStage1PositivePrompt,
-        defaultStage1NegativePrompt,
-        defaultSamSegmentationPrompt,
-      };
-      if (
-        body.garmentPhasePrompt !== undefined ||
-        body.facePhasePrompt !== undefined ||
-        body.stage1PositivePrompt !== undefined ||
-        body.stage1NegativePrompt !== undefined ||
-        body.samSegmentationPrompt !== undefined ||
-        (body.ksamplerOverrides?.length ?? 0) > 0
-      ) {
-        updateValues.jsonContent = json;
-      }
-      if (body.label !== undefined) updateValues.label = body.label;
-      if (body.slug !== undefined) {
-        const [conflict] = await app.db
-          .select({ id: schema.workflowTemplates.id })
-          .from(schema.workflowTemplates)
-          .where(
-            and(eq(schema.workflowTemplates.slug, body.slug), ne(schema.workflowTemplates.id, id)),
-          );
-        if (conflict) throw new AppError('CONFLICT', 409, `Slug "${body.slug}" already taken`);
-        updateValues.slug = body.slug;
-      }
-      if (body.isActive !== undefined) updateValues.isActive = body.isActive;
-      if (body.faceNodeId !== undefined) updateValues.faceNodeId = body.faceNodeId;
-      if (body.poseNodeId !== undefined) updateValues.poseNodeId = body.poseNodeId;
-      if (body.bgNodeId !== undefined) updateValues.bgNodeId = body.bgNodeId;
-      if (body.upperNodeIds !== undefined) updateValues.upperNodeIds = body.upperNodeIds;
-      if ('lowerNodeId' in body) updateValues.lowerNodeId = body.lowerNodeId ?? null;
-      if ('shoeNodeId' in body) updateValues.shoeNodeId = body.shoeNodeId ?? null;
-      if ('thirdNodeId' in body) updateValues.thirdNodeId = body.thirdNodeId ?? null;
-      if ('sizeNodeIds' in body) updateValues.sizeNodeIds = body.sizeNodeIds ?? [];
-      if ('latentSizeNodeIds' in body)
-        updateValues.latentSizeNodeIds = body.latentSizeNodeIds ?? [];
-      if (body.latentMaxPx !== undefined) updateValues.latentMaxPx = body.latentMaxPx;
-      if ('outputSizeNodeIds' in body)
-        updateValues.outputSizeNodeIds = body.outputSizeNodeIds ?? [];
-      if (body.outputMaxPx !== undefined) updateValues.outputMaxPx = body.outputMaxPx;
-      if ('resultNodeId' in body) updateValues.resultNodeId = body.resultNodeId ?? null;
-      if (body.facePhasePromptNode !== undefined)
-        updateValues.facePhasePromptNode = body.facePhasePromptNode;
-      if (body.garmentPhasePromptNode !== undefined)
-        updateValues.garmentPhasePromptNode = body.garmentPhasePromptNode;
-      if (body.stage1PositivePromptNode !== undefined)
-        updateValues.stage1PositivePromptNode = body.stage1PositivePromptNode;
-      if (body.stage1NegativePromptNode !== undefined)
-        updateValues.stage1NegativePromptNode = body.stage1NegativePromptNode;
-      if ('samSegmentationPromptNode' in body)
-        updateValues.samSegmentationPromptNode = body.samSegmentationPromptNode ?? null;
-      if ('tryonPersonNodeId' in body)
-        updateValues.tryonPersonNodeId = body.tryonPersonNodeId ?? null;
-      if ('tryonGarmentNodeId' in body)
-        updateValues.tryonGarmentNodeId = body.tryonGarmentNodeId ?? null;
-      if ('tryonGarmentNodeId2' in body)
-        updateValues.tryonGarmentNodeId2 = body.tryonGarmentNodeId2 ?? null;
-      if ('tryonOutputNodeId' in body)
-        updateValues.tryonOutputNodeId = body.tryonOutputNodeId ?? null;
-      if (body.regenerationReasonPrompts !== undefined) {
-        if (existing.workflowType !== 'regeneration') {
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'regenerationReasonPrompts can only be set on a regeneration-type workflow',
-          );
-        }
-        // Trim + drop rows with a blank REASON here rather than trusting the
-        // client's array verbatim — an admin backspacing a reason label to
-        // empty shouldn't leave a nameless row the picker can't render. A
-        // blank PROMPT/INSTRUCTION is kept deliberately: it means "no
-        // override configured yet" for that reason (regenerate then falls
-        // back to the original prompt/instruction) — dropping it would
-        // silently erase default reasons an admin hasn't gotten to yet every
-        // time they save an unrelated field.
-        updateValues.regenerationReasonPrompts = body.regenerationReasonPrompts
-          .map((p) => ({
-            reason: p.reason.trim(),
-            prompt: p.prompt.trim(),
-            instruction: (p.instruction ?? '').trim(),
-          }))
-          .filter((p) => p.reason.length > 0);
-      }
+      const body = req.body as z.infer<typeof UpdateWorkflowBody>;
 
       const { clearedPosePromptCount, clearedGarmentConfigPromptCount } = await app.db.transaction(
-        async (tx) => {
-          const [locked] = await tx
-            .select()
-            .from(schema.workflowTemplates)
-            .where(eq(schema.workflowTemplates.id, id))
-            .for('update');
-          if (!locked) throw new AppError('NOT_FOUND', 404, 'workflow not found');
-
-          if (locked.workflowType === 'regeneration' && body.isActive === true) {
-            await tx
-              .update(schema.workflowTemplates)
-              .set({ isActive: false, updatedAt: new Date() })
-              .where(
-                and(
-                  eq(schema.workflowTemplates.workflowType, 'regeneration'),
-                  eq(schema.workflowTemplates.isActive, true),
-                  ne(schema.workflowTemplates.id, id),
-                ),
-              );
-          }
-
-          await tx
-            .update(schema.workflowTemplates)
-            .set(updateValues)
-            .where(eq(schema.workflowTemplates.id, id));
-
-          // Same "direct + inherited" clear as /replace and /reassign (see
-          // 2026-09-11-workflow-replace-prompt-override-invalidation-design.md):
-          // a pinned pose/garment-config prompt was tuned to THIS template's old
-          // default text, so it's just as stale here as it is after a full
-          // graph replace. workflowTemplateId is never touched — only the
-          // prompt-override text columns.
-          let clearedPosePromptCount = 0;
-          let clearedGarmentConfigPromptCount = 0;
-          if (promptTextChanged) {
-            const posesOnTemplate = await tx
-              .select({
-                id: schema.modelPoseAssets.id,
-                promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
-                promptFacePhase: schema.modelPoseAssets.promptFacePhase,
-              })
-              .from(schema.modelPoseAssets)
-              .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
-
-            await tx
-              .update(schema.modelPoseAssets)
-              .set({ promptGarmentPhase: null, promptFacePhase: null })
-              .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
-
-            clearedPosePromptCount = posesOnTemplate.filter(
-              (p) => p.promptGarmentPhase !== null || p.promptFacePhase !== null,
-            ).length;
-            const inheritingPoseIds = posesOnTemplate.map((p) => p.id);
-
-            const clearedGarmentConfigsDirect = await tx
-              .update(schema.poseGarmentConfigs)
-              .set({ promptGarmentPhase: null, promptFacePhase: null, updatedAt: new Date() })
-              .where(
-                and(
-                  eq(schema.poseGarmentConfigs.workflowTemplateId, id),
-                  or(
-                    isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
-                    isNotNull(schema.poseGarmentConfigs.promptFacePhase),
-                  ),
-                ),
-              )
-              .returning({ id: schema.poseGarmentConfigs.id });
-
-            const clearedGarmentConfigsInherited =
-              inheritingPoseIds.length > 0
-                ? await tx
-                    .update(schema.poseGarmentConfigs)
-                    .set({ promptGarmentPhase: null, promptFacePhase: null, updatedAt: new Date() })
-                    .where(
-                      and(
-                        isNull(schema.poseGarmentConfigs.workflowTemplateId),
-                        inArray(schema.poseGarmentConfigs.poseAssetId, inheritingPoseIds),
-                        or(
-                          isNotNull(schema.poseGarmentConfigs.promptGarmentPhase),
-                          isNotNull(schema.poseGarmentConfigs.promptFacePhase),
-                        ),
-                      ),
-                    )
-                    .returning({ id: schema.poseGarmentConfigs.id })
-                : [];
-
-            clearedGarmentConfigPromptCount =
-              clearedGarmentConfigsDirect.length + clearedGarmentConfigsInherited.length;
-          }
-
-          await recordAudit(tx, {
+        (tx) =>
+          updateWorkflowRow(
+            tx,
+            id,
+            body,
             // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
-            actor: { userId: req.userId, role: req.adminRole! },
-            action: 'workflow.update',
-            resourceType: 'workflow',
-            resourceId: id,
-            before: locked,
-            after: {
-              ...locked,
-              ...updateValues,
-              ...(promptTextChanged
-                ? { clearedPosePromptCount, clearedGarmentConfigPromptCount }
-                : {}),
-            },
-            request: req,
-          });
-
-          return { clearedPosePromptCount, clearedGarmentConfigPromptCount };
-        },
+            { userId: req.userId, role: req.adminRole! },
+            undefined,
+            req,
+          ),
       );
 
       return { ok: true, clearedPosePromptCount, clearedGarmentConfigPromptCount };
