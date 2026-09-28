@@ -19,6 +19,11 @@ export default defineConfig({
     cors: false,
     proxy: {
       '/v1': 'http://127.0.0.1:4000',
+      // Dev-only MinIO passthrough (see apps/api's minio-proxy.routes.ts) — product
+      // thumbnails are presigned URLs under this same origin in dev, so a page
+      // loaded over the ngrok tunnel can fetch them without Chrome's Private
+      // Network Access policy blocking a bare loopback address.
+      '/minio': 'http://127.0.0.1:4000',
     },
   },
 });

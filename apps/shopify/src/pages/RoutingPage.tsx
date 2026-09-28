@@ -4,9 +4,11 @@ import {
   Button,
   Card,
   Checkbox,
+  Combobox,
   EmptyState,
   IndexTable,
   InlineStack,
+  Listbox,
   Modal,
   Select,
   Spinner,
@@ -16,15 +18,17 @@ import {
 } from '@shopify/polaris';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { BasketAssignmentStage } from '../components/onboarding/BasketAssignmentStage';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
+import type { ShopifyProductFacets } from '../types';
 
 interface Condition {
   field: 'product_type' | 'tags' | 'vendor' | 'collections' | 'title';
   operator: 'equals' | 'contains';
   value: string;
 }
-interface Basket {
+export interface Basket {
   id: string;
   slug: string;
   label: string;
@@ -76,6 +80,9 @@ const OPERATOR_OPTIONS: { value: Condition['operator']; label: string }[] = [
 const MIN_CONDITIONS = 1;
 const MAX_CONDITIONS = 20;
 const MAX_VALUE_LENGTH = 200;
+// Column widths of a condition row in the rule editor (px).
+const FIELD_COLUMN_WIDTH = 170;
+const MATCH_COLUMN_WIDTH = 120;
 const MIN_PRIORITY = 0;
 const MAX_PRIORITY = 10_000;
 
@@ -91,11 +98,84 @@ export function describeConditions(conditions: Condition[]): string {
     .join(' or ');
 }
 
+// The store's own values for each rule field, from the product facets. `title`
+// has none — every product's title is different, so it stays a plain text box.
+const FIELD_FACET: Partial<Record<Condition['field'], keyof ShopifyProductFacets>> = {
+  product_type: 'productTypes',
+  tags: 'tags',
+  vendor: 'vendors',
+  collections: 'collections',
+};
+
+/**
+ * A rule condition's value: pick one of the store's own values, or type one. Typing
+ * filters the list, and what is typed is kept as-is — so a "contains" rule can
+ * still use a fragment, a value from a list the API cut off (the facet lists are
+ * capped) can still be entered, and an old rule whose value is no longer in the
+ * catalog still shows and saves.
+ */
+function ConditionValueField({
+  value,
+  options,
+  labelHidden,
+  onChange,
+}: {
+  value: string;
+  /** null = this field has no list of values (title): a plain text box. */
+  options: string[] | null;
+  labelHidden: boolean;
+  onChange: (value: string) => void;
+}) {
+  const textField = (
+    <Combobox.TextField
+      label="Value"
+      labelHidden={labelHidden}
+      autoComplete="off"
+      placeholder={options ? 'Select or type a value' : 'Type a value'}
+      value={value}
+      onChange={onChange}
+      maxLength={MAX_VALUE_LENGTH}
+    />
+  );
+  if (!options) {
+    return (
+      <TextField
+        label="Value"
+        labelHidden={labelHidden}
+        autoComplete="off"
+        placeholder="Type a value"
+        value={value}
+        onChange={onChange}
+        maxLength={MAX_VALUE_LENGTH}
+      />
+    );
+  }
+  const needle = value.trim().toLowerCase();
+  // Once the box holds exactly one of the values, show the whole list again so
+  // the merchant can switch to another instead of seeing only the chosen one.
+  const exact = options.some((o) => o.toLowerCase() === needle);
+  const shown =
+    needle && !exact ? options.filter((o) => o.toLowerCase().includes(needle)) : options;
+  return (
+    <Combobox activator={textField}>
+      {shown.length > 0 ? (
+        <Listbox onSelect={onChange}>
+          {shown.map((option) => (
+            <Listbox.Option key={option} value={option} selected={option === value}>
+              {option}
+            </Listbox.Option>
+          ))}
+        </Listbox>
+      ) : null}
+    </Combobox>
+  );
+}
+
 function emptyCondition(): Condition {
   return { field: 'product_type', operator: 'equals', value: '' };
 }
 
-function RuleEditorModal({
+export function RuleEditorModal({
   rule,
   baskets,
   takenBasketIds,
@@ -120,6 +200,19 @@ function RuleEditorModal({
   const [priority, setPriority] = useState(String(rule?.priority ?? 0));
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<ClassifiedError | null>(null);
+  const [facets, setFacets] = useState<ShopifyProductFacets | null>(null);
+
+  useEffect(() => {
+    apiFetch<ShopifyProductFacets>('/v1/shopify/products/facets')
+      .then(setFacets)
+      // The lists are a convenience; without them every value is a plain text box.
+      .catch(() => setFacets(null));
+  }, []);
+
+  const valueOptions = (field: Condition['field']): string[] | null => {
+    const facet = FIELD_FACET[field];
+    return facet && facets ? facets[facet].values : null;
+  };
 
   const basketOptions = baskets.map((b) => ({
     value: b.id,
@@ -195,7 +288,7 @@ function RuleEditorModal({
             disabled={rule !== null}
             helpText={
               rule !== null
-                ? "The basket a rule routes to can't be changed after it's created — delete this rule and add a new one to route it elsewhere."
+                ? "The try-on style a rule routes to can't be changed after it's created — delete this rule and add a new one to route it elsewhere."
                 : undefined
             }
           />
@@ -205,15 +298,27 @@ function RuleEditorModal({
               Match products where
             </Text>
             {conditions.map((condition, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: rows have no stable identity of their own until saved — index is fine for a client-only draft list that's never reordered.
-              <InlineStack key={index} gap="200" blockAlign="end" wrap={false}>
+              // Field and Match keep fixed widths so every row lines up whatever the
+              // option text; Value takes all the space left. Bottom-aligned because
+              // only the first row shows its labels.
+              <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: rows have no stable identity of their own until saved — index is fine for a client-only draft list that's never reordered.
+                key={index}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: `${FIELD_COLUMN_WIDTH}px ${MATCH_COLUMN_WIDTH}px minmax(0, 1fr) auto`,
+                  gap: 'var(--p-space-200)',
+                  alignItems: 'end',
+                }}
+              >
                 <Select
                   label="Field"
                   labelHidden={index > 0}
                   options={FIELD_OPTIONS}
                   value={condition.field}
+                  // A value picked under one field means nothing under another.
                   onChange={(value) =>
-                    updateCondition(index, { field: value as Condition['field'] })
+                    updateCondition(index, { field: value as Condition['field'], value: '' })
                   }
                 />
                 <Select
@@ -225,14 +330,11 @@ function RuleEditorModal({
                     updateCondition(index, { operator: value as Condition['operator'] })
                   }
                 />
-                <TextField
-                  label="Value"
-                  labelHidden={index > 0}
-                  autoComplete="off"
+                <ConditionValueField
                   value={condition.value}
+                  options={valueOptions(condition.field)}
+                  labelHidden={index > 0}
                   onChange={(value) => updateCondition(index, { value })}
-                  maxLength={MAX_VALUE_LENGTH}
-                  showCharacterCount
                 />
                 <Button
                   accessibilityLabel="Remove condition"
@@ -241,7 +343,7 @@ function RuleEditorModal({
                 >
                   Remove
                 </Button>
-              </InlineStack>
+              </div>
             ))}
             <InlineStack align="space-between">
               <Button
@@ -274,14 +376,17 @@ function RuleEditorModal({
 }
 
 function basketLabelFor(baskets: Basket[], id: string): string {
-  return baskets.find((b) => b.id === id)?.label ?? 'Unknown basket';
+  return baskets.find((b) => b.id === id)?.label ?? 'Unknown try-on style';
 }
 
 export default function RoutingTab({
   refreshToken,
+  globalMode,
   onChanged,
 }: {
   refreshToken: number;
+  /** Saved activation mode is global: every non-excluded product is enabled. */
+  globalMode: boolean;
   // Called after a rule create/edit/delete or a global rule toggle — lets
   // the parent (ManagePage) refresh its unrouted banner without waiting for
   // the next Sync/Save. Optional: RoutingTab is still usable standalone.
@@ -319,6 +424,18 @@ export default function RoutingTab({
   useEffect(() => {
     void load();
   }, [load, refreshToken]);
+
+  // Re-reads the rules without the full-tab spinner `load` shows: the product
+  // list above them changes a basket in place, and unmounting it for a reload
+  // would drop the merchant's page and selection.
+  const refreshRules = useCallback(async () => {
+    try {
+      setRules(await apiFetch<RulesResponse>('/v1/shopify/funnel-rules'));
+    } catch (e) {
+      setError(classifyError(e));
+    }
+    onChanged?.();
+  }, [onChanged]);
 
   const setDisabled = useCallback(
     async (ruleId: string, disabled: boolean) => {
@@ -389,6 +506,21 @@ export default function RoutingTab({
           <>
             <Card>
               <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Individual product routing
+                </Text>
+                <BasketAssignmentStage
+                  globalMode={globalMode}
+                  // Sync and Eligibility Save bump this; they reload the tab anyway.
+                  reloadKey={refreshToken}
+                  unrouted={rules.unroutedEnabled ?? 0}
+                  onChanged={refreshRules}
+                />
+              </BlockStack>
+            </Card>
+
+            <Card>
+              <BlockStack gap="300">
                 <InlineStack align="space-between">
                   <Text as="h2" variant="headingMd">
                     Your rules
@@ -402,7 +534,7 @@ export default function RoutingTab({
                   itemCount={rules.storeRules.length}
                   resourceName={{ singular: 'rule', plural: 'rules' }}
                   headings={[
-                    { title: 'Basket' },
+                    { title: 'Try-on style' },
                     { title: 'Conditions' },
                     { title: 'Priority' },
                     { title: '' },
@@ -426,10 +558,20 @@ export default function RoutingTab({
                           {basketLabel(rule.funnelTemplateId)}
                         </Text>
                       </IndexTable.Cell>
-                      <IndexTable.Cell>{describeConditions(rule.conditions)}</IndexTable.Cell>
+                      <IndexTable.Cell>
+                        {/* IndexTable cells are white-space: nowrap by default, which lets a
+                            long OR-joined condition list force the column — and the whole
+                            table — wider instead of wrapping. Override it here so this cell
+                            wraps once it runs out of room instead of squeezing the others. */}
+                        <div style={{ whiteSpace: 'normal' }}>
+                          <Text as="span" breakWord>
+                            {describeConditions(rule.conditions)}
+                          </Text>
+                        </div>
+                      </IndexTable.Cell>
                       <IndexTable.Cell>{rule.priority}</IndexTable.Cell>
                       <IndexTable.Cell>
-                        <InlineStack gap="200">
+                        <InlineStack gap="200" wrap={false}>
                           <Button size="slim" onClick={() => setEditorTarget(rule)}>
                             Edit
                           </Button>
@@ -458,7 +600,7 @@ export default function RoutingTab({
                   itemCount={rules.globalRules.length}
                   resourceName={{ singular: 'global rule', plural: 'global rules' }}
                   headings={[
-                    { title: 'Basket' },
+                    { title: 'Try-on style' },
                     { title: 'Conditions' },
                     { title: 'Priority' },
                     { title: 'Enabled' },
@@ -478,8 +620,10 @@ export default function RoutingTab({
                         </InlineStack>
                       </IndexTable.Cell>
                       <IndexTable.Cell>
-                        <div style={{ opacity: rule.disabled ? 0.5 : 1 }}>
-                          {describeConditions(rule.conditions)}
+                        <div style={{ opacity: rule.disabled ? 0.5 : 1, whiteSpace: 'normal' }}>
+                          <Text as="span" breakWord>
+                            {describeConditions(rule.conditions)}
+                          </Text>
                         </div>
                       </IndexTable.Cell>
                       <IndexTable.Cell>

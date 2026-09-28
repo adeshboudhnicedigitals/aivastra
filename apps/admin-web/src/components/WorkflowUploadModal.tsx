@@ -41,6 +41,13 @@ interface Props {
   onCreated: (wf: WorkflowOption) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+  // When true, submit creates a workflow_change_requests row (changeType:
+  // 'create') instead of POSTing straight to /admin/workflows — used by
+  // MODERATOR/ADMIN, who can only reach workflow_templates through the
+  // propose -> approve queue. SUPER_ADMIN keeps the direct-create path.
+  proposeMode?: boolean;
+  activeWorkflows?: WorkflowOption[];
+  onProposed?: () => void;
 }
 
 function NodeBadge({ node }: { node: ParsedNode }) {
@@ -114,7 +121,17 @@ Optional:
   shoes           → shoes LoadImage node
   size            → EmptyLatentImage node for dynamic aspect ratio`;
 
-export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
+export function WorkflowUploadModal({
+  onCreated,
+  onClose,
+  toast,
+  proposeMode = false,
+  activeWorkflows = [],
+  onProposed,
+}: Props) {
+  const [targetWorkflowId, setTargetWorkflowId] = useState('');
+  const [previousLimitations, setPreviousLimitations] = useState('');
+  const [proposeReason, setProposeReason] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const [jsonFile, setJsonFile] = useState<File | null>(null);
   const [parsed, setParsed] = useState<ParseResult | null>(null);
@@ -449,6 +466,21 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
         };
       }
 
+      if (proposeMode) {
+        await apiFetch('/admin/workflow-change-requests', {
+          method: 'POST',
+          body: JSON.stringify({
+            changeType: 'create',
+            targetWorkflowId,
+            reason: proposeReason.trim(),
+            previousLimitations: previousLimitations.trim(),
+            proposedFields: payload,
+          }),
+        });
+        onProposed?.();
+        return;
+      }
+
       const created = await apiFetch<WorkflowOption>('/admin/workflows', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -456,7 +488,9 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       toast({ title: `Workflow "${created.label}" created` });
       onCreated(created);
     } catch (e) {
-      setError(apiErrorMessage(e, 'Failed to create workflow'));
+      setError(
+        apiErrorMessage(e, proposeMode ? 'Failed to submit proposal' : 'Failed to create workflow'),
+      );
     } finally {
       setSaving(false);
     }
@@ -537,16 +571,17 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               poseNodeId &&
               positivePromptNode &&
               (!faceNodeId || negativePromptNode) &&
-              (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId));
+              (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId)) &&
+    (!proposeMode || (targetWorkflowId && previousLimitations.trim() && proposeReason.trim()));
 
   return (
     <EditDrawer
       onClose={onClose}
-      title="Upload workflow"
+      title={proposeMode ? 'Propose workflow' : 'Upload workflow'}
       width="min(960px, calc(100vw - 40px))"
       saving={saving || parsing}
       onSave={() => void handleSubmit()}
-      saveLabel="Create workflow"
+      saveLabel={proposeMode ? 'Submit for approval' : 'Create workflow'}
       saveDisabled={!canSubmit}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -644,6 +679,51 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               </pre>
             )}
           </div>
+        )}
+
+        {proposeMode && (
+          <>
+            <div className="field">
+              <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'block' }}>
+                Which existing workflow does this replace?{' '}
+                <span style={{ color: 'var(--danger)' }}>*</span>
+              </label>
+              <SearchableSelect
+                options={activeWorkflows.map((w) => ({ id: w.id, label: w.label }))}
+                value={targetWorkflowId}
+                onChange={setTargetWorkflowId}
+                disabled={saving}
+                emptyLabel="— select workflow to replace —"
+                placeholder="— search workflow —"
+              />
+            </div>
+            <div className="field">
+              <label>
+                What does the current workflow lack?{' '}
+                <span style={{ color: 'var(--danger)' }}>*</span>
+              </label>
+              <textarea
+                className="input"
+                rows={3}
+                value={previousLimitations}
+                disabled={saving}
+                onChange={(e) => setPreviousLimitations(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label>
+                What's updated in this workflow? <span style={{ color: 'var(--danger)' }}>*</span>
+              </label>
+              <textarea
+                className="input"
+                rows={3}
+                value={proposeReason}
+                disabled={saving}
+                onChange={(e) => setProposeReason(e.target.value)}
+              />
+            </div>
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+          </>
         )}
 
         {/* Step 1: JSON file */}

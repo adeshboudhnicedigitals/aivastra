@@ -37,6 +37,7 @@ import { adminCreditsRoutes } from './modules/admin/credits.routes.js';
 import { adminDemoCatalogRoutes } from './modules/admin/demo-catalog.routes.js';
 import { adminDevApiRoutes } from './modules/admin/dev-api.routes.js';
 import { adminHeldJobsRoutes } from './modules/admin/held-jobs.routes.js';
+import { adminImageCompressionRoutes } from './modules/admin/image-compression.routes.js';
 import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
 import { adminMeRoutes } from './modules/admin/me.routes.js';
 import { adminMerchantCatalogRoutes } from './modules/admin/merchant-catalog.routes.js';
@@ -56,6 +57,7 @@ import { adminTryonRoutes } from './modules/admin/tryon.routes.js';
 import { adminUnlimitedPlanRoutes } from './modules/admin/unlimitedPlan.routes.js';
 import { adminUsersRoutes } from './modules/admin/users.routes.js';
 import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
+import { adminWorkflowChangeRequestsRoutes } from './modules/admin/workflow-change-requests.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
 import { googleAuthRoutes } from './modules/auth/google.routes.js';
 import { authRoutes } from './modules/auth/routes.js';
@@ -66,6 +68,7 @@ import { unlimitedPlanLoginCheckRoutes } from './modules/credits/unlimited-plan-
 import { unlimitedPlanRenewalRoutes } from './modules/credits/unlimited-plan-renewal.routes.js';
 import { devBackgroundsRoutes } from './modules/dev/backgrounds.routes.js';
 import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
+import { minioProxyRoutes } from './modules/dev/minio-proxy.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
@@ -269,6 +272,13 @@ export async function buildServer(env: Env) {
   await app.register(sentryPlugin);
   await app.register(dbPlugin);
   await app.register(storagePlugin);
+  // Dev-only: routes presigned MinIO URLs through this same origin so a Chrome
+  // tab loaded over the ngrok tunnel isn't blocked fetching a bare loopback
+  // address (see minio-proxy.routes.ts). Never registered outside development —
+  // staging/production proxy MinIO at the Nginx/CloudPanel layer instead.
+  if (app.env.NODE_ENV === 'development') {
+    await app.register(minioProxyRoutes);
+  }
   await app.register(authPlugin);
   await app.register(portalAuthPlugin);
   await app.register(shopifyAuthPlugin);
@@ -431,6 +441,7 @@ export async function buildServer(env: Env) {
   await app.register(adminWorkersRoutes);
   await app.register(adminProdSnapshotRoutes);
   await app.register(adminConfigRoutes);
+  await app.register(adminImageCompressionRoutes);
   await app.register(adminTelemetryRoutes);
   await app.register(adminMeRoutes);
   await app.register(adminAssetsRoutes);
@@ -440,6 +451,7 @@ export async function buildServer(env: Env) {
   await app.register(adminShopifyFunnelRulesRoutes);
   await app.register(adminShopifyStoresRoutes);
   await app.register(adminWorkflowsRoutes);
+  await app.register(adminWorkflowChangeRequestsRoutes);
   await app.register(adminTryonRoutes);
   await app.register(adminDevApiRoutes);
   await app.register(adminSareeRoutes);

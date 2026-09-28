@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { countEffectivelyEnabled } from './activation.js';
 import { searchCollections, syncCollectionMembership } from './collections.sync.js';
 import { countUnroutedProducts } from './funnel-resolution.js';
-import { shopifyGraphQL } from './service.js';
+import { enqueueSync, shopifyGraphQL } from './service.js';
 import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
 import { getValidAccessToken } from './token.js';
 
@@ -42,9 +42,17 @@ async function fetchTotalProductCount(
   }
 }
 
+// The catch-up check reads Shopify's live product count, so it is rate-limited
+// per store: at most one check every 30s, and at most one reconcile queued every
+// 30 minutes (a big import's reconcile can run for a long while, and a second
+// one queued behind it would find nothing left to do).
+const CATCH_UP_CHECK_TTL_S = 30;
+const CATCH_UP_QUEUE_TTL_S = 30 * 60;
+
 const ModeBody = z.object({ mode: z.enum(['global', 'selective']) });
 const CollectionIdsBody = z.object({ shopifyCollectionIds: z.array(z.number().int()).min(1) });
-const SearchQuery = z.object({ q: z.string().min(1) });
+// q is optional: without it the picker gets every collection to tick from.
+const SearchQuery = z.object({ q: z.string().default('') });
 const CollectionIdParams = z.object({ shopifyCollectionId: z.coerce.number().int() });
 
 async function summaryCounts(
@@ -76,17 +84,19 @@ async function summaryCounts(
       ),
     );
 
-  // Currently-live rows only — a soft-deleted product (kept for audit/history,
-  // never hard-deleted) must not keep inflating this count past Shopify's own
-  // live productsCount below, or the page shows a numerator bigger than its
-  // denominator (e.g. "8/7 Products Synced") the moment anything gets deleted.
+  // Rows whose image actually synced. Failed rows are left out: counting them
+  // made a store with one failed product read "9/9 synced" when only 8 had an
+  // image we could try on. Soft-deleted rows are left out too — they are kept
+  // for audit/history and must not push this past Shopify's own live
+  // productsCount below (e.g. "8/7 Products Synced"). Rows still 'processing'
+  // aren't synced yet either.
   const [{ totalSynced }] = await app.db
     .select({ totalSynced: count() })
     .from(schema.shopifyProductGarments)
     .where(
       and(
         eq(schema.shopifyProductGarments.storeId, storeId),
-        ne(schema.shopifyProductGarments.status, 'deleted'),
+        eq(schema.shopifyProductGarments.status, 'active'),
       ),
     );
 
@@ -250,6 +260,51 @@ export async function shopifyActivationRoutes(app: FastifyInstance) {
         .where(eq(schema.shopifyStores.id, store.id));
 
       return { mode };
+    },
+  );
+
+  // Called when the merchant opens Manage. If Shopify has more products than we
+  // have rows for (a CSV import, bulk edit or dropped webhooks left us behind),
+  // queue a reconcile so they arrive without anyone pressing Sync. A product that
+  // failed to sync still counts as seen here — the reconcile's own retry of failed
+  // rows deals with those. `behindBy` lets the page know to keep watching.
+  app.post(
+    '/v1/shopify/products/catch-up',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      // The last answer is cached for the check window, so a page that asks twice
+      // (React StrictMode in dev, two tabs) gets the same `behindBy` and can show
+      // progress, instead of a bare 0 that reads as "nothing to do".
+      const checkKey = `shopify:catchup:check:${store.id}`;
+      const cached = await app.redis.get(checkKey);
+      if (cached !== null) return { behindBy: Number(cached), queued: false };
+
+      const live = await fetchTotalProductCount(app, store);
+      if (live === null) return { behindBy: 0, queued: false };
+      const [{ rows }] = await app.db
+        .select({ rows: count() })
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, store.id),
+            ne(schema.shopifyProductGarments.status, 'deleted'),
+          ),
+        );
+      const behindBy = Math.max(0, live - rows);
+      await app.redis.set(checkKey, String(behindBy), 'EX', CATCH_UP_CHECK_TTL_S);
+      if (behindBy === 0) return { behindBy: 0, queued: false };
+
+      const queued =
+        (await app.redis.set(
+          `shopify:catchup:queued:${store.id}`,
+          '1',
+          'EX',
+          CATCH_UP_QUEUE_TTL_S,
+          'NX',
+        )) === 'OK';
+      if (queued) await enqueueSync(app.redis, { storeId: store.id, mode: 'reconcile' });
+      return { behindBy, queued };
     },
   );
 

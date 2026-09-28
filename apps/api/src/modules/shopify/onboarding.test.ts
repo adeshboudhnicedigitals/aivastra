@@ -2,15 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { buildThemeEditorDeepLink } from './onboarding.routes.js';
 
 describe('buildThemeEditorDeepLink', () => {
-  it('targets the product template main section with the app block', () => {
+  it('opens the App embeds panel with the tryon embed switched on', () => {
     const url = buildThemeEditorDeepLink('s.myshopify.com', 'apikey123');
     expect(url).toBe(
       'https://s.myshopify.com/admin/themes/current/editor' +
-        '?template=product&addAppBlockId=apikey123/tryon-button&target=mainSection',
+        '?context=apps&template=product&activateAppId=apikey123/tryon-button',
     );
   });
 
-  it('no longer uses the app-embed activation parameter', () => {
-    expect(buildThemeEditorDeepLink('s.myshopify.com', 'k')).not.toContain('activateAppId');
+  it('no longer stages an app block', () => {
+    const url = buildThemeEditorDeepLink('s.myshopify.com', 'k');
+    expect(url).not.toContain('addAppBlockId');
+    expect(url).not.toContain('target=');
   });
 });

@@ -187,7 +187,8 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [createUserForm, setCreateUserForm] = useState(EMPTY_CREATE_USER_FORM);
   const [creatingUser, setCreatingUser] = useState(false);
   const [createUserError, setCreateUserError] = useState('');
-  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [grantAdminRole, setGrantAdminRole] = useState('ADMIN');
+  const [grantAdminPassword, setGrantAdminPassword] = useState('');
   const [creditActivity, setCreditActivity] = useState<CreditLedgerEntry[]>([]);
   const [creditActivityLoading, setCreditActivityLoading] = useState(false);
   const [showAllCreditActivity, setShowAllCreditActivity] = useState(false);
@@ -532,7 +533,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     'grant-merchant': 'Grant merchant access',
     'edit-merchant': 'Edit merchant',
     'create-user': 'Create user',
-    'reset-password': 'Reset password',
+    'grant-admin': 'Grant admin access',
   };
   useCrumb(
     2,
@@ -547,7 +548,6 @@ export default function UsersPage({ onNav, toast }: Props) {
   const showGrantMerchant = modalParam === 'grant-merchant';
   const showEditMerchant = modalParam === 'edit-merchant';
   const showCreateUser = modalParam === 'create-user';
-  const resettingPassword = modalParam === 'reset-password';
 
   const handleGrantUnlimitedPlan = async () => {
     if (!detail || !unlimitedPlanForm) return;
@@ -1072,45 +1072,17 @@ export default function UsersPage({ onNav, toast }: Props) {
     }
   }
 
-  async function handleResetPassword(newPassword: string) {
-    if (!detail) return;
-    await apiFetch(`/admin/users/${detail.id}/reset-password`, {
-      method: 'POST',
-      body: JSON.stringify({ newPassword }),
-    });
-    if (detail.isAdmin) {
-      toast({
-        kind: 'warning',
-        title: 'Password reset \u2014 admin panel access not yet updated',
-        body: `${userLabel(detail)} is also an active admin. Use "Sync Admin Password" to update their admin.aivastra.com login too.`,
-      });
-    } else {
-      toast({ title: 'Password reset \u2014 share the new password with the customer' });
-    }
-  }
-
-  async function syncAdminPassword(u: User) {
-    setAdminActioning(true);
-    try {
-      await apiFetch(`/admin/admin-users/${u.id}/sync-password`, { method: 'POST' });
-      toast({ title: `${userLabel(u)}'s admin panel password now matches their account password` });
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Failed to sync admin password',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
-    } finally {
-      setAdminActioning(false);
-    }
-  }
-
-  async function assignAdminRole(u: User, role: string) {
+  // password is the admin-panel-only login password — required by the API when
+  // the account has no password of its own (Google login) to fall back to,
+  // optional otherwise (blank keeps whatever's already on record; set one to
+  // rotate the admin login password on demand, replacing the old separate
+  // "sync admin password" action).
+  async function assignAdminRole(u: User, role: string, password?: string) {
     setAdminActioning(true);
     try {
       await apiFetch('/admin/admin-users', {
         method: 'POST',
-        body: JSON.stringify({ userId: u.id, role }),
+        body: JSON.stringify({ userId: u.id, role, ...(password ? { password } : {}) }),
       });
       setDetail((prev) => prev && { ...prev, isAdmin: true, adminRole: role });
       setUsers((prev) =>
@@ -1185,41 +1157,18 @@ export default function UsersPage({ onNav, toast }: Props) {
             </div>
           </div>
           <div className="head-tools">
-            <button
-              className="btn ghost"
-              onClick={() => {
-                setNewPasswordInput('');
-                setModalParam('reset-password');
-              }}
-            >
-              <Icon.Refresh /> Reset Password
-            </button>
-            {isSuperAdmin && u.isAdmin && (
+            {isSuperAdmin && u.adminRole !== 'SUPER_ADMIN' && (
               <button
-                className="btn ghost"
+                className="link"
                 disabled={adminActioning}
-                onClick={() => void syncAdminPassword(u)}
-              >
-                <Icon.Refresh /> Sync Admin Password
-              </button>
-            )}
-            {isSuperAdmin && u.adminRole !== 'SUPER_ADMIN' && (u.isAdmin || u.hasPassword) && (
-              <SearchableSelect
-                options={[
-                  { id: 'NONE', label: 'Not admin' },
-                  { id: 'ADMIN', label: 'Admin' },
-                  { id: 'MODERATOR', label: 'Moderator' },
-                  { id: 'SUPPORT', label: 'Support' },
-                ]}
-                value={u.isAdmin ? (u.adminRole ?? 'ADMIN') : 'NONE'}
-                disabled={adminActioning}
-                onChange={(next) => {
-                  if (next === 'NONE') void revokeAdminRole(u);
-                  else void assignAdminRole(u, next);
+                onClick={() => {
+                  setGrantAdminRole(u.adminRole ?? 'ADMIN');
+                  setGrantAdminPassword('');
+                  setModalParam('grant-admin');
                 }}
-                ariaLabel="Admin role"
-                style={{ width: 'auto', height: 36 }}
-              />
+              >
+                <Icon.Check /> {u.isAdmin ? adminRoleLabel(u.adminRole) : 'Grant admin'}
+              </button>
             )}
             {!u.isAdmin && (
               <button className="btn danger" onClick={openConfirmSuspend}>
@@ -1548,29 +1497,101 @@ export default function UsersPage({ onNav, toast }: Props) {
           </>
         )}
 
-        {resettingPassword && (
-          <EditDrawer
-            onClose={closeModal}
-            title="Reset Password"
-            width="min(420px, calc(100vw - 40px))"
-            onSave={async () => {
-              await handleResetPassword(newPasswordInput);
-              closeModal();
-            }}
-            saveLabel="Reset Password"
-            saveDisabled={!newPasswordInput}
-          >
-            <div className="field">
-              <label>New password</label>
-              <input
-                className="input"
-                type="password"
-                value={newPasswordInput}
-                onChange={(e) => setNewPasswordInput(e.target.value)}
-                placeholder="At least 8 characters with a letter and number"
-              />
+        {modalParam === 'grant-admin' && (
+          <div className="modal-overlay" onClick={adminActioning ? undefined : closeModal}>
+            <div
+              className="modal"
+              onClick={(e) => e.stopPropagation()}
+              style={{ width: 'min(460px, calc(100vw - 40px))' }}
+            >
+              <div className="modal-head">
+                <h3>Grant admin access</h3>
+                <button
+                  className="btn sm ghost"
+                  onClick={closeModal}
+                  disabled={adminActioning}
+                  style={{ marginLeft: 'auto' }}
+                >
+                  <Icon.Close />
+                </button>
+              </div>
+              <div
+                className="modal-body"
+                style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+              >
+                <div className="field">
+                  <label>Role</label>
+                  <SearchableSelect
+                    options={[
+                      { id: 'ADMIN', label: 'Admin' },
+                      { id: 'MODERATOR', label: 'Moderator' },
+                      { id: 'SUPPORT', label: 'Support' },
+                    ]}
+                    value={grantAdminRole}
+                    disabled={adminActioning}
+                    onChange={setGrantAdminRole}
+                    ariaLabel="Role"
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    Admin login password{' '}
+                    {u.hasPassword
+                      ? '(optional — leave blank to keep the current one)'
+                      : '(required — Google account, no password)'}
+                  </label>
+                  <input
+                    className="input"
+                    type="password"
+                    value={grantAdminPassword}
+                    disabled={adminActioning}
+                    onChange={(e) => setGrantAdminPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                  />
+                  <span
+                    style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'block' }}
+                  >
+                    This is a separate password used only for the admin panel login — it isn't the
+                    same as {u.email}'s regular account password.
+                  </span>
+                </div>
+              </div>
+              <div className="modal-foot">
+                {u.isAdmin && (
+                  <button
+                    className="link"
+                    style={{ color: 'var(--danger)', marginRight: 'auto' }}
+                    disabled={adminActioning}
+                    onClick={async () => {
+                      await revokeAdminRole(u);
+                      closeModal();
+                    }}
+                  >
+                    Revoke admin access
+                  </button>
+                )}
+                <button className="btn ghost" onClick={closeModal} disabled={adminActioning}>
+                  Cancel
+                </button>
+                <button
+                  className="btn primary"
+                  disabled={
+                    adminActioning || (!u.hasPassword && grantAdminPassword.trim().length < 8)
+                  }
+                  onClick={async () => {
+                    await assignAdminRole(
+                      u,
+                      grantAdminRole,
+                      grantAdminPassword.trim() || undefined,
+                    );
+                    closeModal();
+                  }}
+                >
+                  {adminActioning ? 'Granting…' : 'Grant admin'}
+                </button>
+              </div>
             </div>
-          </EditDrawer>
+          </div>
         )}
 
         {jobPreviewId && (
