@@ -445,14 +445,63 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         (typeof params.workflowTemplateId === 'string' ? params.workflowTemplateId : null) ??
         dispatchedWorkflowTemplateId;
       let workflowLabel: string | null = null;
+      let garmentPhasePromptNode: string | null = null;
+      let facePhasePromptNode: string | null = null;
       if (resolvedWorkflowTemplateId) {
         const [wt] = await app.db
-          .select({ label: schema.workflowTemplates.label })
+          .select({
+            label: schema.workflowTemplates.label,
+            garmentPhasePromptNode: schema.workflowTemplates.garmentPhasePromptNode,
+            facePhasePromptNode: schema.workflowTemplates.facePhasePromptNode,
+          })
           .from(schema.workflowTemplates)
           .where(eq(schema.workflowTemplates.id, resolvedWorkflowTemplateId));
         workflowLabel = wt?.label ?? null;
+        garmentPhasePromptNode = wt?.garmentPhasePromptNode ?? null;
+        facePhasePromptNode = wt?.facePhasePromptNode ?? null;
       }
       workflowLabel ??= row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null;
+
+      // The actual text ComfyUI received, pulled from the dispatched graph
+      // itself (payload.prompt, the full patched workflow JSON) rather than
+      // payload.inputs.promptGarmentPhase/.promptFacePhase — those are only the
+      // per-job OVERRIDE values (null whenever the job used the template's own
+      // baked-in default), not what was actually sent. Different ComfyUI node
+      // types store text under different input keys (mirrors extractPromptText
+      // in workflows.routes.ts). Assumes the template's current node-ID mapping
+      // still matches what was dispatched — not true across an intervening
+      // /replace onto a different node, a pre-existing gap with no per-job node
+      // ID snapshot to fall back on.
+      const dispatchedGraph = (
+        dispatchEvent?.payload as
+          | { prompt?: Record<string, { inputs?: Record<string, unknown> }> }
+          | undefined
+      )?.prompt;
+      const extractDispatchedPrompt = (nodeId: string | null): string | null => {
+        if (!nodeId || !dispatchedGraph) return null;
+        const inputs = dispatchedGraph[nodeId]?.inputs;
+        return (
+          (inputs?.prompt as string | undefined) ?? (inputs?.text as string | undefined) ?? null
+        );
+      };
+      const dispatchedGarmentPrompt = extractDispatchedPrompt(garmentPhasePromptNode);
+      const dispatchedFacePrompt = extractDispatchedPrompt(facePhasePromptNode);
+
+      // Output sizing actually dispatched — same payload.inputs the dispatcher
+      // logs (apps/dispatcher/src/job/processor.ts), kept to just these three
+      // fields deliberately: everything else the dispatcher records (worker,
+      // promptId, raw R2 keys) was more noise than signal for this panel.
+      const dispatchedInputs = (
+        dispatchEvent?.payload as
+          | { inputs?: { aspectRatio?: unknown; outputWidth?: unknown; outputHeight?: unknown } }
+          | undefined
+      )?.inputs;
+      const dispatchedAspectRatio =
+        typeof dispatchedInputs?.aspectRatio === 'string' ? dispatchedInputs.aspectRatio : null;
+      const dispatchedOutputWidth =
+        typeof dispatchedInputs?.outputWidth === 'number' ? dispatchedInputs.outputWidth : null;
+      const dispatchedOutputHeight =
+        typeof dispatchedInputs?.outputHeight === 'number' ? dispatchedInputs.outputHeight : null;
 
       return {
         ...row,
@@ -470,6 +519,11 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         jobParams: undefined,
         customerPhotoKey: undefined,
         workflowLabel,
+        dispatchedGarmentPrompt,
+        dispatchedFacePrompt,
+        dispatchedAspectRatio,
+        dispatchedOutputWidth,
+        dispatchedOutputHeight,
         regenerateReason,
         defaultWorkflowLabel: undefined,
         overrideWorkflowLabel: undefined,

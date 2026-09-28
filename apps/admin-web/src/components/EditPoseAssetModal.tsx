@@ -388,7 +388,7 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
           />
           <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
             {promptOverrideEnabled
-              ? 'Pinned — future edits to the workflow prompt will not affect this pose.'
+              ? "Pinned — overrides the workflow's default. Cleared automatically (and replaced with the new text) if the workflow's own prompt is edited."
               : "Read-only preview of the assigned workflow's live default prompt."}
           </span>
         </div>
