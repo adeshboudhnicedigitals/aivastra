@@ -28,10 +28,21 @@ const AIVASTRA_CATEGORY_MAP = [
     'jackets' => ['slug' => 'jackets', 'name' => 'Jacket', 'parent' => 'Men'],
     'polo' => ['slug' => 'polo', 'name' => 'Polo', 'parent' => 'Men'],
     'sleeveless tshirts' => ['slug' => 'sleeveless-tshirts', 'name' => 'Sleeveless T-Shirt', 'parent' => 'Men'],
+    // Not in WooCommerce's original 13-term catalog tree — added when the
+    // /home/surya/Downloads/DDDDD image drop turned out to cover garment
+    // types (kurta, sherwani, suit, saree, ...) the tree didn't have yet.
+    'kurtas' => ['slug' => 'kurtas', 'name' => 'Kurta', 'parent' => 'Men'],
+    'sherwanis' => ['slug' => 'sherwanis', 'name' => 'Sherwani', 'parent' => 'Men'],
+    'suits' => ['slug' => 'suits', 'name' => 'Suit', 'parent' => 'Men'],
     'womens hoodies' => ['slug' => 'womens-hoodies', 'name' => 'Hoodie', 'parent' => 'Women'],
     'womens jackets' => ['slug' => 'womens-jackets', 'name' => 'Jacket', 'parent' => 'Women'],
     'womens shirts' => ['slug' => 'womens-shirts', 'name' => 'Shirt', 'parent' => 'Women'],
     'womens sweatshirts' => ['slug' => 'womens-sweatshirts', 'name' => 'Sweatshirt', 'parent' => 'Women'],
+    'crop tops' => ['slug' => 'crop-tops', 'name' => 'Crop Top', 'parent' => 'Women'],
+    'jumpsuits' => ['slug' => 'jumpsuits', 'name' => 'Jumpsuit', 'parent' => 'Women'],
+    'kurthis' => ['slug' => 'kurthis', 'name' => 'Kurthi', 'parent' => 'Women'],
+    'frocks' => ['slug' => 'frocks', 'name' => 'Frock', 'parent' => 'Women'],
+    'sarees' => ['slug' => 'sarees', 'name' => 'Saree', 'parent' => 'Women'],
 ];
 
 const AIVASTRA_PRICE_RANGES = [
@@ -44,10 +55,18 @@ const AIVASTRA_PRICE_RANGES = [
     'jackets' => [2499, 4999],
     'polo' => [799, 1499],
     'sleeveless-tshirts' => [499, 899],
+    'kurtas' => [1499, 2999],
+    'sherwanis' => [4999, 8999],
+    'suits' => [5999, 12999],
     'womens-hoodies' => [1299, 2499],
     'womens-jackets' => [2499, 4999],
     'womens-shirts' => [899, 1799],
     'womens-sweatshirts' => [1199, 2199],
+    'crop-tops' => [599, 1199],
+    'jumpsuits' => [1499, 2799],
+    'kurthis' => [999, 1999],
+    'frocks' => [899, 1799],
+    'sarees' => [1999, 4999],
 ];
 
 const AIVASTRA_SOURCE_ROOTS = [

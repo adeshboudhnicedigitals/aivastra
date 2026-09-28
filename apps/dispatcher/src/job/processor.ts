@@ -492,6 +492,15 @@ export async function processJob(
       }
     } else if (cfgRow?.workflowTemplateId) {
       effectiveWorkflowTemplateId = cfgRow.workflowTemplateId;
+      // The pose's pin (still sitting in effectivePromptGarmentPhase/FacePhase
+      // from the initialisation above) was written for the pose's OWN workflow.
+      // If this config row redirects to a different workflow and has no prompt
+      // of its own, drop the pin so the patcher leaves the new graph's baked-in
+      // prompt alone instead of feeding it a prompt meant for a different graph.
+      if (cfgRow.workflowTemplateId !== poseRow.workflowTemplateId) {
+        if (!cfgRow.promptGarmentPhase) effectivePromptGarmentPhase = null;
+        if (!cfgRow.promptFacePhase) effectivePromptFacePhase = null;
+      }
     }
   }
 
