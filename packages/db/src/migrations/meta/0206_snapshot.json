@@ -1,6 +1,6 @@
 {
-  "id": "e081973b-0820-48d4-b988-705056e577bc",
-  "prevId": "c91e34a5-784a-4319-a5c7-6c1b1fe3c4fa",
+  "id": "e7666684-6eaf-4926-a0bc-12b5c7a8c506",
+  "prevId": "b73bf931-6818-4a7f-b84a-701e4c2cfccb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -8601,6 +8601,309 @@
       },
       "indexes": {},
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.workflow_change_requests": {
+      "name": "workflow_change_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "change_type": {
+          "name": "change_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_workflow_id": {
+          "name": "target_workflow_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "proposed_by": {
+          "name": "proposed_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "proposed_by_role": {
+          "name": "proposed_by_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "previous_limitations": {
+          "name": "previous_limitations",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "proposed_fields": {
+          "name": "proposed_fields",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "reviewed_by": {
+          "name": "reviewed_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reviewed_at": {
+          "name": "reviewed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "review_note": {
+          "name": "review_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resulting_workflow_id": {
+          "name": "resulting_workflow_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workflow_change_requests_status_created_idx": {
+          "name": "workflow_change_requests_status_created_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workflow_change_requests_target_idx": {
+          "name": "workflow_change_requests_target_idx",
+          "columns": [
+            {
+              "expression": "target_workflow_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workflow_change_requests_proposed_by_idx": {
+          "name": "workflow_change_requests_proposed_by_idx",
+          "columns": [
+            {
+              "expression": "proposed_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workflow_change_requests_target_workflow_id_workflow_templates_id_fk": {
+          "name": "workflow_change_requests_target_workflow_id_workflow_templates_id_fk",
+          "tableFrom": "workflow_change_requests",
+          "tableTo": "workflow_templates",
+          "columnsFrom": ["target_workflow_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "workflow_change_requests_proposed_by_users_id_fk": {
+          "name": "workflow_change_requests_proposed_by_users_id_fk",
+          "tableFrom": "workflow_change_requests",
+          "tableTo": "users",
+          "columnsFrom": ["proposed_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "workflow_change_requests_reviewed_by_users_id_fk": {
+          "name": "workflow_change_requests_reviewed_by_users_id_fk",
+          "tableFrom": "workflow_change_requests",
+          "tableTo": "users",
+          "columnsFrom": ["reviewed_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "workflow_change_requests_resulting_workflow_id_workflow_templates_id_fk": {
+          "name": "workflow_change_requests_resulting_workflow_id_workflow_templates_id_fk",
+          "tableFrom": "workflow_change_requests",
+          "tableTo": "workflow_templates",
+          "columnsFrom": ["resulting_workflow_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.workflow_versions": {
+      "name": "workflow_versions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workflow_template_id": {
+          "name": "workflow_template_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_number": {
+          "name": "version_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "snapshot": {
+          "name": "snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "change_request_id": {
+          "name": "change_request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "applied_by": {
+          "name": "applied_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workflow_versions_template_version_idx": {
+          "name": "workflow_versions_template_version_idx",
+          "columns": [
+            {
+              "expression": "workflow_template_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "version_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workflow_versions_workflow_template_id_workflow_templates_id_fk": {
+          "name": "workflow_versions_workflow_template_id_workflow_templates_id_fk",
+          "tableFrom": "workflow_versions",
+          "tableTo": "workflow_templates",
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "workflow_versions_change_request_id_workflow_change_requests_id_fk": {
+          "name": "workflow_versions_change_request_id_workflow_change_requests_id_fk",
+          "tableFrom": "workflow_versions",
+          "tableTo": "workflow_change_requests",
+          "columnsFrom": ["change_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "workflow_versions_applied_by_users_id_fk": {
+          "name": "workflow_versions_applied_by_users_id_fk",
+          "tableFrom": "workflow_versions",
+          "tableTo": "users",
+          "columnsFrom": ["applied_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

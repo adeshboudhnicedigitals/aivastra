@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { and, asc, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { poseGarmentRoles } from '../models/garment-roles.js';
 
 /**
  * Shared builder for the admin-curated asset picker payload (garment types,
@@ -31,6 +32,7 @@ export interface CatalogOptionItem {
 }
 
 export interface CatalogOptionPose extends CatalogOptionItem {
+  hasUpper: boolean;
   hasLower: boolean;
   hasShoes: boolean;
 }
@@ -203,6 +205,7 @@ export async function buildCatalogOptions(
       label: schema.modelPoseAssets.displayName,
       fallbackLabel: schema.modelPoseAssets.label,
       thumbnailKey: schema.modelPoseAssets.thumbnailKey,
+      upperNodeIds: schema.workflowTemplates.upperNodeIds,
       lowerNodeId: schema.workflowTemplates.lowerNodeId,
       shoeNodeId: schema.workflowTemplates.shoeNodeId,
     })
@@ -216,7 +219,10 @@ export async function buildCatalogOptions(
   // If garmentTypeId given, overlay per-type workflow overrides for hasLower/hasShoes,
   // and per-type active overrides (a pose can be hidden for one garment type without
   // touching its global isActive flag or its visibility under other garment types).
-  let configMap = new Map<string, { lowerNodeId: string | null; shoeNodeId: string | null }>();
+  let configMap = new Map<
+    string,
+    { upperNodeIds: string[] | null; lowerNodeId: string | null; shoeNodeId: string | null }
+  >();
   let inactiveForType = new Set<string>();
   if (garmentTypeId && poseRows.length > 0) {
     const poseIds = poseRows.map((p) => p.id);
@@ -225,6 +231,7 @@ export async function buildCatalogOptions(
         poseAssetId: schema.poseGarmentConfigs.poseAssetId,
         workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
         isActive: schema.poseGarmentConfigs.isActive,
+        upperNodeIds: schema.workflowTemplates.upperNodeIds,
         lowerNodeId: schema.workflowTemplates.lowerNodeId,
         shoeNodeId: schema.workflowTemplates.shoeNodeId,
       })
@@ -247,7 +254,11 @@ export async function buildCatalogOptions(
         .filter((c) => c.workflowTemplateId != null)
         .map((c) => [
           c.poseAssetId,
-          { lowerNodeId: c.lowerNodeId ?? null, shoeNodeId: c.shoeNodeId ?? null },
+          {
+            upperNodeIds: c.upperNodeIds ?? null,
+            lowerNodeId: c.lowerNodeId ?? null,
+            shoeNodeId: c.shoeNodeId ?? null,
+          },
         ]),
     );
     inactiveForType = new Set(
@@ -260,6 +271,7 @@ export async function buildCatalogOptions(
       .filter((p) => !inactiveForType.has(p.id))
       .map(async (p) => {
         const cfg = configMap.get(p.id);
+        const upperNodeIds = cfg !== undefined ? cfg.upperNodeIds : p.upperNodeIds;
         const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : p.lowerNodeId;
         const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : p.shoeNodeId;
         return {
@@ -267,8 +279,7 @@ export async function buildCatalogOptions(
           slug: p.slug,
           label: p.label ?? p.fallbackLabel,
           thumbnailUrl: (await app.storage.presignGet(p.thumbnailKey, 3600)).url,
-          hasLower: lowerNodeId != null,
-          hasShoes: shoeNodeId != null,
+          ...poseGarmentRoles({ upperNodeIds, lowerNodeId, shoeNodeId }),
         };
       }),
   );

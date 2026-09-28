@@ -233,6 +233,7 @@ describe('GET /v1/models/catalogue-templates', () => {
     });
     const withoutLook = resWithout.json().items[0].looks[0];
     expect(withoutLook.hasLower).toBe(false);
+    expect(withoutLook.hasUpper).toBe(true);
 
     // Garment type with a pose override — hasLower true (workflow has lowerNodeId).
     const resWith = await app.inject({
@@ -242,6 +243,7 @@ describe('GET /v1/models/catalogue-templates', () => {
     });
     const withLook = resWith.json().items[0].looks[0];
     expect(withLook.hasLower).toBe(true);
+    expect(withLook.hasUpper).toBe(true);
   });
 
   it('excludes a template that has no garment-type mapping at all', async () => {

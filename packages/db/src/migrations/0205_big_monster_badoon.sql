@@ -1,1 +1,0 @@
-ALTER TABLE "shopify_product_garments" ADD COLUMN "category" text;

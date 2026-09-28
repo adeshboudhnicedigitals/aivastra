@@ -3,10 +3,13 @@ export const keys = {
   output: (jobId: string, format: 'png' | 'webp' = 'png') => `outputs/${jobId}/result.${format}`,
   outputThumb: (jobId: string) => `outputs/${jobId}/result.thumb.jpg`,
   mannequinIntermediate: (jobId: string) => `outputs/${jobId}/mannequin-intermediate.png`,
-  merchantCatalogItem: (merchantId: string, id: string) =>
-    `merchant-catalog/${merchantId}/${id}/image.jpg`,
-  merchantCatalogItemThumb: (merchantId: string, id: string) =>
-    `merchant-catalog/${merchantId}/${id}/thumb.jpg`,
+  merchantCatalogItem: (merchantId: string, id: string, format: 'png' | 'webp' | 'jpg' = 'jpg') =>
+    `merchant-catalog/${merchantId}/${id}/image.${format}`,
+  merchantCatalogItemThumb: (
+    merchantId: string,
+    id: string,
+    format: 'png' | 'webp' | 'jpg' = 'jpg',
+  ) => `merchant-catalog/${merchantId}/${id}/thumb.${format}`,
   merchantCatalogFlatGarment: (merchantId: string, id: string) =>
     `merchant-catalog/${merchantId}/flat/${id}/garment.jpg`,
   // Not merchant-scoped: one demo object is shared by every assigned merchant.

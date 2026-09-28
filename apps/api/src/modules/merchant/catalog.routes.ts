@@ -61,6 +61,16 @@ function catalogueLabel(catalogueId: string | null, jobId: string): string {
   return `Job ${jobId.slice(0, 8)}`;
 }
 
+// The source object's real bytes drive the stored key's extension — R2 objects
+// don't self-describe their format, so a mismatched extension (e.g. `.jpg` key
+// holding WebP bytes) would silently mislead anything that infers content type
+// from the key rather than the stored Content-Type.
+function formatFromContentType(contentType: string | null | undefined): 'png' | 'webp' | 'jpg' {
+  if (contentType === 'image/webp') return 'webp';
+  if (contentType === 'image/png') return 'png';
+  return 'jpg';
+}
+
 /**
  * Copies a completed job's OUTPUT (never the source garment) into a fresh
  * merchant_catalog_items row. Used by both /import (Path A — merchant hand-picks
@@ -98,8 +108,13 @@ async function copyJobOutputIntoProduct(
   });
 
   const assetId = randomUUID();
-  const imageKey = keys.merchantCatalogItem(params.merchantId, assetId);
-  const thumbKey = keys.merchantCatalogItemThumb(params.merchantId, assetId);
+  const format = formatFromContentType(imageHead.contentType);
+  const imageKey = keys.merchantCatalogItem(params.merchantId, assetId, format);
+  const thumbKey = keys.merchantCatalogItemThumb(
+    params.merchantId,
+    assetId,
+    formatFromContentType(thumbHead.contentType),
+  );
   await Promise.all([
     app.storage.putObject(imageKey, imageBody, imageHead.contentType ?? 'image/jpeg'),
     app.storage.putObject(thumbKey, thumbBody, thumbHead.contentType ?? 'image/jpeg'),

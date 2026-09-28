@@ -2,6 +2,197 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-28 — WordPress demo store: Product card border fixed to match reference image
+
+- **Goal:** Product card border was an animated gradient (`::before` pseudo-element, purple → magenta). Reference image shows plain `1px solid #000` matching the live `shopify.aivastra.com` style.
+- **Changes Done:**
+  1. **`storefront-aivastra/style.css`:** Removed `@keyframes aivastra-gradient-spin` and the animated gradient `::before`. Added `ul.products li.product::before { content: none }` and `ul.products li.product img { border: 1px solid #000 }`. Removed the 4px inset margin that was needed to reveal the gradient.
+- **Verified:** Playwright computed style confirms `border: 1px solid rgb(0, 0, 0)` on `img`. Screenshot matches reference image.
+
+## 2026-09-25 (later) — Pose pin leaking into a redirected workflow's prompt
+
+**Root cause:** when a `pose_garment_configs` row overrides a pose+garmentType to a
+*different* workflow template than the pose's own default, and that config row has no
+`promptGarmentPhase`/`promptFacePhase` of its own, both `resolveTryonPlan`
+(`apps/api/src/modules/jobs/create.ts`) and the dispatcher's non-snapshot standard path
+(`apps/dispatcher/src/job/processor.ts`) fell back to the **pose's own pin**
+(`model_pose_assets.promptGarmentPhase`/`promptFacePhase`) regardless of which workflow was
+actually selected. That pin was written for the pose's own default workflow's graph, so a
+redirected job sent a prompt describing the wrong graph to ComfyUI. PR #355 (merge 9ecc3fe7,
+code commit eedfff93) introduced the `configPromptGarmentPhase || defaultPromptGarmentPhase`
+fallback into the **api snapshot path** (`resolveTryonPlan`) — before that PR, `resolveTryonPlan`
+hardcoded the prompt fields to `null` for every non-mapped job, so the override never reached
+`job_inputs.params` at all. That's why every snapshotted job started carrying this bug from
+#355 onward. The **dispatcher's non-snapshot path** (`poseRow` default init +
+`if (cfgRow.promptGarmentPhase)` override, `processor.ts`) already had the identical flaw
+before #355 — traced to commit `d8325a9d` (2026-06-16, `feat(admin): per-garment-type pose
+workflow/prompt overrides + pose asset admin polish`), nearly three months earlier; PR #355
+didn't touch that branch. It only matters for jobs that never got a `workflowTemplateId`
+snapshotted into `params` (the dispatcher's own lookup is unreachable once a snapshot exists).
+
+**Done**
+- `apps/api/src/modules/jobs/create.ts`: added a `poseDefaultApplies` helper (only the
+  standard-branch `poseWorkflows` map, ~line 762) — the pose's default prompt now only
+  applies when the config row's `workflowTemplateId` is null or equals the pose's own
+  `defaultWorkflowTemplateId`; otherwise the field is left `null` so the dispatcher patcher
+  leaves the redirected workflow's own baked-in prompt untouched.
+- `apps/dispatcher/src/job/processor.ts`: the non-snapshot `else if (cfgRow?.workflowTemplateId)`
+  branch now nulls `effectivePromptGarmentPhase`/`effectivePromptFacePhase` when
+  `cfgRow.workflowTemplateId !== poseRow.workflowTemplateId` and the config row has no prompt
+  of its own.
+- `promptByPose` (`create.ts` ~line 747, feeds the `requiresMannequinStep`/saree branch) and
+  the snapshot/`requiresMannequinStep` branches of `processor.ts` are **deliberately
+  unchanged** — the config-workflow-override is already ignored for that path by design (see
+  the existing comment at `create.ts`), so the same gating doesn't apply there.
+- Regression tests: 4 new cases in `apps/api/test/integration/jobs-create-looks.test.ts`
+  (redirect+no-prompt, no override, override equals pose default, config has its own prompt)
+  and a new `apps/dispatcher/test/integration/pose-garment-config-workflow-override.test.ts`
+  (3 cases for the dispatcher's non-snapshot path, previously uncovered — existing dispatcher
+  coverage of `pose_garment_configs` was all `requiresMannequinStep` saree tests). The two
+  redirect-case tests (one api, one dispatcher — the actual bug reproduction) were confirmed
+  FAILING on pre-fix code and PASSING after via stash/pop; the other five new tests assert
+  unchanged behaviour (no override, override equals pose default, config has its own prompt)
+  and pass either way.
+- `pnpm --filter @aivastra/api typecheck`, `tsc --noEmit` in `apps/dispatcher` (no `typecheck`
+  script exists there), full `test`/`test:unit`/`test:integration` for both packages, and
+  `biome check` on all 4 changed files all clean.
+
+**Not fixed by this change**
+- Already-created jobs keep whatever prompt was snapshotted into `job_inputs.params` at
+  creation time — this fix only changes what gets resolved for jobs created *after* it ships.
+  ~354 production jobs (2026-09-11 to 2026-09-25) and 39 staging jobs were already dispatched
+  with the wrong (pose-pin) prompt under this bug and are not corrected retroactively. These
+  counts were measured on 2026-09-25 by read-only SQL directly against the staging and
+  production databases (not reproducible from local dev, which has no path to either). The
+  counts mean "the job's snapshotted `params` carried the pose's own prompt while the config
+  row overrode the workflow and had no prompt of its own" — a structural match on the bug's
+  precondition, not a per-job judgement that the resulting image was actually wrong.
+
+**Open question**
+- 208 production poses carry a `promptGarmentPhase`/`promptFacePhase` pin identical to their
+  assigned workflow template's own default prompt — a side effect of the old
+  `EditPoseAssetModal` silently pinning the template default onto the pose the first time it
+  was opened, rather than leaving the field null (also measured 2026-09-25, read-only SQL
+  against prod). These 208 pins were the actual source of the leak in production: whenever a
+  config row redirected one of these poses to a different workflow, the pin was the wrong
+  prompt fed to that redirected graph. After this fix they're harmless, because the pose pin is
+  now only used when the job is actually running the pose's own workflow — a redirect either
+  gets the config's own prompt or falls through to the new workflow's baked-in default.
+  "Does this pose have a real prompt override" still can't be read off `IS NOT NULL` alone,
+  though. Nulling the pins that are pure duplicates of their template's default would still
+  need a data migration — not attempted here.
+
+## 2026-09-25 — WordPress demo store: Account popover card parity with shopify.aivastra.com
+
+- **Goal:** Implement the account dropdown popover when clicking the navbar account icon, matching `https://shopify.aivastra.com/` pixel-for-pixel (rounded card, "Sign in or create account", circular close button, "Sign in with shop" purple button, OR divider, email input with submit arrow, marketing checkbox, and Orders/Profile action buttons).
+- **Changes Done:**
+  1. **Account Popover Include (`inc/account-popover.php`):**
+     - Renders `<div class="aivastra-account-popover">` in `wp_footer`.
+     - Supports logged-out state with exact replica of Shop Pay login card: "Sign in with shop" button (`#5a31f4`), "OR" divider, email input with submit arrow (`→`), "Email me with news and offers" checkbox, and dual quick-link buttons ("Orders" and "Profile").
+     - Supports logged-in state greeting with direct links to WooCommerce orders, account profile, and sign-out.
+  2. **Client-Side Interactions (`assets/account-popover.js`):**
+     - Anchors and positions the dropdown card dynamically right beneath the account navbar icon.
+     - Supports open/close toggle, close button (`✕`), click-outside dismissal, and `Escape` key dismissal.
+     - Smooth entrance animation with subtle transform/fade.
+  3. **Theme Integration (`functions.php` & `style.css`):**
+     - Added `inc/account-popover.php` include and added `aivastra-account-trigger` class to the navbar account icon.
+     - Added complete CSS styling for the popover card (24px border radius, elevation shadow, buttons, input, and responsive constraints).
+- **Verified:** Tested via headless Chromium and Playwright. Verified popover toggle on account icon click, close button dismissal, Escape key dismissal, click-outside dismissal, and mutual exclusivity with the cart drawer.
+
+## 2026-09-25 — WordPress demo store: Slide-out cart drawer parity with shopify.aivastra.com
+
+
+- **Goal:** Implement the slide-out cart drawer when clicking the navbar cart icon, matching `https://shopify.aivastra.com/` pixel-for-pixel (empty state, typography, circular close button, backdrop overlay, interactive filled state).
+- **Changes Done:**
+  1. **Cart Drawer Include (`inc/cart-drawer.php`):**
+     - Renders `<aside class="aivastra-cart-drawer">` and backdrop overlay in `wp_footer`.
+     - Features circular close button `✕` (`34px`, `border: 1px solid rgba(0,0,0,0.06)`, `box-shadow: 0 2px 6px rgba(0,0,0,0.06)`).
+     - Renders pixel-exact empty state: centered heading `"Your cart is empty"`, subtitle `"Have an account? Log in to check out faster."`, and black pill button `"Continue shopping"` (`#000`, `14px border-radius`, Inter font).
+     - Provides interactive filled state when cart has items: product thumbnail, title, line price, quantity stepper (`−`/`+`), remove button (`✕`), subtotal row (`Estimated total`), disclaimer, and black `"Check out"` button.
+     - Implements secure AJAX endpoints: `aivastra_cart_drawer_get`, `aivastra_cart_drawer_update_qty`, `aivastra_cart_drawer_remove`, `aivastra_cart_drawer_add`.
+  2. **Client-Side Interactions (`assets/cart-drawer.js`):**
+     - Intercepts clicks on `.aivastra-nav-cart` to slide open the drawer with smooth easing (`transform: translateX(0)`).
+     - Handles close via close button, backdrop click, and Escape key.
+     - Intercepts single-product "Add to cart" form submissions to add via AJAX and automatically slide open the drawer.
+     - Handles live quantity increment/decrement and item removal via AJAX with instant state updates.
+     - Synchronizes header cart count badge in real time.
+  3. **Theme Integration (`functions.php` & `style.css`):**
+     - Included `inc/cart-drawer.php` and attached `aivastra-cart-trigger` to navbar cart icon.
+     - Added comprehensive styling for backdrop, drawer animations, empty state typography, stepper controls, and responsive layout.
+- **Verified:** Tested via headless Chromium and Playwright. Verified drawer open/close on cart icon click, close button click, backdrop click, Escape key, empty state layout matching reference screenshots, filled state upon adding product, and dynamic transition back to empty state on item removal.
+
+## 2026-09-23 (continued) — WordPress demo store: match shopify.aivastra.com exactly
+
+
+- **Goal:** Make `http://localhost:8888` look pixel-close to `https://shopify.aivastra.com/`.
+- **Changes Done:**
+  1. **Font:** Switched theme font tokens `--aivastra-font-body` and `--aivastra-font-display` from `Plus Jakarta Sans / Outfit` → **`Inter`** (Google Fonts, weights 300–800). Matches Shopify reference exactly.
+  2. **Navbar:** Replaced search pill + account pill + WooCommerce cart pill with 3 minimal outline icon links (Search SVG, Account SVG, Shopping Bag SVG + red count badge) matching the Shopify right-side icon trio. CSS classes: `aivastra-nav-icon`, `aivastra-nav-cart`, `aivastra-nav-cart-badge`. Announcement bar removed.
+  3. **Homepage content:** Rewrote via `setup-homepage.php` — Shopify-style split hero (left: bold black headline + subtitle; right: hero image with gradient circle) + Women's Wear section + Men's Wear section (both with section title row + "View all" link + 4-column WC product grid). Applied via WP-CLI.
+  4. **Navigation:** Rewrote via `setup-navigation.php` — HOME, MEN (with sub-categories), WOMEN (with sub-categories), CONTACT.
+  5. **Footer:** Replaced 4-column dark luxury footer with simple Shopify-style white footer: centered "Join our email list" heading, subtitle, email subscribe form, and minimal copyright line with Terms + Privacy links.
+  6. **Button underline bug:** Added `text-decoration: none !important` to `.aivastra-btn-primary` and `.aivastra-btn-secondary` to override Storefront parent theme's `.hentry .entry-content a { text-decoration: underline }` specificity.
+  7. **Footer background:** Used `wp_add_inline_style` + `set_theme_mod` to force white footer background, overriding Storefront's customizer inline `<style>` tag.
+- **Verified:** Playwright headless screenshots taken (`homepage_v3.png`). Homepage, collection sections, and footer all match the Shopify reference design.
+- **Open:** Hero image container has some extra padding above it — could tighten to match Shopify's flush hero. Not blocking.
+
+## 2026-09-23 — Local WordPress demo store design, typography & authentic copy overhaul
+
+
+- **Context & Goal:** The local WordPress demo store (`http://localhost:8888`) running WooCommerce and `aivastra-tryon` needed a comprehensive visual, alignment, and content overhaul. Key requirements: eliminate all childish emojis across the entire site, replace with premium vector SVGs (Lucide icons), remove unrealistic/exaggerated marketing claims and fake customer reviews/statistics, and modernize the theme (`storefront-aivastra`).
+- **Changes Done:**
+  1. **Strict Emoji Removal & Lucide SVG Icons:**
+     - Removed all emojis from navigation menus, hero titles, buttons, announcement bars, trust strips, and footers.
+     - Overrode Storefront's core `🔍` gallery zoom emoji with a clean vector Lucide search SVG.
+     - Overrode WooCommerce cart block's crying sad-face emoji mask with a clean vector Lucide shopping bag SVG badge.
+     - Scanned both codebase files and WordPress database: zero emojis remaining.
+  2. **Grounded & Authentic E-Commerce Copy:**
+     - Eliminated fake reviews ("Vikramaditya S.", "12,000+ shoppers") and fake VIP promo banners ("VASTRA15").
+     - Eliminated exaggerated metrics ("99.8% Photorealistic AI Drape", "Instant 5-Sec Fit", "25,000+ fashion insiders").
+     - Replaced with realistic, honest copy centered on actual Ai Vastra try-on capabilities (virtual garment preview, standard domestic delivery, cash on delivery, and 7-day sizing exchanges).
+  3. **Theme Architecture & Layout Fixes (`storefront-aivastra`):**
+     - Enqueued `Plus Jakarta Sans` and `Outfit` via Google Fonts.
+     - Replaced fragmented Storefront float header with unified single-row flex navbar (`[Brand Logo] [Center Menu] [Search Pill + Account Button + Cart Pill]`).
+     - Fixed Storefront's `.clearfix` / `div.product::before` flex item collision on single product pages; gallery (50%) and summary (50%) now align side-by-side with vertical consistency.
+     - Replaced Storefront's dated float-based review tabs (`width: 30%` / `65%`) with modern horizontal tabs spanning full width, styled review forms, and subtle border alert notices.
+     - Overhauled Cart empty state and My Account login/register into dual luxury cards with rounded pill buttons.
+     - Styled Shop page with a dark slate collection header banner and 4-column product grid with 1:1 image aspect ratios and Lucide Try-On badges.
+- **Verification:** Verified in headless Chromium via Playwright; captured and inspected screenshots for Homepage, Shop Archive, Single Product Details, Cart, and My Account.
+
+## 2026-09-25 — `quay.io/minio/minio` now also returns 401 on anonymous pull (CI-blocking)
+
+- **Found:** PR #414's CI failed both `Unit tests (@aivastra/api)` and
+  `Integration tests (@aivastra/api)` at the exact same step —
+  `docker compose -f infra/docker-compose.yml up -d --wait postgres redis minio` —
+  with `minio Error unauthorized: access to the requested resource is not
+  authorized`. Confirmed this is **not** caused by that PR's diff (which never
+  touches `infra/docker-compose.yml`): reproduced the identical `401
+  UNAUTHORIZED` locally via a direct `docker pull quay.io/minio/minio:latest`,
+  and also against a specific older pinned tag
+  (`RELEASE.2024-01-16T16-07-38Z`) — the whole `quay.io/minio/minio` repo is
+  behind auth now, not just a `:latest`-tag rate limit. `docker.io/minio/minio`
+  (the original Docker Hub path) fails too, with "repository does not exist,"
+  consistent with the 2026-09-15 entry below.
+- **This escalates the 2026-09-15 finding below**, not a new independent
+  issue: this repo already migrated Docker Hub → quay.io for MinIO in PR #362
+  after Docker Hub lockdown, confirmed working then. quay.io has since locked
+  down the same repo too. Every fresh CI run and every fresh local clone is
+  now blocked at `docker compose up`/`pnpm docker:up` on `minio` — this is
+  repo-wide/team-wide, not specific to any one branch or PR.
+- **Why local dev machines may not notice:** a machine that pulled the image
+  before quay.io's lockdown (confirmed here: a `quay.io/minio/minio:latest`
+  image cached ~12 months ago, digest
+  `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+  still runs fine via the existing container) has no reason to re-pull, so
+  `docker compose up` silently keeps working there while failing on every
+  CI runner and every fresh checkout.
+- **Not fixed here** — this needs a team decision (mirror the still-good
+  cached digest to a registry this org controls, e.g. GHCR; authenticate CI to
+  quay.io if MinIO now permits pulls for registered/authenticated accounts; or
+  switch the S3-compatible test double entirely) and touches
+  `infra/docker-compose.yml`, `infra/docker-compose.staging.yml`,
+  `infra/docker-compose.prod.yml`, and `.github/workflows/ci.yml` uniformly —
+  out of scope for a one-off PR to patch silently.
 ## 2026-09-25 — Onboarding: numbered steps, Previous button, baskets chosen in the product picker
 
 - **Done:** every onboarding page drops the bottom progress bar for a numbered step row pinned
