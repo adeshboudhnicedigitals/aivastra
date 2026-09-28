@@ -10,6 +10,7 @@ import { useCrumb } from '../context/BreadcrumbContext';
 import { useCloseOverlay } from '../hooks/use-close-overlay';
 import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import ImageCompressionTab from './settings/ImageCompressionTab';
 import JobCostsTab from './settings/JobCostsTab';
 import ProdSnapshotTab from './settings/ProdSnapshotTab';
 import PurchasablePlansTab from './settings/PurchasablePlansTab';
@@ -42,7 +43,8 @@ type SettingsSection =
   | 'roles-permissions'
   | 'system'
   | 'session'
-  | 'prod-snapshot';
+  | 'prod-snapshot'
+  | 'image-compression';
 
 // `perm` mirrors the permission each section's own backend routes already
 // require (e.g. GET /admin/credit-plans requires credit_plans.write) — a
@@ -61,6 +63,15 @@ const SETTING_SECTIONS: { k: SettingsSection; label: string; perm?: string }[] =
   // (AuthContext.tsx). Matches the backend's own gate: prod-snapshot.routes.ts
   // uses requireAdmin(['SUPER_ADMIN']) directly, not the permissions matrix.
   { k: 'prod-snapshot', label: 'Prod Snapshot', perm: 'prod_snapshot.download' },
+  // Not a real permission key — never granted to any role in role_permissions,
+  // so hasPermission() only returns true here via its SUPER_ADMIN short-circuit
+  // (AuthContext.tsx). Matches the backend's own gate:
+  // image-compression.routes.ts uses requireAdmin(['SUPER_ADMIN']) directly.
+  {
+    k: 'image-compression',
+    label: 'Image Compression',
+    perm: 'image_compression.super_admin_only',
+  },
 ];
 
 interface Props {
@@ -854,6 +865,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
       {/* Prod Snapshot */}
       {section === 'prod-snapshot' && <ProdSnapshotTab toast={toast} />}
+      {section === 'image-compression' && <ImageCompressionTab toast={toast} />}
 
       {/* System */}
       {section === 'system' && (
