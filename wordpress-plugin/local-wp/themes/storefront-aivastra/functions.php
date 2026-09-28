@@ -6,6 +6,10 @@ if (!defined('ABSPATH')) {
 }
 
 require_once get_stylesheet_directory() . '/inc/shop-experience.php';
+require_once get_stylesheet_directory() . '/inc/search-modal.php';
+require_once get_stylesheet_directory() . '/inc/product-page.php';
+require_once get_stylesheet_directory() . '/inc/cart-drawer.php';
+require_once get_stylesheet_directory() . '/inc/account-popover.php';
 
 /**
  * "You may also like" matching the reference (WooCommerce's default is
@@ -113,22 +117,21 @@ function aivastra_custom_navbar(): void {
         </div>
 
         <div class="aivastra-nav-actions">
-            <!-- Minimal search icon -->
-            <a href="<?php echo esc_url(home_url('/shop/?s=')); ?>" class="aivastra-nav-icon" aria-label="Search" title="Search">
+            <!-- Minimal search icon — opens the predictive-search overlay (assets/search-modal.js);
+                 the href is a plain-search fallback for when JS hasn't loaded. -->
+            <a href="<?php echo esc_url(home_url('/shop/?s=')); ?>" class="aivastra-nav-icon aivastra-search-trigger" aria-label="Search" title="Search">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
             </a>
 
             <!-- Minimal account icon -->
-            <a href="<?php echo esc_url($myAccountUrl); ?>" class="aivastra-nav-icon" aria-label="Account" title="Account">
+            <a href="<?php echo esc_url($myAccountUrl); ?>" class="aivastra-nav-icon aivastra-account-trigger" aria-label="Account" title="Account">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
             </a>
 
             <!-- Minimal shopping bag icon matching shopify.aivastra.com -->
-            <a href="<?php echo esc_url($cartUrl); ?>" class="aivastra-nav-icon aivastra-nav-cart" aria-label="Shopping Bag" title="Cart">
+            <a href="<?php echo esc_url($cartUrl); ?>" class="aivastra-nav-icon aivastra-nav-cart aivastra-cart-trigger" aria-label="Shopping Bag" title="Cart">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path><path d="M3 6h18"></path><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
-                <?php if ($cartCount > 0) : ?>
-                    <span class="aivastra-nav-cart-badge"><?php echo esc_html((string)$cartCount); ?></span>
-                <?php endif; ?>
+                <span class="aivastra-nav-cart-badge<?php echo $cartCount > 0 ? '' : ' aivastra-badge-hidden'; ?>"<?php echo $cartCount > 0 ? '' : ' style="display:none;"'; ?>><?php echo esc_html((string)$cartCount); ?></span>
             </a>
         </div>
     </div>
@@ -139,66 +142,28 @@ function aivastra_custom_navbar(): void {
  * Remove ugly "Home" page header on the front page and sidebar on catalog pages.
  */
 add_action('wp', function (): void {
-    if (is_front_page() || is_page('contact')) {
+    if (is_front_page() || is_page('contact') || is_cart()) {
+        // The reference cart page has no separate "Cart" title — its empty-state
+        // heading ("Your cart is empty") is the only heading on the page.
         remove_action('storefront_page', 'storefront_page_header', 10);
     }
-    if (is_product() || is_cart() || is_checkout() || is_front_page() || is_shop() || is_product_taxonomy() || is_page('contact')) {
+    if (is_product() || is_cart() || is_checkout() || is_front_page() || is_shop() || is_product_taxonomy() || is_page('contact') || is_account_page() || is_404()) {
         remove_action('storefront_sidebar', 'storefront_get_sidebar', 10);
     }
-    if (is_shop() || is_product_taxonomy()) {
+    if (is_shop() || is_product_taxonomy() || is_cart() || is_page('contact') || is_account_page() || is_404() || is_product()) {
         // The reference collection page never shows a breadcrumb — the "Men's
         // Wear" heading sits ~48px below the header. Storefront's default
         // breadcrumb block alone (padding + a 1.618em-derived margin-bottom)
-        // was adding ~150px of dead space above the heading here.
+        // was adding ~150px of dead space above the heading here. The
+        // reference cart and contact pages have no breadcrumb either, and
+        // My account (never itself rendered by the reference — it redirects
+        // to Shopify's hosted login) is kept consistent with every other page.
+        // The reference 404 page ("Page not found") has no breadcrumb either.
+        // Single product pages ("Home / Men's Wear / <product>") don't show
+        // one either.
         remove_action('storefront_before_content', 'woocommerce_breadcrumb', 10);
     }
 });
-
-/**
- * Single product page: Add clean Lucide icon perks below Add to Cart.
- */
-add_action('woocommerce_single_product_summary', function (): void {
-    ?>
-    <div class="aivastra-product-perks">
-        <div class="aivastra-perk-item">
-            <span class="aivastra-perk-icon-svg">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
-            </span>
-            <div>
-                <strong>Virtual Try-On</strong>
-                <p>Preview this garment on your photo before ordering</p>
-            </div>
-        </div>
-        <div class="aivastra-perk-item">
-            <span class="aivastra-perk-icon-svg">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-5.28a2 2 0 0 0-.586-1.414L18.414 7.3A2 2 0 0 0 17 6.72H14v11.28"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
-            </span>
-            <div>
-                <strong>Standard Delivery</strong>
-                <p>Tracked flat-rate shipping across all pin codes</p>
-            </div>
-        </div>
-        <div class="aivastra-perk-item">
-            <span class="aivastra-perk-icon-svg">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
-            </span>
-            <div>
-                <strong>Cash on Delivery</strong>
-                <p>Pay on delivery available on domestic orders</p>
-            </div>
-        </div>
-        <div class="aivastra-perk-item">
-            <span class="aivastra-perk-icon-svg">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-            </span>
-            <div>
-                <strong>7-Day Returns</strong>
-                <p>Simple size exchange and return window</p>
-            </div>
-        </div>
-    </div>
-    <?php
-}, 35);
 
 /**
  * Simple Shopify-style footer matching shopify.aivastra.com:

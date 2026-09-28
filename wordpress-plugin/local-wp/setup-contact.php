@@ -23,21 +23,21 @@ $content = <<<'HTML'
   <h1 class="aivastra-contact-title">Contact</h1>
 
   <form class="aivastra-contact-form" onsubmit="event.preventDefault(); this.reset(); this.querySelector('.aivastra-contact-thanks').hidden = false;">
-    <div class="aivastra-contact-field">
+    <div class="aivastra-contact-field aivastra-contact-field-half">
       <label for="aivastra-contact-name">Name</label>
-      <input type="text" id="aivastra-contact-name" name="name" />
+      <input type="text" id="aivastra-contact-name" name="name" placeholder="Name" />
     </div>
-    <div class="aivastra-contact-field">
-      <label for="aivastra-contact-email">Email <span class="aivastra-contact-required">*</span></label>
-      <input type="email" id="aivastra-contact-email" name="email" required />
+    <div class="aivastra-contact-field aivastra-contact-field-half">
+      <label for="aivastra-contact-email">Email</label>
+      <input type="email" id="aivastra-contact-email" name="email" placeholder="Email" required />
     </div>
     <div class="aivastra-contact-field">
       <label for="aivastra-contact-phone">Phone</label>
-      <input type="tel" id="aivastra-contact-phone" name="phone" />
+      <input type="tel" id="aivastra-contact-phone" name="phone" placeholder="Phone" />
     </div>
     <div class="aivastra-contact-field">
       <label for="aivastra-contact-comment">Comment</label>
-      <textarea id="aivastra-contact-comment" name="comment" rows="5"></textarea>
+      <textarea id="aivastra-contact-comment" name="comment" rows="5" placeholder="Comment"></textarea>
     </div>
     <button type="submit" class="aivastra-contact-submit">Submit</button>
     <p class="aivastra-contact-thanks" hidden>Thanks — we'll get back to you soon.</p>

@@ -13,6 +13,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+require_once ABSPATH . 'wp-admin/includes/image.php';
+require_once ABSPATH . 'wp-admin/includes/file.php';
+require_once ABSPATH . 'wp-admin/includes/media.php';
+
 $shopUrl = (string) get_permalink(wc_get_page_id('shop'));
 
 $menTerm = get_term_by('slug', 'men', 'product_cat');
@@ -20,7 +24,36 @@ $womenTerm = get_term_by('slug', 'women', 'product_cat');
 $menUrl = $menTerm instanceof WP_Term ? (string) get_term_link($menTerm) : $shopUrl;
 $womenUrl = $womenTerm instanceof WP_Term ? (string) get_term_link($womenTerm) : $shopUrl;
 
-$heroImageUrl = home_url('/wp-content/uploads/2026/09/shopify-hero.jpg');
+// Sideloaded from the plugin's own branding/ folder rather than hardcoded to a
+// wp-content/uploads/<year>/<month> path — a fresh environment has no such
+// upload until this script puts one there.
+$existingHero = get_posts([
+    'post_type' => 'attachment',
+    'title' => 'Aivastra Shopify Hero',
+    'posts_per_page' => 1,
+]);
+if (!empty($existingHero)) {
+    $heroImageUrl = (string) wp_get_attachment_url($existingHero[0]->ID);
+} else {
+    $heroSourcePath = __DIR__ . '/branding/shopify-hero.jpg';
+    if (!file_exists($heroSourcePath)) {
+        throw new RuntimeException("Branding asset not found: {$heroSourcePath}");
+    }
+    $upload = wp_upload_bits('shopify-hero.jpg', null, file_get_contents($heroSourcePath));
+    if (!empty($upload['error'])) {
+        throw new RuntimeException("Upload failed for {$heroSourcePath}: {$upload['error']}");
+    }
+    $heroAttachmentId = wp_insert_attachment([
+        'post_title' => 'Aivastra Shopify Hero',
+        'post_mime_type' => 'image/jpeg',
+        'post_status' => 'inherit',
+    ], $upload['file']);
+    wp_update_attachment_metadata(
+        $heroAttachmentId,
+        wp_generate_attachment_metadata($heroAttachmentId, $upload['file'])
+    );
+    $heroImageUrl = (string) $upload['url'];
+}
 
 $content = <<<HTML
 <div class="aivastra-shopify-hero">
