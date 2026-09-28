@@ -79,7 +79,7 @@ export default function OnboardingContactPage({
   return (
     <OnboardingLayout
       page="contact"
-      title="Contact details"
+      title="Enter your contact details"
       titleAlign="center"
       largeTitle
       onContinue={saveAndContinue}
@@ -93,7 +93,7 @@ export default function OnboardingContactPage({
         <div style={{ width: '100%', maxWidth: 480, margin: 'var(--p-space-800) auto 0' }}>
           <BlockStack gap="300">
             <TextField
-              label="Your name"
+              label="Your Name"
               requiredIndicator
               autoComplete="name"
               value={name}
@@ -112,7 +112,7 @@ export default function OnboardingContactPage({
               error={touched.email ? emailError : undefined}
             />
             <TextField
-              label="Phone number"
+              label="Phone Number"
               type="tel"
               autoComplete="tel"
               value={phone}

@@ -60,14 +60,19 @@ export function OnboardingFooter({
       >
         {onBack && (
           <div style={{ flex: 1 }}>
-            <Button fullWidth onClick={onBack} disabled={continueLoading}>
+            <Button size="large" fullWidth onClick={onBack} disabled={continueLoading}>
               Previous
             </Button>
           </div>
         )}
         {secondaryAction && (
           <div style={{ flex: 1 }}>
-            <Button fullWidth onClick={secondaryAction.onAction} disabled={continueLoading}>
+            <Button
+              size="large"
+              fullWidth
+              onClick={secondaryAction.onAction}
+              disabled={continueLoading}
+            >
               {secondaryAction.label}
             </Button>
           </div>
@@ -75,6 +80,7 @@ export function OnboardingFooter({
         <div style={{ flex: 1 }}>
           <Button
             variant="primary"
+            size="large"
             fullWidth
             onClick={onContinue}
             disabled={continueDisabled}

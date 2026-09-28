@@ -209,7 +209,7 @@ export default function OnboardingThemePage({
                       <Icon source={CheckCircleIcon} tone="success" />
                     </div>
                     <Text as="span" tone="success" fontWeight="semibold">
-                      AI Vastra virtual try-on already activated
+                      AI Vastra virtual try-on activated
                     </Text>
                   </InlineStack>
                 ) : (

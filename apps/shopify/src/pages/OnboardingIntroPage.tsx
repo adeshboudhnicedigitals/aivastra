@@ -19,7 +19,7 @@ const LINE = '#dcdcdc';
 // the page that is not the photo), so the page fits without scrolling on most
 // laptops; card width is derived from that height, capped for narrow windows. The
 // connectors reuse PHOTO_H to sit mid-photo.
-const CARD_W = 'clamp(170px, min(calc((100vh - 595px) * 6 / 7), 23vw), 340px)';
+const CARD_W = 'clamp(230px, min(calc((100vh - 595px) * 6 / 7), 29vw), 430px)';
 const PHOTO_H = `calc(${CARD_W} * 7 / 6)`;
 
 // Lucide icons (ISC licence, https://lucide.dev) drawn inline, so the page does not
@@ -44,21 +44,23 @@ function LucideGlyph({ children, size = 22 }: { children: ReactNode; size?: numb
   );
 }
 
+// Sized down from the 22px default so the card's caption text fits on one
+// line instead of wrapping onto a second.
 const UserRoundGlyph = (
-  <LucideGlyph>
+  <LucideGlyph size={18}>
     <circle cx="12" cy="8" r="5" />
     <path d="M20 21a8 8 0 0 0-16 0" />
   </LucideGlyph>
 );
 
 const ShirtGlyph = (
-  <LucideGlyph>
+  <LucideGlyph size={18}>
     <path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z" />
   </LucideGlyph>
 );
 
 const WandSparklesGlyph = (
-  <LucideGlyph>
+  <LucideGlyph size={18}>
     <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" />
     <path d="m14 7 3 3" />
     <path d="M5 6v4" />
@@ -107,7 +109,7 @@ const CARDS = [
     height: 1438,
     alt: 'A product photo from the store',
     icon: ShirtGlyph,
-    title: 'Your Product Image',
+    title: 'Your Garment Image',
     caption: 'From your store',
   },
   {
@@ -214,7 +216,7 @@ export default function OnboardingIntroPage() {
               textWrap: 'balance',
             }}
           >
-            Let your customers see themselves in your products.
+            Let your customers see themselves in your garments.
           </h1>
           <p
             style={{
@@ -225,8 +227,7 @@ export default function OnboardingIntroPage() {
               color: 'var(--p-color-text-secondary)',
             }}
           >
-            Turn customer photos and your product images into realistic virtual try-ons and help
-            increase conversions.
+            Help customers see how the dress suits them, increasing sales and reducing returns.
           </p>
         </div>
 
@@ -273,7 +274,9 @@ export default function OnboardingIntroPage() {
                     padding: 'var(--p-space-300) var(--p-space-200) var(--p-space-200)',
                   }}
                 >
-                  <IconCircle size={44}>{card.icon}</IconCircle>
+                  {/* Smaller than the connector's 44px circle so the caption text has
+                      room to stay on one line. */}
+                  <IconCircle size={36}>{card.icon}</IconCircle>
                   <div style={{ minWidth: 0 }}>
                     <Text as="p" fontWeight="bold">
                       {card.title}

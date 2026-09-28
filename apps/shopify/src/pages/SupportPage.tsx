@@ -23,7 +23,9 @@ export default function SupportPage() {
                 <Text as="p" tone="subdued">
                   Send us the details and we usually reply within 24 hours.
                 </Text>
-                <Button url="mailto:support@aivastra.com">Email us</Button>
+                <Button size="large" url="mailto:support@aivastra.com">
+                  Email us
+                </Button>
               </BlockStack>
             </Card>
             <Card>
@@ -34,7 +36,9 @@ export default function SupportPage() {
                 <Text as="p" tone="subdued">
                   Talk to the team in real time during business hours.
                 </Text>
-                <Button onClick={() => setChatOpen(true)}>Start a chat</Button>
+                <Button size="large" onClick={() => setChatOpen(true)}>
+                  Start a chat
+                </Button>
               </BlockStack>
             </Card>
           </InlineGrid>

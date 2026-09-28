@@ -169,7 +169,7 @@ export default function OnboardingProductsPage({
         setError(
           classifyError(
             new Error(
-              'At least one product needs to be enabled with a try-on style before you can continue.',
+              'At least one product needs to be enabled with a garment type before you can continue.',
             ),
           ),
         );
@@ -239,7 +239,9 @@ export default function OnboardingProductsPage({
             We couldn't find any products in your store. Add products in Shopify, then try again.
           </Text>
           <div>
-            <Button onClick={runSync}>Import again</Button>
+            <Button size="large" onClick={runSync}>
+              Import again
+            </Button>
           </div>
         </BlockStack>
       )}
@@ -247,8 +249,8 @@ export default function OnboardingProductsPage({
         <Card>
           <BlockStack gap="300">
             <Text as="p" tone="subdued">
-              Tick the products you want shoppers to try on, then give each one a try-on style.
-              Nothing is saved until you press Continue.
+              Select garments for the virtual try-on. Choose the garment type, such as Upper Wear or
+              Single-Piece Dress, for each product to ensure accurate virtual try-on results.
             </Text>
             {/* In global mode every product is already enabled without a flag of its
                 own, so this table couldn't show them as picks and there is nothing to
@@ -258,7 +260,7 @@ export default function OnboardingProductsPage({
                 <ProductSelectionStage onPickChange={setPick} baskets={baskets} />
                 {picked > 0 && !routed && (
                   <Text as="p" tone="caution">
-                    Choose a try-on style for every selected product to continue.
+                    Choose a garment type for every selected product to continue.
                   </Text>
                 )}
               </>

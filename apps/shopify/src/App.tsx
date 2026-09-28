@@ -7,6 +7,7 @@ import { AppProvider, Banner, Box, Frame, Navigation, Spinner } from '@shopify/p
 import enTranslations from '@shopify/polaris/locales/en.json';
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { AppFont } from './components/AppFont';
 import { AppNavMenu, NAV_ITEMS } from './components/AppNavMenu';
 import { apiFetch, setShopDomain } from './lib/api';
 import {
@@ -154,7 +155,9 @@ export default function App() {
   if (loading) {
     return (
       <AppProvider i18n={enTranslations}>
-        <Spinner accessibilityLabel="Loading" size="large" />
+        <AppFont>
+          <Spinner accessibilityLabel="Loading" size="large" />
+        </AppFont>
       </AppProvider>
     );
   }
@@ -162,15 +165,17 @@ export default function App() {
   if (error) {
     return (
       <AppProvider i18n={enTranslations}>
-        <Box padding="800">
-          <Banner
-            title="Couldn't load AiVastra"
-            tone={error.tone}
-            action={{ content: 'Retry', onAction: () => window.location.reload() }}
-          >
-            {error.message}
-          </Banner>
-        </Box>
+        <AppFont>
+          <Box padding="800">
+            <Banner
+              title="Couldn't load AiVastra"
+              tone={error.tone}
+              action={{ content: 'Retry', onAction: () => window.location.reload() }}
+            >
+              {error.message}
+            </Banner>
+          </Box>
+        </AppFont>
       </AppProvider>
     );
   }
@@ -206,52 +211,54 @@ export default function App() {
 
   return (
     <AppProvider i18n={enTranslations}>
-      <AppNavMenu onboardingComplete={onboardingComplete} />
-      <Frame navigation={devNavigation}>
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/manage" element={<ManagePage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/support" element={<SupportPage />} />
-          <Route path="/billing/callback" element={<BillingCallbackPage />} />
-          <Route path="/billing/autorefill-callback" element={<AutorefillCallbackPage />} />
-          <Route path="/onboarding" element={<OnboardingIntroPage />} />
-          <Route
-            path="/onboarding/products"
-            element={<OnboardingProductsPage me={me} onRefresh={refreshMe} />}
-          />
-          {/* Old wizard step, removed when basket choice moved into page 2 —
-              merchants may have it bookmarked. */}
-          <Route
-            path="/onboarding/routing"
-            element={<Navigate to="/onboarding/products" replace />}
-          />
-          <Route
-            path="/onboarding/contact"
-            element={<OnboardingContactPage me={me} onRefresh={refreshMe} />}
-          />
-          <Route
-            path="/onboarding/limits"
-            element={<OnboardingLimitsPage me={me} onRefresh={refreshMe} />}
-          />
-          <Route
-            path="/onboarding/theme"
-            element={<OnboardingThemePage me={me} onRefresh={refreshMe} />}
-          />
-          {/* Merchants may have bookmarked the old path while it was the only
-              product surface. */}
-          <Route path="/products" element={<Navigate to="/manage" replace />} />
-          {/* Merchants may have bookmarked the old path while Routing was its
-              own page. */}
-          <Route path="/routing" element={<Navigate to="/manage" replace />} />
-          <Route path="/embedded" element={<Navigate to="/" replace />} />
-          {/* Widget Design page removed — merchants may have it bookmarked or
-              pinned in Shopify admin's nav history. */}
-          <Route path="/widget-design" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Frame>
+      <AppFont>
+        <AppNavMenu onboardingComplete={onboardingComplete} />
+        <Frame navigation={devNavigation}>
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/manage" element={<ManagePage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/support" element={<SupportPage />} />
+            <Route path="/billing/callback" element={<BillingCallbackPage />} />
+            <Route path="/billing/autorefill-callback" element={<AutorefillCallbackPage />} />
+            <Route path="/onboarding" element={<OnboardingIntroPage />} />
+            <Route
+              path="/onboarding/products"
+              element={<OnboardingProductsPage me={me} onRefresh={refreshMe} />}
+            />
+            {/* Old wizard step, removed when basket choice moved into page 2 —
+                merchants may have it bookmarked. */}
+            <Route
+              path="/onboarding/routing"
+              element={<Navigate to="/onboarding/products" replace />}
+            />
+            <Route
+              path="/onboarding/contact"
+              element={<OnboardingContactPage me={me} onRefresh={refreshMe} />}
+            />
+            <Route
+              path="/onboarding/limits"
+              element={<OnboardingLimitsPage me={me} onRefresh={refreshMe} />}
+            />
+            <Route
+              path="/onboarding/theme"
+              element={<OnboardingThemePage me={me} onRefresh={refreshMe} />}
+            />
+            {/* Merchants may have bookmarked the old path while it was the only
+                product surface. */}
+            <Route path="/products" element={<Navigate to="/manage" replace />} />
+            {/* Merchants may have bookmarked the old path while Routing was its
+                own page. */}
+            <Route path="/routing" element={<Navigate to="/manage" replace />} />
+            <Route path="/embedded" element={<Navigate to="/" replace />} />
+            {/* Widget Design page removed — merchants may have it bookmarked or
+                pinned in Shopify admin's nav history. */}
+            <Route path="/widget-design" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Frame>
+      </AppFont>
     </AppProvider>
   );
 }

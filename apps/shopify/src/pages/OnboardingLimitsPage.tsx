@@ -92,7 +92,7 @@ export default function OnboardingLimitsPage({
   return (
     <OnboardingLayout
       page="limits"
-      title="Virtual Try-On Usage"
+      title="Virtual Tryon Usage"
       titleAlign="center"
       largeTitle
       onContinue={saveAndContinue}
@@ -105,15 +105,15 @@ export default function OnboardingLimitsPage({
           <BlockStack gap="600">
             <BlockStack gap="300">
               <Text as="h2" variant="headingLg" fontWeight="bold">
-                Try-Ons Per Customer
+                Tryons Per Customer
               </Text>
               <Text as="p" tone="subdued">
-                Choose how many times each customer can use Virtual Try-On per day
+                Set a limit on how many virtual tryons each user can perform in your store.
               </Text>
               <Select
-                label="Try-Ons Allowed"
+                label="Tryons Allowed"
                 options={numericOptions(ONBOARDING_TRYON_CAP_OPTIONS, 'Unlimited', (n) =>
-                  n === 1 ? '1 Try-On' : `${n} Try-Ons`,
+                  n === 1 ? '1 Tryon' : `${n} Tryons`,
                 )}
                 value={limits.perShopperCap == null ? OFF : String(limits.perShopperCap)}
                 onChange={(v) =>
@@ -131,7 +131,7 @@ export default function OnboardingLimitsPage({
               onChange={(checked) => patchLimits({ emailAfterNTryOns: checked ? 0 : null })}
             />
             <Text as="p" tone="subdued" alignment="center">
-              You can change these settings anytime under Settings → Limits.
+              You can change these limits anytime under Settings → Limits.
             </Text>
           </BlockStack>
         </div>

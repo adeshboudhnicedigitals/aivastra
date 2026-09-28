@@ -3,6 +3,7 @@ import { AppProvider, Banner, Box } from '@shopify/polaris';
 // Polaris's default labels, not just their visible text but their aria-labels.
 import enTranslations from '@shopify/polaris/locales/en.json';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { AppFont } from './AppFont';
 
 interface Props {
   children: ReactNode;
@@ -32,16 +33,18 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.error) {
       return (
         <AppProvider i18n={enTranslations}>
-          <Box padding="800">
-            <Banner
-              title="Something went wrong"
-              tone="critical"
-              action={{ content: 'Reload', onAction: () => window.location.reload() }}
-            >
-              An unexpected error occurred. Reloading usually fixes it — if it keeps happening,
-              contact support.
-            </Banner>
-          </Box>
+          <AppFont>
+            <Box padding="800">
+              <Banner
+                title="Something went wrong"
+                tone="critical"
+                action={{ content: 'Reload', onAction: () => window.location.reload() }}
+              >
+                An unexpected error occurred. Reloading usually fixes it — if it keeps happening,
+                contact support.
+              </Banner>
+            </Box>
+          </AppFont>
         </AppProvider>
       );
     }

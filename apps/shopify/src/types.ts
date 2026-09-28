@@ -92,6 +92,8 @@ export interface ShopifyMe {
   };
   creditBalance: number;
   hasPurchasedPack: boolean;
+  /** The most recent one-time or auto-refill pack the store has paid for. Null before any purchase. */
+  currentPack: { id: string; label: string } | null;
   runway: {
     balance: number;
     tryOnsRemaining: number;

@@ -152,9 +152,10 @@ export async function createPurchase(
     .returning({ id: schema.shopifyCreditPurchases.id });
 
   // Try-ons are the merchant-facing unit — no merchant has an intuition for
-  // what 2,250 credits buys, and this string is what Shopify prints on the
-  // approval page and the invoice. Derived from the live cost rather than
-  // hardcoded so it stays honest if an admin retunes tryon.creditCost.
+  // what 2,250 credits buys, and this string (pack label + try-ons) is what
+  // Shopify prints on the approval page and the invoice. Derived from the
+  // live cost rather than hardcoded so it stays honest if an admin retunes
+  // tryon.creditCost.
   const tryOns = Math.floor(credits / (await getTryonCreditCost(app)));
   // Points at our own API, not the SPA directly — see the `/return` route in
   // purchase.routes.ts for why. Shopify's post-approval redirect is always a
@@ -168,7 +169,7 @@ export async function createPurchase(
 
   try {
     const { confirmationUrl, purchase } = await createCharge(app, store, {
-      name: `AiVastra — ${tryOns} try-ons`,
+      name: `${pack.label} - ${tryOns} try-ons`,
       amountUsd: pack.priceUsd,
       returnUrl,
       // Per-store, not a single global switch. Shopify's rule is that a

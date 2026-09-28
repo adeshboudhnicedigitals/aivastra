@@ -273,7 +273,33 @@ export default function DashboardPage() {
 
           <BalanceCard me={me} />
 
-          <PackGrid onError={setError} />
+          <PackGrid
+            onError={setError}
+            leadingCard={
+              // First-time users only — the free tier is the welcome-credits bonus
+              // (see the effect above), gone the moment a store buys its first
+              // pack. Informational only: nothing to claim here any more, the
+              // bonus is granted automatically on arrival.
+              me != null && !me.hasPurchasedPack ? (
+                <Card>
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between" blockAlign="center">
+                      <Text as="h2" variant="headingMd">
+                        Free Tier
+                      </Text>
+                      <Badge tone="success">No purchase required</Badge>
+                    </InlineStack>
+                    <Text as="p" variant="heading2xl">
+                      {me.runway.tryOnsRemaining.toLocaleString()} try-ons
+                    </Text>
+                    <Text as="p" tone="subdued">
+                      Added automatically to get started.
+                    </Text>
+                  </BlockStack>
+                </Card>
+              ) : undefined
+            }
+          />
 
           <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
             <Card>

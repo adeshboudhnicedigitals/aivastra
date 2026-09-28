@@ -125,7 +125,7 @@ export default function SettingsPage() {
                 <AskForEmailCard limits={limits} onChange={patchLimits} />
 
                 <InlineStack align="end">
-                  <Button variant="primary" loading={saving} onClick={save}>
+                  <Button variant="primary" size="large" loading={saving} onClick={save}>
                     Save
                   </Button>
                 </InlineStack>
@@ -182,7 +182,7 @@ export default function SettingsPage() {
                     }
                   />
                   <InlineStack align="end">
-                    <Button variant="primary" loading={saving} onClick={save}>
+                    <Button variant="primary" size="large" loading={saving} onClick={save}>
                       Save
                     </Button>
                   </InlineStack>

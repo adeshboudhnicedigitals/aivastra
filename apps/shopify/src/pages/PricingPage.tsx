@@ -269,7 +269,12 @@ export default function PricingPage() {
                     helpText="The most we can charge you in a 30-day period. You approve this once; refills after that are automatic. You can change or cancel it any time."
                     autoComplete="off"
                   />
-                  <Button variant="primary" loading={enrolling} onClick={enableAutorefill}>
+                  <Button
+                    variant="primary"
+                    size="large"
+                    loading={enrolling}
+                    onClick={enableAutorefill}
+                  >
                     Turn on auto-refill
                   </Button>
                 </BlockStack>

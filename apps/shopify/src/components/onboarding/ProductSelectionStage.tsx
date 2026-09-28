@@ -101,9 +101,9 @@ export function ProductSelectionStage({
    */
   allowSelectAll?: boolean;
   /**
-   * Adds a last "Try-on style" column plus one control that sets the basket for
-   * every selected product. When given, this same table doubles as the one
-   * place a merchant sees their products: an already-enabled row loads ticked
+   * Adds a last "Garment type" column, one basket picker per row. When given,
+   * this same table doubles as the one place a merchant sees their products:
+   * an already-enabled row loads ticked
    * with its current style seeded in (see the fetch effect), so it reads and
    * behaves exactly like a fresh pick — ticking, unticking and changing style
    * are all just local draft edits here, nothing is sent to the server until
@@ -126,7 +126,11 @@ export function ProductSelectionStage({
   const [basketChoices, setBasketChoices] = useState<Record<number, string>>(
     initial?.baskets ?? {},
   );
-  const [defaultBasket, setDefaultBasket] = useState(initial?.defaultBasket ?? '');
+  // No longer set by anything since the "apply to all" control was removed —
+  // still read as the per-row fallback in effectiveBasket, and reported in
+  // StagePick, so it stays a value seeded from `initial` rather than a plain
+  // const.
+  const [defaultBasket] = useState(initial?.defaultBasket ?? '');
   const [data, setData] = useState<ShopifyProductsResponse | null>(null);
   const [facets, setFacets] = useState<ShopifyProductFacets | null>(null);
   const [loading, setLoading] = useState(true);
@@ -252,13 +256,6 @@ export function ProductSelectionStage({
     }
   }
 
-  // The basket for everything selected replaces any per-product choices made
-  // before it, so the last thing the merchant did is what they see.
-  function applyBasketToAll(basketId: string) {
-    setDefaultBasket(basketId);
-    setBasketChoices({});
-  }
-
   // Picking a basket for a row is also picking the product.
   function chooseBasket(id: number, basketId: string) {
     setBasketChoices((prev) => ({ ...prev, [id]: basketId }));
@@ -382,20 +379,6 @@ export function ProductSelectionStage({
         loading={loading}
         disableStickyMode
       />
-      {baskets && (
-        <InlineStack align="end" blockAlign="center" gap="300">
-          <div style={{ minWidth: 260 }}>
-            <Select
-              label="Try-on style for all selected products"
-              labelInline
-              options={basketOptions(baskets)}
-              value={defaultBasket}
-              disabled={baskets.length === 0}
-              onChange={applyBasketToAll}
-            />
-          </div>
-        </InlineStack>
-      )}
       <IndexTable
         resourceName={{ singular: 'product', plural: 'products' }}
         itemCount={items.length}
@@ -408,10 +391,8 @@ export function ProductSelectionStage({
         loading={loading}
         headings={[
           { title: 'Product' },
-          { title: 'Type' },
-          { title: 'Vendor' },
           { title: 'Status' },
-          ...(baskets ? [{ title: 'Try-on style' }] : []),
+          ...(baskets ? [{ title: 'Garment type' }] : []),
         ]}
         pagination={{
           hasPrevious: page > 1,
@@ -439,8 +420,6 @@ export function ProductSelectionStage({
                 </Text>
               </InlineStack>
             </IndexTable.Cell>
-            <IndexTable.Cell>{item.productType ?? '—'}</IndexTable.Cell>
-            <IndexTable.Cell>{item.vendor ?? '—'}</IndexTable.Cell>
             <IndexTable.Cell>
               <Badge tone={STATUS_TONE[item.status]}>{item.status}</Badge>
             </IndexTable.Cell>
@@ -454,7 +433,7 @@ export function ProductSelectionStage({
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Select
-                    label="Try-on style"
+                    label="Garment type"
                     labelHidden
                     options={basketOptions(baskets)}
                     value={effectiveBasket(item.shopifyProductId, basketChoices, defaultBasket)}

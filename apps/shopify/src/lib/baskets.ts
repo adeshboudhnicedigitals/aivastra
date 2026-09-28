@@ -26,7 +26,7 @@ export function useBaskets(): { baskets: Basket[]; error: ClassifiedError | null
 /** Options for a basket <Select>, led by a disabled placeholder. */
 export function basketOptions(baskets: Basket[]) {
   return [
-    { label: 'Choose a try-on style', value: '', disabled: true },
+    { label: 'Choose a garment type', value: '', disabled: true },
     ...baskets.map((b) => ({ label: b.label, value: b.id })),
   ];
 }

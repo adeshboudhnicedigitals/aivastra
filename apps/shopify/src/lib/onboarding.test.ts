@@ -40,6 +40,7 @@ function baseMe(
     },
     creditBalance: 0,
     hasPurchasedPack: false,
+    currentPack: null,
     runway: {
       balance: 0,
       tryOnsRemaining: 0,
