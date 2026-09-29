@@ -19,6 +19,14 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
   /** 'template' hides this pose from the admin Pose Assets tab and studio "create your own look" — managed only via the owning catalogue template. Defaults to 'general'. */
   scope?: 'general' | 'template';
+  /**
+   * When set, poses are being uploaded from one garment type's Configs page —
+   * the gender is fixed to that garment type's gender (no picker) and the
+   * server scopes each new pose to just this garment type instead of leaving
+   * it visible on every garment type of its gender.
+   */
+  subcategoryId?: string;
+  subcategoryLabel?: string;
 }
 
 interface FileEntry {
@@ -73,6 +81,8 @@ export function PoseUploadModal({
   onClose,
   toast,
   scope = 'general',
+  subcategoryId,
+  subcategoryLabel,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
@@ -179,6 +189,7 @@ export function PoseUploadModal({
             promptGarmentPhase: promptGarmentPhase.trim() || null,
             genderSlug,
             scope,
+            subcategoryId,
           }),
         });
 
@@ -323,34 +334,50 @@ export function PoseUploadModal({
             </button>
           </div>
 
-          {/* Gender filter */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <SectionHead>Category</SectionHead>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {(['men', 'women', 'boys', 'girls'] as const).map((g) => (
-                <button
-                  key={g}
-                  type="button"
-                  disabled={uploading}
-                  onClick={() => setGenderSlug(g)}
-                  style={{
-                    padding: '5px 14px',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    borderRadius: 'var(--r)',
-                    border: `1px solid ${genderSlug === g ? 'var(--accent)' : 'var(--border)'}`,
-                    background: genderSlug === g ? 'var(--accent-soft)' : 'var(--surface-2)',
-                    color: genderSlug === g ? 'var(--accent)' : 'var(--muted)',
-                    cursor: uploading ? 'not-allowed' : 'pointer',
-                    transition: 'all 100ms',
-                    textTransform: 'capitalize',
-                  }}
-                >
-                  {g.charAt(0).toUpperCase() + g.slice(1)}
-                </button>
-              ))}
+          {/* Gender filter — fixed (no picker) when scoped to one garment type */}
+          {subcategoryId ? (
+            <div
+              style={{
+                padding: '8px 12px',
+                background: 'var(--accent-soft)',
+                border: '1px solid var(--accent)',
+                borderRadius: 'var(--r-lg)',
+                fontSize: 12,
+                color: 'var(--accent)',
+              }}
+            >
+              Scoped to <strong>{subcategoryLabel ?? 'this garment type'}</strong> only — won't
+              appear on other {genderSlug} garment types.
             </div>
-          </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <SectionHead>Category</SectionHead>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(['men', 'women', 'boys', 'girls'] as const).map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    disabled={uploading}
+                    onClick={() => setGenderSlug(g)}
+                    style={{
+                      padding: '5px 14px',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      borderRadius: 'var(--r)',
+                      border: `1px solid ${genderSlug === g ? 'var(--accent)' : 'var(--border)'}`,
+                      background: genderSlug === g ? 'var(--accent-soft)' : 'var(--surface-2)',
+                      color: genderSlug === g ? 'var(--accent)' : 'var(--muted)',
+                      cursor: uploading ? 'not-allowed' : 'pointer',
+                      transition: 'all 100ms',
+                      textTransform: 'capitalize',
+                    }}
+                  >
+                    {g.charAt(0).toUpperCase() + g.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Drop zone */}
           <div

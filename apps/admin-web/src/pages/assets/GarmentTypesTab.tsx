@@ -1,8 +1,10 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
+import { BulkImportPosesModal } from '../../components/BulkImportPosesModal';
 import { EditDrawer } from '../../components/EditDrawer';
 import { EditGarmentTypeModal } from '../../components/EditGarmentTypeModal';
 import { Icon } from '../../components/Icons';
+import { PoseUploadModal } from '../../components/PoseUploadModal';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
 import { useCrumb } from '../../context/BreadcrumbContext';
@@ -16,6 +18,7 @@ import type {
   MappedTemplateLook,
   MappedTemplatePoseWorkflow,
   PoseGarmentConfig,
+  PoseGarmentTypeConfig,
   ShotTypeWorkflow,
   TemplateGarmentTypeMapping,
   TryonCategory,
@@ -125,6 +128,17 @@ export function GarmentTypesTab() {
     (sub: GarmentType) => setSubViewParams({ view: 'configs', gtId: sub.id }),
     [setSubViewParams],
   );
+  // Other garment types of the same gender — pose_garment_configs rows are
+  // gender-scoped, so a pose can never be mapped onto a different gender's type.
+  const otherGarmentTypeOptions = useMemo(
+    () =>
+      subView.kind === 'configs'
+        ? garmentTypes
+            .filter((g) => g.genderSlug === subView.sub.genderSlug && g.id !== subView.sub.id)
+            .map((g) => ({ id: g.id, label: g.label }))
+        : [],
+    [garmentTypes, subView],
+  );
   const closeConfigs = useCloseOverlay(['view', 'gtId']);
   // Breadcrumb depth slots for this tab (numbers are offsets into the app-wide
   // registry, appended after App.tsx's fixed "Aivastra"/page-name pair — see
@@ -179,6 +193,11 @@ export function GarmentTypesTab() {
   // field values and the picked File (not serializable into a URL) stay local.
   const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
   const showSubcatModal = modalParam === 'add-garment-type';
+  // Scoped upload/bulk-import for the "Custom look poses" panel — only relevant
+  // inside the configs subview, so these reuse the same modal/editId param pair
+  // as the garment-type add/edit modals without colliding with them.
+  const showScopedPoseUpload = modalParam === 'upload-pose';
+  const showScopedBulkImport = modalParam === 'bulk-import';
   const [subcatForm, setSubcatForm] = useState(blankSubcatForm());
   const [subcatSaving, setSubcatSaving] = useState(false);
   const [subcatImageFile, setSubcatImageFile] = useState<File | null>(null);
@@ -380,47 +399,6 @@ export function GarmentTypesTab() {
     }
   };
 
-  // Deletes the underlying pose asset itself (soft delete → recycle bin), same
-  // endpoint the Pose Assets tab uses — this is NOT scoped to the current garment
-  // type, since a pose asset is shared across every garment type that maps to it.
-  const deletePoseAsset = async (poseAssetId: string) => {
-    const prevConfigs = poseConfigs;
-    setPoseConfigs((prev) => prev.filter((p) => p.id !== poseAssetId));
-    try {
-      await apiFetch(`/admin/assets/pose-assets/${poseAssetId}`, { method: 'DELETE' });
-      toast({ title: 'Pose moved to recycle bin' });
-    } catch (e) {
-      setPoseConfigs(prevConfigs);
-      toast({
-        kind: 'error',
-        title: 'Failed to delete pose',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
-    }
-  };
-
-  const deletePoseAssets = async (poseAssetIds: string[]) => {
-    if (poseAssetIds.length === 0) return;
-    const prevConfigs = poseConfigs;
-    setPoseConfigs((prev) => prev.filter((p) => !poseAssetIds.includes(p.id)));
-    try {
-      const res = await apiFetch<{ deleted: number }>('/admin/assets/pose-assets', {
-        method: 'DELETE',
-        body: JSON.stringify({ ids: poseAssetIds }),
-      });
-      toast({
-        title: `${res.deleted} pose${res.deleted !== 1 ? 's' : ''} moved to recycle bin`,
-      });
-    } catch (e) {
-      setPoseConfigs(prevConfigs);
-      toast({
-        kind: 'error',
-        title: 'Bulk delete failed',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
-    }
-  };
-
   const doDelete = async () => {
     if (!confirmDelete) return;
     const { id, label } = confirmDelete;
@@ -510,6 +488,22 @@ export function GarmentTypesTab() {
               n={3}
               title="Custom look poses"
               description="Configure standalone poses used by Create your own look. Template workflows are configured inside each mapped template above."
+              right={
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="btn sm ghost"
+                    onClick={() => setModalParams({ modal: 'upload-pose', editId: null })}
+                  >
+                    <Icon.Add /> Upload pose
+                  </button>
+                  <button
+                    className="btn sm"
+                    onClick={() => setModalParams({ modal: 'bulk-import', editId: null })}
+                  >
+                    <Icon.Upload /> Bulk import ZIP
+                  </button>
+                </div>
+              }
             />
           </div>
 
@@ -525,8 +519,8 @@ export function GarmentTypesTab() {
             }
             onSaveDefaultPose={saveDefaultPose}
             savingDefaultPose={savingDefaultPose}
-            onDelete={deletePoseAsset}
-            onBulkDelete={deletePoseAssets}
+            garmentTypeOptions={otherGarmentTypeOptions}
+            toast={toast}
           />
         </>
       )}
@@ -1174,6 +1168,35 @@ export function GarmentTypesTab() {
             // refetch instead of patching just the edited row.
             void loadGarmentTypes();
           }}
+          onClose={closeModal}
+          toast={toast}
+        />
+      )}
+
+      {/* Scoped pose upload / bulk import — new poses are created already
+          mapped to just this garment type instead of visible everywhere of
+          its gender (server-side scoping via subcategoryId). */}
+      {subView.kind === 'configs' && showScopedPoseUpload && (
+        <PoseUploadModal
+          garmentTypeGenderSlug={subView.sub.genderSlug}
+          subcategoryId={subView.sub.id}
+          subcategoryLabel={subView.sub.label}
+          onDone={() => {
+            closeModal();
+            void loadPoseConfigs(subView.sub.id);
+          }}
+          onClose={closeModal}
+          toast={toast}
+        />
+      )}
+
+      {subView.kind === 'configs' && showScopedBulkImport && (
+        <BulkImportPosesModal
+          defaultGenderSlug={subView.sub.genderSlug}
+          subcategoryId={subView.sub.id}
+          subcategoryLabel={subView.sub.label}
+          workflows={workflows}
+          onDone={() => void loadPoseConfigs(subView.sub.id)}
           onClose={closeModal}
           toast={toast}
         />
@@ -1957,8 +1980,8 @@ interface PoseConfigsPanelProps {
   onToggleActive: (poseAssetId: string, isActive: boolean) => Promise<void>;
   onSaveDefaultPose: (garmentTypeId: string, poseAssetId: string | null) => Promise<void>;
   savingDefaultPose: boolean;
-  onDelete: (poseAssetId: string) => Promise<void>;
-  onBulkDelete: (poseAssetIds: string[]) => Promise<void>;
+  garmentTypeOptions: { id: string; label: string }[];
+  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
 function PoseConfigsPanel({
@@ -1971,8 +1994,8 @@ function PoseConfigsPanel({
   onToggleActive,
   onSaveDefaultPose,
   savingDefaultPose,
-  onDelete,
-  onBulkDelete,
+  garmentTypeOptions,
+  toast,
 }: PoseConfigsPanelProps) {
   const [editing, setEditing] = useState<PoseGarmentConfig | null>(null);
   const [editWorkflow, setEditWorkflow] = useState('');
@@ -1986,28 +2009,37 @@ function PoseConfigsPanel({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkWorkflow, setBulkWorkflow] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [mapTargetId, setMapTargetId] = useState('');
+  const [mapSaving, setMapSaving] = useState(false);
   // '' = all workflows, 'none' = poses with no workflow assigned (override or default), else a workflow id
   const [workflowFilter, setWorkflowFilter] = useState('');
+  // A garment type must start with zero poses mapped (see subcategories.routes.ts's
+  // create-time seed), so this panel defaults to showing only poses actually mapped
+  // here — every unmapped pose is still a `pose_garment_configs` row underneath
+  // (isActive: false), but surfacing all of them by default made a brand-new garment
+  // type look pre-populated with every pose in the system, just switched off. "Assign
+  // poses" reveals the full opt-out list so the admin can flip specific ones on.
+  const [showUnmapped, setShowUnmapped] = useState(false);
+
+  const mappedItems = useMemo(() => items.filter((i) => i.isActive), [items]);
+  const baseItems = showUnmapped ? items : mappedItems;
 
   const filteredItems = useMemo(() => {
-    if (!workflowFilter) return items;
-    if (workflowFilter === 'none') return items.filter((i) => !effectiveWorkflowId(i));
-    return items.filter((i) => effectiveWorkflowId(i) === workflowFilter);
-  }, [items, workflowFilter]);
+    if (!workflowFilter) return baseItems;
+    if (workflowFilter === 'none') return baseItems.filter((i) => !effectiveWorkflowId(i));
+    return baseItems.filter((i) => effectiveWorkflowId(i) === workflowFilter);
+  }, [baseItems, workflowFilter]);
 
   // Only offer workflows actually in use on this page's poses, not every workflow in the system.
   const usedWorkflowIds = useMemo(
-    () => [...new Set(items.map(effectiveWorkflowId).filter((id): id is string => !!id))],
-    [items],
+    () => [...new Set(baseItems.map(effectiveWorkflowId).filter((id): id is string => !!id))],
+    [baseItems],
   );
   const usedWorkflowOptions = useMemo(
     () => usedWorkflowIds.map((id) => workflows.find((w) => w.id === id)).filter((w) => !!w),
     [usedWorkflowIds, workflows],
   );
-  const hasUnassignedPose = items.some((i) => !effectiveWorkflowId(i));
+  const hasUnassignedPose = baseItems.some((i) => !effectiveWorkflowId(i));
 
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -2076,28 +2108,53 @@ function PoseConfigsPanel({
     }
   };
 
-  const doDeleteSingle = async () => {
-    if (!confirmDeleteId) return;
-    const id = confirmDeleteId;
-    setConfirmDeleteId(null);
-    setDeletingId(id);
+  // Maps every selected pose onto another garment type of the same gender in
+  // one shot — same PATCH the single "Map to garment types" flow on the Pose
+  // Assets tab uses, just driven from this garment type's own selection
+  // instead of requiring a trip there. Preserves whatever workflow/prompt
+  // override that pose already has on the target (if any) rather than wiping
+  // it, and only flips the target's isActive to true.
+  const applyMapToGarmentType = async () => {
+    if (!mapTargetId || selectedIds.length === 0) return;
+    setMapSaving(true);
     try {
-      await onDelete(id);
-      setSelectedIds((prev) => prev.filter((x) => x !== id));
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const doBulkDelete = async () => {
-    setConfirmBulkDelete(false);
-    if (selectedIds.length === 0) return;
-    setBulkSaving(true);
-    try {
-      await onBulkDelete(selectedIds);
+      const entries = await Promise.all(
+        selectedIds.map(async (id) => {
+          const res = await apiFetch<{ items: PoseGarmentTypeConfig[] }>(
+            `/admin/assets/pose-assets/${id}/garment-configs`,
+          );
+          return [id, res.items] as const;
+        }),
+      );
+      await Promise.all(
+        entries.map(([poseId, configs]) => {
+          const cfg = configs.find((c) => c.id === mapTargetId);
+          return apiFetch(`/admin/assets/garment-types/${mapTargetId}/pose-configs/${poseId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              workflowTemplateId: cfg?.config?.workflowTemplateId ?? null,
+              promptGarmentPhase: cfg?.config?.promptGarmentPhase ?? null,
+              promptFacePhase: cfg?.config?.promptFacePhase ?? null,
+              isActive: true,
+            }),
+          });
+        }),
+      );
+      toast({
+        title: `${selectedIds.length} pose${selectedIds.length !== 1 ? 's' : ''} mapped to ${
+          garmentTypeOptions.find((g) => g.id === mapTargetId)?.label ?? 'garment type'
+        }`,
+      });
       clearSelection();
+      setMapTargetId('');
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Mapping failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
-      setBulkSaving(false);
+      setMapSaving(false);
     }
   };
 
@@ -2157,6 +2214,17 @@ function PoseConfigsPanel({
     );
   }
 
+  if (mappedItems.length === 0 && !showUnmapped) {
+    return (
+      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+        <p style={{ margin: '0 0 12px' }}>No poses mapped to {sub.label} yet.</p>
+        <button className="btn sm" onClick={() => setShowUnmapped(true)}>
+          Assign poses
+        </button>
+      </div>
+    );
+  }
+
   return (
     <>
       {/* Bulk action bar */}
@@ -2195,6 +2263,17 @@ function PoseConfigsPanel({
             {selectedIds.length === filteredItems.length && filteredItems.length > 0
               ? 'Deselect all'
               : 'Select all'}
+          </button>
+          <button
+            className="btn sm ghost"
+            onClick={() => {
+              setShowUnmapped((v) => !v);
+              clearSelection();
+            }}
+          >
+            {showUnmapped
+              ? 'Hide unmapped poses'
+              : `Assign poses (${items.length - mappedItems.length} unmapped)`}
           </button>
           {selectedIds.length > 0 && (
             <>
@@ -2238,13 +2317,26 @@ function PoseConfigsPanel({
               >
                 {bulkSaving ? 'Clearing…' : 'Clear override'}
               </button>
-              <button
-                className="btn sm danger"
-                disabled={bulkSaving}
-                onClick={() => setConfirmBulkDelete(true)}
-              >
-                <Icon.Trash /> Delete ({selectedIds.length})
-              </button>
+              {garmentTypeOptions.length > 0 && (
+                <>
+                  <SearchableSelect
+                    options={garmentTypeOptions}
+                    value={mapTargetId}
+                    disabled={mapSaving}
+                    onChange={setMapTargetId}
+                    emptyLabel="Map to garment type…"
+                    placeholder="— search garment type —"
+                    style={{ fontSize: 12, padding: '3px 8px', height: 30 }}
+                  />
+                  <button
+                    className="btn sm ghost"
+                    disabled={!mapTargetId || mapSaving}
+                    onClick={() => void applyMapToGarmentType()}
+                  >
+                    {mapSaving ? 'Mapping…' : 'Map to garment type'}
+                  </button>
+                </>
+              )}
               <button className="btn sm ghost" onClick={clearSelection} disabled={bulkSaving}>
                 Clear
               </button>
@@ -2411,70 +2503,24 @@ function PoseConfigsPanel({
                     <Icon.Edit /> Set workflow
                   </button>
                 </div>
-                <button
-                  className="btn danger"
-                  style={{ width: '100%', marginTop: 4, fontSize: 11, padding: '3px 0' }}
-                  disabled={deletingId === item.id}
-                  onClick={() => setConfirmDeleteId(item.id)}
-                >
-                  <Icon.Trash /> {deletingId === item.id ? 'Deleting…' : 'Move to recycle bin'}
-                </button>
+                {item.isActive && (
+                  <button
+                    className="btn danger"
+                    style={{ width: '100%', marginTop: 4, fontSize: 11, padding: '3px 0' }}
+                    // Scoped to this garment type only — writes the pose_garment_configs
+                    // override (isActive: false), never touches the pose asset itself.
+                    // Deleting a pose asset globally is a Pose Assets tab action, kept off
+                    // this card entirely so nothing here can reach outside {sub.label}.
+                    onClick={() => void onToggleActive(item.id, false)}
+                  >
+                    <Icon.Trash /> Remove from {sub.label}
+                  </button>
+                )}
               </div>
             </div>
           );
         })}
       </div>
-
-      {/* Delete single pose confirm */}
-      {confirmDeleteId && (
-        <div className="modal-overlay" onClick={() => setConfirmDeleteId(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Move to recycle bin</h3>
-            </div>
-            <div className="modal-body">
-              <p>
-                Move this pose to the recycle bin? It will disappear from every garment type it's
-                mapped to, not just {sub.label} — you can restore it later.
-              </p>
-            </div>
-            <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDeleteId(null)}>
-                Cancel
-              </button>
-              <button className="btn danger" onClick={() => void doDeleteSingle()}>
-                <Icon.Trash /> Move to recycle bin
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Bulk delete confirm */}
-      {confirmBulkDelete && (
-        <div className="modal-overlay" onClick={() => setConfirmBulkDelete(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Move {selectedIds.length} poses to recycle bin</h3>
-            </div>
-            <div className="modal-body">
-              <p>
-                Move <strong>{selectedIds.length} selected poses</strong> to the recycle bin? They
-                will disappear from every garment type they're mapped to, not just {sub.label} — you
-                can restore them later.
-              </p>
-            </div>
-            <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmBulkDelete(false)}>
-                Cancel
-              </button>
-              <button className="btn danger" onClick={() => void doBulkDelete()}>
-                <Icon.Trash /> Move to recycle bin ({selectedIds.length})
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Edit override modal */}
       {editing && (
