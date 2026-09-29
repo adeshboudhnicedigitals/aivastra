@@ -199,23 +199,59 @@ describe('jobs — back-view garment routing', () => {
     expect(res.json().error.message).toContain('back-view upper garment');
   });
 
-  it('rejects a back-view pose missing the back-view lower photo, even once the back upper photo is present', async () => {
+  it('rejects a lower-only back-view pose missing its back-view lower photo', async () => {
+    // A back-view lower photo is only ever required for a genuinely lower-only
+    // role (jeans, baggy — no upper node at all). A combined upper+lower pose's
+    // lower role always uses the normal front/catalog resolution instead, even
+    // when the pose itself is back-facing — see the "combined upper+lower back
+    // pose only needs the upper back photo" test below.
     const sfx = `${Date.now()}-2`;
     await seedCreditPlan('free');
-    const { token, userId } = await registerUser(`back-lower-missing-${sfx}@x.com`);
+    const { token, userId } = await registerUser(`back-lower-only-missing-${sfx}@x.com`);
     await grantCredits(userId, 100);
     const { faceId, backgroundId } = await seedFaceAndBackground(sfx);
     const wf = await seedWorkflow({
-      slug: `back-wf-${sfx}`,
-      upperNodeIds: ['1'],
+      slug: `back-lower-only-wf-${sfx}`,
+      upperNodeIds: [],
       lowerNodeId: '7',
       garmentView: 'back',
     });
-    const pose = await seedPose(`back-pose-${sfx}`, wf.id);
+    const pose = await seedPose(`back-lower-only-pose-${sfx}`, wf.id);
+    // CreateTryOnJobInputs still requires SOME upperGarmentKey (the mannequinJobId
+    // XOR), even though this pose's workflow has no upper node and never consumes it.
     const frontKey = freshGarmentKey();
-    const upperBackKey = freshGarmentKey();
     await bindUploadKey(userId, frontKey);
-    await bindUploadKey(userId, upperBackKey);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: { upperGarmentKey: frontKey, faceId, looks: [{ poseId: pose.id, backgroundId }] },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toContain('back-view lower garment');
+  });
+
+  it('rejects a lowerCatalogId as the source for a lower-only back-view pose — catalog items have no back photo', async () => {
+    const sfx = `${Date.now()}-3`;
+    await seedCreditPlan('free');
+    const { token, userId } = await registerUser(`back-lower-only-catalog-${sfx}@x.com`);
+    await grantCredits(userId, 100);
+    const { faceId, backgroundId } = await seedFaceAndBackground(sfx);
+    const wf = await seedWorkflow({
+      slug: `back-lower-only-wf-${sfx}`,
+      upperNodeIds: [],
+      lowerNodeId: '7',
+      garmentView: 'back',
+    });
+    const pose = await seedPose(`back-lower-only-pose-${sfx}`, wf.id);
+    const catalogItem = await seedLowerCatalogItem(sfx);
+    const frontKey = freshGarmentKey();
+    await bindUploadKey(userId, frontKey);
 
     const res = await app.inject({
       method: 'POST',
@@ -224,7 +260,7 @@ describe('jobs — back-view garment routing', () => {
       payload: {
         inputs: {
           upperGarmentKey: frontKey,
-          upperGarmentBackKey: upperBackKey,
+          lowerCatalogId: catalogItem.id,
           faceId,
           looks: [{ poseId: pose.id, backgroundId }],
         },
@@ -236,10 +272,10 @@ describe('jobs — back-view garment routing', () => {
     expect(res.json().error.message).toContain('back-view lower garment');
   });
 
-  it('rejects a lowerCatalogId as the source for a back-view lower — catalog items have no back photo', async () => {
-    const sfx = `${Date.now()}-3`;
+  it('a combined upper+lower back pose only needs the upper back photo — its lower keeps the normal front/catalog flow', async () => {
+    const sfx = `${Date.now()}-4`;
     await seedCreditPlan('free');
-    const { token, userId } = await registerUser(`back-lower-catalog-${sfx}@x.com`);
+    const { token, userId } = await registerUser(`back-full-${sfx}@x.com`);
     await grantCredits(userId, 100);
     const { faceId, backgroundId } = await seedFaceAndBackground(sfx);
     const wf = await seedWorkflow({
@@ -271,46 +307,6 @@ describe('jobs — back-view garment routing', () => {
         resolution: '2K',
       },
     });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error.message).toContain('back-view lower garment');
-  });
-
-  it('accepts a fully-supplied back-view pose and stores the BACK photos, not the front ones, on job_inputs', async () => {
-    const sfx = `${Date.now()}-4`;
-    await seedCreditPlan('free');
-    const { token, userId } = await registerUser(`back-full-${sfx}@x.com`);
-    await grantCredits(userId, 100);
-    const { faceId, backgroundId } = await seedFaceAndBackground(sfx);
-    const wf = await seedWorkflow({
-      slug: `back-wf-${sfx}`,
-      upperNodeIds: ['1'],
-      lowerNodeId: '7',
-      garmentView: 'back',
-    });
-    const pose = await seedPose(`back-pose-${sfx}`, wf.id);
-    const frontKey = freshGarmentKey();
-    const upperBackKey = freshGarmentKey();
-    const lowerBackKey = freshGarmentKey();
-    await bindUploadKey(userId, frontKey);
-    await bindUploadKey(userId, upperBackKey);
-    await bindUploadKey(userId, lowerBackKey);
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/jobs/tryon',
-      headers: { authorization: `Bearer ${token}` },
-      payload: {
-        inputs: {
-          upperGarmentKey: frontKey,
-          upperGarmentBackKey: upperBackKey,
-          lowerGarmentBackKey: lowerBackKey,
-          faceId,
-          looks: [{ poseId: pose.id, backgroundId }],
-        },
-        aspectRatio: '1:1',
-        resolution: '2K',
-      },
-    });
     expect(res.statusCode).toBe(201);
     const { jobIds } = res.json();
     const [inputs] = await app.db
@@ -319,11 +315,15 @@ describe('jobs — back-view garment routing', () => {
       .where(eq(schema.jobInputs.jobId, jobIds[0]));
     expect(inputs?.upperGarmentKey).toBe(upperBackKey);
     expect(inputs?.upperGarmentKey).not.toBe(frontKey);
-    expect(inputs?.lowerGarmentKey).toBe(lowerBackKey);
-    expect(inputs?.lowerCatalogId).toBeNull();
+    expect(inputs?.lowerCatalogId).toBe(catalogItem.id);
+    expect(inputs?.lowerGarmentKey).toBeNull();
   });
 
-  it('routes the correct photo per look when a batch mixes a front pose and a back pose', async () => {
+  it('routes the correct UPPER photo per look when a batch mixes a front pose and a back pose', async () => {
+    // Both poses have an upper role, so their lower role resolves the same way
+    // (normal front/catalog flow) regardless of garmentView — only the upper
+    // role differs per look here. See the lower-only tests above for where a
+    // back-view lower photo actually applies.
     const sfx = `${Date.now()}-5`;
     await seedCreditPlan('free');
     const { token, userId } = await registerUser(`back-mixed-batch-${sfx}@x.com`);
@@ -347,10 +347,8 @@ describe('jobs — back-view garment routing', () => {
 
     const frontUpperKey = freshGarmentKey();
     const backUpperKey = freshGarmentKey();
-    const backLowerKey = freshGarmentKey();
     await bindUploadKey(userId, frontUpperKey);
     await bindUploadKey(userId, backUpperKey);
-    await bindUploadKey(userId, backLowerKey);
 
     const res = await app.inject({
       method: 'POST',
@@ -360,8 +358,7 @@ describe('jobs — back-view garment routing', () => {
         inputs: {
           upperGarmentKey: frontUpperKey,
           upperGarmentBackKey: backUpperKey,
-          lowerCatalogId: catalogItem.id, // satisfies the FRONT look's lower requirement
-          lowerGarmentBackKey: backLowerKey, // satisfies the BACK look's lower requirement
+          lowerCatalogId: catalogItem.id, // shared lower — both looks' upper role has a node
           faceId,
           looks: [
             { poseId: frontPose.id, backgroundId },
@@ -389,8 +386,9 @@ describe('jobs — back-view garment routing', () => {
       .from(schema.jobInputs)
       .where(eq(schema.jobInputs.jobId, jobIds[1]));
     expect(backInputs?.upperGarmentKey).toBe(backUpperKey);
-    expect(backInputs?.lowerGarmentKey).toBe(backLowerKey);
-    expect(backInputs?.lowerCatalogId).toBeNull();
+    expect(backInputs?.upperGarmentKey).not.toBe(frontInputs?.upperGarmentKey);
+    expect(backInputs?.lowerCatalogId).toBe(catalogItem.id);
+    expect(backInputs?.lowerGarmentKey).toBeNull();
   });
 
   it('a lower-only back pose only requires the back-view lower photo, not an upper one', async () => {
