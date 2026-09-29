@@ -880,6 +880,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           // from the admin Pose Assets tab and studio "create your own look".
           scope: z.enum(['general', 'template']).optional(),
           shotType: z.enum(['full', 'half', 'closeup']).optional(),
+          // When set, this pose is being uploaded directly from one garment type's
+          // Configs page rather than the general Pose Assets tab — scope it to just
+          // that garment type instead of leaving it visible on every garment type of
+          // its gender (pose_garment_configs' normal opt-out default).
+          subcategoryId: z.string().uuid().optional(),
         }),
       },
     },
@@ -897,6 +902,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         sortOrder?: number;
         scope?: 'general' | 'template';
         shotType?: 'full' | 'half' | 'closeup';
+        subcategoryId?: string;
       };
 
       const [existingLabel] = await app.db
@@ -933,6 +939,35 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             shotType: body.shotType ?? null,
           })
           .returning();
+
+        if (body.subcategoryId && body.genderSlug) {
+          // Mirror of the seeding in garment-type creation (POST
+          // /admin/assets/garment-types): there, a new garment type gets hidden
+          // overrides for every existing pose so it starts empty. Here it's a new
+          // pose getting hidden overrides for every OTHER garment type of its
+          // gender, so uploading from one garment type's Configs page scopes the
+          // pose to just that type instead of the usual opt-out default (visible
+          // everywhere of its gender).
+          const otherGarmentTypes = await tx
+            .select({ id: schema.garmentSubcategories.id })
+            .from(schema.garmentSubcategories)
+            .where(
+              and(
+                eq(schema.garmentSubcategories.genderSlug, body.genderSlug),
+                ne(schema.garmentSubcategories.id, body.subcategoryId),
+              ),
+            );
+          if (otherGarmentTypes.length > 0) {
+            await tx.insert(schema.poseGarmentConfigs).values(
+              otherGarmentTypes.map((g) => ({
+                poseAssetId: row.id,
+                subcategoryId: g.id,
+                isActive: false,
+              })),
+            );
+          }
+        }
+
         await recordAudit(tx, {
           // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
           actor: { userId: req.userId, role: req.adminRole! },
@@ -1426,6 +1461,10 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     const fields = data.fields as Record<string, { value?: string }>;
     const workflowTemplateId = fields.workflowTemplateId?.value ?? null;
     const genderSlug = fields.genderSlug?.value ?? 'men';
+    // Set when the ZIP is imported from one garment type's Configs page rather
+    // than the general Pose Assets tab — see the matching comment on POST
+    // /admin/assets/pose-assets for why newly created poses get scoped this way.
+    const subcategoryId = fields.subcategoryId?.value || null;
 
     if (workflowTemplateId) {
       const [wf] = await app.db
@@ -1434,6 +1473,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .where(eq(schema.workflowTemplates.id, workflowTemplateId));
       if (!wf) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
     }
+
+    const otherGarmentTypeIdsForScoping = subcategoryId
+      ? (
+          await app.db
+            .select({ id: schema.garmentSubcategories.id })
+            .from(schema.garmentSubcategories)
+            .where(
+              and(
+                eq(schema.garmentSubcategories.genderSlug, genderSlug),
+                ne(schema.garmentSubcategories.id, subcategoryId),
+              ),
+            )
+        ).map((g) => g.id)
+      : [];
 
     // Buffer the ZIP
     const zipBuffer = await data.toBuffer().catch(() => {
@@ -1669,14 +1722,26 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         ]);
         const poseVariantMatch = stem.match(/(?:pose|p)(\d+)$/i);
         const poseVariant = poseVariantMatch ? `pose${poseVariantMatch[1].padStart(2, '0')}` : null;
-        await app.db.insert(schema.modelPoseAssets).values({
-          label: stem,
-          r2Key,
-          thumbnailKey: thumbKey,
-          workflowTemplateId: workflowTemplateId ?? null,
-          genderSlug,
-          poseVariant,
-        });
+        const [newPose] = await app.db
+          .insert(schema.modelPoseAssets)
+          .values({
+            label: stem,
+            r2Key,
+            thumbnailKey: thumbKey,
+            workflowTemplateId: workflowTemplateId ?? null,
+            genderSlug,
+            poseVariant,
+          })
+          .returning({ id: schema.modelPoseAssets.id });
+        if (otherGarmentTypeIdsForScoping.length > 0) {
+          await app.db.insert(schema.poseGarmentConfigs).values(
+            otherGarmentTypeIdsForScoping.map((subId) => ({
+              poseAssetId: newPose.id,
+              subcategoryId: subId,
+              isActive: false,
+            })),
+          );
+        }
         _sortOrder++;
         createdPoses++;
       } catch (err) {

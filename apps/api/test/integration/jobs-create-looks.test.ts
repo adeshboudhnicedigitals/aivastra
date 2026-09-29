@@ -448,6 +448,53 @@ describe('createJob — atomic multi-background looks[] form', () => {
     });
   });
 
+  it('rejects a job whose pose resolves (via its own default, no override) to a deactivated workflow template', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-deactivated-default-workflow@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `deactivated-default-workflow-${poseAId}`,
+        label: 'Retired workflow',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+        isActive: false,
+      })
+      .returning();
+    // No pose_garment_configs row at all — this pose falls through to its own
+    // default workflowTemplateId, which points at a since-retired template.
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ workflowTemplateId: workflow.id })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
   it('omits the pose pin prompt when pose_garment_configs redirects to a DIFFERENT workflow with no prompt of its own', async () => {
     await seedCreditPlan('free', false);
     const { token, userId } = await registerUser('looks-config-redirect-no-prompt@x.com');
