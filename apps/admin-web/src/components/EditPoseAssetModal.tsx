@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
-import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import { useEffect, useRef, useState } from 'react';
+import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../types';
+import type { GenderSlug, ModelPoseAsset, PoseGarmentTypeConfig, WorkflowOption } from '../types';
 import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 import { PublicApiSlugField } from './PublicApiSlugField';
@@ -165,6 +165,142 @@ interface Props {
   onSaved: (updated: ModelPoseAsset) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+}
+
+function GarmentTypesSection({
+  poseAssetId,
+  toast,
+}: {
+  poseAssetId: string;
+  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+}) {
+  const [items, setItems] = useState<PoseGarmentTypeConfig[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    apiFetch<{ items: PoseGarmentTypeConfig[] }>(
+      `/admin/assets/pose-assets/${poseAssetId}/garment-configs`,
+    )
+      .then((res) => {
+        if (!cancelled) setItems(res.items);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          toast({
+            kind: 'error',
+            title: 'Failed to load garment types',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [poseAssetId, toast]);
+
+  const toggle = async (garmentTypeId: string, next: boolean) => {
+    const item = items.find((g) => g.id === garmentTypeId);
+    if (!item) return;
+    setSavingId(garmentTypeId);
+    setItems((prev) => prev.map((g) => (g.id === garmentTypeId ? { ...g, isActive: next } : g)));
+    try {
+      // Preserve any existing workflow/prompt override for this pose+garment-type
+      // pair — this toggle only changes visibility, same as the Garment Types
+      // tab's "Setup Poses" panel Switch (togglePoseActive in GarmentTypesTab.tsx).
+      await apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseAssetId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          workflowTemplateId: item.config?.workflowTemplateId ?? null,
+          promptGarmentPhase: item.config?.promptGarmentPhase ?? null,
+          promptFacePhase: item.config?.promptFacePhase ?? null,
+          isActive: next,
+        }),
+      });
+      setItems((prev) =>
+        prev.map((g) =>
+          g.id === garmentTypeId
+            ? {
+                ...g,
+                config: {
+                  ...(g.config ?? {
+                    workflowTemplateId: null,
+                    promptGarmentPhase: null,
+                    promptFacePhase: null,
+                  }),
+                  isActive: next,
+                },
+              }
+            : g,
+        ),
+      );
+    } catch (e) {
+      setItems((prev) =>
+        prev.map((g) => (g.id === garmentTypeId ? { ...g, isActive: item.isActive } : g)),
+      );
+      toast({
+        kind: 'error',
+        title: 'Failed to update garment type',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <div className="field">
+      <label>Garment types</label>
+      <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12, display: 'block' }}>
+        This pose shows for every garment type of its gender by default. Turn a type off here to
+        hide this pose from it — the workflow/prompt override for that type (if any) is kept.
+      </span>
+      {loading ? (
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Loading…</p>
+      ) : items.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+          No garment types for this gender yet.
+        </p>
+      ) : (
+        <div
+          style={{
+            marginTop: 8,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            maxHeight: 220,
+            overflowY: 'auto',
+          }}
+        >
+          {items.map((g) => (
+            <div
+              key={g.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '4px 8px',
+                borderRadius: 6,
+                background: 'var(--surface-2)',
+              }}
+            >
+              <span style={{ fontSize: 12 }}>{g.label}</span>
+              <Switch
+                checked={g.isActive}
+                disabled={savingId === g.id}
+                onChange={(checked) => void toggle(g.id, checked)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }: Props) {
@@ -392,6 +528,8 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
               : "Read-only preview of the assigned workflow's live default prompt."}
           </span>
         </div>
+
+        <GarmentTypesSection poseAssetId={asset.id} toast={toast} />
       </div>
     </EditDrawer>
   );
