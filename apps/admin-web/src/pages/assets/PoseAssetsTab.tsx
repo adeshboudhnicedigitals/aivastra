@@ -10,7 +10,12 @@ import { useCrumb } from '../../context/BreadcrumbContext';
 import { useCloseOverlay } from '../../hooks/use-close-overlay';
 import { useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch, getToken } from '../../lib/data';
-import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../../types';
+import type {
+  GenderSlug,
+  ModelPoseAsset,
+  PoseGarmentTypeConfig,
+  WorkflowOption,
+} from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
 const GENDER_TABS = [
@@ -49,6 +54,8 @@ export function PoseAssetsTab() {
   // same as UsersPage's bulk-delete precedent (confirm=bulk-delete-users).
   const [confirmBulkDeletePoseAssetIds, setConfirmBulkDeletePoseAssetIds] = useState<string[]>([]);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [confirmUnmapPoseAssetIds, setConfirmUnmapPoseAssetIds] = useState<string[]>([]);
+  const [bulkUnmapSaving, setBulkUnmapSaving] = useState(false);
 
   // One shared `modal` param for every single-record modal on this tab,
   // mirroring UsersPage's modal enum. `editId` only matters for edit-pose,
@@ -61,6 +68,7 @@ export function PoseAssetsTab() {
   const showBulkRename = modalParam === 'bulk-rename';
   const showBulkWorkflow = modalParam === 'bulk-workflow';
   const showBulkImport = modalParam === 'bulk-import';
+  const showBulkGarmentMap = modalParam === 'bulk-garment-map';
 
   const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
     'confirm',
@@ -85,7 +93,9 @@ export function PoseAssetsTab() {
             ? { label: 'Change workflow', href: `${tabHref}&modal=bulk-workflow` }
             : showBulkImport
               ? { label: 'Bulk import', href: `${tabHref}&modal=bulk-import` }
-              : null,
+              : showBulkGarmentMap
+                ? { label: 'Map to garment types', href: `${tabHref}&modal=bulk-garment-map` }
+                : null,
   );
   useCrumb(
     2,
@@ -96,7 +106,9 @@ export function PoseAssetsTab() {
         }
       : confirmParam === 'bulk-delete-poses'
         ? { label: 'Move to recycle bin', href: `${tabHref}&confirm=bulk-delete-poses` }
-        : null,
+        : confirmParam === 'unmap-poses-garment-types'
+          ? { label: 'Unmap from all', href: `${tabHref}&confirm=unmap-poses-garment-types` }
+          : null,
   );
 
   // Bulk rename state
@@ -110,6 +122,17 @@ export function PoseAssetsTab() {
   // Bulk sort order state
   const [bulkSortStart, setBulkSortStart] = useState(0);
   const [bulkSortSaving, setBulkSortSaving] = useState(false);
+
+  // Bulk garment-type mapping state — one pose's config list per selected
+  // pose, fetched from the same per-pose endpoint the single-asset editor
+  // uses, so preserving workflow/prompt overrides on apply doesn't need a
+  // separate read path.
+  const [bulkGarmentConfigsByPose, setBulkGarmentConfigsByPose] = useState<
+    Record<string, PoseGarmentTypeConfig[]>
+  >({});
+  const [bulkGarmentLoading, setBulkGarmentLoading] = useState(false);
+  const [bulkGarmentTypeIds, setBulkGarmentTypeIds] = useState<string[]>([]);
+  const [bulkGarmentSaving, setBulkGarmentSaving] = useState(false);
 
   // Bulk import state
   const [bulkImportGender, setBulkImportGender] = useState<GenderSlug>('men');
@@ -293,6 +316,127 @@ export function PoseAssetsTab() {
     }
   };
 
+  const openBulkGarmentMap = async () => {
+    setBulkGarmentTypeIds([]);
+    setModalParams({ modal: 'bulk-garment-map', editId: null });
+    setBulkGarmentLoading(true);
+    try {
+      const entries = await Promise.all(
+        selectedPoseAssetIds.map(async (id) => {
+          const res = await apiFetch<{ items: PoseGarmentTypeConfig[] }>(
+            `/admin/assets/pose-assets/${id}/garment-configs`,
+          );
+          return [id, res.items] as const;
+        }),
+      );
+      setBulkGarmentConfigsByPose(Object.fromEntries(entries));
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load garment types',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkGarmentLoading(false);
+    }
+  };
+
+  const doBulkGarmentMap = async (makeVisible: boolean) => {
+    if (bulkGarmentTypeIds.length === 0 || selectedPoseAssetIds.length === 0) return;
+    setBulkGarmentSaving(true);
+    try {
+      const patches: Promise<unknown>[] = [];
+      for (const poseId of selectedPoseAssetIds) {
+        const configs = bulkGarmentConfigsByPose[poseId] ?? [];
+        for (const garmentTypeId of bulkGarmentTypeIds) {
+          // A garment type not in this pose's own list means it's a different
+          // gender than this pose — skip rather than write a cross-gender row.
+          const cfg = configs.find((c) => c.id === garmentTypeId);
+          if (!cfg) continue;
+          patches.push(
+            apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                workflowTemplateId: cfg.config?.workflowTemplateId ?? null,
+                promptGarmentPhase: cfg.config?.promptGarmentPhase ?? null,
+                promptFacePhase: cfg.config?.promptFacePhase ?? null,
+                isActive: makeVisible,
+              }),
+            }),
+          );
+        }
+      }
+      await Promise.all(patches);
+      // Refetch rather than recompute visibleGarmentTypeCount/totalGarmentTypeCount
+      // locally — the server already derives them from the same override rows we
+      // just wrote, so this avoids duplicating that formula on the client.
+      await loadPoseAssets();
+      toast({
+        title: `${selectedPoseAssetIds.length} pose${selectedPoseAssetIds.length !== 1 ? 's' : ''} ${makeVisible ? 'mapped to' : 'unmapped from'} ${bulkGarmentTypeIds.length} garment type${bulkGarmentTypeIds.length !== 1 ? 's' : ''}`,
+      });
+      closeModal();
+      setSelectedPoseAssetIds([]);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk garment mapping failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkGarmentSaving(false);
+    }
+  };
+
+  const doUnmapAllGarmentTypes = async () => {
+    const ids = confirmUnmapPoseAssetIds;
+    if (ids.length === 0) return;
+    closeConfirm();
+    setConfirmUnmapPoseAssetIds([]);
+    setBulkUnmapSaving(true);
+    try {
+      // Fetch fresh rather than reuse bulkGarmentConfigsByPose — this shortcut can be
+      // used without ever opening the "Map to garment types" modal.
+      const entries = await Promise.all(
+        ids.map(async (id) => {
+          const res = await apiFetch<{ items: PoseGarmentTypeConfig[] }>(
+            `/admin/assets/pose-assets/${id}/garment-configs`,
+          );
+          return [id, res.items] as const;
+        }),
+      );
+      const patches: Promise<unknown>[] = [];
+      for (const [poseId, configs] of entries) {
+        for (const cfg of configs) {
+          patches.push(
+            apiFetch(`/admin/assets/garment-types/${cfg.id}/pose-configs/${poseId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                workflowTemplateId: cfg.config?.workflowTemplateId ?? null,
+                promptGarmentPhase: cfg.config?.promptGarmentPhase ?? null,
+                promptFacePhase: cfg.config?.promptFacePhase ?? null,
+                isActive: false,
+              }),
+            }),
+          );
+        }
+      }
+      await Promise.all(patches);
+      await loadPoseAssets();
+      toast({
+        title: `${ids.length} pose${ids.length !== 1 ? 's' : ''} unmapped from all garment types`,
+      });
+      setSelectedPoseAssetIds([]);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Unmap failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkUnmapSaving(false);
+    }
+  };
+
   const doBulkDeletePoseAssets = async () => {
     if (deleteConfirmText !== 'move to recycle bin') return;
     const ids = confirmBulkDeletePoseAssetIds;
@@ -359,6 +503,17 @@ export function PoseAssetsTab() {
   const paPoseVariants = Array.from(
     new Set(genderSlicedAssets.map((a) => a.poseVariant).filter(Boolean) as string[]),
   ).sort();
+
+  // Union of garment types across every selected pose's own list (each pose's
+  // list is already scoped to its own gender) — a mixed-gender selection just
+  // shows more rows, each still only applied to poses that share its gender.
+  const bulkGarmentTypeOptions = Array.from(
+    new Map(
+      Object.values(bulkGarmentConfigsByPose)
+        .flat()
+        .map((g) => [g.id, g] as const),
+    ).values(),
+  ).sort((a, b) => a.label.localeCompare(b.label));
 
   return (
     <>
@@ -525,6 +680,19 @@ export function PoseAssetsTab() {
                 >
                   <Icon.Workflow /> Workflow ({selectedPoseAssetIds.length})
                 </button>
+                <button className="btn sm" onClick={() => void openBulkGarmentMap()}>
+                  <Icon.Catalog /> Map to garment types ({selectedPoseAssetIds.length})
+                </button>
+                <button
+                  className="btn sm ghost"
+                  disabled={bulkUnmapSaving}
+                  onClick={() => {
+                    setConfirmUnmapPoseAssetIds([...selectedPoseAssetIds]);
+                    setConfirmParams({ confirm: 'unmap-poses-garment-types', confirmId: null });
+                  }}
+                >
+                  Unmap from all
+                </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                     Sort from
@@ -653,6 +821,15 @@ export function PoseAssetsTab() {
                           title="Workflow"
                         >
                           {workflows.find((w) => w.id === a.workflowTemplateId)?.label ?? '?'}
+                        </span>
+                      )}
+                      {a.totalGarmentTypeCount !== undefined && (
+                        <span
+                          className="badge dot accent"
+                          style={{ fontSize: 10 }}
+                          title="Garment types this pose is visible on"
+                        >
+                          <Icon.Catalog /> {a.visibleGarmentTypeCount}/{a.totalGarmentTypeCount}
                         </span>
                       )}
                     </div>
@@ -830,6 +1007,157 @@ export function PoseAssetsTab() {
                 {bulkWorkflowSaving
                   ? 'Saving…'
                   : `Apply to ${selectedPoseAssetIds.length} pose${selectedPoseAssetIds.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unmap from all garment types */}
+      {confirmParam === 'unmap-poses-garment-types' && (
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            closeConfirm();
+            setConfirmUnmapPoseAssetIds([]);
+          }}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Unmap from all garment types</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Hide <strong>{confirmUnmapPoseAssetIds.length}</strong> selected pose
+                {confirmUnmapPoseAssetIds.length !== 1 ? 's' : ''} from every garment type of its
+                gender? Any workflow/prompt override per garment type is kept, and you can re-map
+                individual types afterward.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => {
+                  closeConfirm();
+                  setConfirmUnmapPoseAssetIds([]);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                disabled={bulkUnmapSaving}
+                onClick={() => void doUnmapAllGarmentTypes()}
+              >
+                {bulkUnmapSaving ? 'Unmapping…' : `Unmap ${confirmUnmapPoseAssetIds.length}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk map to garment types */}
+      {showBulkGarmentMap && (
+        <div className="modal-overlay" onClick={() => !bulkGarmentSaving && closeModal()}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+            <div className="modal-head">
+              <h3>
+                Map {selectedPoseAssetIds.length} pose{selectedPoseAssetIds.length !== 1 ? 's' : ''}{' '}
+                to garment types
+              </h3>
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Select garment types, then show or hide the selected poses on them. A pose already
+                shows on every garment type of its gender by default.
+              </p>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            >
+              {bulkGarmentLoading ? (
+                <p style={{ fontSize: 12, color: 'var(--muted)' }}>Loading garment types…</p>
+              ) : bulkGarmentTypeOptions.length === 0 ? (
+                <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  No garment types found for the selected poses.
+                </p>
+              ) : (
+                <>
+                  <button
+                    className="btn sm ghost"
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() =>
+                      setBulkGarmentTypeIds((prev) =>
+                        prev.length === bulkGarmentTypeOptions.length
+                          ? []
+                          : bulkGarmentTypeOptions.map((g) => g.id),
+                      )
+                    }
+                  >
+                    {bulkGarmentTypeIds.length === bulkGarmentTypeOptions.length
+                      ? 'Deselect all'
+                      : 'Select all'}
+                  </button>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                      maxHeight: 280,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {bulkGarmentTypeOptions.map((g) => (
+                      <label
+                        key={g.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '4px 8px',
+                          borderRadius: 6,
+                          background: 'var(--surface-2)',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={bulkGarmentTypeIds.includes(g.id)}
+                          onChange={(e) =>
+                            setBulkGarmentTypeIds((prev) =>
+                              e.target.checked ? [...prev, g.id] : prev.filter((id) => id !== g.id),
+                            )
+                          }
+                        />
+                        {g.label}
+                        {g.genderSlug && (
+                          <span className="badge dot accent" style={{ fontSize: 10 }}>
+                            {g.genderSlug}
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" disabled={bulkGarmentSaving} onClick={closeModal}>
+                Cancel
+              </button>
+              <button
+                className="btn ghost"
+                disabled={bulkGarmentSaving || bulkGarmentTypeIds.length === 0}
+                onClick={() => void doBulkGarmentMap(false)}
+              >
+                {bulkGarmentSaving ? 'Saving…' : `Hide from ${bulkGarmentTypeIds.length}`}
+              </button>
+              <button
+                className="btn"
+                disabled={bulkGarmentSaving || bulkGarmentTypeIds.length === 0}
+                onClick={() => void doBulkGarmentMap(true)}
+              >
+                {bulkGarmentSaving ? 'Saving…' : `Map to ${bulkGarmentTypeIds.length}`}
               </button>
             </div>
           </div>
@@ -1136,7 +1464,13 @@ export function PoseAssetsTab() {
           onSaved={(updated) => {
             setPoseAssets((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
           }}
-          onClose={closeModal}
+          onClose={() => {
+            closeModal();
+            // Garment-type visibility toggles inside the modal write directly via
+            // their own PATCH calls (not through onSaved), so refetch to pick up
+            // any visibleGarmentTypeCount/totalGarmentTypeCount change for this pose.
+            void loadPoseAssets();
+          }}
           toast={toast}
         />
       )}

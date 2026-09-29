@@ -161,6 +161,33 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             tryonCategoryId: tryonCategoryId ?? null,
           })
           .returning();
+        // A new garment type must start with zero poses mapped, not "every pose of
+        // this gender" (the default you'd get from pose_garment_configs' opt-out
+        // semantics — see the schema comment on isActive). Seed an explicit hidden
+        // override per existing general-scope pose of this gender so the admin has
+        // to deliberately map poses in afterward, via the same PATCH endpoints used
+        // for any other visibility toggle. isActive: false only ever narrows
+        // visibility, so this can't widen anything and is safe under the same
+        // `cfg?.isActive ?? pose.globalIsActive` formula every read path uses.
+        const genderPoses = await tx
+          .select({ id: schema.modelPoseAssets.id })
+          .from(schema.modelPoseAssets)
+          .where(
+            and(
+              isNull(schema.modelPoseAssets.deletedAt),
+              eq(schema.modelPoseAssets.scope, 'general'),
+              eq(schema.modelPoseAssets.genderSlug, genderSlug),
+            ),
+          );
+        if (genderPoses.length > 0) {
+          await tx.insert(schema.poseGarmentConfigs).values(
+            genderPoses.map((p) => ({
+              poseAssetId: p.id,
+              subcategoryId: inserted.id,
+              isActive: false,
+            })),
+          );
+        }
         await recordAudit(tx, {
           // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
           actor: { userId: req.userId, role: req.adminRole! },
@@ -495,6 +522,79 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         });
 
       return { ok: true, action: 'upserted' };
+    },
+  );
+
+  // GET /admin/assets/pose-assets/:id/garment-configs
+  // The mirror of the GET above, viewed from a pose asset: every garment type of
+  // this pose's gender, with its override config for THIS pose (if any). Lets the
+  // Pose Assets tab map a pose to garment types directly, instead of only via the
+  // per-garment-type "Setup Poses" panel. Writes still go through the existing
+  // PATCH /admin/assets/garment-types/:id/pose-configs/:poseAssetId above — same
+  // table, same upsert-or-delete semantics, no new write path needed.
+  app.get(
+    '/admin/assets/pose-assets/:id/garment-configs',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [pose] = await app.db
+        .select({
+          genderSlug: schema.modelPoseAssets.genderSlug,
+          globalIsActive: schema.modelPoseAssets.isActive,
+        })
+        .from(schema.modelPoseAssets)
+        .where(and(eq(schema.modelPoseAssets.id, id), isNull(schema.modelPoseAssets.deletedAt)));
+      if (!pose) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
+
+      const garmentTypes = await app.db
+        .select({
+          id: schema.garmentSubcategories.id,
+          label: schema.garmentSubcategories.label,
+          genderSlug: schema.garmentSubcategories.genderSlug,
+        })
+        .from(schema.garmentSubcategories)
+        .where(eq(schema.garmentSubcategories.genderSlug, pose.genderSlug ?? ''))
+        .orderBy(
+          asc(schema.garmentSubcategories.sortOrder),
+          asc(schema.garmentSubcategories.label),
+        );
+
+      const garmentTypeIds = garmentTypes.map((g) => g.id);
+      const configs =
+        garmentTypeIds.length > 0
+          ? await app.db
+              .select()
+              .from(schema.poseGarmentConfigs)
+              .where(
+                and(
+                  eq(schema.poseGarmentConfigs.poseAssetId, id),
+                  inArray(schema.poseGarmentConfigs.subcategoryId, garmentTypeIds),
+                ),
+              )
+          : [];
+      const configMap = new Map(configs.map((c) => [c.subcategoryId, c]));
+
+      return {
+        items: garmentTypes.map((g) => {
+          const cfg = configMap.get(g.id) ?? null;
+          return {
+            ...g,
+            // Effective visibility mirrors the sibling GET: a per-type override wins
+            // when set, otherwise fall back to the pose's own global flag — every
+            // garment type of this gender shows the pose by default
+            // (pose_garment_configs is an opt-OUT override, not a whitelist).
+            isActive: cfg?.isActive ?? pose.globalIsActive,
+            config: cfg
+              ? {
+                  workflowTemplateId: cfg.workflowTemplateId,
+                  promptGarmentPhase: cfg.promptGarmentPhase,
+                  promptFacePhase: cfg.promptFacePhase,
+                  isActive: cfg.isActive,
+                }
+              : null,
+          };
+        }),
+      };
     },
   );
 
