@@ -422,6 +422,9 @@ export const CreateWorkflowBody = z
         'regeneration',
       ])
       .default('regular'),
+    // Only meaningful for workflowType='regular' — see garmentView on the
+    // workflow_templates schema for what this drives.
+    garmentView: z.enum(['front', 'back']).default('front'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
@@ -574,6 +577,7 @@ export const UpdateWorkflowBody = z.object({
     .regex(/^[a-z0-9_]+$/, 'slug must be lowercase alphanumeric with underscores')
     .optional(),
   isActive: z.boolean().optional(),
+  garmentView: z.enum(['front', 'back']).optional(),
   // Regular workflow node mappings (not the JSON itself)
   faceNodeId: z.string().min(1).optional(),
   poseNodeId: z.string().min(1).optional(),

@@ -151,6 +151,7 @@ export function WorkflowUploadModal({
   const [upperNodeIds, setUpperNodeIds] = useState<string[]>(['']);
   const [lowerNodeId, setLowerNodeId] = useState('');
   const [shoeNodeId, setShoeNodeId] = useState('');
+  const [garmentView, setGarmentView] = useState<'front' | 'back'>('front');
   const [thirdNodeId, setThirdNodeId] = useState('');
   const [sizeNodeIds, setSizeNodeIds] = useState<string[]>([]);
   const [positivePromptNode, setPositivePromptNode] = useState('');
@@ -445,6 +446,7 @@ export function WorkflowUploadModal({
           label: label.trim(),
           jsonContent,
           workflowType: 'regular',
+          garmentView,
           faceNodeId: faceNodeId || undefined,
           poseNodeId,
           bgNodeId: bgNodeId || undefined,
@@ -1121,6 +1123,27 @@ export function WorkflowUploadModal({
                   onChange={(e) => setLabel(e.target.value)}
                 />
               </div>
+            </div>
+
+            <div className="field">
+              <label>Garment view</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {(['front', 'back'] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    className={`btn sm ${garmentView === v ? 'primary' : 'ghost'}`}
+                    disabled={saving}
+                    onClick={() => setGarmentView(v)}
+                  >
+                    {v === 'front' ? 'Front' : 'Back'}
+                  </button>
+                ))}
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 4 }}>
+                "Back" means this graph's pose reference shows the subject from behind — Studio will
+                ask the customer for a back-view garment photo instead of the usual front one.
+              </span>
             </div>
 
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />

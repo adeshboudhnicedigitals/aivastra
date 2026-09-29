@@ -256,9 +256,11 @@ export async function resolveTryonPlan(
     catalogueTemplateMappingId,
     lowerCatalogId,
     lowerGarmentKey,
+    lowerGarmentBackKey,
     thirdGarmentKey,
     shoeCatalogId,
   } = body.inputs;
+  const upperGarmentBackKey = body.inputs.upperGarmentBackKey;
   const aspectRatio: string = body.aspectRatio;
   const platform: string | undefined = body.platform;
   const resolvedUpperGarmentKey = opts.resolvedUpperGarmentKey ?? undefined;
@@ -382,6 +384,12 @@ export async function resolveTryonPlan(
 
   if (lowerGarmentKey) {
     await verifyGarmentKey(app, userId, lowerGarmentKey, opts.trustedGarmentKeys);
+  }
+  if (lowerGarmentBackKey) {
+    await verifyGarmentKey(app, userId, lowerGarmentBackKey, opts.trustedGarmentKeys);
+  }
+  if (upperGarmentBackKey) {
+    await verifyGarmentKey(app, userId, upperGarmentBackKey, opts.trustedGarmentKeys);
   }
   if (thirdGarmentKey) {
     await verifyGarmentKey(app, userId, thirdGarmentKey, opts.trustedGarmentKeys);
@@ -606,6 +614,7 @@ export async function resolveTryonPlan(
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
             thirdNodeId: schema.workflowTemplates.thirdNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+            garmentView: schema.workflowTemplates.garmentView,
             version: schema.workflowTemplates.version,
           })
           .from(schema.catalogueTemplateSubcategories)
@@ -678,6 +687,7 @@ export async function resolveTryonPlan(
             shoeNodeId: row.shoeNodeId,
             thirdNodeId: row.thirdNodeId,
             sizeNodeIds: row.sizeNodeIds,
+            garmentView: row.garmentView,
           };
         });
       })()
@@ -695,6 +705,7 @@ export async function resolveTryonPlan(
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
       defaultThirdNodeId: defaultWorkflow.thirdNodeId,
       defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
+      defaultGarmentView: defaultWorkflow.garmentView,
       defaultPromptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
       defaultPromptFacePhase: schema.modelPoseAssets.promptFacePhase,
       configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
@@ -707,6 +718,7 @@ export async function resolveTryonPlan(
       overrideShoeNodeId: overrideWorkflow.shoeNodeId,
       overrideThirdNodeId: overrideWorkflow.thirdNodeId,
       overrideSizeNodeIds: overrideWorkflow.sizeNodeIds,
+      overrideGarmentView: overrideWorkflow.garmentView,
     })
     .from(schema.modelPoseAssets)
     .leftJoin(defaultWorkflow, eq(schema.modelPoseAssets.workflowTemplateId, defaultWorkflow.id))
@@ -775,6 +787,11 @@ export async function resolveTryonPlan(
         shoeNodeId: sareeStep2?.shoeNodeId ?? null,
         thirdNodeId: sareeStep2?.thirdNodeId ?? null,
         sizeNodeIds: sareeStep2?.sizeNodeIds ?? null,
+        // Saree/mannequin is out of scope for back-view garments (a back-facing
+        // mannequin is a different problem — the mannequin base image itself
+        // would need to be back-facing). Hardcoded, never 'back', so this path
+        // never triggers the back-view routing/validation below.
+        garmentView: null,
       }))
     : (mappingPoseWorkflows ??
       poseWorkflowRows.map((r) => ({
@@ -801,6 +818,8 @@ export async function resolveTryonPlan(
           r.configWorkflowTemplateId != null ? r.overrideThirdNodeId : r.defaultThirdNodeId,
         sizeNodeIds:
           r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
+        garmentView:
+          r.configWorkflowTemplateId != null ? r.overrideGarmentView : r.defaultGarmentView,
       })));
 
   // Build map for O(1) lookup below.
@@ -810,13 +829,38 @@ export async function resolveTryonPlan(
     if (pw.upperNodeIds.length > 0 && opts.resolvedUpperGarmentKey === undefined) {
       throw new AppError('VALIDATION', 400, 'upper garment required for this pose');
     }
+    // A back-view pose needs the customer's own back-view photo — the regular
+    // front upperGarmentKey (always present per the XOR schema even when this
+    // pose won't use it, see effectiveLowerGarmentKey's own comment below)
+    // never substitutes for it. Also catches a merchant/Shopify-routed job
+    // resolving to a back-view template: that caller never populates
+    // upperGarmentBackKey, so this fires there too — no separate guard needed.
+    if (pw.upperNodeIds.length > 0 && pw.garmentView === 'back' && !upperGarmentBackKey) {
+      throw new AppError('VALIDATION', 400, 'back-view upper garment required for this pose');
+    }
     if (pw.lowerNodeId) {
       if (pw.upperNodeIds.length === 0) {
-        // A sole lower hero must be the customer's upload, not a generic catalog image.
-        if (!lowerGarmentKey) {
+        // Lower-only role (jeans, baggy — no upper garment at all). A back-view
+        // pose here needs the customer's own back-view photo — catalog items
+        // have no back photo. A front-view lower-only pose keeps the existing
+        // "must be an upload, not a catalog item" rule.
+        if (pw.garmentView === 'back') {
+          if (!lowerGarmentBackKey) {
+            throw new AppError(
+              'VALIDATION',
+              400,
+              'back-view lower garment upload required for this pose',
+            );
+          }
+        } else if (!lowerGarmentKey) {
           throw new AppError('VALIDATION', 400, 'lower garment upload required for this pose');
         }
       } else if (!lowerCatalogId && !lowerGarmentKey) {
+        // A combined upper+lower pose's lower role always uses the normal
+        // front/catalog resolution, even when the pose itself is back-facing —
+        // only a genuinely lower-only garment type (jeans, baggy) gets a
+        // dedicated back-view lower photo. See
+        // docs/superpowers/plans/2026-09-29-studio-back-pose-garment-view.md.
         throw new AppError('VALIDATION', 400, 'lower garment required for this pose');
       }
     }
@@ -850,13 +894,32 @@ export async function resolveTryonPlan(
   const catalogueId = ('catalogueId' in body ? body.catalogueId : undefined) ?? randomUUID();
   const looks_: TryonPlanLook[] = looks.map((look) => {
     const pw = poseWorkflowMap.get(look.poseId);
+    const isBackView = pw?.garmentView === 'back';
     // Only store inputs the workflow actually supports — strips irrelevant fields
-    // so the dispatcher never receives/resolves data it won't use.
+    // so the dispatcher never receives/resolves data it won't use. For a
+    // back-view pose, the back photo is selected instead of the front one —
+    // validated as present above, so `?? null` here is just TS narrowing, not
+    // a real fallback.
     const lookUpperGarmentKey =
-      pw?.upperNodeIds && pw.upperNodeIds.length > 0 ? (resolvedUpperGarmentKey ?? null) : null;
+      pw?.upperNodeIds && pw.upperNodeIds.length > 0
+        ? isBackView
+          ? (upperGarmentBackKey ?? null)
+          : (resolvedUpperGarmentKey ?? null)
+        : null;
+    // A back-view lower photo only applies to a genuinely lower-only role
+    // (jeans, baggy — no upper node at all). A combined upper+lower pose's
+    // lower role always uses the normal front/catalog resolution, even when
+    // the pose itself is back-facing — matches the validation loop above.
+    const isLowerOnlyBackView = isBackView && (pw?.upperNodeIds?.length ?? 0) === 0;
     const effectiveLowerCatalogId =
-      pw?.lowerNodeId && !lowerGarmentKey ? (lowerCatalogId ?? null) : null;
-    const effectiveLowerGarmentKey = pw?.lowerNodeId && lowerGarmentKey ? lowerGarmentKey : null;
+      pw?.lowerNodeId && !isLowerOnlyBackView && !lowerGarmentKey ? (lowerCatalogId ?? null) : null;
+    const effectiveLowerGarmentKey = pw?.lowerNodeId
+      ? isLowerOnlyBackView
+        ? (lowerGarmentBackKey ?? null)
+        : lowerGarmentKey
+          ? lowerGarmentKey
+          : null
+      : null;
     const effectiveShoeCatalogId = pw?.shoeNodeId ? (shoeCatalogId ?? null) : null;
     return {
       poseId: look.poseId,
@@ -988,8 +1051,10 @@ export async function createJob(
     faceId,
     garmentTypeId,
     upperGarmentKey,
+    upperGarmentBackKey,
     mannequinJobId,
     lowerGarmentKey,
+    lowerGarmentBackKey,
     thirdGarmentKey,
   } = body.inputs;
 
@@ -1028,6 +1093,10 @@ export async function createJob(
   }
   if (lowerGarmentKey)
     await verifyGarmentKey(app, userId, lowerGarmentKey, opts?.trustedGarmentKeys);
+  if (lowerGarmentBackKey)
+    await verifyGarmentKey(app, userId, lowerGarmentBackKey, opts?.trustedGarmentKeys);
+  if (upperGarmentBackKey)
+    await verifyGarmentKey(app, userId, upperGarmentBackKey, opts?.trustedGarmentKeys);
   if (thirdGarmentKey)
     await verifyGarmentKey(app, userId, thirdGarmentKey, opts?.trustedGarmentKeys);
 
