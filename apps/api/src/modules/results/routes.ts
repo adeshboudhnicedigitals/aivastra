@@ -1532,7 +1532,7 @@ function appJs(): string {
           '<div class="user-email">' + esc(item.userEmail || '—') + '</div>' +
           '<div class="user-phone">' + esc(item.userPhone || 'No phone') + '</div>' +
           '<div class="user-since">Member since ' + fmtDate(item.userCreatedAt) + '</div>' +
-          '<div class="user-tier">' + esc(item.userTier || 'free') + '</div></td>' +
+          '<div class="user-tier">Plan: ' + esc(item.userTier || 'free') + '</div></td>' +
           '<td class="col-garments">' + renderGarmentCell(item.garments) + '</td>' +
           '<td class="col-img">' + renderThumb(item.personThumbUrl || item.poseUrl, poseLabel, item.poseTag ? poseLabel : null, false, item.poseFullUrl || item.poseUrl) + '</td>' +
           '<td class="col-img">' + renderThumb(item.backgroundUrl, 'Background', null, false, item.backgroundFullUrl) + '</td>' +
