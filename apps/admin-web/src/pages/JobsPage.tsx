@@ -418,6 +418,15 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   }, [jobIdParam, detail?.id, toast]);
 
   useCrumb(
+    -1,
+    detail
+      ? {
+          label: jobContactEmail(detail) ?? 'Unknown user',
+          href: `/jobs?job=${encodeURIComponent(detail.id)}`,
+        }
+      : null,
+  );
+  useCrumb(
     0,
     detail
       ? {
