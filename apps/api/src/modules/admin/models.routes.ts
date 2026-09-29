@@ -770,14 +770,59 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           ),
         )
         .orderBy(schema.modelPoseAssets.sortOrder, schema.modelPoseAssets.label);
+
+      // Garment-type visibility count per pose, for the grid badge — computed from
+      // the same opt-out semantics as the pose/garment-type config endpoints above
+      // (pose_garment_configs overrides a per-gender default), without an N+1 fetch.
+      const genderCounts = await app.db
+        .select({
+          genderSlug: schema.garmentSubcategories.genderSlug,
+          total: sql<number>`count(*)::int`,
+        })
+        .from(schema.garmentSubcategories)
+        .groupBy(schema.garmentSubcategories.genderSlug);
+      const totalByGender = new Map(genderCounts.map((g) => [g.genderSlug, g.total]));
+
+      const poseIds = rows.map((r) => r.id);
+      const overrideCounts =
+        poseIds.length > 0
+          ? await app.db
+              .select({
+                poseAssetId: schema.poseGarmentConfigs.poseAssetId,
+                isActive: schema.poseGarmentConfigs.isActive,
+                count: sql<number>`count(*)::int`,
+              })
+              .from(schema.poseGarmentConfigs)
+              .where(inArray(schema.poseGarmentConfigs.poseAssetId, poseIds))
+              .groupBy(schema.poseGarmentConfigs.poseAssetId, schema.poseGarmentConfigs.isActive)
+          : [];
+      const overridesByPose = new Map<string, { shownCount: number; hiddenCount: number }>();
+      for (const row of overrideCounts) {
+        const entry = overridesByPose.get(row.poseAssetId) ?? { shownCount: 0, hiddenCount: 0 };
+        if (row.isActive === true) entry.shownCount += row.count;
+        else if (row.isActive === false) entry.hiddenCount += row.count;
+        overridesByPose.set(row.poseAssetId, entry);
+      }
+
       const items = await Promise.all(
-        rows.map(async (r) => ({
-          ...r,
-          thumbnailUrl: r.thumbnailKey
-            ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
-            : null,
-          r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
-        })),
+        rows.map(async (r) => {
+          const totalGarmentTypeCount = r.genderSlug ? (totalByGender.get(r.genderSlug) ?? 0) : 0;
+          const overrides = overridesByPose.get(r.id);
+          // A pose shows on every garment type of its gender by default — an
+          // override only ever narrows (hides) or restates (shows) one type.
+          const visibleGarmentTypeCount = r.isActive
+            ? totalGarmentTypeCount - (overrides?.hiddenCount ?? 0)
+            : (overrides?.shownCount ?? 0);
+          return {
+            ...r,
+            thumbnailUrl: r.thumbnailKey
+              ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+              : null,
+            r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
+            visibleGarmentTypeCount,
+            totalGarmentTypeCount,
+          };
+        }),
       );
       return { items };
     },
