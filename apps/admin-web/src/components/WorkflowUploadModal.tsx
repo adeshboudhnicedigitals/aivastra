@@ -5,6 +5,11 @@ import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 import { SearchableSelect } from './SearchableSelect';
 
+// Matches ProposeWorkflowChangeRequestBody's min(80) in packages/types/src/admin.ts —
+// keep both a substantive length so a SUPER_ADMIN reviewing the queue has enough
+// context to judge the proposal without opening the diff.
+export const MIN_PROPOSAL_NOTE_LENGTH = 80;
+
 interface ParsedNode {
   id: string;
   class_type: string;
@@ -572,7 +577,10 @@ export function WorkflowUploadModal({
               positivePromptNode &&
               (!faceNodeId || negativePromptNode) &&
               (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId)) &&
-    (!proposeMode || (targetWorkflowId && previousLimitations.trim() && proposeReason.trim()));
+    (!proposeMode ||
+      (targetWorkflowId &&
+        previousLimitations.trim().length >= MIN_PROPOSAL_NOTE_LENGTH &&
+        proposeReason.trim().length >= MIN_PROPOSAL_NOTE_LENGTH));
 
   return (
     <EditDrawer
@@ -709,6 +717,17 @@ export function WorkflowUploadModal({
                 disabled={saving}
                 onChange={(e) => setPreviousLimitations(e.target.value)}
               />
+              <span
+                style={{
+                  fontSize: 11,
+                  color:
+                    previousLimitations.trim().length >= MIN_PROPOSAL_NOTE_LENGTH
+                      ? 'var(--ink-2)'
+                      : 'var(--danger)',
+                }}
+              >
+                {previousLimitations.trim().length}/{MIN_PROPOSAL_NOTE_LENGTH} characters minimum
+              </span>
             </div>
             <div className="field">
               <label>
@@ -721,6 +740,17 @@ export function WorkflowUploadModal({
                 disabled={saving}
                 onChange={(e) => setProposeReason(e.target.value)}
               />
+              <span
+                style={{
+                  fontSize: 11,
+                  color:
+                    proposeReason.trim().length >= MIN_PROPOSAL_NOTE_LENGTH
+                      ? 'var(--ink-2)'
+                      : 'var(--danger)',
+                }}
+              >
+                {proposeReason.trim().length}/{MIN_PROPOSAL_NOTE_LENGTH} characters minimum
+              </span>
             </div>
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
           </>

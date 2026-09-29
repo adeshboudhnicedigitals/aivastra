@@ -6,3 +6,5 @@ node_modules/
 
 # Local WordPress+WooCommerce test environment — downloaded/generated, not source.
 /local-wp/plugins/
+# Media pulled from the deployed wp.aivastra.com demo (~1.1 GB) — too large for git.
+/local-wp/uploads/

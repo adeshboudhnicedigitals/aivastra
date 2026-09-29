@@ -56,13 +56,18 @@ class Aivastra_Widget_Loader
         // Which try-on workflow runs is chosen server-side (dev_tryon_categories
         // slug -> workflow_templates), never by the plugin — this only resolves
         // WHICH slug to ask for, from the merchant's WooCommerce-category mapping
-        // (Settings -> Aivastra Try-On -> Category mapping). Falls back to
-        // 'general' when the product's category has no mapping.
+        // (Settings -> Aivastra Try-On -> Category mapping). A product whose
+        // category has no explicit mapping gets no button at all — see
+        // Aivastra_Category_Mapping::resolve()'s doc comment for why this used
+        // to silently send 'general' and broke generation instead.
         $categoryTermIds = wp_get_post_terms($product->get_id(), 'product_cat', ['fields' => 'ids']);
         $category = Aivastra_Category_Mapping::resolve(
             is_array($categoryTermIds) ? $categoryTermIds : [],
             $settings->get_category_map()
         );
+        if ($category === null) {
+            return;
+        }
 
         wp_enqueue_style('aivastra-tryon-widget', AIVASTRA_TRYON_URL . 'assets/widget.css', [], AIVASTRA_TRYON_VERSION);
         wp_enqueue_script('aivastra-tryon-widget-logic', AIVASTRA_TRYON_URL . 'assets/widget-logic.js', [], AIVASTRA_TRYON_VERSION, true);

@@ -689,11 +689,13 @@ export const ReassignWorkflowBody = z.object({
 // can still write workflow_templates directly. See
 // apps/api/src/modules/admin/workflow-change-requests.routes.ts.
 
+// Both questions are mandatory and must be substantive — 80 chars is enough to
+// rule out placeholder text like "fix" or "n/a" without being onerous.
 export const ProposeWorkflowChangeRequestBody = z.object({
   changeType: z.enum(['create', 'update']),
   targetWorkflowId: z.string().uuid(),
-  reason: z.string().min(1).max(2000),
-  previousLimitations: z.string().min(1).max(2000),
+  reason: z.string().trim().min(80).max(2000),
+  previousLimitations: z.string().trim().min(80).max(2000),
   proposedFields: z.record(z.any()),
 });
 
