@@ -1,0 +1,1 @@
+ALTER TABLE "workflow_templates" ADD COLUMN "garment_view" text DEFAULT 'front' NOT NULL;
