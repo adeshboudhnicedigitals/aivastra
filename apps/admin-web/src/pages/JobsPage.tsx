@@ -422,7 +422,9 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     detail
       ? {
           label: jobContactEmail(detail) ?? 'Unknown user',
-          href: `/jobs?job=${encodeURIComponent(detail.id)}`,
+          href: detail.userId
+            ? `/users?user=${encodeURIComponent(detail.userId)}`
+            : `/jobs?job=${encodeURIComponent(detail.id)}`,
         }
       : null,
   );
