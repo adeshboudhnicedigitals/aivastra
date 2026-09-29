@@ -676,6 +676,8 @@ export async function resolveTryonPlan(
           return {
             poseId,
             workflowTemplateId: row.workflowTemplateId,
+            // Already enforced by the innerJoin's isActive=true condition above.
+            workflowIsActive: true,
             version: row.version,
             promptGarmentPhase: row.promptGarmentPhase,
             // catalogue_template_pose_workflows has no promptFacePhase column of
@@ -700,6 +702,7 @@ export async function resolveTryonPlan(
       poseId: schema.modelPoseAssets.id,
       defaultWorkflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
       defaultWorkflowVersion: defaultWorkflow.version,
+      defaultWorkflowIsActive: defaultWorkflow.isActive,
       defaultUpperNodeIds: defaultWorkflow.upperNodeIds,
       defaultLowerNodeId: defaultWorkflow.lowerNodeId,
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
@@ -713,6 +716,7 @@ export async function resolveTryonPlan(
       configPromptGarmentPhase: schema.poseGarmentConfigs.promptGarmentPhase,
       configPromptFacePhase: schema.poseGarmentConfigs.promptFacePhase,
       overrideWorkflowVersion: overrideWorkflow.version,
+      overrideWorkflowIsActive: overrideWorkflow.isActive,
       overrideUpperNodeIds: overrideWorkflow.upperNodeIds,
       overrideLowerNodeId: overrideWorkflow.lowerNodeId,
       overrideShoeNodeId: overrideWorkflow.shoeNodeId,
@@ -779,6 +783,10 @@ export async function resolveTryonPlan(
     ? distinctPoseIds.map((poseId) => ({
         poseId,
         workflowTemplateId: sareeStep2?.workflowTemplateId ?? null,
+        // Mannequin-step workflow is a fixed garment-type-level pin, not resolved
+        // through pose_garment_configs/modelPoseAssets — the isActive gap this
+        // field exists to catch doesn't apply to this path.
+        workflowIsActive: true,
         version: sareeStep2?.version ?? null,
         promptGarmentPhase: promptByPose.get(poseId)?.promptGarmentPhase ?? null,
         promptFacePhase: promptByPose.get(poseId)?.promptFacePhase ?? null,
@@ -797,6 +805,10 @@ export async function resolveTryonPlan(
       poseWorkflowRows.map((r) => ({
         poseId: r.poseId,
         workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
+        workflowIsActive:
+          r.configWorkflowTemplateId != null
+            ? r.overrideWorkflowIsActive
+            : r.defaultWorkflowIsActive,
         version:
           r.configWorkflowTemplateId != null ? r.overrideWorkflowVersion : r.defaultWorkflowVersion,
         promptGarmentPhase:
@@ -826,6 +838,21 @@ export async function resolveTryonPlan(
   const poseWorkflowMap = new Map(poseWorkflows.map((pw) => [pw.poseId, pw]));
 
   for (const pw of poseWorkflows) {
+    // pose_garment_configs.isActive (checked above) only covers an explicit
+    // override row being disabled. A pose with no override still resolves to
+    // its own modelPoseAssets.workflowTemplateId default, and that template
+    // can be retired (workflow_templates.isActive = false) — e.g. after being
+    // superseded by a newer template — without anything clearing the pose's
+    // pointer to it. Catch that here instead of silently dispatching against
+    // a retired template.
+    if (pw.workflowTemplateId && !pw.workflowIsActive) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        "this pose's workflow template has been deactivated — reassign it via pose_garment_configs " +
+          "or update the pose's default workflow template",
+      );
+    }
     if (pw.upperNodeIds.length > 0 && opts.resolvedUpperGarmentKey === undefined) {
       throw new AppError('VALIDATION', 400, 'upper garment required for this pose');
     }
