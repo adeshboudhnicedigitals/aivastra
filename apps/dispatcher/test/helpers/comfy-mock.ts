@@ -7,6 +7,12 @@ export interface ComfyMockOptions {
   completionDelayMs?: number;
   outputFilename?: string;
   outputBytes?: Uint8Array;
+  /** GET /prompt `exec_info.queue_remaining` (default 0) — what a dev's browser run looks like. */
+  queueRemaining?: number;
+  /** Force GET /prompt to answer with this HTTP status instead of 200. */
+  promptStatus?: number;
+  /** Force GET /prompt to answer with this raw body (e.g. invalid JSON). */
+  promptBody?: string;
 }
 
 export interface ComfyMock {
@@ -34,6 +40,15 @@ export function startComfyMock(): Promise<ComfyMock> {
       if (req.method === 'GET' && url.pathname === '/system_stats') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ system: { python_version: '3.10' } }));
+        return;
+      }
+
+      if (req.method === 'GET' && url.pathname === '/prompt') {
+        res.writeHead(opts.promptStatus ?? 200, { 'Content-Type': 'application/json' });
+        res.end(
+          opts.promptBody ??
+            JSON.stringify({ exec_info: { queue_remaining: opts.queueRemaining ?? 0 } }),
+        );
         return;
       }
 

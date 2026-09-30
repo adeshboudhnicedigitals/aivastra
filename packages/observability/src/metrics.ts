@@ -99,6 +99,19 @@ export const workersHealthy = new Gauge({
   registers: [register],
 });
 
+export const workerExternalBusyRejectionsTotal = new Counter({
+  name: 'dispatcher_worker_external_busy_rejections_total',
+  help: 'Workers skipped at claim time because ComfyUI itself reported a non-empty queue, or the queue probe failed (fail-closed)',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
+export const workerReleaseFailuresTotal = new Counter({
+  name: 'dispatcher_worker_release_failures_total',
+  help: 'Count of failed attempts to release a claimed-but-unused worker back to IDLE (lost capacity until restart)',
+  registers: [register],
+});
+
 // ── Chatbot metrics ──────────────────────────────────────────────────────────
 
 export const chatbotMessagesTotal = new Counter({
