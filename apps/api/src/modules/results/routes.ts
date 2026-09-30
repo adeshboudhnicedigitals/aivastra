@@ -258,6 +258,10 @@ export async function resultsRoutes(app: FastifyInstance) {
           id: schema.jobs.id,
           catalogueId: schema.jobs.catalogueId,
           userEmail: schema.users.email,
+          userDisplayName: schema.users.displayName,
+          userPhone: schema.users.phone,
+          userTier: schema.users.tier,
+          userCreatedAt: schema.users.createdAt,
           creditsCharged: schema.jobs.creditsCharged,
           createdAt: schema.jobs.createdAt,
           status: schema.jobs.status,
@@ -372,6 +376,10 @@ export async function resultsRoutes(app: FastifyInstance) {
           id: r.id,
           catalogueId: r.catalogueId,
           userEmail: r.userEmail,
+          userDisplayName: r.userDisplayName,
+          userPhone: r.userPhone,
+          userTier: r.userTier,
+          userCreatedAt: r.userCreatedAt,
           creditsCharged: r.creditsCharged,
           createdAt: r.createdAt,
           status: r.status,
@@ -1008,7 +1016,7 @@ ${commonCss()}
 .results-table tr:last-child td { border-bottom: 0; }
 
 .col-id { width: 70px; }
-.col-user { width: 190px; }
+.col-user { width: 240px; }
 .col-img { width: 130px; text-align: center; }
 .col-garments { width: 220px; text-align: center; }
 .col-credits { width: 70px; text-align: center; }
@@ -1019,6 +1027,13 @@ ${commonCss()}
 .id-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; cursor: help; }
 .user-name { font-weight: 500; color: var(--ink); word-break: break-all; }
 .user-email { font-size: 12px; color: var(--muted); margin-top: 2px; word-break: break-all; }
+.user-phone { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.user-since { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.user-tier {
+  display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 999px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--ink);
+}
 
 .thumb-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .thumb-img { position: relative; width: 100%; max-width: 110px; }
@@ -1324,11 +1339,11 @@ function appJs(): string {
   // element to render, since an <img> can't display a video file.
   function isVideoUrl(url) {
     var path = String(url == null ? '' : url).split('?')[0].split('#')[0];
-    return /.(mp4|webm|mov|m4v)$/i.test(path);
+    return /\.(mp4|webm|mov|m4v)$/i.test(path);
   }
   function extOf(url) {
     var path = String(url == null ? '' : url).split('?')[0].split('#')[0];
-    var m = path.match(/.([a-z0-9]+)$/i);
+    var m = path.match(/\.([a-z0-9]+)$/i);
     return m ? m[1] : 'jpg';
   }
 
@@ -1513,7 +1528,11 @@ function appJs(): string {
         rows.push(
           '<tr class="' + rowClass + '" title="' + esc(rowTitle) + '">' +
           '<td class="col-id"><div class="id-num">' + rev + '</div><div class="id-sub">#' + seq + '</div></td>' +
-          '<td class="col-user"><div class="user-name">' + esc(item.userEmail || '—') + '</div><div class="user-email">' + esc(item.userEmail || '') + '</div></td>' +
+          '<td class="col-user"><div class="user-name">' + esc(item.userDisplayName || item.userEmail || '—') + '</div>' +
+          '<div class="user-email">' + esc(item.userEmail || '—') + '</div>' +
+          '<div class="user-phone">' + esc(item.userPhone || 'No phone') + '</div>' +
+          '<div class="user-since">Member since ' + fmtDate(item.userCreatedAt) + '</div>' +
+          '<div class="user-tier">Plan: ' + esc(item.userTier || 'free') + '</div></td>' +
           '<td class="col-garments">' + renderGarmentCell(item.garments) + '</td>' +
           '<td class="col-img">' + renderThumb(item.personThumbUrl || item.poseUrl, poseLabel, item.poseTag ? poseLabel : null, false, item.poseFullUrl || item.poseUrl) + '</td>' +
           '<td class="col-img">' + renderThumb(item.backgroundUrl, 'Background', null, false, item.backgroundFullUrl) + '</td>' +

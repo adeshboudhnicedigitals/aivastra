@@ -424,6 +424,8 @@ export interface ModelPoseAsset {
   sortOrder: number;
   deletedAt: string | null;
   createdAt: string;
+  visibleGarmentTypeCount?: number;
+  totalGarmentTypeCount?: number;
 }
 
 export interface SareeMannequinStyle {
@@ -450,6 +452,21 @@ export interface PoseGarmentConfig {
   label: string;
   thumbnailKey: string;
   thumbnailUrl: string;
+  config: {
+    workflowTemplateId: string | null;
+    promptGarmentPhase: string | null;
+    promptFacePhase: string | null;
+    isActive: boolean | null;
+  } | null;
+}
+
+// The mirror of PoseGarmentConfig, viewed from a pose asset: one row per garment
+// type of the pose's gender, with that type's override config for THIS pose.
+export interface PoseGarmentTypeConfig {
+  id: string; // garment type (subcategory) id
+  label: string;
+  genderSlug: string | null;
+  isActive: boolean; // effective for this pose: config.isActive ?? pose's own global isActive
   config: {
     workflowTemplateId: string | null;
     promptGarmentPhase: string | null;

@@ -134,6 +134,8 @@ export function WorkflowUploadModal({
   activeWorkflows = [],
   onProposed,
 }: Props) {
+  // 'new' adds a standalone workflow; 'replace' supersedes an existing active one.
+  const [proposalKind, setProposalKind] = useState<'new' | 'replace'>('new');
   const [targetWorkflowId, setTargetWorkflowId] = useState('');
   const [previousLimitations, setPreviousLimitations] = useState('');
   const [proposeReason, setProposeReason] = useState('');
@@ -156,6 +158,7 @@ export function WorkflowUploadModal({
   const [upperNodeIds, setUpperNodeIds] = useState<string[]>(['']);
   const [lowerNodeId, setLowerNodeId] = useState('');
   const [shoeNodeId, setShoeNodeId] = useState('');
+  const [garmentView, setGarmentView] = useState<'front' | 'back'>('front');
   const [thirdNodeId, setThirdNodeId] = useState('');
   const [sizeNodeIds, setSizeNodeIds] = useState<string[]>([]);
   const [positivePromptNode, setPositivePromptNode] = useState('');
@@ -450,6 +453,7 @@ export function WorkflowUploadModal({
           label: label.trim(),
           jsonContent,
           workflowType: 'regular',
+          garmentView,
           faceNodeId: faceNodeId || undefined,
           poseNodeId,
           bgNodeId: bgNodeId || undefined,
@@ -476,9 +480,10 @@ export function WorkflowUploadModal({
           method: 'POST',
           body: JSON.stringify({
             changeType: 'create',
-            targetWorkflowId,
+            ...(proposalKind === 'replace'
+              ? { targetWorkflowId, previousLimitations: previousLimitations.trim() }
+              : {}),
             reason: proposeReason.trim(),
-            previousLimitations: previousLimitations.trim(),
             proposedFields: payload,
           }),
         });
@@ -578,9 +583,8 @@ export function WorkflowUploadModal({
               (!faceNodeId || negativePromptNode) &&
               (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId)) &&
     (!proposeMode ||
-      (targetWorkflowId &&
-        previousLimitations.trim().length >= MIN_PROPOSAL_NOTE_LENGTH &&
-        proposeReason.trim().length >= MIN_PROPOSAL_NOTE_LENGTH));
+      (proposeReason.trim() &&
+        (proposalKind === 'new' || (targetWorkflowId && previousLimitations.trim()))));
 
   return (
     <EditDrawer
@@ -693,45 +697,66 @@ export function WorkflowUploadModal({
           <>
             <div className="field">
               <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'block' }}>
-                Which existing workflow does this replace?{' '}
-                <span style={{ color: 'var(--danger)' }}>*</span>
+                What are you proposing?
               </label>
-              <SearchableSelect
-                options={activeWorkflows.map((w) => ({ id: w.id, label: w.label }))}
-                value={targetWorkflowId}
-                onChange={setTargetWorkflowId}
-                disabled={saving}
-                emptyLabel="— select workflow to replace —"
-                placeholder="— search workflow —"
-              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className={`btn sm ${proposalKind === 'new' ? 'primary' : 'ghost'}`}
+                  disabled={saving}
+                  onClick={() => setProposalKind('new')}
+                >
+                  Add new workflow
+                </button>
+                <button
+                  type="button"
+                  className={`btn sm ${proposalKind === 'replace' ? 'primary' : 'ghost'}`}
+                  disabled={saving}
+                  onClick={() => setProposalKind('replace')}
+                >
+                  Replace existing workflow
+                </button>
+              </div>
             </div>
+            {proposalKind === 'replace' && (
+              <>
+                <div className="field">
+                  <label
+                    style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'block' }}
+                  >
+                    Which existing workflow does this replace?{' '}
+                    <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <SearchableSelect
+                    options={activeWorkflows.map((w) => ({ id: w.id, label: w.label }))}
+                    value={targetWorkflowId}
+                    onChange={setTargetWorkflowId}
+                    disabled={saving}
+                    emptyLabel="— select workflow to replace —"
+                    placeholder="— search workflow —"
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    What does the current workflow lack?{' '}
+                    <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={previousLimitations}
+                    disabled={saving}
+                    onChange={(e) => setPreviousLimitations(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
             <div className="field">
               <label>
-                What does the current workflow lack?{' '}
+                {proposalKind === 'new'
+                  ? 'Why is this workflow needed?'
+                  : "What's updated in this workflow?"}{' '}
                 <span style={{ color: 'var(--danger)' }}>*</span>
-              </label>
-              <textarea
-                className="input"
-                rows={3}
-                value={previousLimitations}
-                disabled={saving}
-                onChange={(e) => setPreviousLimitations(e.target.value)}
-              />
-              <span
-                style={{
-                  fontSize: 11,
-                  color:
-                    previousLimitations.trim().length >= MIN_PROPOSAL_NOTE_LENGTH
-                      ? 'var(--ink-2)'
-                      : 'var(--danger)',
-                }}
-              >
-                {previousLimitations.trim().length}/{MIN_PROPOSAL_NOTE_LENGTH} characters minimum
-              </span>
-            </div>
-            <div className="field">
-              <label>
-                What's updated in this workflow? <span style={{ color: 'var(--danger)' }}>*</span>
               </label>
               <textarea
                 className="input"
@@ -740,17 +765,6 @@ export function WorkflowUploadModal({
                 disabled={saving}
                 onChange={(e) => setProposeReason(e.target.value)}
               />
-              <span
-                style={{
-                  fontSize: 11,
-                  color:
-                    proposeReason.trim().length >= MIN_PROPOSAL_NOTE_LENGTH
-                      ? 'var(--ink-2)'
-                      : 'var(--danger)',
-                }}
-              >
-                {proposeReason.trim().length}/{MIN_PROPOSAL_NOTE_LENGTH} characters minimum
-              </span>
             </div>
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
           </>
@@ -1151,6 +1165,27 @@ export function WorkflowUploadModal({
                   onChange={(e) => setLabel(e.target.value)}
                 />
               </div>
+            </div>
+
+            <div className="field">
+              <label>Garment view</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {(['front', 'back'] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    className={`btn sm ${garmentView === v ? 'primary' : 'ghost'}`}
+                    disabled={saving}
+                    onClick={() => setGarmentView(v)}
+                  >
+                    {v === 'front' ? 'Front' : 'Back'}
+                  </button>
+                ))}
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 4 }}>
+                "Back" means this graph's pose reference shows the subject from behind — Studio will
+                ask the customer for a back-view garment photo instead of the usual front one.
+              </span>
             </div>
 
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />

@@ -2,6 +2,148 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-30 — Activity Logs: UX redesign, popover filters, humanized diffs & table hierarchy
+
+- **Goal:** Redesign `apps/admin-web/src/pages/AuditLogsPage.tsx` and standardize terminology across the admin app (`apps/admin-web/src/components/Sidebar.tsx`), addressing layout shifts, giant unreadable raw-ID diff blocks, and unrefined filtering.
+- **Changes Done:**
+  1. **Standardized terminology & header polish:** Renamed "Team Activity" to "Activity Logs" in the sidebar, breadcrumb, and page header. Shortened lede to `N logged events · Actions performed through the admin panel.` with an info tooltip explaining that direct database access is excluded.
+  2. **Filter bar redesign & consolidation:**
+     - Positioned the search bar on the far-left (`.filter-search-box`) with search icon and clear button for instant Record ID lookup.
+     - Searchable dropdowns for Activity and Category.
+     - Date preset popover (`Date: All time ▾`) with `Today`, `7d`, `30d`, and Custom range.
+     - Consolidated secondary filters behind `More filters ▾` (with active dot indicator) to avoid layout clutter.
+     - Dynamic active filter chips row with 1-click dismiss (`✕`) for Record ID, Team Member, Activity, Category, and Date.
+  3. **Visual action indicators & hierarchy in "What Happened":**
+     - Added subtle colored status dots (🟢 Created, 🔵 Updated, 🟠 Changed/Approved, 🔴 Deleted, ⚪ Default) to visually scan action categories.
+     - Cleanly separated the bold action sentence from the secondary Record ID (monospace, 11px, with click-to-copy button).
+  4. **Humanized Expanded Details & Event-Specific Archetypes:**
+     - Moved details from a detached panel below the entire table to an **expandable inline child row directly beneath the corresponding log row** (`<tr className="expanded-detail-row"><td colSpan={4}>...</td></tr>`), connected by an unbroken accent left border.
+     - **4-Column Event Metadata Summary Strip:** Displays Target Entity (with copyable ID), Team Member (with role badge), Exact + Relative Timestamp (`Sep 30, 2026, 11:42 AM · 24m ago`), and Event Identifier.
+     - **Tightened Vertical Footprint (~20% height reduction):** Reduced card padding from 18px/22px to 12px/18px, table cell padding to 6px/10px, and outer row container padding to 4px/16px/10px/16px so adjacent rows remain in view.
+     - **Simplified Header:** Streamlined header to `[🟢 CAT] Event Details`, removing the duplicated "What happened" title and the redundant `Close` button (the row already has `Hide details ↑`).
+     - **Neutral Consequence Card:** Shifted consequence cards from strong green/red tints to a neutral surface (`var(--surface)` / `var(--border)`), preserving semantic colors solely for the status icon and text.
+     - **Admin Wording & Singularization:** Used human resource wording (`${count} ${noun} created/removed`) and dynamic singular/plural buttons (`Copy ID` vs `Copy all N IDs`, `View ID ▾` vs `View all N IDs ▾`).
+     - **URL & Long Value Truncation:** Truncated long URLs (showing host + trimmed path) with an external link launcher (`<Icon.ExternalLink />`) and 1-click copy button, and truncated long unbroken IDs/hashes (>36 chars).
+     - **Structured Property Changes Table:** Key-value diffs render as clean `Property | Previous value | New value` tables, filtering out noisy DB timestamps (`created_at`, `updated_at`, internal IDs).
+     - **Technical Audit & Network Context:** Clean footer strip with IP (copyable), Request ID (copyable), and human-parsed client badge (e.g. `Chrome · Linux`, with full UA tooltip).
+  5. **Pagination & discovery polish:** Updated table footer to standard `Showing 1–25 of 3,066` with `‹ Previous` and `Next ›`. Upgraded action triggers to `View details →` and `Hide details ↑`.
+  6. Verified clean build with `tsc -b` and Biome format/lint.
+
+## 2026-09-30 — Recycle Bin: Visual polish, contextual selection toolbar & sorting refinements
+
+- **Goal:** Elevate `apps/admin-web/src/pages/RecycleBinPage.tsx` from functional to a premium, intentional UI with refined tabs, contextual selection mode toolbar, sortable deleted dates with relative timestamps, enhanced thumbnails, and clear row hover/selected states.
+- **Changes Done:**
+  1. **Page header hierarchy:** Made header more compact with clean lede: *"Manage deleted assets and restore or permanently remove them."*, removing low-level storage implementation jargon.
+  2. **Refined asset switcher tabs:** Transformed tab buttons into an application switcher with secondary pill counters (`Faces [961]`, `Backgrounds [163]`, `Pose assets [182]`) and clear active indicator.
+  3. **Table header hierarchy:** Reduced uppercase header visual weight, gave primary dominance to the `ASSET` column (42%), with quieter `GENDER` and `DELETED` columns.
+  4. **Interactive sorting on Deleted:** Added togglable sorting (`Deleted ↓` newest first, `Deleted ↑` oldest first) across all three tabs, resetting pagination smoothly.
+  5. **Deleted date hierarchy:** Rendered formatted date (e.g. `Jun 19, 2026`) as primary text, accompanied by human-friendly relative age (e.g. `3mo ago`, `2d ago`, `yesterday`) as subtle subtext.
+  6. **Enhanced asset thumbnails:** Upgraded in-table thumbnails with larger, comfortable dimensions (Faces: 64×64px, Backgrounds: 88×58px, Pose assets: 52×76px), rounded corners (8px), soft shadow, and clickable `cursor: zoom-in`.
+  7. **Interactive 3-state row styling:**
+     - Normal: clean table surface.
+     - Hover: subtle interactive background (`var(--surface-2)`).
+     - Selected: persistent tinted highlight (`rgba(var(--primary-rgb), 0.05)`) with an indigo accent indicator (`3px solid var(--accent)`).
+  8. **Contextual selection mode toolbar:**
+     - Page selection mode: elevated floating surface with count, "Select all N", and clear actions.
+     - "All selected" mode: transitions to an accented state with `<Icon.Check />` badge and `All N assets selected (across all pages)`.
+  9. **Beautiful empty state:** Replaced plain card with a clean, friendly empty state featuring ♻ icon, clear title, concise copy, and a `[ ↻ Refresh ]` button.
+  10. **Targeted confirmation verification previews & lightbox:**
+     - Enlarged in-table thumbnails to 64px for fast, confident visual recognition without squinting.
+     - Clicking any thumbnail opens an instant high-resolution lightbox modal showing the full uncropped asset (`r2Url`).
+     - Upgraded single-item permanent delete dialog with an enlarged preview card (72×72px for faces, 96×68px for backgrounds, 52×76px for poses), prominent name, metadata badges (gender, continent, shot type), and full ID.
+     - Upgraded bulk delete dialog with a 4-sample thumbnail preview strip + `+N more` counter.
+  11. Verified clean `tsc -b` and `biome check` with 0 errors and 0 warnings.
+
+
+
+
+
+## 2026-09-30 — Recycle Bin: UX redesign, bulk selection toolbar & destructive action clarity
+
+- **Goal:** Redesign `apps/admin-web/src/pages/RecycleBinPage.tsx` from a generic soft-delete CRUD table into a deliberate, polished recycle bin workflow with explicit destructive actions and a modern bulk selection model.
+- **Changes Done:**
+  1. **Destructive action clarity:** Renamed ambiguous row-action `Delete` to `Permanently delete` in danger styling.
+  2. **Confirmation modal with explicit R2 warning:** Redesigned permanent delete confirmation dialog to display an explicit warning: *"Permanently delete N assets? This will permanently remove the selected assets and their files from R2 storage. This cannot be undone."* For single asset deletions, displays the asset thumbnail, label/displayName, and truncated ID.
+  3. **Table header selection & indeterminate state:** Replaced plain-text "Select page" with a standard table header checkbox (`☐`), supporting checked, unchecked, and indeterminate states via ref.
+  4. **Floating/docked bulk selection toolbar:** When assets are selected, a distinct surface toolbar appears above the table displaying:
+     - Count of selected items (`N faces/backgrounds/pose assets selected`).
+     - "Select all N [assets]" cross-page button when the current page is selected and total items exceed page size.
+     - "Clear selection" action.
+     - "Restore (N)" and "Permanently delete (N)" actions.
+  5. **Explicit Refresh button:** Replaced detached plain-text button with `[ ↻ Refresh ]` icon button matching the page header pattern.
+  6. **Table column tightening:** Sized columns with fixed bounds (checkbox 44px, gender 130px, deleted date 140px, actions 230px right-aligned) to eliminate empty whitespace stretching.
+  7. **Thumbnail sizing & aspect ratio optimization:**
+     - Faces: 40×40px square (border-radius: 6px).
+     - Backgrounds: 52×38px landscape (border-radius: 4px).
+     - Pose assets: 34×48px vertical portrait (border-radius: 4px).
+  8. **Pose Assets table cleanup:** Removed predominantly empty standalone `Variant` column; displayed `poseVariant` as an inline pill next to asset title when present, alongside `shotType` and label subtext.
+  9. **Contextual metadata display:** Added secondary context to cryptic names (e.g. continent for faces, white background / scope / tags for backgrounds, display name and shot type for poses).
+  10. **Tab-specific empty states:** Replaced generic empty text with centered cards featuring an icon, friendly title, and explanatory copy.
+  11. **Final interaction safety pass:**
+     - Header checkbox uses callback ref so indeterminate `-` state correctly binds across tab switches and page navigation.
+     - Fully explicit scope transition: `50 pose assets selected on this page · Select all 182 pose assets` -> `182 pose assets selected (all pages) · Clear selection`.
+     - Confirmation modal displays exact count in button: `Permanently delete 50`.
+     - Error handling re-syncs table state upon partial delete failure.
+     - Table column layout redistributed (`38% / 18% / 20% / actions`) to bring metadata closer to the asset and eliminate dead whitespace.
+  12. Verified clean `tsc -b` and `biome check` with 0 errors and 0 warnings.
+
+
+## 2026-09-30 — Credit Analysis: Section spacing and filter row alignment fixes
+
+- **Goal:** Correct uneven vertical rhythm, mismatched control heights, and accidental wrapping in `apps/admin-web/src/pages/CreditAnalysisPage.tsx`.
+- **Changes Done:**
+  1. **Fixed section vertical spacing rhythm:** Unified `.page-head` and the summary strip into a coherent header block with `16px` gap. Removed artificial `marginBottom: 20` and `marginBottom: 18` that previously doubled the parent `.content` gap into an awkward 44px dead space.
+  2. **Typographic baseline alignment:** Aligned summary strip metric numbers and labels on their typographic baseline (`alignItems: 'baseline'`, `gap: 6`), with balanced `32px` separation between metric pairs.
+  3. **Pixel-perfect filter heights (36px uniform):** Matched the segmented DayRange pill container (`height: 36px`, `boxSizing: border-box`, `padding: 2px`, `borderRadius: var(--r)`) and buttons (`height: 100%`) with `.filter-search-box` and `.filter-select`.
+  4. **Single-row filter layout & desktop-only flex fix:** Found root cause of the two-row wrap: `.desktop-only` in `tokens.css` had `display: block !important;`, which overrode `display: flex` when combined directly on the same element (`className="desktop-only filter-row"`), forcing flex items to render in normal block flow (Search on row 1, pills + select on row 2). Separated `.desktop-only` wrapper from `.filter-row` so `display: flex; flex-wrap: nowrap;` takes full effect, locking all 3 controls onto a single line.
+  5. Verified clean `tsc --noEmit` and `biome check` with 0 errors and 0 warnings.
+
+## 2026-09-29 — Credit Analysis: UX redesign & user detail drawer
+
+- **Goal:** Transform `apps/admin-web/src/pages/CreditAnalysisPage.tsx` from a simple ranking report into an actionable analysis tool with summary metrics, clear credit terminology, unified filter bar, and a slide-over user detail drawer.
+- **Changes Done:**
+  1. **Top summary metrics strip:** Compact insight strip showing `Credits spent · Jobs completed · Avg. credits/job · Active users` across the selected window and filter.
+  2. **Backend summary aggregates:** Added `summary: { totalSpent, totalJobs, avgCostPerJob, totalUsers }` to `GET /admin/credit-analysis/users` in `apps/api/src/modules/admin/credit-analysis.routes.ts`.
+  3. **Unified filter bar:** Single `.filter-row` integrating search box (with clear button), segmented DayRange pill group (`7d`, `30d`, `90d`, `All time` with distinct active state), and source select dropdown.
+  4. **Clear terminology:** Renamed table columns to eliminate financial ambiguity:
+     - `SPENT` → `CREDITS SPENT`
+     - `BALANCE` → `CREDIT BALANCE`
+     - `AVG/JOB` → `AVG. CREDITS/JOB`
+  5. **User list hierarchy:** User name styled dominant (`font-weight: 600`, `color: var(--ink)`), email clearly subordinate (`0.78rem`, `var(--muted)`), with green Shopify badge.
+  6. **Slide-over User Details Drawer:** Clicking a user opens a right-side drawer with 2x2 key metrics, daily spend bar chart, top products (if Shopify), recent credit ledger activity with source filter, and a direct "View user profile →" navigation button to the Users page.
+  7. **Drawer analytical polish:**
+     - Chart shows selected date range: `Daily credit spend · Last 30 days` (or `7 days`, `90 days`, `All time`).
+     - Recharts custom tooltip shows formatted date (`Sep 3, 2026`) and formatted credits (`Credits spent: 2,750`).
+     - Activity feed humanized from raw database codes: e.g. `JOB_DISPATCH` → `Catalogue job` / `Job dispatch · 6:29 PM · Sep 3`.
+     - Removed circular bullet icon from activity items that resembled toggles/radios.
+     - Activity feed expands vertically to eliminate unused space at the bottom of the drawer.
+     - Cleaned plan tier and Shopify badges in drawer header.
+  8. **Mobile cards updated:** Aligned metrics terminology with desktop table.
+  9. **Drawer render loop fix:** Resolved infinite re-fetch flickering when opening user drawer caused by unstable `closeDetail` / `toast` references in the `useEffect` dependency array.
+  10. **Interaction sanity pass:** Added text truncation (`ellipsis`) for long names and emails in both table and drawer; hardened Recharts Tooltip with `zIndex: 100` to prevent clipping; confirmed empty states, date range syncing (`7d`/`30d`/`90d`/`all`), and non-job ledger entries (refunds, adjustments).
+  11. **View user profile navigation fix:** Updated button to navigate directly to `/users?user=${detail.id}` with search state, and updated `UsersPage.tsx` to read `location.state` search/filter fallback so clicking the button smoothly opens that user's full management drawer and filters the background list.
+  12. Verified clean `tsc --noEmit` and `biome check` across both `@aivastra/admin` and `@aivastra/api`, and passed all 8 integration tests (`admin-credit-analysis.test.ts`).
+
+## 2026-09-29 — Workers page: full UX redesign
+
+- **Goal:** Modernise `apps/admin-web/src/pages/WorkersPage.tsx` per detailed product brief.
+- **Changes Done:**
+  1. Summary strip: compact `Total · Healthy · Offline · Draining` counters.
+  2. Search + filter bar: search (ID, label, URL, job type) + Status + Job type dropdowns.
+  3. Worker column: ID dominant, display name (monospace) beneath.
+  4. Combined Status + Health → single `● Primary / detail` cell. Removed two separate columns.
+  5. URL + API key removed from the table; drawer-only.
+  6. Compact job-type summary (`All`, `Catalogue`, `Saree +3`) — no coloured pills in table.
+  7. Labelled enable toggle: `Enabled` / `Disabled` text next to Switch.
+  8. `⋯` RowMenu replaces 3 unlabelled icon buttons (Edit, Drain/Undrain, Enable/Disable, Delete).
+  9. Right-side EditDrawer for both Add and Edit — replaced the centred modal.
+  10. "Label" → "Display name" in the form.
+  11. Job types: explicit `All job types` / `Selected job types` radio — replaces "leave unchecked to accept all".
+  12. API key reveal (Eye/EyeOff) in drawer; hidden by default.
+  13. Empty state with icon, description, and Add worker CTA.
+  14. Mobile cards updated: StatusDot, unified state label, labelled toggle.
+  15. `tsc --noEmit` and `biome check` both clean.
+
 ## 2026-09-28 — WordPress demo store: Product card border fixed to match reference image
 
 - **Goal:** Product card border was an animated gradient (`::before` pseudo-element, purple → magenta). Reference image shows plain `1px solid #000` matching the live `shopify.aivastra.com` style.
@@ -193,240 +335,6 @@ snapshotted into `params` (the dispatcher's own lookup is unreachable once a sna
   `infra/docker-compose.yml`, `infra/docker-compose.staging.yml`,
   `infra/docker-compose.prod.yml`, and `.github/workflows/ci.yml` uniformly —
   out of scope for a one-off PR to patch silently.
-## 2026-09-25 — Onboarding: numbered steps, Previous button, baskets chosen in the product picker
-
-- **Done:** every onboarding page drops the bottom progress bar for a numbered step row pinned
-  at the top (`OnboardingSteps`, driven by `STEP_PAGES`). The welcome intro is not a step and shows
-  no row; numbering starts at page 2 (products = 1 … theme = 4). Pages 2–5 get a **Previous** button (same
-  primary style as Continue, equal widths). The intro page always renders now so page 2 can go
-  back to it; the theme page hides Previous once the embed is detected, because the App gate
-  bounces every `/onboarding/*` route to the dashboard at that point.
-- **Page 2 is one step:** the separate "Choose a basket" card is gone. The "Select products" popup
-  has a last **Basket** column (picking one also ticks the row) plus a "Basket for all selected
-  products" control, needed because "select all matching" rows are never loaded. The popup's
-  Select button stays disabled until every picked product has a basket. Confirm enables and pins
-  in one `POST /products/bulk` per distinct basket (`toBasketedBulkBodies`); "all matching" goes
-  first under the shared basket, then the exceptions are re-pinned by id. Not atomic across calls.
-- **After Confirm:** the enabled-products list carries a basket dropdown per row, which is also how
-  a resumed setup fixes an unrouted product. In global mode it lists every non-excluded product
-  and shows no remove button.
-- **Removed:** `getOnboardingProgress` (+ tests), the unused `step`/`totalSteps` text, `BasketTiles`
-  and the bulk "Apply to all" path of `BasketAssignmentStage` (Manage → Routing keeps the
-  per-product list).
-- **Inline picker (2026-09-27):** the "Select products" popup is gone: step 1 embeds the same
-  picker (search, filters, tick boxes, Basket column) directly in the card, with "Confirm N
-  products" at its bottom right. After confirming, the enabled list shows on top and an "Add more
-  products" picker (locked to active, not-yet-enabled products) sits below it; global-mode stores
-  get no add-more picker. `SelectProductsModal` and `SelectedProductsList` were deleted.
-- **Not verified in a browser** — typecheck, Biome and the vitest suite only.
-
-## 2026-09-27 — Onboarding welcome page redesigned
-
-- **Done:** `OnboardingIntroPage` is now the AI Vastra logo, the headline "Let your customers see
-  themselves in your products.", and three photo cards (Customer Photo + Your Product Image =
-  Virtual Try-On) joined by "+" / "=" connectors, then a three-item benefits row. The old single
-  composite hero (`onboarding-hero.jpg`) is unwired but left on disk. The three photos come from
-  `person.png` / `garment.png` / `result.png` (2.6MB each, in the repo root, untracked), resized
-  to 720px-wide JPEGs under `src/assets/welcome-*.jpg` (~60-70KB each). Card size follows viewport
-  height, so it fits without scrolling at 1440x900 and 1280x720 (checked with headless Chromium).
-- **Logo:** copied `logo.svg` / `logo-text.svg` from `apps/catalogues-web/public/assets` — the
-  real brand mark is the colourful gradient one, not the grey mark in the mockup.
-
-## 2026-09-27 — Dev: product thumbnails were blank (Chrome blocks loopback fetch from the ngrok origin)
-
-- **Root cause:** presigned thumbnail URLs point at `R2_ENDPOINT` (`http://127.0.0.1:9000` in dev).
-  The Shopify admin SPA loads from the public `https://<tunnel>.ngrok-free.dev` origin, and Chrome's
-  Private Network Access policy blocks a public-origin page from fetching a bare loopback address
-  outright (`net::ERR_FAILED`, "Permission was denied ... `loopback` address space") — every product
-  row showed with no image, though sync itself worked (rows were `active`, files existed in MinIO).
-- **First attempt (reverted):** pointing `R2_PUBLIC_PRESIGN_BASE` at `<tunnel>/minio` fixed Shopify
-  but was wrong — that env var is one process-wide setting on the single shared `app.storage`, so it
-  would follow every other app (admin-web, catalogues-web) into their own local dev too, breaking
-  their images whenever the Shopify app's Vite server + tunnel weren't also running.
-- **Fix:** a new dev-only proxy, `apps/api/src/modules/dev/minio-proxy.routes.ts`, mounted at
-  `/minio/*` and registered in `server.ts` only when `NODE_ENV === 'development'`; it forwards to
-  `R2_ENDPOINT` and streams the response back. `apps/shopify/vite.config.ts` gets a matching
-  `/minio` proxy entry (same shape as the existing `/v1` one). `R2_PUBLIC_PRESIGN_BASE` stays at
-  the plain `http://127.0.0.1:9000` it always was — every app keeps getting ordinary loopback
-  URLs. Instead, `apps/shopify/src/lib/images.ts`'s `resolveImageUrl` rewrites a thumbnail URL to
-  go through this same-origin `/minio` proxy client-side, and only when the page itself isn't
-  already on a loopback origin (i.e. only when actually viewed through the tunnel) — used at every
-  `<img>`/`<Thumbnail source=...>` site in `apps/shopify` (`ProductRow`, `ProductSelectionStage`,
-  `BasketAssignmentStage`, `ManagePage`). Production URLs are never loopback, so it's a no-op there
-  by construction, no `NODE_ENV` check needed.
-  Verified end to end: curled a live presigned URL through both the API (port 4000) and the Vite
-  dev server (port 5174) and got the real JPEG back.
-
-## 2026-09-25 — Manage page: failed products no longer counted as synced, and can be retried
-
-- **Done:** the Manage page's "Products Synced" numerator counted every non-deleted row, so a store
-  with one failed product read "9/9". It now counts `status = 'active'` only (`activation.routes.ts`),
-  and the separate "Failed to Sync" tile is gone — a red "N failed to sync" link under the synced
-  count opens the same modal.
-- **Retry:** `syncProduct` retries the image download once after a 500ms pause on a thrown network
-  error or an HTTP 429/5xx (not on a 4xx). The failed modal has a **Retry sync** button calling
-  `POST /v1/shopify/products/retry-failed`, which enqueues one `mode: 'product'` task per failed
-  product (cap 100); each re-reads the product from Shopify, so a newly added image is picked up.
-- **Failure reasons are clearer:** Node's bare "fetch failed" now records its cause, e.g.
-  `fetch failed (ETIMEDOUT)`.
-- **Per-product basket routing on Manage → Routing:** the step-2 basket picker from onboarding
-  (tiles, "Apply to all N products", a Basket dropdown per enabled product) now also sits in a card
-  titled "Individual product routing" above "Your rules". `BasketAssignmentStage` was changed to take
-  plain props (`globalMode`, `reloadKey`, `unrouted`, `onChanged`, `bulk`) instead of the
-  `/me` payload so both places share it; onboarding is unchanged. Manage shows only the per-product
-  list (`bulk={false}`: no tiles, no "Apply to all", which would overwrite every pin on a live
-  store); onboarding keeps the tiles and bulk apply. Changing a basket re-reads the rules
-  quietly (no tab spinner) and bumps the parent's unrouted banner. Lists enabled products only, as
-  in onboarding.
-- **Manage → Eligibility pickers match onboarding's:** "Add products" and "Exclude products" were a
-  search box with one Add/Exclude button per row. They are now the same picker as onboarding step 2
-  (search, Product type / Vendor / Tag / Collection / Category / Status filters, tick boxes, "N of M
-  selected", one "Add N products" confirm), via a shared `ProductPickerModal` around
-  `ProductSelectionStage`. The stage gained `startFilter`, `locked` (fields the merchant can't
-  change) and `allowSelectAll`. "Add products" locks `enabled=false, status=active` (only active
-  products can be enabled), so it hides the Status filter; "Exclude products" locks only
-  `excluded=false`. Ticks survive paging and are staged in the existing draft lists — nothing is sent
-  until Save. **No "Select all N matching" here:** a draft is a list of concrete ids and Save sends
-  one PATCH per product, so a filter-wide select would mean thousands of parallel requests. The
-  fix, if wanted, is bulk endpoints for enable/exclude/disable that Save can call. The collection
-  pickers are unchanged.
-- **Collection pickers list the store's collections:** "Add collections" / "Exclude collections"
-  used to show nothing until a name was typed. They now open on the full list (fetched once from
-  `GET /v1/shopify/activation/collections/search`, whose `q` is now optional and results sorted by
-  title), with an in-browser search box, tick boxes that survive paging/searching, and one
-  "Add/Exclude N collections" confirm. Collections already in the list are left out. Same shared
-  component for both tabs (`components/CollectionPickerModal.tsx`). The list is a live Shopify
-  read on each open, as the per-keystroke search already was.
-- **Add/Edit rule popup:** default modal width (620px — it was briefly `size="large"`, which was too
-  wide); each condition row is a grid with fixed-width Field (170px) and Match (120px) selects and a Value box that takes all the
-  remaining space, plus Remove. The per-row character counter was dropped (the 200-character
-  `maxLength` still applies) because it made the Value box taller than its neighbours and threw the
-  row's alignment off. The fixed widths don't shrink, so on a very narrow window the row can overflow.
-- **Rule editor Value is selectable:** the Value box in Add/Edit rule is now a combobox listing the
-  store's own values for the chosen field (product types, tags, vendors, collections — from
-  `GET /v1/shopify/products/facets`, the same lists the product filters use). Typing narrows the
-  list, and what is typed is kept as-is, so "contains" rules can still use a fragment, a value past
-  the facet cap (200) can still be entered, and an old rule whose value has left the catalog still
-  loads. Product title has no list, so it stays a text box. Changing a row's Field clears its Value.
-- **Trap (now closed):** nothing revisited a failed product automatically. The hourly `reconcile`
-  only fetched ids it had never seen, and `product` tasks come from webhooks, so a one-off dropped
-  download, or a CSV-imported product created before Shopify had attached its image (which
-  `products/create` reports as `no product image`), stayed failed until the merchant edited it.
-- **Products imported in Shopify (CSV etc.) now arrive without pressing Sync:**
-  1. `reconcile` also gives up to 50 failed products a second chance per pass (newest ids first,
-     after the deletion pass so a product that is really gone is marked deleted, and skipping ids it
-     just fetched). Cost: at most 50 extra Shopify calls per store per hour.
-  2. New `POST /v1/shopify/products/catch-up`, called when Manage opens: if Shopify's live product
-     count is above our non-deleted rows, it queues a `reconcile`. Rate-limited per store in Redis
-     (one live-count check per 30s, cached; one reconcile queued per 30 min). The page shows an info
-     banner and polls the counts every 5s for up to ~3 minutes, then refreshes the lists.
-- **Finding on the dev store (`ai-vastra-store`):** it had **no product webhooks registered**
-  (REST `webhooks.json` returned an empty list), and ngrok saw no webhook deliveries during the CSV
-  import, so its products only arrived via the manual Sync. The registration reconciler is
-  deliberately skipped when `NODE_ENV=development` (commit 9fb5dfbe: local stores may carry
-  production-encrypted tokens), so nothing repairs that locally. Not changed here; the catch-up above
-  covers the merchant-facing effect. To fix the dev store itself, register the topics in
-  `buildWebhookTopicMap` against the ngrok URL, or run the reconciler once by hand.
-
-## 2026-09-25 — Onboarding gains contact (page 3) and shopper-limits (page 4) pages; theme becomes page 5
-
-- **Change:** new `/onboarding/contact` page between baskets and the theme embed: "Emergency contact
-  details" with Your name (required), Your email address (required), Phone number (optional), all
-  prefilled; no skip (Continue waits for valid name + email). `POST /v1/shopify/onboarding/contact` writes the existing
-  `shopify_stores` columns `shop_owner_name`, `shop_email`, `shop_phone` (no migration), so the
-  admin store list, the low-credit alert emails and GDPR redaction keep reading one place. `/me`
-  now returns `shopOwnerName` and `shopPhone` for the prefill. Page 2's Continue goes to contact;
-  contact's Continue goes to `/onboarding/limits`.
-- **Shopper limits (page 4, `/onboarding/limits`):** the Per-shopper limit (+ "Resets every") and
-  Ask-for-an-email cards from Settings → Limits, shared via `ShopperLimitCards` / `lib/limits.ts` so
-  the two places cannot drift; Settings keeps them (and the Store daily limit, which is not on
-  this page). Continue PATCHes only those three keys (the API merges `limits`) and writes nothing if
-  they are unchanged; all default to off. Contact's Continue → limits → theme.
-- **Welcome credits are automatic.** No claim tile, popup or email step any more: the Dashboard calls
-  `POST /v1/shopify/onboarding/welcome-credits` on arrival when `emailBonusClaimed` isn't set, and
-  shows a "N free credits added" toast. Idempotent (flag + ledger `external_ref`
-  `shopify_email_bonus:{storeId}`, tested under two concurrent arrivals); the amount is the
-  admin-configured `shopify.trialCredits` (default 25). Removed `claim-email-bonus`,
-  `EmailBonusModal`, `CreditsSection` and the Dashboard's free-credits tile. **Side effect:** any
-  existing store that never claimed gets the credits the next time it opens the Dashboard, whether or
-  not it skipped the contact step. Contact details saving is now independent of credits.
-- **Not a gate in the wizard's derived step:** nothing on this page is stored as a flag, and the derived step (`getOnboardingStep`) is unchanged
-  (`canShowPostBasketPage` = step `theme` or finished, shared by contact and limits).
-- **Progress bar is now per page** (`getOnboardingProgress(me, page)`): page N of 5 reads N/6
-  (17, 33→46 within page 2 as products are picked / baskets assigned, 50, 67, 83) and only reaches
-  100% once the app embed is confirmed. Previously it was a three-milestone formula that could not
-  tell the contact and limits pages apart.
-- **Caveat:** a reinstall re-reads Shopify's owner name/email/phone over the merchant's entry.
-- **Reverted mid-session:** a first attempt moved the credit packs + free-credits tile onto a
-  page 3 and off the Dashboard; that was a misreading and was undone. `CreditsSection` (packs +
-  free tile + popup) is now the Dashboard's component, behaving as before.
-
-## 2026-09-25 — Try-on button: app block → app embed (onboarding page 3)
-
-- **Change:** the theme extension's `tryon-button.liquid` is now `target: "body"` (app embed)
-  instead of `target: "section"`. `tryon-widget.js` re-gains `placeWidget`: it inserts the
-  button into the product form directly above the buy buttons (`.product-form__buttons`,
-  `[data-shopify="payment-button"]`, `button[name="add"]`, …), waits up to 3s via a
-  `MutationObserver` for JS-rendered forms, honours a new optional `placement_selector`
-  setting (text, no default — Shopify rejects `"default": ""`), and otherwise adds
-  `.aivastra-tryon--floating` (fixed bottom-left). `buildThemeEditorDeepLink` now returns
-  `?context=apps&template=product&activateAppId={key}/tryon-button`. Page 3 is "Enable the Try It On
-  app embed" with an "Enable app embed" button. New setting `themeEmbedConfirmed` (no migration);
-  stores with `themeBlockConfirmed` but not `themeEmbedConfirmed` get a Dashboard banner
-  (`needsEmbedEnable`).
-- **No manual "I've added it" button.** `POST /v1/shopify/onboarding/confirm-theme-block` is
-  removed (now 404). Instead the widget's first request on a live product page —
-  `GET …/customer/products/:id/enabled` — calls `markThemeEmbedSeen`, which sets both flags. Only
-  Shopify-signed App Proxy requests count (the legacy `X-Widget-Key` is public in the page HTML), and
-  the widget adds `dm=1` in the theme editor / unpublished themes (`Shopify.designMode`,
-  `Shopify.theme.role !== 'main'`) so a toggled-but-unsaved embed isn't counted. Page 3 polls `/me`
-  every 5s and on tab focus. **Trap:** detection needs one real product-page view; a merchant whose
-  storefront is password-protected, or who never opens a product page, stays on page 3 with Continue
-  disabled and no override.
-- **Decision reversed:** 2026-07-31 moved embed → block because guessed selectors broke on
-  theme switches. Chosen again for one-toggle setup and vintage-theme support; CLAUDE.md updated.
-- **Must do before this reaches merchants:** `make shopify-deploy` publishes the extension (CI never
-  does), and existing merchants keep the old block until they enable the embed — placed blocks
-  no longer exist in the extension after deploy, so their button disappears until then.
-  Verify the deep link and placement on a dev store; neither has been run against a real theme.
-
-## 2026-09-25 — Basket description + image (admin-authored, shown to merchants)
-
-- **Change:** each basket (`shopify_funnel_templates`) can carry a short description and an
-  image. Migration `0206` adds nullable `description` and `image_key`; applied to local
-  `tryon_dev` only, ships via CI → `db:migrate:prod`. Admin: image presign route
-  (`POST /admin/shopify/funnel-templates/image/presign`), `description`/`imageKey` on create and
-  patch, and an upload + textarea in the Funnels page drawers. `imageKey` must match
-  `shopify/baskets/<uuid>.jpg` and the object must exist (else 400); the old file is deleted
-  after a replace/clear and on basket delete. Merchant: `GET /v1/shopify/baskets` returns
-  `description` and a 1h signed `imageUrl` (never the key); onboarding step 2 shows the chosen
-  "Apply to all" basket's image and text.
-- **Not done:** merchant Routing page does not show the image yet (decide later). Not looked at in
-  a browser. `packages/storage` must be rebuilt (`dist/` is git-ignored) for the new key builder.
-
-## 2026-09-25 — Shopify onboarding: pick products, then baskets
-
-- **Change:** onboarding page 2 is now two stages (spec:
-  `docs/superpowers/specs/2026-09-25-shopify-onboarding-product-basket-design.md`).
-  1. New product filters on `GET /v1/shopify/products` (type, vendor, tag, collection,
-     category, status, title search with literal `%`/`_`), a facets endpoint, and a
-     transactional `POST /v1/shopify/products/bulk` (enable and/or pin, by ids or by
-     filter + `excludeIds`, store-scoped, 404 on an inactive basket).
-  2. New nullable `shopify_product_garments.category` (Shopify taxonomy `fullName`),
-     filled by the product sync. **Migration `0205_big_monster_badoon.sql` is generated
-     locally and ships via CI → `db:migrate:prod`; existing stores get categories only
-     after their next sync.**
-  3. `/me` returns `stats.unroutedEnabledCount`. The SPA derives wizard progress from it
-     (no new flag): Intro → Page 2 (pick, then baskets) → Theme, progress 25/50/75/100%.
-  4. The Routing onboarding page is removed; `/onboarding/routing` redirects to page 2.
-     `confirm-routing` and `onboardingRoutingConfirmed` are left in place, unused.
-- **Behaviour change:** the wizard's sync no longer switches the store to global mode.
-- **Not done:** assigning baskets by filter group, a Back control between the stages,
-  removing the unused `confirm-routing` route/flag, backfilling categories for existing
-  stores without waiting for a re-sync. The `category { fullName }` GraphQL field has not
-  been exercised against a live Shopify store (needs a dev-store sync to confirm).
-- **Open question:** none blocking. The page-2 layout has only been checked by typecheck
-  and build; it needs a browser pass inside the Shopify admin iframe (dev store).
 
 ## 2026-09-21 — /results grid thumbnails (stored output thumb + on-demand input thumbs)
 

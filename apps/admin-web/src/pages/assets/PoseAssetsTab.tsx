@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
+import { BulkImportPosesModal } from '../../components/BulkImportPosesModal';
 import { EditPoseAssetModal } from '../../components/EditPoseAssetModal';
 import { Icon } from '../../components/Icons';
 import { Pager } from '../../components/Pager';
@@ -9,8 +10,8 @@ import { Switch } from '../../components/Switch';
 import { useCrumb } from '../../context/BreadcrumbContext';
 import { useCloseOverlay } from '../../hooks/use-close-overlay';
 import { useUrlStateMulti } from '../../hooks/use-url-state';
-import { apiErrorMessage, apiFetch, getToken } from '../../lib/data';
-import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../../types';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
+import type { ModelPoseAsset, PoseGarmentTypeConfig, WorkflowOption } from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
 const GENDER_TABS = [
@@ -49,6 +50,8 @@ export function PoseAssetsTab() {
   // same as UsersPage's bulk-delete precedent (confirm=bulk-delete-users).
   const [confirmBulkDeletePoseAssetIds, setConfirmBulkDeletePoseAssetIds] = useState<string[]>([]);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [confirmUnmapPoseAssetIds, setConfirmUnmapPoseAssetIds] = useState<string[]>([]);
+  const [bulkUnmapSaving, setBulkUnmapSaving] = useState(false);
 
   // One shared `modal` param for every single-record modal on this tab,
   // mirroring UsersPage's modal enum. `editId` only matters for edit-pose,
@@ -61,6 +64,7 @@ export function PoseAssetsTab() {
   const showBulkRename = modalParam === 'bulk-rename';
   const showBulkWorkflow = modalParam === 'bulk-workflow';
   const showBulkImport = modalParam === 'bulk-import';
+  const showBulkGarmentMap = modalParam === 'bulk-garment-map';
 
   const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
     'confirm',
@@ -85,7 +89,9 @@ export function PoseAssetsTab() {
             ? { label: 'Change workflow', href: `${tabHref}&modal=bulk-workflow` }
             : showBulkImport
               ? { label: 'Bulk import', href: `${tabHref}&modal=bulk-import` }
-              : null,
+              : showBulkGarmentMap
+                ? { label: 'Map to garment types', href: `${tabHref}&modal=bulk-garment-map` }
+                : null,
   );
   useCrumb(
     2,
@@ -96,7 +102,9 @@ export function PoseAssetsTab() {
         }
       : confirmParam === 'bulk-delete-poses'
         ? { label: 'Move to recycle bin', href: `${tabHref}&confirm=bulk-delete-poses` }
-        : null,
+        : confirmParam === 'unmap-poses-garment-types'
+          ? { label: 'Unmap from all', href: `${tabHref}&confirm=unmap-poses-garment-types` }
+          : null,
   );
 
   // Bulk rename state
@@ -111,19 +119,17 @@ export function PoseAssetsTab() {
   const [bulkSortStart, setBulkSortStart] = useState(0);
   const [bulkSortSaving, setBulkSortSaving] = useState(false);
 
-  // Bulk import state
-  const [bulkImportGender, setBulkImportGender] = useState<GenderSlug>('men');
-  const [bulkImportWorkflowId, setBulkImportWorkflowId] = useState('');
-  const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
-  const [bulkImporting, setBulkImporting] = useState(false);
-  const [bulkImportProgress, setBulkImportProgress] = useState(0);
-  const [bulkImportPhase, setBulkImportPhase] = useState<'uploading' | 'processing'>('uploading');
-  const [bulkImportCounts, setBulkImportCounts] = useState<{
-    phase: string;
-    done: number;
-    total: number;
-  } | null>(null);
-  const bulkImportXhrRef = useRef<XMLHttpRequest | null>(null);
+  // Bulk garment-type mapping state — one pose's config list per selected
+  // pose, fetched from the same per-pose endpoint the single-asset editor
+  // uses, so preserving workflow/prompt overrides on apply doesn't need a
+  // separate read path.
+  const [bulkGarmentConfigsByPose, setBulkGarmentConfigsByPose] = useState<
+    Record<string, PoseGarmentTypeConfig[]>
+  >({});
+  const [bulkGarmentLoading, setBulkGarmentLoading] = useState(false);
+  const [bulkGarmentTypeIds, setBulkGarmentTypeIds] = useState<string[]>([]);
+  const [bulkGarmentSaving, setBulkGarmentSaving] = useState(false);
+
   const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handleImageClick(id: string) {
@@ -293,6 +299,127 @@ export function PoseAssetsTab() {
     }
   };
 
+  const openBulkGarmentMap = async () => {
+    setBulkGarmentTypeIds([]);
+    setModalParams({ modal: 'bulk-garment-map', editId: null });
+    setBulkGarmentLoading(true);
+    try {
+      const entries = await Promise.all(
+        selectedPoseAssetIds.map(async (id) => {
+          const res = await apiFetch<{ items: PoseGarmentTypeConfig[] }>(
+            `/admin/assets/pose-assets/${id}/garment-configs`,
+          );
+          return [id, res.items] as const;
+        }),
+      );
+      setBulkGarmentConfigsByPose(Object.fromEntries(entries));
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load garment types',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkGarmentLoading(false);
+    }
+  };
+
+  const doBulkGarmentMap = async (makeVisible: boolean) => {
+    if (bulkGarmentTypeIds.length === 0 || selectedPoseAssetIds.length === 0) return;
+    setBulkGarmentSaving(true);
+    try {
+      const patches: Promise<unknown>[] = [];
+      for (const poseId of selectedPoseAssetIds) {
+        const configs = bulkGarmentConfigsByPose[poseId] ?? [];
+        for (const garmentTypeId of bulkGarmentTypeIds) {
+          // A garment type not in this pose's own list means it's a different
+          // gender than this pose — skip rather than write a cross-gender row.
+          const cfg = configs.find((c) => c.id === garmentTypeId);
+          if (!cfg) continue;
+          patches.push(
+            apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                workflowTemplateId: cfg.config?.workflowTemplateId ?? null,
+                promptGarmentPhase: cfg.config?.promptGarmentPhase ?? null,
+                promptFacePhase: cfg.config?.promptFacePhase ?? null,
+                isActive: makeVisible,
+              }),
+            }),
+          );
+        }
+      }
+      await Promise.all(patches);
+      // Refetch rather than recompute visibleGarmentTypeCount/totalGarmentTypeCount
+      // locally — the server already derives them from the same override rows we
+      // just wrote, so this avoids duplicating that formula on the client.
+      await loadPoseAssets();
+      toast({
+        title: `${selectedPoseAssetIds.length} pose${selectedPoseAssetIds.length !== 1 ? 's' : ''} ${makeVisible ? 'mapped to' : 'unmapped from'} ${bulkGarmentTypeIds.length} garment type${bulkGarmentTypeIds.length !== 1 ? 's' : ''}`,
+      });
+      closeModal();
+      setSelectedPoseAssetIds([]);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk garment mapping failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkGarmentSaving(false);
+    }
+  };
+
+  const doUnmapAllGarmentTypes = async () => {
+    const ids = confirmUnmapPoseAssetIds;
+    if (ids.length === 0) return;
+    closeConfirm();
+    setConfirmUnmapPoseAssetIds([]);
+    setBulkUnmapSaving(true);
+    try {
+      // Fetch fresh rather than reuse bulkGarmentConfigsByPose — this shortcut can be
+      // used without ever opening the "Map to garment types" modal.
+      const entries = await Promise.all(
+        ids.map(async (id) => {
+          const res = await apiFetch<{ items: PoseGarmentTypeConfig[] }>(
+            `/admin/assets/pose-assets/${id}/garment-configs`,
+          );
+          return [id, res.items] as const;
+        }),
+      );
+      const patches: Promise<unknown>[] = [];
+      for (const [poseId, configs] of entries) {
+        for (const cfg of configs) {
+          patches.push(
+            apiFetch(`/admin/assets/garment-types/${cfg.id}/pose-configs/${poseId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                workflowTemplateId: cfg.config?.workflowTemplateId ?? null,
+                promptGarmentPhase: cfg.config?.promptGarmentPhase ?? null,
+                promptFacePhase: cfg.config?.promptFacePhase ?? null,
+                isActive: false,
+              }),
+            }),
+          );
+        }
+      }
+      await Promise.all(patches);
+      await loadPoseAssets();
+      toast({
+        title: `${ids.length} pose${ids.length !== 1 ? 's' : ''} unmapped from all garment types`,
+      });
+      setSelectedPoseAssetIds([]);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Unmap failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkUnmapSaving(false);
+    }
+  };
+
   const doBulkDeletePoseAssets = async () => {
     if (deleteConfirmText !== 'move to recycle bin') return;
     const ids = confirmBulkDeletePoseAssetIds;
@@ -360,6 +487,17 @@ export function PoseAssetsTab() {
     new Set(genderSlicedAssets.map((a) => a.poseVariant).filter(Boolean) as string[]),
   ).sort();
 
+  // Union of garment types across every selected pose's own list (each pose's
+  // list is already scoped to its own gender) — a mixed-gender selection just
+  // shows more rows, each still only applied to poses that share its gender.
+  const bulkGarmentTypeOptions = Array.from(
+    new Map(
+      Object.values(bulkGarmentConfigsByPose)
+        .flat()
+        .map((g) => [g.id, g] as const),
+    ).values(),
+  ).sort((a, b) => a.label.localeCompare(b.label));
+
   return (
     <>
       <div className="page-head">
@@ -378,12 +516,7 @@ export function PoseAssetsTab() {
           </button>
           <button
             className="btn"
-            onClick={() => {
-              setBulkImportGender('men');
-              setBulkImportWorkflowId(workflows[0]?.id ?? '');
-              setBulkImportFile(null);
-              setModalParams({ modal: 'bulk-import', editId: null });
-            }}
+            onClick={() => setModalParams({ modal: 'bulk-import', editId: null })}
           >
             <Icon.Upload /> Bulk import ZIP
           </button>
@@ -525,6 +658,19 @@ export function PoseAssetsTab() {
                 >
                   <Icon.Workflow /> Workflow ({selectedPoseAssetIds.length})
                 </button>
+                <button className="btn sm" onClick={() => void openBulkGarmentMap()}>
+                  <Icon.Catalog /> Map to garment types ({selectedPoseAssetIds.length})
+                </button>
+                <button
+                  className="btn sm ghost"
+                  disabled={bulkUnmapSaving}
+                  onClick={() => {
+                    setConfirmUnmapPoseAssetIds([...selectedPoseAssetIds]);
+                    setConfirmParams({ confirm: 'unmap-poses-garment-types', confirmId: null });
+                  }}
+                >
+                  Unmap from all
+                </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                     Sort from
@@ -653,6 +799,15 @@ export function PoseAssetsTab() {
                           title="Workflow"
                         >
                           {workflows.find((w) => w.id === a.workflowTemplateId)?.label ?? '?'}
+                        </span>
+                      )}
+                      {a.totalGarmentTypeCount !== undefined && (
+                        <span
+                          className="badge dot accent"
+                          style={{ fontSize: 10 }}
+                          title="Garment types this pose is visible on"
+                        >
+                          <Icon.Catalog /> {a.visibleGarmentTypeCount}/{a.totalGarmentTypeCount}
                         </span>
                       )}
                     </div>
@@ -836,6 +991,157 @@ export function PoseAssetsTab() {
         </div>
       )}
 
+      {/* Unmap from all garment types */}
+      {confirmParam === 'unmap-poses-garment-types' && (
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            closeConfirm();
+            setConfirmUnmapPoseAssetIds([]);
+          }}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Unmap from all garment types</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Hide <strong>{confirmUnmapPoseAssetIds.length}</strong> selected pose
+                {confirmUnmapPoseAssetIds.length !== 1 ? 's' : ''} from every garment type of its
+                gender? Any workflow/prompt override per garment type is kept, and you can re-map
+                individual types afterward.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => {
+                  closeConfirm();
+                  setConfirmUnmapPoseAssetIds([]);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                disabled={bulkUnmapSaving}
+                onClick={() => void doUnmapAllGarmentTypes()}
+              >
+                {bulkUnmapSaving ? 'Unmapping…' : `Unmap ${confirmUnmapPoseAssetIds.length}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk map to garment types */}
+      {showBulkGarmentMap && (
+        <div className="modal-overlay" onClick={() => !bulkGarmentSaving && closeModal()}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+            <div className="modal-head">
+              <h3>
+                Map {selectedPoseAssetIds.length} pose{selectedPoseAssetIds.length !== 1 ? 's' : ''}{' '}
+                to garment types
+              </h3>
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Select garment types, then show or hide the selected poses on them. A pose already
+                shows on every garment type of its gender by default.
+              </p>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            >
+              {bulkGarmentLoading ? (
+                <p style={{ fontSize: 12, color: 'var(--muted)' }}>Loading garment types…</p>
+              ) : bulkGarmentTypeOptions.length === 0 ? (
+                <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  No garment types found for the selected poses.
+                </p>
+              ) : (
+                <>
+                  <button
+                    className="btn sm ghost"
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() =>
+                      setBulkGarmentTypeIds((prev) =>
+                        prev.length === bulkGarmentTypeOptions.length
+                          ? []
+                          : bulkGarmentTypeOptions.map((g) => g.id),
+                      )
+                    }
+                  >
+                    {bulkGarmentTypeIds.length === bulkGarmentTypeOptions.length
+                      ? 'Deselect all'
+                      : 'Select all'}
+                  </button>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                      maxHeight: 280,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {bulkGarmentTypeOptions.map((g) => (
+                      <label
+                        key={g.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '4px 8px',
+                          borderRadius: 6,
+                          background: 'var(--surface-2)',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={bulkGarmentTypeIds.includes(g.id)}
+                          onChange={(e) =>
+                            setBulkGarmentTypeIds((prev) =>
+                              e.target.checked ? [...prev, g.id] : prev.filter((id) => id !== g.id),
+                            )
+                          }
+                        />
+                        {g.label}
+                        {g.genderSlug && (
+                          <span className="badge dot accent" style={{ fontSize: 10 }}>
+                            {g.genderSlug}
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" disabled={bulkGarmentSaving} onClick={closeModal}>
+                Cancel
+              </button>
+              <button
+                className="btn ghost"
+                disabled={bulkGarmentSaving || bulkGarmentTypeIds.length === 0}
+                onClick={() => void doBulkGarmentMap(false)}
+              >
+                {bulkGarmentSaving ? 'Saving…' : `Hide from ${bulkGarmentTypeIds.length}`}
+              </button>
+              <button
+                className="btn"
+                disabled={bulkGarmentSaving || bulkGarmentTypeIds.length === 0}
+                onClick={() => void doBulkGarmentMap(true)}
+              >
+                {bulkGarmentSaving ? 'Saving…' : `Map to ${bulkGarmentTypeIds.length}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Bulk rename display name */}
       {showBulkRename && (
         <div className="modal-overlay" onClick={() => !bulkRenaming && closeModal()}>
@@ -889,232 +1195,13 @@ export function PoseAssetsTab() {
 
       {/* Bulk import ZIP */}
       {showBulkImport && (
-        <div
-          className="modal-overlay"
-          onClick={() => !(bulkImporting && bulkImportPhase === 'processing') && closeModal()}
-        >
-          <div className="modal" style={{ width: 480 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Bulk import ZIP</h3>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
-            >
-              <div>
-                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                  ZIP file
-                </label>
-                <input
-                  type="file"
-                  accept=".zip"
-                  style={{ width: '100%' }}
-                  onChange={(e) => setBulkImportFile(e.target.files?.[0] ?? null)}
-                />
-                {bulkImportFile && (
-                  <p style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                    {bulkImportFile.name} ({(bulkImportFile.size / 1024 / 1024).toFixed(1)} MB)
-                  </p>
-                )}
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>Gender</label>
-                <SearchableSelect
-                  options={[
-                    { id: 'men', label: 'Men' },
-                    { id: 'women', label: 'Women' },
-                    { id: 'boys', label: 'Boys' },
-                    { id: 'girls', label: 'Girls' },
-                  ]}
-                  value={bulkImportGender}
-                  onChange={(v) => setBulkImportGender(v as GenderSlug)}
-                  disabled={bulkImporting}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                  Workflow template
-                </label>
-                <SearchableSelect
-                  options={workflows}
-                  value={bulkImportWorkflowId}
-                  onChange={setBulkImportWorkflowId}
-                  disabled={bulkImporting}
-                  placeholder="— search workflow —"
-                />
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-                ZIP must contain <code>poses/</code> folder with pose images. Filenames become the
-                dedup label.
-              </p>
-              {bulkImporting && (
-                <div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: 12,
-                      marginBottom: 4,
-                      color: 'var(--muted)',
-                    }}
-                  >
-                    <span>
-                      {bulkImportPhase === 'uploading'
-                        ? 'Uploading…'
-                        : bulkImportCounts
-                          ? `Processing ${bulkImportCounts.phase} (${bulkImportCounts.done}/${bulkImportCounts.total})…`
-                          : 'Processing ZIP…'}
-                    </span>
-                    <span>{bulkImportProgress}%</span>
-                  </div>
-                  <div
-                    style={{
-                      height: 6,
-                      background: 'var(--border)',
-                      borderRadius: 3,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: '100%',
-                        width: `${bulkImportProgress}%`,
-                        background: 'var(--accent, #6366f1)',
-                        borderRadius: 3,
-                        transition: 'width 0.2s ease',
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="modal-foot">
-              <button
-                className="btn ghost"
-                disabled={bulkImporting && bulkImportPhase === 'processing'}
-                onClick={() => {
-                  if (bulkImportXhrRef.current) {
-                    bulkImportXhrRef.current.abort();
-                    bulkImportXhrRef.current = null;
-                  }
-                  closeModal();
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn"
-                disabled={bulkImporting || !bulkImportFile || !bulkImportWorkflowId}
-                onClick={() => {
-                  if (!bulkImportFile || !bulkImportWorkflowId) return;
-                  setBulkImporting(true);
-                  setBulkImportProgress(0);
-                  setBulkImportPhase('uploading');
-                  setBulkImportCounts(null);
-                  const fd = new FormData();
-                  fd.append('workflowTemplateId', bulkImportWorkflowId);
-                  fd.append('genderSlug', bulkImportGender);
-                  fd.append('zip', bulkImportFile);
-                  const tok = getToken();
-                  const xhr = new XMLHttpRequest();
-                  bulkImportXhrRef.current = xhr;
-                  xhr.open('POST', '/admin/assets/bulk-import');
-                  if (tok) xhr.setRequestHeader('Authorization', `Bearer ${tok}`);
-                  xhr.upload.onprogress = (e) => {
-                    if (e.lengthComputable)
-                      setBulkImportProgress(Math.round((e.loaded / e.total) * 100));
-                  };
-                  xhr.upload.onload = () => {
-                    setBulkImportPhase('processing');
-                    setBulkImportProgress(0);
-                  };
-                  let lastLen = 0;
-                  xhr.onprogress = () => {
-                    const newText = xhr.responseText.slice(lastLen);
-                    lastLen = xhr.responseText.length;
-                    for (const line of newText.split('\n').filter(Boolean)) {
-                      try {
-                        const msg = JSON.parse(line) as {
-                          phase?: string;
-                          done?: number;
-                          total?: number;
-                        };
-                        if (msg.phase && msg.done !== undefined && msg.total !== undefined) {
-                          setBulkImportCounts({
-                            phase: msg.phase,
-                            done: msg.done,
-                            total: msg.total,
-                          });
-                          setBulkImportProgress(Math.round((msg.done / msg.total) * 100));
-                        }
-                      } catch {
-                        /* partial line — ignore */
-                      }
-                    }
-                  };
-                  xhr.onload = async () => {
-                    bulkImportXhrRef.current = null;
-                    setBulkImporting(false);
-                    setBulkImportPhase('uploading');
-                    setBulkImportCounts(null);
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                      const lines = xhr.responseText.split('\n').filter(Boolean);
-                      const result = JSON.parse(lines[lines.length - 1] ?? '{}') as {
-                        done?: boolean;
-                        created: { faces: number; backgrounds: number; poses: number };
-                        errors: string[];
-                      };
-                      closeModal();
-                      setBulkImportFile(null);
-                      setBulkImportProgress(0);
-                      const { faces: fCount, backgrounds: bCount, poses: pCount } = result.created;
-                      toast({
-                        title: `Imported ${fCount} faces, ${bCount} backgrounds, ${pCount} poses`,
-                        body:
-                          fCount + bCount + pCount === 0
-                            ? 'All items already exist — nothing new to import.'
-                            : undefined,
-                      });
-                      if (result.errors.length > 0) {
-                        console.error('Bulk import errors:', result.errors);
-                        toast({
-                          kind: 'error',
-                          title: `${result.errors.length} item(s) failed`,
-                          body: result.errors[0],
-                        });
-                      }
-                      await loadPoseAssets();
-                    } else {
-                      const err = JSON.parse(xhr.responseText) as { error?: { message?: string } };
-                      toast({
-                        kind: 'error',
-                        title: 'Bulk import failed',
-                        body: err.error?.message ?? xhr.statusText,
-                      });
-                    }
-                  };
-                  xhr.onerror = () => {
-                    bulkImportXhrRef.current = null;
-                    setBulkImporting(false);
-                    setBulkImportPhase('uploading');
-                    setBulkImportCounts(null);
-                    toast({ kind: 'error', title: 'Bulk import failed', body: 'Network error' });
-                  };
-                  xhr.onabort = () => {
-                    bulkImportXhrRef.current = null;
-                    setBulkImporting(false);
-                    setBulkImportPhase('uploading');
-                    setBulkImportProgress(0);
-                    setBulkImportCounts(null);
-                  };
-                  xhr.send(fd);
-                }}
-              >
-                {bulkImporting ? 'Importing…' : 'Import'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <BulkImportPosesModal
+          defaultGenderSlug={genderFilter !== 'all' ? genderFilter : 'men'}
+          workflows={workflows}
+          onDone={() => void loadPoseAssets()}
+          onClose={closeModal}
+          toast={toast}
+        />
       )}
 
       {showPoseAssetUpload && (
@@ -1136,7 +1223,13 @@ export function PoseAssetsTab() {
           onSaved={(updated) => {
             setPoseAssets((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
           }}
-          onClose={closeModal}
+          onClose={() => {
+            closeModal();
+            // Garment-type visibility toggles inside the modal write directly via
+            // their own PATCH calls (not through onSaved), so refetch to pick up
+            // any visibleGarmentTypeCount/totalGarmentTypeCount change for this pose.
+            void loadPoseAssets();
+          }}
           toast={toast}
         />
       )}

@@ -2,17 +2,6 @@
   margin-bottom: 19px;
 }
 
-/* Last resort when the theme's product form can't be found (see placeWidget in
-   tryon-widget.js): a fixed bottom-left button so it is still reachable.
-   Bottom-left because the modal opens bottom-right. */
-.aivastra-tryon--floating {
-  position: fixed;
-  inset: auto auto 24px 24px;
-  z-index: 100;
-  margin: 0;
-  max-width: 220px;
-}
-
 /* Bottom-right corner, nowhere near a theme's top nav bar to begin with. The
    75dvh cap on .modal-content keeps it from ever growing tall enough to
    reach the top of the viewport, and z-index is kept modest (not the old

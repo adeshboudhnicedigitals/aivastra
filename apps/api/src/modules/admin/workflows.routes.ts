@@ -308,6 +308,7 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       upperNodeIds: [],
       lowerNodeId: null,
       shoeNodeId: null,
+      garmentView: 'front',
       thirdNodeId: null,
       sizeNodeIds: [],
       latentSizeNodeIds: [],
@@ -412,6 +413,7 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       upperNodeIds: [garmentNodeId],
       lowerNodeId: null,
       shoeNodeId: null,
+      garmentView: 'front',
       thirdNodeId: null,
       sizeNodeIds,
       latentSizeNodeIds: [],
@@ -486,6 +488,7 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       upperNodeIds: [],
       lowerNodeId: null,
       shoeNodeId: null,
+      garmentView: 'front',
       thirdNodeId: null,
       sizeNodeIds: [],
       latentSizeNodeIds: [],
@@ -562,6 +565,7 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       upperNodeIds: [],
       lowerNodeId: null,
       shoeNodeId: null,
+      garmentView: 'front',
       thirdNodeId: null,
       sizeNodeIds: [],
       latentSizeNodeIds: [],
@@ -647,6 +651,7 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
     upperNodeIds,
     lowerNodeId: body.lowerNodeId ?? null,
     shoeNodeId: body.shoeNodeId ?? null,
+    garmentView: body.garmentView ?? 'front',
     thirdNodeId: body.thirdNodeId ?? null,
     sizeNodeIds: body.sizeNodeIds ?? [],
     latentSizeNodeIds: body.latentSizeNodeIds ?? [],
@@ -1010,6 +1015,7 @@ export async function updateWorkflowRow(
     updateValues.slug = body.slug;
   }
   if (body.isActive !== undefined) updateValues.isActive = body.isActive;
+  if (body.garmentView !== undefined) updateValues.garmentView = body.garmentView;
   if (body.faceNodeId !== undefined) updateValues.faceNodeId = body.faceNodeId;
   if (body.poseNodeId !== undefined) updateValues.poseNodeId = body.poseNodeId;
   if (body.bgNodeId !== undefined) updateValues.bgNodeId = body.bgNodeId;
