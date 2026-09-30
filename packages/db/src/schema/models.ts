@@ -254,6 +254,14 @@ export const workflowTemplates = pgTable('workflow_templates', {
   // try-on workflows, used by both the studio Try-On feature and kiosk.
   workflowType: text('workflow_type').notNull().default('regular'), // 'regular' | 'tryon'
 
+  // 'front' (default) or 'back' — which side of the garment this graph's pose
+  // reference depicts. Only meaningful for workflowType='regular' (pose-based
+  // catalogue generation); every other type stays 'front' and is never read.
+  // Drives which of the customer's two uploaded garment photos (front vs back)
+  // create.ts feeds into this template's upper/lower LoadImage nodes — see
+  // resolveTryonPlan in apps/api/src/modules/jobs/create.ts.
+  garmentView: text('garment_view').notNull().default('front'), // 'front' | 'back'
+
   // Tryon workflow node IDs — only set when workflowType = 'tryon'
   tryonPersonNodeId: text('tryon_person_node_id'),
   tryonGarmentNodeId: text('tryon_garment_node_id'),

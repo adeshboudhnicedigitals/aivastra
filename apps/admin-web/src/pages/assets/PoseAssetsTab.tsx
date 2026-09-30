@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
+import { BulkImportPosesModal } from '../../components/BulkImportPosesModal';
 import { EditPoseAssetModal } from '../../components/EditPoseAssetModal';
 import { Icon } from '../../components/Icons';
 import { Pager } from '../../components/Pager';
@@ -9,13 +10,8 @@ import { Switch } from '../../components/Switch';
 import { useCrumb } from '../../context/BreadcrumbContext';
 import { useCloseOverlay } from '../../hooks/use-close-overlay';
 import { useUrlStateMulti } from '../../hooks/use-url-state';
-import { apiErrorMessage, apiFetch, getToken } from '../../lib/data';
-import type {
-  GenderSlug,
-  ModelPoseAsset,
-  PoseGarmentTypeConfig,
-  WorkflowOption,
-} from '../../types';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
+import type { ModelPoseAsset, PoseGarmentTypeConfig, WorkflowOption } from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
 const GENDER_TABS = [
@@ -134,19 +130,6 @@ export function PoseAssetsTab() {
   const [bulkGarmentTypeIds, setBulkGarmentTypeIds] = useState<string[]>([]);
   const [bulkGarmentSaving, setBulkGarmentSaving] = useState(false);
 
-  // Bulk import state
-  const [bulkImportGender, setBulkImportGender] = useState<GenderSlug>('men');
-  const [bulkImportWorkflowId, setBulkImportWorkflowId] = useState('');
-  const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
-  const [bulkImporting, setBulkImporting] = useState(false);
-  const [bulkImportProgress, setBulkImportProgress] = useState(0);
-  const [bulkImportPhase, setBulkImportPhase] = useState<'uploading' | 'processing'>('uploading');
-  const [bulkImportCounts, setBulkImportCounts] = useState<{
-    phase: string;
-    done: number;
-    total: number;
-  } | null>(null);
-  const bulkImportXhrRef = useRef<XMLHttpRequest | null>(null);
   const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handleImageClick(id: string) {
@@ -533,12 +516,7 @@ export function PoseAssetsTab() {
           </button>
           <button
             className="btn"
-            onClick={() => {
-              setBulkImportGender('men');
-              setBulkImportWorkflowId(workflows[0]?.id ?? '');
-              setBulkImportFile(null);
-              setModalParams({ modal: 'bulk-import', editId: null });
-            }}
+            onClick={() => setModalParams({ modal: 'bulk-import', editId: null })}
           >
             <Icon.Upload /> Bulk import ZIP
           </button>
@@ -1217,232 +1195,13 @@ export function PoseAssetsTab() {
 
       {/* Bulk import ZIP */}
       {showBulkImport && (
-        <div
-          className="modal-overlay"
-          onClick={() => !(bulkImporting && bulkImportPhase === 'processing') && closeModal()}
-        >
-          <div className="modal" style={{ width: 480 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Bulk import ZIP</h3>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
-            >
-              <div>
-                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                  ZIP file
-                </label>
-                <input
-                  type="file"
-                  accept=".zip"
-                  style={{ width: '100%' }}
-                  onChange={(e) => setBulkImportFile(e.target.files?.[0] ?? null)}
-                />
-                {bulkImportFile && (
-                  <p style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                    {bulkImportFile.name} ({(bulkImportFile.size / 1024 / 1024).toFixed(1)} MB)
-                  </p>
-                )}
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>Gender</label>
-                <SearchableSelect
-                  options={[
-                    { id: 'men', label: 'Men' },
-                    { id: 'women', label: 'Women' },
-                    { id: 'boys', label: 'Boys' },
-                    { id: 'girls', label: 'Girls' },
-                  ]}
-                  value={bulkImportGender}
-                  onChange={(v) => setBulkImportGender(v as GenderSlug)}
-                  disabled={bulkImporting}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                  Workflow template
-                </label>
-                <SearchableSelect
-                  options={workflows}
-                  value={bulkImportWorkflowId}
-                  onChange={setBulkImportWorkflowId}
-                  disabled={bulkImporting}
-                  placeholder="— search workflow —"
-                />
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-                ZIP must contain <code>poses/</code> folder with pose images. Filenames become the
-                dedup label.
-              </p>
-              {bulkImporting && (
-                <div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: 12,
-                      marginBottom: 4,
-                      color: 'var(--muted)',
-                    }}
-                  >
-                    <span>
-                      {bulkImportPhase === 'uploading'
-                        ? 'Uploading…'
-                        : bulkImportCounts
-                          ? `Processing ${bulkImportCounts.phase} (${bulkImportCounts.done}/${bulkImportCounts.total})…`
-                          : 'Processing ZIP…'}
-                    </span>
-                    <span>{bulkImportProgress}%</span>
-                  </div>
-                  <div
-                    style={{
-                      height: 6,
-                      background: 'var(--border)',
-                      borderRadius: 3,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: '100%',
-                        width: `${bulkImportProgress}%`,
-                        background: 'var(--accent, #6366f1)',
-                        borderRadius: 3,
-                        transition: 'width 0.2s ease',
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="modal-foot">
-              <button
-                className="btn ghost"
-                disabled={bulkImporting && bulkImportPhase === 'processing'}
-                onClick={() => {
-                  if (bulkImportXhrRef.current) {
-                    bulkImportXhrRef.current.abort();
-                    bulkImportXhrRef.current = null;
-                  }
-                  closeModal();
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn"
-                disabled={bulkImporting || !bulkImportFile || !bulkImportWorkflowId}
-                onClick={() => {
-                  if (!bulkImportFile || !bulkImportWorkflowId) return;
-                  setBulkImporting(true);
-                  setBulkImportProgress(0);
-                  setBulkImportPhase('uploading');
-                  setBulkImportCounts(null);
-                  const fd = new FormData();
-                  fd.append('workflowTemplateId', bulkImportWorkflowId);
-                  fd.append('genderSlug', bulkImportGender);
-                  fd.append('zip', bulkImportFile);
-                  const tok = getToken();
-                  const xhr = new XMLHttpRequest();
-                  bulkImportXhrRef.current = xhr;
-                  xhr.open('POST', '/admin/assets/bulk-import');
-                  if (tok) xhr.setRequestHeader('Authorization', `Bearer ${tok}`);
-                  xhr.upload.onprogress = (e) => {
-                    if (e.lengthComputable)
-                      setBulkImportProgress(Math.round((e.loaded / e.total) * 100));
-                  };
-                  xhr.upload.onload = () => {
-                    setBulkImportPhase('processing');
-                    setBulkImportProgress(0);
-                  };
-                  let lastLen = 0;
-                  xhr.onprogress = () => {
-                    const newText = xhr.responseText.slice(lastLen);
-                    lastLen = xhr.responseText.length;
-                    for (const line of newText.split('\n').filter(Boolean)) {
-                      try {
-                        const msg = JSON.parse(line) as {
-                          phase?: string;
-                          done?: number;
-                          total?: number;
-                        };
-                        if (msg.phase && msg.done !== undefined && msg.total !== undefined) {
-                          setBulkImportCounts({
-                            phase: msg.phase,
-                            done: msg.done,
-                            total: msg.total,
-                          });
-                          setBulkImportProgress(Math.round((msg.done / msg.total) * 100));
-                        }
-                      } catch {
-                        /* partial line — ignore */
-                      }
-                    }
-                  };
-                  xhr.onload = async () => {
-                    bulkImportXhrRef.current = null;
-                    setBulkImporting(false);
-                    setBulkImportPhase('uploading');
-                    setBulkImportCounts(null);
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                      const lines = xhr.responseText.split('\n').filter(Boolean);
-                      const result = JSON.parse(lines[lines.length - 1] ?? '{}') as {
-                        done?: boolean;
-                        created: { faces: number; backgrounds: number; poses: number };
-                        errors: string[];
-                      };
-                      closeModal();
-                      setBulkImportFile(null);
-                      setBulkImportProgress(0);
-                      const { faces: fCount, backgrounds: bCount, poses: pCount } = result.created;
-                      toast({
-                        title: `Imported ${fCount} faces, ${bCount} backgrounds, ${pCount} poses`,
-                        body:
-                          fCount + bCount + pCount === 0
-                            ? 'All items already exist — nothing new to import.'
-                            : undefined,
-                      });
-                      if (result.errors.length > 0) {
-                        console.error('Bulk import errors:', result.errors);
-                        toast({
-                          kind: 'error',
-                          title: `${result.errors.length} item(s) failed`,
-                          body: result.errors[0],
-                        });
-                      }
-                      await loadPoseAssets();
-                    } else {
-                      const err = JSON.parse(xhr.responseText) as { error?: { message?: string } };
-                      toast({
-                        kind: 'error',
-                        title: 'Bulk import failed',
-                        body: err.error?.message ?? xhr.statusText,
-                      });
-                    }
-                  };
-                  xhr.onerror = () => {
-                    bulkImportXhrRef.current = null;
-                    setBulkImporting(false);
-                    setBulkImportPhase('uploading');
-                    setBulkImportCounts(null);
-                    toast({ kind: 'error', title: 'Bulk import failed', body: 'Network error' });
-                  };
-                  xhr.onabort = () => {
-                    bulkImportXhrRef.current = null;
-                    setBulkImporting(false);
-                    setBulkImportPhase('uploading');
-                    setBulkImportProgress(0);
-                    setBulkImportCounts(null);
-                  };
-                  xhr.send(fd);
-                }}
-              >
-                {bulkImporting ? 'Importing…' : 'Import'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <BulkImportPosesModal
+          defaultGenderSlug={genderFilter !== 'all' ? genderFilter : 'men'}
+          workflows={workflows}
+          onDone={() => void loadPoseAssets()}
+          onClose={closeModal}
+          toast={toast}
+        />
       )}
 
       {showPoseAssetUpload && (

@@ -76,6 +76,10 @@ export const CreateTryOnJobInputsBase = z.object({
   // required — enforced below. mannequinJobId is only valid for garment types
   // with requiresMannequinStep=true (enforced server-side in createJob).
   upperGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
+  // Only meaningful when the resolved pose's workflow has garmentView='back' —
+  // see resolveTryonPlan. A flat-lay photo of the garment's BACK, distinct
+  // from upperGarmentKey's front photo.
+  upperGarmentBackKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
   mannequinJobId: z.string().uuid().optional(),
   faceId: z.string().uuid(),
   // Legacy/custom form: a single shared background applied to every pose.
@@ -97,6 +101,9 @@ export const CreateTryOnJobInputsBase = z.object({
   catalogueTemplateMappingId: z.string().uuid().optional(),
   lowerCatalogId: z.string().uuid().optional(),
   lowerGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
+  // Same as upperGarmentBackKey, for the lower garment. Back-view poses never
+  // accept lowerCatalogId for the lower role — see resolveTryonPlan.
+  lowerGarmentBackKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
   thirdGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
   shoeCatalogId: z.string().uuid().optional(),
 });

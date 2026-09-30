@@ -305,6 +305,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           lowerNodeId: schema.workflowTemplates.lowerNodeId,
           shoeNodeId: schema.workflowTemplates.shoeNodeId,
           sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+          garmentView: schema.workflowTemplates.garmentView,
         })
         .from(schema.modelPoseAssets)
         .leftJoin(
@@ -333,6 +334,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           lowerNodeId: string | null;
           shoeNodeId: string | null;
           sizeNodeIds: string[] | null;
+          garmentView: string;
         }
       >();
       let inactiveForType = new Set<string>();
@@ -347,6 +349,7 @@ export async function modelsRoutes(app: FastifyInstance) {
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+            garmentView: schema.workflowTemplates.garmentView,
           })
           .from(schema.poseGarmentConfigs)
           .leftJoin(
@@ -372,6 +375,7 @@ export async function modelsRoutes(app: FastifyInstance) {
                 lowerNodeId: c.lowerNodeId ?? null,
                 shoeNodeId: c.shoeNodeId ?? null,
                 sizeNodeIds: c.sizeNodeIds ?? null,
+                garmentView: c.garmentView ?? 'front',
               },
             ]),
         );
@@ -390,11 +394,13 @@ export async function modelsRoutes(app: FastifyInstance) {
               const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : i.lowerNodeId;
               const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : i.shoeNodeId;
               const sizeNodeIds = cfg !== undefined ? cfg.sizeNodeIds : i.sizeNodeIds;
+              const garmentView = cfg !== undefined ? cfg.garmentView : i.garmentView;
               return {
                 id: i.id,
                 label: i.displayName ?? i.label,
                 thumbnailUrl: (await app.storage.presignGet(i.thumbnailUrl, 3600)).url,
                 ...poseGarmentRoles({ upperNodeIds, lowerNodeId, shoeNodeId }),
+                garmentView: garmentView ?? 'front',
                 hasAspectRatio: (sizeNodeIds?.length ?? 0) > 0,
               };
             }),

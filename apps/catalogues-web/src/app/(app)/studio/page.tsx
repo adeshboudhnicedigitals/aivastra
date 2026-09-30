@@ -105,6 +105,7 @@ interface PoseItem {
   hasUpper: boolean;
   hasLower: boolean;
   hasShoes: boolean;
+  garmentView: 'front' | 'back';
 }
 interface TemplateLook {
   id: string;
@@ -579,6 +580,30 @@ export default function StudioPage(): React.ReactElement {
   }, [lowerGarmentPreviewUrl]);
   const [lowerGarmentKey, setLowerGarmentKey] = useState('');
   const [isUploadingLower, setIsUploadingLower] = useState(false);
+  const [upperGarmentBackFile, setUpperGarmentBackFile] = useState<File | null>(null);
+  const upperGarmentBackPreviewUrl = useMemo(
+    () => (upperGarmentBackFile ? URL.createObjectURL(upperGarmentBackFile) : ''),
+    [upperGarmentBackFile],
+  );
+  useEffect(() => {
+    return () => {
+      if (upperGarmentBackPreviewUrl) URL.revokeObjectURL(upperGarmentBackPreviewUrl);
+    };
+  }, [upperGarmentBackPreviewUrl]);
+  const [upperGarmentBackKey, setUpperGarmentBackKey] = useState('');
+  const [isUploadingUpperBack, setIsUploadingUpperBack] = useState(false);
+  const [lowerGarmentBackFile, setLowerGarmentBackFile] = useState<File | null>(null);
+  const lowerGarmentBackPreviewUrl = useMemo(
+    () => (lowerGarmentBackFile ? URL.createObjectURL(lowerGarmentBackFile) : ''),
+    [lowerGarmentBackFile],
+  );
+  useEffect(() => {
+    return () => {
+      if (lowerGarmentBackPreviewUrl) URL.revokeObjectURL(lowerGarmentBackPreviewUrl);
+    };
+  }, [lowerGarmentBackPreviewUrl]);
+  const [lowerGarmentBackKey, setLowerGarmentBackKey] = useState('');
+  const [isUploadingLowerBack, setIsUploadingLowerBack] = useState(false);
   const [thirdGarmentFile, setThirdGarmentFile] = useState<File | null>(null);
   const thirdGarmentPreviewUrl = useMemo(
     () => (thirdGarmentFile ? URL.createObjectURL(thirdGarmentFile) : ''),
@@ -617,6 +642,8 @@ export default function StudioPage(): React.ReactElement {
   const thirdUploadAbortRef = useRef<AbortController | null>(null);
   const palluFileInputRef = useRef<HTMLInputElement>(null);
   const palluUploadAbortRef = useRef<AbortController | null>(null);
+  const upperBackUploadAbortRef = useRef<AbortController | null>(null);
+  const lowerBackUploadAbortRef = useRef<AbortController | null>(null);
 
   // Abort any in-flight XHR uploads when the component unmounts (user navigates away)
   useEffect(() => {
@@ -625,6 +652,8 @@ export default function StudioPage(): React.ReactElement {
       lowerUploadAbortRef.current?.abort();
       thirdUploadAbortRef.current?.abort();
       palluUploadAbortRef.current?.abort();
+      upperBackUploadAbortRef.current?.abort();
+      lowerBackUploadAbortRef.current?.abort();
     };
   }, []);
 
@@ -1072,6 +1101,19 @@ export default function StudioPage(): React.ReactElement {
     catalogueTemplateId === 'custom'
       ? selectedPoses.some((p) => p.hasShoes)
       : selectedLooks.some((l) => l.hasShoes);
+  // Template mode never sets garmentView on TemplateLook (out of scope — see
+  // docs/superpowers/plans/2026-09-29-studio-back-pose-garment-view.md), so
+  // these are always false there.
+  const needsUpperBack =
+    catalogueTemplateId === 'custom' &&
+    selectedPoses.some((p) => p.hasUpper && p.garmentView === 'back');
+  // A back-view lower photo only applies to a genuinely lower-only garment
+  // (jeans, baggy — no upper role at all). A combined upper+lower pose's
+  // lower garment always uses the normal front/catalog flow, even when the
+  // pose itself is back-facing — only needsUpperBack applies to it.
+  const needsLowerBack =
+    catalogueTemplateId === 'custom' &&
+    selectedPoses.some((p) => p.hasLower && p.hasUpper === false && p.garmentView === 'back');
   // Every selected pose runs a workflow that consumes only a lower garment (no upper
   // node). The API rejects those without a lower upload (jobs/create.ts), so the one
   // upload box below is sent as the lower garment. `=== false` (not `!p.hasUpper`)
@@ -1084,9 +1126,26 @@ export default function StudioPage(): React.ReactElement {
     (catalogueTemplateId === 'custom'
       ? selectedPoses.length > 0 && selectedPoses.every(isLowerOnlyRole)
       : selectedLooks.length > 0 && selectedLooks.every(isLowerOnlyRole));
+  // A lower-only pose that's also back-view routes the single upload box into
+  // the back-lower slot instead of the front one — there's only one upload box
+  // shown for a lower-only role either way.
+  const lowerOnlyIsBack =
+    lowerOnly &&
+    catalogueTemplateId === 'custom' &&
+    selectedPoses.some((p) => p.garmentView === 'back');
   // createJob's schema requires upperGarmentKey, and strips it for a lower-only pose
   // (create.ts effectiveUpperGarmentKey), so the same key is sent in both slots.
-  const lowerGarmentKeyForSubmit = lowerOnly ? garmentKey : lowerGarmentKey;
+  const lowerGarmentKeyForSubmit = lowerOnly
+    ? lowerOnlyIsBack
+      ? undefined // sent as lowerGarmentBackKey instead, from upperGarmentBackKey — see handleSubmit
+      : garmentKey
+    : lowerGarmentKey;
+  // A lower-only pose has no upper role at all, so needsUpperBack (which
+  // requires hasUpper) stays false for it — but a lower-only *back* pose still
+  // needs exactly one back-view photo from the customer. The "Garment — Back
+  // View" upload box doubles as that single slot, same as how the regular
+  // step-1 box already doubles as the lower-only *front* photo above.
+  const needsUpperBackUpload = needsUpperBack || lowerOnlyIsBack;
   const previousCatalogNeeds = useRef({ lower: false, shoes: false });
   useEffect(() => {
     if (needsLower && !previousCatalogNeeds.current.lower && !lowerCatalogId) {
@@ -1241,6 +1300,80 @@ export default function StudioPage(): React.ReactElement {
     }
   }
 
+  async function handleUpperGarmentBackUpload(file: File) {
+    if (isUploadingUpperBack) return;
+    if (file.size > 20 * 1024 * 1024) {
+      showToast('File exceeds 20 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      showToast('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    setUpperGarmentBackFile(file);
+    setIsUploadingUpperBack(true);
+    const upperBackAbort = new AbortController();
+    upperBackUploadAbortRef.current = upperBackAbort;
+    try {
+      const { uploadUrl, r2Key } = await api.post<{
+        uploadUrl: string;
+        r2Key: string;
+        expiresIn: number;
+      }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, () => {}, upperBackAbort.signal);
+      setUpperGarmentBackKey(r2Key);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      const msg = (e as Error).message ?? '';
+      showToast(
+        msg.includes('403')
+          ? 'Upload session expired. Please re-select your image and try again.'
+          : `Back-view garment upload failed: ${msg}`,
+      );
+      setUpperGarmentBackFile(null);
+      setUpperGarmentBackKey('');
+    } finally {
+      setIsUploadingUpperBack(false);
+    }
+  }
+
+  async function handleLowerGarmentBackUpload(file: File) {
+    if (isUploadingLowerBack) return;
+    if (file.size > 20 * 1024 * 1024) {
+      showToast('File exceeds 20 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      showToast('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    setLowerGarmentBackFile(file);
+    setIsUploadingLowerBack(true);
+    const lowerBackAbort = new AbortController();
+    lowerBackUploadAbortRef.current = lowerBackAbort;
+    try {
+      const { uploadUrl, r2Key } = await api.post<{
+        uploadUrl: string;
+        r2Key: string;
+        expiresIn: number;
+      }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, () => {}, lowerBackAbort.signal);
+      setLowerGarmentBackKey(r2Key);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      const msg = (e as Error).message ?? '';
+      showToast(
+        msg.includes('403')
+          ? 'Upload session expired. Please re-select your image and try again.'
+          : `Back-view lower garment upload failed: ${msg}`,
+      );
+      setLowerGarmentBackFile(null);
+      setLowerGarmentBackKey('');
+    } finally {
+      setIsUploadingLowerBack(false);
+    }
+  }
+
   async function handleThirdGarmentUpload(file: File) {
     if (isUploadingThird) return;
     if (file.size > 20 * 1024 * 1024) {
@@ -1348,9 +1481,19 @@ export default function StudioPage(): React.ReactElement {
       const nextPoses = poses?.items.filter((p) => next.includes(p.id)) ?? [];
       const nextNeedsLower = nextPoses.some((p) => p.hasLower);
       const nextNeedsShoes = nextPoses.some((p) => p.hasShoes);
+      const nextNeedsUpperBack = nextPoses.some((p) => p.hasUpper && p.garmentView === 'back');
+      const nextNeedsLowerBack = nextPoses.some((p) => p.hasLower && p.garmentView === 'back');
       // Clear when no longer needed; leave empty otherwise (default sent at submit time)
       if (!nextNeedsLower) setLowerCatalogId('');
       if (!nextNeedsShoes) setShoeCatalogId('');
+      if (!nextNeedsUpperBack) {
+        setUpperGarmentBackFile(null);
+        setUpperGarmentBackKey('');
+      }
+      if (!nextNeedsLowerBack) {
+        setLowerGarmentBackFile(null);
+        setLowerGarmentBackKey('');
+      }
       return next;
     });
   }
@@ -1401,6 +1544,16 @@ export default function StudioPage(): React.ReactElement {
         garmentTypeId: garmentTypeId || undefined,
         lowerCatalogId: effectiveLowerId,
         lowerGarmentKey: lowerGarmentKeyForSubmit || undefined,
+        // A lower-only back pose has no upper role, so its single back-photo
+        // upload lands in upperGarmentBackKey (the only back-upload box shown
+        // for it — see needsUpperBackUpload) but must reach the server as the
+        // LOWER back key, mirroring lowerGarmentKeyForSubmit's front-side reuse
+        // of garmentKey above.
+        lowerGarmentBackKey: lowerOnlyIsBack
+          ? upperGarmentBackKey || undefined
+          : needsLowerBack
+            ? lowerGarmentBackKey || undefined
+            : undefined,
         shoeCatalogId: effectiveShoesId,
         thirdGarmentKey: thirdGarmentKey || undefined,
       };
@@ -1436,6 +1589,7 @@ export default function StudioPage(): React.ReactElement {
       } else {
         const inputs = {
           upperGarmentKey: garmentKey,
+          upperGarmentBackKey: needsUpperBack ? upperGarmentBackKey || undefined : undefined,
           ...step2Inputs,
         };
         ({ catalogueId, jobIds } = await api.post<{ catalogueId: string; jobIds: string[] }>(
@@ -1509,12 +1663,18 @@ export default function StudioPage(): React.ReactElement {
       }>('/v1/jobs/tryon', {
         inputs: {
           upperGarmentKey: garmentKey,
+          upperGarmentBackKey: needsUpperBack ? upperGarmentBackKey || undefined : undefined,
           faceId,
           backgroundId,
           poseIds: [mainPoseId],
           garmentTypeId: garmentTypeId || undefined,
           lowerCatalogId: effectiveLowerId,
           lowerGarmentKey: lowerGarmentKeyForSubmit || undefined,
+          lowerGarmentBackKey: lowerOnlyIsBack
+            ? upperGarmentBackKey || undefined
+            : needsLowerBack
+              ? lowerGarmentBackKey || undefined
+              : undefined,
           shoeCatalogId: effectiveShoesId,
           thirdGarmentKey: thirdGarmentKey || undefined,
         },
@@ -1545,12 +1705,18 @@ export default function StudioPage(): React.ReactElement {
           catalogueId,
           inputs: {
             upperGarmentKey: garmentKey,
+            upperGarmentBackKey: needsUpperBack ? upperGarmentBackKey || undefined : undefined,
             faceId,
             backgroundId,
             poseIds: remainingPoseIds,
             garmentTypeId: garmentTypeId || undefined,
             lowerCatalogId: effectiveLowerId,
             lowerGarmentKey: lowerGarmentKeyForSubmit || undefined,
+            lowerGarmentBackKey: lowerOnlyIsBack
+              ? upperGarmentBackKey || undefined
+              : needsLowerBack
+                ? lowerGarmentBackKey || undefined
+                : undefined,
             shoeCatalogId: effectiveShoesId,
             thirdGarmentKey: thirdGarmentKey || undefined,
           },
@@ -1604,6 +1770,8 @@ export default function StudioPage(): React.ReactElement {
     selectedCount > 0 &&
     !!garmentKey &&
     (!requiresLowerUpload || !!lowerGarmentKey) &&
+    (!needsUpperBackUpload || !!upperGarmentBackKey) &&
+    (!needsLowerBack || (lowerOnlyIsBack ? !!upperGarmentBackKey : !!lowerGarmentBackKey)) &&
     (!requiresThirdUpload || !!thirdGarmentKey) &&
     (!sareeTwoInputActive || !!palluGarmentKey) &&
     !!faceId &&
@@ -1612,6 +1780,8 @@ export default function StudioPage(): React.ReactElement {
     !!resolution &&
     !isUploading &&
     !isUploadingLower &&
+    !isUploadingUpperBack &&
+    !isUploadingLowerBack &&
     !isUploadingThird &&
     !isUploadingPallu &&
     !isSubmitting &&
@@ -1619,23 +1789,32 @@ export default function StudioPage(): React.ReactElement {
 
   const generateBlocker = generationInProgress
     ? 'Generation in progress…'
-    : isUploading || isUploadingLower || isUploadingThird || isUploadingPallu
+    : isUploading ||
+        isUploadingLower ||
+        isUploadingUpperBack ||
+        isUploadingLowerBack ||
+        isUploadingThird ||
+        isUploadingPallu
       ? 'Waiting for upload to finish…'
       : !garmentKey
         ? 'Upload a garment image first'
         : requiresLowerUpload && !lowerGarmentKey
           ? 'Upload the lower garment image first'
-          : requiresThirdUpload && !thirdGarmentKey
-            ? 'Upload the third garment image first'
-            : sareeTwoInputActive && !palluGarmentKey
-              ? 'Upload the pallu image first'
-              : selectedCount === 0
-                ? catalogueTemplateId === 'custom'
-                  ? 'Select at least one pose'
-                  : 'Select at least one look'
-                : !customDimsReady
-                  ? 'Enter a valid width and height'
-                  : '';
+          : needsUpperBackUpload && !upperGarmentBackKey
+            ? 'Upload the back-view garment image first'
+            : needsLowerBack && !lowerOnlyIsBack && !lowerGarmentBackKey
+              ? 'Upload the back-view lower garment image first'
+              : requiresThirdUpload && !thirdGarmentKey
+                ? 'Upload the third garment image first'
+                : sareeTwoInputActive && !palluGarmentKey
+                  ? 'Upload the pallu image first'
+                  : selectedCount === 0
+                    ? catalogueTemplateId === 'custom'
+                      ? 'Select at least one pose'
+                      : 'Select at least one look'
+                    : !customDimsReady
+                      ? 'Enter a valid width and height'
+                      : '';
 
   // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
   // are always visible and keep their static stepNumber. Everything after that is
@@ -1649,6 +1828,8 @@ export default function StudioPage(): React.ReactElement {
     catalogueTemplateId === 'custom' && 'poses',
     needsLower && !requiresLowerUpload && !lowerOnly && 'lower',
     needsShoes && 'shoes',
+    needsUpperBackUpload && 'upperBack',
+    needsLowerBack && !lowerOnlyIsBack && 'lowerBack',
     'platform',
     'resolution',
     'aspect',
@@ -4325,6 +4506,327 @@ export default function StudioPage(): React.ReactElement {
                     </section>
                   );
                 })()}
+
+              {needsUpperBackUpload && (
+                <section className="studio-section-card" style={sectionCardStyle}>
+                  <SectionHead title="Garment — Back View" stepNumber={stepNumberOf('upperBack')} />
+                  <p style={{ fontSize: 12, color: C.mid, margin: '0 0 12px' }}>
+                    The pose(s) you picked show the back of the garment — upload a flat-lay photo of
+                    its back as well.
+                  </p>
+                  <label
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 12,
+                      background: C.card,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 8,
+                      padding: 16,
+                      cursor: 'pointer',
+                      boxSizing: 'border-box',
+                      overflow: 'hidden',
+                      maxWidth: 240,
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const f = e.dataTransfer.files?.[0];
+                      if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                        handleUpperGarmentBackUpload(f);
+                    }}
+                  >
+                    {upperGarmentBackFile ? (
+                      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                        <img
+                          src={upperGarmentBackPreviewUrl}
+                          alt={upperGarmentBackFile.name}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',
+                            borderRadius: 6,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setUpperGarmentBackFile(null);
+                            setUpperGarmentBackKey('');
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: 6,
+                            right: 6,
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            background: 'rgba(0,0,0,0.5)',
+                            border: 'none',
+                            color: 'white',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <XIcon size={14} />
+                        </button>
+                        {isUploadingUpperBack && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              bottom: 8,
+                              left: 8,
+                              right: 8,
+                              background: 'rgba(255,255,255,0.95)',
+                              borderRadius: 8,
+                              padding: '6px 10px',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                fontSize: 12,
+                                color: C.text,
+                              }}
+                            >
+                              <SpinnerIcon size={14} /> Uploading…
+                            </div>
+                          </div>
+                        )}
+                        {upperGarmentBackKey && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: 8,
+                              left: 8,
+                              background: C.mint,
+                              color: 'white',
+                              borderRadius: 6,
+                              padding: '3px 8px',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <CheckIcon color="#fff" size={10} /> Uploaded
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 500,
+                            color: C.text,
+                            textAlign: 'center',
+                          }}
+                        >
+                          Back of Garment
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 500,
+                            color: C.mid,
+                            textAlign: 'center',
+                          }}
+                        >
+                          JPG, PNG · Max 20MB
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <ImagePlusIcon size={14} />
+                          <span style={{ fontSize: 11, fontWeight: 500, color: C.text }}>
+                            Browse
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleUpperGarmentBackUpload(f);
+                      }}
+                    />
+                  </label>
+                </section>
+              )}
+
+              {needsLowerBack && !lowerOnlyIsBack && (
+                <section className="studio-section-card" style={sectionCardStyle}>
+                  <SectionHead
+                    title="Lower Garment — Back View"
+                    stepNumber={stepNumberOf('lowerBack')}
+                  />
+                  <p style={{ fontSize: 12, color: C.mid, margin: '0 0 12px' }}>
+                    The pose(s) you picked show the back of the lower garment — upload a flat-lay
+                    photo of its back as well.
+                  </p>
+                  <label
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 12,
+                      background: C.card,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 8,
+                      padding: 16,
+                      cursor: 'pointer',
+                      boxSizing: 'border-box',
+                      overflow: 'hidden',
+                      maxWidth: 240,
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const f = e.dataTransfer.files?.[0];
+                      if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                        handleLowerGarmentBackUpload(f);
+                    }}
+                  >
+                    {lowerGarmentBackFile ? (
+                      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                        <img
+                          src={lowerGarmentBackPreviewUrl}
+                          alt={lowerGarmentBackFile.name}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',
+                            borderRadius: 6,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setLowerGarmentBackFile(null);
+                            setLowerGarmentBackKey('');
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: 6,
+                            right: 6,
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            background: 'rgba(0,0,0,0.5)',
+                            border: 'none',
+                            color: 'white',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <XIcon size={14} />
+                        </button>
+                        {isUploadingLowerBack && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              bottom: 8,
+                              left: 8,
+                              right: 8,
+                              background: 'rgba(255,255,255,0.95)',
+                              borderRadius: 8,
+                              padding: '6px 10px',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                fontSize: 12,
+                                color: C.text,
+                              }}
+                            >
+                              <SpinnerIcon size={14} /> Uploading…
+                            </div>
+                          </div>
+                        )}
+                        {lowerGarmentBackKey && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: 8,
+                              left: 8,
+                              background: C.mint,
+                              color: 'white',
+                              borderRadius: 6,
+                              padding: '3px 8px',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <CheckIcon color="#fff" size={10} /> Uploaded
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 500,
+                            color: C.text,
+                            textAlign: 'center',
+                          }}
+                        >
+                          Back of Lower Garment
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 500,
+                            color: C.mid,
+                            textAlign: 'center',
+                          }}
+                        >
+                          JPG, PNG · Max 20MB
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <ImagePlusIcon size={14} />
+                          <span style={{ fontSize: 11, fontWeight: 500, color: C.text }}>
+                            Browse
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleLowerGarmentBackUpload(f);
+                      }}
+                    />
+                  </label>
+                </section>
+              )}
 
               <section className="studio-section-card" style={sectionCardStyle}>
                 <SectionHead title="Publishing Platform" stepNumber={stepNumberOf('platform')} />
