@@ -219,4 +219,52 @@ describe('POST /admin/workers — allowedJobTypes validation', () => {
     });
     expect(res.statusCode).toBe(404);
   });
+
+  it('lists the ComfyUI queue snapshot and a routing verdict (healthy but never routable is explainable)', async () => {
+    const id = 'test-worker-routing-state';
+    const created = await app.inject({
+      method: 'POST',
+      url: '/admin/workers',
+      headers: authHeader,
+      payload: { id, label: '', url: 'https://example.com/', apiKey: 'k'.repeat(8) },
+    });
+    expect(created.statusCode).toBe(201);
+    const routing = async () => {
+      const res = await app.inject({ method: 'GET', url: '/admin/workers', headers: authHeader });
+      const w = (res.json() as Array<{ id: string; routing: string; queue: unknown }>).find(
+        (x) => x.id === id,
+      );
+      return w;
+    };
+
+    await app.redis.setex(`worker:health:${id}`, 30, '1');
+    // Gate off → routing ignores ComfyUI's queue.
+    expect((await routing())?.routing).toBe('ungated');
+
+    await app.redis.set(`worker:routing-config:${id}`, JSON.stringify({ queueGateEnabled: true }));
+    // Gate on, no snapshot (monitor not sampling / probe failing) → healthy but unroutable.
+    expect((await routing())?.routing).toBe('unavailable');
+
+    const snap = { queueRemaining: 2, running: 1, pending: 1, probedAt: Date.now() };
+    await app.redis.setex(`worker:queue:${id}`, 60, JSON.stringify(snap));
+    const busy = await routing();
+    expect(busy?.routing).toBe('externally_busy');
+    expect(busy?.queue).toMatchObject({ queueRemaining: 2 });
+
+    await app.redis.setex(`worker:queue:${id}`, 60, JSON.stringify({ ...snap, queueRemaining: 0 }));
+    expect((await routing())?.routing).toBe('ok');
+
+    await app.redis.setex(
+      `worker:queue:${id}`,
+      60,
+      JSON.stringify({
+        queueRemaining: null,
+        running: null,
+        pending: null,
+        probedAt: 1,
+        error: 'x',
+      }),
+    );
+    expect((await routing())?.routing).toBe('unavailable');
+  });
 });
