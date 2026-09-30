@@ -9,6 +9,11 @@ export interface ComfyMockOptions {
   outputBytes?: Uint8Array;
   /** GET /prompt `exec_info.queue_remaining` (default 0) — what a dev's browser run looks like. */
   queueRemaining?: number;
+  /** GET /queue entry counts (default 0/0). */
+  queueRunning?: number;
+  queuePending?: number;
+  /** Force GET /queue to answer with this HTTP status instead of 200. */
+  queueStatus?: number;
   /** Force GET /prompt to answer with this HTTP status instead of 200. */
   promptStatus?: number;
   /** Force GET /prompt to answer with this raw body (e.g. invalid JSON). */
@@ -40,6 +45,17 @@ export function startComfyMock(): Promise<ComfyMock> {
       if (req.method === 'GET' && url.pathname === '/system_stats') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ system: { python_version: '3.10' } }));
+        return;
+      }
+
+      if (req.method === 'GET' && url.pathname === '/queue') {
+        res.writeHead(opts.queueStatus ?? 200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            queue_running: Array.from({ length: opts.queueRunning ?? 0 }, () => [0]),
+            queue_pending: Array.from({ length: opts.queuePending ?? 0 }, () => [0]),
+          }),
+        );
         return;
       }
 

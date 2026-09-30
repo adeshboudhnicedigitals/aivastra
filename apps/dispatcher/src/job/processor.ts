@@ -6,6 +6,7 @@ import {
   jobAttemptsTotal,
   jobProcessingDuration,
   jobsProcessedTotal,
+  noWorkerRequeuesTotal,
 } from '@aivastra/observability';
 import { keys, type StorageProvider } from '@aivastra/storage';
 import {
@@ -126,6 +127,7 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
       'job starved of a worker for too long — promoting to priority lane',
     );
   }
+  noWorkerRequeuesTotal.inc({ job_type: jobType ?? 'unknown' });
   await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
   await new Promise((resolve) => setTimeout(resolve, REQUEUE_BACKOFF_MS));
   await redis.xadd(

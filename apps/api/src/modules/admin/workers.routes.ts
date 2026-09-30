@@ -30,6 +30,44 @@ async function readQueueGate(redis: FastifyInstance['redis'], id: string): Promi
   }
 }
 
+// Display snapshot written by the dispatcher health monitor (worker/queue-sampler.ts).
+interface QueueSnapshot {
+  queueRemaining: number | null;
+  running: number | null;
+  pending: number | null;
+  probedAt: number;
+  error?: string;
+}
+
+async function readQueueSnapshot(
+  redis: FastifyInstance['redis'],
+  id: string,
+): Promise<QueueSnapshot | null> {
+  const raw = await redis.get(`worker:queue:${id}`);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as QueueSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the dispatcher can actually route to this worker right now, so "healthy but never
+ * gets traffic" is explainable. Advisory: routing probes live, this reads the 15s snapshot.
+ */
+function routingState(args: {
+  healthy: boolean;
+  status: string;
+  gateOn: boolean;
+  queue: QueueSnapshot | null;
+}): 'unavailable' | 'ungated' | 'externally_busy' | 'ok' {
+  if (!args.healthy || args.status === 'DRAINING') return 'unavailable';
+  if (!args.gateOn) return 'ungated';
+  if (!args.queue || args.queue.queueRemaining === null) return 'unavailable';
+  return args.status === 'IDLE' && args.queue.queueRemaining > 0 ? 'externally_busy' : 'ok';
+}
+
 function maskApiKey(key: string): string {
   return key.length > 6 ? `...${key.slice(-6)}` : '******';
 }
@@ -69,6 +107,8 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
         const raw = await app.redis.hget(REGISTRY_KEY, w.id);
         const registry = raw ? (JSON.parse(raw) as { status?: string; lastSeen?: number }) : {};
         const healthy = (await app.redis.get(healthKey(w.id))) === '1';
+        const queueGateEnabled = await readQueueGate(app.redis, w.id);
+        const queue = await readQueueSnapshot(app.redis, w.id);
         return {
           id: w.id,
           label: w.label,
@@ -78,7 +118,14 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           allowedJobTypes: w.allowedJobTypes ?? [],
           status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
           healthy,
-          queueGateEnabled: await readQueueGate(app.redis, w.id),
+          queueGateEnabled,
+          queue,
+          routing: routingState({
+            healthy,
+            status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
+            gateOn: queueGateEnabled,
+            queue,
+          }),
           lastSeen: registry.lastSeen ?? null,
           createdAt: w.createdAt,
           updatedAt: w.updatedAt,

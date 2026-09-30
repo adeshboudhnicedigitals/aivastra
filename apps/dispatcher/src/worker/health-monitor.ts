@@ -1,6 +1,7 @@
 import type { Logger } from '@aivastra/logger';
 import { queueDepth, workersHealthy } from '@aivastra/observability';
 import type { Redis } from 'ioredis';
+import { sampleWorkerQueues } from './queue-sampler.js';
 import { getWorkers, healthKey } from './registry.js';
 
 const PROBE_INTERVAL_MS = 15_000;
@@ -25,11 +26,13 @@ export function startHealthMonitor(redis: Redis, log: Logger): () => void {
   async function tick() {
     const workers = await getWorkers(redis);
     let healthyCount = 0;
+    const healthyIds = new Set<string>();
     for (const [id, entry] of workers) {
       if (entry.status === 'DRAINING') continue;
       const healthy = await probeWorker(id, entry.url, entry.apiKey);
       if (healthy) {
         healthyCount++;
+        healthyIds.add(id);
         await redis.setex(healthKey(id), HEALTH_TTL_SEC, '1');
         log.info({ workerId: id }, 'worker healthy');
       } else {
@@ -37,6 +40,14 @@ export function startHealthMonitor(redis: Redis, log: Logger): () => void {
       }
     }
     workersHealthy.set(healthyCount);
+
+    // Display-only /queue snapshot for the admin Workers view; routing never reads it.
+    // Runs after health keys are renewed so a slow queue probe can't delay them.
+    try {
+      await sampleWorkerQueues(redis, healthyIds, log);
+    } catch (err) {
+      log.warn({ err }, 'worker queue sampling failed');
+    }
 
     // Sample queue depth for each job stream
     for (const stream of JOB_STREAMS) {

@@ -24,6 +24,13 @@ export function routingConfigKey(workerId: string) {
   return `worker:routing-config:${workerId}`;
 }
 
+// Display-only snapshot of a worker's ComfyUI /queue, written by the health monitor with a
+// short TTL. The api can't reach ComfyUI, so this is how the admin Workers view sees it.
+// Routing NEVER reads this — it probes live after the claim (see selector.ts).
+export function queueSnapshotKey(workerId: string) {
+  return `worker:queue:${workerId}`;
+}
+
 export async function isQueueGateEnabled(redis: Redis, workerId: string): Promise<boolean> {
   const raw = await redis.get(routingConfigKey(workerId));
   if (!raw) return false;
