@@ -68,7 +68,6 @@ import { unlimitedPlanLoginCheckRoutes } from './modules/credits/unlimited-plan-
 import { unlimitedPlanRenewalRoutes } from './modules/credits/unlimited-plan-renewal.routes.js';
 import { devBackgroundsRoutes } from './modules/dev/backgrounds.routes.js';
 import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
-import { minioProxyRoutes } from './modules/dev/minio-proxy.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
@@ -272,13 +271,6 @@ export async function buildServer(env: Env) {
   await app.register(sentryPlugin);
   await app.register(dbPlugin);
   await app.register(storagePlugin);
-  // Dev-only: routes presigned MinIO URLs through this same origin so a Chrome
-  // tab loaded over the ngrok tunnel isn't blocked fetching a bare loopback
-  // address (see minio-proxy.routes.ts). Never registered outside development —
-  // staging/production proxy MinIO at the Nginx/CloudPanel layer instead.
-  if (app.env.NODE_ENV === 'development') {
-    await app.register(minioProxyRoutes);
-  }
   await app.register(authPlugin);
   await app.register(portalAuthPlugin);
   await app.register(shopifyAuthPlugin);

@@ -11,7 +11,7 @@ export function BalanceCard({ me }: { me: ShopifyMe | null }) {
     <Card>
       <BlockStack gap="200">
         <Text as="p" tone="subdued">
-          Current balance | {me?.currentPack ? me.currentPack.label : 'Free'}
+          Current balance
         </Text>
         <Text as="p" variant="heading2xl">
           {balance.toLocaleString()} credits

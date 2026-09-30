@@ -1,7 +1,6 @@
 import { Banner, BlockStack, Page, Spinner, Text } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppFont } from '../components/AppFont';
 import { useConfirmWithRetry } from '../hooks/useConfirmWithRetry';
 import { apiFetch } from '../lib/api';
 
@@ -44,52 +43,46 @@ export default function BillingCallbackPage() {
 
   if (declined) {
     return (
-      <AppFont>
-        <Page>
-          <Banner
-            title="No charge was made"
-            tone="info"
-            action={{ content: 'Back to credits', onAction: () => navigate('/pricing') }}
-          >
-            <Text as="p">
-              You didn't approve the charge, so nothing was billed and no credits were added.
-            </Text>
-          </Banner>
-        </Page>
-      </AppFont>
+      <Page>
+        <Banner
+          title="No charge was made"
+          tone="info"
+          action={{ content: 'Back to credits', onAction: () => navigate('/pricing') }}
+        >
+          <Text as="p">
+            You didn't approve the charge, so nothing was billed and no credits were added.
+          </Text>
+        </Banner>
+      </Page>
     );
   }
 
   if (error) {
     return (
-      <AppFont>
-        <Page>
-          <Banner
-            title="We couldn't confirm your purchase"
-            tone="critical"
-            action={{ content: 'Try again', onAction: () => void run() }}
-            secondaryAction={{ content: 'Go to dashboard', onAction: () => navigate('/') }}
-          >
-            <BlockStack gap="200">
-              <Text as="p">
-                You may have been charged, but we haven't been able to add the credits to your
-                account yet. Retrying is safe — credits are only ever granted once per purchase.
-              </Text>
-              <Text as="p" tone="subdued">
-                {error.message}
-              </Text>
-            </BlockStack>
-          </Banner>
-        </Page>
-      </AppFont>
+      <Page>
+        <Banner
+          title="We couldn't confirm your purchase"
+          tone="critical"
+          action={{ content: 'Try again', onAction: () => void run() }}
+          secondaryAction={{ content: 'Go to dashboard', onAction: () => navigate('/') }}
+        >
+          <BlockStack gap="200">
+            <Text as="p">
+              You may have been charged, but we haven't been able to add the credits to your account
+              yet. Retrying is safe — credits are only ever granted once per purchase.
+            </Text>
+            <Text as="p" tone="subdued">
+              {error.message}
+            </Text>
+          </BlockStack>
+        </Banner>
+      </Page>
     );
   }
 
   return (
-    <AppFont>
-      <Page>
-        <Spinner accessibilityLabel="Confirming your purchase" size="large" />
-      </Page>
-    </AppFont>
+    <Page>
+      <Spinner accessibilityLabel="Confirming your purchase" size="large" />
+    </Page>
   );
 }
