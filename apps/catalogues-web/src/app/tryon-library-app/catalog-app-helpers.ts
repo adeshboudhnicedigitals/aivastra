@@ -1,5 +1,6 @@
 import type { MerchantCatalogGenerateStatus, MerchantCatalogItem } from '@aivastra/types';
-import { catalogAppApi as api } from './catalog-app-api';
+import { createSSEConnection, type SSEConnection } from '@/lib/sse';
+import { catalogAppApi as api, getCatalogAppToken, tryRefresh } from './catalog-app-api';
 
 const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 type AllowedContentType = (typeof ALLOWED_CONTENT_TYPES)[number];
@@ -28,24 +29,56 @@ export async function presignAndUpload(
 
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
 
-/** Polls a single Path B generate job until it reaches a terminal status. */
-export async function pollGenerateJob(
+/**
+ * Waits for a single Path B generate job to reach a terminal status over the job SSE
+ * stream (same channel Studio uses) — no client-side timeout, so a job queued behind
+ * others is never abandoned client-side. This route keeps its own session isolated from
+ * the main site's (see catalog-app-api.ts), so it opens its own short-lived connection
+ * with this route's token instead of using the app-wide JobStreamProvider.
+ *
+ * SSE has no replay, so the status is re-read every time the connection (re)connects —
+ * that covers a job that finished before the stream was live and any event dropped
+ * during a reconnect gap.
+ */
+export function waitForGenerateJob(
   jobId: string,
-  opts: { intervalMs?: number; timeoutMs?: number } = {},
-): Promise<MerchantCatalogGenerateStatus> {
-  const intervalMs = opts.intervalMs ?? 2500;
-  const timeoutMs = opts.timeoutMs ?? 180_000;
-  const startedAt = Date.now();
-  for (;;) {
-    const status = await api.get<MerchantCatalogGenerateStatus>(
-      `/v1/merchant/catalog/generate/${jobId}`,
+): Promise<Pick<MerchantCatalogGenerateStatus, 'status' | 'errorCode'>> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let conn: SSEConnection | undefined;
+    const finish = (status: string, errorCode: string | null | undefined) => {
+      if (settled) return;
+      settled = true;
+      conn?.close();
+      resolve({ status, errorCode: errorCode ?? null });
+    };
+    const checkStatus = () => {
+      api
+        .get<MerchantCatalogGenerateStatus>(`/v1/merchant/catalog/generate/${jobId}`)
+        .then((st) => {
+          if (TERMINAL_STATUSES.has(st.status)) finish(st.status, st.errorCode);
+        })
+        .catch((err) => {
+          if (settled) return;
+          settled = true;
+          conn?.close();
+          reject(err);
+        });
+    };
+    conn = createSSEConnection<{ jobId: string; status: string; errorCode?: string }>(
+      '/v1/jobs/stream',
+      (e) => {
+        if (e.type === 'STATUS' && e.data.jobId === jobId && TERMINAL_STATUSES.has(e.data.status)) {
+          finish(e.data.status, e.data.errorCode);
+        }
+      },
+      undefined,
+      (state) => {
+        if (state === 'connected') checkStatus();
+      },
+      { getToken: getCatalogAppToken, refresh: tryRefresh },
     );
-    if (TERMINAL_STATUSES.has(status.status)) return status;
-    if (Date.now() - startedAt > timeoutMs) {
-      throw new Error('Timed out waiting for the catalogue image to generate.');
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
+  });
 }
 
 /** Copies a completed job's output into a merchant_catalog_items row (Path A import, also used to finalize Path B generates). */

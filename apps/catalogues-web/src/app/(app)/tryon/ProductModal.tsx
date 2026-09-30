@@ -2,10 +2,16 @@
 import type { MerchantCatalogItem } from '@aivastra/types';
 import { useEffect, useRef, useState } from 'react';
 import { SpinnerIcon, UploadIcon } from '@/components/icons';
+import { useJobStreamContext } from '@/components/job-stream-provider';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { api } from '@/lib/api';
-import { deleteProduct, finalizeGeneratedProduct, pollGenerateJob, presignAndUpload } from './api';
+import {
+  deleteProduct,
+  finalizeGeneratedProduct,
+  presignAndUpload,
+  waitForGenerateJob,
+} from './api';
 
 interface ProductModalProps {
   open: boolean;
@@ -14,7 +20,6 @@ interface ProductModalProps {
   subcategoryId: string | null;
   supportsTwoInputMannequin: boolean;
   supportsTwoInputDirectTryon: boolean;
-  requiresMannequinStep: boolean;
   initialData?: MerchantCatalogItem;
 }
 
@@ -25,9 +30,9 @@ export function ProductModal({
   subcategoryId,
   supportsTwoInputMannequin,
   supportsTwoInputDirectTryon,
-  requiresMannequinStep,
   initialData,
 }: ProductModalProps) {
+  const { subscribe } = useJobStreamContext();
   const [label, setLabel] = useState('');
   const [sku, setSku] = useState('');
   const [actualPrice, setActualPrice] = useState('');
@@ -181,7 +186,7 @@ export function ProductModal({
         flatImageKey,
         ...(secondFlatImageKey ? { secondFlatImageKey } : {}),
       });
-      const status = await pollGenerateJob(jobId);
+      const status = await waitForGenerateJob(jobId, subscribe);
       if (status.status !== 'COMPLETED') {
         throw new Error(
           status.errorCode
@@ -327,13 +332,11 @@ export function ProductModal({
             </div>
           ) : (
             <>
-              {/* Flat Image (AI-generate) mode only applies to the mannequin (saree)
-                  pipeline — every other garment type uses the flat photo directly for
-                  try-on, so the toggle is hidden (not removed) and Catalogue Image
-                  (direct upload) is the only mode. Within the saree pipeline, two-input
-                  (body+pallu) subcategories also hide it — try-on already works directly
-                  off the body+pallu pair without an AI-generated mannequin photo. */}
-              {requiresMannequinStep && !supportsTwoInputMannequin && (
+              {/* Flat Image (AI-generate) is offered for every garment type. The one
+                  exception is two-input (body+pallu) mannequin subcategories — try-on
+                  already works directly off the body+pallu pair without an
+                  AI-generated mannequin photo. */}
+              {!supportsTwoInputMannequin && (
                 <div
                   style={{
                     display: 'flex',

@@ -21,7 +21,7 @@ export function clearCatalogAppToken(): void {
 
 let refreshInFlight: Promise<string | null> | null = null;
 
-function tryRefresh(): Promise<string | null> {
+export function tryRefresh(): Promise<string | null> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       try {
