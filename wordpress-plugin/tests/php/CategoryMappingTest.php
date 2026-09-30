@@ -11,15 +11,15 @@ final class CategoryMappingTest extends TestCase
         $this->assertSame('saree', $slug);
     }
 
-    public function test_falls_back_to_general_when_the_product_has_no_mapped_category(): void
+    public function test_resolves_to_null_when_the_product_has_no_mapped_category(): void
     {
         $slug = Aivastra_Category_Mapping::resolve([99], [12 => 'saree']);
-        $this->assertSame('general', $slug);
+        $this->assertNull($slug);
     }
 
-    public function test_falls_back_to_general_when_the_product_has_no_categories_at_all(): void
+    public function test_resolves_to_null_when_the_product_has_no_categories_at_all(): void
     {
-        $this->assertSame('general', Aivastra_Category_Mapping::resolve([], [12 => 'saree']));
+        $this->assertNull(Aivastra_Category_Mapping::resolve([], [12 => 'saree']));
     }
 
     public function test_uses_the_first_matching_category_when_a_product_has_several(): void

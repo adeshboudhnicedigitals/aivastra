@@ -73,7 +73,7 @@ class Aivastra_Connection_Settings
      * present in an older saved row (or never saved at all) still resolves to
      * a usable value instead of null-vs-missing ambiguity.
      *
-     * @return array{accentColor:?string,heading:?string,subheading:?string,ctaLabel:?string,addToCart:bool,addToCartLabel:?string,share:bool,shareLabel:?string}
+     * @return array{accentColor:?string,buttonColor:?string,buttonGradient:?string,heading:?string,subheading:?string,ctaLabel:?string,addToCart:bool,addToCartLabel:?string,share:bool,shareLabel:?string,buttonPlacement:?string}
      */
     public function get_widget_customization(): array
     {
@@ -84,7 +84,7 @@ class Aivastra_Connection_Settings
         );
     }
 
-    /** @param array{accentColor:?string,heading:?string,subheading:?string,ctaLabel:?string,addToCart:bool,addToCartLabel:?string,share:bool,shareLabel:?string} $customization */
+    /** @param array{accentColor:?string,buttonColor:?string,buttonGradient:?string,heading:?string,subheading:?string,ctaLabel:?string,addToCart:bool,addToCartLabel:?string,share:bool,shareLabel:?string,buttonPlacement:?string} $customization */
     public function set_widget_customization(array $customization): void
     {
         $all = $this->all();

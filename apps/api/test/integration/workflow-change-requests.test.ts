@@ -128,8 +128,10 @@ describe('workflow change requests - propose/approve', () => {
       payload: {
         changeType: 'create',
         targetWorkflowId: oldWorkflowId,
-        reason: 'New graph fixes draping',
-        previousLimitations: 'Old graph mishandled loose fabric',
+        reason:
+          'New graph fixes draping — the sampler now respects fabric weight so loose garments no longer clip through the mannequin during generation.',
+        previousLimitations:
+          'Old graph mishandled loose fabric: any garment with drape or flow would clip through the mannequin body in a large share of generations.',
         proposedFields: {
           slug: `mapping_replacement_${Date.now()}`,
           label: 'Mapping replacement',
@@ -306,8 +308,10 @@ describe('workflow change requests - propose/approve', () => {
       payload: {
         changeType: 'update',
         targetWorkflowId,
-        reason: 'Tweak label',
-        previousLimitations: 'Label is unclear',
+        reason:
+          'Renaming this workflow to something more descriptive so admins can tell it apart from similar templates in the list view.',
+        previousLimitations:
+          'The current label is a generic placeholder left over from when the workflow was first uploaded and never renamed since.',
         proposedFields: { label: 'Renamed label' },
       },
     });
