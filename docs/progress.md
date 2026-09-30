@@ -2,6 +2,24 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-30 — Queue-aware worker routing (Projects A, B, C-observability)
+
+Spec: `docs/superpowers/specs/2026-09-30-queue-aware-worker-routing-design.md` (not committed to the repo — pasted into the session). PRs #436 → #437 → #438, stacked, merged into `dev` in that order.
+
+- **Problem:** the dispatcher decides a GPU worker is free from its own Redis bookkeeping, so it can send a production job to a worker where a developer is running a workflow straight in ComfyUI. The job queues behind it, can hit the timeout, and burns one of `MAX_ATTEMPTS = 2`.
+- **Done:**
+  1. **A (#436):** `runMannequinPhase` returns `{status:'no_worker'}` instead of throwing `MANNEQUIN_NO_WORKER`; `processJob` requeues or terminates with `NO_WORKER` (past `MAX_QUEUE_WAIT_MS`) without consuming `attempts`. The phase also skips the GPU run when `outputs/{jobId}/mannequin-intermediate.png` already exists.
+  2. **B (#437):** `selectWorker` live-probes ComfyUI `GET /prompt` after the atomic claim for workers with the queue gate on; keeps the worker only when `exec_info.queue_remaining === 0`, fail-closed, max 4 probes, rejected workers released via an atomic `BUSY→IDLE` Lua script and excluded for the rest of the selection. Flag is `worker:routing-config:{id}` (missing = off), toggled by `PUT /admin/workers/:id/queue-gate` (audited) and the Workers page menu.
+  3. **C, observability slice (#438):** health monitor writes a display-only `worker:queue:{id}` snapshot (60s TTL) from `/queue`; the admin workers list returns `queue` + `routing` (`ok|ungated|externally_busy|unavailable`); metrics `comfy_worker_queue_remaining`, `comfy_worker_external_busy`, `comfy_worker_queue_probes_total`, `comfy_worker_queue_probe_duration_seconds`, `dispatcher_no_worker_requeues_total`, `dispatcher_worker_external_busy_rejections_total`, `dispatcher_worker_release_failures_total`.
+- **State outside the repo / rollout (NOT done — every gate ships OFF):**
+  - Before enabling a worker: with **its own** key, `GET /system_stats`, `/prompt`, `/queue` must all return 200 with the expected shapes (verified only on w7, idle, on 2026-09-30). Fail-closed gating makes any worker whose proxy differs permanently unclaimable.
+  - Browser-visibility test not run: start a workflow in a worker's ComfyUI UI, confirm `queue_remaining > 0`, confirm production jobs skip it.
+  - The w7 API key was pasted into a session transcript during testing — rotate it.
+  - The flag lives only in Redis: if prod Redis does not persist across restarts, gating silently turns off. Verify prod Redis persistence.
+- **Failed / Not done:** queue-wait and probe-failure alerts (thresholds TBD by Ops/Product; the latter needs the worker-incident-alerting incident model); `dispatcher_job_queue_wait_seconds` (no single observation point across the 8 claim sites); queue-anchor normalization (`queuedAt ?? createdAt` everywhere — product-visible, ship separately); head-of-line-blocking investigation of the 10s in-consumer requeue sleep.
+- **Open questions:** Redis-only flag vs durable desired state; alert thresholds; whether the other workers' nginx auth rules match w7.
+- **Known limits:** the probe runs while the worker is marked BUSY, so a concurrent selector can briefly see it as unavailable and requeue; admin drain/undrain/sync still read-modify-write the whole registry entry and can clobber a concurrent release; a dev can still submit between the probe and our `POST /prompt`; `externally_busy` compares a ≤15s-old sample with current status (advisory).
+
 ## 2026-09-30 — Activity Logs: UX redesign, popover filters, humanized diffs & table hierarchy
 
 - **Goal:** Redesign `apps/admin-web/src/pages/AuditLogsPage.tsx` and standardize terminology across the admin app (`apps/admin-web/src/components/Sidebar.tsx`), addressing layout shifts, giant unreadable raw-ID diff blocks, and unrefined filtering.
