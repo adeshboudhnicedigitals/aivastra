@@ -206,7 +206,9 @@ export default function FlowApprovalsPage({ toast }: Props) {
                     <div style={{ fontWeight: 500 }}>{r.proposedByEmail}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>{r.proposedByRole}</div>
                   </td>
-                  <td>{r.targetWorkflowLabel ?? '—'}</td>
+                  <td>
+                    {r.targetWorkflowLabel ?? (r.changeType === 'create' ? 'New workflow' : '—')}
+                  </td>
                   <td style={{ color: 'var(--muted)', fontSize: 12 }}>
                     {new Date(r.createdAt).toLocaleDateString()}
                   </td>
@@ -253,7 +255,8 @@ export default function FlowApprovalsPage({ toast }: Props) {
               </div>
               <div>
                 <span style={{ color: 'var(--muted)' }}>Replaces/target: </span>
-                {detail.targetWorkflowLabel ?? '—'}
+                {detail.targetWorkflowLabel ??
+                  (detail.changeType === 'create' ? 'New workflow (replaces nothing)' : '—')}
               </div>
               {detail.reviewedByEmail && (
                 <div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { useCloseOverlay } from '../hooks/use-close-overlay';
@@ -34,66 +34,210 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-type ActionRiskTier = 'destructive' | 'sensitive' | 'default';
+type ActionCategory = 'created' | 'updated' | 'changed' | 'deleted' | 'default';
 
-// Destructive: undoes or removes something. Sensitive: changes who can do what,
-// or moves credits/money. Everything else (create/patch/reassign/...) is routine.
-function actionRiskTier(action: string): ActionRiskTier {
-  if (/(\.|_)(delete|delete_\w+|revoke|erase|ban)$/.test(action)) return 'destructive';
-  if (/\.(update_role|drain|deduct)$/.test(action)) return 'sensitive';
+function getActionCategory(action: string): ActionCategory {
+  if (/(\.|_)(delete|delete_\w+|revoke|erase|ban|deduct)$/.test(action)) return 'deleted';
+  if (/(\.|_)(create|grant|import)$/.test(action)) return 'created';
+  if (/(\.|_)(approve|release|restore)$/.test(action)) return 'changed';
+  if (/(\.|_)(update|update_\w+|reassign|rename)$/.test(action)) return 'updated';
   return 'default';
 }
 
-const RISK_TIER_STYLE: Record<ActionRiskTier, { bg: string; ink: string }> = {
-  destructive: { bg: 'var(--danger-soft)', ink: 'var(--danger-ink)' },
-  sensitive: { bg: 'var(--warn-soft)', ink: 'var(--warn-ink)' },
-  default: { bg: 'var(--bg-subtle)', ink: 'inherit' },
+const ACTION_CATEGORY_DOT: Record<ActionCategory, string> = {
+  created: 'var(--success-ink, #22c55e)',
+  updated: 'var(--accent, #6366f1)',
+  changed: 'var(--warn-ink, #f59e0b)',
+  deleted: 'var(--danger-ink, #ef4444)',
+  default: 'var(--muted)',
 };
 
 type DiffStatus = 'added' | 'removed' | 'changed';
-interface DiffRow {
+
+interface ParsedDiffItem {
   key: string;
-  before: string | undefined;
-  after: string | undefined;
+  label: string;
   status: DiffStatus;
+  isIdArray?: boolean;
+  idCount?: number;
+  ids?: string[];
+  beforeVal?: string;
+  afterVal?: string;
+  summaryText: string;
 }
 
-const DIFF_ROW_STYLE: Record<DiffStatus, { bg: string; ink: string }> = {
-  added: { bg: 'var(--success-soft)', ink: 'var(--success-ink)' },
-  removed: { bg: 'var(--danger-soft)', ink: 'var(--danger-ink)' },
-  changed: { bg: 'var(--warn-soft)', ink: 'var(--warn-ink)' },
+const FIELD_LABELS: Record<string, string> = {
+  id: 'ID',
+  ids: 'IDs',
+  role: 'Role',
+  status: 'Status',
+  label: 'Name',
+  slug: 'Slug',
+  url: 'URL',
+  isActive: 'Active',
+  allowedJobTypes: 'Allowed Job Types',
+  workflowType: 'Workflow Type',
+  amount: 'Amount',
+  reason: 'Reason',
+  tier: 'Tier',
+  username: 'Username',
+  email: 'Email',
+  displayName: 'Display Name',
+  banReason: 'Ban Reason',
+  deleted: 'Deleted Items',
 };
 
-// Field-level diff between the before/after JSONB snapshots. Unchanged keys are
-// dropped — the point of the view is to surface what actually moved, not to
-// re-render the whole payload as two side-by-side dumps.
-function computeDiff(
+function humanizeFieldKey(key: string): string {
+  if (FIELD_LABELS[key]) return FIELD_LABELS[key];
+  const spaced = key
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function humanizeFieldValue(jsonStr: string | undefined): string {
+  if (jsonStr === undefined) return '(none)';
+  try {
+    const value = JSON.parse(jsonStr);
+    if (value === null) return '(none)';
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (Array.isArray(value)) {
+      if (!value.length) return '(none)';
+      if (value.length <= 4) return value.join(', ');
+      return `${value.length} items`;
+    }
+    if (typeof value === 'object') return JSON.stringify(value);
+    const str = String(value);
+    return /^[a-z]+$/.test(str) ? str.charAt(0).toUpperCase() + str.slice(1) : str;
+  } catch {
+    return jsonStr;
+  }
+}
+
+const NOISY_FIELDS = new Set([
+  'created_at',
+  'updated_at',
+  'createdAt',
+  'updatedAt',
+  'deleted_at',
+  'deletedAt',
+]);
+
+function formatRelativeTime(iso: string): string {
+  try {
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return 'just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 30) return `${diffDays}d ago`;
+    const diffMonths = Math.floor(diffDays / 30);
+    return `${diffMonths}mo ago`;
+  } catch {
+    return '';
+  }
+}
+
+function formatUserAgent(ua: string | null): string {
+  if (!ua) return 'Unknown client';
+  let browser = 'Browser';
+  if (/chrome|crios/i.test(ua) && !/edg/i.test(ua)) browser = 'Chrome';
+  else if (/firefox|fxios/i.test(ua)) browser = 'Firefox';
+  else if (/safari/i.test(ua) && !/chrome/i.test(ua)) browser = 'Safari';
+  else if (/edg/i.test(ua)) browser = 'Edge';
+
+  let os = 'OS';
+  if (/mac/i.test(ua)) os = 'macOS';
+  else if (/win/i.test(ua)) os = 'Windows';
+  else if (/linux/i.test(ua)) os = 'Linux';
+  else if (/android/i.test(ua)) os = 'Android';
+  else if (/iphone|ipad/i.test(ua)) os = 'iOS';
+
+  return `${browser} · ${os}`;
+}
+
+function parseDiff(
   before: Record<string, unknown> | null,
   after: Record<string, unknown> | null,
-): DiffRow[] {
+): ParsedDiffItem[] {
   const b = before ?? {};
   const a = after ?? {};
   const keys = new Set([...Object.keys(b), ...Object.keys(a)]);
-  const rows: DiffRow[] = [];
+  const results: ParsedDiffItem[] = [];
+
   for (const key of keys) {
+    if (NOISY_FIELDS.has(key)) continue;
+
     const hasBefore = key in b;
     const hasAfter = key in a;
-    const beforeStr = hasBefore ? JSON.stringify(b[key]) : undefined;
-    const afterStr = hasAfter ? JSON.stringify(a[key]) : undefined;
+    const rawBefore = b[key];
+    const rawAfter = a[key];
+
+    // Detect if this is an array of IDs or records
+    const isArrayField =
+      Array.isArray(rawBefore) || Array.isArray(rawAfter) || key === 'ids' || key === 'deleted';
+
+    if (key === 'id' && !isArrayField) continue;
+
+    if (isArrayField) {
+      const arr = Array.isArray(rawBefore)
+        ? (rawBefore as string[])
+        : Array.isArray(rawAfter)
+          ? (rawAfter as string[])
+          : [];
+      if (arr.length > 0) {
+        const status: DiffStatus = !hasBefore ? 'added' : !hasAfter ? 'removed' : 'changed';
+        const noun = arr.length === 1 ? 'resource' : 'resources';
+        const summary =
+          status === 'removed'
+            ? `${arr.length} ${noun} removed`
+            : status === 'added'
+              ? `${arr.length} ${noun} created`
+              : `${arr.length} ${noun} updated`;
+        results.push({
+          key,
+          label: humanizeFieldKey(key),
+          status,
+          isIdArray: true,
+          idCount: arr.length,
+          ids: arr.map(String),
+          summaryText: summary,
+        });
+        continue;
+      }
+    }
+
+    const beforeStr = hasBefore ? JSON.stringify(rawBefore) : undefined;
+    const afterStr = hasAfter ? JSON.stringify(rawAfter) : undefined;
     if (beforeStr === afterStr) continue;
-    rows.push({
+
+    const status: DiffStatus = !hasBefore ? 'added' : !hasAfter ? 'removed' : 'changed';
+    const beforeVal = humanizeFieldValue(beforeStr);
+    const afterVal = humanizeFieldValue(afterStr);
+    const field = humanizeFieldKey(key);
+
+    let summaryText = '';
+    if (status === 'added') summaryText = `Set ${field} to ${afterVal}`;
+    else if (status === 'removed') summaryText = `Removed ${field} (was ${beforeVal})`;
+    else summaryText = `Changed ${field} from ${beforeVal} to ${afterVal}`;
+
+    results.push({
       key,
-      before: beforeStr,
-      after: afterStr,
-      status: !hasBefore ? 'added' : !hasAfter ? 'removed' : 'changed',
+      label: field,
+      status,
+      beforeVal,
+      afterVal,
+      summaryText,
     });
   }
-  return rows.sort((x, y) => x.key.localeCompare(y.key));
+
+  return results.sort((x, y) => x.label.localeCompare(y.label));
 }
 
-// Turns "admin_users.update_role" into "Changed admin role" as a last-resort
-// fallback for any action this page doesn't have a specific sentence for yet —
-// so a new action type never regresses to raw dotted.notation on screen.
 function humanizeActionFallback(action: string): string {
   const verb = action.split('.').pop() ?? action;
   const words = verb.replace(/_/g, ' ');
@@ -105,12 +249,6 @@ function snapshotLabel(snapshot: Record<string, unknown> | null): string | undef
   return typeof label === 'string' && label.length > 0 ? label : undefined;
 }
 
-// One plain-English sentence per action, written for a non-technical reader
-// (a manager checking "what happened," not an engineer reading a log line).
-// `who` prefers the label captured in the event's own before/after snapshot —
-// a permanent record — over the live resourceLabel join, which goes stale (or
-// falls back to resourceType) the moment the underlying row is deleted, even
-// for older events that predate the deletion.
 function describeAction(log: AuditLogItem): string {
   const who =
     snapshotLabel(log.after) ??
@@ -268,71 +406,6 @@ function describeAction(log: AuditLogItem): string {
   }
 }
 
-// "role" -> "Role", "workflowType" -> "Workflow Type", falling back to a
-// camelCase/snake_case splitter for any field this page doesn't know by name.
-const FIELD_LABELS: Record<string, string> = {
-  id: 'ID',
-  role: 'Role',
-  status: 'Status',
-  label: 'Name',
-  slug: 'Slug',
-  url: 'URL',
-  isActive: 'Active',
-  allowedJobTypes: 'Allowed Job Types',
-  workflowType: 'Workflow Type',
-  amount: 'Amount',
-  reason: 'Reason',
-  tier: 'Tier',
-  username: 'Username',
-  email: 'Email',
-  displayName: 'Display Name',
-  banReason: 'Ban Reason',
-};
-
-function humanizeFieldKey(key: string): string {
-  if (FIELD_LABELS[key]) return FIELD_LABELS[key];
-  const spaced = key
-    .replace(/_/g, ' ')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .toLowerCase();
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-// Diff values are JSON.stringify'd strings (e.g. `"ADMIN"`, `true`, `null`) so
-// they can be diffed as text — render them back as plain values, not raw JSON,
-// for a reader who doesn't know what a quoted string or `null` means.
-function humanizeFieldValue(jsonStr: string | undefined): string {
-  if (jsonStr === undefined) return '(not set)';
-  try {
-    const value = JSON.parse(jsonStr);
-    if (value === null) return '(not set)';
-    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-    if (Array.isArray(value)) return value.length ? value.join(', ') : '(none)';
-    if (typeof value === 'object') return JSON.stringify(value);
-    // Status/role-style bare words (e.g. "active") read better title-cased;
-    // leave anything with an @, ., or digit (emails, URLs, IDs) exactly as-is.
-    const str = String(value);
-    return /^[a-z]+$/.test(str) ? str.charAt(0).toUpperCase() + str.slice(1) : str;
-  } catch {
-    return jsonStr;
-  }
-}
-
-// One full sentence per changed field, instead of a FIELD/BEFORE/AFTER grid —
-// "Set the Role to ADMIN" reads on its own; a table cell with an em-dash
-// doesn't, to someone who isn't reading this as a database diff.
-function describeFieldChange(row: DiffRow): string {
-  const field = humanizeFieldKey(row.key);
-  const after = humanizeFieldValue(row.after);
-  const before = humanizeFieldValue(row.before);
-  if (row.status === 'added') return `Set the ${field} to ${after}`;
-  if (row.status === 'removed') return `Removed the ${field} (was ${before})`;
-  return `Changed the ${field} from ${before} to ${after}`;
-}
-
-// Plain-English options for the "what kind of activity" dropdown — the value
-// sent to the API is still the real action string, exact-matched (the backend
-// does a substring `ilike`, which an exact string satisfies too).
 const ACTION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'credits.grant', label: 'Credits added' },
   { value: 'credits.deduct', label: 'Credits removed' },
@@ -419,6 +492,12 @@ const RESOURCE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'saree_settings', label: 'Saree settings' },
 ];
 
+function getRelativeDate(daysAgo: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return d.toISOString().split('T')[0];
+}
+
 export default function AuditLogsPage({ toast }: Props) {
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -434,9 +513,32 @@ export default function AuditLogsPage({ toast }: Props) {
   const [actorFilterLabel, setActorFilterLabel] = useState('');
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
+  const [datePreset, setDatePreset] = useState<'all' | 'today' | '7d' | '30d' | 'custom'>('all');
+
+  // Popovers & Drawer
+  const [dateOpen, setDateOpen] = useState(false);
+  const [idLookupOpen, setIdLookupOpen] = useState(false);
   const [expandedLogId, setExpandedLogId] = useUrlState('expanded');
   const closeExpanded = useCloseOverlay(['expanded']);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [expandedIdKey, setExpandedIdKey] = useState<string | null>(null);
+
+  const dateMenuRef = useRef<HTMLDivElement>(null);
+  const idMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close popovers on click outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as Node;
+      if (dateOpen && dateMenuRef.current && !dateMenuRef.current.contains(target)) {
+        setDateOpen(false);
+      }
+      if (idLookupOpen && idMenuRef.current && !idMenuRef.current.contains(target)) {
+        setIdLookupOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [dateOpen, idLookupOpen]);
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
@@ -487,6 +589,8 @@ export default function AuditLogsPage({ toast }: Props) {
   }, [fetchLogs]);
 
   const totalPages = Math.ceil(total / pageSize) || 1;
+  const startItem = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endItem = Math.min(total, page * pageSize);
 
   const formatDate = (iso: string) => {
     try {
@@ -496,7 +600,6 @@ export default function AuditLogsPage({ toast }: Props) {
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        second: '2-digit',
       });
     } catch {
       return iso;
@@ -520,27 +623,728 @@ export default function AuditLogsPage({ toast }: Props) {
     setActorFilterLabel('');
     setStartDateFilter('');
     setEndDateFilter('');
+    setDatePreset('all');
     setPage(1);
+  };
+
+  function applyDatePreset(preset: 'all' | 'today' | '7d' | '30d') {
+    setDatePreset(preset);
+    if (preset === 'all') {
+      setStartDateFilter('');
+      setEndDateFilter('');
+    } else if (preset === 'today') {
+      const today = getRelativeDate(0);
+      setStartDateFilter(today);
+      setEndDateFilter(today);
+    } else if (preset === '7d') {
+      setStartDateFilter(getRelativeDate(7));
+      setEndDateFilter(getRelativeDate(0));
+    } else if (preset === '30d') {
+      setStartDateFilter(getRelativeDate(30));
+      setEndDateFilter(getRelativeDate(0));
+    }
+    setPage(1);
+    setDateOpen(false);
+  }
+
+  const getDateLabel = () => {
+    if (datePreset === 'today') return 'Today';
+    if (datePreset === '7d') return 'Last 7 days';
+    if (datePreset === '30d') return 'Last 30 days';
+    if (startDateFilter || endDateFilter) {
+      return `${startDateFilter || 'Any'} → ${endDateFilter || 'Today'}`;
+    }
+    return 'All time';
+  };
+
+  const renderCellValue = (val: string | undefined, isStrikeThrough = false, color?: string) => {
+    if (!val) return null;
+    const isUrl = /^https?:\/\//i.test(val);
+    if (isUrl) {
+      let displayUrl = val;
+      try {
+        const parsed = new URL(val);
+        const path = parsed.pathname === '/' ? '' : parsed.pathname;
+        displayUrl = `${parsed.host}${path.length > 18 ? `${path.slice(0, 16)}…` : path}`;
+      } catch {
+        if (val.length > 30) displayUrl = `${val.slice(0, 28)}…`;
+      }
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            fontFamily: 'var(--mono)',
+            fontSize: 11.5,
+            textDecoration: isStrikeThrough ? 'line-through' : 'none',
+          }}
+        >
+          <a
+            href={val}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              color: color || 'var(--primary)',
+              textDecoration: 'none',
+              borderBottom: '1px dotted currentColor',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
+            }}
+            title={val}
+          >
+            <span>{displayUrl}</span>
+            <Icon.ExternalLink style={{ width: 10, height: 10, opacity: 0.8 }} />
+          </a>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(val);
+              toast({ title: 'URL copied' });
+            }}
+            title="Copy full URL"
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              color: 'var(--muted)',
+              display: 'inline-flex',
+              alignItems: 'center',
+            }}
+          >
+            <Icon.Copy style={{ width: 11, height: 11, opacity: 0.6 }} />
+          </button>
+        </span>
+      );
+    }
+
+    if (val.length > 36 && !val.includes(' ')) {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            fontFamily: 'var(--mono)',
+            fontSize: 11.5,
+            textDecoration: isStrikeThrough ? 'line-through' : 'none',
+            color,
+          }}
+        >
+          <span title={val}>
+            {val.slice(0, 16)}…{val.slice(-6)}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(val);
+              toast({ title: 'Value copied' });
+            }}
+            title="Copy full value"
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              color: 'var(--muted)',
+              display: 'inline-flex',
+              alignItems: 'center',
+            }}
+          >
+            <Icon.Copy style={{ width: 11, height: 11, opacity: 0.6 }} />
+          </button>
+        </span>
+      );
+    }
+
+    return (
+      <span
+        style={{
+          textDecoration: isStrikeThrough ? 'line-through' : 'none',
+          color,
+          wordBreak: 'break-word',
+        }}
+      >
+        {val}
+      </span>
+    );
+  };
+
+  const renderLogDetails = (item: AuditLogItem) => {
+    const diffItems = parseDiff(item.before, item.after);
+    const cat = getActionCategory(item.action);
+    const hasMetadata = item.ipAddress || item.userAgent || item.requestId;
+    const idDiffs = diffItems.filter((d) => d.isIdArray);
+    const propertyDiffs = diffItems.filter((d) => !d.isIdArray);
+
+    return (
+      <div
+        style={{
+          padding: '12px 18px',
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--r, 8px)',
+          boxShadow: 'var(--shadow-sm)',
+        }}
+      >
+        {/* Top Header Bar */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 10,
+            borderBottom: '1px solid var(--border)',
+            paddingBottom: 8,
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '2px 7px',
+                borderRadius: 4,
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'var(--ink)',
+              }}
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: ACTION_CATEGORY_DOT[cat],
+                  display: 'inline-block',
+                }}
+              />
+              {cat.toUpperCase()}
+            </span>
+            <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' }}>
+              Event Details
+            </span>
+          </div>
+        </div>
+
+        {/* 4-Column Event Metadata Summary */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+            gap: 10,
+            padding: '8px 12px',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--r, 6px)',
+            marginBottom: 10,
+            fontSize: 12,
+          }}
+        >
+          <div>
+            <span
+              style={{
+                color: 'var(--muted)',
+                fontSize: 10,
+                display: 'block',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                fontWeight: 600,
+              }}
+            >
+              Target Entity
+            </span>
+            <div style={{ fontWeight: 600, color: 'var(--ink)', marginTop: 2 }}>
+              {item.resourceLabel || humanizeFieldKey(item.resourceType)}
+            </div>
+            {item.resourceId && (
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(item.resourceId ?? '');
+                  toast({ title: 'Record ID copied' });
+                }}
+                title="Click to copy Record ID"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                  color: 'var(--muted)',
+                  fontFamily: 'var(--mono)',
+                  fontSize: 10.5,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  marginTop: 2,
+                }}
+              >
+                <span>{item.resourceId.slice(0, 10)}…</span>
+                <Icon.Copy style={{ width: 10, height: 10, opacity: 0.6 }} />
+              </button>
+            )}
+          </div>
+
+          <div>
+            <span
+              style={{
+                color: 'var(--muted)',
+                fontSize: 10,
+                display: 'block',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                fontWeight: 600,
+              }}
+            >
+              Team Member
+            </span>
+            <div style={{ fontWeight: 600, color: 'var(--ink)', marginTop: 2 }}>
+              {item.actorEmail ?? item.actorDisplayName ?? item.actorUserId}
+            </div>
+            <div style={{ marginTop: 2 }}>
+              <span className="badge" style={{ fontSize: 9.5, padding: '1px 5px' }}>
+                {item.actorRole}
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <span
+              style={{
+                color: 'var(--muted)',
+                fontSize: 10,
+                display: 'block',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                fontWeight: 600,
+              }}
+            >
+              Timestamp
+            </span>
+            <div style={{ fontWeight: 600, color: 'var(--ink)', marginTop: 2 }}>
+              {formatDate(item.createdAt)}
+            </div>
+            <span style={{ color: 'var(--muted)', fontSize: 10.5 }}>
+              {formatRelativeTime(item.createdAt)}
+            </span>
+          </div>
+
+          <div>
+            <span
+              style={{
+                color: 'var(--muted)',
+                fontSize: 10,
+                display: 'block',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                fontWeight: 600,
+              }}
+            >
+              Event Identifier
+            </span>
+            <div
+              style={{
+                fontWeight: 500,
+                fontFamily: 'var(--mono)',
+                fontSize: 11,
+                color: 'var(--ink)',
+                marginTop: 2,
+              }}
+            >
+              {item.action}
+            </div>
+          </div>
+        </div>
+
+        {/* Consequence & Diffs Area */}
+        {diffItems.length === 0 ? (
+          <div
+            style={{
+              padding: '10px 14px',
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--r, 6px)',
+              fontSize: 12.5,
+              color: 'var(--muted)',
+            }}
+          >
+            Action completed successfully. No property modifications were logged in this event
+            payload.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {/* 1. Bulk / Array ID Consequence Blocks */}
+            {idDiffs.map((row) => {
+              const isExpandedList = expandedIdKey === row.key;
+              const isRemoved = row.status === 'removed';
+              return (
+                <div
+                  key={row.key}
+                  style={{
+                    padding: '10px 14px',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--r, 6px)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 14 }}>{isRemoved ? '🔴' : '🟢'}</span>
+                      <div>
+                        <div style={{ fontWeight: 600, color: 'var(--ink)', fontSize: 13 }}>
+                          {row.summaryText}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+                          {isRemoved
+                            ? 'Permanently removed from storage & database'
+                            : 'Created and added to active resources'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn sm ghost"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(row.ids?.join('\n') || '');
+                          toast({
+                            title:
+                              row.idCount === 1
+                                ? 'ID copied to clipboard'
+                                : `${row.idCount} IDs copied to clipboard`,
+                          });
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 11.5,
+                        }}
+                      >
+                        <Icon.Copy />{' '}
+                        {row.idCount === 1 ? 'Copy ID' : `Copy all ${row.idCount} IDs`}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn sm secondary"
+                        onClick={() => setExpandedIdKey(isExpandedList ? null : row.key)}
+                        style={{ fontSize: 11.5 }}
+                      >
+                        {isExpandedList
+                          ? row.idCount === 1
+                            ? 'Hide ID ↑'
+                            : 'Hide IDs ↑'
+                          : row.idCount === 1
+                            ? 'View ID ▾'
+                            : `View all ${row.idCount} IDs ▾`}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sample Chips when collapsed */}
+                  {!isExpandedList && row.ids && row.ids.length > 0 && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 5,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Sample:</span>
+                      {row.ids.slice(0, 3).map((id) => (
+                        <span
+                          key={id}
+                          style={{
+                            fontFamily: 'var(--mono)',
+                            fontSize: 10.5,
+                            padding: '1px 5px',
+                            background: 'var(--surface-2)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 4,
+                            color: 'var(--ink)',
+                          }}
+                        >
+                          {id.slice(0, 10)}…
+                        </span>
+                      ))}
+                      {row.ids.length > 3 && (
+                        <span
+                          style={{ fontSize: 10.5, color: 'var(--muted)', fontStyle: 'italic' }}
+                        >
+                          +{row.ids.length - 3} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Numbered Monospace List when expanded */}
+                  {isExpandedList && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        maxHeight: 160,
+                        overflowY: 'auto',
+                        background: 'var(--surface-2)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        padding: '8px 12px',
+                        fontFamily: 'var(--mono)',
+                        fontSize: 11,
+                        lineHeight: 1.5,
+                        color: 'var(--ink)',
+                      }}
+                    >
+                      {row.ids?.map((id, idx) => (
+                        <div key={id} style={{ display: 'flex', gap: 10 }}>
+                          <span
+                            style={{
+                              color: 'var(--muted)',
+                              width: 28,
+                              textAlign: 'right',
+                              userSelect: 'none',
+                            }}
+                          >
+                            {idx + 1}.
+                          </span>
+                          <span>{id}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* 2. Structured Property Changes Table */}
+            {propertyDiffs.length > 0 && (
+              <div>
+                <div
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 600,
+                    color: 'var(--muted)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    marginBottom: 6,
+                  }}
+                >
+                  Property Changes ({propertyDiffs.length})
+                </div>
+                <div
+                  style={{
+                    borderRadius: 'var(--r, 6px)',
+                    overflow: 'hidden',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                  }}
+                >
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr
+                        style={{
+                          background: 'var(--surface-2)',
+                          borderBottom: '1px solid var(--border)',
+                        }}
+                      >
+                        <th
+                          style={{
+                            textAlign: 'left',
+                            padding: '6px 10px',
+                            fontWeight: 600,
+                            color: 'var(--muted)',
+                            fontSize: 11,
+                            width: '26%',
+                          }}
+                        >
+                          Property
+                        </th>
+                        <th
+                          style={{
+                            textAlign: 'left',
+                            padding: '6px 10px',
+                            fontWeight: 600,
+                            color: 'var(--muted)',
+                            fontSize: 11,
+                            width: '37%',
+                          }}
+                        >
+                          Previous value
+                        </th>
+                        <th
+                          style={{
+                            textAlign: 'left',
+                            padding: '6px 10px',
+                            fontWeight: 600,
+                            color: 'var(--muted)',
+                            fontSize: 11,
+                            width: '37%',
+                          }}
+                        >
+                          New value
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {propertyDiffs.map((row) => (
+                        <tr key={row.key} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '6px 10px', fontWeight: 500, color: 'var(--ink)' }}>
+                            {row.label}
+                          </td>
+                          <td style={{ padding: '6px 10px', color: 'var(--muted)' }}>
+                            {row.status === 'added' ? (
+                              <span style={{ fontStyle: 'italic', opacity: 0.6 }}>(none)</span>
+                            ) : (
+                              renderCellValue(row.beforeVal, row.status === 'changed')
+                            )}
+                          </td>
+                          <td style={{ padding: '6px 10px' }}>
+                            {row.status === 'removed' ? (
+                              <span
+                                style={{ color: 'var(--danger-ink, #ef4444)', fontStyle: 'italic' }}
+                              >
+                                Removed
+                              </span>
+                            ) : row.status === 'added' ? (
+                              renderCellValue(row.afterVal, false, 'var(--success-ink, #22c55e)')
+                            ) : (
+                              renderCellValue(row.afterVal, false, 'var(--ink)')
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Audit Request & Network Metadata Strip */}
+        {hasMetadata && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '6px 18px',
+              marginTop: 10,
+              paddingTop: 8,
+              borderTop: '1px solid var(--border)',
+              fontSize: 11,
+              color: 'var(--muted)',
+              alignItems: 'center',
+            }}
+          >
+            {item.ipAddress && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span>🌐</span>
+                <span style={{ color: 'var(--muted)' }}>IP:</span>
+                <span style={{ fontFamily: 'var(--mono)', color: 'var(--ink)' }}>
+                  {item.ipAddress}
+                </span>
+              </div>
+            )}
+
+            {item.requestId && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span>🔖</span>
+                <span style={{ color: 'var(--muted)' }}>Request ID:</span>
+                <span style={{ fontFamily: 'var(--mono)', color: 'var(--ink)' }}>
+                  {item.requestId.slice(0, 14)}…
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(item.requestId ?? '');
+                    toast({ title: 'Request ID copied' });
+                  }}
+                  title="Copy full Request ID"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    color: 'var(--muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Icon.Copy style={{ width: 10, height: 10 }} />
+                </button>
+              </div>
+            )}
+
+            {item.userAgent && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span>💻</span>
+                <span style={{ color: 'var(--muted)' }}>Client:</span>
+                <span
+                  title={item.userAgent}
+                  style={{
+                    color: 'var(--ink)',
+                    cursor: 'help',
+                    borderBottom: '1px dotted var(--muted)',
+                  }}
+                >
+                  {formatUserAgent(item.userAgent)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1>Team Activity</h1>
-          <p className="lede">
-            {loading ? 'Loading…' : `${total.toLocaleString()} logged events`} — a record of actions
-            made through the admin panel. Direct database access is not captured here.
+          <h1 style={{ marginBottom: 4 }}>Activity Logs</h1>
+          <p className="lede" style={{ margin: 0, fontSize: 13.5, color: 'var(--muted)' }}>
+            <strong>{loading ? 'Loading…' : `${total.toLocaleString()} logged events`}</strong> ·
+            Actions performed through the admin panel.
+            <span
+              title="Direct database access is not captured here."
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginLeft: 6,
+                cursor: 'help',
+                opacity: 0.7,
+              }}
+            >
+              ℹ
+            </span>
           </p>
         </div>
         <div className="head-tools">
           <button
             type="button"
-            className="btn ghost"
+            className="btn ghost sm"
             onClick={() => void fetchLogs()}
             disabled={loading}
             title="Refresh activity logs"
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
             <span
               style={{
@@ -556,9 +1360,39 @@ export default function AuditLogsPage({ toast }: Props) {
       </div>
 
       {/* Filter Bar */}
-      <div className="filter-card" style={{ marginBottom: 16 }}>
-        <div className="filter-row">
-          {/* Action Filter */}
+      <div className="filter-card" style={{ marginBottom: 14 }}>
+        <div className="filter-row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          {/* 1. Quick Search Record ID */}
+          <div
+            className="filter-search-box"
+            style={{ minWidth: 220, maxWidth: 300, flex: '1 1 240px' }}
+          >
+            <Icon.Search />
+            <input
+              type="text"
+              placeholder="Search Record ID…"
+              value={resourceIdFilter}
+              onChange={(e) => {
+                setResourceIdFilter(e.target.value);
+                setPage(1);
+              }}
+            />
+            {resourceIdFilter && (
+              <button
+                type="button"
+                className="filter-clear-btn"
+                onClick={() => {
+                  setResourceIdFilter('');
+                  setPage(1);
+                }}
+                title="Clear search"
+              >
+                <Icon.Close />
+              </button>
+            )}
+          </div>
+
+          {/* 2. Action Filter */}
           <SearchableSelect
             options={ACTION_OPTIONS.map((opt) => ({ id: opt.value, label: opt.label }))}
             value={actionFilter}
@@ -568,9 +1402,10 @@ export default function AuditLogsPage({ toast }: Props) {
             }}
             emptyLabel="All activity"
             ariaLabel="Filter by Activity"
+            style={{ minWidth: 160 }}
           />
 
-          {/* Category Filter */}
+          {/* 3. Category Filter */}
           <SearchableSelect
             options={RESOURCE_TYPE_OPTIONS.map((opt) => ({ id: opt.value, label: opt.label }))}
             value={resourceTypeFilter}
@@ -580,98 +1415,250 @@ export default function AuditLogsPage({ toast }: Props) {
             }}
             emptyLabel="All categories"
             ariaLabel="Filter by Category"
+            style={{ minWidth: 160 }}
           />
 
-          {/* Date Range Picker */}
-          <div className="filter-date-group">
-            <span className="date-lbl">Date:</span>
-            <input
-              type="date"
-              value={startDateFilter}
-              onChange={(e) => {
-                setStartDateFilter(e.target.value);
-                setPage(1);
-              }}
-              title="Start date"
-            />
-            <span className="date-lbl" style={{ opacity: 0.6 }}>
-              to
-            </span>
-            <input
-              type="date"
-              value={endDateFilter}
-              onChange={(e) => {
-                setEndDateFilter(e.target.value);
-                setPage(1);
-              }}
-              title="End date"
-            />
+          {/* 4. Date Range Popover */}
+          <div ref={dateMenuRef} className="filter-popover-wrapper">
+            <button
+              type="button"
+              className={`filter-toggle-btn ${startDateFilter || endDateFilter ? 'active' : ''}`}
+              onClick={() => setDateOpen(!dateOpen)}
+              style={{ height: 36, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <span>Date: {getDateLabel()}</span>
+              <span style={{ fontSize: 10, opacity: 0.6 }}>▾</span>
+            </button>
+
+            {dateOpen && (
+              <div className="filter-popover-menu" style={{ width: 280 }}>
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                      display: 'block',
+                      marginBottom: 8,
+                    }}
+                  >
+                    Quick presets
+                  </span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    <button
+                      type="button"
+                      className={`btn sm ${datePreset === 'all' ? 'primary' : 'ghost'}`}
+                      onClick={() => applyDatePreset('all')}
+                    >
+                      All time
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn sm ${datePreset === 'today' ? 'primary' : 'ghost'}`}
+                      onClick={() => applyDatePreset('today')}
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn sm ${datePreset === '7d' ? 'primary' : 'ghost'}`}
+                      onClick={() => applyDatePreset('7d')}
+                    >
+                      Last 7 days
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn sm ${datePreset === '30d' ? 'primary' : 'ghost'}`}
+                      onClick={() => applyDatePreset('30d')}
+                    >
+                      Last 30 days
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    borderTop: '1px solid var(--border)',
+                    paddingTop: 10,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Custom range
+                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 36 }}>From:</span>
+                      <input
+                        type="date"
+                        className="input sm"
+                        value={startDateFilter}
+                        onChange={(e) => {
+                          setStartDateFilter(e.target.value);
+                          setDatePreset('custom');
+                        }}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', width: 36 }}>To:</span>
+                      <input
+                        type="date"
+                        className="input sm"
+                        value={endDateFilter}
+                        onChange={(e) => {
+                          setEndDateFilter(e.target.value);
+                          setDatePreset('custom');
+                        }}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btn sm"
+                      onClick={() => {
+                        setDateOpen(false);
+                        setPage(1);
+                      }}
+                      style={{ marginTop: 4 }}
+                    >
+                      Apply custom range
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Advanced / ID Lookup Toggle Button */}
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((v) => !v)}
-            className={`filter-toggle-btn ${showAdvanced || resourceIdFilter || actorFilter ? 'active' : ''}`}
-          >
-            <Icon.Search />
-            {showAdvanced ? 'Hide ID lookup' : 'Look up by ID'}
-          </button>
+          {/* 5. Advanced Filters Popover */}
+          <div ref={idMenuRef} className="filter-popover-wrapper">
+            <button
+              type="button"
+              className={`filter-toggle-btn ${actorFilter ? 'active' : ''}`}
+              onClick={() => setIdLookupOpen(!idLookupOpen)}
+              style={{ height: 36, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <Icon.Filter />
+              <span>More filters</span>
+              {actorFilter && (
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: 'var(--accent)',
+                    display: 'inline-block',
+                  }}
+                />
+              )}
+            </button>
 
-          {/* Clear Filters Button */}
+            {idLookupOpen && (
+              <div className="filter-popover-menu" style={{ width: 320 }}>
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Filter by Team Member User ID
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Enter Team Member User UUID…"
+                    value={actorFilter}
+                    onChange={(e) => {
+                      setActorFilter(e.target.value);
+                      setActorFilterLabel('');
+                    }}
+                    className="filter-input"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 4 }}>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    onClick={() => {
+                      setActorFilter('');
+                      setActorFilterLabel('');
+                      setPage(1);
+                      setIdLookupOpen(false);
+                    }}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    className="btn sm primary"
+                    onClick={() => {
+                      setPage(1);
+                      setIdLookupOpen(false);
+                    }}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 6. Clear All Filters */}
           {hasActiveFilters && (
             <button
               type="button"
               onClick={clearAllFilters}
               className="btn sm ghost"
-              style={{ marginLeft: 'auto' }}
+              style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}
             >
-              <Icon.Close /> Clear filters
+              <Icon.Close /> Clear all
             </button>
           )}
         </div>
 
-        {/* ID Lookup Drawer/Row */}
-        {showAdvanced && (
-          <div
-            style={{
-              display: 'flex',
-              gap: 10,
-              flexWrap: 'wrap',
-              paddingTop: 8,
-              borderTop: '1px solid var(--border)',
-            }}
-          >
-            <input
-              type="text"
-              placeholder="Filter by Record / Resource ID…"
-              value={resourceIdFilter}
-              onChange={(e) => {
-                setResourceIdFilter(e.target.value);
-                setPage(1);
-              }}
-              className="filter-input"
-              style={{ flex: '1 1 240px' }}
-            />
-            <input
-              type="text"
-              placeholder="Filter by Team Member User ID…"
-              value={actorFilter}
-              onChange={(e) => {
-                setActorFilter(e.target.value);
-                setActorFilterLabel('');
-                setPage(1);
-              }}
-              className="filter-input"
-              style={{ flex: '1 1 240px' }}
-            />
-          </div>
-        )}
-
         {/* Active Filter Chips */}
         {hasActiveFilters && (
-          <div className="filter-chips-row">
+          <div className="filter-chips-row" style={{ marginTop: 8 }}>
             <span style={{ color: 'var(--muted)', fontSize: 11.5, marginRight: 2 }}>Active:</span>
+            {resourceIdFilter && (
+              <span className="filter-chip">
+                Record ID:{' '}
+                <strong>
+                  {resourceIdFilter.length > 14
+                    ? `${resourceIdFilter.slice(0, 12)}…`
+                    : resourceIdFilter}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setResourceIdFilter('');
+                    setPage(1);
+                  }}
+                  title="Remove record ID filter"
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
             {actorFilter && (
               <span className="filter-chip">
                 Team member: <strong>{actorFilterLabel || actorFilter}</strong>
@@ -730,35 +1717,17 @@ export default function AuditLogsPage({ toast }: Props) {
             )}
             {(startDateFilter || endDateFilter) && (
               <span className="filter-chip">
-                Date:{' '}
-                <strong>
-                  {startDateFilter || 'Any'} → {endDateFilter || 'Today'}
-                </strong>
+                Date: <strong>{getDateLabel()}</strong>
                 <button
                   type="button"
                   className="filter-chip-remove"
                   onClick={() => {
                     setStartDateFilter('');
                     setEndDateFilter('');
+                    setDatePreset('all');
                     setPage(1);
                   }}
                   title="Remove date filter"
-                >
-                  <Icon.Close />
-                </button>
-              </span>
-            )}
-            {resourceIdFilter && (
-              <span className="filter-chip">
-                Record ID: <strong>{resourceIdFilter}</strong>
-                <button
-                  type="button"
-                  className="filter-chip-remove"
-                  onClick={() => {
-                    setResourceIdFilter('');
-                    setPage(1);
-                  }}
-                  title="Remove record ID filter"
                 >
                   <Icon.Close />
                 </button>
@@ -773,10 +1742,55 @@ export default function AuditLogsPage({ toast }: Props) {
         <table>
           <thead>
             <tr>
-              <th style={{ width: 160 }}>When</th>
-              <th style={{ width: 220 }}>Team Member</th>
-              <th>What Happened</th>
-              <th style={{ textAlign: 'right', width: 140 }}>Details</th>
+              <th
+                style={{
+                  width: 150,
+                  textTransform: 'uppercase',
+                  fontSize: 11,
+                  letterSpacing: '0.04em',
+                  color: 'var(--muted)',
+                  fontWeight: 600,
+                }}
+              >
+                When
+              </th>
+              <th
+                style={{
+                  width: 220,
+                  textTransform: 'uppercase',
+                  fontSize: 11,
+                  letterSpacing: '0.04em',
+                  color: 'var(--muted)',
+                  fontWeight: 600,
+                }}
+              >
+                Team Member
+              </th>
+              <th
+                style={{
+                  textTransform: 'uppercase',
+                  fontSize: 11,
+                  letterSpacing: '0.04em',
+                  color: 'var(--muted)',
+                  fontWeight: 600,
+                }}
+              >
+                What Happened
+              </th>
+              <th
+                style={{
+                  textAlign: 'right',
+                  width: 140,
+                  paddingRight: 16,
+                  textTransform: 'uppercase',
+                  fontSize: 11,
+                  letterSpacing: '0.04em',
+                  color: 'var(--muted)',
+                  fontWeight: 600,
+                }}
+              >
+                Details
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -784,129 +1798,176 @@ export default function AuditLogsPage({ toast }: Props) {
               <tr>
                 <td
                   colSpan={4}
-                  style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}
+                  style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}
                 >
-                  Loading activity…
+                  Loading activity logs…
                 </td>
               </tr>
             ) : logs.length === 0 ? (
               <tr>
                 <td
                   colSpan={4}
-                  style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}
+                  style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}
                 >
-                  Nothing found for these filters.
+                  No activity found matching the selected filters.
                 </td>
               </tr>
             ) : (
               logs.map((log) => {
                 const isExpanded = expandedLogId === log.id;
+                const cat = getActionCategory(log.action);
+                const hasDetails =
+                  Boolean(log.before) ||
+                  Boolean(log.after) ||
+                  Boolean(log.ipAddress) ||
+                  Boolean(log.userAgent) ||
+                  Boolean(log.requestId);
+
                 return (
-                  <tr key={log.id}>
-                    <td
+                  <Fragment key={log.id}>
+                    <tr
                       style={{
-                        fontSize: 12.5,
-                        whiteSpace: 'nowrap',
-                        color: 'var(--muted)',
+                        background: isExpanded
+                          ? 'rgba(var(--primary-rgb, 99, 102, 241), 0.05)'
+                          : undefined,
+                        borderLeft: isExpanded
+                          ? '3px solid var(--accent, #6366f1)'
+                          : '3px solid transparent',
                       }}
                     >
-                      {formatDate(log.createdAt)}
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          filterByActor(
-                            log.actorUserId,
-                            log.actorEmail ?? log.actorDisplayName ?? log.actorUserId,
-                          )
-                        }
-                        title="Filter to this team member"
+                      <td
                         style={{
-                          background: 'none',
-                          border: 'none',
-                          padding: 0,
-                          fontWeight: 500,
-                          color: 'var(--ink)',
-                          cursor: 'pointer',
-                          textDecoration: 'underline',
-                          textDecorationStyle: 'dotted',
-                          fontSize: 13,
+                          fontSize: 12.5,
+                          whiteSpace: 'nowrap',
+                          color: 'var(--muted)',
                         }}
                       >
-                        {log.actorEmail ?? log.actorDisplayName ?? log.actorUserId}
-                      </button>
-                      <div style={{ marginTop: 2 }}>
-                        <span className="badge" style={{ fontSize: 10.5 }}>
-                          {log.actorRole}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      {(() => {
-                        const tier = actionRiskTier(log.action);
-                        const style = RISK_TIER_STYLE[tier];
-                        return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            {tier !== 'default' && (
-                              <span
-                                title={
-                                  tier === 'destructive'
-                                    ? 'This removed access, data, or a resource'
-                                    : 'This changed permissions or credits'
-                                }
-                                style={{
-                                  display: 'inline-block',
-                                  width: 8,
-                                  height: 8,
-                                  borderRadius: '50%',
-                                  background: style.ink,
-                                  flexShrink: 0,
-                                }}
-                              />
-                            )}
-                            <span style={{ fontSize: 13.5 }}>{describeAction(log)}</span>
-                          </div>
-                        );
-                      })()}
-                      {log.resourceId && (
+                        {formatDate(log.createdAt)}
+                      </td>
+                      <td>
                         <button
                           type="button"
-                          onClick={() => void navigator.clipboard.writeText(log.resourceId ?? '')}
-                          title="Click to copy the internal record ID"
+                          onClick={() =>
+                            filterByActor(
+                              log.actorUserId,
+                              log.actorEmail ?? log.actorDisplayName ?? log.actorUserId,
+                            )
+                          }
+                          title="Filter to this team member"
                           style={{
                             background: 'none',
                             border: 'none',
                             padding: 0,
-                            marginTop: 3,
+                            fontWeight: 500,
+                            color: 'var(--ink)',
                             cursor: 'pointer',
-                            color: 'var(--muted)',
-                            fontSize: 11,
-                            fontFamily: 'var(--mono)',
+                            textDecoration: 'underline',
+                            textDecorationStyle: 'dotted',
+                            fontSize: 13,
                           }}
                         >
-                          Record ID: {log.resourceId.slice(0, 8)}…
+                          {log.actorEmail ?? log.actorDisplayName ?? log.actorUserId}
                         </button>
-                      )}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      {log.before ||
-                      log.after ||
-                      log.ipAddress ||
-                      log.userAgent ||
-                      log.requestId ? (
-                        <button
-                          type="button"
-                          className="btn sm ghost"
-                          onClick={() => (isExpanded ? closeExpanded() : setExpandedLogId(log.id))}
+                        <div style={{ marginTop: 2 }}>
+                          <span className="badge" style={{ fontSize: 10.5 }}>
+                            {log.actorRole}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span
+                            title={cat}
+                            style={{
+                              display: 'inline-block',
+                              width: 8,
+                              height: 8,
+                              borderRadius: '50%',
+                              background: ACTION_CATEGORY_DOT[cat],
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ink)' }}>
+                            {describeAction(log)}
+                          </span>
+                        </div>
+                        {log.resourceId && (
+                          <div style={{ marginTop: 3 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void navigator.clipboard.writeText(log.resourceId ?? '');
+                                toast({ title: 'Record ID copied to clipboard' });
+                              }}
+                              title="Click to copy full record ID"
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                padding: 0,
+                                cursor: 'pointer',
+                                color: 'var(--muted)',
+                                fontSize: 11,
+                                fontFamily: 'var(--mono)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <span>{log.resourceId.slice(0, 12)}…</span>
+                              <Icon.Copy style={{ width: 11, height: 11, opacity: 0.6 }} />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right', paddingRight: 16 }}>
+                        {hasDetails ? (
+                          <button
+                            type="button"
+                            className={`btn sm ${isExpanded ? 'secondary' : 'ghost'}`}
+                            onClick={() => {
+                              if (isExpanded) {
+                                closeExpanded();
+                                setExpandedIdKey(null);
+                              } else {
+                                setExpandedLogId(log.id);
+                                setExpandedIdKey(null);
+                              }
+                            }}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontSize: 12,
+                            }}
+                          >
+                            <span>{isExpanded ? 'Hide details ↑' : 'View details →'}</span>
+                          </button>
+                        ) : (
+                          <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
+                        )}
+                      </td>
+                    </tr>
+
+                    {isExpanded && (
+                      <tr
+                        key={`${log.id}-detail`}
+                        style={{
+                          background: 'rgba(var(--primary-rgb, 99, 102, 241), 0.03)',
+                          borderLeft: '3px solid var(--accent, #6366f1)',
+                        }}
+                      >
+                        <td
+                          colSpan={4}
+                          style={{
+                            padding: '4px 16px 10px 16px',
+                            borderTop: 'none',
+                          }}
                         >
-                          {isExpanded ? 'Hide Details' : 'View Details'}
-                        </button>
-                      ) : (
-                        <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
-                      )}
-                    </td>
-                  </tr>
+                          {renderLogDetails(log)}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })
             )}
@@ -921,21 +1982,19 @@ export default function AuditLogsPage({ toast }: Props) {
             className="card"
             style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}
           >
-            Loading activity…
+            Loading activity logs…
           </div>
         ) : logs.length === 0 ? (
           <div
             className="card"
             style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}
           >
-            Nothing found for these filters.
+            No activity found matching the selected filters.
           </div>
         ) : (
           logs.map((log) => {
             const isMobileExpanded = expandedLogId === log.id;
-            const tier = actionRiskTier(log.action);
-            const style = RISK_TIER_STYLE[tier];
-            const diff = isMobileExpanded ? computeDiff(log.before, log.after) : [];
+
             return (
               <div
                 key={log.id}
@@ -950,9 +2009,16 @@ export default function AuditLogsPage({ toast }: Props) {
                   gap: 10,
                 }}
               >
-                {/* Header row: WHEN and TEAM MEMBER name */}
                 <div
-                  onClick={() => (isMobileExpanded ? closeExpanded() : setExpandedLogId(log.id))}
+                  onClick={() => {
+                    if (isMobileExpanded) {
+                      closeExpanded();
+                      setExpandedIdKey(null);
+                    } else {
+                      setExpandedLogId(log.id);
+                      setExpandedIdKey(null);
+                    }
+                  }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -1005,233 +2071,10 @@ export default function AuditLogsPage({ toast }: Props) {
                   </div>
                 </div>
 
-                {/* Expanded Section: Displays WHAT HAPPENED when clicked */}
-                {isMobileExpanded && (
-                  <div
-                    style={{
-                      paddingTop: 10,
-                      borderTop: '1px solid var(--border)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {tier !== 'default' && (
-                        <span
-                          title={
-                            tier === 'destructive'
-                              ? 'This removed access, data, or a resource'
-                              : 'This changed permissions or credits'
-                          }
-                          style={{
-                            display: 'inline-block',
-                            width: 8,
-                            height: 8,
-                            borderRadius: '50%',
-                            background: style.ink,
-                            flexShrink: 0,
-                          }}
-                        />
-                      )}
-                      <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-                        {describeAction(log)}
-                      </span>
-                    </div>
-
-                    {log.resourceId && (
-                      <button
-                        type="button"
-                        onClick={() => void navigator.clipboard.writeText(log.resourceId ?? '')}
-                        title="Click to copy record ID"
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          padding: 0,
-                          cursor: 'pointer',
-                          color: 'var(--muted)',
-                          fontSize: 11,
-                          fontFamily: 'var(--mono)',
-                          textAlign: 'left',
-                        }}
-                      >
-                        Record ID: {log.resourceId}
-                      </button>
-                    )}
-
-                    {/* What Changed Diff */}
-                    {(log.before || log.after) && diff.length > 0 && (
-                      <div style={{ marginTop: 4 }}>
-                        <span
-                          style={{
-                            fontSize: 11.5,
-                            fontWeight: 600,
-                            color: 'var(--muted)',
-                            display: 'block',
-                            marginBottom: 4,
-                          }}
-                        >
-                          What Changed:
-                        </span>
-                        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                          {diff.map((row) => {
-                            const rowStyle = DIFF_ROW_STYLE[row.status];
-                            return (
-                              <li
-                                key={row.key}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'flex-start',
-                                  gap: 8,
-                                  padding: '5px 8px',
-                                  marginBottom: 4,
-                                  background: rowStyle.bg,
-                                  borderRadius: 4,
-                                  fontSize: 12,
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    display: 'inline-block',
-                                    width: 6,
-                                    height: 6,
-                                    borderRadius: '50%',
-                                    background: rowStyle.ink,
-                                    marginTop: 5,
-                                    flexShrink: 0,
-                                  }}
-                                />
-                                <span style={{ color: rowStyle.ink }}>
-                                  {describeFieldChange(row)}
-                                </span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    )}
-
-                    {(log.ipAddress || log.userAgent || log.requestId) && (
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 2,
-                          marginTop: 4,
-                          fontSize: 11,
-                          color: 'var(--muted)',
-                          fontFamily: 'var(--mono)',
-                        }}
-                      >
-                        {log.ipAddress && <span>IP: {log.ipAddress}</span>}
-                        {log.requestId && <span>Request: {log.requestId}</span>}
-                        {log.userAgent && (
-                          <span style={{ wordBreak: 'break-all' }}>Agent: {log.userAgent}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
+                {isMobileExpanded && <div style={{ paddingTop: 4 }}>{renderLogDetails(log)}</div>}
               </div>
             );
           })
-        )}
-      </div>
-
-      {/* Expanded Modal / Details for selected log (Desktop) */}
-      <div className="desktop-only">
-        {expandedLogId && (
-          <div
-            className="card"
-            style={{
-              marginTop: 14,
-              padding: 16,
-              background: 'var(--surface-2)',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                marginBottom: 8,
-                alignItems: 'center',
-              }}
-            >
-              <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>What Changed</h3>
-              <button type="button" className="btn sm ghost" onClick={closeExpanded}>
-                <Icon.Close /> Close
-              </button>
-            </div>
-            {(() => {
-              const item = logs.find((l) => l.id === expandedLogId);
-              if (!item) return null;
-              const diff = computeDiff(item.before, item.after);
-              const hasMetadata = item.ipAddress || item.userAgent || item.requestId;
-              return (
-                <>
-                  {diff.length === 0 ? (
-                    <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: 0 }}>
-                      Nothing else to show for this event.
-                    </p>
-                  ) : (
-                    <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 12px' }}>
-                      {diff.map((row) => {
-                        const style = DIFF_ROW_STYLE[row.status];
-                        return (
-                          <li
-                            key={row.key}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'flex-start',
-                              gap: 8,
-                              padding: '6px 10px',
-                              marginBottom: 4,
-                              background: style.bg,
-                              borderRadius: 4,
-                              fontSize: 12.5,
-                            }}
-                          >
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                width: 7,
-                                height: 7,
-                                borderRadius: '50%',
-                                background: style.ink,
-                                marginTop: 5,
-                                flexShrink: 0,
-                              }}
-                            />
-                            <span style={{ color: style.ink }}>{describeFieldChange(row)}</span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                  {hasMetadata && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: '4px 16px',
-                        paddingTop: diff.length > 0 ? 8 : 0,
-                        borderTop: diff.length > 0 ? '1px solid var(--border)' : 'none',
-                        fontSize: 11.5,
-                        color: 'var(--muted)',
-                        fontFamily: 'var(--mono)',
-                      }}
-                    >
-                      {item.ipAddress && <span>IP: {item.ipAddress}</span>}
-                      {item.requestId && <span>Request: {item.requestId}</span>}
-                      {item.userAgent && (
-                        <span style={{ wordBreak: 'break-all' }}>Agent: {item.userAgent}</span>
-                      )}
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-          </div>
         )}
       </div>
 
@@ -1242,11 +2085,19 @@ export default function AuditLogsPage({ toast }: Props) {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginTop: 14,
+            marginTop: 16,
+            paddingTop: 12,
+            borderTop: '1px solid var(--border)',
+            flexWrap: 'wrap',
+            gap: 12,
           }}
         >
           <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-            Showing {logs.length} of {total} events
+            Showing{' '}
+            <strong>
+              {startItem.toLocaleString()}–{endItem.toLocaleString()}
+            </strong>{' '}
+            of <strong>{total.toLocaleString()}</strong> events
           </span>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <button
@@ -1255,7 +2106,7 @@ export default function AuditLogsPage({ toast }: Props) {
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
-              Previous
+              ‹ Previous
             </button>
             <span style={{ padding: '0 8px', fontSize: 12.5, color: 'var(--muted)' }}>
               Page {page} of {totalPages}
@@ -1266,7 +2117,7 @@ export default function AuditLogsPage({ toast }: Props) {
               disabled={page >= totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Next
+              Next ›
             </button>
           </div>
         </div>

@@ -7,8 +7,8 @@ import { catalogAppApi as api } from '../catalog-app-api';
 import {
   deleteProduct,
   finalizeGeneratedProduct,
-  pollGenerateJob,
   presignAndUpload,
+  waitForGenerateJob,
 } from '../catalog-app-helpers';
 import { LIGHT } from '../theme';
 import { useSessionExpiryMessage } from '../use-session-expiry-message';
@@ -19,7 +19,6 @@ export function ProductForm({
   initialData,
   supportsTwoInputMannequin = false,
   supportsTwoInputDirectTryon = false,
-  requiresMannequinStep = false,
   instructionImageUrl = null,
   onSaved,
   onCancel,
@@ -32,9 +31,6 @@ export function ProductForm({
   // and every existing caller predates this prop.
   supportsTwoInputMannequin?: boolean;
   supportsTwoInputDirectTryon?: boolean;
-  // True only for garment types on the mannequin (saree) pipeline — gates whether the
-  // Catalogue/Flat Image toggle shows at all. See ProductModal.tsx for the sibling.
-  requiresMannequinStep?: boolean;
   // Admin-uploaded reference photo (garmentSubcategories.tryonLibraryInstructionImageKey) —
   // a dedicated upload for this app, distinct from Studio's own instruction image —
   // illustrating how to shoot the body/pallu photo(s).
@@ -129,7 +125,7 @@ export function ProductForm({
         subcategoryId,
         flatImageKey,
       });
-      const status = await pollGenerateJob(jobId);
+      const status = await waitForGenerateJob(jobId);
       if (status.status !== 'COMPLETED') {
         throw new Error(
           status.errorCode
@@ -254,12 +250,10 @@ export function ProductForm({
           </div>
         ) : (
           <>
-            {/* Flat Image (AI-generate) mode only applies to the mannequin (saree)
-                pipeline — every other garment type uses the flat photo directly for
-                try-on, so the toggle is hidden and Catalogue Image (direct upload) is
-                the only mode. Within the saree pipeline, two-input (body+pallu)
-                subcategories also hide it — see ProductModal.tsx for the sibling. */}
-            {requiresMannequinStep && !supportsTwoInputMannequin && (
+            {/* Flat Image (AI-generate) is offered for every garment type, except
+                two-input (body+pallu) subcategories — see ProductModal.tsx for the
+                sibling. */}
+            {!supportsTwoInputMannequin && (
               <div
                 style={{
                   display: 'flex',
