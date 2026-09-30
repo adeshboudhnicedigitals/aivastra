@@ -693,13 +693,34 @@ export const ReassignWorkflowBody = z.object({
 // can still write workflow_templates directly. See
 // apps/api/src/modules/admin/workflow-change-requests.routes.ts.
 
-export const ProposeWorkflowChangeRequestBody = z.object({
-  changeType: z.enum(['create', 'update']),
-  targetWorkflowId: z.string().uuid(),
-  reason: z.string().min(1).max(2000),
-  previousLimitations: z.string().min(1).max(2000),
-  proposedFields: z.record(z.any()),
-});
+// targetWorkflowId is optional only for a 'create': omitted means "add a brand-new
+// workflow" (nothing is replaced/deactivated); present means "replace this one".
+// An 'update' always needs its target. previousLimitations only makes sense
+// against a workflow being replaced, so it is required exactly when a target is.
+export const ProposeWorkflowChangeRequestBody = z
+  .object({
+    changeType: z.enum(['create', 'update']),
+    targetWorkflowId: z.string().uuid().optional(),
+    reason: z.string().min(1).max(2000),
+    previousLimitations: z.string().max(2000).optional(),
+    proposedFields: z.record(z.any()),
+  })
+  .superRefine((b, ctx) => {
+    if (b.changeType === 'update' && !b.targetWorkflowId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['targetWorkflowId'],
+        message: 'targetWorkflowId is required for an update',
+      });
+    }
+    if (b.targetWorkflowId && !b.previousLimitations?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['previousLimitations'],
+        message: 'previousLimitations is required when replacing a workflow',
+      });
+    }
+  });
 
 export const ApproveWorkflowChangeRequestBody = z.object({
   reviewNote: z.string().max(2000).optional(),

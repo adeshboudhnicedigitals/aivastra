@@ -77,7 +77,13 @@ export async function adminCreditAnalysisRoutes(app: FastifyInstance) {
           );
         matchingUserIds = rows.map((r) => r.id);
         if (matchingUserIds.length === 0) {
-          return { page, pageSize, total: 0, items: [] };
+          return {
+            page,
+            pageSize,
+            total: 0,
+            summary: { totalSpent: 0, totalJobs: 0, avgCostPerJob: 0, totalUsers: 0 },
+            items: [],
+          };
         }
       }
 
@@ -162,7 +168,31 @@ export async function adminCreditAnalysisRoutes(app: FastifyInstance) {
         };
       });
 
-      return { page, pageSize, total, items };
+      const [totals] = await app.db
+        .select({
+          totalSpent: sql<number>`COALESCE(SUM(CASE WHEN ${schema.jobs.status} = 'COMPLETED' THEN ${schema.jobs.creditsCharged} ELSE 0 END), 0)::int`,
+          totalJobs: sql<number>`COUNT(*) FILTER (WHERE ${schema.jobs.status} = 'COMPLETED')::int`,
+        })
+        .from(schema.jobs)
+        .leftJoin(schema.merchants, eq(schema.merchants.id, schema.jobs.merchantId))
+        .where(
+          and(
+            ...conditions,
+            sql`COALESCE(${schema.jobs.userId}, ${schema.merchants.userId}) IS NOT NULL`,
+          ),
+        );
+
+      const summary = {
+        totalSpent: totals?.totalSpent ?? 0,
+        totalJobs: totals?.totalJobs ?? 0,
+        avgCostPerJob:
+          (totals?.totalJobs ?? 0) > 0
+            ? Math.round(((totals?.totalSpent ?? 0) / totals.totalJobs) * 100) / 100
+            : 0,
+        totalUsers: total,
+      };
+
+      return { page, pageSize, total, summary, items };
     },
   );
 
