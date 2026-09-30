@@ -475,7 +475,7 @@ export async function processJob(
           return;
         }
         try {
-          effectiveUpperGarmentKey = await runMannequinPhase(cfg, {
+          const mannequin = await runMannequinPhase(cfg, {
             jobId,
             garmentKey: inputs.upperGarmentKey,
             faceId: inputs.faceId,
@@ -483,6 +483,43 @@ export async function processJob(
             jobLog,
             jobType: job.source,
           });
+          if (mannequin.status === 'no_worker') {
+            // Capacity, not failure — same terminate-or-requeue as the main claim
+            // below. Going straight to requeueForNoWorker would skip the age check
+            // and let a starved job re-XADD forever.
+            const queueWaitBaseline = (job.queuedAt ?? job.createdAt).getTime();
+            if (Date.now() - queueWaitBaseline > MAX_QUEUE_WAIT_MS) {
+              jobLog.warn('no idle mannequin worker — job exceeded max queue wait, terminating');
+              await terminateJob(
+                cfg,
+                jobId,
+                userId,
+                stream,
+                messageId,
+                'NO_WORKER',
+                job.creditsCharged,
+                jobLog,
+                startedAt,
+                job.source,
+              );
+            } else {
+              jobLog.warn('no idle mannequin worker — re-enqueuing with backoff');
+              await requeueForNoWorker({
+                db,
+                redis,
+                jobId,
+                stream,
+                messageId,
+                retryCount,
+                extraFields: ['userId', userId],
+                jobLog,
+                startedAt,
+                jobType: job.source,
+              });
+            }
+            return;
+          }
+          effectiveUpperGarmentKey = mannequin.key;
         } catch (err) {
           jobLog.error({ err }, 'mannequin phase failed');
           const errMsg = err instanceof Error ? err.message : String(err);

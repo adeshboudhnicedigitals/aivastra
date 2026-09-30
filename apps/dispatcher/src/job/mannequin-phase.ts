@@ -5,7 +5,7 @@ import { comfyRequestDuration } from '@aivastra/observability';
 import { keys } from '@aivastra/storage';
 import { WORKER_POOL } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
-import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import {
@@ -33,12 +33,34 @@ export interface MannequinPhaseParams {
   jobType: string | null;
 }
 
+// `no_worker` is capacity, not failure: the caller requeues (or terminates past
+// MAX_QUEUE_WAIT_MS) without touching `attempts`, exactly like its own main claim.
+export type MannequinPhaseResult = { status: 'completed'; key: string } | { status: 'no_worker' };
+
 export async function runMannequinPhase(
   cfg: MannequinPhaseConfig,
   params: MannequinPhaseParams,
-): Promise<string> {
+): Promise<MannequinPhaseResult> {
   const { db, redis, s3, r2Bucket } = cfg;
   const { jobId, garmentKey, faceId, mannequinWorkflowTemplateId, jobLog, jobType } = params;
+
+  // The intermediate is written by one PutObject after the image has fully
+  // downloaded, so its existence IS the checkpoint. A job that finished this phase
+  // but then found no worker for its main claim is requeued; without this check
+  // every requeue would repeat minutes of GPU work. Missing (or any HEAD error)
+  // falls through to regenerate.
+  const intermediateKey = keys.mannequinIntermediate(jobId);
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: r2Bucket, Key: intermediateKey }));
+    jobLog.info({ intermediateKey }, 'mannequin intermediate already exists — skipping GPU phase');
+    return { status: 'completed', key: intermediateKey };
+  } catch (err) {
+    const name = (err as { name?: string }).name;
+    if (name !== 'NotFound' && name !== 'NoSuchKey') {
+      jobLog.warn({ err }, 'mannequin intermediate HEAD failed — regenerating');
+    }
+  }
+
   const [template] = await db
     .select({
       jsonContent: schema.workflowTemplates.jsonContent,
@@ -66,7 +88,7 @@ export async function runMannequinPhase(
     personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
   }
   const worker = await selectWorker(redis, WORKER_POOL.SAREE);
-  if (!worker) throw new Error('MANNEQUIN_NO_WORKER');
+  if (!worker) return { status: 'no_worker' };
   const w = worker;
 
   try {
@@ -144,7 +166,6 @@ export async function runMannequinPhase(
       firstImage.filename,
       firstImage.subfolder,
     );
-    const intermediateKey = keys.mannequinIntermediate(jobId);
     await s3.send(
       new PutObjectCommand({
         Bucket: r2Bucket,
@@ -154,7 +175,7 @@ export async function runMannequinPhase(
       }),
     );
     jobLog.info({ intermediateKey }, 'mannequin phase complete');
-    return intermediateKey;
+    return { status: 'completed', key: intermediateKey };
   } finally {
     await setWorkerStatus(redis, w.id, 'IDLE');
   }
