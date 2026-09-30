@@ -23,6 +23,8 @@ interface Worker {
   allowedJobTypes: JobType[];
   status: 'IDLE' | 'BUSY' | 'DRAINING';
   healthy: boolean;
+  /** Dispatcher skips this worker when its ComfyUI queue is non-empty (a dev running a workflow). */
+  queueGateEnabled: boolean;
   lastSeen: number | null;
   createdAt: string;
   updatedAt: string;
@@ -107,6 +109,7 @@ interface RowMenuProps {
   onToggle: () => void;
   onDrain: () => void;
   onUndrain: () => void;
+  onToggleQueueGate: () => void;
   onDelete: () => void;
   deleting: boolean;
 }
@@ -117,6 +120,7 @@ function RowMenu({
   onToggle,
   onDrain,
   onUndrain,
+  onToggleQueueGate,
   onDelete,
   deleting,
 }: RowMenuProps) {
@@ -227,6 +231,10 @@ function RowMenu({
               ? item('Undrain (resume)', onUndrain)
               : item('Drain worker', onDrain, false, !w.isActive)}
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+            {item(
+              w.queueGateEnabled ? 'Disable queue gate' : 'Enable queue gate',
+              onToggleQueueGate,
+            )}
             {item(w.isActive ? 'Disable worker' : 'Enable worker', onToggle)}
             {item('Delete worker', onDelete, true, w.status === 'BUSY' || deleting)}
           </div>,
@@ -484,6 +492,23 @@ export default function WorkersPage({ toast }: Props) {
       toast({
         kind: 'error',
         title: 'Failed to drain worker',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  }
+
+  async function handleToggleQueueGate(w: Worker) {
+    try {
+      await apiFetch(`/admin/workers/${w.id}/queue-gate`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: !w.queueGateEnabled }),
+      });
+      toast({ title: `Queue gate ${w.queueGateEnabled ? 'disabled' : 'enabled'} for ${w.id}` });
+      void load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update queue gate',
         body: apiErrorMessage(e, 'Please try again.'),
       });
     }
@@ -782,6 +807,7 @@ export default function WorkersPage({ toast }: Props) {
                                 }}
                               >
                                 {state.detail}
+                                {w.queueGateEnabled ? ' · queue-gated' : ''}
                               </div>
                             </div>
                           </div>
@@ -808,6 +834,7 @@ export default function WorkersPage({ toast }: Props) {
                             onToggle={() => void handleToggleActive(w)}
                             onDrain={() => void handleDrain(w)}
                             onUndrain={() => void handleUndrain(w)}
+                            onToggleQueueGate={() => void handleToggleQueueGate(w)}
                             onDelete={() => handleDelete(w)}
                             deleting={deleting === w.id}
                           />
@@ -932,6 +959,7 @@ export default function WorkersPage({ toast }: Props) {
                       {[
                         { label: 'Job types', value: jobTypeSummary(w.allowedJobTypes) },
                         { label: 'Status', value: `${state.label} · ${state.detail}` },
+                        { label: 'Queue gate', value: w.queueGateEnabled ? 'On' : 'Off' },
                         { label: 'Last seen', value: formatLastSeen(w.lastSeen) },
                       ].map(({ label, value }) => (
                         <div

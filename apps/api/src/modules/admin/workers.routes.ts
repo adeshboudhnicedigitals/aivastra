@@ -13,6 +13,23 @@ function healthKey(id: string) {
   return `worker:health:${id}`;
 }
 
+// Per-worker routing flags, written here and read by the dispatcher's selectWorker.
+// Kept outside worker:registry (the dispatcher rebuilds those entries on boot). Missing
+// = queue gating off. Keep in sync with routingConfigKey in apps/dispatcher/src/worker/registry.ts.
+function routingConfigKey(id: string) {
+  return `worker:routing-config:${id}`;
+}
+
+async function readQueueGate(redis: FastifyInstance['redis'], id: string): Promise<boolean> {
+  const raw = await redis.get(routingConfigKey(id));
+  if (!raw) return false;
+  try {
+    return (JSON.parse(raw) as { queueGateEnabled?: unknown }).queueGateEnabled === true;
+  } catch {
+    return false;
+  }
+}
+
 function maskApiKey(key: string): string {
   return key.length > 6 ? `...${key.slice(-6)}` : '******';
 }
@@ -61,6 +78,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           allowedJobTypes: w.allowedJobTypes ?? [],
           status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
           healthy,
+          queueGateEnabled: await readQueueGate(app.redis, w.id),
           lastSeen: registry.lastSeen ?? null,
           createdAt: w.createdAt,
           updatedAt: w.updatedAt,
@@ -296,6 +314,12 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           await app.redis.set(healthKey(nextId), healthy);
           await app.redis.del(healthKey(id));
         }
+
+        const gate = await app.redis.get(routingConfigKey(id));
+        if (gate !== null) {
+          await app.redis.set(routingConfigKey(nextId), gate);
+          await app.redis.del(routingConfigKey(id));
+        }
       }
 
       const newUrl = body.url ?? existing.url;
@@ -397,8 +421,44 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
 
       await app.redis.hdel(REGISTRY_KEY, id);
       await app.redis.del(healthKey(id));
+      await app.redis.del(routingConfigKey(id));
 
       return reply.code(204).send();
+    },
+  );
+
+  // Toggles the dispatcher's ComfyUI queue gate for one worker. Live: the dispatcher
+  // reads the flag on every claim, so no restart. Audit first, Redis write last, so a
+  // failed write rolls the audit back (same fail-closed shape as the other mutations).
+  app.put(
+    '/admin/workers/:id/queue-gate',
+    {
+      preHandler: requirePermission('workers.write'),
+      schema: {
+        params: z.object({ id: z.string() }),
+        body: z.object({ enabled: z.boolean() }),
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const { enabled } = req.body as { enabled: boolean };
+      const [row] = await app.db.select().from(schema.workers).where(eq(schema.workers.id, id));
+      if (!row) return reply.code(404).send({ ok: false });
+
+      const before = await readQueueGate(app.redis, id);
+      await app.db.transaction(async (tx) => {
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'worker.queue_gate',
+          resourceType: 'worker',
+          resourceId: id,
+          before: { queueGateEnabled: before },
+          after: { queueGateEnabled: enabled },
+          request: req,
+        });
+        await app.redis.set(routingConfigKey(id), JSON.stringify({ queueGateEnabled: enabled }));
+      });
+      return { ok: true, queueGateEnabled: enabled };
     },
   );
 
