@@ -180,7 +180,13 @@ export async function buildCatalogOptions(
       thumbnailKey: schema.modelBackgrounds.thumbnailKey,
     })
     .from(schema.modelBackgrounds)
-    .where(and(...backgroundConditions));
+    .where(and(...backgroundConditions))
+    // Same curated order as GET /v1/models/backgrounds.
+    .orderBy(
+      asc(schema.modelBackgrounds.sortOrder),
+      asc(schema.modelBackgrounds.label),
+      asc(schema.modelBackgrounds.id),
+    );
   const backgrounds = await Promise.all(
     backgroundRows.map(async (b) => ({
       id: b.id,

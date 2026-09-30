@@ -203,6 +203,13 @@ export async function modelsRoutes(app: FastifyInstance) {
                 )
               : undefined,
           ),
+        )
+        // Admin-curated position (Assets → Backgrounds → Sort order); label/id break
+        // ties so the picker order is stable instead of Postgres heap order.
+        .orderBy(
+          asc(schema.modelBackgrounds.sortOrder),
+          asc(schema.modelBackgrounds.label),
+          asc(schema.modelBackgrounds.id),
         );
 
       return {
