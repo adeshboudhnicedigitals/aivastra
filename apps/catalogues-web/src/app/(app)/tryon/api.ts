@@ -37,10 +37,17 @@ type JobStreamSubscribe = (fn: (evt: JobStatusEvent) => void) => () => void;
  * job queued behind others is never abandoned client-side. One status GET runs
  * right after subscribing to cover a job that finished before the subscription
  * was live, since SSE has no replay.
+ *
+ * onStatus (optional): fired for every status this job passes through, terminal
+ * or not — QUEUED/PREPROCESSING/GENERATING/UPLOADING are the same dispatcher
+ * transitions every job type goes through (apps/dispatcher/src/job/processor.ts),
+ * so a caller can drive the same progress-ring UI catalogs/[id]/page.tsx uses,
+ * not just know when the job is done.
  */
 export function waitForGenerateJob(
   jobId: string,
   subscribe: JobStreamSubscribe,
+  onStatus?: (status: string) => void,
 ): Promise<Pick<MerchantCatalogGenerateStatus, 'status' | 'errorCode'>> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -51,13 +58,14 @@ export function waitForGenerateJob(
       resolve({ status, errorCode: errorCode ?? null });
     };
     const unsubscribe = subscribe((evt) => {
-      if (evt.jobId === jobId && TERMINAL_STATUSES.has(evt.status)) {
-        finish(evt.status, evt.errorCode);
-      }
+      if (evt.jobId !== jobId) return;
+      onStatus?.(evt.status);
+      if (TERMINAL_STATUSES.has(evt.status)) finish(evt.status, evt.errorCode);
     });
     api
       .get<MerchantCatalogGenerateStatus>(`/v1/merchant/catalog/generate/${jobId}`)
       .then((st) => {
+        onStatus?.(st.status);
         if (TERMINAL_STATUSES.has(st.status)) finish(st.status, st.errorCode);
       })
       .catch((err) => {
