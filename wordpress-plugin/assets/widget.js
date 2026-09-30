@@ -71,10 +71,20 @@
   // Set once at init on the root element rather than inline on the button:
   // the modal is reparented to <body> below (a sibling of the button, not a
   // descendant), so a custom property set on the button could never cascade
-  // into it. :root is the common ancestor of both.
-  if (customization.accentColor) {
-    document.documentElement.style.setProperty('--aivastra-accent', customization.accentColor);
-  }
+  // into it. :root is the common ancestor of both. Popup-only — the trigger
+  // button's own background (solid color or gradient) is unrelated, painted
+  // server-side as an inline style (Aivastra_Widget_Loader::render()) with
+  // its hover state handled entirely in CSS (widget.css's
+  // [data-aivastra-custom-bg]:hover), so there is nothing for this file to
+  // do for it at all.
+  //
+  // customization.accentColor is deliberately never read here any more —
+  // its admin field is hidden (Settings -> Aivastra Try-On -> Try-on
+  // button), so this always falls through to widget.css's own
+  // --aivastra-accent default now, even for a store that saved a custom
+  // value back when the field was still visible (that value is still in
+  // wp_options, just inert): "hide the option" means the popup accent is
+  // always the default, not merely that new stores can no longer set one.
 
   // Themes routinely give a section ancestor `transform`, `filter`, or
   // `contain` (sticky headers, gallery/parallax sections), which makes that

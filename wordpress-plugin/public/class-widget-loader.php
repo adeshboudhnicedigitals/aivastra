@@ -26,9 +26,24 @@ class Aivastra_Widget_Loader
     // host.docker.internal.
     private const API_BASE = 'https://app.aivastra.com';
 
+    // WooCommerce's own woocommerce_single_product_summary callbacks: 5 =
+    // title, 10 = rating, 20 = price, 20 = excerpt (short description; WC
+    // core actually also uses 20, template hooks just happen to render title
+    // before excerpt), 30 = add to cart. 'before_cart' (25) is the plugin's
+    // long-standing default and behaves exactly as it always has; the other
+    // two are new, merchant-chosen alternatives from the "Button placement"
+    // field in Settings -> Aivastra Try-On -> Try-on button.
+    private const PLACEMENT_PRIORITIES = [
+        'after_title' => 6,
+        'before_cart' => 25,
+        'after_cart' => 35,
+    ];
+
     public static function init(): void
     {
-        add_action('woocommerce_single_product_summary', [self::class, 'render'], 25);
+        $placement = (new Aivastra_Connection_Settings())->get_widget_customization()['buttonPlacement'];
+        $priority = self::PLACEMENT_PRIORITIES[$placement] ?? self::PLACEMENT_PRIORITIES['before_cart'];
+        add_action('woocommerce_single_product_summary', [self::class, 'render'], $priority);
     }
 
     public static function render(): void
@@ -86,16 +101,52 @@ class Aivastra_Widget_Loader
             // property at init (the button and the reparented-to-<body>
             // modal are siblings, so an inline style here couldn't cascade
             // to both) and falls back to its own hardcoded copy for any
-            // null field.
+            // null field. buttonColor/buttonGradient are unrelated — see the
+            // inline style below — and don't need to be in this payload at
+            // all (widget.js never reads either), but stay here anyway since
+            // 'customization' is otherwise a complete, one-shot snapshot of
+            // the saved form.
             'customization' => $customization,
         ]));
 
-        echo '<button type="button" id="aivastra-tryon-button" class="aivastra-tryon-button">' .
+        // Rendered as an INLINE style, not a class + CSS custom property
+        // (unlike accentColor above): a merchant picking a button color is
+        // almost always doing it specifically because their theme already
+        // has an opinion on #aivastra-tryon-button's background — often
+        // with its own `!important` and a selector specific enough (e.g. an
+        // id) to out-rank anything this plugin could add in an external
+        // stylesheet, at any specificity. An inline `style` attribute is the
+        // only origin that reliably wins that fight regardless of the
+        // theme's selector, and `!important` here still wins ties against a
+        // `!important` rule in any stylesheet, inline always outranks it.
+        // A gradient (Aivastra_Widget_Customization::BUTTON_GRADIENTS) always
+        // wins over a plain buttonColor when the merchant has picked one —
+        // enforced here, not in the admin form, so there's exactly one place
+        // that decides precedence. The hover effect (widget.css's
+        // [data-aivastra-custom-bg]:hover) is a brightness filter rather than
+        // a second computed color specifically so it works unchanged for a
+        // gradient background, not just a solid one.
+        $buttonBackground = self::resolve_button_background($customization);
+        $buttonStyleAttr = $buttonBackground !== null
+            ? ' style="background:' . esc_attr($buttonBackground) . ' !important" data-aivastra-custom-bg="1"'
+            : '';
+
+        echo '<button type="button" id="aivastra-tryon-button" class="aivastra-tryon-button"' . $buttonStyleAttr . '>' .
             '<svg class="aivastra-button-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' .
             '<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>' .
             '</svg>' .
             '<span>Try It On</span>' .
             '</button>';
         echo '<div id="aivastra-tryon-modal" class="aivastra-tryon-modal" hidden></div>';
+    }
+
+    /** @param array{buttonColor:?string,buttonGradient:?string,...} $customization */
+    private static function resolve_button_background(array $customization): ?string
+    {
+        $gradientSlug = $customization['buttonGradient'] ?? null;
+        if ($gradientSlug !== null && isset(Aivastra_Widget_Customization::BUTTON_GRADIENTS[$gradientSlug])) {
+            return Aivastra_Widget_Customization::BUTTON_GRADIENTS[$gradientSlug];
+        }
+        return $customization['buttonColor'] ?? null;
     }
 }
