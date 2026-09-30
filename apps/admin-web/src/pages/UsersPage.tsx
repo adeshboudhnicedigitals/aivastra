@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { ImageLightbox } from '../components/ImageLightbox';
@@ -123,8 +123,13 @@ export default function UsersPage({ onNav, toast }: Props) {
     setConfirmParams({ confirm: 'bulk-delete-users', confirmId: null });
   const { role: myRole } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(
+    (location.state as { search?: string; filter?: string })?.search ||
+      (location.state as { search?: string; filter?: string })?.filter ||
+      '',
+  );
   const [merchantsOnly, setMerchantsOnly] = useState(false);
   // Applied filters — these drive load()/handleExport() and the active-filter
   // chips. The popover edits a separate draft copy so nothing here changes

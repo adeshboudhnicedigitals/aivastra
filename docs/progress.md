@@ -2,6 +2,148 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-30 — Activity Logs: UX redesign, popover filters, humanized diffs & table hierarchy
+
+- **Goal:** Redesign `apps/admin-web/src/pages/AuditLogsPage.tsx` and standardize terminology across the admin app (`apps/admin-web/src/components/Sidebar.tsx`), addressing layout shifts, giant unreadable raw-ID diff blocks, and unrefined filtering.
+- **Changes Done:**
+  1. **Standardized terminology & header polish:** Renamed "Team Activity" to "Activity Logs" in the sidebar, breadcrumb, and page header. Shortened lede to `N logged events · Actions performed through the admin panel.` with an info tooltip explaining that direct database access is excluded.
+  2. **Filter bar redesign & consolidation:**
+     - Positioned the search bar on the far-left (`.filter-search-box`) with search icon and clear button for instant Record ID lookup.
+     - Searchable dropdowns for Activity and Category.
+     - Date preset popover (`Date: All time ▾`) with `Today`, `7d`, `30d`, and Custom range.
+     - Consolidated secondary filters behind `More filters ▾` (with active dot indicator) to avoid layout clutter.
+     - Dynamic active filter chips row with 1-click dismiss (`✕`) for Record ID, Team Member, Activity, Category, and Date.
+  3. **Visual action indicators & hierarchy in "What Happened":**
+     - Added subtle colored status dots (🟢 Created, 🔵 Updated, 🟠 Changed/Approved, 🔴 Deleted, ⚪ Default) to visually scan action categories.
+     - Cleanly separated the bold action sentence from the secondary Record ID (monospace, 11px, with click-to-copy button).
+  4. **Humanized Expanded Details & Event-Specific Archetypes:**
+     - Moved details from a detached panel below the entire table to an **expandable inline child row directly beneath the corresponding log row** (`<tr className="expanded-detail-row"><td colSpan={4}>...</td></tr>`), connected by an unbroken accent left border.
+     - **4-Column Event Metadata Summary Strip:** Displays Target Entity (with copyable ID), Team Member (with role badge), Exact + Relative Timestamp (`Sep 30, 2026, 11:42 AM · 24m ago`), and Event Identifier.
+     - **Tightened Vertical Footprint (~20% height reduction):** Reduced card padding from 18px/22px to 12px/18px, table cell padding to 6px/10px, and outer row container padding to 4px/16px/10px/16px so adjacent rows remain in view.
+     - **Simplified Header:** Streamlined header to `[🟢 CAT] Event Details`, removing the duplicated "What happened" title and the redundant `Close` button (the row already has `Hide details ↑`).
+     - **Neutral Consequence Card:** Shifted consequence cards from strong green/red tints to a neutral surface (`var(--surface)` / `var(--border)`), preserving semantic colors solely for the status icon and text.
+     - **Admin Wording & Singularization:** Used human resource wording (`${count} ${noun} created/removed`) and dynamic singular/plural buttons (`Copy ID` vs `Copy all N IDs`, `View ID ▾` vs `View all N IDs ▾`).
+     - **URL & Long Value Truncation:** Truncated long URLs (showing host + trimmed path) with an external link launcher (`<Icon.ExternalLink />`) and 1-click copy button, and truncated long unbroken IDs/hashes (>36 chars).
+     - **Structured Property Changes Table:** Key-value diffs render as clean `Property | Previous value | New value` tables, filtering out noisy DB timestamps (`created_at`, `updated_at`, internal IDs).
+     - **Technical Audit & Network Context:** Clean footer strip with IP (copyable), Request ID (copyable), and human-parsed client badge (e.g. `Chrome · Linux`, with full UA tooltip).
+  5. **Pagination & discovery polish:** Updated table footer to standard `Showing 1–25 of 3,066` with `‹ Previous` and `Next ›`. Upgraded action triggers to `View details →` and `Hide details ↑`.
+  6. Verified clean build with `tsc -b` and Biome format/lint.
+
+## 2026-09-30 — Recycle Bin: Visual polish, contextual selection toolbar & sorting refinements
+
+- **Goal:** Elevate `apps/admin-web/src/pages/RecycleBinPage.tsx` from functional to a premium, intentional UI with refined tabs, contextual selection mode toolbar, sortable deleted dates with relative timestamps, enhanced thumbnails, and clear row hover/selected states.
+- **Changes Done:**
+  1. **Page header hierarchy:** Made header more compact with clean lede: *"Manage deleted assets and restore or permanently remove them."*, removing low-level storage implementation jargon.
+  2. **Refined asset switcher tabs:** Transformed tab buttons into an application switcher with secondary pill counters (`Faces [961]`, `Backgrounds [163]`, `Pose assets [182]`) and clear active indicator.
+  3. **Table header hierarchy:** Reduced uppercase header visual weight, gave primary dominance to the `ASSET` column (42%), with quieter `GENDER` and `DELETED` columns.
+  4. **Interactive sorting on Deleted:** Added togglable sorting (`Deleted ↓` newest first, `Deleted ↑` oldest first) across all three tabs, resetting pagination smoothly.
+  5. **Deleted date hierarchy:** Rendered formatted date (e.g. `Jun 19, 2026`) as primary text, accompanied by human-friendly relative age (e.g. `3mo ago`, `2d ago`, `yesterday`) as subtle subtext.
+  6. **Enhanced asset thumbnails:** Upgraded in-table thumbnails with larger, comfortable dimensions (Faces: 64×64px, Backgrounds: 88×58px, Pose assets: 52×76px), rounded corners (8px), soft shadow, and clickable `cursor: zoom-in`.
+  7. **Interactive 3-state row styling:**
+     - Normal: clean table surface.
+     - Hover: subtle interactive background (`var(--surface-2)`).
+     - Selected: persistent tinted highlight (`rgba(var(--primary-rgb), 0.05)`) with an indigo accent indicator (`3px solid var(--accent)`).
+  8. **Contextual selection mode toolbar:**
+     - Page selection mode: elevated floating surface with count, "Select all N", and clear actions.
+     - "All selected" mode: transitions to an accented state with `<Icon.Check />` badge and `All N assets selected (across all pages)`.
+  9. **Beautiful empty state:** Replaced plain card with a clean, friendly empty state featuring ♻ icon, clear title, concise copy, and a `[ ↻ Refresh ]` button.
+  10. **Targeted confirmation verification previews & lightbox:**
+     - Enlarged in-table thumbnails to 64px for fast, confident visual recognition without squinting.
+     - Clicking any thumbnail opens an instant high-resolution lightbox modal showing the full uncropped asset (`r2Url`).
+     - Upgraded single-item permanent delete dialog with an enlarged preview card (72×72px for faces, 96×68px for backgrounds, 52×76px for poses), prominent name, metadata badges (gender, continent, shot type), and full ID.
+     - Upgraded bulk delete dialog with a 4-sample thumbnail preview strip + `+N more` counter.
+  11. Verified clean `tsc -b` and `biome check` with 0 errors and 0 warnings.
+
+
+
+
+
+## 2026-09-30 — Recycle Bin: UX redesign, bulk selection toolbar & destructive action clarity
+
+- **Goal:** Redesign `apps/admin-web/src/pages/RecycleBinPage.tsx` from a generic soft-delete CRUD table into a deliberate, polished recycle bin workflow with explicit destructive actions and a modern bulk selection model.
+- **Changes Done:**
+  1. **Destructive action clarity:** Renamed ambiguous row-action `Delete` to `Permanently delete` in danger styling.
+  2. **Confirmation modal with explicit R2 warning:** Redesigned permanent delete confirmation dialog to display an explicit warning: *"Permanently delete N assets? This will permanently remove the selected assets and their files from R2 storage. This cannot be undone."* For single asset deletions, displays the asset thumbnail, label/displayName, and truncated ID.
+  3. **Table header selection & indeterminate state:** Replaced plain-text "Select page" with a standard table header checkbox (`☐`), supporting checked, unchecked, and indeterminate states via ref.
+  4. **Floating/docked bulk selection toolbar:** When assets are selected, a distinct surface toolbar appears above the table displaying:
+     - Count of selected items (`N faces/backgrounds/pose assets selected`).
+     - "Select all N [assets]" cross-page button when the current page is selected and total items exceed page size.
+     - "Clear selection" action.
+     - "Restore (N)" and "Permanently delete (N)" actions.
+  5. **Explicit Refresh button:** Replaced detached plain-text button with `[ ↻ Refresh ]` icon button matching the page header pattern.
+  6. **Table column tightening:** Sized columns with fixed bounds (checkbox 44px, gender 130px, deleted date 140px, actions 230px right-aligned) to eliminate empty whitespace stretching.
+  7. **Thumbnail sizing & aspect ratio optimization:**
+     - Faces: 40×40px square (border-radius: 6px).
+     - Backgrounds: 52×38px landscape (border-radius: 4px).
+     - Pose assets: 34×48px vertical portrait (border-radius: 4px).
+  8. **Pose Assets table cleanup:** Removed predominantly empty standalone `Variant` column; displayed `poseVariant` as an inline pill next to asset title when present, alongside `shotType` and label subtext.
+  9. **Contextual metadata display:** Added secondary context to cryptic names (e.g. continent for faces, white background / scope / tags for backgrounds, display name and shot type for poses).
+  10. **Tab-specific empty states:** Replaced generic empty text with centered cards featuring an icon, friendly title, and explanatory copy.
+  11. **Final interaction safety pass:**
+     - Header checkbox uses callback ref so indeterminate `-` state correctly binds across tab switches and page navigation.
+     - Fully explicit scope transition: `50 pose assets selected on this page · Select all 182 pose assets` -> `182 pose assets selected (all pages) · Clear selection`.
+     - Confirmation modal displays exact count in button: `Permanently delete 50`.
+     - Error handling re-syncs table state upon partial delete failure.
+     - Table column layout redistributed (`38% / 18% / 20% / actions`) to bring metadata closer to the asset and eliminate dead whitespace.
+  12. Verified clean `tsc -b` and `biome check` with 0 errors and 0 warnings.
+
+
+## 2026-09-30 — Credit Analysis: Section spacing and filter row alignment fixes
+
+- **Goal:** Correct uneven vertical rhythm, mismatched control heights, and accidental wrapping in `apps/admin-web/src/pages/CreditAnalysisPage.tsx`.
+- **Changes Done:**
+  1. **Fixed section vertical spacing rhythm:** Unified `.page-head` and the summary strip into a coherent header block with `16px` gap. Removed artificial `marginBottom: 20` and `marginBottom: 18` that previously doubled the parent `.content` gap into an awkward 44px dead space.
+  2. **Typographic baseline alignment:** Aligned summary strip metric numbers and labels on their typographic baseline (`alignItems: 'baseline'`, `gap: 6`), with balanced `32px` separation between metric pairs.
+  3. **Pixel-perfect filter heights (36px uniform):** Matched the segmented DayRange pill container (`height: 36px`, `boxSizing: border-box`, `padding: 2px`, `borderRadius: var(--r)`) and buttons (`height: 100%`) with `.filter-search-box` and `.filter-select`.
+  4. **Single-row filter layout & desktop-only flex fix:** Found root cause of the two-row wrap: `.desktop-only` in `tokens.css` had `display: block !important;`, which overrode `display: flex` when combined directly on the same element (`className="desktop-only filter-row"`), forcing flex items to render in normal block flow (Search on row 1, pills + select on row 2). Separated `.desktop-only` wrapper from `.filter-row` so `display: flex; flex-wrap: nowrap;` takes full effect, locking all 3 controls onto a single line.
+  5. Verified clean `tsc --noEmit` and `biome check` with 0 errors and 0 warnings.
+
+## 2026-09-29 — Credit Analysis: UX redesign & user detail drawer
+
+- **Goal:** Transform `apps/admin-web/src/pages/CreditAnalysisPage.tsx` from a simple ranking report into an actionable analysis tool with summary metrics, clear credit terminology, unified filter bar, and a slide-over user detail drawer.
+- **Changes Done:**
+  1. **Top summary metrics strip:** Compact insight strip showing `Credits spent · Jobs completed · Avg. credits/job · Active users` across the selected window and filter.
+  2. **Backend summary aggregates:** Added `summary: { totalSpent, totalJobs, avgCostPerJob, totalUsers }` to `GET /admin/credit-analysis/users` in `apps/api/src/modules/admin/credit-analysis.routes.ts`.
+  3. **Unified filter bar:** Single `.filter-row` integrating search box (with clear button), segmented DayRange pill group (`7d`, `30d`, `90d`, `All time` with distinct active state), and source select dropdown.
+  4. **Clear terminology:** Renamed table columns to eliminate financial ambiguity:
+     - `SPENT` → `CREDITS SPENT`
+     - `BALANCE` → `CREDIT BALANCE`
+     - `AVG/JOB` → `AVG. CREDITS/JOB`
+  5. **User list hierarchy:** User name styled dominant (`font-weight: 600`, `color: var(--ink)`), email clearly subordinate (`0.78rem`, `var(--muted)`), with green Shopify badge.
+  6. **Slide-over User Details Drawer:** Clicking a user opens a right-side drawer with 2x2 key metrics, daily spend bar chart, top products (if Shopify), recent credit ledger activity with source filter, and a direct "View user profile →" navigation button to the Users page.
+  7. **Drawer analytical polish:**
+     - Chart shows selected date range: `Daily credit spend · Last 30 days` (or `7 days`, `90 days`, `All time`).
+     - Recharts custom tooltip shows formatted date (`Sep 3, 2026`) and formatted credits (`Credits spent: 2,750`).
+     - Activity feed humanized from raw database codes: e.g. `JOB_DISPATCH` → `Catalogue job` / `Job dispatch · 6:29 PM · Sep 3`.
+     - Removed circular bullet icon from activity items that resembled toggles/radios.
+     - Activity feed expands vertically to eliminate unused space at the bottom of the drawer.
+     - Cleaned plan tier and Shopify badges in drawer header.
+  8. **Mobile cards updated:** Aligned metrics terminology with desktop table.
+  9. **Drawer render loop fix:** Resolved infinite re-fetch flickering when opening user drawer caused by unstable `closeDetail` / `toast` references in the `useEffect` dependency array.
+  10. **Interaction sanity pass:** Added text truncation (`ellipsis`) for long names and emails in both table and drawer; hardened Recharts Tooltip with `zIndex: 100` to prevent clipping; confirmed empty states, date range syncing (`7d`/`30d`/`90d`/`all`), and non-job ledger entries (refunds, adjustments).
+  11. **View user profile navigation fix:** Updated button to navigate directly to `/users?user=${detail.id}` with search state, and updated `UsersPage.tsx` to read `location.state` search/filter fallback so clicking the button smoothly opens that user's full management drawer and filters the background list.
+  12. Verified clean `tsc --noEmit` and `biome check` across both `@aivastra/admin` and `@aivastra/api`, and passed all 8 integration tests (`admin-credit-analysis.test.ts`).
+
+## 2026-09-29 — Workers page: full UX redesign
+
+- **Goal:** Modernise `apps/admin-web/src/pages/WorkersPage.tsx` per detailed product brief.
+- **Changes Done:**
+  1. Summary strip: compact `Total · Healthy · Offline · Draining` counters.
+  2. Search + filter bar: search (ID, label, URL, job type) + Status + Job type dropdowns.
+  3. Worker column: ID dominant, display name (monospace) beneath.
+  4. Combined Status + Health → single `● Primary / detail` cell. Removed two separate columns.
+  5. URL + API key removed from the table; drawer-only.
+  6. Compact job-type summary (`All`, `Catalogue`, `Saree +3`) — no coloured pills in table.
+  7. Labelled enable toggle: `Enabled` / `Disabled` text next to Switch.
+  8. `⋯` RowMenu replaces 3 unlabelled icon buttons (Edit, Drain/Undrain, Enable/Disable, Delete).
+  9. Right-side EditDrawer for both Add and Edit — replaced the centred modal.
+  10. "Label" → "Display name" in the form.
+  11. Job types: explicit `All job types` / `Selected job types` radio — replaces "leave unchecked to accept all".
+  12. API key reveal (Eye/EyeOff) in drawer; hidden by default.
+  13. Empty state with icon, description, and Add worker CTA.
+  14. Mobile cards updated: StatusDot, unified state label, labelled toggle.
+  15. `tsc --noEmit` and `biome check` both clean.
+
 ## 2026-09-28 — WordPress demo store: Product card border fixed to match reference image
 
 - **Goal:** Product card border was an animated gradient (`::before` pseudo-element, purple → magenta). Reference image shows plain `1px solid #000` matching the live `shopify.aivastra.com` style.

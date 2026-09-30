@@ -173,7 +173,7 @@ const groups: NavGroup[] = [
       },
       {
         k: 'audit-logs',
-        label: 'Team Activity',
+        label: 'Activity Logs',
         icon: Icon.Clock,
         perm: 'audit.read',
       },

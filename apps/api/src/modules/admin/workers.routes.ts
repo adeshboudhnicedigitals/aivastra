@@ -74,6 +74,47 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
     Object.values(WORKER_POOL),
   );
 
+  /** Probe a worker URL + API key without saving anything.
+   *  Uses the same GET /system_stats check the dispatcher's health monitor uses.
+   *  No DB write, no audit log — safe to call repeatedly from the Add/Edit form. */
+  app.post(
+    '/admin/workers/test-connection',
+    {
+      preHandler: requirePermission('workers.read'),
+      schema: {
+        body: z.object({
+          url: z.string().url(),
+          apiKey: z.string().min(1),
+        }),
+      },
+    },
+    async (req, reply) => {
+      const { url, apiKey } = req.body as { url: string; apiKey: string };
+      const probeUrl = `${url.replace(/\/$/, '')}/system_stats`;
+      const start = Date.now();
+      try {
+        const res = await fetch(probeUrl, {
+          headers: { 'X-Api-Key': apiKey },
+          signal: AbortSignal.timeout(8_000),
+        });
+        const latencyMs = Date.now() - start;
+        if (res.ok) {
+          return reply.send({ ok: true, latencyMs });
+        }
+        return reply.send({ ok: false, error: `HTTP ${res.status}`, latencyMs });
+      } catch (err: unknown) {
+        const latencyMs = Date.now() - start;
+        const message =
+          err instanceof Error
+            ? err.name === 'TimeoutError'
+              ? 'Connection timed out'
+              : err.message
+            : 'Connection failed';
+        return reply.send({ ok: false, error: message, latencyMs });
+      }
+    },
+  );
+
   app.post(
     '/admin/workers',
     {
