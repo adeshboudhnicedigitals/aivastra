@@ -100,7 +100,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       })
       .from(schema.catalogCategories)
       .innerJoin(schema.catalogTypes, eq(schema.catalogCategories.typeId, schema.catalogTypes.id))
-      .orderBy(schema.catalogCategories.sortOrder);
+      .orderBy(schema.catalogCategories.sortOrder, schema.catalogCategories.id);
     return Promise.all(
       rows.map(async (r) => ({
         ...r,

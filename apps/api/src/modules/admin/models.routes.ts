@@ -15,7 +15,7 @@ import {
   PublicApiSlugField,
 } from '@aivastra/types';
 import AdmZip from 'adm-zip';
-import { and, eq, ilike, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import { z } from 'zod';
@@ -314,6 +314,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
               ? ne(schema.modelBackgrounds.scope, 'user')
               : eq(schema.modelBackgrounds.scope, scope ?? 'general'),
           ),
+        )
+        // Without an ORDER BY Postgres returns heap order, which reshuffles after
+        // every UPDATE (edit, bulk category move, activate toggle). sortOrder is the
+        // curated position (bulk import sets it to the bg number); createdAt/id break
+        // ties so equal-sortOrder uploads stay stable, newest first.
+        .orderBy(
+          asc(schema.modelBackgrounds.sortOrder),
+          desc(schema.modelBackgrounds.createdAt),
+          asc(schema.modelBackgrounds.id),
         );
       const items = await Promise.all(
         rows.map(async (r) => ({

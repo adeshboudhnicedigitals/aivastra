@@ -79,18 +79,21 @@ export async function adminWorkflowChangeRequestsRoutes(app: FastifyInstance) {
     async (req) => {
       const body = req.body as z.infer<typeof ProposeWorkflowChangeRequestBody>;
 
-      const [target] = await app.db
-        .select()
-        .from(schema.workflowTemplates)
-        .where(eq(schema.workflowTemplates.id, body.targetWorkflowId));
-      if (!target) throw new AppError('NOT_FOUND', 404, 'target workflow not found');
+      // No target on a 'create' = add a brand-new workflow, nothing to replace.
+      if (body.targetWorkflowId) {
+        const [target] = await app.db
+          .select()
+          .from(schema.workflowTemplates)
+          .where(eq(schema.workflowTemplates.id, body.targetWorkflowId));
+        if (!target) throw new AppError('NOT_FOUND', 404, 'target workflow not found');
 
-      if (body.changeType === 'create' && !target.isActive) {
-        throw new AppError(
-          'VALIDATION',
-          400,
-          'target workflow is already inactive — pick the active workflow this should replace',
-        );
+        if (body.changeType === 'create' && !target.isActive) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'target workflow is already inactive — pick the active workflow this should replace',
+          );
+        }
       }
 
       // Structural validation against the same schema a direct create/update would
@@ -114,12 +117,12 @@ export async function adminWorkflowChangeRequestsRoutes(app: FastifyInstance) {
           .insert(schema.workflowChangeRequests)
           .values({
             changeType: body.changeType,
-            targetWorkflowId: body.targetWorkflowId,
+            targetWorkflowId: body.targetWorkflowId ?? null,
             proposedBy: req.userId,
             // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
             proposedByRole: req.adminRole!,
             reason: body.reason,
-            previousLimitations: body.previousLimitations,
+            previousLimitations: body.previousLimitations?.trim() || null,
             proposedFields: parsed.data as Record<string, unknown>,
           })
           .returning();
@@ -209,11 +212,13 @@ export async function adminWorkflowChangeRequestsRoutes(app: FastifyInstance) {
         if (cr.status !== 'pending') {
           throw new AppError('CONFLICT', 409, 'change request is not pending');
         }
-        if (!cr.targetWorkflowId) {
+        // A missing target is valid only for a 'create' (add-new proposal). An
+        // 'update' without one is a legacy/orphaned row (target deleted).
+        if (!cr.targetWorkflowId && cr.changeType !== 'create') {
           throw new AppError(
             'VALIDATION',
             400,
-            'this change request predates mandatory targetWorkflowId and cannot be auto-approved',
+            'this change request has no target workflow and cannot be auto-approved',
           );
         }
 
@@ -222,58 +227,61 @@ export async function adminWorkflowChangeRequestsRoutes(app: FastifyInstance) {
 
         if (cr.changeType === 'create') {
           const proposedFields = CreateWorkflowBody.parse(cr.proposedFields);
+          const targetId = cr.targetWorkflowId;
           const created = await createWorkflowRow(
             tx,
             proposedFields,
             actor,
-            { changeRequestId: cr.id, continuesFromWorkflowId: cr.targetWorkflowId },
+            { changeRequestId: cr.id, continuesFromWorkflowId: targetId ?? undefined },
             req,
           );
           resultingWorkflowId = created.id;
 
-          const [targetBefore] = await tx
-            .select()
-            .from(schema.workflowTemplates)
-            .where(eq(schema.workflowTemplates.id, cr.targetWorkflowId))
-            .for('update');
-          if (targetBefore?.isActive) {
-            await tx
-              .update(schema.workflowTemplates)
-              .set({ isActive: false, updatedAt: new Date() })
-              .where(eq(schema.workflowTemplates.id, cr.targetWorkflowId));
+          if (targetId) {
+            const [targetBefore] = await tx
+              .select()
+              .from(schema.workflowTemplates)
+              .where(eq(schema.workflowTemplates.id, targetId))
+              .for('update');
+            if (targetBefore?.isActive) {
+              await tx
+                .update(schema.workflowTemplates)
+                .set({ isActive: false, updatedAt: new Date() })
+                .where(eq(schema.workflowTemplates.id, targetId));
 
-            await recordAudit(tx, {
+              await recordAudit(tx, {
+                actor,
+                action: 'workflow.deactivate',
+                resourceType: 'workflow',
+                resourceId: targetId,
+                before: { isActive: true },
+                after: { isActive: false, replacedByWorkflowId: resultingWorkflowId },
+                request: req,
+              });
+            }
+
+            // The new row is otherwise an island — nothing routes a job to it yet.
+            // Move every pose/garment-type/category/funnel/saree-setting that used
+            // the replaced workflow onto the new one, so the replacement takes over
+            // exactly the assets the old workflow served.
+            mappingsSummary = await reassignAllWorkflowMappings(tx, {
+              fromWorkflowId: targetId,
+              toWorkflowId: resultingWorkflowId,
               actor,
-              action: 'workflow.deactivate',
-              resourceType: 'workflow',
-              resourceId: cr.targetWorkflowId,
-              before: { isActive: true },
-              after: { isActive: false, replacedByWorkflowId: resultingWorkflowId },
               request: req,
             });
           }
-
-          // The new row is otherwise an island — nothing routes a job to it yet.
-          // Move every pose/garment-type/category/funnel/saree-setting that used
-          // the replaced workflow onto the new one, so the replacement takes over
-          // exactly the assets the old workflow served.
-          mappingsSummary = await reassignAllWorkflowMappings(tx, {
-            fromWorkflowId: cr.targetWorkflowId,
-            toWorkflowId: resultingWorkflowId,
-            actor,
-            request: req,
-          });
         } else {
           const proposedFields = UpdateWorkflowBody.parse(cr.proposedFields);
           await updateWorkflowRow(
             tx,
-            cr.targetWorkflowId,
+            cr.targetWorkflowId as string,
             proposedFields,
             actor,
             { changeRequestId: cr.id },
             req,
           );
-          resultingWorkflowId = cr.targetWorkflowId;
+          resultingWorkflowId = cr.targetWorkflowId as string;
         }
 
         const [row] = await tx
