@@ -1,10 +1,11 @@
 'use client';
 import type { MerchantCatalogItem } from '@aivastra/types';
 import { useEffect, useRef, useState } from 'react';
-import { SpinnerIcon, UploadIcon } from '@/components/icons';
+import { SpinnerIcon, UploadIcon, XIcon } from '@/components/icons';
 import { useJobStreamContext } from '@/components/job-stream-provider';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { ZoomableImage } from '@/components/ZoomableImage';
 import { api } from '@/lib/api';
 import {
   deleteProduct,
@@ -21,6 +22,18 @@ interface ProductModalProps {
   supportsTwoInputMannequin: boolean;
   supportsTwoInputDirectTryon: boolean;
   initialData?: MerchantCatalogItem;
+  // Fired around the generate+import job so a parent that outlives this modal
+  // (it stays mounted, just hidden, while open=false) can show the job as
+  // "processing" in the product grid even after the merchant closes this
+  // dialog mid-generation — see handleGenerate's own comment on why these
+  // fire unconditionally regardless of whether this modal instance still
+  // considers itself the "current" generation. sourceFile is the flat image
+  // being generated from, so the parent's pending tile can show it blurred in
+  // the background, same as catalogs/[id]/page.tsx's ImageCard does with its
+  // own garmentUrl.
+  onGenerationStart?: (jobId: string, subcategoryId: string, sourceFile: File) => void;
+  onGenerationStatus?: (jobId: string, subcategoryId: string, status: string) => void;
+  onGenerationEnd?: (jobId: string, subcategoryId: string, result: 'success' | 'error') => void;
 }
 
 export function ProductModal({
@@ -31,6 +44,9 @@ export function ProductModal({
   supportsTwoInputMannequin,
   supportsTwoInputDirectTryon,
   initialData,
+  onGenerationStart,
+  onGenerationStatus,
+  onGenerationEnd,
 }: ProductModalProps) {
   const { subscribe } = useJobStreamContext();
   const [label, setLabel] = useState('');
@@ -52,6 +68,9 @@ export function ProductModal({
   // user's SKU/price entry before the final Save PATCH. If the modal closes
   // before that PATCH happens, it's a $0 orphan and gets best-effort deleted.
   const [generatedItem, setGeneratedItem] = useState<MerchantCatalogItem | undefined>(undefined);
+  // Full-size click-to-preview overlay for the uploaded/generated image.
+  const [zoomUrl, setZoomUrl] = useState<string | undefined>(undefined);
+  const [zoomVisible, setZoomVisible] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const palluInputRef = useRef<HTMLInputElement>(null);
@@ -62,6 +81,13 @@ export function ProductModal({
   palluPreviewUrlRef.current = palluPreviewUrl;
   const generatedItemRef = useRef<MerchantCatalogItem | undefined>(undefined);
   generatedItemRef.current = generatedItem;
+  // Bumped whenever this modal closes mid-generation, so a background
+  // generate+import that keeps running after close (see handleGenerate) can
+  // no longer write its result into this instance's own visible state if the
+  // merchant reopens "Add Product" for the same subcategory before it
+  // finishes — onGenerationStart/onGenerationEnd still fire regardless, since
+  // the parent's "processing" tile and query refetch must stay correct either way.
+  const generationSeqRef = useRef(0);
 
   // Reset state
   useEffect(() => {
@@ -86,26 +112,48 @@ export function ProductModal({
       setErrorMsg(undefined);
       setIsGenerating(false);
       setIsSaving(false);
+      setZoomUrl(undefined);
     }
   }, [open, initialData]);
 
   // Revoke the object URL and clean up an unsaved generated product on close.
+  // A generation still in flight (generatedItemRef not set yet) is left alone
+  // here — see handleGenerate/onGenerationEnd for why that one is allowed to
+  // keep running and land as a real, visible "needs details" product instead.
   useEffect(() => {
     if (open) return;
+    generationSeqRef.current += 1;
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     if (palluPreviewUrlRef.current) URL.revokeObjectURL(palluPreviewUrlRef.current);
     if (generatedItemRef.current) void deleteProduct(generatedItemRef.current.id);
   }, [open]);
 
-  // Escape to close
+  // Escape closes the zoom preview first, same as a click on its own backdrop
+  // would; only closes the whole modal once there's nothing on top of it.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      if (zoomUrl) {
+        setZoomUrl(undefined);
+        return;
+      }
+      if (!isSaving) onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, onClose, zoomUrl, isSaving]);
+
+  // Entrance transition for the zoom overlay, same trigger ZoomableImage's
+  // other callers use.
+  useEffect(() => {
+    if (!zoomUrl) {
+      setZoomVisible(false);
+      return;
+    }
+    const raf = requestAnimationFrame(() => setZoomVisible(true));
+    return () => cancelAnimationFrame(raf);
+  }, [zoomUrl]);
 
   // Focus trap
   useEffect(() => {
@@ -170,8 +218,16 @@ export function ProductModal({
   const handleGenerate = async () => {
     if (!selectedFile || !subcategoryId) return;
     if (requiresPallu && !palluFile) return;
+    // Captured now, not read fresh later — subcategoryId is a prop that could
+    // in principle change out from under a closure this long-running, and
+    // onGenerationStart/onGenerationEnd below must always report the same
+    // subcategory they started with.
+    const mySeq = ++generationSeqRef.current;
+    const genSubcategoryId = subcategoryId;
+    const isCurrent = () => generationSeqRef.current === mySeq;
     setIsGenerating(true);
     setErrorMsg(undefined);
+    let jobId: string | undefined;
     try {
       if (generatedItem) {
         await deleteProduct(generatedItem.id);
@@ -181,12 +237,22 @@ export function ProductModal({
       const secondFlatImageKey = requiresPallu
         ? (await presignAndUpload(palluFile as File, 'flat')).r2Key
         : undefined;
-      const { jobId } = await api.post<{ jobId: string }>('/v1/merchant/catalog/generate', {
-        subcategoryId,
+      const created = await api.post<{ jobId: string }>('/v1/merchant/catalog/generate', {
+        subcategoryId: genSubcategoryId,
         flatImageKey,
         ...(secondFlatImageKey ? { secondFlatImageKey } : {}),
       });
-      const status = await waitForGenerateJob(jobId, subscribe);
+      jobId = created.jobId;
+      const genJobId = jobId;
+      // From here on the job runs server-side regardless of this component's
+      // own state — this modal doesn't unmount on close (open just gates its
+      // render), so this promise chain keeps running and will still finalize
+      // even if the merchant closes the dialog. onGenerationStart tells the
+      // parent to show a "processing" tile for it either way.
+      onGenerationStart?.(genJobId, genSubcategoryId, selectedFile);
+      const status = await waitForGenerateJob(genJobId, subscribe, (s) =>
+        onGenerationStatus?.(genJobId, genSubcategoryId, s),
+      );
       if (status.status !== 'COMPLETED') {
         throw new Error(
           status.errorCode
@@ -194,12 +260,20 @@ export function ProductModal({
             : 'Generation failed. Please try again.',
         );
       }
-      const item = await finalizeGeneratedProduct(jobId, subcategoryId);
-      setGeneratedItem(item);
+      const item = await finalizeGeneratedProduct(jobId, genSubcategoryId);
+      onGenerationEnd?.(jobId, genSubcategoryId, 'success');
+      // isCurrent() is false when the merchant closed this dialog and (rare,
+      // but possible in the time a generation takes) reopened it for the
+      // same subcategory before this one finished — don't let a background
+      // result overwrite whatever the reopened dialog is doing now. The
+      // callback above already told the parent regardless, which is what
+      // actually makes the finished product show up in the grid.
+      if (isCurrent()) setGeneratedItem(item);
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Generation failed.');
+      if (jobId) onGenerationEnd?.(jobId, genSubcategoryId, 'error');
+      if (isCurrent()) setErrorMsg(err instanceof Error ? err.message : 'Generation failed.');
     } finally {
-      setIsGenerating(false);
+      if (isCurrent()) setIsGenerating(false);
     }
   };
 
@@ -274,7 +348,6 @@ export function ProductModal({
   return (
     <div
       role="presentation"
-      onClick={busy ? undefined : onClose}
       style={{
         position: 'fixed',
         inset: 0,
@@ -290,8 +363,8 @@ export function ProductModal({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
         style={{
+          position: 'relative',
           background: C.white,
           borderRadius: 14,
           padding: 24,
@@ -300,13 +373,53 @@ export function ProductModal({
           boxShadow: '0 12px 48px rgba(0,0,0,0.18)',
         }}
       >
+        {/* The only way to close this dialog — the backdrop no longer does,
+            so an accidental click outside never discards an in-progress
+            upload or a still-running generation. Disabled only during the
+            final Save (isSaving), not during isGenerating: closing mid-
+            generation is expected now (see handleGenerate/onGenerationEnd)
+            — the job keeps running and lands as a "needs details" product. */}
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={isSaving}
+          aria-label="Close"
+          style={{
+            position: 'absolute',
+            top: 16,
+            right: 16,
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            border: 'none',
+            background: 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: C.mid,
+            cursor: isSaving ? 'not-allowed' : 'pointer',
+            opacity: isSaving ? 0.5 : 1,
+          }}
+          className="hover-surface"
+        >
+          <XIcon size={18} />
+        </button>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <h3 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+          <h3
+            style={{
+              fontSize: 18,
+              fontWeight: 700,
+              color: C.text,
+              margin: 0,
+              paddingRight: 28,
+            }}
+          >
             {isEditing ? 'Edit Product' : 'Add Product'}
           </h3>
 
           {isEditing ? (
             <div
+              onClick={() => displayImageUrl && setZoomUrl(displayImageUrl)}
               style={{
                 height: 140,
                 borderRadius: 8,
@@ -316,6 +429,7 @@ export function ProductModal({
                 alignItems: 'center',
                 justifyContent: 'center',
                 overflow: 'hidden',
+                cursor: displayImageUrl ? 'zoom-in' : 'default',
               }}
             >
               {displayImageUrl ? (
@@ -533,6 +647,10 @@ export function ProductModal({
                     >
                       <div style={{ display: 'flex', gap: 12 }}>
                         <div
+                          onClick={() => {
+                            const url = generatedItem?.imageUrl ?? previewUrl;
+                            if (url) setZoomUrl(url);
+                          }}
                           style={{
                             width: 104,
                             height: 130,
@@ -542,6 +660,7 @@ export function ProductModal({
                             position: 'relative',
                             overflow: 'hidden',
                             flexShrink: 0,
+                            cursor: 'zoom-in',
                           }}
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -888,7 +1007,7 @@ export function ProductModal({
             <button
               type="button"
               onClick={onClose}
-              disabled={busy}
+              disabled={isSaving}
               style={{
                 height: 40,
                 padding: '0 18px',
@@ -899,8 +1018,8 @@ export function ProductModal({
                 fontFamily: 'inherit',
                 fontSize: 14,
                 fontWeight: 600,
-                cursor: busy ? 'not-allowed' : 'pointer',
-                opacity: busy ? 0.7 : 1,
+                cursor: isSaving ? 'not-allowed' : 'pointer',
+                opacity: isSaving ? 0.7 : 1,
               }}
             >
               Cancel
@@ -911,6 +1030,55 @@ export function ProductModal({
           </div>
         </form>
       </div>
+
+      {zoomUrl && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image preview"
+          onClick={() => setZoomUrl(undefined)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setZoomUrl(undefined);
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.85)',
+            zIndex: 1200,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 40,
+          }}
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setZoomUrl(undefined);
+            }}
+            aria-label="Close preview"
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              border: 'none',
+              background: 'rgba(255,255,255,0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: C.onDark,
+              cursor: 'pointer',
+            }}
+          >
+            <XIcon size={18} />
+          </button>
+          <ZoomableImage src={zoomUrl} visible={zoomVisible} variant="scale" />
+        </div>
+      )}
     </div>
   );
 }
