@@ -12,3 +12,4 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 }
 
 delete_option('aivastra_tryon_settings');
+delete_option('aivastra_tryon_onboarding_done');
