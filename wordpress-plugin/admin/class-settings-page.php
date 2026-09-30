@@ -79,17 +79,25 @@ class Aivastra_Settings_Page
         'life-buoy' => '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="14.83" y1="9.17" x2="18.36" y2="5.64"/><line x1="9.17" y1="9.17" x2="5.64" y2="5.64"/><line x1="14.83" y1="14.83" x2="18.36" y2="18.36"/><line x1="9.17" y1="14.83" x2="5.64" y2="18.36"/></svg>',
         'rocket' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>',
         'building' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h.01M9 13h.01M9 17h.01M14 9h.01M14 13h.01M14 17h.01"/></svg>',
-        'check-plain' => '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
         'arrow-right' => '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>',
         'bar-chart-icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
         'grid' => '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>',
     ];
 
-    // Per-tile icon/subtext/accent, matched by plan position to
-    // TRYON_PLAN_META in apps/catalogues-web/src/app/(app)/pricing/use-pricing-data.ts
-    // — GET /v1/dev/plans doesn't return this display metadata, so it's
+    // Per-tile icon/subtext, matched by plan position to TRYON_PLAN_META in
+    // apps/catalogues-web/src/app/(app)/pricing/use-pricing-data.ts — GET
+    // /v1/dev/plans doesn't return this display metadata, so it's
     // re-declared here to give this admin screen the same look as the
     // consumer pricing page for the same four tiers.
+    //
+    // Per-tile accent colour/highlight was briefly removed at the merchant's
+    // request when Plans & credits was still one card squeezed onto the
+    // shared one-page dashboard alongside Products/Support/etc — the extra
+    // visual weight of a highlighted tile competed with every other card on
+    // that page. Plans & credits now has its own standalone page
+    // (render_plans_page(), linked from the "Buy credits" stat), so that
+    // constraint no longer applies: render_plans() below uses the API's own
+    // isHighlighted/badge fields again, same as the consumer pricing page.
     //
     // `name` is a WordPress-only display label, at the merchant's request —
     // GET /v1/dev/plans's own `name`/`slug`/price/credits/badge stay exactly
@@ -99,20 +107,22 @@ class Aivastra_Settings_Page
     // more than four active plans, render_plans() falls back to the plan's
     // real API name for the extra ones rather than mislabelling them.
     private const PLAN_META = [
-        ['name' => 'Silver', 'icon' => 'rocket', 'subtext' => 'Great for getting started', 'accent' => '#626262', 'checkGrad' => false],
-        ['name' => 'Gold', 'icon' => 'bar-chart-icon', 'subtext' => 'Most popular', 'accent' => '#209e46', 'checkGrad' => true],
-        ['name' => 'Platinum', 'icon' => 'building', 'subtext' => 'For growing stores', 'accent' => '#626262', 'checkGrad' => false],
-        ['name' => 'Diamond', 'icon' => 'building', 'subtext' => 'For stores with high traffic', 'accent' => '#626262', 'checkGrad' => false],
+        ['name' => 'Silver', 'icon' => 'rocket', 'subtext' => 'Great for getting started'],
+        ['name' => 'Gold', 'icon' => 'bar-chart-icon', 'subtext' => 'Most popular'],
+        ['name' => 'Platinum', 'icon' => 'building', 'subtext' => 'For growing stores'],
+        ['name' => 'Diamond', 'icon' => 'building', 'subtext' => 'For stores with high traffic'],
     ];
 
-    // Same static copy as TRYON_FEATURES in use-pricing-data.ts — identical
-    // across every try-on plan there, so no per-plan variant is needed here.
+    // Static feature list shown under every plan tile — same across all four
+    // tiers (unlike the catalogue-plan PLAN_FEATURES in use-pricing-data.ts,
+    // which varies by plan). Matches TRYON_FEATURES there exactly, since
+    // these are the same try-on credit plans.
     private const PLAN_FEATURES = [
-        'Faster processing, ahead of the queue',
-        'Only pay for try-ons that work',
-        'No Aivastra branding shown to shoppers',
-        'Works on your website and Shopify store',
-        'Standard AI quality',
+        'Instant Priority Processing',
+        'Pay Only for Successful Try-Ons',
+        'White Label Integration',
+        'Website & Shopify Integration',
+        'Standard AI Quality',
     ];
 
     public static function init(): void
@@ -323,6 +333,16 @@ class Aivastra_Settings_Page
      * mapping — via Aivastra_Connection_Settings::clear(). No fields, no
      * confirmation dance beyond WordPress's own nonce check; the button
      * itself is the confirmation.
+     *
+     * Also deletes ONBOARDING_DONE_OPTION_KEY, a separate wp_option that
+     * Aivastra_Connection_Settings::clear() never touches — without this, a
+     * merchant who reconnects (same account or a different one) landed
+     * straight back on the dashboard, silently skipping step 2 of the
+     * wizard (categories/funnels) forever, because that flag survived the
+     * disconnect. Contradicts this very method's own doc comment above
+     * ("a fresh connect afterward could be a different aivastra account...
+     * a stale mapping must not survive a disconnect") — the onboarding-done
+     * flag is exactly that kind of stale state and needs to go too.
      */
     public static function handle_disconnect(): void
     {
@@ -332,6 +352,7 @@ class Aivastra_Settings_Page
         check_admin_referer('aivastra_tryon_disconnect');
 
         (new Aivastra_Connection_Settings())->clear();
+        delete_option(self::ONBOARDING_DONE_OPTION_KEY);
 
         wp_safe_redirect(add_query_arg(
             ['page' => 'aivastra-tryon', 'aivastra_disconnected' => '1'],
@@ -487,6 +508,178 @@ class Aivastra_Settings_Page
     }
 
     /**
+     * Picks a y-axis ceiling for render_activity_chart() that's always a
+     * multiple of 4 — so all 5 gridline labels (0, 1/4, 1/2, 3/4, full) come
+     * out as whole numbers, never a fraction like 12.5 — and at least as big
+     * as the real max daily value.
+     */
+    private static function nice_axis_max(int $rawMax): int
+    {
+        return max(4, (int) ceil($rawMax / 4) * 4);
+    }
+
+    /**
+     * Monotone cubic (Fritsch–Carlson) interpolation through $points (each an
+     * [x, y] pair in SVG viewBox pixels) — the same algorithm d3's
+     * curveMonotoneX uses. Unlike a plain cardinal/Catmull-Rom spline, this
+     * guarantees every segment's curve stays between its two endpoints' y
+     * values, so it can't overshoot into a visible dip or bump next to a
+     * point — which a low-volume merchant's data (a long flat run of zero
+     * days next to one real day) makes an easy case to hit with a simpler
+     * spline.
+     *
+     * @param array<int, array{0: float, 1: float}> $points
+     */
+    private static function smooth_line_path(array $points): string
+    {
+        $n = count($points);
+        if ($n === 0) {
+            return '';
+        }
+        if ($n === 1) {
+            return sprintf('M%.2f,%.2f', $points[0][0], $points[0][1]);
+        }
+        if ($n === 2) {
+            return sprintf('M%.2f,%.2f L%.2f,%.2f', $points[0][0], $points[0][1], $points[1][0], $points[1][1]);
+        }
+
+        $xs = array_column($points, 0);
+        $ys = array_column($points, 1);
+
+        // Secant slope of each segment.
+        $secants = [];
+        for ($k = 0; $k < $n - 1; $k++) {
+            $h = $xs[$k + 1] - $xs[$k];
+            $secants[$k] = $h !== 0.0 ? ($ys[$k + 1] - $ys[$k]) / $h : 0.0;
+        }
+
+        // Initial tangent at each point: the secant at the ends, the average
+        // of its two neighboring secants everywhere in between.
+        $tangents = [];
+        $tangents[0] = $secants[0];
+        $tangents[$n - 1] = $secants[$n - 2];
+        for ($k = 1; $k < $n - 1; $k++) {
+            $tangents[$k] = ($secants[$k - 1] + $secants[$k]) / 2;
+        }
+
+        // A flat segment (equal y at both ends) must have a flat tangent on
+        // both its points, or the curve would bow away from a straight line
+        // between two equal values.
+        for ($k = 0; $k < $n - 1; $k++) {
+            if ($secants[$k] === 0.0) {
+                $tangents[$k] = 0.0;
+                $tangents[$k + 1] = 0.0;
+            }
+        }
+
+        // Fritsch–Carlson bound: rescale a segment's two tangents together
+        // whenever they'd otherwise push the curve past monotone.
+        for ($k = 0; $k < $n - 1; $k++) {
+            if ($secants[$k] === 0.0) {
+                continue;
+            }
+            $alpha = $tangents[$k] / $secants[$k];
+            $beta = $tangents[$k + 1] / $secants[$k];
+            $sumSq = $alpha * $alpha + $beta * $beta;
+            if ($sumSq > 9.0) {
+                $tau = 3.0 / sqrt($sumSq);
+                $tangents[$k] = $tau * $alpha * $secants[$k];
+                $tangents[$k + 1] = $tau * $beta * $secants[$k];
+            }
+        }
+
+        $path = sprintf('M%.2f,%.2f', $xs[0], $ys[0]);
+        for ($k = 0; $k < $n - 1; $k++) {
+            $h = $xs[$k + 1] - $xs[$k];
+            $cp1x = $xs[$k] + $h / 3;
+            $cp1y = $ys[$k] + $tangents[$k] * $h / 3;
+            $cp2x = $xs[$k + 1] - $h / 3;
+            $cp2y = $ys[$k + 1] - $tangents[$k + 1] * $h / 3;
+            $path .= sprintf(' C%.2f,%.2f %.2f,%.2f %.2f,%.2f', $cp1x, $cp1y, $cp2x, $cp2y, $xs[$k + 1], $ys[$k + 1]);
+        }
+        return $path;
+    }
+
+    /**
+     * Top-of-dashboard activity chart — a smooth line in place of the old
+     * plain bar chart, at the merchant's request to match a reference
+     * dashboard screenshot (big headline number, uppercase axis label,
+     * gridlines with a numeric y-axis). Deliberately its own self-contained
+     * 14-day window (ANALYTICS_DAILY_WINDOW_DAYS server-side) rather than
+     * mixing in the stat tiles' 30-day cards.tryOns total — those are two
+     * different windows from the same GET /v1/dev/analytics call, and
+     * labelling this card's headline number with the 30-day total while the
+     * line below it only covers 14 days would silently misstate what the
+     * chart shows. No period-over-period change badge (the reference
+     * screenshot has one) since the API returns one window, not a
+     * comparison to a prior one — nothing here to compute that from
+     * honestly. Same reasoning as this method's doc comment on
+     * render_dashboard(): no date-range picker, since the window is fixed
+     * server-side.
+     *
+     * @param array<int, array{day:string,tryOns:int}> $daily
+     */
+    private static function render_activity_chart(array $daily): void
+    {
+        $n = count($daily);
+        $total = 0;
+        $rawMax = 0;
+        foreach ($daily as $d) {
+            $v = (int) $d['tryOns'];
+            $total += $v;
+            $rawMax = max($rawMax, $v);
+        }
+        $niceMax = self::nice_axis_max($rawMax);
+
+        $width = 920;
+        $height = 180;
+        $padY = 10;
+        $usableH = $height - 2 * $padY;
+        $points = [];
+        foreach (array_values($daily) as $i => $d) {
+            $x = $n > 1 ? ($i / ($n - 1)) * $width : $width / 2;
+            $y = $padY + $usableH - (((int) $d['tryOns']) / $niceMax) * $usableH;
+            $points[] = [$x, $y];
+        }
+        $linePath = self::smooth_line_path($points);
+        ?>
+        <div class="aivastra-card aivastra-activity-card">
+          <h3 class="aivastra-activity-title">Try-On Activity</h3>
+          <div class="aivastra-activity-stat">
+            <span class="aivastra-activity-number"><?php echo esc_html(number_format_i18n($total)); ?></span>
+            <span class="aivastra-activity-caption">try-on<?php echo $total === 1 ? '' : 's'; ?> in the last <?php echo (int) $n; ?> days</span>
+          </div>
+          <p class="aivastra-activity-sublabel">TRY-ONS OVER TIME</p>
+
+          <div class="aivastra-linechart">
+            <div class="aivastra-linechart-axis">
+              <?php for ($t = 4; $t >= 0; $t--): ?>
+                <span><?php echo esc_html(number_format_i18n((int) round($niceMax * $t / 4))); ?></span>
+              <?php endfor; ?>
+            </div>
+            <div class="aivastra-linechart-plot">
+              <?php for ($t = 0; $t <= 4; $t++): ?>
+                <div class="aivastra-linechart-gridline" style="top: <?php echo esc_attr((string) ($t * 25)); ?>%"></div>
+              <?php endfor; ?>
+              <?php if ($total === 0): ?>
+                <p class="aivastra-empty-state aivastra-linechart-empty">No try-on activity yet in this window.</p>
+              <?php else: ?>
+                <svg class="aivastra-linechart-svg" viewBox="0 0 <?php echo (int) $width; ?> <?php echo (int) $height; ?>" preserveAspectRatio="none">
+                  <path class="aivastra-linechart-line" d="<?php echo esc_attr($linePath); ?>" fill="none" />
+                </svg>
+              <?php endif; ?>
+            </div>
+          </div>
+          <div class="aivastra-linechart-xaxis">
+            <?php foreach ($daily as $d): ?>
+              <span><?php echo esc_html(date_i18n('M j', strtotime((string) $d['day']))); ?></span>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <?php
+    }
+
+    /**
      * @param ?array<int, array{day:string,tryOns:int}> $dailyRows Passed
      *   straight through to Aivastra_Connection_Service::get_balance_summary()
      *   — see that method's doc comment. Unused when $connected is false.
@@ -511,58 +704,26 @@ class Aivastra_Settings_Page
         $service = new Aivastra_Connection_Service($settings, self::API_BASE);
         $balanceSummary = $service->get_balance_summary($dailyRows);
         $tryOnsRemaining = $balanceSummary['ok'] ? $balanceSummary['tryOnsRemaining'] : null;
-        $daysRemaining = $balanceSummary['ok'] ? $balanceSummary['daysRemaining'] : null;
         ?>
         <div class="aivastra-card aivastra-status-card">
           <?php // No card heading — the badge below already says what this card is; only caller left with $connected=true is render_dashboard(), which gives the whole page its own "Dashboard" context. ?>
           <div class="aivastra-status-top">
-            <span class="aivastra-badge aivastra-badge-success">
-              <?php echo self::icon('check-circle'); ?>
-              Connected
-            </span>
-
-            <?php // User tag + Disconnect stacked in the corner — Disconnect used to sit in the action row below with Refresh/Update keys, but a destructive action reads clearer next to whose account it disconnects than lined up beside two harmless ones. ?>
-            <div class="aivastra-status-corner">
+            <div class="aivastra-status-left">
+              <span class="aivastra-badge aivastra-badge-success">
+                <?php echo self::icon('check-circle'); ?>
+                Connected
+              </span>
               <span class="aivastra-status-company"><span class="aivastra-status-company-tag">User:</span> <?php echo esc_html($companyName); ?></span>
-              <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                <input type="hidden" name="action" value="aivastra_tryon_disconnect">
-                <?php wp_nonce_field('aivastra_tryon_disconnect'); ?>
-                <button type="submit" class="aivastra-btn aivastra-btn-danger-ghost aivastra-btn-sm">
-                  <?php echo self::icon('log-out'); ?>
-                  Disconnect
-                </button>
-              </form>
             </div>
-          </div>
 
-          <p class="aivastra-balance-label">Current balance</p>
-          <div class="aivastra-credit-stat">
-            <span class="aivastra-credit-number" id="aivastra-credit-number"><?php echo esc_html(number_format_i18n((int) $credits)); ?></span>
-            <span class="aivastra-credit-label">credits</span>
-            <?php // Filled in by refresh-balance.js on a successful refresh; empty and invisible (no reserved layout space — see the CSS) until then. ?>
-            <span class="aivastra-refresh-confirm" id="aivastra-refresh-confirm" aria-live="polite"></span>
-          </div>
-          <?php // tryOnsRemaining/daysRemaining are real (get_balance_summary()) — a Aivastra_Connection_Service::get_balance_summary() error (stale connection, API hiccup) is the only time this falls back to the plain last-checked timestamp, same text this line always showed before. ?>
-          <p class="aivastra-credit-meta" id="aivastra-credit-meta">
-            <?php if ($tryOnsRemaining !== null): ?>
-              About <?php echo esc_html(number_format_i18n($tryOnsRemaining)); ?> try-on<?php echo $tryOnsRemaining === 1 ? '' : 's'; ?> remaining<?php if ($daysRemaining !== null): ?> &mdash; roughly <?php echo esc_html(number_format_i18n($daysRemaining)); ?> day<?php echo $daysRemaining === 1 ? '' : 's'; ?> at your current rate<?php endif; ?>
-            <?php else: ?>
-              Balance last checked <?php echo esc_html($creditsAsOf ?? 'unknown'); ?>
-            <?php endif; ?>
-          </p>
-
-          <div class="aivastra-action-row">
-            <?php // AJAX (Aivastra_Refresh_Ajax) — see the comment where handle_refresh() used to be, above handle_disconnect(). ?>
-            <button
-              type="button"
-              id="aivastra-refresh-balance"
-              class="aivastra-btn aivastra-btn-secondary"
-              data-nonce="<?php echo esc_attr(wp_create_nonce(Aivastra_Refresh_Ajax::NONCE_ACTION)); ?>"
-            >
-              <span class="aivastra-refresh-icon"><?php echo self::icon('refresh'); ?></span>
-              Refresh balance
-            </button>
-
+            <?php // Update connection keys sits right next to the username now, not
+            // down with Refresh in a separate action row — it's about the
+            // connection this badge row already describes, not a credits-balance
+            // action like Refresh (moved up to the credits label itself) or
+            // Buy credits (by the number). .aivastra-status-top's own flex-wrap
+            // still lets this drop to its own full-width line when opened
+            // (.aivastra-accordion[open]'s flex-basis: 100%), same as it did in
+            // the old action row. ?>
             <details class="aivastra-accordion">
               <summary>
                 <?php echo self::icon('key'); ?>
@@ -573,7 +734,63 @@ class Aivastra_Settings_Page
                 <?php self::render_connect_form(); ?>
               </div>
             </details>
+
+            <?php // Status, user, Update connection keys and Disconnect all on one
+            // line now — the two-row stacked corner this used to be left the row
+            // as tall as its tallest side, with empty space under "Connected" on
+            // the short side. margin-left: auto (CSS) keeps Disconnect pinned to
+            // the far right regardless of how much the rest of this row holds. ?>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-status-disconnect-form">
+              <input type="hidden" name="action" value="aivastra_tryon_disconnect">
+              <?php wp_nonce_field('aivastra_tryon_disconnect'); ?>
+              <button type="submit" class="aivastra-btn aivastra-btn-danger-ghost aivastra-btn-sm">
+                <?php echo self::icon('log-out'); ?>
+                Disconnect
+              </button>
+            </form>
           </div>
+
+          <p class="aivastra-balance-label">
+            Credits left
+            <?php // AJAX (Aivastra_Refresh_Ajax) — see the comment where
+            // handle_refresh() used to live, above handle_disconnect(). Icon-only
+            // now, right on the label instead of a full "Refresh balance" button
+            // in a separate row below — same #aivastra-refresh-balance id, so
+            // refresh-balance.js needs no changes at all. ?>
+            <button
+              type="button"
+              id="aivastra-refresh-balance"
+              class="aivastra-balance-refresh-btn"
+              aria-label="Refresh balance"
+              data-nonce="<?php echo esc_attr(wp_create_nonce(Aivastra_Refresh_Ajax::NONCE_ACTION)); ?>"
+            >
+              <span class="aivastra-refresh-icon"><?php echo self::icon('refresh'); ?></span>
+            </button>
+            <?php // Filled in by refresh-balance.js on a successful refresh; empty and invisible (no reserved layout space — see the CSS) until then. Moved here from the credit-stat row, right beside the icon that triggers it, so the confirmation appears exactly where the merchant just clicked rather than down by the number. ?>
+            <span class="aivastra-refresh-confirm" id="aivastra-refresh-confirm" aria-live="polite"></span>
+          </p>
+          <div class="aivastra-credit-stat">
+            <span class="aivastra-credit-number" id="aivastra-credit-number"><?php echo esc_html(number_format_i18n((int) $credits)); ?></span>
+            <?php // No "credits" word here any more — "Credits left" above
+            // already says what the number is, and the Buy credits button's
+            // own label carries the word too, so it isn't missing. ?>
+            <?php // Right after the credit count itself, not down in a separate action
+            // row — this is the merchant's most likely next move right when
+            // they're looking at a low number, not a utility action. Links to
+            // render_plans_page() (Plans & credits moved off this one-page
+            // dashboard onto its own page, at the merchant's request). ?>
+            <a href="<?php echo esc_url(add_query_arg(['page' => 'aivastra-tryon', 'section' => 'plans'], admin_url('admin.php'))); ?>" class="aivastra-btn aivastra-btn-dark aivastra-credit-buy-btn">
+              Buy credits
+            </a>
+          </div>
+          <?php // tryOnsRemaining is real (get_balance_summary()) — a Aivastra_Connection_Service::get_balance_summary() error (stale connection, API hiccup) is the only time this falls back to the plain last-checked timestamp, same text this line always showed before. No "roughly N days at your current rate" any more — the average-per-day arithmetic behind it (get_balance_summary()'s own daysRemaining) produces a wildly large, not-useful number for a low-usage store (tens of thousands of days), at the merchant's request. ?>
+          <p class="aivastra-credit-meta" id="aivastra-credit-meta">
+            <?php if ($tryOnsRemaining !== null): ?>
+              About <?php echo esc_html(number_format_i18n($tryOnsRemaining)); ?> try-on<?php echo $tryOnsRemaining === 1 ? '' : 's'; ?> remaining
+            <?php else: ?>
+              Balance last checked <?php echo esc_html($creditsAsOf ?? 'unknown'); ?>
+            <?php endif; ?>
+          </p>
         </div>
         <?php
     }
@@ -625,20 +842,36 @@ class Aivastra_Settings_Page
             self::render_onboarding_categories($settings);
             return;
         }
+        if (($_GET['section'] ?? '') === 'categories') {
+            self::render_categories_page($settings);
+            return;
+        }
+        if (($_GET['section'] ?? '') === 'plans') {
+            self::render_plans_page($settings);
+            return;
+        }
         ?>
-        <div class="wrap aivastra-settings-wrap aivastra-dashboard-wrap">
-          <div class="aivastra-shell">
-            <div class="aivastra-shell-scroll">
-              <?php self::render_app_header(); ?>
+        <?php // No boxed white panel around this page (or any other page in
+        // the plugin — see render_onboarding_connect(), render_onboarding_categories(),
+        // render_categories_page(), render_plans_page(), render_intro()) — a
+        // fixed-height, internally-scrolling panel used to wrap every one of
+        // them, which produced a second scrollbar nested inside wp-admin's
+        // own page scrollbar the moment a page's content ran past its
+        // calc()'d height. This page in particular (by far the most content
+        // of any page here) hit that routinely, not as an edge case. Every
+        // page instead flows directly in wp-admin's own body now — one
+        // scrollbar, and the full page width is available to content
+        // instead of a boxed panel with its own padding stacked on top of
+        // the wrap's. ?>
+        <div class="wrap aivastra-settings-wrap aivastra-dashboard-wrap aivastra-dashboard-flat">
+          <?php self::render_app_header(); ?>
 
-              <?php self::render_notices(); ?>
+          <?php self::render_notices(); ?>
 
-              <?php self::render_dashboard($settings); ?>
-            </div>
-          </div>
-
-          <?php self::render_chat_modal(); ?>
+          <?php self::render_dashboard($settings); ?>
         </div>
+
+        <?php self::render_chat_modal(); ?>
         <?php
     }
 
@@ -694,134 +927,48 @@ class Aivastra_Settings_Page
      * old Connection/Plans/Try-On Button/Categories/Analytics/Support tabs
      * (render_nav(), removed) at the merchant's request: everything the
      * tabs held is still here, just stacked on one scroll instead of gated
-     * behind a click, in this order: Connection, Plans & Credits, an
-     * Activity summary (stat tiles, chart, Top Products — purpose-built,
-     * modelled on a reference WordPress plugin dashboard the merchant
-     * supplied screenshots of), then Try-On Button, Categories and Support.
-     * Everything except the Activity summary reuses each old tab's render
-     * method completely unchanged — same forms, same save handlers, same
-     * data — just called in sequence instead of behind a section switch.
+     * behind a click, in this order: Connection (credits balance + Buy credits),
+     * the Try-On Activity line chart, Products overview, Try-On Button and
+     * Support (Categories and Plans & Credits both moved to their own pages —
+     * render_categories_page(), render_plans_page()). Connection leads
+     * because the credits balance and its Buy credits button are what a
+     * merchant most needs to see first; the chart was originally first
+     * instead, per an earlier version of the same request. Each reuses its
+     * old tab's render method completely unchanged — same forms, same save
+     * handlers, same data — just called in sequence instead of behind a
+     * section switch.
      *
-     * Every number in the Activity summary is real, from the same GET
-     * /v1/dev/analytics call the old Analytics tab used
-     * (Aivastra_Connection_Service::get_analytics()'s doc comment has the
-     * exact server-exact-vs-advisory breakdown) — which is also why there's
-     * no separate "Analytics" section: its cards, chart and products table
-     * are exactly this summary, so repeating it lower on the same page
-     * would just be the same numbers twice. Two things the reference
-     * dashboard has that this one deliberately doesn't: a custom date-range
-     * picker — the dev API's analytics endpoint takes no date-range
-     * parameter, its windows are fixed server-side, so a picker here would
-     * be a control wired to nothing — and a per-event "recent activity" feed
-     * with a content-type filter — the API returns aggregates only (daily
-     * totals, a per-product table), never individual events, so there is
-     * nothing to filter or list one row per event.
+     * The old Analytics tab's stat-tile grid (Virtual Try-Ons/Unique
+     * Shoppers/Added to Cart/Add-to-Cart Rate/Credits Available) and Top
+     * Products table — purpose-built for this page, modelled on a reference
+     * WordPress plugin dashboard the merchant supplied screenshots of — were
+     * removed at the merchant's later request ("unwanted for now"); $result
+     * (GET /v1/dev/analytics) is still fetched here since render_activity_chart()
+     * and get_balance_summary() (via render_connection_section()) both need it.
      */
     private static function render_dashboard(Aivastra_Connection_Settings $settings): void
     {
         $service = new Aivastra_Connection_Service($settings, self::API_BASE);
         $result = $service->get_analytics();
-        $credits = $settings->get_credits();
         ?>
         <div class="aivastra-dashboard">
           <?php // No "Dashboard" heading (the page it's on already says so) and no "Last 30 days" period pill — the merchant asked for both to be dropped. ?>
-          <?php // $result's own `daily` rows (fetched above for the Try-On Activity chart) double as get_balance_summary()'s days-remaining input, so the Current balance card doesn't make its own second GET /v1/dev/analytics call. ?>
+          <?php // Connection first (credits balance + Buy credits button) — the merchant wants that found "clearly and soon", ahead of the chart below it. $result's `daily` rows (fetched below for the Try-On Activity chart) double as get_balance_summary()'s days-remaining input, so this doesn't make its own separate GET /v1/dev/analytics call — fetching $result before this call, even though the chart it's mainly for renders second, keeps that single-fetch property. ?>
           <?php self::render_connection_section($settings, true, $result['ok'] ? $result['daily'] : null); ?>
-          <?php self::render_plans($settings); ?>
 
-          <?php if (!$result['ok']): ?>
-            <p class="aivastra-empty-state">Could not load your dashboard data right now — try reloading this page.</p>
-          <?php else: ?>
-            <div class="aivastra-dashboard-stats">
-              <div class="aivastra-dashboard-stat">
-                <span class="aivastra-dashboard-stat-icon aivastra-dashboard-stat-icon--tryons">
-                  <?php echo self::lucide('<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>', 20); ?>
-                </span>
-                <span class="aivastra-dashboard-stat-label">Virtual Try-Ons</span>
-                <span class="aivastra-dashboard-stat-value"><?php echo esc_html(number_format_i18n((int) $result['cards']['tryOns'])); ?></span>
-              </div>
-              <div class="aivastra-dashboard-stat">
-                <span class="aivastra-dashboard-stat-icon aivastra-dashboard-stat-icon--shoppers">
-                  <?php echo self::lucide('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', 20); ?>
-                </span>
-                <span class="aivastra-dashboard-stat-label">Unique Shoppers</span>
-                <span class="aivastra-dashboard-stat-value"><?php echo esc_html(number_format_i18n((int) $result['cards']['uniqueShoppers'])); ?></span>
-              </div>
-              <div class="aivastra-dashboard-stat">
-                <span class="aivastra-dashboard-stat-icon aivastra-dashboard-stat-icon--cart">
-                  <?php echo self::icon('credit-card'); ?>
-                </span>
-                <span class="aivastra-dashboard-stat-label">Added to Cart</span>
-                <span class="aivastra-dashboard-stat-value"><?php echo esc_html(number_format_i18n((int) $result['cards']['addedToCart'])); ?></span>
-              </div>
-              <div class="aivastra-dashboard-stat">
-                <span class="aivastra-dashboard-stat-icon aivastra-dashboard-stat-icon--rate">
-                  <?php echo self::icon('bar-chart'); ?>
-                </span>
-                <span class="aivastra-dashboard-stat-label">Add-to-Cart Rate</span>
-                <span class="aivastra-dashboard-stat-value"><?php echo esc_html(round(((float) $result['cards']['addToCartRate']) * 100, 1)); ?>%</span>
-              </div>
-              <div class="aivastra-dashboard-stat">
-                <span class="aivastra-dashboard-stat-icon aivastra-dashboard-stat-icon--credits">
-                  <?php echo self::lucide('<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>', 20); ?>
-                </span>
-                <span class="aivastra-dashboard-stat-label">Credits Available</span>
-                <span class="aivastra-dashboard-stat-value"><?php echo $credits !== null ? esc_html(number_format_i18n($credits)) : '—'; ?></span>
-              </div>
-            </div>
+          <?php self::render_activity_chart($result['ok'] ? $result['daily'] : []); ?>
 
-            <div class="aivastra-card aivastra-dashboard-chart-card">
-              <div class="aivastra-dashboard-chart-header">
-                <h3>Try-On Activity</h3>
-                <span class="aivastra-dashboard-legend"><span class="aivastra-dashboard-legend-dot"></span>Try-Ons per day</span>
-              </div>
-              <?php
-              $maxDaily = 0;
-              foreach ($result['daily'] as $d) {
-                  $maxDaily = max($maxDaily, (int) $d['tryOns']);
-              }
-              ?>
-              <div class="aivastra-bar-chart aivastra-dashboard-bar-chart">
-                <?php foreach ($result['daily'] as $d): ?>
-                  <?php $pct = $maxDaily > 0 ? max(4, (int) round(((int) $d['tryOns'] / $maxDaily) * 100)) : 0; ?>
-                  <div class="aivastra-bar-col" title="<?php echo esc_attr($d['day'] . ': ' . $d['tryOns'] . ' try-ons'); ?>">
-                    <div class="aivastra-bar-track">
-                      <div class="aivastra-bar" style="height: <?php echo esc_attr((string) $pct); ?>%"></div>
-                    </div>
-                    <span class="aivastra-bar-label"><?php echo esc_html(substr((string) $d['day'], 5)); ?></span>
-                  </div>
-                <?php endforeach; ?>
-              </div>
-            </div>
+          <?php // Stat tiles (Virtual Try-Ons/Unique Shoppers/Added to Cart/Add-to-Cart
+          // Rate/Credits Available) and the Top Products table removed at the
+          // merchant's request — "unwanted for now". render_activity_chart() and
+          // render_connection_section() above already cover try-on volume and
+          // credits from the same GET /v1/dev/analytics call ($result), so
+          // nothing here needs re-fetching if this comes back later. ?>
 
-            <div class="aivastra-card aivastra-dashboard-products-card">
-              <h3>Top Products</h3>
-              <?php if (empty($result['products'])): ?>
-                <p class="aivastra-empty-state">No product activity yet.</p>
-              <?php else: ?>
-                <table class="aivastra-analytics-table">
-                  <thead>
-                    <tr><th>Product</th><th>Try-ons</th><th>Shoppers</th><th>Added to cart</th></tr>
-                  </thead>
-                  <tbody>
-                    <?php foreach ($result['products'] as $p): ?>
-                      <?php $title = get_the_title((int) $p['productId']); ?>
-                      <tr>
-                        <td><?php echo esc_html($title !== '' ? $title : ('#' . $p['productId'])); ?></td>
-                        <td><?php echo esc_html(number_format_i18n((int) $p['tryOns'])); ?></td>
-                        <td><?php echo esc_html(number_format_i18n((int) $p['uniqueShoppers'])); ?></td>
-                        <td><?php echo esc_html(number_format_i18n((int) $p['addedToCart'])); ?></td>
-                      </tr>
-                    <?php endforeach; ?>
-                  </tbody>
-                </table>
-              <?php endif; ?>
-            </div>
-          <?php endif; ?>
+          <?php self::render_products_overview($settings); ?>
 
-          <?php // Rest of the old sidebar tabs, unchanged, now stacked on this one page instead of behind a click. ?>
+          <?php // Rest of the old sidebar tabs, unchanged, now stacked on this one page instead of behind a click. Categories and Plans & credits both moved off this page entirely — render_products_overview()'s Manage button links to render_categories_page(), and render_connection_section()'s Buy credits button links to render_plans_page(), so neither shows twice. ?>
           <?php self::render_widget_customization($settings); ?>
-          <?php self::render_category_mapping($settings); ?>
           <?php self::render_support(); ?>
         </div>
         <?php
@@ -1043,22 +1190,20 @@ class Aivastra_Settings_Page
     {
         ?>
         <div class="wrap aivastra-settings-wrap aivastra-onboarding-wrap">
-          <div class="aivastra-shell">
-            <?php self::render_onboarding_topbar(admin_url('admin.php?page=aivastra-tryon')); ?>
+          <?php self::render_onboarding_topbar(admin_url('admin.php?page=aivastra-tryon')); ?>
 
-            <div class="aivastra-shell-scroll">
-              <?php self::render_progress_steps(1); ?>
+          <div class="aivastra-page-flat-body">
+            <?php self::render_progress_steps(1); ?>
 
-              <?php self::render_notices(); ?>
+            <?php self::render_notices(); ?>
 
-              <div class="aivastra-onboarding-body">
-                <?php self::render_connection_section($settings, false); ?>
-              </div>
+            <div class="aivastra-onboarding-body">
+              <?php self::render_connection_section($settings, false); ?>
             </div>
           </div>
-
-          <?php self::render_chat_modal(); ?>
         </div>
+
+        <?php self::render_chat_modal(); ?>
         <?php
     }
 
@@ -1084,33 +1229,36 @@ class Aivastra_Settings_Page
     {
         ?>
         <div class="wrap aivastra-settings-wrap aivastra-onboarding-wrap">
-          <div class="aivastra-shell">
-            <?php self::render_onboarding_topbar(admin_url('admin.php?page=aivastra-tryon&section=connection')); ?>
+          <?php self::render_onboarding_topbar(admin_url('admin.php?page=aivastra-tryon&section=connection')); ?>
 
-            <div class="aivastra-shell-scroll">
-              <?php self::render_progress_steps(2); ?>
+          <div class="aivastra-page-flat-body">
+            <?php self::render_progress_steps(2); ?>
 
-              <div class="aivastra-onboarding-heading">
-                <h2>Describe Your Garment type for Accurate Virtual Try-On Results</h2>
-                <p>Choose the garment type, such as Upper Wear or Single-Piece Dress, for each category to ensure accurate virtual try-on results.</p>
-              </div>
-
-              <?php self::render_notices(); ?>
-
-              <div class="aivastra-onboarding-body">
-                <?php self::render_category_mapping($settings); ?>
-              </div>
-
-              <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-onboarding-skip">
-                <input type="hidden" name="action" value="aivastra_tryon_skip_onboarding">
-                <?php wp_nonce_field('aivastra_tryon_skip_onboarding'); ?>
-                <button type="submit" class="aivastra-onboarding-skip-link">Skip for now</button>
-              </form>
+            <div class="aivastra-onboarding-heading">
+              <h2>Describe Your Garment type for Accurate Virtual Try-On Results</h2>
+              <p>Choose the garment type, such as Upper Wear or Single-Piece Dress, for each category to ensure accurate virtual try-on results.</p>
             </div>
-          </div>
 
-          <?php self::render_chat_modal(); ?>
+            <?php self::render_notices(false); ?>
+
+            <div class="aivastra-onboarding-body">
+              <?php // false, false: no "Categories" card heading/description and no
+              // Linked/Unlinked split here — this step's own heading and subtext
+              // above already say what to do (see render_category_mapping()'s doc
+              // comment for $showGroups), so this shows one flat grid of every
+              // category instead. ?>
+              <?php self::render_category_mapping($settings, true, false, false); ?>
+            </div>
+
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-onboarding-skip">
+              <input type="hidden" name="action" value="aivastra_tryon_skip_onboarding">
+              <?php wp_nonce_field('aivastra_tryon_skip_onboarding'); ?>
+              <button type="submit" class="aivastra-onboarding-skip-link">Skip for now</button>
+            </form>
+          </div>
         </div>
+
+        <?php self::render_chat_modal(); ?>
         <?php
     }
 
@@ -1303,9 +1451,17 @@ class Aivastra_Settings_Page
         <?php
     }
 
-    private static function render_notices(): void
+    /**
+     * $showConnected: the "Connected successfully." notice — on by default.
+     * render_onboarding_categories() (step 2, arrived at straight from a
+     * successful connect) passes false: the progress row already advancing
+     * to step 2, plus the whole page it lands on, is itself the confirmation
+     * that connecting worked — a dismissible admin notice on top of that
+     * read as one more thing to clear rather than useful information.
+     */
+    private static function render_notices(bool $showConnected = true): void
     {
-        if (isset($_GET['aivastra_connected'])) {
+        if ($showConnected && isset($_GET['aivastra_connected'])) {
             self::render_notice('success', 'Connected successfully.');
         }
         if (isset($_GET['aivastra_disconnected'])) {
@@ -1336,37 +1492,54 @@ class Aivastra_Settings_Page
     /**
      * Only shown once connected — plan pricing needs the widget key
      * (GET /v1/dev/plans), and purchasing needs a plan to buy against.
+     *
+     * $wrapInCard: false for render_plans_page(), the standalone "Buy credits"
+     * destination (render_connection_section()'s credit stat links there) —
+     * same reasoning as render_category_mapping()'s own $wrapInCard: a card
+     * box around the only thing on a page is a second box nested inside the
+     * shell panel's own. true (default) keeps render_dashboard()'s old
+     * inline look... except render_dashboard() no longer calls this at all,
+     * Plans having moved off the one-page dashboard entirely — the default
+     * is kept true only so a future caller isn't surprised by an unwrapped
+     * card if one shows up alongside other content again. Doubles as the
+     * "standalone page" flag below: the large centred heading and the
+     * highlighted-tile/feature-list treatment only make sense with a whole
+     * page to themselves, not squeezed into a card alongside other content.
      */
-    private static function render_plans(Aivastra_Connection_Settings $settings): void
+    private static function render_plans(Aivastra_Connection_Settings $settings, bool $wrapInCard = true): void
     {
+        $isStandalonePage = !$wrapInCard;
         $widgetKey = $settings->get_widget_key();
         $service = new Aivastra_Connection_Service($settings, self::API_BASE);
         $result = $widgetKey !== null ? $service->list_plans($widgetKey) : ['ok' => false, 'plans' => []];
         ?>
-        <div class="aivastra-card aivastra-plans-card">
-          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('credit-card'); ?>Plans &amp; credits</h2>
+        <?php if ($wrapInCard): ?><div class="aivastra-card aivastra-plans-card"><?php endif; ?>
+          <h2 class="aivastra-card-heading<?php echo $isStandalonePage ? ' aivastra-plans-page-heading' : ''; ?>"><?php echo self::heading_icon('credit-card'); ?>Plans &amp; credits</h2>
           <?php if (!$result['ok']): ?>
             <p class="aivastra-empty-state">Could not load plans right now — try reloading this page.</p>
           <?php else: ?>
             <div class="aivastra-plans-grid">
               <?php foreach ($result['plans'] as $idx => $plan): ?>
                 <?php
-                // Styling (icon/subtext/accent) cycles from the top if there are ever
-                // more than four plans; the display name does not — past our four
-                // known tiers, mislabelling a 5th plan "Silver" again would be worse
-                // than just showing its real API name.
+                // Styling (icon/subtext) cycles from the top if there are ever more
+                // than four plans; the display name does not — past our four known
+                // tiers, mislabelling a 5th plan "Silver" again would be worse than
+                // just showing its real API name. isHighlighted/badge come straight
+                // from GET /v1/dev/plans, same fields the consumer pricing page
+                // reads — see the PLAN_META doc comment for why this plugin used to
+                // ignore them and no longer does.
                 $meta = self::PLAN_META[$idx] ?? self::PLAN_META[0];
                 $displayName = self::PLAN_META[$idx]['name'] ?? $plan['name'];
-                $highlighted = !empty($plan['isHighlighted']) && !empty($plan['badge']);
+                $highlighted = !empty($plan['isHighlighted']);
+                $badge = $plan['badge'] ?? null;
                 ?>
                 <div class="aivastra-plan-outer<?php echo $highlighted ? ' aivastra-plan-outer-highlighted' : ''; ?>">
-                  <div class="aivastra-plan-tile<?php echo $highlighted ? ' aivastra-plan-tile-highlighted' : ''; ?>">
-                    <?php if ($highlighted): ?>
-                      <span class="aivastra-plan-badge">&#9733; <?php echo esc_html($plan['badge']); ?></span>
+                  <div class="aivastra-plan-tile">
+                    <?php if ($highlighted && $badge): ?>
+                      <span class="aivastra-plan-badge">&#9733; <?php echo esc_html($badge); ?></span>
                     <?php endif; ?>
-
                     <div class="aivastra-plan-head">
-                      <span class="aivastra-plan-icon" style="background: color-mix(in srgb, <?php echo esc_attr($meta['accent']); ?> 14%, transparent); color: <?php echo esc_attr($meta['accent']); ?>;">
+                      <span class="aivastra-plan-icon">
                         <?php echo self::icon($meta['icon']); ?>
                       </span>
                       <span class="aivastra-plan-head-text">
@@ -1389,16 +1562,11 @@ class Aivastra_Settings_Page
                     <div class="aivastra-plan-divider"></div>
 
                     <div class="aivastra-plan-features">
-                      <p class="aivastra-plan-features-heading">What's included</p>
+                      <p class="aivastra-plan-features-heading">Included Features</p>
                       <?php foreach (self::PLAN_FEATURES as $feature): ?>
-                        <div class="aivastra-plan-feature-row">
-                          <span
-                            class="aivastra-plan-feature-check<?php echo $meta['checkGrad'] ? ' is-gradient' : ''; ?>"
-                            <?php if (!$meta['checkGrad']): ?>
-                              style="background: color-mix(in srgb, <?php echo esc_attr($meta['accent']); ?> 16%, transparent); color: <?php echo esc_attr($meta['accent']); ?>;"
-                            <?php endif; ?>
-                          ><?php echo self::icon('check-plain'); ?></span>
-                          <span class="aivastra-plan-feature-label"><?php echo esc_html($feature); ?></span>
+                        <div class="aivastra-plan-feature">
+                          <span class="aivastra-plan-feature-check"><?php echo self::icon('check-circle'); ?></span>
+                          <span><?php echo esc_html($feature); ?></span>
                         </div>
                       <?php endforeach; ?>
                     </div>
@@ -1407,8 +1575,8 @@ class Aivastra_Settings_Page
                       <input type="hidden" name="action" value="aivastra_tryon_buy">
                       <input type="hidden" name="aivastra_plan_slug" value="<?php echo esc_attr($plan['slug']); ?>">
                       <?php wp_nonce_field('aivastra_tryon_buy'); ?>
-                      <button type="submit" class="aivastra-btn aivastra-plan-buy-btn<?php echo $highlighted ? ' aivastra-btn-catalogue-gradient' : ' aivastra-btn-dark'; ?>">
-                        Buy credits
+                      <button type="submit" class="aivastra-btn aivastra-plan-buy-btn aivastra-btn-dark">
+                        Buy credits <?php echo self::icon('arrow-right'); ?>
                       </button>
                     </form>
                   </div>
@@ -1416,7 +1584,160 @@ class Aivastra_Settings_Page
               <?php endforeach; ?>
             </div>
           <?php endif; ?>
+        <?php if ($wrapInCard): ?></div><?php endif; ?>
+        <?php
+    }
+
+    /**
+     * "Enabled" here means the button will actually render on that product's
+     * page right now — both conditions Aivastra_Widget_Loader::render()
+     * checks: the per-product toggle isn't off (Aivastra_Product_Toggle) AND
+     * its WooCommerce category resolves to a mapped aivastra category
+     * (Aivastra_Category_Mapping::resolve() — null means hidden, see its doc
+     * comment). Just the two counts, not a per-product table — a merchant's
+     * whole catalog (hundreds of rows on a real store) made this card
+     * unusably long; Manage links to render_categories_page() instead,
+     * where the actual lever (category mapping) lives. Manage is a third
+     * .aivastra-dashboard-stat tile in the same grid as the two count
+     * tiles — not a button floating beside them — so it wraps onto its own
+     * row together with them on a narrow screen instead of the button alone
+     * getting squeezed out, and reads as three equal, self-explanatory
+     * cards rather than two stats plus an unrelated control.
+     *
+     * update_object_term_cache()/update_postmeta_cache() batch-prime the
+     * caches wp_get_post_terms()/get_post_meta() read per product below —
+     * without this a store with hundreds of products (this merchant's real
+     * store has 432) would run two extra queries per product instead of two
+     * queries total.
+     */
+    private static function render_products_overview(Aivastra_Connection_Settings $settings): void
+    {
+        $productIds = get_posts([
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'posts_per_page' => -1,
+            'fields' => 'ids',
+        ]);
+
+        update_object_term_cache($productIds, 'product');
+        update_postmeta_cache($productIds);
+
+        $categoryMap = $settings->get_category_map();
+        $enabledCount = 0;
+
+        foreach ($productIds as $productId) {
+            $termIds = wp_get_post_terms($productId, 'product_cat', ['fields' => 'ids']);
+            $category = Aivastra_Category_Mapping::resolve(is_array($termIds) ? $termIds : [], $categoryMap);
+            if (Aivastra_Product_Toggle::is_enabled($productId) && $category !== null) {
+                $enabledCount++;
+            }
+        }
+        ?>
+        <div class="aivastra-card aivastra-products-overview-card">
+          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('grid'); ?>Products</h2>
+          <div class="aivastra-dashboard-stats aivastra-products-stats">
+            <div class="aivastra-dashboard-stat">
+              <span class="aivastra-dashboard-stat-icon aivastra-dashboard-stat-icon--products">
+                <?php echo self::icon('grid'); ?>
+              </span>
+              <span class="aivastra-dashboard-stat-label">Total Products</span>
+              <span class="aivastra-dashboard-stat-value"><?php echo esc_html(number_format_i18n(count($productIds))); ?></span>
+            </div>
+            <div class="aivastra-dashboard-stat">
+              <span class="aivastra-dashboard-stat-icon aivastra-dashboard-stat-icon--enabled">
+                <?php echo self::icon('check-circle'); ?>
+              </span>
+              <span class="aivastra-dashboard-stat-label">Try-On Enabled</span>
+              <span class="aivastra-dashboard-stat-value"><?php echo esc_html(number_format_i18n($enabledCount)); ?></span>
+            </div>
+            <a href="<?php echo esc_url(add_query_arg(['page' => 'aivastra-tryon', 'section' => 'categories'], admin_url('admin.php'))); ?>" class="aivastra-dashboard-stat aivastra-dashboard-stat--action">
+              <span class="aivastra-dashboard-stat-icon aivastra-dashboard-stat-icon--manage">
+                <?php echo self::icon('tag'); ?>
+              </span>
+              <span class="aivastra-dashboard-stat-label">Try-on setup</span>
+              <span class="aivastra-dashboard-stat-value aivastra-dashboard-stat-action-value">Manage<?php echo self::icon('arrow-right'); ?></span>
+            </a>
+          </div>
         </div>
+        <?php
+    }
+
+    /**
+     * Standalone "Manage" destination for the Products card's stat tiles —
+     * the same render_category_mapping() card the connected dashboard used
+     * to show inline, now reachable from its own URL
+     * (?page=aivastra-tryon&section=categories) instead of scrolled past.
+     * Reuses render_onboarding_topbar() for the logo/Back/Support chrome —
+     * the same "way back to the dashboard" affordance
+     * render_onboarding_categories() has — but the wrap/body classes are
+     * the dashboard's own (aivastra-dashboard-wrap / .aivastra-dashboard,
+     * 1400px centred), not the onboarding shell's narrower 760px
+     * .aivastra-onboarding-body: this page is a full dashboard sub-page with
+     * a grid of category tiles, not a single narrow form card like the
+     * connect/category-picker onboarding steps that body width was sized
+     * for. render_category_mapping()'s own card box and small "Categories"
+     * heading are both skipped ($wrapInCard/$showHeading: false) — this page
+     * has nothing else on it, so a card around its only content was just a
+     * second box nested inside the shell panel's own box, and this renders
+     * its own larger, centered heading in place of the small card one.
+     */
+    private static function render_categories_page(Aivastra_Connection_Settings $settings): void
+    {
+        ?>
+        <div class="wrap aivastra-settings-wrap aivastra-dashboard-wrap">
+          <?php self::render_onboarding_topbar(admin_url('admin.php?page=aivastra-tryon')); ?>
+
+          <div class="aivastra-page-flat-body">
+            <?php self::render_notices(); ?>
+
+            <div class="aivastra-dashboard">
+              <div class="aivastra-categories-heading">
+                <h2>Select garments for the virtual try-on</h2>
+                <p>Choose the garment type, such as Upper Wear or Single-Piece Dress, for each product to ensure accurate virtual try-on results.</p>
+              </div>
+              <?php self::render_category_mapping($settings, false, false); ?>
+            </div>
+          </div>
+        </div>
+
+        <?php self::render_chat_modal(); ?>
+        <?php
+    }
+
+    /**
+     * Standalone "Buy credits" destination for render_connection_section()'s
+     * credit stat — the same render_plans() card the one-page dashboard used
+     * to show inline, now on its own URL (?page=aivastra-tryon&section=plans)
+     * at the merchant's request. Reuses render_onboarding_topbar() for the
+     * logo/Back/Support chrome and the dashboard's own wrap/body classes
+     * (aivastra-dashboard-wrap / .aivastra-dashboard, 1400px centred), same
+     * as render_categories_page() right above. render_plans()'s own card box
+     * is skipped too ($wrapInCard: false) for the same reason it is there —
+     * this page has nothing else on it.
+     *
+     * section=plans already existed as a query arg before this page did
+     * (handle_buy()'s redirects, both the error path and the
+     * aivastra_checkout=1 success path that auto-opens the Razorpay modal —
+     * see enqueue_assets()) — those redirects now land here instead of the
+     * general dashboard, which is the more correct destination for either
+     * outcome of a purchase attempt.
+     */
+    private static function render_plans_page(Aivastra_Connection_Settings $settings): void
+    {
+        ?>
+        <div class="wrap aivastra-settings-wrap aivastra-dashboard-wrap">
+          <?php self::render_onboarding_topbar(admin_url('admin.php?page=aivastra-tryon')); ?>
+
+          <div class="aivastra-page-flat-body aivastra-plans-page-body">
+            <?php self::render_notices(); ?>
+
+            <div class="aivastra-dashboard">
+              <?php self::render_plans($settings, false); ?>
+            </div>
+          </div>
+        </div>
+
+        <?php self::render_chat_modal(); ?>
         <?php
     }
 
@@ -1437,41 +1758,110 @@ class Aivastra_Settings_Page
             <input type="hidden" name="action" value="aivastra_tryon_save_widget_customization">
             <?php wp_nonce_field('aivastra_tryon_save_widget_customization'); ?>
 
-            <div class="aivastra-field-row">
-              <label for="aivastra_widget_accent_color">Accent color</label>
-              <input type="color" id="aivastra_widget_accent_color" name="aivastra_widget[accentColor]" class="aivastra-color-input" value="<?php echo esc_attr($c['accentColor'] ?? '#6366f1'); ?>">
+            <?php
+            // Both button color controls in one row — the trio this used to
+            // be (Button color, Accent color, Button gradient) is now a pair:
+            // Accent color's own field is hidden (Aivastra_Widget_Customization
+            // sanitize()/defaults() still carry the field and widget.js still
+            // applies it if a value is somehow stored, but the admin form no
+            // longer writes one), at the merchant's request — the popup
+            // accent now always renders at its CSS default, changed to black
+            // to match (assets/widget.css's --aivastra-accent).
+            ?>
+            <div class="aivastra-field-pair">
+              <div class="aivastra-field-row aivastra-field-row-fixed">
+                <label for="aivastra_widget_button_color">Button color</label>
+                <input type="color" id="aivastra_widget_button_color" name="aivastra_widget[buttonColor]" class="aivastra-color-input" value="<?php echo esc_attr($c['buttonColor'] ?? '#0f172a'); ?>">
+              </div>
+              <div class="aivastra-field-row aivastra-field-row-grow">
+                <label>Button gradient</label>
+                <div class="aivastra-gradient-swatches" role="radiogroup" aria-label="Button gradient">
+                  <label class="aivastra-gradient-swatch aivastra-gradient-swatch--none" title="None — use the solid button color above">
+                    <input type="radio" name="aivastra_widget[buttonGradient]" class="aivastra-gradient-swatch-input" value="" <?php checked(empty($c['buttonGradient'])); ?>>
+                    <span class="aivastra-gradient-swatch-ring" aria-hidden="true"></span>
+                  </label>
+                  <?php foreach (Aivastra_Widget_Customization::BUTTON_GRADIENTS as $slug => $css): ?>
+                    <label class="aivastra-gradient-swatch" style="background:<?php echo esc_attr($css); ?>" title="<?php echo esc_attr(ucfirst($slug)); ?>">
+                      <input type="radio" name="aivastra_widget[buttonGradient]" class="aivastra-gradient-swatch-input" value="<?php echo esc_attr($slug); ?>" <?php checked($c['buttonGradient'] ?? '', $slug); ?>>
+                      <span class="aivastra-gradient-swatch-ring" aria-hidden="true"></span>
+                    </label>
+                  <?php endforeach; ?>
+                </div>
+              </div>
             </div>
+            <p class="aivastra-field-hint">Applied directly to the try-on button (a picked gradient overrides the solid color), so it always shows even if your theme styles buttons on its own.</p>
 
-            <div class="aivastra-field-row">
-              <label for="aivastra_widget_heading">Popup heading</label>
-              <input type="text" id="aivastra_widget_heading" name="aivastra_widget[heading]" class="aivastra-input" maxlength="60" placeholder="Virtual Try-On" value="<?php echo esc_attr($c['heading'] ?? ''); ?>">
-            </div>
+            <?php
+            // Collapsed by default (open only once the merchant has actually
+            // customized something in here) — these five fields are the
+            // popup's copy/behavior, not the button itself, and stacking
+            // them open-by-default was most of what made this card so much
+            // taller than every other dashboard card. Same <details> idiom
+            // as the Connection card's "Update connection keys" accordion.
+            // Paired with Button placement in one row via the same
+            // .aivastra-field-pair used above — .aivastra-accordion[open]
+            // already carries flex-basis:100% (added for .aivastra-
+            // action-row's own wrapping row), which combined with
+            // .aivastra-field-pair's flex-wrap here is what lets the
+            // expanded copy fields fall to their own full-width line
+            // instead of being squeezed into half the card.
+            $hasPopupCopyOverrides = $c['heading'] !== null || $c['subheading'] !== null || $c['ctaLabel'] !== null
+                || $c['addToCartLabel'] !== null || $c['shareLabel'] !== null
+                || $c['addToCart'] !== true || $c['share'] !== true;
+            ?>
+            <div class="aivastra-field-pair aivastra-field-pair-wrap">
+              <div class="aivastra-field-row">
+                <label for="aivastra_widget_button_placement">Button placement</label>
+                <select id="aivastra_widget_button_placement" name="aivastra_widget[buttonPlacement]" class="aivastra-select">
+                  <option value="after_title" <?php selected($c['buttonPlacement'] ?? 'before_cart', 'after_title'); ?>>Right below the product title</option>
+                  <option value="before_cart" <?php selected($c['buttonPlacement'] ?? 'before_cart', 'before_cart'); ?>>Before "Add to Cart" (default)</option>
+                  <option value="after_cart" <?php selected($c['buttonPlacement'] ?? 'before_cart', 'after_cart'); ?>>After "Add to Cart"</option>
+                </select>
+              </div>
+              <div class="aivastra-field-row">
+                <label class="aivastra-field-row-label-ghost" aria-hidden="true">&nbsp;</label>
+                <details class="aivastra-accordion"<?php echo $hasPopupCopyOverrides ? ' open' : ''; ?>>
+                  <summary>
+                    Popup copy &amp; behavior
+                    <?php echo self::icon('chevron'); ?>
+                  </summary>
+                  <div class="aivastra-accordion-body">
+                    <div class="aivastra-field-pair">
+                      <div class="aivastra-field-row">
+                        <label for="aivastra_widget_heading">Popup heading</label>
+                        <input type="text" id="aivastra_widget_heading" name="aivastra_widget[heading]" class="aivastra-input" maxlength="60" placeholder="Virtual Try-On" value="<?php echo esc_attr($c['heading'] ?? ''); ?>">
+                      </div>
+                      <div class="aivastra-field-row">
+                        <label for="aivastra_widget_subheading">Popup subheading</label>
+                        <input type="text" id="aivastra_widget_subheading" name="aivastra_widget[subheading]" class="aivastra-input" maxlength="160" placeholder="Upload a full-body photo to see how it looks on you." value="<?php echo esc_attr($c['subheading'] ?? ''); ?>">
+                      </div>
+                    </div>
 
-            <div class="aivastra-field-row">
-              <label for="aivastra_widget_subheading">Popup subheading</label>
-              <input type="text" id="aivastra_widget_subheading" name="aivastra_widget[subheading]" class="aivastra-input" maxlength="160" placeholder="Upload a full-body photo to see how it looks on you." value="<?php echo esc_attr($c['subheading'] ?? ''); ?>">
-            </div>
+                    <div class="aivastra-field-row">
+                      <label for="aivastra_widget_cta">Generate button label</label>
+                      <input type="text" id="aivastra_widget_cta" name="aivastra_widget[ctaLabel]" class="aivastra-input" maxlength="40" placeholder="Generate Try-On" value="<?php echo esc_attr($c['ctaLabel'] ?? ''); ?>">
+                    </div>
 
-            <div class="aivastra-field-row">
-              <label for="aivastra_widget_cta">Generate button label</label>
-              <input type="text" id="aivastra_widget_cta" name="aivastra_widget[ctaLabel]" class="aivastra-input" maxlength="40" placeholder="Generate Try-On" value="<?php echo esc_attr($c['ctaLabel'] ?? ''); ?>">
-            </div>
+                    <div class="aivastra-field-row aivastra-field-row-checkbox">
+                      <label for="aivastra_widget_add_to_cart">
+                        <input type="checkbox" id="aivastra_widget_add_to_cart" name="aivastra_widget[addToCart]" value="1" class="aivastra-checkbox" <?php checked($c['addToCart']); ?>>
+                        Show "Add to Cart" on the result
+                      </label>
+                      <input type="text" id="aivastra_widget_add_to_cart_label" name="aivastra_widget[addToCartLabel]" class="aivastra-input aivastra-input-inline" maxlength="30" placeholder="Add to Cart" value="<?php echo esc_attr($c['addToCartLabel'] ?? ''); ?>">
+                    </div>
 
-            <div class="aivastra-field-row aivastra-field-row-checkbox">
-              <label for="aivastra_widget_add_to_cart">
-                <input type="checkbox" id="aivastra_widget_add_to_cart" name="aivastra_widget[addToCart]" value="1" class="aivastra-checkbox" <?php checked($c['addToCart']); ?>>
-                Show "Add to Cart" on the result
-              </label>
-              <input type="text" id="aivastra_widget_add_to_cart_label" name="aivastra_widget[addToCartLabel]" class="aivastra-input aivastra-input-inline" maxlength="30" placeholder="Add to Cart" value="<?php echo esc_attr($c['addToCartLabel'] ?? ''); ?>">
+                    <div class="aivastra-field-row aivastra-field-row-checkbox">
+                      <label for="aivastra_widget_share">
+                        <input type="checkbox" id="aivastra_widget_share" name="aivastra_widget[share]" value="1" class="aivastra-checkbox" <?php checked($c['share']); ?>>
+                        Show "Share" on the result
+                      </label>
+                      <input type="text" id="aivastra_widget_share_label" name="aivastra_widget[shareLabel]" class="aivastra-input aivastra-input-inline" maxlength="30" placeholder="Share" value="<?php echo esc_attr($c['shareLabel'] ?? ''); ?>">
+                    </div>
+                  </div>
+                </details>
+              </div>
             </div>
-
-            <div class="aivastra-field-row aivastra-field-row-checkbox">
-              <label for="aivastra_widget_share">
-                <input type="checkbox" id="aivastra_widget_share" name="aivastra_widget[share]" value="1" class="aivastra-checkbox" <?php checked($c['share']); ?>>
-                Show "Share" on the result
-              </label>
-              <input type="text" id="aivastra_widget_share_label" name="aivastra_widget[shareLabel]" class="aivastra-input aivastra-input-inline" maxlength="30" placeholder="Share" value="<?php echo esc_attr($c['shareLabel'] ?? ''); ?>">
-            </div>
+            <p class="aivastra-field-hint">Some themes override the button's placement — check a live product page after saving.</p>
 
             <button type="submit" class="aivastra-btn aivastra-btn-primary">Save appearance</button>
           </form>
@@ -1482,8 +1872,36 @@ class Aivastra_Settings_Page
     /**
      * Only shown once connected — a widget key is required to list the
      * merchant's aivastra categories (GET /v1/dev/categories).
+     *
+     * $wrapInCard: true for render_onboarding_categories(), where this is
+     * one focused step alongside a progress row and a Skip link and reads
+     * right as a card. render_categories_page() passes false — there, this
+     * is the entire page's content, and a card box around it was just a
+     * second, redundant frame nested inside the shell panel's own framing
+     * (the exact "another div to center things" the merchant asked to
+     * remove).
+     *
+     * $showHeading: the small "Categories" card heading + its one-line
+     * description, on by default. render_categories_page() passes false and
+     * renders its own larger, centered page heading instead — the two
+     * aren't meant to ever show together, so this suppresses this one
+     * rather than layering both. The per-state empty messages below (not
+     * connected / no categories / no product categories) always render
+     * regardless — they're informative either way, not a heading.
+     *
+     * $showGroups: the "Linked categories" / "Unlinked categories" h3s,
+     * their counts, and "No categories linked yet..." — on by default (still
+     * what render_categories_page() gets, where the split is the actual
+     * content of an otherwise-heading-less page). render_onboarding_categories()
+     * passes false: step 2's own page heading and subtext ("Describe Your
+     * Garment type...") already say what to do, and on a first-ever run
+     * every category starts Unlinked anyway, so the split reads as three
+     * more redundant labels rather than useful information. false renders
+     * every category — linked or not — as one flat grid instead, under a
+     * bare "Categories" label (no icon, no count) — with $showHeading also
+     * false in that same call, the grid otherwise had no label of any kind.
      */
-    private static function render_category_mapping(Aivastra_Connection_Settings $settings): void
+    private static function render_category_mapping(Aivastra_Connection_Settings $settings, bool $wrapInCard = true, bool $showHeading = true, bool $showGroups = true): void
     {
         $widgetKey = $settings->get_widget_key();
         $service = new Aivastra_Connection_Service($settings, self::API_BASE);
@@ -1492,9 +1910,28 @@ class Aivastra_Settings_Page
         $terms = get_terms(['taxonomy' => 'product_cat', 'hide_empty' => false]);
         $productCategories = is_wp_error($terms) ? [] : $terms;
         $currentMap = $settings->get_category_map();
+
+        // A term only counts as Linked once its stored slug still resolves to
+        // a real Aivastra category — one deleted on the Aivastra side after
+        // being mapped here falls back to Unlinked, same as never having been
+        // mapped (matches Aivastra_Category_Mapping::resolve()'s own
+        // null-if-not-currently-valid behavior on the storefront).
+        $validSlugs = wp_list_pluck($result['categories'], 'slug');
+        $linkedTerms = [];
+        $unlinkedTerms = [];
+        foreach ($productCategories as $term) {
+            $mappedSlug = $currentMap[$term->term_id] ?? '';
+            if ($mappedSlug !== '' && in_array($mappedSlug, $validSlugs, true)) {
+                $linkedTerms[] = $term;
+            } else {
+                $unlinkedTerms[] = $term;
+            }
+        }
         ?>
-        <div class="aivastra-card aivastra-category-card">
-          <h2 class="aivastra-card-heading"><?php echo self::heading_icon('tag'); ?>Categories</h2>
+        <?php if ($wrapInCard): ?><div class="aivastra-card aivastra-category-card"><?php endif; ?>
+          <?php if ($showHeading): ?>
+            <h2 class="aivastra-card-heading"><?php echo self::heading_icon('tag'); ?>Categories</h2>
+          <?php endif; ?>
           <?php if (!$result['ok']): ?>
             <p class="aivastra-empty-state">Could not load your Ai Vastra categories right now — try reloading this page.</p>
           <?php elseif (empty($result['categories'])): ?>
@@ -1502,28 +1939,85 @@ class Aivastra_Settings_Page
           <?php elseif (empty($productCategories)): ?>
             <p class="aivastra-empty-state">No WooCommerce product categories found — the Try-On button won't show on any product until its category is mapped below.</p>
           <?php else: ?>
-            <p class="aivastra-card-description">Choose which try-on style each of your product categories should use. Categories left as "Default" won't show the Try-On button at all.</p>
+            <?php if ($showHeading): ?>
+              <p class="aivastra-card-description">Choose which try-on style each of your product categories should use. A category with no option selected won't show the Try-On button at all.</p>
+            <?php endif; ?>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-form">
               <input type="hidden" name="action" value="aivastra_tryon_save_category_map">
               <?php wp_nonce_field('aivastra_tryon_save_category_map'); ?>
-              <div class="aivastra-mapping-list">
-                <?php foreach ($productCategories as $term): ?>
-                  <div class="aivastra-mapping-row">
-                    <label for="aivastra-cat-map-<?php echo esc_attr($term->term_id); ?>" class="aivastra-mapping-label"><?php echo esc_html($term->name); ?></label>
-                    <select id="aivastra-cat-map-<?php echo esc_attr($term->term_id); ?>" name="aivastra_category_map[<?php echo esc_attr($term->term_id); ?>]" class="aivastra-select">
-                      <option value="">Default (button hidden)</option>
-                      <?php foreach ($result['categories'] as $cat): ?>
-                        <option value="<?php echo esc_attr($cat['slug']); ?>" <?php selected($currentMap[$term->term_id] ?? '', $cat['slug']); ?>>
-                          <?php echo esc_html($cat['name']); ?>
-                        </option>
+
+              <?php if ($showGroups): ?>
+                <div class="aivastra-category-group">
+                  <h3 class="aivastra-category-group-heading">Linked categories <span class="aivastra-category-group-count"><?php echo count($linkedTerms); ?></span></h3>
+                  <?php if (empty($linkedTerms)): ?>
+                    <p class="aivastra-empty-state">No categories linked yet — pick a try-on style below to link one.</p>
+                  <?php else: ?>
+                    <div class="aivastra-category-grid">
+                      <?php foreach ($linkedTerms as $term): ?>
+                        <?php self::render_category_tile($term, $result['categories'], $currentMap); ?>
                       <?php endforeach; ?>
-                    </select>
-                  </div>
-                <?php endforeach; ?>
-              </div>
+                    </div>
+                  <?php endif; ?>
+                </div>
+
+                <div class="aivastra-category-group">
+                  <h3 class="aivastra-category-group-heading">Unlinked categories <span class="aivastra-category-group-count"><?php echo count($unlinkedTerms); ?></span></h3>
+                  <?php if (empty($unlinkedTerms)): ?>
+                    <p class="aivastra-empty-state">Every category is linked.</p>
+                  <?php else: ?>
+                    <div class="aivastra-category-grid">
+                      <?php foreach ($unlinkedTerms as $term): ?>
+                        <?php self::render_category_tile($term, $result['categories'], $currentMap); ?>
+                      <?php endforeach; ?>
+                    </div>
+                  <?php endif; ?>
+                </div>
+              <?php else: ?>
+                <?php // Just "Categories" — no icon, no count, no description (those
+                // are what $showHeading/$showGroups suppress here). Without even
+                // this much, the grid below sat with no label of any kind, and a
+                // merchant new to the plugin had no cue these tiles are their
+                // WooCommerce product categories rather than something else. ?>
+                <h3 class="aivastra-category-group-heading">Categories</h3>
+                <div class="aivastra-category-grid">
+                  <?php foreach ($productCategories as $term): ?>
+                    <?php self::render_category_tile($term, $result['categories'], $currentMap); ?>
+                  <?php endforeach; ?>
+                </div>
+              <?php endif; ?>
+
               <button type="submit" class="aivastra-btn aivastra-btn-primary">Save categories</button>
             </form>
           <?php endif; ?>
+        <?php if ($wrapInCard): ?></div><?php endif; ?>
+        <?php
+    }
+
+    /**
+     * One tile — shared between the Linked and Unlinked groups above, which
+     * differ only in which categories they pass in, not in how a tile
+     * itself renders. Changing the select and saving is what moves a
+     * category between the two groups (re-evaluated from $currentMap on the
+     * next page load, not tracked client-side).
+     *
+     * @param array<int, array{slug:string,name:string}> $aivastraCategories
+     * @param array<int, string> $currentMap
+     */
+    private static function render_category_tile(WP_Term $term, array $aivastraCategories, array $currentMap): void
+    {
+        $mappedSlug = $currentMap[$term->term_id] ?? '';
+        ?>
+        <div class="aivastra-category-tile">
+          <span class="aivastra-category-tile-icon"><?php echo self::icon('tag'); ?></span>
+          <label for="aivastra-cat-map-<?php echo esc_attr($term->term_id); ?>" class="aivastra-category-tile-name"><?php echo esc_html($term->name); ?></label>
+          <select id="aivastra-cat-map-<?php echo esc_attr($term->term_id); ?>" name="aivastra_category_map[<?php echo esc_attr($term->term_id); ?>]" class="aivastra-select">
+            <option value="">No option selected</option>
+            <?php foreach ($aivastraCategories as $cat): ?>
+              <option value="<?php echo esc_attr($cat['slug']); ?>" <?php selected($mappedSlug, $cat['slug']); ?>>
+                <?php echo esc_html($cat['name']); ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
         </div>
         <?php
     }

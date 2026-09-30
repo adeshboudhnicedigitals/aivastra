@@ -73,26 +73,13 @@
         }
         // Mirrors the PHP template's own phrasing exactly
         // (render_connection_section()) so a refresh reads the same as the
-        // page's first load, down to the singular/plural wording.
+        // page's first load, down to the singular/plural wording. No
+        // "roughly N days at your current rate" any more, at the merchant's
+        // request — json.data.daysRemaining is still sent by the AJAX
+        // handler (Aivastra_Refresh_Ajax), just unused here now.
         var tryOns = json.data.tryOnsRemaining;
-        var days = json.data.daysRemaining;
-        var text;
         if (typeof tryOns === 'number') {
-          text =
-            'About ' +
-            tryOns.toLocaleString() +
-            ' try-on' +
-            (tryOns === 1 ? '' : 's') +
-            ' remaining';
-          if (typeof days === 'number') {
-            text +=
-              ' — roughly ' +
-              days.toLocaleString() +
-              ' day' +
-              (days === 1 ? '' : 's') +
-              ' at your current rate';
-          }
-          metaEl.textContent = text;
+          metaEl.textContent = `About ${tryOns.toLocaleString()} try-on${tryOns === 1 ? '' : 's'} remaining`;
         } else if (json.data.creditsAsOf) {
           metaEl.textContent = 'Balance last checked ' + json.data.creditsAsOf;
         }
