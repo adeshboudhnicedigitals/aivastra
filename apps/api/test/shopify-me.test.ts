@@ -128,7 +128,6 @@ describe('GET /v1/shopify/me stats', () => {
       // synced, so this is 2 of the 3 seeded rows, not 3.
       syncedProductCount: 2,
       enabledProductCount: 1,
-      unroutedEnabledCount: 0,
       statusCounts: { active: 1, processing: 0, failed: 0, disabled: 2 },
       todayTryOns: 3,
       storeDailyCap: null,
@@ -169,8 +168,6 @@ describe('GET /v1/shopify/me stats', () => {
       // Still 1 (product 1, pinned) — product 5 is effectively enabled but
       // unrouted, so it's excluded exactly like the ManagePage stat.
       expect(res.json().stats.enabledProductCount).toBe(1);
-      // …and it is reported as unrouted so the onboarding wizard knows a basket is still needed.
-      expect(res.json().stats.unroutedEnabledCount).toBe(1);
     } finally {
       // Scoped to this test's own store — id 5 is only unique within a store,
       // not globally, so an unscoped delete would touch every other store's

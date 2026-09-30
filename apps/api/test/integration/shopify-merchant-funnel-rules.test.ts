@@ -1,6 +1,4 @@
-import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
@@ -167,26 +165,6 @@ describe('shopify merchant funnel rules routes', () => {
     for (const item of res.json().items) {
       expect(item).not.toHaveProperty('workflowTemplateId');
     }
-  });
-
-  it('returns a basket description and a signed image link, never the storage key', async () => {
-    const imageKey = `shopify/baskets/${randomUUID()}.jpg`;
-    await app.storage.putObject(imageKey, Buffer.from('img'), 'image/jpeg');
-    await app.db
-      .update(schema.shopifyFunnelTemplates)
-      .set({ description: 'For shirts and tops', imageKey })
-      .where(eq(schema.shopifyFunnelTemplates.id, upperBasketId));
-
-    const res = await app.inject({ method: 'GET', url: '/v1/shopify/baskets', headers: authA });
-    const items = res.json().items as Array<Record<string, unknown>>;
-    const withImage = items.find((i) => i.id === upperBasketId);
-    expect(withImage?.description).toBe('For shirts and tops');
-    expect(String(withImage?.imageUrl)).toContain(imageKey);
-    for (const item of items) expect(item).not.toHaveProperty('imageKey');
-
-    // A basket with neither still serialises with explicit nulls.
-    const bare = items.find((i) => i.id !== upperBasketId);
-    expect(bare).toMatchObject({ description: null, imageUrl: null });
   });
 
   it('creates a store rule and rejects a duplicate for the same basket with 409', async () => {

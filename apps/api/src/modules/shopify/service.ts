@@ -376,20 +376,3 @@ export async function getProductSyncStatus(
   if (!raw) return { state: 'idle', startedAt: 0, completedAt: null };
   return JSON.parse(raw) as ProductSyncStatus;
 }
-
-// How long a 'running' status is believed when deciding whether to enqueue
-// another full sync. Shorter than the key's own TTL on purpose: a consumer that
-// died mid-sync leaves 'running' behind, and that must not lock the merchant
-// out of re-importing for the whole hour.
-const PRODUCT_SYNC_ACTIVE_WINDOW_MS = 15 * 60 * 1000;
-
-/**
- * True while a full sync for this store is queued or executing. The enqueue
- * route uses it to drop a duplicate request (a remount, a double click, Retry
- * pressed while the first import is still going): the consumer runs one task at
- * a time, so a second full sync only queues behind the first and then
- * re-downloads every image the first just fetched.
- */
-export function isProductSyncActive(status: ProductSyncStatus, now: number = Date.now()): boolean {
-  return status.state === 'running' && now - status.startedAt < PRODUCT_SYNC_ACTIVE_WINDOW_MS;
-}

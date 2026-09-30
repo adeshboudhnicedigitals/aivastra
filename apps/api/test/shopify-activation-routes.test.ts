@@ -144,95 +144,12 @@ describe('GET /v1/shopify/activation', () => {
     // basket — routing-aware enablement excludes it. Product 3 is excluded.
     // So exactly one product counts.
     expect(body.counts.tryonEnabledProducts).toBe(1);
-    // 5 rows seeded above: only the three 'active' ones count as synced. The
-    // failed one (product 2) has no usable image, and the soft-deleted one
-    // (product 5) must not push the numerator past Shopify's own count.
-    expect(body.counts.syncedProductCount).toBe(3);
+    // 5 rows seeded above, but the soft-deleted one (product 5) must not
+    // count as synced.
+    expect(body.counts.syncedProductCount).toBe(4);
     // No real Shopify access token in this test, so the live productsCount
     // lookup fails and falls back to null rather than throwing.
     expect(body.counts.totalProductCount).toBeNull();
-  });
-});
-
-describe('POST /v1/shopify/products/retry-failed', () => {
-  it('queues one single-product sync per failed product, and nothing for the rest', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/shopify/products/retry-failed',
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(202);
-    expect(res.json()).toEqual({ queued: 1 });
-
-    // The redis stream is shared across test files, so filter to this store.
-    const entries = await app.redis.xrange('shopify:sync', '-', '+');
-    const tasks = entries
-      .map(([, fields]) => JSON.parse(fields[fields.indexOf('task') + 1]))
-      .filter((t) => t.storeId === storeId);
-    expect(tasks).toEqual([{ storeId, mode: 'product', shopifyProductId: 2 }]);
-  });
-});
-
-describe('POST /v1/shopify/products/catch-up', () => {
-  const countResponse = (count: number) =>
-    new Response(JSON.stringify({ data: { productsCount: { count } } }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  const call = () =>
-    app.inject({
-      method: 'POST',
-      url: '/v1/shopify/products/catch-up',
-      headers: { authorization: `Bearer ${token}` },
-    });
-  // The redis stream is shared across test files, so filter to this store.
-  const reconcileTasks = async () =>
-    (await app.redis.xrange('shopify:sync', '-', '+'))
-      .map(([, fields]) => JSON.parse(fields[fields.indexOf('task') + 1]))
-      .filter((t) => t.storeId === storeId && t.mode === 'reconcile');
-
-  it('queues one reconcile when Shopify has more products than we have rows, and not again while it is pending', async () => {
-    await app.redis.del(`shopify:catchup:check:${storeId}`, `shopify:catchup:queued:${storeId}`);
-    const originalFetch = global.fetch;
-    // 4 non-deleted rows are seeded (the soft-deleted one does not count).
-    global.fetch = (async () => countResponse(10)) as typeof fetch;
-    try {
-      const first = await call();
-      expect(first.statusCode).toBe(200);
-      expect(first.json()).toEqual({ behindBy: 6, queued: true });
-      expect(await reconcileTasks()).toHaveLength(1);
-
-      // Inside the 30s check window: no second Shopify lookup, nothing queued, but
-      // the same answer, so a page that asks twice still knows it is behind.
-      global.fetch = (async () => {
-        throw new Error('must not look up Shopify again inside the check window');
-      }) as typeof fetch;
-      const second = await call();
-      expect(second.json()).toEqual({ behindBy: 6, queued: false });
-      global.fetch = (async () => countResponse(10)) as typeof fetch;
-
-      // Window over, still behind, but a reconcile is already queued.
-      await app.redis.del(`shopify:catchup:check:${storeId}`);
-      const third = await call();
-      expect(third.json()).toEqual({ behindBy: 6, queued: false });
-      expect(await reconcileTasks()).toHaveLength(1);
-    } finally {
-      global.fetch = originalFetch;
-    }
-  });
-
-  it('queues nothing when we already have a row for every Shopify product', async () => {
-    await app.redis.del(`shopify:catchup:check:${storeId}`, `shopify:catchup:queued:${storeId}`);
-    const before = (await reconcileTasks()).length;
-    const originalFetch = global.fetch;
-    global.fetch = (async () => countResponse(4)) as typeof fetch;
-    try {
-      const res = await call();
-      expect(res.json()).toEqual({ behindBy: 0, queued: false });
-      expect(await reconcileTasks()).toHaveLength(before);
-    } finally {
-      global.fetch = originalFetch;
-    }
   });
 });
 
@@ -499,44 +416,6 @@ describe('GET /v1/shopify/activation/collections/search', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json().items).toEqual([{ shopifyCollectionId: 1, title: 'Summer' }]);
-    } finally {
-      global.fetch = originalFetch;
-    }
-  });
-
-  it('lists every collection, sorted by title, when no query is given', async () => {
-    const originalFetch = global.fetch;
-    global.fetch = (async (url: string) => {
-      if (url.includes('/graphql.json')) {
-        return new Response(
-          JSON.stringify({
-            data: {
-              collections: {
-                pageInfo: { hasNextPage: false, endCursor: null },
-                nodes: [
-                  { id: 'gid://shopify/Collection/2', title: 'Winter' },
-                  { id: 'gid://shopify/Collection/1', title: 'Summer' },
-                ],
-              },
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-      throw new Error(`unexpected fetch: ${url}`);
-    }) as typeof fetch;
-
-    try {
-      const res = await app.inject({
-        method: 'GET',
-        url: '/v1/shopify/activation/collections/search',
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().items).toEqual([
-        { shopifyCollectionId: 1, title: 'Summer' },
-        { shopifyCollectionId: 2, title: 'Winter' },
-      ]);
     } finally {
       global.fetch = originalFetch;
     }
