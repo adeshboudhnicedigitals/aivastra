@@ -1,7 +1,6 @@
 import { Banner, BlockStack, Page, Spinner, Text } from '@shopify/polaris';
 import { useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppFont } from '../components/AppFont';
 import { useConfirmWithRetry } from '../hooks/useConfirmWithRetry';
 import { apiFetch } from '../lib/api';
 
@@ -25,33 +24,29 @@ export default function AutorefillCallbackPage() {
 
   if (error) {
     return (
-      <AppFont>
-        <Page>
-          <Banner
-            title="We couldn't confirm auto-refill"
-            tone="critical"
-            action={{ content: 'Try again', onAction: () => void run() }}
-            secondaryAction={{ content: 'Back to credits', onAction: () => navigate('/pricing') }}
-          >
-            <BlockStack gap="200">
-              <Text as="p">
-                Auto-refill may have been authorized at Shopify, but we haven't been able to confirm
-                it here yet. Retrying is safe.
-              </Text>
-              <Text as="p" tone="subdued">
-                {error.message}
-              </Text>
-            </BlockStack>
-          </Banner>
-        </Page>
-      </AppFont>
+      <Page>
+        <Banner
+          title="We couldn't confirm auto-refill"
+          tone="critical"
+          action={{ content: 'Try again', onAction: () => void run() }}
+          secondaryAction={{ content: 'Back to credits', onAction: () => navigate('/pricing') }}
+        >
+          <BlockStack gap="200">
+            <Text as="p">
+              Auto-refill may have been authorized at Shopify, but we haven't been able to confirm
+              it here yet. Retrying is safe.
+            </Text>
+            <Text as="p" tone="subdued">
+              {error.message}
+            </Text>
+          </BlockStack>
+        </Banner>
+      </Page>
     );
   }
   return (
-    <AppFont>
-      <Page>
-        <Spinner accessibilityLabel="Confirming auto-refill" size="large" />
-      </Page>
-    </AppFont>
+    <Page>
+      <Spinner accessibilityLabel="Confirming auto-refill" size="large" />
+    </Page>
   );
 }

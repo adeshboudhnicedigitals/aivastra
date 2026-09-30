@@ -54,25 +54,16 @@ export async function shopifyFunnelRulesRoutes(app: FastifyInstance) {
   // Deliberately omits workflowTemplateId: merchants have no need for workflow
   // identity, and once it is in a payload it is in a support screenshot.
   app.get('/v1/shopify/baskets', auth, async () => {
-    const rows = await app.db
+    const items = await app.db
       .select({
         id: schema.shopifyFunnelTemplates.id,
         slug: schema.shopifyFunnelTemplates.slug,
         label: schema.shopifyFunnelTemplates.label,
-        description: schema.shopifyFunnelTemplates.description,
-        imageKey: schema.shopifyFunnelTemplates.imageKey,
         sortOrder: schema.shopifyFunnelTemplates.sortOrder,
       })
       .from(schema.shopifyFunnelTemplates)
       .where(eq(schema.shopifyFunnelTemplates.isActive, true))
       .orderBy(asc(schema.shopifyFunnelTemplates.sortOrder));
-    // The storage key stays server-side; merchants only get a signed link.
-    const items = await Promise.all(
-      rows.map(async ({ imageKey, ...basket }) => ({
-        ...basket,
-        imageUrl: imageKey ? (await app.storage.presignGet(imageKey, 3600)).url : null,
-      })),
-    );
     return { items };
   });
 

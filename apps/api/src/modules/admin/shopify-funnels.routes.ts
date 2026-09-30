@@ -1,16 +1,9 @@
-import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { keys } from '@aivastra/storage';
 import { asc, count, countDistinct, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requirePermission } from './guard.js';
-
-// The key must be one the presign route minted. Without this, an admin (or a
-// bug) could point a basket at any object in the bucket, and replacing or
-// clearing the image later would delete that object.
-const BASKET_IMAGE_KEY = /^shopify\/baskets\/[0-9a-f-]{36}\.jpg$/;
 
 const CreateFunnelTemplateBody = z.object({
   slug: z
@@ -19,15 +12,6 @@ const CreateFunnelTemplateBody = z.object({
     .max(80)
     .regex(/^[a-z0-9-]+$/, 'slug must be lowercase letters, numbers, hyphens only'),
   label: z.string().min(1).max(120),
-  // A blank description is stored as null so "no description" has one shape.
-  description: z
-    .string()
-    .trim()
-    .max(500)
-    .transform((v) => (v === '' ? null : v))
-    .nullable()
-    .optional(),
-  imageKey: z.string().regex(BASKET_IMAGE_KEY).nullable().optional(),
   workflowTemplateId: z.string().uuid(),
   sortOrder: z.number().int().default(0),
   isActive: z.boolean().default(true),
@@ -84,37 +68,12 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
   const RW = requirePermission('shopify_funnels.write');
   const uuidParam = z.object({ id: z.string().uuid() });
 
-  // Refuse a key whose upload never happened, so a basket can't end up pointing
-  // at an image that 404s in the merchant's admin.
-  async function assertImageUploaded(imageKey: string | null | undefined) {
-    if (!imageKey) return;
-    try {
-      await app.storage.headObject(imageKey);
-    } catch {
-      throw new AppError('VALIDATION', 400, 'basket image was not uploaded');
-    }
-  }
-
   app.get('/admin/shopify/funnel-templates', { preHandler: RW }, async () => {
-    const rows = await app.db
+    const items = await app.db
       .select()
       .from(schema.shopifyFunnelTemplates)
       .orderBy(asc(schema.shopifyFunnelTemplates.sortOrder));
-    const items = await Promise.all(
-      rows.map(async (r) => ({
-        ...r,
-        imageUrl: r.imageKey ? (await app.storage.presignGet(r.imageKey, 3600)).url : null,
-      })),
-    );
     return { items };
-  });
-
-  // Mints a fresh key per upload rather than reusing the basket's id, so a
-  // replaced image is never served from a cached copy of the old one.
-  app.post('/admin/shopify/funnel-templates/image/presign', { preHandler: RW }, async () => {
-    const imageKey = keys.shopifyBasketImage(randomUUID());
-    const { url } = await app.storage.presignPut(imageKey, 'image/jpeg', 5_000_000, 300);
-    return { uploadUrl: url, imageKey };
   });
 
   app.post(
@@ -122,7 +81,6 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
     { preHandler: RW, schema: { body: CreateFunnelTemplateBody } },
     async (req) => {
       const body = req.body as z.infer<typeof CreateFunnelTemplateBody>;
-      await assertImageUploaded(body.imageKey);
       try {
         const [row] = await app.db.insert(schema.shopifyFunnelTemplates).values(body).returning();
         return row;
@@ -142,27 +100,12 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const body = req.body as z.infer<typeof PatchFunnelTemplateBody>;
 
-      let previousImageKey: string | null = null;
-      if (body.imageKey !== undefined) {
-        await assertImageUploaded(body.imageKey);
-        const [current] = await app.db
-          .select({ imageKey: schema.shopifyFunnelTemplates.imageKey })
-          .from(schema.shopifyFunnelTemplates)
-          .where(eq(schema.shopifyFunnelTemplates.id, id));
-        previousImageKey = current?.imageKey ?? null;
-      }
-
       const [updated] = await app.db
         .update(schema.shopifyFunnelTemplates)
         .set({ ...body, updatedAt: new Date() })
         .where(eq(schema.shopifyFunnelTemplates.id, id))
         .returning({ id: schema.shopifyFunnelTemplates.id });
       if (!updated) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
-      // Only after the row points at the new image, so a failed update never
-      // leaves a basket referencing a file that is already gone.
-      if (previousImageKey && previousImageKey !== body.imageKey) {
-        await app.storage.deleteObject(previousImageKey).catch(() => {});
-      }
       return { ok: true };
     },
   );
@@ -233,12 +176,8 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
       const [deleted] = await app.db
         .delete(schema.shopifyFunnelTemplates)
         .where(eq(schema.shopifyFunnelTemplates.id, id))
-        .returning({
-          id: schema.shopifyFunnelTemplates.id,
-          imageKey: schema.shopifyFunnelTemplates.imageKey,
-        });
+        .returning({ id: schema.shopifyFunnelTemplates.id });
       if (!deleted) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
-      if (deleted.imageKey) await app.storage.deleteObject(deleted.imageKey).catch(() => {});
       return {
         ok: true,
         rulesAffected: impact.rulesAffected,

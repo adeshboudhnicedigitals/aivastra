@@ -159,18 +159,6 @@
       return { ...options, headers: { ...options?.headers, 'ngrok-skip-browser-warning': 'true' } };
     }
 
-    // This request also tells our API that the app embed is live, which is what
-    // ends onboarding's theme step. The theme editor preview and unpublished
-    // (preview) themes render the embed too, but it may be toggled on there and
-    // not yet saved, so those views flag themselves with `dm=1` and are not
-    // counted. `Shopify.theme.role` is 'main' only for the published theme.
-    function isLiveStorefront() {
-      const shopify = window.Shopify;
-      if (!shopify) return true;
-      if (shopify.designMode) return false;
-      return !(shopify.theme && shopify.theme.role && shopify.theme.role !== 'main');
-    }
-
     // Set from the enabled-check response below when SHOPIFY_WIDGET_VERBOSE=true
     // on the API. Merchant/QA testing only — makes friendlyClientErrorMessage
     // and the hardcoded error branches in createJob show the real backend
@@ -187,7 +175,7 @@
     (async () => {
       try {
         const res = await fetchWithTimeout(
-          `${PROXY_BASE}/customer/products/${productId}/enabled${isLiveStorefront() ? '' : '?dm=1'}`,
+          `${PROXY_BASE}/customer/products/${productId}/enabled`,
           withDevTunnelBypass({}),
           ENABLED_CHECK_TIMEOUT_MS,
         );
@@ -1802,91 +1790,10 @@
     }
   }
 
-  // Product forms, most specific first. `form[action*="/cart/add"]` is last
-  // because it is the near-universal backstop: every Shopify product page has
-  // one, whatever the theme calls its wrapper.
-  const PRODUCT_FORM_SELECTORS = [
-    'product-form form',
-    '.product-form form',
-    'form.shopify-product-form',
-    'form[action*="/cart/add"]',
-  ];
-
-  // The Add to cart / buy-buttons group inside that form, widest wrapper first
-  // so the button lands above the whole group (add to cart + dynamic checkout)
-  // instead of between its two halves.
-  const BUY_BUTTON_SELECTORS = [
-    '.product-form__buttons',
-    '[data-shopify="payment-button"]',
-    '.product-form__submit',
-    'button[name="add"]',
-    'button[type="submit"]',
-  ];
-
-  function firstMatch(selectors, scope) {
-    for (let i = 0; i < selectors.length; i++) {
-      // A merchant-typed selector can be syntactically invalid, and
-      // querySelector throws on those rather than returning null — that would
-      // abort placement for every widget on the page, not just this one.
-      try {
-        const el = scope.querySelector(selectors[i]);
-        if (el) return el;
-      } catch (_err) {
-        /* try the next candidate */
-      }
-    }
-    return null;
-  }
-
-  // The element the widget should sit directly above, or null if the theme
-  // hasn't rendered one (yet).
-  function findPlacementAnchor(root) {
-    const configured = root.dataset.placementSelector;
-    if (configured) {
-      const el = firstMatch([configured], document);
-      if (el) return el;
-    }
-    const form = firstMatch(PRODUCT_FORM_SELECTORS, document);
-    if (!form) return null;
-    // Buy buttons that live inside the form; if the theme keeps them outside
-    // (or names them unusually) the form itself is the anchor.
-    return firstMatch(BUY_BUTTON_SELECTORS, form) || form.firstElementChild;
-  }
-
-  function placeWidget(root) {
-    const anchor = findPlacementAnchor(root);
-    if (anchor && anchor.parentNode) {
-      anchor.parentNode.insertBefore(root, anchor);
-      return true;
-    }
-    return false;
-  }
-
-  // Themes that render the product form with JS (web components, section
-  // re-renders) may not have it in the DOM when this script runs, so wait for
-  // it briefly before giving up. Falling back to a floating button beats
-  // leaving the widget at the end of <body>, where it looks like the app is
-  // broken.
-  function placeWhenReady(root) {
-    if (placeWidget(root)) return;
-    const observer = new MutationObserver(() => {
-      if (placeWidget(root)) observer.disconnect();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    setTimeout(() => {
-      observer.disconnect();
-      if (root.parentNode !== document.body) return;
-      root.classList.add('aivastra-tryon--floating');
-      console.warn(
-        '[aivastra] Try It On: no product form found, showing a floating button. ' +
-          'Set a CSS selector in Theme editor -> App embeds -> Try It On to place it.',
-      );
-    }, 3000);
-  }
-
+  // No placement step: the merchant positioned this block in the theme editor,
+  // so it already renders where it belongs.
   const widgets = document.querySelectorAll('.aivastra-tryon');
   for (let i = 0; i < widgets.length; i++) {
-    placeWhenReady(widgets[i]);
     // Contained per widget. initWidget reads a good deal of merchant-controlled
     // markup, and a theme that strips or renames one element used to throw out
     // of the whole loop — so one broken block on a page took every other block

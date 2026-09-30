@@ -9,12 +9,7 @@ import { shopifyMeRoutes } from './me.routes.js';
 import { shopifyOnboardingRoutes } from './onboarding.routes.js';
 import { shopifyProductsRoutes } from './products.routes.js';
 import { shopifyPurchaseRoutes } from './purchase.routes.js';
-import {
-  enqueueSync,
-  getProductSyncStatus,
-  isProductSyncActive,
-  markProductSyncRunning,
-} from './service.js';
+import { enqueueSync, getProductSyncStatus, markProductSyncRunning } from './service.js';
 import { shopifySettingsRoutes } from './settings.routes.js';
 import { shopifyShoppersRoutes } from './shoppers.routes.js';
 import { shopifySupportRoutes } from './support.routes.js';
@@ -51,12 +46,6 @@ export async function shopifyRoutes(app: FastifyInstance) {
     { preHandler: app.requireShopifySession },
     async (req, reply) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-      // A sync already queued or running covers this request — the caller polls
-      // the same status key either way. Not atomic with the mark below; the
-      // worst a race costs is the duplicate this check exists to avoid.
-      if (isProductSyncActive(await getProductSyncStatus(app.redis, store.id))) {
-        return reply.code(202).send({ queued: false, alreadyRunning: true });
-      }
       // Set before XADD, not after: the sync consumer can, on a fast/empty
       // store, finish and clear this same key before the route ever gets
       // back around to writing it, which would leave the button's poll

@@ -70,9 +70,6 @@ export interface ShopifyActivationSettings {
 export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
-  themeEmbedConfirmed?: boolean;
-  onboardingRoutingConfirmed?: boolean;
-  onboardingCompletedOnce?: boolean;
   emailBonusClaimed?: boolean;
   emailBonusClaimedAt?: string;
   limits?: ShopifyStoreLimits;
@@ -273,10 +270,6 @@ export const shopifyFunnelTemplates = pgTable('shopify_funnel_templates', {
   id: uuid('id').primaryKey().defaultRandom(),
   slug: text('slug').notNull().unique(),
   label: text('label').notNull(),
-  // Shown to merchants beside the basket picker so they can tell what a basket
-  // represents. The image is a storage key (signed on read), not a URL.
-  description: text('description'),
-  imageKey: text('image_key'),
   workflowTemplateId: uuid('workflow_template_id')
     .notNull()
     .references(() => workflowTemplates.id),
@@ -351,10 +344,6 @@ export const shopifyProductGarments = pgTable(
     productType: text('product_type'),
     tags: text('tags').array(),
     vendor: text('vendor'),
-    // Shopify's standard product category (taxonomy `fullName`, e.g.
-    // "Apparel & Accessories > Clothing > Dresses") — distinct from the
-    // free-text productType above. Null until a sync after this column existed.
-    category: text('category'),
     collections: text('collections').array(),
     enabled: boolean('enabled').notNull().default(false),
     // Exclusion tab, products sub-section. Always wins over `enabled`, over
