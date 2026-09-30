@@ -35,10 +35,11 @@
      admin screen with a brand mark bolted on top. */
   --aivastra-gradient: linear-gradient(135deg, #d946ef 0%, #6366f1 45%, #22d3ee 75%, #fb923c 100%);
   /* The exact brand gradient from apps/catalogues-web/src/components/tokens.ts
-     (`grad`) — used only within the Plans & Credits card, so its pricing
-     tiles read as the same product as the consumer /pricing page instead of
-     the WordPress-plugin-specific --aivastra-gradient used everywhere else
-     on this settings screen. */
+     (`grad`) — used only for the Plans & Credits card's highlighted-tile ring
+     and badge, so that tile reads as the same product as the consumer
+     /pricing page's own "Most Popular" styling instead of the
+     WordPress-plugin-specific --aivastra-gradient used everywhere else on
+     this settings screen. */
   --aivastra-catalogue-gradient: linear-gradient(
     91.84deg,
     #521d9c 0.33%,
@@ -111,132 +112,39 @@
   margin: 0 0 20px;
 }
 
-/* Sidebar nav: was previously a single-column stack of every card in
-   sequence, which made a long scroll of "Plans", "Widget appearance",
-   "Category mapping", "Analytics" and "Support" feel like one page rather
-   than five distinct settings screens. */
-.aivastra-settings-layout {
-  display: flex;
-  align-items: flex-start;
-  gap: 24px;
-}
-
-.aivastra-settings-nav {
-  flex: 0 0 210px;
-  background: var(--aivastra-surface);
-  border: 1px solid var(--aivastra-border);
-  border-radius: var(--aivastra-radius-card);
-  box-shadow: var(--aivastra-shadow-card);
-  padding: 10px;
-  /* Follows the page as you scroll a long section (e.g. the category
-     mapping list, or a long product table in Analytics) instead of
-     scrolling out of view — 32px clears WP admin's own fixed toolbar. */
-  position: sticky;
-  top: 32px;
-}
-
-.aivastra-nav-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px 10px 12px;
-  margin-bottom: 2px;
-  border-radius: var(--aivastra-radius-control);
-  color: var(--aivastra-text-main);
-  font-size: 14px;
-  font-weight: 500;
-  text-decoration: none;
-  box-shadow: none;
-  transition:
-    background 0.15s ease,
-    transform 0.1s ease;
-}
-
-.aivastra-nav-icon {
-  display: inline-flex;
-  color: var(--aivastra-text-subtle);
-  flex-shrink: 0;
-  transition: color 0.15s ease;
-}
-
-.aivastra-nav-item:hover,
-.aivastra-nav-item:focus {
-  background: var(--aivastra-surface-subtle);
-  color: var(--aivastra-text-main);
-  transform: translateX(1px);
-}
-
-/* A flat left border wouldn't follow the rounded corners of the item's own
-   background pill, so the accent is a gradient bar clipped to a rounded
-   pseudo-element instead of border-left, which would sit flush at the nav's
-   outer edge rather than the item's. */
-.aivastra-nav-item.is-active {
-  background: var(--aivastra-accent-soft);
-  color: var(--aivastra-accent);
-  font-weight: 600;
-}
-
-.aivastra-nav-item.is-active::before {
-  content: "";
-  position: absolute;
-  left: -6px;
-  top: 6px;
-  bottom: 6px;
-  width: 3px;
-  border-radius: 3px;
-  background: var(--aivastra-gradient);
-}
-
-.aivastra-nav-item.is-active .aivastra-nav-icon {
-  color: var(--aivastra-accent);
-}
-
-.aivastra-settings-content {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-/* Matches WordPress core's own admin-menu collapse breakpoint, so the nav
-   drops to a horizontal scroller at the same width the main WP sidebar
-   already goes fluid at, rather than introducing a second, mismatched
-   breakpoint. */
-@media (max-width: 782px) {
-  .aivastra-settings-layout {
-    flex-direction: column;
-  }
-
-  .aivastra-settings-nav {
-    flex: 1 1 auto;
-    position: static;
-    display: flex;
-    overflow-x: auto;
-    gap: 4px;
-    width: 100%;
-    box-sizing: border-box;
-  }
-
-  .aivastra-nav-item {
-    white-space: nowrap;
-  }
-}
-
 .aivastra-card {
   background: var(--aivastra-surface);
   border: 1px solid var(--aivastra-border);
   border-radius: var(--aivastra-radius-card);
   box-shadow: var(--aivastra-shadow-card);
-  padding: 28px;
-  margin-bottom: 24px;
+  padding: 22px 24px;
+  margin-bottom: 20px;
 }
 
-/* Status card */
+/* Status card — Connected badge, user tag, Update connection keys and
+   Disconnect all on one line (single row height, not a badge on one side and
+   a two-row stack on the other forcing the row taller than it needs to be).
+   No justify-content: space-between any more — Update connection keys sits
+   between the badges and Disconnect now, not just those two on opposite
+   ends, so Disconnect is pinned to the right explicitly instead
+   (.aivastra-status-disconnect-form's own margin-left: auto). */
 .aivastra-status-top {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 22px;
+}
+
+.aivastra-status-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.aivastra-status-disconnect-form {
+  margin-left: auto;
 }
 
 .aivastra-badge {
@@ -256,16 +164,75 @@
   border: 1px solid var(--aivastra-success-border);
 }
 
+/* A tag, not plain text — "User:" in the accent colour, the name in the
+   default text colour, both inside one pill so it reads as a labelled
+   identity chip rather than a stray caption. */
 .aivastra-status-company {
-  color: var(--aivastra-text-muted);
-  font-size: 13.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--aivastra-surface-subtle);
+  border: 1px solid var(--aivastra-border);
+  border-radius: 999px;
+  color: var(--aivastra-text-main);
+  font-size: 12.5px;
   font-weight: 600;
+}
+
+.aivastra-status-company-tag {
+  color: var(--aivastra-accent);
+  font-weight: 700;
+}
+
+/* "Credits left" — smaller than the big number/button pair below it, same
+   relationship as a form field's label to its value, but darker than a
+   typical muted caption (var(--aivastra-text-main), not --text-muted): it
+   carries the refresh icon button and confirm message now, so it reads as
+   more than a passive label. */
+.aivastra-balance-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--aivastra-text-main);
+}
+
+/* Icon-only now (was a full "Refresh balance" button in its own row below
+   the card) — right on the label it refreshes, so it's found the moment a
+   merchant looks at the number instead of scrolling to a separate action
+   row. Same #aivastra-refresh-balance id as before; refresh-balance.js
+   needs no changes. */
+.aivastra-balance-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--aivastra-text-muted);
+  cursor: pointer;
+  border-radius: var(--aivastra-radius-control);
+}
+
+.aivastra-balance-refresh-btn:hover {
+  color: var(--aivastra-accent);
+  background: var(--aivastra-accent-soft);
+}
+
+.aivastra-balance-refresh-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .aivastra-credit-stat {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 16px;
   margin: 0;
 }
 
@@ -274,39 +241,70 @@
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  background: var(--aivastra-gradient);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: var(--aivastra-text-main); /* fallback if background-clip: text isn't supported */
-}
-
-.aivastra-credit-label {
-  font-size: 14px;
-  color: var(--aivastra-text-muted);
-  font-weight: 500;
+  color: var(--aivastra-text-main);
 }
 
 .aivastra-credit-meta {
   color: var(--aivastra-text-subtle);
   font-size: 12.5px;
-  margin: 4px 0 24px;
+  margin: 10px 0 22px;
 }
 
-/* Action row — a plain one-click Refresh button next to the "Update
-   connection keys" accordion. flex-basis: 100% on the open accordion forces
-   it onto its own full-width line instead of squeezing the reveal into
-   whatever space happens to be left beside the Refresh button. */
-.aivastra-action-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 24px;
+/* The icon spins while a refresh is in flight (admin/assets/refresh-balance.js
+   toggles .is-refreshing on the button itself). */
+.aivastra-refresh-icon {
+  display: inline-flex;
 }
 
-.aivastra-refresh-form {
-  margin: 0;
+.is-refreshing .aivastra-refresh-icon svg {
+  animation: aivastra-spin 0.7s linear infinite;
+}
+
+@keyframes aivastra-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Small inline confirmation, right next to the refresh icon that triggers
+   it (.aivastra-balance-label) — replaces the old "Balance refreshed." WP
+   admin notice, which on this one-page dashboard core's own common.js
+   relocated to right after the page's first <h1> (the app header's logo
+   row), landing it nowhere near the button that was clicked. A normal flex
+   child (display toggled, not just opacity), so it takes no space at all
+   until there's something to say. */
+.aivastra-refresh-confirm {
+  display: none;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--aivastra-success);
+  white-space: nowrap;
+}
+
+.aivastra-refresh-confirm.is-visible {
+  display: inline-flex;
+}
+
+.aivastra-refresh-confirm.is-error {
+  color: var(--aivastra-danger);
+}
+
+/* Immediately beside the credit count/label — not pushed to the row's far
+   right (margin-left: auto, tried first) — the merchant wants it found
+   "clearly and soon" right where they're already looking at the number.
+   .aivastra-credit-stat's own align-items: baseline (for the number's text)
+   would otherwise glue this button to the text baseline too, so it's
+   centered on its own line instead; the row's own 16px gap gives it clear
+   air from the number without reading as a separate, disconnected element.
+   Bigger than a normal .aivastra-btn (not just
+   the plain base size) — this is the primary action in the card, buying
+   more credits, and it needs to read as that at a glance next to a 36px
+   number, not blend in with the Refresh/Update keys utility buttons below. */
+.aivastra-credit-buy-btn {
+  align-self: center;
+  padding: 12px 22px;
+  font-size: 15px;
 }
 
 .aivastra-accordion {
@@ -582,6 +580,135 @@
   gap: 6px;
 }
 
+/* Sits between two .aivastra-field-rows inside .aivastra-form's own 10px
+   gap — negative top margin pulls it up against the row it explains rather
+   than reading as a caption for the row that follows. */
+.aivastra-field-hint {
+  margin: -4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--aivastra-text-muted);
+}
+
+/* Two (or more — not literally limited to a "pair") compatible
+   .aivastra-field-rows side by side instead of stacked, e.g. Button color +
+   Accent color + Button gradient in one row, or Popup heading + Popup
+   subheading — the widget appearance form has enough fields that stacking
+   every single one made the card noticeably taller than every other
+   dashboard card. */
+.aivastra-field-pair {
+  display: flex;
+  gap: 16px;
+}
+
+/* Only the Button placement + Popup copy accordion row needs this: the
+   accordion's own [open] state carries flex-basis:100% (below), and without
+   wrap here that would just squeeze the placement select into whatever
+   space is left rather than dropping the opened accordion to its own line.
+   Not applied to every .aivastra-field-pair — the color trio and the
+   heading/subheading pair never need to wrap, so leaving them nowrap (the
+   default) keeps them from ever reflowing awkwardly on an in-between
+   width. */
+.aivastra-field-pair-wrap {
+  flex-wrap: wrap;
+}
+
+/* .aivastra-accordion[open]'s own flex-basis:100% (below) only reaches ITS
+   parent flex context — here that's the column-direction .aivastra-field-row
+   wrapping it, where flex-basis controls height, not the row-direction
+   .aivastra-field-pair-wrap one level up where "100%" actually means "take
+   the whole row". This is the rule that really does that: once the
+   accordion inside a field-row opens, that field-row itself claims the full
+   row width, so it (and the Button placement column pushed onto the line
+   above it) each end up full-width instead of squeezed to half. */
+.aivastra-field-pair-wrap .aivastra-field-row:has(.aivastra-accordion[open]) {
+  flex-basis: 100%;
+}
+
+.aivastra-field-pair .aivastra-field-row {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Button color / Accent color in the color trio: a native color input is a
+   fixed 56px (below) regardless of how much column width it's given, so
+   letting these two grow like an ordinary .aivastra-field-pair column would
+   just leave dead space next to each swatch — shrink them to content and
+   let Button gradient's own .aivastra-field-row-grow take the space instead,
+   where the 6 swatches actually need it. */
+.aivastra-field-row-fixed {
+  flex: 0 0 auto;
+}
+
+.aivastra-field-row-grow {
+  flex: 2;
+  min-width: 220px;
+}
+
+/* Invisible stand-in for the label the Button placement column has, so the
+   Popup copy accordion trigger beside it lines up at the same baseline
+   instead of sitting a label-height higher. */
+.aivastra-field-row-label-ghost {
+  visibility: hidden;
+}
+
+.aivastra-gradient-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.aivastra-gradient-swatch {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.aivastra-gradient-swatch--none {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--aivastra-surface-muted),
+    var(--aivastra-surface-muted) 4px,
+    var(--aivastra-surface) 4px,
+    var(--aivastra-surface) 8px
+  );
+  border: 1px solid var(--aivastra-border);
+}
+
+/* Invisible but still the actual, keyboard-operable radio input — full size
+   of the swatch, stacked under .aivastra-gradient-swatch-ring via the
+   label's own stacking order, same visually-hidden-but-functional pattern as
+   .aivastra-file-input in assets/widget.css. */
+.aivastra-gradient-swatch-input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.aivastra-gradient-swatch-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9px;
+  border: 2px solid transparent;
+  pointer-events: none;
+  transition: border-color 0.15s ease;
+}
+
+.aivastra-gradient-swatch-input:checked ~ .aivastra-gradient-swatch-ring {
+  border-color: var(--aivastra-surface);
+  box-shadow: 0 0 0 2px var(--aivastra-text-main);
+}
+
+.aivastra-gradient-swatch-input:focus-visible ~ .aivastra-gradient-swatch-ring {
+  border-color: var(--aivastra-surface);
+  box-shadow: 0 0 0 2px var(--aivastra-accent);
+}
+
 /* input[type="color"] is in the same wp-admin core rule as text/password
    inputs above (border/radius/background via an attribute selector) — same
    `.wp-core-ui` specificity bump needed here too. */
@@ -759,6 +886,50 @@
   font-weight: 600;
 }
 
+/* Products card's Manage tile (render_products_overview()) — an <a> sharing
+   .aivastra-dashboard-stat's own box styling so it sits as a third, equal
+   tile in the same auto-fit grid as Total Products/Try-On Enabled, not a
+   button competing with them for space. Anchor-specific resets only. */
+a.aivastra-dashboard-stat {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.aivastra-dashboard-stat--action {
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.aivastra-dashboard-stat--action:hover,
+.aivastra-dashboard-stat--action:focus-visible {
+  border-color: var(--aivastra-accent-border);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 20px -10px rgba(99, 102, 241, 0.35);
+}
+
+.aivastra-dashboard-stat-icon--manage {
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
+}
+
+/* Combined with .aivastra-dashboard-stat-value on the element (two classes,
+   specificity 0,2,0) so this wins over that later, single-class rule's own
+   color instead of losing to it on source order. */
+.aivastra-dashboard-stat-value.aivastra-dashboard-stat-action-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--aivastra-accent);
+}
+
+.aivastra-dashboard-stat-action-value svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* Buttons */
 .aivastra-btn {
   box-sizing: border-box;
@@ -782,11 +953,22 @@
     color 0.15s ease;
 }
 
-/* Solid black, not the brand gradient — the gradient is reserved for the
-   Plans & Credits (pricing) page, where it matches the consumer /pricing
-   page's own branding. Every other primary action on this settings screen
-   (Test connection, Save appearance, Save category mapping) reads as a plain
-   admin-tool action, not a marketing CTA. */
+.aivastra-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Disconnect, beside the user tag in .aivastra-status-top — a full-size
+   button there would outweigh the tag next to it. */
+.aivastra-btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+/* Solid black — every primary action on this settings screen (Test
+   connection, Save appearance, Save category mapping, and since the
+   merchant asked to drop Plans & Credits' own brand-gradient styling, Buy
+   credits too) reads as a plain admin-tool action, not a marketing CTA. */
 .aivastra-btn-primary {
   background: var(--aivastra-catalogue-dark);
   color: #fff;
@@ -835,14 +1017,13 @@
   margin-top: 4px;
 }
 
-/* Plan tile's Buy Now button — full width, matching the consumer pricing
-   page's CTA. margin-top: auto pushes it to the bottom of the tile uniformly
-   even when tiles have different content heights (e.g. the highlighted
-   tile's extra badge line), since .aivastra-plan-tile is a column flexbox. */
+/* Plan tile's Buy credits button — full width, matching the consumer
+   pricing page's CTA. width: 100% rather than align-self: stretch, which
+   would be a no-op: the button's direct parent, .aivastra-plan-buy-form,
+   isn't itself a flex container, so nothing stretches the button to it. */
 .aivastra-plan-buy-btn {
-  align-self: stretch;
+  width: 100%;
   justify-content: center;
-  margin-top: auto;
   padding-top: 11px;
   padding-bottom: 11px;
 }
@@ -854,16 +1035,6 @@
 
 .aivastra-btn-dark:hover {
   background: #2a2a2a;
-  color: #fff;
-}
-
-.aivastra-btn-catalogue-gradient {
-  background: var(--aivastra-catalogue-gradient);
-  color: #fff;
-}
-
-.aivastra-btn-catalogue-gradient:hover {
-  filter: brightness(1.08) saturate(1.1);
   color: #fff;
 }
 
@@ -879,38 +1050,23 @@
   color: var(--aivastra-danger);
 }
 
-/* Danger zone */
-.aivastra-danger-zone {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding-top: 20px;
-  border-top: 1px solid var(--aivastra-border);
-}
-
-.aivastra-danger-copy strong {
-  display: block;
-  font-size: 13.5px;
-  color: var(--aivastra-text-main);
-  margin-bottom: 2px;
-}
-
-.aivastra-danger-copy p {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--aivastra-text-muted);
-  max-width: 380px;
-  line-height: 1.5;
-}
-
-/* Connect card / connect form (shared with the "Update connection keys" reveal) */
+/* Connect card / connect form (shared with the "Update connection keys"
+   reveal, and — via render_onboarding_connect() — the whole of step 1 of
+   the setup wizard, where this heading is the first thing a merchant reads.
+   22px/700, bigger than the 19px/700 every other .aivastra-card-heading
+   uses (not that class itself — this card predates it and has its own icon
+   layout) — explicit font-weight for the same reason .aivastra-card-heading
+   needs one: wp-admin's own ambient h2 styling is 600, not 700, and with no
+   override here this read as barely bolder than the description line right
+   under it. */
 .aivastra-connect-heading {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 17px;
-  margin: 0 0 6px;
+  gap: 12px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0 0 10px;
   color: var(--aivastra-text-main);
 }
 
@@ -980,14 +1136,34 @@
   line-height: 1.5;
 }
 
-/* Category mapping card */
+/* Every card's own section heading (Connection has none — see the comment
+   at its call site — but Products, Try-on button, Support, Categories and
+   Plans & credits all use this). Explicit font-weight rather than relying on
+   wp-admin's own ambient h2 styling (600, inconsistent with the 700 every
+   other heading in this file uses) — this is what made these read as barely
+   different from the body text under them instead of as section titles. */
 .aivastra-card-heading {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 16px;
-  margin: 0 0 8px;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0 0 10px;
   color: var(--aivastra-text-main);
+}
+
+/* render_plans_page() only — the standalone "Buy credits" destination, not
+   a card heading sharing a page with other content, so it gets the larger,
+   centred treatment a page title deserves instead of the compact card-label
+   size every other .aivastra-card-heading uses. justify-content: center
+   works directly on the flex row above (icon + text) since .aivastra-card-
+   heading is already a full-width block-level flex container — no extra
+   wrapper needed to centre it. */
+.aivastra-plans-page-heading {
+  justify-content: center;
+  font-size: 26px;
+  margin: 4px 0 44px;
 }
 
 .aivastra-heading-icon {
@@ -1000,6 +1176,18 @@
   border-radius: 8px;
   background: var(--aivastra-accent-soft);
   color: var(--aivastra-accent);
+}
+
+/* Declared after the base rule above (same specificity ordering the linter
+   wants) rather than before it. */
+.aivastra-plans-page-heading .aivastra-heading-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.aivastra-connect-heading .aivastra-heading-icon {
+  width: 32px;
+  height: 32px;
 }
 
 .aivastra-card-description {
@@ -1015,33 +1203,89 @@
   line-height: 1.6;
 }
 
-.aivastra-mapping-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* Categories page (render_category_mapping()) — a category grid split into
+   a Linked group and an Unlinked group, each of tiles rather than the old
+   single flat list of rows: which group a category is in was otherwise only
+   readable by scanning every row's dropdown value one at a time. */
+.aivastra-category-group {
+  margin-bottom: 24px;
+}
+
+.aivastra-category-group:last-of-type {
   margin-bottom: 20px;
 }
 
-.aivastra-mapping-row {
+/* Was 14px — barely bigger than the 13.5px tile text it groups, so "Linked
+   categories" / "Unlinked categories" read as one more line of body copy
+   instead of a section label. Still a size step below .aivastra-card-heading
+   (19px) — these are sub-groups within one page, not separate cards. */
+.aivastra-category-group-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 10px 14px;
-  background: var(--aivastra-surface-subtle);
-  border-radius: var(--aivastra-radius-control);
-}
-
-.aivastra-mapping-label {
-  font-size: 13.5px;
-  font-weight: 600;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: 17px;
+  font-weight: 700;
   color: var(--aivastra-text-main);
 }
 
-.wp-core-ui .aivastra-mapping-row select.aivastra-select,
-.aivastra-mapping-row .aivastra-select-wrap {
-  width: auto;
-  min-width: 200px;
+.aivastra-category-group-count {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--aivastra-surface-muted);
+  color: var(--aivastra-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.aivastra-category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.aivastra-category-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  background: var(--aivastra-surface);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-card);
+  box-shadow: var(--aivastra-shadow-card);
+}
+
+.aivastra-category-tile-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--aivastra-radius-control);
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
+}
+
+.aivastra-category-tile-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.aivastra-category-tile-name {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--aivastra-text-main);
+  cursor: default;
+}
+
+/* Same wp-admin specificity fight as every other .aivastra-select on this
+   page — full tile width here rather than the fixed min-width a select
+   wanted as a list row's trailing control. */
+.wp-core-ui .aivastra-category-tile select.aivastra-select,
+.aivastra-category-tile .aivastra-select-wrap {
+  width: 100%;
 }
 
 .aivastra-settings-wrap code {
@@ -1049,19 +1293,6 @@
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 12px;
-}
-
-@media (max-width: 600px) {
-  .aivastra-danger-zone,
-  .aivastra-mapping-row {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .wp-core-ui .aivastra-mapping-row select.aivastra-select,
-  .aivastra-mapping-row .aivastra-select-wrap {
-    width: 100%;
-  }
 }
 
 /* Plans & credits card — mirrors apps/catalogues-web's /pricing tryon-tab
@@ -1076,9 +1307,11 @@
      whatever width 4 cards can still read at, and the media query below
      steps down column count as that space runs out instead. */
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  /* Room for the highlighted tile's badge, which floats above the tile edge. */
-  padding-top: 14px;
+  gap: 20px;
+  /* Room for .aivastra-plan-badge, which sits 14px above a highlighted
+     tile's own top edge — without this the badge on a top-row tile pokes
+     up into the heading's margin instead of having clean air around it. */
+  margin-top: 6px;
 }
 
 @media (max-width: 1000px) {
@@ -1093,20 +1326,21 @@
   }
 }
 
-/* Outer wrapper only matters for the highlighted tile — it's what turns a
-   plain border into a 2px ring of pure gradient, the same "padding: 2,
-   gradient background" trick Desktop.tsx uses, since CSS has no shorthand
-   for a gradient-colored border that still respects border-radius cleanly. */
+/* Plain flex wrapper for a normal tile; .aivastra-plan-outer-highlighted
+   below adds the recommended-plan ring. */
 .aivastra-plan-outer {
   display: flex;
   flex-direction: column;
 }
 
+/* Recommended-plan ring — Desktop.tsx's own "padding: 2, gradient
+   background" trick: the gradient shows only in the 2px gap between this
+   wrapper's edge and the tile's own border-radius, so it reads as a ring
+   rather than a filled background. */
 .aivastra-plan-outer-highlighted {
   padding: 2px;
   border-radius: 16px;
   background: var(--aivastra-catalogue-gradient);
-  box-shadow: 0 10px 28px -14px rgba(189, 37, 135, 0.45);
 }
 
 .aivastra-plan-tile {
@@ -1114,42 +1348,61 @@
   display: flex;
   flex-direction: column;
   flex: 1;
-  padding: 18px;
+  padding: 24px 22px;
   background: var(--aivastra-surface);
   border: 1px solid var(--aivastra-border);
   border-radius: 14px;
 }
 
-.aivastra-plan-tile-highlighted {
-  border: none;
-  border-radius: 14px;
+/* Declared after the base rule above (same specificity ordering the linter
+   wants) rather than before it. */
+.aivastra-plan-outer-highlighted .aivastra-plan-tile {
+  border-color: transparent;
 }
 
+/* Most Popular badge — absolutely positioned above the tile's own top edge
+   (mirrors Desktop.tsx) so it doesn't add to tile height or shift any
+   other tile in the row out of alignment. */
 .aivastra-plan-badge {
   position: absolute;
-  top: -13px;
+  top: -14px;
   left: 50%;
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 12px;
+  padding: 5px 14px;
+  border-radius: 20px;
   background: var(--aivastra-catalogue-gradient);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
-  border-radius: 999px;
   white-space: nowrap;
   box-shadow: 0 2px 10px rgba(189, 37, 135, 0.35);
+}
+
+/* Gradient CTA on the highlighted tile only — every other tile keeps the
+   plain .aivastra-btn-dark fill. Both rules are 2-class selectors (same
+   specificity as .aivastra-btn-dark:hover above), so the :hover variant
+   needs its own 3-class rule rather than relying on source order to win. */
+.aivastra-plan-outer-highlighted .aivastra-plan-buy-btn {
+  background: var(--aivastra-catalogue-gradient);
+}
+
+.aivastra-plan-outer-highlighted .aivastra-plan-buy-btn:hover {
+  background: var(--aivastra-catalogue-gradient);
+  filter: brightness(1.08);
 }
 
 .aivastra-plan-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 18px;
 }
 
+/* Same neutral background/colour on every tile — no more per-plan accent
+   colour (was an inline style keyed off PLAN_META's now-removed `accent`). */
 .aivastra-plan-icon {
   display: inline-flex;
   align-items: center;
@@ -1158,101 +1411,132 @@
   height: 38px;
   border-radius: 10px;
   flex-shrink: 0;
+  background: var(--aivastra-surface-muted);
+  color: var(--aivastra-text-muted);
 }
 
 .aivastra-plan-head-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 3px;
   min-width: 0;
 }
 
 .aivastra-plan-name {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
+  line-height: 1.3;
   color: var(--aivastra-text-main);
 }
 
 .aivastra-plan-subtext {
-  font-size: 10.5px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
   color: var(--aivastra-text-muted);
 }
 
 .aivastra-plan-price-row {
   display: flex;
   align-items: baseline;
-  gap: 4px;
+  gap: 6px;
 }
 
 .aivastra-plan-price-big {
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 800;
   color: var(--aivastra-text-main);
   letter-spacing: -0.5px;
 }
 
 .aivastra-plan-unit {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--aivastra-text-muted);
 }
 
 .aivastra-plan-gst {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--aivastra-text-subtle);
-  margin: 2px 0 0;
+  margin: 8px 0 0;
 }
 
 .aivastra-plan-per-unit {
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 700;
   color: var(--aivastra-text-main);
-  margin: 6px 0 0;
+  margin: 10px 0 0;
 }
 
 .aivastra-plan-divider {
   height: 1px;
   background: var(--aivastra-border);
-  margin: 16px 0;
+  margin: 18px 0 16px;
 }
 
 .aivastra-plan-features {
+  /* flex: 1 so this spacer — not the Buy credits form below — absorbs any
+     leftover height when the grid stretches every tile in a row to the
+     tallest one's, keeping the button pinned to the bottom edge instead of
+     the feature list floating above a gap. */
   flex: 1;
 }
 
 .aivastra-plan-features-heading {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--aivastra-text-main);
-  margin: 0 0 10px;
+  margin: 0 0 12px;
 }
 
-.aivastra-plan-feature-row {
+.aivastra-plan-feature {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 9px;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--aivastra-text-main);
 }
 
+.aivastra-plan-feature:last-child {
+  margin-bottom: 0;
+}
+
+/* Neutral grey on a normal tile; solid brand-pink with a white check on the
+   highlighted tile (below) — this is what tells the checklist apart on
+   Gold at a glance instead of every tile's list reading identically. */
 .aivastra-plan-feature-check {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   flex-shrink: 0;
+  background: var(--aivastra-surface-muted);
+  color: var(--aivastra-text-muted);
 }
 
-.aivastra-plan-feature-check.is-gradient {
-  background: var(--aivastra-catalogue-gradient);
+/* The mid-stop of --aivastra-catalogue-gradient as a flat colour, not the
+   gradient itself — at 18px a re-rendered copy of that gradient per circle
+   would show a different, disjointed slice of it in each one (barely any
+   two would land on the same hue) instead of one consistent brand colour. */
+.aivastra-plan-outer-highlighted .aivastra-plan-feature-check {
+  background: #bd2587;
   color: #fff;
 }
 
-.aivastra-plan-feature-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--aivastra-text-main);
+/* width: 100% is belt-and-suspenders — .aivastra-plan-tile's default
+   align-items: stretch already stretches this form (a direct flex child) to
+   the tile's full width, but the button inside it needs its own explicit
+   width: 100% regardless (see .aivastra-plan-buy-btn above), so this stays
+   explicit too rather than leaving one width implicit and one not.
+   padding-top is a guaranteed minimum gap above the button itself even
+   though .aivastra-plan-features (immediately above) already supplies the
+   flex: 1 spacer that pins this to the tile's bottom edge. */
+.aivastra-plan-buy-form {
+  width: 100%;
+  padding-top: 20px;
 }
 
 /* Verifying-payment overlay — appended to document.body by checkout.js, so
@@ -1460,4 +1744,952 @@
 .aivastra-chat-modal__composer input:disabled {
   background: var(--aivastra-surface-muted);
   color: var(--aivastra-text-subtle);
+}
+
+/* ==========================================================================
+   First-run welcome intro (Aivastra_Settings_Page::render_intro)
+   Port of the Shopify app's OnboardingIntroPage/OnboardingShell: content
+   centred, sized relative to the viewport. No boxed panel and Continue is no
+   longer pinned to the bottom — both were dropped along with every other
+   page's boxed shell, see the comment below .aivastra-settings-wrap.aivastra-onboarding-wrap.
+   ========================================================================== */
+
+.aivastra-settings-wrap.aivastra-intro-wrap {
+  /* Full content width, like the Shopify page's fullWidth <Page> — the
+     1180px cap the settings tabs use leaves three photo cards cramped. */
+  max-width: none;
+  margin: 16px 20px 0 0;
+  /* Fixed light greys: the panel is white whatever the admin colour scheme. */
+  --aivastra-intro-fill: #f1f1f1;
+  --aivastra-intro-line: #dcdcdc;
+  /* Photo cards are 6:7. Their width follows the viewport height (~650px is
+     everything on the screen that isn't the photo: admin bar, logo, copy,
+     captions, benefits, footer) so the page fits without scrolling on most
+     laptops, capped by width for narrow windows. */
+  --aivastra-intro-card-w: clamp(200px, min(calc((100vh - 650px) * 6 / 7), 22vw), 400px);
+  --aivastra-intro-photo-h: calc(var(--aivastra-intro-card-w) * 7 / 6);
+}
+
+/* No fixed height / white panel / overflow:hidden here any more (this used
+   to be a viewport-tall boxed shell, same idea as .aivastra-shell elsewhere
+   in this file) — this page now sits directly on wp-admin's own grey
+   background and flows in wp-admin's own body, same as every other page.
+   .aivastra-intro-card (the 3 photo cards below) already paints its own
+   white background, so the page doesn't read as "bare" without this. The
+   viewport-relative sizing elsewhere (--aivastra-intro-card-w,
+   .aivastra-intro-title's font-size) still works unchanged — those size
+   content relative to the viewport, they never depended on this element
+   actually clipping to that height. */
+.aivastra-intro {
+  display: flex;
+  flex-direction: column;
+  color: #303030;
+}
+
+.aivastra-intro-body {
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.aivastra-intro-logo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aivastra-intro-logo-mark {
+  height: 40px;
+  width: auto;
+}
+
+.aivastra-intro-logo-text {
+  height: 44px;
+  width: auto;
+}
+
+.aivastra-intro-copy {
+  text-align: center;
+  max-width: 820px;
+}
+
+.aivastra-settings-wrap .aivastra-intro-title {
+  margin: 0;
+  padding: 0;
+  font-size: clamp(28px, min(5vh, 3.6vw), 54px);
+  line-height: 1.12;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #303030;
+  /* Balances the two lines instead of leaving "garments." on its own. */
+  text-wrap: balance;
+}
+
+.aivastra-intro-subtitle {
+  margin: 12px 0 0;
+  font-size: clamp(14px, 2vh, 18px);
+  line-height: 1.45;
+  color: #616161;
+  text-wrap: balance;
+}
+
+.aivastra-intro-cards {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.aivastra-intro-card {
+  width: var(--aivastra-intro-card-w);
+  flex: none;
+  box-sizing: content-box;
+  padding: 6px;
+  margin-bottom: 16px;
+  border-radius: 22px;
+  background: #fff;
+  border: 1px solid #eee;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.09);
+}
+
+.aivastra-intro-photo {
+  display: block;
+  width: 100%;
+  height: var(--aivastra-intro-photo-h);
+  object-fit: cover;
+  /* Crop from the bottom: the face is what the eye needs. */
+  object-position: center top;
+  border-radius: 16px;
+}
+
+.aivastra-intro-card-caption {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 8px 8px;
+}
+
+.aivastra-intro-card-caption > div {
+  min-width: 0;
+}
+
+.aivastra-intro-card-title,
+.aivastra-intro-card-text {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.aivastra-intro-card-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: #303030;
+}
+
+.aivastra-intro-card-text {
+  font-size: 12px;
+  color: #616161;
+}
+
+.aivastra-intro-circle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--aivastra-intro-fill);
+  color: #303030;
+}
+
+/* Card circles are smaller than the connector's so captions fit one line. */
+.aivastra-intro-circle--card {
+  width: 36px;
+  height: 36px;
+}
+
+.aivastra-intro-circle--connector {
+  width: 44px;
+  height: 44px;
+}
+
+.aivastra-intro-circle--benefit {
+  width: 40px;
+  height: 40px;
+}
+
+/* "+" or "=" between two cards, on a thin line that runs into both. */
+.aivastra-intro-connector {
+  flex: 0 1 auto;
+  /* Cards stretch to one height, so the connector pins itself to the photo row. */
+  align-self: flex-start;
+  width: clamp(40px, 5vw, 88px);
+  height: var(--aivastra-intro-photo-h);
+  /* The card's own 6px padding sits above its photo; matching it centres the
+     line on the photo. */
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(var(--aivastra-intro-line), var(--aivastra-intro-line)) center / 100% 1px
+    no-repeat;
+}
+
+/* Two bars rather than a glyph so they stay crisp. Integer heights: a
+   fractional px rounds to a different device pixel per bar at some zooms,
+   making one bar read thicker than the other. */
+.aivastra-intro-equals {
+  display: grid;
+  gap: 5px;
+}
+
+.aivastra-intro-equals span {
+  display: block;
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: #303030;
+}
+
+.aivastra-intro-benefits {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aivastra-intro-benefits li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 0 40px;
+  font-size: 14px;
+  color: #303030;
+}
+
+.aivastra-intro-benefits li + li {
+  border-left: 1px solid var(--aivastra-intro-line);
+}
+
+.aivastra-intro-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding: 16px 20px;
+}
+
+/* An <a>, not a <button>: Continue is plain navigation to ?section=connection,
+   not a form submit — see should_show_intro()'s doc comment. */
+.aivastra-intro-continue {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 360px;
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: var(--aivastra-radius-control);
+  background: var(--aivastra-primary);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.aivastra-intro-continue:hover {
+  background: var(--aivastra-primary-hover);
+  color: #fff;
+}
+
+.aivastra-intro-continue:focus-visible {
+  outline: 2px solid var(--aivastra-accent);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Onboarding connect step (Aivastra_Settings_Page::render_onboarding_connect)
+   The not-yet-connected view: a single-step wizard instead of the tabbed
+   settings screen — a topbar (Back + logo left, Support right) in place of
+   the sidebar nav, and a numbered progress row styled after the Shopify
+   app's own onboarding (apps/shopify/src/components/OnboardingSteps.tsx).
+   Named .aivastra-progress-* / .aivastra-topbar-* throughout, distinct from
+   the .aivastra-step[-number/-body] classes the connect form itself uses
+   for its "1 Full API key / 2 Widget API key" rows below (render_connect_form()) —
+   two different things that both happen to be numbered.
+   ========================================================================== */
+
+/* No boxed panel anywhere in the plugin any more (every screen used to sit
+   inside a viewport-tall white "shell" — .aivastra-shell/.aivastra-shell-scroll,
+   and separately .aivastra-intro/.aivastra-intro-body for the welcome page —
+   each with its own fixed height and internal overflow-y: auto). That
+   produced a second scrollbar nested inside wp-admin's own page scrollbar
+   the moment a page's content ran past the shell's calc()'d height, which
+   was routine rather than an edge case on the fuller pages. Every screen now
+   flows directly in wp-admin's own body instead — one scrollbar, and the
+   full page width is available to content instead of a boxed panel with its
+   own padding stacked on top of the wrap's. */
+.aivastra-settings-wrap.aivastra-onboarding-wrap,
+.aivastra-settings-wrap.aivastra-dashboard-wrap {
+  max-width: none;
+  margin: 16px 20px 0 0;
+}
+
+/* The connected dashboard (Aivastra_Settings_Page::render(), the default
+   branch) — its own app header sits inside this padding, not above it like
+   the onboarding topbar below, so the full amount applies on every side. */
+.aivastra-dashboard-flat {
+  padding: 24px 28px 40px;
+}
+
+/* Every other page (both onboarding wizard steps, the standalone Categories
+   and Plans pages) pairs render_onboarding_topbar() with this — the topbar
+   itself carries 20px of its own top padding and sits above this div, not
+   inside it, so this only needs 8px more to reach the same visual gap the
+   dashboard's 24px gives a header with no padding of its own. */
+.aivastra-page-flat-body {
+  padding: 8px 28px 32px;
+}
+
+/* render_plans_page() only — the other pages sharing .aivastra-page-flat-body
+   (Categories, onboarding steps) sit fine at the base 8px, but the large
+   centred "Plans & credits" heading (.aivastra-plans-page-heading) reads as
+   cramped against the topbar right above it with that little room, so this
+   page gets extra breathing room at the top — matching the 32px this
+   class's own shorthand already uses at the bottom. */
+.aivastra-plans-page-body {
+  padding-top: 32px;
+}
+
+/* Content column, centred within the full-width white panel so the panel
+   itself reads as "fullscreen" while the connect card stays a comfortable
+   reading width — mirrors how the welcome intro's own cards sit centred
+   inside its full-width shell. 760px, not the Shopify page's own 1000px:
+   that page also holds a wide product table; both this plugin's cards
+   (connect form, category list) read better narrower. */
+.aivastra-onboarding-wrap .aivastra-notice.notice,
+.aivastra-onboarding-body {
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Same centring for the connected dashboard's header, notices and the whole
+   stacked page (render_dashboard()'s .aivastra-dashboard) — 1400px, not the
+   1180px this used before the sidebar removal: with no 210px nav to its
+   left, the content earns the extra width instead of leaving it as dead
+   margin either side. */
+.aivastra-dashboard-wrap .aivastra-page-header,
+.aivastra-dashboard-wrap .aivastra-notice.notice,
+.aivastra-dashboard-wrap .aivastra-dashboard {
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.aivastra-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: none;
+  /* No bottom padding: .aivastra-page-flat-body's own top padding is the
+     only gap between the topbar and the progress row below it. */
+  padding: 20px 28px 0;
+}
+
+.aivastra-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.aivastra-topbar-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--aivastra-text-muted);
+  text-decoration: none;
+}
+
+.aivastra-topbar-back:hover {
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-topbar-back svg {
+  flex: none;
+}
+
+.aivastra-topbar-divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: var(--aivastra-border);
+}
+
+/* Smaller than the standalone welcome-page logo (.aivastra-intro-logo-*) —
+   this one shares the topbar with Back and Support, not a full-width hero. */
+.aivastra-topbar .aivastra-logo-mark {
+  height: 24px;
+}
+
+.aivastra-topbar .aivastra-logo-text {
+  height: 30px;
+}
+
+/* A native <details> menu, same idiom as the "Update connection keys"
+   accordion elsewhere on this page (.aivastra-accordion) — but anchored
+   top-right as a floating popover rather than expanding inline, since it
+   sits in a topbar rather than a card. support-chat.js adds the
+   outside-click/Escape close a floating menu is expected to have; <details>
+   only gives click-to-toggle on its own. */
+.aivastra-topbar-support {
+  position: relative;
+  flex: none;
+}
+
+.aivastra-topbar-support-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+  background: var(--aivastra-surface);
+  color: var(--aivastra-text-main);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.aivastra-topbar-support-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.aivastra-topbar-support-trigger:hover {
+  background: var(--aivastra-surface-subtle);
+}
+
+.aivastra-topbar-support[open] .aivastra-topbar-support-trigger {
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
+  border-color: var(--aivastra-accent-border);
+}
+
+.aivastra-topbar-support-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 6px;
+  background: var(--aivastra-surface);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+  box-shadow: var(--aivastra-shadow-card);
+}
+
+.aivastra-topbar-support-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--aivastra-text-main);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.aivastra-topbar-support-item:hover {
+  background: var(--aivastra-surface-subtle);
+}
+
+/* Numbered progress row, styled after the Shopify app's OnboardingSteps —
+   filled circle and connecting line up through the current step, outlined
+   circle and grey line for steps not reached yet (Aivastra_Settings_Page::
+   render_progress_steps(), reading ONBOARDING_STEPS). */
+.aivastra-progress-steps {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 0;
+  margin: 0 0 28px;
+  padding: 0;
+  list-style: none;
+}
+
+.aivastra-progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Sits between two circles — vertically centred on them ((32px - 2px) / 2 =
+   15px down from the row's own top, where the circles also start). */
+.aivastra-progress-connector {
+  align-self: flex-start;
+  width: 56px;
+  height: 2px;
+  margin-top: 15px;
+  background: var(--aivastra-border);
+}
+
+.aivastra-progress-connector.is-reached {
+  background: var(--aivastra-primary);
+}
+
+.aivastra-progress-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--aivastra-text-muted);
+  border: 1px solid var(--aivastra-border);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.aivastra-progress-step.is-reached .aivastra-progress-circle {
+  background: var(--aivastra-primary);
+  color: #fff;
+  border-color: var(--aivastra-primary);
+}
+
+.aivastra-progress-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-progress-step.is-reached .aivastra-progress-label {
+  color: var(--aivastra-text-main);
+}
+
+/* The step you're actually on gets a bit more emphasis than an already-
+   completed one, which .is-reached alone already turned from grey to dark. */
+.aivastra-progress-step.is-current .aivastra-progress-label {
+  font-weight: 700;
+}
+
+.aivastra-onboarding-body .aivastra-card {
+  margin-bottom: 0;
+}
+
+/* Step 2's page-level heading (render_onboarding_categories()) — the exact
+   text and size of the Shopify app's own step 2 heading (OnboardingLayout.tsx:
+   fontSize 30, weight 700, centred), sitting above the reused Categories
+   card rather than inside it (that card's own "Categories" heading stays
+   short for its other job, the always-there dashboard tab). Centred to the
+   same column width as the card below it (.aivastra-onboarding-body's
+   max-width, via this shared class). */
+.aivastra-onboarding-heading {
+  max-width: 760px;
+  margin: 0 auto 24px;
+  text-align: center;
+}
+
+.aivastra-onboarding-heading h2 {
+  margin: 0 0 8px;
+  font-size: 30px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-onboarding-heading p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--aivastra-text-muted);
+}
+
+/* render_categories_page()'s own page heading — same centred, 760px-capped
+   typography as .aivastra-onboarding-heading above (this page reads as a
+   continuation of that visual language, not a different one), but with its
+   own top padding rather than sharing that class outright: this page isn't
+   part of the onboarding wizard's flow (no progress row sitting right above
+   it supplying that breathing room already), and .aivastra-page-flat-body's
+   shared 8px top padding is tuned for a small card heading sitting right
+   under the topbar, not a large page title — 8px read as cramped once this
+   became the first thing on the page. */
+.aivastra-categories-heading {
+  max-width: 760px;
+  margin: 0 auto 28px;
+  padding-top: 28px;
+  text-align: center;
+}
+
+.aivastra-categories-heading h2 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-categories-heading p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-onboarding-skip {
+  max-width: 760px;
+  margin: 16px auto 0;
+  text-align: center;
+}
+
+.aivastra-onboarding-skip-link {
+  border: 0;
+  background: none;
+  padding: 4px;
+  color: var(--aivastra-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.aivastra-onboarding-skip-link:hover {
+  color: var(--aivastra-text-main);
+}
+
+@media (max-width: 600px) {
+  .aivastra-topbar-back span {
+    display: none;
+  }
+
+  .aivastra-topbar .aivastra-logo-text {
+    display: none;
+  }
+}
+
+/* Below this the three cards can't sit in a row; stack them instead. */
+@media (max-width: 782px) {
+  .aivastra-settings-wrap.aivastra-intro-wrap {
+    margin: 10px 10px 0 0;
+    --aivastra-intro-card-w: min(320px, 80vw);
+  }
+
+  /* Same margin change as .aivastra-intro-wrap just above — keeps every
+     page's edge gap consistent on a small screen. */
+  .aivastra-settings-wrap.aivastra-onboarding-wrap,
+  .aivastra-settings-wrap.aivastra-dashboard-wrap {
+    margin: 10px 10px 0 0;
+  }
+
+  .aivastra-intro-cards {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .aivastra-intro-connector {
+    align-self: center;
+    height: 44px;
+    margin: 0 0 16px;
+    background: none;
+  }
+
+  .aivastra-intro-benefits li {
+    padding: 0 16px;
+  }
+
+  .aivastra-intro-benefits li + li {
+    border-left: 0;
+  }
+}
+
+/* ==========================================================================
+   Connected app header (Aivastra_Settings_Page::render_app_header()) and
+   Dashboard tab (render_dashboard()) — modelled on a reference WordPress
+   plugin dashboard the merchant supplied screenshots of. The header replaces
+   the plain logo+subtitle .aivastra-page-header used to be on every
+   connected tab with that reference's persistent navbar: logo + version
+   pill left, Get Support + Help right.
+   ========================================================================== */
+
+.aivastra-app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.aivastra-app-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.aivastra-version-pill {
+  padding: 3px 10px;
+  border: 1px solid var(--aivastra-border);
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Reuses .aivastra-topbar-support's own <details>/dropdown mechanics
+   (support-chat.js's outside-click/Escape close targets that class
+   generically, not this specific header) — only the trigger button gets its
+   own look here, matching the reference dashboard's outlined "Get Support"
+   button rather than the onboarding topbar's plain-bordered one. */
+.aivastra-app-header-support-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--aivastra-accent-border);
+  border-radius: var(--aivastra-radius-control);
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.aivastra-app-header-support-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.aivastra-app-header-support-trigger:hover {
+  background: #e0e3ff;
+}
+
+.aivastra-app-header-help {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 1px solid var(--aivastra-border);
+  border-radius: 50%;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-app-header-help:hover {
+  color: var(--aivastra-text-main);
+  border-color: var(--aivastra-text-subtle);
+}
+
+/* minmax lowered from 200px: at 200px the 5-tile analytics grid (Virtual
+   Try-Ons/Unique Shoppers/Added to Cart/Add-to-Cart Rate/Credits Available)
+   stopped fitting a 5th column on a typical dashboard content width, so the
+   last tile wrapped alone onto its own row with 3 empty column-widths of
+   space beside it — 180px lets all 5 fit side by side down to a narrower
+   width before that happens. */
+.aivastra-dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+/* Products card's tile grid (render_products_overview()) is that card's
+   only/last child — a margin-bottom here would just double up with
+   .aivastra-card's own bottom padding, the exact bug fixed on the
+   Connection card's action row. */
+.aivastra-products-stats {
+  margin-bottom: 0;
+}
+
+.aivastra-dashboard-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+  background: var(--aivastra-surface);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-card);
+  box-shadow: var(--aivastra-shadow-card);
+}
+
+.aivastra-dashboard-stat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--aivastra-radius-control);
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
+}
+
+/* Mixed sources: self::icon() (the shared ICONS set) at its own 15px and
+   self::lucide() at 20px both appear across the dashboard's stat-tile icons
+   — this overrides both to the same size so every tile matches regardless
+   of which one a given icon came from. */
+.aivastra-dashboard-stat-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Each tile's icon picks up the colour of the stat it illustrates, same
+   spirit as the Plans & Credits tiles' per-plan accent. */
+.aivastra-dashboard-stat-icon--products {
+  background: #f3e8ff;
+  color: #9333ea;
+}
+
+.aivastra-dashboard-stat-icon--enabled {
+  background: var(--aivastra-success-soft);
+  color: var(--aivastra-success);
+}
+
+.aivastra-dashboard-stat-label {
+  font-size: 13.5px;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-dashboard-stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--aivastra-text-main);
+}
+
+/* Top-of-dashboard line chart — render_activity_chart(). */
+.aivastra-activity-card {
+  margin-bottom: 20px;
+}
+
+/* Same size/weight as .aivastra-card-heading (every other card's section
+   title) — this was 15px, the smallest heading on the whole dashboard
+   despite being the very first thing on the page. */
+.aivastra-activity-title {
+  margin: 0 0 10px;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-activity-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 2px;
+}
+
+.aivastra-activity-number {
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--aivastra-text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.aivastra-activity-caption {
+  font-size: 13px;
+  color: var(--aivastra-text-muted);
+}
+
+.aivastra-activity-sublabel {
+  margin: 14px 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--aivastra-text-subtle);
+}
+
+.aivastra-linechart {
+  display: flex;
+  gap: 10px;
+}
+
+.aivastra-linechart-axis {
+  flex: 0 0 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 2px 0;
+  text-align: right;
+  font-size: 11px;
+  color: var(--aivastra-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.aivastra-linechart-plot {
+  position: relative;
+  flex: 1 1 auto;
+  height: 180px;
+}
+
+.aivastra-linechart-gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--aivastra-border);
+}
+
+.aivastra-linechart-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.aivastra-linechart-line {
+  stroke: var(--aivastra-accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.aivastra-linechart-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+}
+
+/* Left offset matches .aivastra-linechart-axis's width + gap, so labels
+   land under the plot area only, not under the y-axis label column beside it. */
+.aivastra-linechart-xaxis {
+  display: flex;
+  justify-content: space-between;
+  margin: 6px 0 0 54px;
+  font-size: 11px;
+  color: var(--aivastra-text-subtle);
+}
+
+@media (max-width: 600px) {
+  .aivastra-app-header-left .aivastra-logo-text {
+    display: none;
+  }
 }

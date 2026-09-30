@@ -5,6 +5,11 @@ import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 import { SearchableSelect } from './SearchableSelect';
 
+// Matches ProposeWorkflowChangeRequestBody's min(80) in packages/types/src/admin.ts —
+// keep both a substantive length so a SUPER_ADMIN reviewing the queue has enough
+// context to judge the proposal without opening the diff.
+export const MIN_PROPOSAL_NOTE_LENGTH = 80;
+
 interface ParsedNode {
   id: string;
   class_type: string;

@@ -99,6 +99,54 @@ export const workersHealthy = new Gauge({
   registers: [register],
 });
 
+export const comfyWorkerQueueRemaining = new Gauge({
+  name: 'comfy_worker_queue_remaining',
+  help: "Running + pending prompts in a worker's ComfyUI /queue at the last health-monitor sample (includes our own job)",
+  labelNames: ['worker_id'] as const,
+  registers: [register],
+});
+
+export const comfyWorkerExternalBusy = new Gauge({
+  name: 'comfy_worker_external_busy',
+  help: 'Worker is IDLE in our registry but its ComfyUI queue is non-empty (work submitted outside the dispatcher): 1/0',
+  labelNames: ['worker_id'] as const,
+  registers: [register],
+});
+
+export const comfyWorkerQueueProbesTotal = new Counter({
+  name: 'comfy_worker_queue_probes_total',
+  help: 'ComfyUI /queue probes by the health monitor',
+  labelNames: ['result'] as const, // ok | error
+  registers: [register],
+});
+
+export const comfyWorkerQueueProbeDuration = new Histogram({
+  name: 'comfy_worker_queue_probe_duration_seconds',
+  help: 'Duration of the health monitor /queue probe',
+  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 3],
+  registers: [register],
+});
+
+export const noWorkerRequeuesTotal = new Counter({
+  name: 'dispatcher_no_worker_requeues_total',
+  help: 'Jobs re-enqueued because no eligible worker was free (capacity, not failure — attempts untouched)',
+  labelNames: ['job_type'] as const, // mirrors jobs.source (JOB_SOURCE)
+  registers: [register],
+});
+
+export const workerExternalBusyRejectionsTotal = new Counter({
+  name: 'dispatcher_worker_external_busy_rejections_total',
+  help: 'Workers skipped at claim time because ComfyUI itself reported a non-empty queue, or the queue probe failed (fail-closed)',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
+export const workerReleaseFailuresTotal = new Counter({
+  name: 'dispatcher_worker_release_failures_total',
+  help: 'Count of failed attempts to release a claimed-but-unused worker back to IDLE (lost capacity until restart)',
+  registers: [register],
+});
+
 // ── Chatbot metrics ──────────────────────────────────────────────────────────
 
 export const chatbotMessagesTotal = new Counter({

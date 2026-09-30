@@ -4,7 +4,7 @@ import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { ReplaceWorkflowModal } from '../components/ReplaceWorkflowModal';
 import { SearchableSelect } from '../components/SearchableSelect';
-import { WorkflowUploadModal } from '../components/WorkflowUploadModal';
+import { MIN_PROPOSAL_NOTE_LENGTH, WorkflowUploadModal } from '../components/WorkflowUploadModal';
 import { useAuth } from '../context/AuthContext';
 import { useCrumb } from '../context/BreadcrumbContext';
 import { useCloseOverlay } from '../hooks/use-close-overlay';
@@ -1746,7 +1746,9 @@ export default function WorkflowsPage({ toast }: Props) {
                 Number.isNaN(Number(o.seed)) ||
                 Number(o.seed) < 0,
             ) ||
-            (!isSuperAdmin && (!editForm.previousLimitations.trim() || !editForm.reason.trim()))
+            (!isSuperAdmin &&
+              (editForm.previousLimitations.trim().length < MIN_PROPOSAL_NOTE_LENGTH ||
+                editForm.reason.trim().length < MIN_PROPOSAL_NOTE_LENGTH))
           }
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -2111,6 +2113,18 @@ export default function WorkflowsPage({ toast }: Props) {
                       setEditForm((f) => ({ ...f, previousLimitations: e.target.value }))
                     }
                   />
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color:
+                        editForm.previousLimitations.trim().length >= MIN_PROPOSAL_NOTE_LENGTH
+                          ? 'var(--ink-2)'
+                          : 'var(--danger)',
+                    }}
+                  >
+                    {editForm.previousLimitations.trim().length}/{MIN_PROPOSAL_NOTE_LENGTH}{' '}
+                    characters minimum
+                  </span>
                 </div>
                 <div className="field" style={{ margin: 0 }}>
                   <label>
@@ -2124,6 +2138,17 @@ export default function WorkflowsPage({ toast }: Props) {
                     disabled={editSaving}
                     onChange={(e) => setEditForm((f) => ({ ...f, reason: e.target.value }))}
                   />
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color:
+                        editForm.reason.trim().length >= MIN_PROPOSAL_NOTE_LENGTH
+                          ? 'var(--ink-2)'
+                          : 'var(--danger)',
+                    }}
+                  >
+                    {editForm.reason.trim().length}/{MIN_PROPOSAL_NOTE_LENGTH} characters minimum
+                  </span>
                 </div>
               </div>
             )}

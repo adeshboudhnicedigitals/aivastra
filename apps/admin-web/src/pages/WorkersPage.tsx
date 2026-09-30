@@ -23,6 +23,18 @@ interface Worker {
   allowedJobTypes: JobType[];
   status: 'IDLE' | 'BUSY' | 'DRAINING';
   healthy: boolean;
+  /** Dispatcher skips this worker when its ComfyUI queue is non-empty (a dev running a workflow). */
+  queueGateEnabled: boolean;
+  /** ComfyUI /queue sampled by the dispatcher health monitor (~15s, display only). */
+  queue: {
+    queueRemaining: number | null;
+    running: number | null;
+    pending: number | null;
+    probedAt: number;
+    error?: string;
+  } | null;
+  /** Can the dispatcher route to this worker right now? Explains "healthy but idle". */
+  routing: 'ok' | 'ungated' | 'externally_busy' | 'unavailable';
   lastSeen: number | null;
   createdAt: string;
   updatedAt: string;
@@ -99,6 +111,26 @@ function StatusDot({ color }: { color: string }) {
   );
 }
 
+function queueSummary(w: Worker): string {
+  if (!w.queue) return 'No sample';
+  if (w.queue.queueRemaining === null)
+    return `Probe error${w.queue.error ? ` (${w.queue.error})` : ''}`;
+  return `${w.queue.running ?? 0} running · ${w.queue.pending ?? 0} pending`;
+}
+
+function routingSummary(w: Worker): string {
+  switch (w.routing) {
+    case 'ok':
+      return 'Routable (queue empty)';
+    case 'externally_busy':
+      return 'Skipped — ComfyUI busy outside the dispatcher';
+    case 'unavailable':
+      return w.queueGateEnabled ? 'Unavailable — queue unreadable or worker down' : 'Unavailable';
+    default:
+      return 'Routable (gate off)';
+  }
+}
+
 // ─── ⋯ row-actions menu ──────────────────────────────────────────────────────
 
 interface RowMenuProps {
@@ -107,6 +139,7 @@ interface RowMenuProps {
   onToggle: () => void;
   onDrain: () => void;
   onUndrain: () => void;
+  onToggleQueueGate: () => void;
   onDelete: () => void;
   deleting: boolean;
 }
@@ -117,6 +150,7 @@ function RowMenu({
   onToggle,
   onDrain,
   onUndrain,
+  onToggleQueueGate,
   onDelete,
   deleting,
 }: RowMenuProps) {
@@ -227,6 +261,10 @@ function RowMenu({
               ? item('Undrain (resume)', onUndrain)
               : item('Drain worker', onDrain, false, !w.isActive)}
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+            {item(
+              w.queueGateEnabled ? 'Disable queue gate' : 'Enable queue gate',
+              onToggleQueueGate,
+            )}
             {item(w.isActive ? 'Disable worker' : 'Enable worker', onToggle)}
             {item('Delete worker', onDelete, true, w.status === 'BUSY' || deleting)}
           </div>,
@@ -484,6 +522,23 @@ export default function WorkersPage({ toast }: Props) {
       toast({
         kind: 'error',
         title: 'Failed to drain worker',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  }
+
+  async function handleToggleQueueGate(w: Worker) {
+    try {
+      await apiFetch(`/admin/workers/${w.id}/queue-gate`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: !w.queueGateEnabled }),
+      });
+      toast({ title: `Queue gate ${w.queueGateEnabled ? 'disabled' : 'enabled'} for ${w.id}` });
+      void load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update queue gate',
         body: apiErrorMessage(e, 'Please try again.'),
       });
     }
@@ -782,6 +837,7 @@ export default function WorkersPage({ toast }: Props) {
                                 }}
                               >
                                 {state.detail}
+                                {w.queueGateEnabled ? ` · ${routingSummary(w)}` : ''}
                               </div>
                             </div>
                           </div>
@@ -808,6 +864,7 @@ export default function WorkersPage({ toast }: Props) {
                             onToggle={() => void handleToggleActive(w)}
                             onDrain={() => void handleDrain(w)}
                             onUndrain={() => void handleUndrain(w)}
+                            onToggleQueueGate={() => void handleToggleQueueGate(w)}
                             onDelete={() => handleDelete(w)}
                             deleting={deleting === w.id}
                           />
@@ -932,6 +989,9 @@ export default function WorkersPage({ toast }: Props) {
                       {[
                         { label: 'Job types', value: jobTypeSummary(w.allowedJobTypes) },
                         { label: 'Status', value: `${state.label} · ${state.detail}` },
+                        { label: 'Queue gate', value: w.queueGateEnabled ? 'On' : 'Off' },
+                        { label: 'ComfyUI queue', value: queueSummary(w) },
+                        { label: 'Routing', value: routingSummary(w) },
                         { label: 'Last seen', value: formatLastSeen(w.lastSeen) },
                       ].map(({ label, value }) => (
                         <div
