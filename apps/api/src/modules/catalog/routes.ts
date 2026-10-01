@@ -26,7 +26,7 @@ export async function catalogRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireUser,
       schema: {
-        params: z.object({ type: z.enum(['lower', 'shoe']) }),
+        params: z.object({ type: z.enum(['lower', 'shoe', 'accessory']) }),
         querystring: z.object({
           gender: z.enum(['women', 'men', 'girls', 'boys']).optional(),
           poseIds: z.string().optional(), // comma-separated pose UUIDs
@@ -57,7 +57,9 @@ export async function catalogRoutes(app: FastifyInstance) {
         const nodeField =
           type === 'lower'
             ? schema.workflowTemplates.lowerNodeId
-            : schema.workflowTemplates.shoeNodeId;
+            : type === 'shoe'
+              ? schema.workflowTemplates.shoeNodeId
+              : schema.workflowTemplates.accessoryNodeId;
         // A pose "supports" this role via either of two independent workflow-resolution
         // paths: its own effective workflow — default workflowTemplateId, or a
         // garment-type-specific pose_garment_configs override which takes priority
@@ -76,6 +78,7 @@ export async function catalogRoutes(app: FastifyInstance) {
               id: schema.modelPoseAssets.id,
               lowerNodeId: schema.workflowTemplates.lowerNodeId,
               shoeNodeId: schema.workflowTemplates.shoeNodeId,
+              accessoryNodeId: schema.workflowTemplates.accessoryNodeId,
             })
             .from(schema.modelPoseAssets)
             .leftJoin(
@@ -104,7 +107,7 @@ export async function catalogRoutes(app: FastifyInstance) {
 
         let configMap = new Map<
           string,
-          { lowerNodeId: string | null; shoeNodeId: string | null }
+          { lowerNodeId: string | null; shoeNodeId: string | null; accessoryNodeId: string | null }
         >();
         if (garmentTypeId && poseWorkflowRows.length > 0) {
           const configs = await app.db
@@ -113,6 +116,7 @@ export async function catalogRoutes(app: FastifyInstance) {
               workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
               lowerNodeId: schema.workflowTemplates.lowerNodeId,
               shoeNodeId: schema.workflowTemplates.shoeNodeId,
+              accessoryNodeId: schema.workflowTemplates.accessoryNodeId,
             })
             .from(schema.poseGarmentConfigs)
             .leftJoin(
@@ -131,7 +135,11 @@ export async function catalogRoutes(app: FastifyInstance) {
               .filter((c) => c.workflowTemplateId != null)
               .map((c) => [
                 c.poseAssetId,
-                { lowerNodeId: c.lowerNodeId ?? null, shoeNodeId: c.shoeNodeId ?? null },
+                {
+                  lowerNodeId: c.lowerNodeId ?? null,
+                  shoeNodeId: c.shoeNodeId ?? null,
+                  accessoryNodeId: c.accessoryNodeId ?? null,
+                },
               ]),
           );
         }
@@ -140,7 +148,10 @@ export async function catalogRoutes(app: FastifyInstance) {
           const cfg = configMap.get(pose.id);
           const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : pose.lowerNodeId;
           const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : pose.shoeNodeId;
-          return type === 'lower' ? lowerNodeId != null : shoeNodeId != null;
+          const accessoryNodeId = cfg !== undefined ? cfg.accessoryNodeId : pose.accessoryNodeId;
+          if (type === 'lower') return lowerNodeId != null;
+          if (type === 'shoe') return shoeNodeId != null;
+          return accessoryNodeId != null;
         });
 
         if (!hasSupportingPose && mappedSupporting.length === 0) return { type, tree: [] };
