@@ -4,7 +4,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { grantShopifyEmailBonus, storeBalance } from './purchase.js';
+import { shopifyGraphQL } from './service.js';
 import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
+import { getValidAccessToken } from './token.js';
 
 // Onboarding's contact step. Name and email are required; phone is optional and
 // a blank one is stored as null so "no phone" has one shape. Digits and the usual
@@ -57,6 +59,70 @@ export function findThemeEmbedEnabled(content: string, apiKey: string): boolean 
         block.disabled !== true,
     );
   } catch {
+    return false;
+  }
+}
+
+const MAIN_THEME_SETTINGS_QUERY = `
+  query MainThemeSettingsData($filenames: [String!]!) {
+    themes(first: 1, roles: [MAIN]) {
+      nodes {
+        files(filenames: $filenames) {
+          nodes {
+            filename
+            body {
+              ... on OnlineStoreThemeFileBodyText {
+                content
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+interface MainThemeSettingsData {
+  themes: {
+    nodes: Array<{
+      files: {
+        nodes: Array<{ filename: string; body: { content?: string } | null }>;
+      };
+    }>;
+  };
+}
+
+/**
+ * Live Admin API check for whether the app embed is switched on in the
+ * merchant's published theme — an on-demand alternative to waiting for a
+ * shopper to actually load a storefront page (see markThemeEmbedSeen below).
+ * Needs `read_themes`. A store that has not yet seen Shopify's one-time
+ * "additional permissions" prompt gets ACCESS_DENIED back from Shopify as a
+ * normal GraphQL error (HTTP 200, not 401/403), so this never risks tripping
+ * shopifyAdminFetch's SHOPIFY_REAUTH_REQUIRED mapping — every failure mode
+ * here, scope included, is just logged and reported as "not detected".
+ */
+export async function checkThemeEmbedLive(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+): Promise<boolean> {
+  const apiKey = app.env.SHOPIFY_API_KEY;
+  if (!apiKey) return false;
+  try {
+    const accessToken = await getValidAccessToken(app, store);
+    const data = await shopifyGraphQL<MainThemeSettingsData>(
+      store.shopDomain,
+      accessToken,
+      MAIN_THEME_SETTINGS_QUERY,
+      { filenames: ['config/settings_data.json'] },
+    );
+    const content = data.themes.nodes[0]?.files.nodes.find(
+      (f) => f.filename === 'config/settings_data.json',
+    )?.body?.content;
+    if (!content) return false;
+    return findThemeEmbedEnabled(content, apiKey);
+  } catch (err) {
+    app.log.warn({ err, storeId: store.id }, 'theme embed live-check failed');
     return false;
   }
 }
@@ -255,6 +321,23 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
       // silently activates nothing, which looks like the extension is broken.
       if (!app.env.SHOPIFY_API_KEY) throw new AppError('CONFIG', 500, 'SHOPIFY_API_KEY missing');
       return { url: buildThemeEditorDeepLink(store.shopDomain, app.env.SHOPIFY_API_KEY) };
+    },
+  );
+
+  // On-demand alternative to waiting for a shopper's storefront visit — the
+  // "Refresh status" button on the onboarding theme page calls this before
+  // re-reading /v1/shopify/me, so a merchant never has to leave the admin.
+  // Deliberately its own route, not folded into /v1/shopify/me: that route is
+  // hit on every SPA navigation, and a live Shopify call has no place there.
+  app.post(
+    '/v1/shopify/onboarding/check-theme-embed',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      if (store.settings?.themeEmbedConfirmed) return { themeEmbedConfirmed: true };
+      const confirmed = await checkThemeEmbedLive(app, store);
+      if (confirmed) await markThemeEmbedSeen(app, store);
+      return { themeEmbedConfirmed: confirmed };
     },
   );
 }
