@@ -26,11 +26,19 @@ cost, and no changes are needed to credit-deduction logic.
 
 ## Data model
 
-Reuses the existing lower/shoe catalog machinery (`catalog_types` /
-`catalog_categories` / `catalog_items`) rather than introducing a parallel
-system, plus one new mapping table.
+Reuses the existing lower/shoe catalog machinery verbatim — **no new tables**.
+Verified directly against `apps/admin-web/src/pages/assets/CatalogTab.tsx` and
+`apps/api/src/modules/admin/catalog.routes.ts`: lower/shoe mapping to garment
+types already happens at the individual **item** level via the existing
+`catalog_item_subcategories` join table (the admin UI's per-item "garment
+types this item applies to" checklist and its bulk "Map to garment types"
+action), not at the category level. `typeSlug` is handled as a free `z.string()`
+throughout the admin routes and `packages/storage/src/keys.ts` — nothing
+hardcodes `'lower' | 'shoe'` server-side, so a third type slug needs no backend
+schema or route change at all.
 
-- `catalog_types`: one new row, `slug: 'accessory'`.
+- `catalog_types`: one new row, `slug: 'accessory'` (seed migration, same
+  pattern as migration `0006_catalog_types_seed.sql`).
 - `catalog_categories`: rows with `typeId` = the accessory type's id are
   accessory categories (e.g. "Necklaces", "Watches", "Belts"). Existing
   `sortOrder` column doubles as the fixed stacking order (see "Stacking"
@@ -38,42 +46,49 @@ system, plus one new mapping table.
 - `catalog_items`: rows with `type: 'accessory'`, `categoryId` pointing at an
   accessory category, are the individual admin-uploaded images. Reuses
   `r2Key`, `thumbnailKey`, `isActive`, `sortOrder` unchanged.
-- **New table `catalog_category_subcategories`** — `(categoryId, subcategoryId)`,
-  PK on the pair, both FKs `onDelete: 'cascade'`. Maps an accessory
-  **category** (not individual items) to the garment type(s)
-  (`garment_subcategories`) it should appear under. This is coarser-grained
-  than `catalog_item_subcategories` (which maps individual lower/shoe items)
-  deliberately: uploading a new image into an already-mapped category should
-  not require a separate mapping step.
+- `catalog_item_subcategories` (existing table, unchanged): maps an
+  **individual accessory item** to the garment type(s) it should appear
+  under, exactly like it already does for lower/shoe items today. A category
+  is not itself owned by one garment type — different items in the same
+  category can map to different garment types, same flexibility lower/shoe
+  already has.
 - `job_inputs`: new column `accessoryCatalogIds: uuid[]` default `'{}'` — the
   selected item IDs, at most one per category, zero or more categories.
 - `workflow_templates` (+ `workflow_template_archives`): new nullable column
   `accessoryNodeId: text`, following the exact precedent of `lowerNodeId` /
   `shoeNodeId`.
 
-A garment type "has accessories" is derived, not flagged: it has ≥1 row in
-`catalog_category_subcategories` pointing at it. Same derivation style as
-`hasLower`/`hasShoes`, no new boolean column on `garment_subcategories`.
+A garment type "has accessories" is derived, not flagged: it has ≥1 active
+`catalog_items` row of `type: 'accessory'` mapped to it via
+`catalog_item_subcategories`. Same derivation style as `hasLower`/`hasShoes`,
+no new boolean column on `garment_subcategories`.
 
 ## Admin UI + API
 
-Extends the existing catalog admin surface
-(`apps/admin-web`, `apps/api/src/modules/admin/catalog.routes.ts`):
+No new backend routes needed — `apps/api/src/modules/admin/catalog.routes.ts`
+already treats `typeSlug` generically. The only change is in
+`apps/admin-web`:
 
-- **Accessory Categories**: CRUD for `catalog_categories` under the
-  `accessory` type, same form pattern as existing lower/shoe categories, plus
-  a `SearchableSelect` multi-select to pick which garment type(s) the category
-  maps to (writes `catalog_category_subcategories`).
-- **Accessory Items**: per-category image upload/management — identical UX to
-  existing lower/shoe item management (upload, thumbnail, active toggle, sort
-  order).
+- `AssetsContext.tsx`'s `AssetTab` union and `VALID_TABS` array: add
+  `'accessory'`.
+- `AssetsPage.tsx`: add an `{ k: 'accessory', l: 'Accessories' }` tab entry,
+  and widen the existing `(activeTab === 'lower' || activeTab === 'shoe')`
+  render guard to include `'accessory'` so it renders `<CatalogTab />` —
+  the same component used for lower/shoe today, unmodified in structure.
+- `CatalogTab.tsx`: widen the `typeSlug`/`tabLabel`/button-copy ternaries
+  (currently binary `activeTab === 'shoe' ? 'shoe' : 'lower'`) to a 3-way
+  switch including `'accessory'`. Everything else — category CRUD, item
+  upload, per-item "garment types this item applies to" mapping, bulk mapping
+  — works unchanged, since none of it is type-specific logic.
+- `BatchCatalogUploadModal.tsx`: widen its `typeSlug: 'lower' | 'shoe'` prop
+  type to include `'accessory'`, and its `typeLabel` ternary.
 - **Workflow template editor**: add an "Accessory Node ID" field alongside the
   existing lower/shoe/third node ID fields, validated the same way (must
   exist in the template's JSON if set).
-- New read path for the studio wizard: accessory categories (with their
-  active items, ordered by `sortOrder`) mapped to a given garment type,
-  exposed either as a new endpoint or folded into the existing garment-type
-  detail response.
+- New read path for the studio wizard: active accessory categories (with
+  their active items mapped to the given garment type, ordered by
+  `sortOrder`) for a given garment type, exposed either as a new endpoint or
+  folded into the existing garment-type detail response.
 
 ## Studio wizard UI (`apps/catalogues-web`)
 
