@@ -60,7 +60,10 @@ describe('buildThemeEditorDeepLink', () => {
 });
 
 describe('findThemeEmbedEnabled', () => {
-  const API_KEY_UNDER_TEST = 'abc123';
+  // Stands in for whatever identifier Shopify puts in this path segment —
+  // deliberately arbitrary, since the function no longer validates it (see
+  // the "matches regardless of app identifier" test below for why).
+  const APP_IDENTIFIER = 'abc123';
 
   function settingsJson(blocks: Record<string, { type: string; disabled?: boolean }>): string {
     return JSON.stringify({ current: { blocks } });
@@ -68,65 +71,68 @@ describe('findThemeEmbedEnabled', () => {
 
   it('is true when the block type matches our handle and disabled is absent', () => {
     const content = settingsJson({
-      'block-1': { type: `shopify://apps/${API_KEY_UNDER_TEST}/blocks/tryon-button/uuid-1` },
+      'block-1': { type: `shopify://apps/${APP_IDENTIFIER}/blocks/tryon-button/uuid-1` },
     });
-    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(true);
+    expect(findThemeEmbedEnabled(content)).toBe(true);
   });
 
   it('is true when disabled is explicitly false', () => {
     const content = settingsJson({
       'block-1': {
-        type: `shopify://apps/${API_KEY_UNDER_TEST}/blocks/tryon-button/uuid-1`,
+        type: `shopify://apps/${APP_IDENTIFIER}/blocks/tryon-button/uuid-1`,
         disabled: false,
       },
     });
-    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(true);
+    expect(findThemeEmbedEnabled(content)).toBe(true);
   });
 
   it('is false when disabled is true', () => {
     const content = settingsJson({
       'block-1': {
-        type: `shopify://apps/${API_KEY_UNDER_TEST}/blocks/tryon-button/uuid-1`,
+        type: `shopify://apps/${APP_IDENTIFIER}/blocks/tryon-button/uuid-1`,
         disabled: true,
       },
     });
-    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(false);
+    expect(findThemeEmbedEnabled(content)).toBe(false);
   });
 
   it('is false when no block matches our handle', () => {
     const content = settingsJson({
-      'block-1': { type: `shopify://apps/${API_KEY_UNDER_TEST}/blocks/some-other-embed/uuid-1` },
+      'block-1': { type: `shopify://apps/${APP_IDENTIFIER}/blocks/some-other-embed/uuid-1` },
     });
-    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(false);
+    expect(findThemeEmbedEnabled(content)).toBe(false);
   });
 
-  it("is false for a different app's api key, even with the same block handle", () => {
+  it('matches regardless of the app identifier in the type string', () => {
+    // Deliberate: probing a real store found that app.env.SHOPIFY_API_KEY,
+    // the Admin API's own `app.handle`, and the literal identifier Shopify
+    // put in a live block's type were three different strings for the same
+    // app. None can be trusted to compute a matching prefix, so this only
+    // checks the block handle, which this extension names and controls.
     const content = settingsJson({
-      'block-1': { type: 'shopify://apps/someone-elses-key/blocks/tryon-button/uuid-1' },
+      'block-1': { type: 'shopify://apps/some-other-identifier/blocks/tryon-button/uuid-1' },
     });
-    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(false);
+    expect(findThemeEmbedEnabled(content)).toBe(true);
   });
 
   it('strips a leading /* ... */ comment block before parsing', () => {
     const json = settingsJson({
-      'block-1': { type: `shopify://apps/${API_KEY_UNDER_TEST}/blocks/tryon-button/uuid-1` },
+      'block-1': { type: `shopify://apps/${APP_IDENTIFIER}/blocks/tryon-button/uuid-1` },
     });
     const content = `/* some editor-added comment\nspanning lines */\n${json}`;
-    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(true);
+    expect(findThemeEmbedEnabled(content)).toBe(true);
   });
 
   it('is false (not a throw) on unparseable content', () => {
-    expect(findThemeEmbedEnabled('not json at all', API_KEY_UNDER_TEST)).toBe(false);
+    expect(findThemeEmbedEnabled('not json at all')).toBe(false);
   });
 
   it('is false (not a throw) when parsed is null', () => {
-    expect(findThemeEmbedEnabled('null', API_KEY_UNDER_TEST)).toBe(false);
+    expect(findThemeEmbedEnabled('null')).toBe(false);
   });
 
   it('is false (not a throw) when a block entry is null', () => {
-    expect(findThemeEmbedEnabled('{"current":{"blocks":{"b1":null}}}', API_KEY_UNDER_TEST)).toBe(
-      false,
-    );
+    expect(findThemeEmbedEnabled('{"current":{"blocks":{"b1":null}}}')).toBe(false);
   });
 });
 

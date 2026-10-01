@@ -38,27 +38,33 @@ const TRYON_BLOCK_HANDLE = 'tryon-button';
  *
  * Shopify sometimes prefixes this file with a `/* ... *\/` comment block
  * that would otherwise break JSON.parse — stripped first. Block `type`
- * strings look like `shopify://apps/{api_key}/blocks/{handle}/{extension_uid}`;
- * matched on the handle prefix only, since the trailing UID belongs to this
- * extension's own installed-block identity and isn't worth hard-coding here.
+ * strings look like `shopify://apps/{app_identifier}/blocks/{handle}/{uid}`,
+ * and matching is deliberately scoped to the `/blocks/{handle}/` segment only,
+ * never the app identifier — direct probing against a real store found
+ * `app.env.SHOPIFY_API_KEY` (the client_id), the Admin API's own `app.handle`
+ * query, and the literal identifier Shopify baked into that store's live
+ * block type were three different strings. None of them can be trusted to
+ * compute a matching prefix, so this only verifies the block handle — which
+ * this extension names and fully controls — is present; a collision with
+ * another app's identically-named block isn't worth guarding against.
  * A block with no `disabled` key is enabled by Shopify's own convention —
  * only an explicit `disabled: true` turns it off.
  *
  * Never throws — every malformed shape, including a non-object root, a leading
  * comment this strip misses, or null/non-object block entries, returns false.
  */
-export function findThemeEmbedEnabled(content: string, apiKey: string): boolean {
+export function findThemeEmbedEnabled(content: string): boolean {
   try {
     const stripped = content.replace(/^\s*\/\*[\s\S]*?\*\//, '');
     const parsed: unknown = JSON.parse(stripped);
     const blocks =
       (parsed as { current?: { blocks?: Record<string, unknown> } } | null)?.current?.blocks ?? {};
-    const prefix = `shopify://apps/${apiKey}/blocks/${TRYON_BLOCK_HANDLE}/`;
+    const blockPattern = new RegExp(`^shopify://apps/[^/]+/blocks/${TRYON_BLOCK_HANDLE}/`);
     return Object.values(blocks).some((block) => {
       if (typeof block !== 'object' || block === null) return false;
       const typed = block as { type?: unknown; disabled?: unknown };
       return (
-        typeof typed.type === 'string' && typed.type.startsWith(prefix) && typed.disabled !== true
+        typeof typed.type === 'string' && blockPattern.test(typed.type) && typed.disabled !== true
       );
     });
   } catch {
@@ -109,8 +115,6 @@ export async function checkThemeEmbedLive(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
 ): Promise<boolean> {
-  const apiKey = app.env.SHOPIFY_API_KEY;
-  if (!apiKey) return false;
   try {
     const accessToken = await getValidAccessToken(app, store);
     const data = await shopifyGraphQL<MainThemeSettingsData>(
@@ -123,7 +127,7 @@ export async function checkThemeEmbedLive(
       (f) => f.filename === 'config/settings_data.json',
     )?.body?.content;
     if (!content) return false;
-    return findThemeEmbedEnabled(content, apiKey);
+    return findThemeEmbedEnabled(content);
   } catch (err) {
     app.log.warn({ err, storeId: store.id }, 'theme embed live-check failed');
     return false;
