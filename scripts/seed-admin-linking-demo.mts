@@ -32,7 +32,7 @@
  * Usage: tsx --env-file=.env scripts/seed-admin-linking-demo.mts
  */
 import { randomUUID } from 'node:crypto';
-import { and, createDb, eq, inArray, schema, sql } from '@aivastra/db';
+import { and, createDb, eq, inArray, schema } from '@aivastra/db';
 import { createR2Provider, keys } from '@aivastra/storage';
 import sharp from 'sharp';
 
@@ -85,10 +85,7 @@ async function upload(key: string, buf: Buffer): Promise<void> {
 // 1. Two fully node-mapped workflow templates (lower + shoe nodes included)
 // ---------------------------------------------------------------------------
 
-async function ensureLinkingTemplate(
-  slug: string,
-  label: string,
-): Promise<{ id: string }> {
+async function ensureLinkingTemplate(slug: string, label: string): Promise<{ id: string }> {
   const [existing] = await db
     .select({ id: schema.workflowTemplates.id })
     .from(schema.workflowTemplates)
@@ -216,7 +213,9 @@ async function seedCatalogueTemplate(
   const poses = await db
     .select({ id: schema.modelPoseAssets.id })
     .from(schema.modelPoseAssets)
-    .where(and(eq(schema.modelPoseAssets.genderSlug, gender), eq(schema.modelPoseAssets.isActive, true)))
+    .where(
+      and(eq(schema.modelPoseAssets.genderSlug, gender), eq(schema.modelPoseAssets.isActive, true)),
+    )
     .limit(2);
   const backgrounds = await db
     .select({ id: schema.modelBackgrounds.id })
@@ -333,7 +332,10 @@ async function seedShotTypeWorkflows(template: { id: string }): Promise<void> {
       .insert(schema.garmentShotTypeWorkflows)
       .values({ garmentTypeId: kurti.id, shotType, workflowTemplateId: template.id })
       .onConflictDoNothing({
-        target: [schema.garmentShotTypeWorkflows.garmentTypeId, schema.garmentShotTypeWorkflows.shotType],
+        target: [
+          schema.garmentShotTypeWorkflows.garmentTypeId,
+          schema.garmentShotTypeWorkflows.shotType,
+        ],
       })
       .returning({ id: schema.garmentShotTypeWorkflows.id });
     if (inserted.length > 0) created++;
