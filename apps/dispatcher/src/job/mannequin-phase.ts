@@ -14,8 +14,8 @@ import {
   submitPrompt,
   uploadImageToComfy,
 } from '../comfyui/client.js';
-import { waitForCompletion } from '../comfyui/progress.js';
-import { setWorkerStatus } from '../worker/registry.js';
+import { assertNever, waitForCompletion } from '../comfyui/progress.js';
+import { releaseWorker } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 
 export interface MannequinPhaseConfig {
@@ -35,7 +35,10 @@ export interface MannequinPhaseParams {
 
 // `no_worker` is capacity, not failure: the caller requeues (or terminates past
 // MAX_QUEUE_WAIT_MS) without touching `attempts`, exactly like its own main claim.
-export type MannequinPhaseResult = { status: 'completed'; key: string } | { status: 'no_worker' };
+export type MannequinPhaseResult =
+  | { status: 'completed'; key: string }
+  | { status: 'no_worker' }
+  | { status: 'cleanup_failed' };
 
 export async function runMannequinPhase(
   cfg: MannequinPhaseConfig,
@@ -139,7 +142,7 @@ export async function runMannequinPhase(
         prompt: workflow,
       },
     });
-    await waitForCompletion(
+    const completion = await waitForCompletion(
       w.url,
       w.apiKey,
       clientUuid,
@@ -151,7 +154,17 @@ export async function runMannequinPhase(
         debug: jobLog.debug.bind(jobLog),
         error: jobLog.error.bind(jobLog),
       },
+      undefined,
+      { redis, workerId: w.id },
     );
+    switch (completion.status) {
+      case 'completed':
+        break;
+      case 'queue_cleanup_failed':
+        return { status: 'cleanup_failed' };
+      default:
+        return assertNever(completion);
+    }
     const comfyMs = Date.now() - comfyStartedAt;
     comfyRequestDuration.observe({ job_type: jobType ?? 'unknown' }, comfyMs / 1000);
     await db
@@ -177,6 +190,6 @@ export async function runMannequinPhase(
     jobLog.info({ intermediateKey }, 'mannequin phase complete');
     return { status: 'completed', key: intermediateKey };
   } finally {
-    await setWorkerStatus(redis, w.id, 'IDLE');
+    await releaseWorker(redis, w.id, jobLog);
   }
 }
