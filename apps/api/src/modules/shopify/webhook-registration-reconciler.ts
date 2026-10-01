@@ -95,6 +95,13 @@ export function startWebhookRegistrationReconciler(
   app: FastifyInstance,
   intervalMs: number = HOUR_MS,
 ): () => void {
+  if (app.env.NODE_ENV === 'development') {
+    app.log.info(
+      'webhook reconcile: skipped in local dev — stores carry production-encrypted tokens locally',
+    );
+    return () => {};
+  }
+
   void runWebhookReconcileTick(app).catch((err) => {
     app.log.error({ err }, 'webhook reconcile initial run failed');
   });

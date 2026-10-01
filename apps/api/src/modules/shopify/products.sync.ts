@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, eq, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, notInArray, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
@@ -21,6 +21,7 @@ export interface ShopifyProduct {
   tags?: string[] | null;
   vendor?: string | null;
   collections?: string[] | null;
+  category?: string | null;
 }
 
 /** Minimal shape we need from a fetch Response — lets tests pass a plain object
@@ -34,7 +35,30 @@ interface FetchLikeResponse {
 type FetchLike = (url: string, init?: RequestInit) => Promise<FetchLikeResponse>;
 
 const ALLOWED_HOSTS = /(^|\.)(myshopify\.com|shopify\.com|cdn\.shopify\.com)$/;
-const FETCH_TIMEOUT_MS = 10_000;
+// Two stages, one AbortController: a dead connection or stalled CDN fails fast
+// (headers), while the body of a legitimately large image (cap: 20MB by
+// default) gets longer. Before this the timer was cleared once headers
+// arrived, so a body that stalled mid-stream had no bound at all and held the
+// single sync consumer — and every task queued behind it — for as long as the
+// socket stayed open.
+const HEADERS_TIMEOUT_MS = 10_000;
+const BODY_TIMEOUT_MS = 30_000;
+// Products fetched/uploaded in parallel within one page of a full sync. Each
+// product is dominated by waiting (CDN round trip + MinIO put), not CPU, so a
+// handful in flight cuts wall-clock roughly by that factor. Not higher: the
+// image downloads all hit the same CDN from one process.
+const SYNC_CONCURRENCY = 5;
+// Above this, one product is logged at warn so a stalling step stands out from
+// the per-product debug lines.
+const SLOW_PRODUCT_MS = 5_000;
+// One retry, not a loop: a dropped connection or a CDN 5xx/429 is usually gone a
+// moment later, while anything longer would stall the sync consumer (which runs
+// products one at a time) for a product that is genuinely broken.
+const DOWNLOAD_ATTEMPTS = 2;
+const DOWNLOAD_RETRY_DELAY_MS = 500;
+// How many failed products one reconcile pass gives a second chance (see the
+// 'reconcile' branch of syncOneTask).
+const FAILED_RETRY_PER_RECONCILE = 50;
 
 // Shopify product-level garment rows (no specific variant) are stored with this
 // sentinel instead of NULL. Postgres UNIQUE constraints treat every NULL as distinct
@@ -66,6 +90,7 @@ const PRODUCT_FIELDS = `
   vendor
   featuredImage { url }
   collections(first: 25) { nodes { title } }
+  category { fullName }
 `;
 
 const PRODUCTS_PAGE = `
@@ -114,6 +139,7 @@ interface GraphQLProductNode {
   vendor?: string | null;
   featuredImage?: { url?: string | null } | null;
   collections?: { nodes: Array<{ title: string }> } | null;
+  category?: { fullName?: string | null } | null;
 }
 
 interface ProductsPageData {
@@ -134,6 +160,7 @@ function toShopifyProduct(node: GraphQLProductNode): ShopifyProduct {
     tags: node.tags && node.tags.length > 0 ? node.tags : null,
     vendor: node.vendor || null,
     collections: node.collections?.nodes.map((c) => c.title) ?? null,
+    category: node.category?.fullName || null,
   };
 }
 
@@ -148,6 +175,7 @@ async function upsertGarment(
   tags: string[] | null,
   vendor: string | null,
   collections: string[] | null,
+  category: string | null,
   failedReason?: string,
 ) {
   const [row] = await app.db
@@ -163,6 +191,7 @@ async function upsertGarment(
       tags,
       vendor,
       collections,
+      category,
       failedReason,
     })
     .onConflictDoUpdate({
@@ -178,6 +207,7 @@ async function upsertGarment(
         tags,
         vendor,
         collections,
+        category,
         failedReason: failedReason ?? null,
         syncedAt: sql`now()`,
       },
@@ -188,7 +218,7 @@ async function upsertGarment(
 
 /** Records a failed (or, for a confirmed-gone product, deleted) sync for a
  *  product we couldn't fetch from Shopify — no product data is available, so
- *  title/productType/tags/vendor/collections stay null. Upserts rather than
+ *  title/productType/tags/vendor/collections/category stay null. Upserts rather than
  *  requiring an existing row, so this also covers a product that's never been
  *  synced before (e.g. a shopper's on-demand try-on of an ID that turns out to
  *  already be gone from Shopify). */
@@ -207,6 +237,7 @@ async function upsertGarmentFailure(
     r2Key,
     '',
     status,
+    null,
     null,
     null,
     null,
@@ -250,6 +281,64 @@ async function reconcileDeletedProducts(
     );
 }
 
+/** A size-cap breach or a final HTTP status (404, 403…) is a property of the
+ *  image, not of the network, so it must not be retried the way a dropped
+ *  connection is. */
+class NonRetryableDownloadError extends Error {}
+
+/** Downloads a product image, retrying once on failures that are likely to be
+ *  momentary: a thrown network error/timeout (including a body that stalls
+ *  mid-stream), or an HTTP 429/5xx. A 4xx (gone, forbidden) is final, so it is
+ *  not retried. The size cap is enforced here, before the body is read when
+ *  Content-Length is present, so an oversized image is never downloaded. */
+async function downloadWithRetry(
+  src: string,
+  fetchFn: FetchLike,
+  maxBytes: number,
+): Promise<{ buf: Buffer; contentType: string }> {
+  const tooLarge = () =>
+    new NonRetryableDownloadError(`product image exceeds ${maxBytes / (1024 * 1024)}MB`);
+  for (let attempt = 1; ; attempt++) {
+    const controller = new AbortController();
+    let timer = setTimeout(() => controller.abort(), HEADERS_TIMEOUT_MS);
+    try {
+      const res = await fetchFn(src, { redirect: 'error', signal: controller.signal });
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), BODY_TIMEOUT_MS);
+      if (!res.ok) {
+        const status = res.status ?? 0;
+        if (attempt < DOWNLOAD_ATTEMPTS && (status === 429 || status >= 500)) {
+          await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
+          continue;
+        }
+        throw new NonRetryableDownloadError(`download HTTP ${res.status}`);
+      }
+      const contentLength = res.headers.get('content-length');
+      if (contentLength && parseInt(contentLength, 10) > maxBytes) throw tooLarge();
+      const arrayBuffer = await res.arrayBuffer();
+      if (arrayBuffer.byteLength > maxBytes) throw tooLarge();
+      return {
+        buf: Buffer.from(arrayBuffer),
+        contentType: res.headers.get('content-type') ?? 'image/jpeg',
+      };
+    } catch (err) {
+      if (err instanceof NonRetryableDownloadError || attempt >= DOWNLOAD_ATTEMPTS) throw err;
+      await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/** Node's fetch reports every network-level failure as the bare message
+ *  "fetch failed", with the real reason (ETIMEDOUT, ENOTFOUND, an unexpected
+ *  redirect…) on `cause` — surface it so a failed row says why. */
+function describeError(err: unknown): string {
+  const e = err as Error & { cause?: { code?: string; message?: string } };
+  const detail = e.cause?.code ?? e.cause?.message;
+  return detail ? `${e.message} (${detail})` : e.message;
+}
+
 export async function syncProduct(
   app: FastifyInstance,
   storeId: string,
@@ -261,6 +350,7 @@ export async function syncProduct(
   const tags = product.tags ?? null;
   const vendor = product.vendor ?? null;
   const collections = product.collections ?? null;
+  const category = product.category ?? null;
   const src = product.imageUrl;
   if (!src) {
     await upsertGarment(
@@ -274,33 +364,25 @@ export async function syncProduct(
       tags,
       vendor,
       collections,
+      category,
       'no product image',
     );
     return;
   }
+  // Per-step wall-clock, so a slow import can be attributed to the CDN download,
+  // the storage put or the DB write instead of guessed at.
+  const t0 = Date.now();
+  let downloadMs = 0;
+  let putMs = 0;
+  let bytes = 0;
   try {
     assertShopifyCdn(src);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let res: FetchLikeResponse;
-    try {
-      res = await fetchFn(src, { redirect: 'error', signal: controller.signal });
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (!res.ok) throw new Error(`download HTTP ${res.status}`);
     const maxSyncBytes = await getUploadLimitBytes(app, 'shopifyProductSyncMaxBytes');
-    const contentLength = res.headers.get('content-length');
-    if (contentLength && parseInt(contentLength, 10) > maxSyncBytes) {
-      throw new Error(`product image exceeds ${maxSyncBytes / (1024 * 1024)}MB`);
-    }
-    const arrayBuffer = await res.arrayBuffer();
-    if (arrayBuffer.byteLength > maxSyncBytes) {
-      throw new Error(`product image exceeds ${maxSyncBytes / (1024 * 1024)}MB`);
-    }
-    const buf = Buffer.from(arrayBuffer);
-    const ct = res.headers.get('content-type') ?? 'image/jpeg';
-    await app.storage.putObject(r2Key, buf, ct);
+    const { buf, contentType } = await downloadWithRetry(src, fetchFn, maxSyncBytes);
+    downloadMs = Date.now() - t0;
+    bytes = buf.byteLength;
+    await app.storage.putObject(r2Key, buf, contentType);
+    putMs = Date.now() - t0 - downloadMs;
     await upsertGarment(
       app,
       storeId,
@@ -312,9 +394,24 @@ export async function syncProduct(
       tags,
       vendor,
       collections,
+      category,
     );
+    const timing = {
+      storeId,
+      productId: product.id,
+      bytes,
+      downloadMs,
+      putMs,
+      dbMs: Date.now() - t0 - downloadMs - putMs,
+      totalMs: Date.now() - t0,
+    };
+    if (timing.totalMs >= SLOW_PRODUCT_MS) app.log.warn(timing, 'slow product sync');
+    else app.log.debug(timing, 'product sync timing');
   } catch (err) {
-    app.log.warn({ err, storeId, productId: product.id }, 'product sync failed');
+    app.log.warn(
+      { err, storeId, productId: product.id, downloadMs, putMs, totalMs: Date.now() - t0 },
+      'product sync failed',
+    );
     await upsertGarment(
       app,
       storeId,
@@ -326,9 +423,37 @@ export async function syncProduct(
       tags,
       vendor,
       collections,
-      (err as Error).message,
+      category,
+      describeError(err),
     );
   }
+}
+
+/**
+ * Runs `fn` over `items` with at most `limit` in flight. A throw stops further
+ * items from starting, lets the ones already running finish (so none is left
+ * dangling behind the caller's back), then rethrows the first error — the same
+ * abort-the-task behaviour the sequential loop had.
+ */
+async function forEachLimit<T>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  let failure: { err: unknown } | null = null;
+  const worker = async () => {
+    while (!failure && next < items.length) {
+      const item = items[next++];
+      try {
+        await fn(item);
+      } catch (err) {
+        failure ??= { err };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  if (failure) throw (failure as { err: unknown }).err;
 }
 
 export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise<void> {
@@ -568,6 +693,36 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
     }
 
     await reconcileDeletedProducts(app, store.id, liveProductIds);
+
+    // Second chance for products that failed to sync. Nothing else revisits a
+    // failed row: this pass only fetches ids it has never seen, and a product
+    // task only comes from a webhook. So a product whose image had not attached
+    // yet when it was created (a CSV import fetches images after the product
+    // exists), whose products/update delivery was dropped, or whose download hit
+    // a momentary error, would stay failed until the merchant edited it. Runs
+    // after the deletion pass so a failed product that is really gone is marked
+    // deleted rather than re-fetched, and skips ids just tried above. Newest
+    // first, capped: a store with hundreds of genuinely image-less products
+    // costs at most this many Shopify calls an hour, and a fresh import is
+    // what should be retried first.
+    const failedRows = await app.db
+      .select({ id: schema.shopifyProductGarments.shopifyProductId })
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, store.id),
+          eq(schema.shopifyProductGarments.status, 'failed'),
+          newProductIds.length > 0
+            ? notInArray(schema.shopifyProductGarments.shopifyProductId, newProductIds)
+            : sql`true`,
+        ),
+      )
+      .orderBy(desc(schema.shopifyProductGarments.shopifyProductId))
+      .limit(FAILED_RETRY_PER_RECONCILE);
+    for (const { id } of failedRows) {
+      await fetchAndSyncOneProduct(id);
+      await new Promise((r) => setTimeout(r, 300)); // throttle, same cadence as the new-product loop above
+    }
     return;
   }
 
@@ -576,10 +731,13 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
   // roughly 25 + 25×25 = 650.
   let cursor: string | null = null;
   const liveProductIds: number[] = [];
+  const fullSyncStart = Date.now();
+  let graphqlMs = 0;
   do {
     // onUnauthorized reassigns the outer `token`: a full sync of a large catalog
     // outlives the one-hour token, and this runs unattended with no merchant
     // present to reauthorize.
+    const pageStart = Date.now();
     const data: ProductsPageData = await shopifyGraphQL<ProductsPageData>(
       shop,
       token,
@@ -587,14 +745,36 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
       { cursor },
       { onUnauthorized },
     );
-    for (const node of data.products.nodes) {
-      const product = toShopifyProduct(node);
-      liveProductIds.push(product.id);
-      await syncProduct(app, store.id, product);
-    }
+    const fetchedMs = Date.now() - pageStart;
+    graphqlMs += fetchedMs;
+    const products = data.products.nodes.map(toShopifyProduct);
+    for (const product of products) liveProductIds.push(product.id);
+    // Concurrent within a page, sequential across pages — the page fetch above
+    // is what the Shopify cost budget and the throttle below pace.
+    await forEachLimit(products, SYNC_CONCURRENCY, (product) =>
+      syncProduct(app, store.id, product),
+    );
+    app.log.info(
+      {
+        storeId: store.id,
+        products: products.length,
+        graphqlMs: fetchedMs,
+        pageMs: Date.now() - pageStart,
+      },
+      'full sync page done',
+    );
     cursor = data.products.pageInfo.hasNextPage ? data.products.pageInfo.endCursor : null;
     if (cursor) await new Promise((r) => setTimeout(r, 500)); // throttle
   } while (cursor);
+  app.log.info(
+    {
+      storeId: store.id,
+      products: liveProductIds.length,
+      graphqlMs,
+      totalMs: Date.now() - fullSyncStart,
+    },
+    'full sync detailed pass done',
+  );
   // liveProductIds was collected DURING the pass above, which can run for
   // minutes on a large catalog. If a products/delete webhook lands mid-pass
   // for a product whose page was already fetched, this pass's own upsert for

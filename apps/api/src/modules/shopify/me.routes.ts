@@ -1,7 +1,8 @@
 import { schema } from '@aivastra/db';
-import { and, count, eq, gte, ne, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { countUnroutedProducts } from './funnel-resolution.js';
+import { getPack } from './packs.js';
 import { computeRunway } from './runway.js';
 import { windowStart } from './store-day.js';
 
@@ -95,6 +96,14 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
       !unroutedCounts || unroutedCounts.countsOmitted
         ? rawEnabledProductCount
         : rawEnabledProductCount - (unroutedCounts.unroutedEnabled ?? 0);
+    // How many enabled products still resolve to no basket. Null when the routing
+    // scan was skipped for a catalogue over COUNTS_PRODUCT_CAP (the client then
+    // treats it as zero); zero when nothing is enabled, so there was nothing to scan.
+    const unroutedEnabledCount = !unroutedCounts
+      ? 0
+      : unroutedCounts.countsOmitted
+        ? null
+        : (unroutedCounts.unroutedEnabled ?? 0);
 
     const [{ activeCount, processingCount, failedCount, disabledCount }] = await app.db
       .select({
@@ -139,16 +148,26 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
     // pack at least once (manual or autorefill — both land here with the same
     // status field) — 'ACTIVE' is Shopify's AppPurchaseOneTime status for a
     // charge that actually went through, matching the same check
-    // grantForPurchase already gates the credit grant on.
-    const [{ hasPurchasedPack }] = await app.db
-      .select({ hasPurchasedPack: sql<boolean>`count(*) > 0` })
+    // grantForPurchase already gates the credit grant on. The most recent such
+    // row also doubles as "the pack currently shown on the balance card" —
+    // one query answers both, since existence of a row is exactly
+    // hasPurchasedPack.
+    const [latestPurchase] = await app.db
+      .select({ packId: schema.shopifyCreditPurchases.packId })
       .from(schema.shopifyCreditPurchases)
       .where(
         and(
           eq(schema.shopifyCreditPurchases.storeId, store.id),
           eq(schema.shopifyCreditPurchases.status, 'ACTIVE'),
         ),
-      );
+      )
+      .orderBy(desc(schema.shopifyCreditPurchases.createdAt))
+      .limit(1);
+    const hasPurchasedPack = latestPurchase != null;
+    // getPack returns null for an id CREDIT_PACKS no longer lists (a pack
+    // retired after the purchase) — the balance card falls back to plain
+    // "Current balance" rather than showing a broken label.
+    const currentPack = latestPurchase ? getPack(latestPurchase.packId) : null;
 
     return {
       store: {
@@ -156,11 +175,14 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         // Prefills the email-bonus popup — auto-captured from `shop.email` at
         // install, so it's usually already correct and just needs confirming.
         shopEmail: store.shopEmail,
+        shopOwnerName: store.shopOwnerName,
+        shopPhone: store.shopPhone,
         settings: store.settings,
         connectedSince: store.installedAt.toISOString(),
       },
       creditBalance: runway.balance,
       hasPurchasedPack,
+      currentPack: currentPack ? { id: currentPack.id, label: currentPack.label } : null,
       runway: {
         balance: runway.balance,
         tryOnsRemaining: runway.tryOnsRemaining,
@@ -185,6 +207,7 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         totalTryOns,
         syncedProductCount,
         enabledProductCount,
+        unroutedEnabledCount,
         statusCounts: {
           active: activeCount,
           processing: processingCount,

@@ -2,27 +2,26 @@ import {
   Badge,
   Banner,
   BlockStack,
-  Box,
   Button,
   Card,
   InlineGrid,
   InlineStack,
   Page,
-  ProgressBar,
   SkeletonBodyText,
   SkeletonPage,
   Text,
   Toast,
 } from '@shopify/polaris';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AppFont } from '../components/AppFont';
 import { BalanceCard } from '../components/BalanceCard';
-import { EmailBonusModal } from '../components/EmailBonusModal';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { PackGrid } from '../components/PackGrid';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import type { ShopifyMe, ShopifyOnboardingConfirmResponse, ShopifyStats } from '../types';
+import { isTryOnOff, needsEmbedEnable, unroutedWarningCount } from '../lib/onboarding';
+import type { ShopifyMe, ShopifyStats, ShopifyWelcomeCreditsResponse } from '../types';
 
 // Uses useNavigate() directly rather than accepting navigate as a prop: both
 // call sites (Dashboard, Pricing) render this from within the SPA's router
@@ -133,60 +132,11 @@ const STATUS_LABEL: Record<StatusKey, string> = {
   disabled: 'Disabled',
 };
 
-// Global mode alone satisfies "enable try-on on a product" — under global
-// mode literally every synced product is enabled except exclusions, so this
-// must not depend on `enabledProductCount`'s precision (e.g. zero synced
-// products yet, or an edge case where every product is individually
-// excluded) to reflect that. See apps/api/src/modules/shopify/me.routes.ts.
-function isTryOnEnabled(me: ShopifyMe | null): boolean {
-  const globalModeOn = me?.store.settings.activation?.mode === 'global';
-  return globalModeOn || (me?.stats.enabledProductCount ?? 0) > 0;
-}
-
-function StepRow({
-  done,
-  title,
-  description,
-  children,
-}: {
-  done: boolean;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Box paddingBlockEnd="400" borderBlockEndWidth="025" borderColor="border">
-      <BlockStack gap="200">
-        <InlineStack align="space-between" blockAlign="start" gap="200">
-          <InlineStack gap="200" blockAlign="center">
-            <Badge tone={done ? 'success' : undefined}>{done ? 'Done' : 'To do'}</Badge>
-            <Text as="p" variant="bodyMd" fontWeight="semibold">
-              {title}
-            </Text>
-          </InlineStack>
-          <InlineStack gap="200">{children}</InlineStack>
-        </InlineStack>
-        <Text as="p" tone="subdued">
-          {description}
-        </Text>
-      </BlockStack>
-    </Box>
-  );
-}
-
 export default function DashboardPage() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
   const [error, setError] = useState<ClassifiedError | null>(null);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const [openingEditor, setOpeningEditor] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  // Auto-opens on first load (see showEmailBonusModal below); "Maybe later"
-  // sets this false without touching emailBonusClaimed, so the persistent
-  // card further down stays as the way back in.
-  const [emailBonusModalOpen, setEmailBonusModalOpen] = useState(true);
   const navigate = useNavigate();
 
   const load = useCallback(() => {
@@ -201,33 +151,43 @@ export default function DashboardPage() {
     load();
   }, [load]);
 
-  async function syncProducts() {
-    setSyncing(true);
-    setError(null);
-    try {
-      await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
-      // Onboarding convenience: a merchant's first sync should make try-on
-      // live without a separate trip to Manage. Gated on nothing being
-      // enabled yet so a later re-sync (e.g. after adding products) never
-      // clobbers a deliberate switch to selective mode.
-      if (!isTryOnEnabled(me)) {
-        await apiFetch('/v1/shopify/activation/mode', {
-          method: 'PATCH',
-          body: JSON.stringify({ mode: 'global' }),
-        });
-        setToastMessage('Products synced — try-on is now live on your store.');
-      } else {
-        setToastMessage('Products synced from Shopify.');
-      }
-      load();
-    } catch (err) {
-      setError(classifyError(err));
-    } finally {
-      setSyncing(false);
-    }
-  }
+  // A re-read that does not flip `loading`, so the page stays up (and the toast
+  // below stays on screen) while the balance updates.
+  const refreshMe = useCallback(
+    () =>
+      apiFetch<ShopifyMe>('/v1/shopify/me')
+        .then(setMe)
+        .catch((err) => setError(classifyError(err))),
+    [],
+  );
 
+  // The welcome credits are granted the first time a store lands here — no claim
+  // button, no popup. The server checks `emailBonusClaimed` and is idempotent, so
+  // this is safe on a reload or a second tab; the ref just stops this mount asking
+  // twice. Best-effort: if it fails the next visit tries again.
+  const welcomeRequested = useRef(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  useEffect(() => {
+    if (!me || welcomeRequested.current || me.store.settings.emailBonusClaimed) return;
+    welcomeRequested.current = true;
+    apiFetch<ShopifyWelcomeCreditsResponse>('/v1/shopify/onboarding/welcome-credits', {
+      method: 'POST',
+    })
+      .then((res) => {
+        if (res.creditsGranted > 0) {
+          setToastMessage(
+            `${res.creditsGranted.toLocaleString()} free credits added to your balance!`,
+          );
+        }
+        return refreshMe();
+      })
+      .catch(() => {});
+  }, [me, refreshMe]);
+
+  // Opens the theme editor's App embeds panel with our embed switched on. The
+  // merchant still has to press Save there; only the Dashboard banner uses it.
   async function openThemeEditor() {
+    if (openingEditor) return;
     setOpeningEditor(true);
     setError(null);
     try {
@@ -240,252 +200,196 @@ export default function DashboardPage() {
     }
   }
 
-  async function confirmThemeBlock() {
-    setConfirming(true);
-    setError(null);
-    try {
-      const { settings } = await apiFetch<ShopifyOnboardingConfirmResponse>(
-        '/v1/shopify/onboarding/confirm-theme-block',
-        { method: 'POST' },
-      );
-      setMe((prev) => (prev ? { ...prev, store: { ...prev.store, settings } } : prev));
-      setToastMessage('Got it — Try It On block confirmed.');
-    } catch (err) {
-      setError(classifyError(err));
-    } finally {
-      setConfirming(false);
-    }
-  }
-
   if (loading) {
     return (
-      <SkeletonPage primaryAction>
-        <SkeletonBodyText />
-      </SkeletonPage>
+      <AppFont>
+        <SkeletonPage primaryAction>
+          <SkeletonBodyText />
+        </SkeletonPage>
+      </AppFont>
     );
   }
 
-  const synced = (me?.stats.syncedProductCount ?? 0) > 0;
-  const enabled = isTryOnEnabled(me);
-  const themeBlockDone = me?.store.settings.themeBlockConfirmed ?? false;
-  const doneCount = [synced, enabled, themeBlockDone].filter(Boolean).length;
-  const allDone = doneCount === 3;
-  const collapsed = allDone && !expanded;
-  const emailBonusClaimed = me?.store.settings.emailBonusClaimed ?? false;
-  // The tile itself stays up until the store has bought a pack at least
-  // once — claiming the bonus only changes what the tile says, not whether
-  // it's there. The popup auto-open is still gated on the bonus itself,
-  // since re-showing it after it's claimed would have nothing left to offer.
-  const showFreeCreditsTile = me != null && !me.hasPurchasedPack;
-  const showEmailBonusModal = me != null && !emailBonusClaimed && emailBonusModalOpen;
-
+  // Keyed off live product data, not getOnboardingStep: the onboarding step is
+  // now derived from whether every enabled product has a basket, so a finished
+  // store with hundreds of live products would read "not done" the moment one
+  // new product (e.g. one no global rule matches) lands without a basket. The
+  // "off" banner is for the true condition — nothing enabled resolves to a
+  // basket — and the partial case gets its own, milder warning below.
+  const tryOnOff = me != null && isTryOnOff(me);
+  const unroutedCount = me ? unroutedWarningCount(me) : 0;
+  const embedNeeded = me != null && needsEmbedEnable(me);
   return (
-    <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
-      <BlockStack gap="400">
-        <ErrorBanner error={error} onRetry={load} />
+    <AppFont>
+      <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
+        <BlockStack gap="400">
+          <ErrorBanner error={error} onRetry={load} />
 
-        {me && <LowCreditsBanner me={me} />}
+          {embedNeeded && (
+            <Banner
+              tone="warning"
+              title="Turn on the Try It On app embed"
+              action={{
+                content: 'Enable app embed',
+                onAction: openThemeEditor,
+              }}
+            >
+              <Text as="p">
+                The try-on button is now switched on with one toggle instead of being placed in your
+                theme, so shoppers won't see it until you enable the app embed and save. This
+                message goes away once we see the button on a product page of your store.
+              </Text>
+            </Banner>
+          )}
 
-        <BalanceCard me={me} />
+          {tryOnOff && (
+            <Banner
+              tone="warning"
+              title="Virtual try-on is currently off"
+              action={{ content: 'Go to Manage', onAction: () => navigate('/manage') }}
+            >
+              <Text as="p">
+                No products are enabled right now, so shoppers won't see the try-on button. Turn it
+                back on in Manage.
+              </Text>
+            </Banner>
+          )}
 
-        <PackGrid
-          onError={setError}
-          leadingCard={
-            showFreeCreditsTile ? (
-              <Card>
-                <BlockStack gap="300">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text as="h2" variant="headingMd">
-                      Free
+          {unroutedCount > 0 && (
+            <Banner
+              tone="warning"
+              title="Some products have no try-on style"
+              action={{ content: 'Go to Manage', onAction: () => navigate('/manage') }}
+            >
+              <Text as="p">
+                {unroutedCount === 1
+                  ? "1 enabled product has no try-on style, so try-on can't run on it — assign one in Manage."
+                  : `${unroutedCount} enabled products have no try-on style, so try-on can't run on them — assign one in Manage.`}
+              </Text>
+            </Banner>
+          )}
+
+          {me && <LowCreditsBanner me={me} />}
+
+          <BalanceCard me={me} />
+
+          <PackGrid
+            onError={setError}
+            leadingCard={
+              // First-time users only — the free tier is the welcome-credits bonus
+              // (see the effect above), gone the moment a store buys its first
+              // pack. Informational only: nothing to claim here any more, the
+              // bonus is granted automatically on arrival.
+              me != null && !me.hasPurchasedPack ? (
+                <Card>
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between" blockAlign="center">
+                      <Text as="h2" variant="headingMd">
+                        Free Tier
+                      </Text>
+                      <Badge tone="success">No purchase required</Badge>
+                    </InlineStack>
+                    <Text as="p" variant="heading2xl">
+                      {me.runway.tryOnsRemaining.toLocaleString()} try-ons
                     </Text>
-                    <Badge tone="success">
-                      {emailBonusClaimed ? 'Credits availed' : 'No purchase required'}
+                    <Text as="p" tone="subdued">
+                      Added automatically to get started.
+                    </Text>
+                  </BlockStack>
+                </Card>
+              ) : undefined
+            }
+          />
+
+          <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">
+                  Try-Ons
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {me?.stats.totalTryOns ?? 0}
+                </Text>
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">
+                  Products Synced
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {me?.stats.syncedProductCount ?? 0}
+                </Text>
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">
+                  Try-On Enabled
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {me?.stats.enabledProductCount ?? 0}
+                </Text>
+                <Text as="p" tone="subdued">
+                  of {me?.stats.syncedProductCount ?? 0} synced
+                </Text>
+              </BlockStack>
+            </Card>
+          </InlineGrid>
+
+          <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
+            <Card>
+              <BlockStack gap="200">
+                <Text as="h2" variant="headingMd">
+                  Today's try-ons
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {me?.stats.storeDailyCap
+                    ? `${me.stats.todayTryOns} / ${me.stats.storeDailyCap}`
+                    : (me?.stats.todayTryOns ?? 0)}
+                </Text>
+                {me?.stats.storeDailyCap != null &&
+                  me.stats.todayTryOns >= me.stats.storeDailyCap && (
+                    <Banner tone="warning">
+                      Your daily limit is reached. Try-on is paused until tomorrow.
+                    </Banner>
+                  )}
+                <Text as="p" tone="subdued">
+                  {me?.stats.capturedEmailCount ?? 0} emails collected
+                </Text>
+              </BlockStack>
+            </Card>
+
+            <Card>
+              <BlockStack gap="300">
+                <Text as="p" tone="subdued">
+                  Sync status
+                </Text>
+                {(['active', 'processing', 'failed', 'disabled'] as const).map((key) => (
+                  <InlineStack key={key} align="space-between" blockAlign="center">
+                    <Text as="span">{STATUS_LABEL[key]}</Text>
+                    <Badge tone={STATUS_TONE[key]}>
+                      {String(me?.stats.statusCounts[key] ?? 0)}
                     </Badge>
                   </InlineStack>
-
-                  <Text as="p" variant="headingLg">
-                    Free Credits
-                  </Text>
-
-                  {emailBonusClaimed ? (
-                    <Text as="p" tone="subdued">
-                      Already added to your balance.
-                    </Text>
-                  ) : (
-                    <>
-                      <BlockStack gap="100">
-                        <Text as="p">5 try-ons</Text>
-                        <Text as="p" tone="subdued">
-                          Confirm your contact email to claim them.
-                        </Text>
-                      </BlockStack>
-
-                      <Button variant="primary" onClick={() => setEmailBonusModalOpen(true)}>
-                        Claim credits
-                      </Button>
-                    </>
-                  )}
-                </BlockStack>
-              </Card>
-            ) : undefined
-          }
-        />
-
-        <Card>
-          <BlockStack gap="400">
-            <ProgressBar progress={(doneCount / 3) * 100} size="small" />
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="h2" variant="headingMd">
-                Getting started ({doneCount}/3)
-              </Text>
-              <Button variant="plain" onClick={() => setExpanded((v) => !v)}>
-                {collapsed ? 'Show steps' : 'Hide steps'}
-              </Button>
-            </InlineStack>
-
-            {collapsed ? (
-              <Text as="p" tone="success">
-                All set — virtual try-on is live on your store.
-              </Text>
-            ) : (
-              <BlockStack gap="400">
-                <StepRow
-                  done={synced}
-                  title="Sync your products"
-                  description="Import your Shopify catalog and turn on virtual try-on for every product — you can exclude specific ones afterward in Manage."
-                >
-                  <Button variant="primary" onClick={syncProducts} loading={syncing}>
-                    Sync products now
-                  </Button>
-                </StepRow>
-                <StepRow
-                  done={enabled}
-                  title="Enable try-on on a product"
-                  description="Turn on virtual try-on for at least one product."
-                >
-                  <Button variant="primary" onClick={() => navigate('/manage')}>
-                    Go to Manage
-                  </Button>
-                </StepRow>
-                <StepRow
-                  done={themeBlockDone}
-                  title="Add the Try It On block to your product page"
-                  description="Required — the try-on button only appears where you place this block. Open the theme editor, drag it directly above the Buy Buttons block, then save."
-                >
-                  <Button onClick={openThemeEditor} loading={openingEditor}>
-                    Open theme editor
-                  </Button>
-                  <Button variant="primary" onClick={confirmThemeBlock} loading={confirming}>
-                    I've added it
-                  </Button>
-                </StepRow>
+                ))}
               </BlockStack>
+            </Card>
+          </InlineGrid>
+
+          <InlineStack align="space-between" blockAlign="center">
+            <Button variant="plain" onClick={() => navigate('/manage')}>
+              Manage Products
+            </Button>
+            {me?.store.connectedSince && (
+              <Text as="span" tone="subdued">
+                Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
+              </Text>
             )}
-          </BlockStack>
-        </Card>
-
-        <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Try-Ons
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {me?.stats.totalTryOns ?? 0}
-              </Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Products Synced
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {me?.stats.syncedProductCount ?? 0}
-              </Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Try-On Enabled
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {me?.stats.enabledProductCount ?? 0}
-              </Text>
-              <Text as="p" tone="subdued">
-                of {me?.stats.syncedProductCount ?? 0} synced
-              </Text>
-            </BlockStack>
-          </Card>
-        </InlineGrid>
-
-        <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">
-                Today's try-ons
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {me?.stats.storeDailyCap
-                  ? `${me.stats.todayTryOns} / ${me.stats.storeDailyCap}`
-                  : (me?.stats.todayTryOns ?? 0)}
-              </Text>
-              {me?.stats.storeDailyCap != null &&
-                me.stats.todayTryOns >= me.stats.storeDailyCap && (
-                  <Banner tone="warning">
-                    Your daily limit is reached. Try-on is paused until tomorrow.
-                  </Banner>
-                )}
-              <Text as="p" tone="subdued">
-                {me?.stats.capturedEmailCount ?? 0} emails collected
-              </Text>
-            </BlockStack>
-          </Card>
-
-          <Card>
-            <BlockStack gap="300">
-              <Text as="p" tone="subdued">
-                Sync status
-              </Text>
-              {(['active', 'processing', 'failed', 'disabled'] as const).map((key) => (
-                <InlineStack key={key} align="space-between" blockAlign="center">
-                  <Text as="span">{STATUS_LABEL[key]}</Text>
-                  <Badge tone={STATUS_TONE[key]}>{String(me?.stats.statusCounts[key] ?? 0)}</Badge>
-                </InlineStack>
-              ))}
-            </BlockStack>
-          </Card>
-        </InlineGrid>
-
-        <InlineStack align="space-between" blockAlign="center">
-          <Button variant="plain" onClick={() => navigate('/manage')}>
-            Manage Products
-          </Button>
-          {me?.store.connectedSince && (
-            <Text as="span" tone="subdued">
-              Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
-            </Text>
-          )}
-        </InlineStack>
-      </BlockStack>
-
-      {showEmailBonusModal && me && (
-        <EmailBonusModal
-          me={me}
-          onClose={() => setEmailBonusModalOpen(false)}
-          onClaimed={(result) => {
-            load();
-            setToastMessage(
-              result.creditsGranted > 0
-                ? `You got ${result.creditsGranted.toLocaleString()} free credits!`
-                : 'Thanks for confirming your email.',
-            );
-          }}
-        />
-      )}
-
-      {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
-    </Page>
+          </InlineStack>
+        </BlockStack>
+        {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
+      </Page>
+    </AppFont>
   );
 }

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -288,5 +289,129 @@ describe('admin shopify funnel template reassign-on-delete', () => {
       .where(eq(schema.shopifyProductGarments.shopifyProductId, productId));
     expect(row.funnelTemplateId).toBe(targetBasketId);
     expect(row.funnelAssignmentSource).toBe('admin_reassign');
+  });
+});
+
+describe('admin shopify funnel template image + description', () => {
+  async function createBasket(slug: string, extra: Record<string, unknown> = {}) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/shopify/funnel-templates',
+      headers: adminHeaders,
+      payload: { slug, label: slug, workflowTemplateId, ...extra },
+    });
+    return res;
+  }
+
+  async function uploadedKey(): Promise<string> {
+    const presign = await app.inject({
+      method: 'POST',
+      url: '/admin/shopify/funnel-templates/image/presign',
+      headers: adminHeaders,
+    });
+    expect(presign.statusCode).toBe(200);
+    const { imageKey } = presign.json() as { imageKey: string };
+    // Stand-in for the browser's direct PUT to the presigned URL.
+    await app.storage.putObject(imageKey, Buffer.from('jpeg'), 'image/jpeg');
+    return imageKey;
+  }
+
+  async function exists(key: string): Promise<boolean> {
+    try {
+      await app.storage.headObject(key);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  it('stores a description and image, and lists a signed imageUrl', async () => {
+    const imageKey = await uploadedKey();
+    const res = await createBasket('img-basket', { description: '  Tops and shirts  ', imageKey });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ description: 'Tops and shirts', imageKey });
+
+    const list = await app.inject({
+      method: 'GET',
+      url: '/admin/shopify/funnel-templates',
+      headers: adminHeaders,
+    });
+    const item = list.json().items.find((i: { id: string }) => i.id === res.json().id);
+    expect(String(item.imageUrl)).toContain(imageKey);
+  });
+
+  it('stores a blank description as null', async () => {
+    const res = await createBasket('blank-desc', { description: '   ' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().description).toBeNull();
+  });
+
+  it('rejects a key the presign route did not mint', async () => {
+    const res = await createBasket('bad-key', { imageKey: 'models/faces/someone-else.jpg' });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects a well-formed key whose upload never happened', async () => {
+    const res = await createBasket('no-upload', {
+      imageKey: `shopify/baskets/${randomUUID()}.jpg`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error?.message ?? res.json().message).toContain('not uploaded');
+  });
+
+  it('deletes the old file when the image is replaced or cleared', async () => {
+    const first = await uploadedKey();
+    const created = await createBasket('replace-img', { imageKey: first });
+    const id = created.json().id as string;
+
+    const second = await uploadedKey();
+    const patch = await app.inject({
+      method: 'PATCH',
+      url: `/admin/shopify/funnel-templates/${id}`,
+      headers: adminHeaders,
+      payload: { imageKey: second },
+    });
+    expect(patch.statusCode).toBe(200);
+    expect(await exists(first)).toBe(false);
+    expect(await exists(second)).toBe(true);
+
+    const clear = await app.inject({
+      method: 'PATCH',
+      url: `/admin/shopify/funnel-templates/${id}`,
+      headers: adminHeaders,
+      payload: { imageKey: null },
+    });
+    expect(clear.statusCode).toBe(200);
+    expect(await exists(second)).toBe(false);
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.id, id));
+    expect(row.imageKey).toBeNull();
+  });
+
+  it('keeps the image when a patch does not mention it', async () => {
+    const key = await uploadedKey();
+    const created = await createBasket('keep-img', { imageKey: key });
+    const id = created.json().id as string;
+    await app.inject({
+      method: 'PATCH',
+      url: `/admin/shopify/funnel-templates/${id}`,
+      headers: adminHeaders,
+      payload: { label: 'renamed' },
+    });
+    expect(await exists(key)).toBe(true);
+  });
+
+  it('deletes the image file along with the basket', async () => {
+    const key = await uploadedKey();
+    const created = await createBasket('delete-img', { imageKey: key });
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/admin/shopify/funnel-templates/${created.json().id}`,
+      headers: adminHeaders,
+    });
+    expect(del.statusCode).toBe(200);
+    expect(await exists(key)).toBe(false);
   });
 });

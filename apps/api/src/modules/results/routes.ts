@@ -1339,11 +1339,11 @@ function appJs(): string {
   // element to render, since an <img> can't display a video file.
   function isVideoUrl(url) {
     var path = String(url == null ? '' : url).split('?')[0].split('#')[0];
-    return /\.(mp4|webm|mov|m4v)$/i.test(path);
+    return /.(mp4|webm|mov|m4v)$/i.test(path);
   }
   function extOf(url) {
     var path = String(url == null ? '' : url).split('?')[0].split('#')[0];
-    var m = path.match(/\.([a-z0-9]+)$/i);
+    var m = path.match(/.([a-z0-9]+)$/i);
     return m ? m[1] : 'jpg';
   }
 
