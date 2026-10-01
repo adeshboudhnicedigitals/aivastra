@@ -10,6 +10,7 @@ import { processJob } from '../../src/job/processor.js';
 import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { assertQueueExhaustion } from '../helpers/queue-exhaustion.js';
 
 const WORKER_ID = 'test-worker-tryon-direct-webp';
 const PERSON_NODE_ID = '20';
@@ -26,8 +27,8 @@ describe('tryon-direct job (source=tryon / api_tryon) — result uploaded as Web
 
   beforeAll(async () => {
     env = await setupTestEnv();
-    redis = new Redis('redis://127.0.0.1:6379');
-    pub = new Redis('redis://127.0.0.1:6379');
+    redis = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
+    pub = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
     comfy = await startComfyMock();
 
     await registerWorkers(redis, [{ id: WORKER_ID, url: comfy.url, apiKey: 'test-key' }]);
@@ -51,6 +52,7 @@ describe('tryon-direct job (source=tryon / api_tryon) — result uploaded as Web
   });
 
   beforeEach(async () => {
+    comfy.resetPrompts();
     comfy.setOptions({ outputBytes: realOutputBytes });
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
@@ -160,5 +162,24 @@ describe('tryon-direct job (source=tryon / api_tryon) — result uploaded as Web
     expect(bytes).toBeDefined();
     const meta = await sharp(Buffer.from(bytes as Uint8Array)).metadata();
     expect(meta.format).toBe('webp');
+  });
+  it('queue_cleanup_failed terminates and refunds without attempts, output handling or requeue', async () => {
+    const { jobId, userId } = await seedTryonDirectJob();
+    if (!jobId || !userId) throw new Error('missing fixture IDs');
+    await assertQueueExhaustion(
+      {
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log: createLogger('test'),
+      },
+      comfy,
+      WORKER_ID,
+      jobId,
+      userId,
+    );
   });
 });

@@ -9,6 +9,7 @@ import { processJob } from '../../src/job/processor.js';
 import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { assertQueueExhaustion } from '../helpers/queue-exhaustion.js';
 
 const WORKER_ID = 'test-worker-merchant-widget-two-input';
 const PERSON_NODE_ID = '26';
@@ -31,8 +32,8 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
 
   beforeAll(async () => {
     env = await setupTestEnv();
-    redis = new Redis('redis://127.0.0.1:6379');
-    pub = new Redis('redis://127.0.0.1:6379');
+    redis = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
+    pub = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
     comfy = await startComfyMock();
 
     await registerWorkers(redis, [
@@ -56,6 +57,7 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
   });
 
   beforeEach(async () => {
+    comfy.resetPrompts();
     comfy.setOptions({ outputBytes: realOutputBytes });
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
@@ -221,5 +223,24 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
     const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(job?.status).toBe('FAILED');
     expect(job?.errorCode).toBe('TRYON_NODES_NOT_CONFIGURED');
+  });
+  it('queue_cleanup_failed terminates and refunds without attempts, output handling or requeue', async () => {
+    const { jobId } = await seedTwoInputMerchantWidgetJob();
+    if (!jobId) throw new Error('missing fixture IDs');
+    await assertQueueExhaustion(
+      {
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log: createLogger('test'),
+      },
+      comfy,
+      WORKER_ID,
+      jobId,
+      '',
+    );
   });
 });
