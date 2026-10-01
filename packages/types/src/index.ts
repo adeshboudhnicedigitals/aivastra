@@ -17,3 +17,4 @@ export * from './rate-limits.js';
 export * from './saree.js';
 export * from './tryon.js';
 export * from './widget.js';
+export * from './worker-capabilities.js';

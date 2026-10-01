@@ -25,6 +25,7 @@ interface Worker {
   healthy: boolean;
   /** Dispatcher skips this worker when its ComfyUI queue is non-empty (a dev running a workflow). */
   queueGateEnabled: boolean;
+  capabilityWarning?: string | null;
   /** ComfyUI /queue sampled by the dispatcher health monitor (~15s, display only). */
   queue: {
     queueRemaining: number | null;
@@ -836,6 +837,11 @@ export default function WorkersPage({ toast }: Props) {
                                   marginTop: 1,
                                 }}
                               >
+                                {w.capabilityWarning && (
+                                  <span style={{ color: 'var(--danger)' }}>
+                                    {w.capabilityWarning} ·{' '}
+                                  </span>
+                                )}
                                 {state.detail}
                                 {w.queueGateEnabled ? ` · ${routingSummary(w)}` : ''}
                               </div>
