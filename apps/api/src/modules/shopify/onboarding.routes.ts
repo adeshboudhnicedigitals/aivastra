@@ -131,14 +131,14 @@ export async function checkThemeEmbedLive(
  * Deep link into the merchant's live theme editor, opened on the App embeds
  * panel with our embed switched on (the merchant still has to press Save).
  *
- * Deliberately builds a URL instead of asking the Admin API for the theme ID.
- * The obvious implementation — GET /themes.json?role=main — needs the
- * `read_themes` scope, which this app does not request (see `scopes` in
- * apps/shopify-extension/shopify.app.toml). Shopify answers that call with a
- * 403, `shopifyAdminFetch` turns every 403 into SHOPIFY_REAUTH_REQUIRED, and
- * the SPA then bounces the merchant through OAuth — which re-grants the same
- * scope set and 403s again on the next click. An unbreakable loop on the one
- * button new merchants are told to press first.
+ * Deliberately builds a URL instead of asking the Admin API for the theme ID,
+ * even though the app now holds `read_themes` (added for checkThemeEmbedLive
+ * below) — a REST `GET /themes.json?role=main` lookup here would still 403
+ * for any store that has not yet seen Shopify's one-time scope-upgrade
+ * prompt, and `shopifyAdminFetch` turns every 403 into SHOPIFY_REAUTH_REQUIRED,
+ * bouncing the merchant through a pointless reauth on the one button new
+ * merchants are told to press first. `themes/current` sidesteps the whole
+ * question for every store, re-consented or not.
  *
  * `themes/current` resolves the published theme server-side, so no theme ID is
  * needed. `activateAppId` is `{client_id}/{embed handle}` and `context=apps`

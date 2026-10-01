@@ -52,7 +52,7 @@ describe('buildThemeEditorDeepLink', () => {
     );
   });
 
-  it('never needs a theme ID — that lookup requires the read_themes scope we do not hold', () => {
+  it('never needs a theme ID — avoids a REST lookup that would 403 pre-consent', () => {
     const url = buildThemeEditorDeepLink('o.myshopify.com', 'abc123');
     expect(url).toContain('/themes/current/');
     expect(url).not.toMatch(/\/themes\/\d+\//);
@@ -336,8 +336,8 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
 
 describe('GET /v1/shopify/onboarding/theme-editor-url', () => {
   it('returns the deep link without calling the Shopify Admin API', async () => {
-    // A real fetch here would 403 for want of read_themes; the route is pure, so
-    // this passes with no network stub in place at all.
+    // Route is pure string-building — no fetch stub needed; an accidental
+    // live call would fail outright in this sandboxed test environment.
     const res = await app.inject({
       method: 'GET',
       url: '/v1/shopify/onboarding/theme-editor-url',
