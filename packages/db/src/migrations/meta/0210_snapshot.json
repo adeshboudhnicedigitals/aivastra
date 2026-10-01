@@ -1,6 +1,6 @@
 {
-  "id": "2c741525-7681-44a0-8c38-85dc5da574a9",
-  "prevId": "b73bf931-6818-4a7f-b84a-701e4c2cfccb",
+  "id": "4016a528-63b2-49ba-b108-a5937497bcac",
+  "prevId": "15794214-18ef-4c28-b6fe-7d380096af04",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2746,6 +2746,13 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "accessory_catalog_ids": {
+          "name": "accessory_catalog_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "ARRAY[]::uuid[]"
         },
         "user_hint": {
           "name": "user_hint",
@@ -5906,6 +5913,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "accessory_node_id": {
+          "name": "accessory_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "size_node_id": {
           "name": "size_node_id",
           "type": "text",
@@ -6170,6 +6183,12 @@
         },
         "third_node_id": {
           "name": "third_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accessory_node_id": {
+          "name": "accessory_node_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false

@@ -1,6 +1,6 @@
 {
-  "id": "2c741525-7681-44a0-8c38-85dc5da574a9",
-  "prevId": "b73bf931-6818-4a7f-b84a-701e4c2cfccb",
+  "id": "15794214-18ef-4c28-b6fe-7d380096af04",
+  "prevId": "96e61666-0266-4d45-bcfb-dad70144b1af",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7091,6 +7091,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "image_key": {
+          "name": "image_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "workflow_template_id": {
           "name": "workflow_template_id",
           "type": "uuid",
@@ -7230,6 +7242,12 @@
         },
         "vendor": {
           "name": "vendor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
           "type": "text",
           "primaryKey": false,
           "notNull": false
