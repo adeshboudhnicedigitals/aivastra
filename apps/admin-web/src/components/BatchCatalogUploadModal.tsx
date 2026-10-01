@@ -24,7 +24,7 @@ interface FileEntry {
 }
 
 interface Props {
-  typeSlug: 'lower' | 'shoe';
+  typeSlug: 'lower' | 'shoe' | 'accessory';
   onDone: (added: CatalogItem[]) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -147,7 +147,8 @@ export function BatchCatalogUploadModal({
   const allLabeled = entries.every((e) => e.label.trim());
   const pendingCount = entries.filter((e) => e.status !== 'done').length;
 
-  const typeLabel = typeSlug === 'lower' ? 'lower garment' : 'shoe';
+  const typeLabel =
+    typeSlug === 'lower' ? 'lower garment' : typeSlug === 'shoe' ? 'shoe' : 'accessory';
 
   return (
     <EditDrawer

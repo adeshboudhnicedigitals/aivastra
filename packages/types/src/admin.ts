@@ -95,7 +95,7 @@ const CoercedPositiveInt = z.union([
   z.number().int().positive(),
   z.string().regex(/^\d+$/).transform(Number),
 ]);
-const CatalogTypeSlug = z.enum(['lower', 'shoe']);
+const CatalogTypeSlug = z.enum(['lower', 'shoe', 'accessory']);
 
 export const PresignCatalogItemBody = z.object({
   typeSlug: CatalogTypeSlug,
