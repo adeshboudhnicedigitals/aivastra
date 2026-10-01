@@ -118,6 +118,16 @@ describe('findThemeEmbedEnabled', () => {
   it('is false (not a throw) on unparseable content', () => {
     expect(findThemeEmbedEnabled('not json at all', API_KEY_UNDER_TEST)).toBe(false);
   });
+
+  it('is false (not a throw) when parsed is null', () => {
+    expect(findThemeEmbedEnabled('null', API_KEY_UNDER_TEST)).toBe(false);
+  });
+
+  it('is false (not a throw) when a block entry is null', () => {
+    expect(findThemeEmbedEnabled('{"current":{"blocks":{"b1":null}}}', API_KEY_UNDER_TEST)).toBe(
+      false,
+    );
+  });
 });
 
 describe('GET /v1/shopify/onboarding/theme-editor-url', () => {

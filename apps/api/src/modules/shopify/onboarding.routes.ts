@@ -43,19 +43,22 @@ const TRYON_BLOCK_HANDLE = 'tryon-button';
  * only an explicit `disabled: true` turns it off.
  */
 export function findThemeEmbedEnabled(content: string, apiKey: string): boolean {
-  const stripped = content.replace(/\/\*[\s\S]*?\*\//, '');
-  let parsed: { current?: { blocks?: Record<string, { type?: string; disabled?: boolean }> } };
   try {
-    parsed = JSON.parse(stripped);
+    const stripped = content.replace(/\/\*[\s\S]*?\*\//, '');
+    const parsed = JSON.parse(stripped);
+    const blocks = parsed?.current?.blocks ?? {};
+    const prefix = `shopify://apps/${apiKey}/blocks/${TRYON_BLOCK_HANDLE}/`;
+    return Object.values(blocks).some(
+      (block) =>
+        typeof block === 'object' &&
+        block !== null &&
+        typeof block.type === 'string' &&
+        block.type.startsWith(prefix) &&
+        block.disabled !== true,
+    );
   } catch {
     return false;
   }
-  const blocks = parsed.current?.blocks ?? {};
-  const prefix = `shopify://apps/${apiKey}/blocks/${TRYON_BLOCK_HANDLE}/`;
-  return Object.values(blocks).some(
-    (block) =>
-      typeof block.type === 'string' && block.type.startsWith(prefix) && block.disabled !== true,
-  );
 }
 
 /**
