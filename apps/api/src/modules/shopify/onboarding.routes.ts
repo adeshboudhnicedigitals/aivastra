@@ -43,21 +43,24 @@ const TRYON_BLOCK_HANDLE = 'tryon-button';
  * extension's own installed-block identity and isn't worth hard-coding here.
  * A block with no `disabled` key is enabled by Shopify's own convention —
  * only an explicit `disabled: true` turns it off.
+ *
+ * Never throws — every malformed shape, including a non-object root, a leading
+ * comment this strip misses, or null/non-object block entries, returns false.
  */
 export function findThemeEmbedEnabled(content: string, apiKey: string): boolean {
   try {
-    const stripped = content.replace(/\/\*[\s\S]*?\*\//, '');
-    const parsed = JSON.parse(stripped);
-    const blocks = parsed?.current?.blocks ?? {};
+    const stripped = content.replace(/^\s*\/\*[\s\S]*?\*\//, '');
+    const parsed: unknown = JSON.parse(stripped);
+    const blocks =
+      (parsed as { current?: { blocks?: Record<string, unknown> } } | null)?.current?.blocks ?? {};
     const prefix = `shopify://apps/${apiKey}/blocks/${TRYON_BLOCK_HANDLE}/`;
-    return Object.values(blocks).some(
-      (block) =>
-        typeof block === 'object' &&
-        block !== null &&
-        typeof block.type === 'string' &&
-        block.type.startsWith(prefix) &&
-        block.disabled !== true,
-    );
+    return Object.values(blocks).some((block) => {
+      if (typeof block !== 'object' || block === null) return false;
+      const typed = block as { type?: unknown; disabled?: unknown };
+      return (
+        typeof typed.type === 'string' && typed.type.startsWith(prefix) && typed.disabled !== true
+      );
+    });
   } catch {
     return false;
   }
@@ -336,7 +339,11 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
       if (store.settings?.themeEmbedConfirmed) return { themeEmbedConfirmed: true };
       const confirmed = await checkThemeEmbedLive(app, store);
-      if (confirmed) await markThemeEmbedSeen(app, store);
+      if (confirmed) {
+        await markThemeEmbedSeen(app, store).catch((err) =>
+          app.log.warn({ err, storeId: store.id }, 'could not persist app embed as seen'),
+        );
+      }
       return { themeEmbedConfirmed: confirmed };
     },
   );

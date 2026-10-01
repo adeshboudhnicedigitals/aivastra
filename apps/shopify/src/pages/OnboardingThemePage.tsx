@@ -85,10 +85,12 @@ export default function OnboardingThemePage({
     setChecking(true);
     setError(null);
     try {
-      // Live Admin API check first (writes themeEmbedConfirmed server-side if
-      // it finds the embed on) — onRefresh then pulls whatever that just set,
-      // same as it already did for the storefront-ping path.
-      await apiFetch('/v1/shopify/onboarding/check-theme-embed', { method: 'POST' });
+      // Best-effort: the Admin API check is an accelerator, not a prerequisite.
+      // If it fails for any reason, onRefresh still surfaces whatever the
+      // storefront-ping path already recorded — this call must never block it.
+      await apiFetch('/v1/shopify/onboarding/check-theme-embed', { method: 'POST' }).catch(
+        () => {},
+      );
       await onRefresh();
       setCheckedNotFound(true);
     } catch (err) {

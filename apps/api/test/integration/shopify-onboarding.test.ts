@@ -137,7 +137,7 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
   let freshToken: string;
   let disabledStoreId: string;
   let disabledToken: string;
-  let _scopeDeniedStoreId: string;
+  let scopeDeniedStoreId: string;
   let scopeDeniedToken: string;
 
   function themeFilesResponse(content: string): Response {
@@ -248,7 +248,7 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
       'tok',
       'read_products',
     );
-    _scopeDeniedStoreId = scopeDenied.id;
+    scopeDeniedStoreId = scopeDenied.id;
     scopeDeniedToken = signSessionToken('scopedenied.myshopify.com', API_SECRET, API_KEY);
   });
 
@@ -318,6 +318,36 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
     const originalFetch = global.fetch;
     global.fetch = (async (url: string) => {
       if (String(url).includes('/graphql.json')) return accessDeniedResponse();
+      throw new Error(`unexpected fetch to ${url}`);
+    }) as typeof fetch;
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/shopify/onboarding/check-theme-embed',
+        headers: { authorization: `Bearer ${scopeDeniedToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ themeEmbedConfirmed: false });
+
+      const [row] = await app.db
+        .select({ settings: schema.shopifyStores.settings })
+        .from(schema.shopifyStores)
+        .where(eq(schema.shopifyStores.id, scopeDeniedStoreId));
+      expect(row.settings.themeEmbedConfirmed ?? false).toBe(false);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('degrades to false when the store has no main theme', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async (url: string) => {
+      if (String(url).includes('/graphql.json')) {
+        return new Response(JSON.stringify({ data: { themes: { nodes: [] } } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       throw new Error(`unexpected fetch to ${url}`);
     }) as typeof fetch;
     try {
