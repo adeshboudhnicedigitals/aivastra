@@ -12,8 +12,9 @@ import { PACK_DISPLAY } from '../lib/packs';
 // one here.
 //
 // `leadingCard` renders as an extra tile ahead of the paid packs, same grid,
-// same card sizing — currently the Dashboard's free-credits-for-email offer,
-// but kept generic rather than importing that concern directly here.
+// same card sizing — currently the Dashboard's free-tier tile for stores that
+// haven't bought a pack yet, but kept generic rather than importing that
+// concern directly here.
 export function PackGrid({
   onError,
   leadingCard,
@@ -65,6 +66,7 @@ export function PackGrid({
 
             <Button
               variant="primary"
+              size="large"
               loading={buying === pack.id}
               disabled={buying !== null}
               onClick={() => buyPack(pack.id)}

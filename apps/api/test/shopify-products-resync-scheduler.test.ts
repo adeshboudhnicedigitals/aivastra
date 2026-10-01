@@ -279,6 +279,119 @@ describe('syncOneTask — reconcile mode', () => {
     }
   });
 
+  it('gives failed products a second chance: retries a live one, leaves a gone one deleted, and skips ids it just fetched', async () => {
+    const store = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 916,
+        shopDomain: 'r7.myshopify.com',
+        myshopifyDomain: 'r7.myshopify.com',
+        name: 'R7',
+        email: 'r7@r7.com',
+      },
+      'tok',
+      'read_products',
+    );
+    await app.db.insert(schema.shopifyProductGarments).values([
+      // Failed at create time (its image had not attached yet); Shopify has one now.
+      {
+        storeId: store.id,
+        shopifyProductId: 860,
+        shopifyVariantId: 0,
+        r2Key: 'a',
+        title: 'Late Image',
+        status: 'failed',
+        failedReason: 'no product image',
+      },
+      // Failed, and no longer on Shopify: the deletion pass must win over the retry.
+      {
+        storeId: store.id,
+        shopifyProductId: 861,
+        shopifyVariantId: 0,
+        r2Key: 'b',
+        title: 'Gone',
+        status: 'failed',
+        failedReason: 'no product image',
+      },
+    ]);
+
+    const fetched: string[] = [];
+    const originalFetch = global.fetch;
+    global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith('https://cdn.shopify.com/')) {
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' },
+        });
+      }
+      if (!url.endsWith('/graphql.json')) throw new Error(`unexpected fetch: ${url}`);
+      const body = JSON.parse(String(init?.body)) as {
+        query: string;
+        variables?: { id?: string };
+      };
+      if (body.query.includes('ProductIdsPage')) {
+        // 860 still exists, 861 does not, 862 was never seen before.
+        return new Response(
+          JSON.stringify({
+            data: {
+              products: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [{ id: 'gid://shopify/Product/860' }, { id: 'gid://shopify/Product/862' }],
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (body.query.includes('OneProduct')) {
+        const id = String(body.variables?.id);
+        fetched.push(id.split('/').pop() as string);
+        return new Response(
+          JSON.stringify({
+            data: {
+              product: {
+                id,
+                title: id.endsWith('/860') ? 'Late Image' : 'Brand New Product',
+                productType: null,
+                tags: [],
+                vendor: null,
+                // 860 has its image now; the new product 862 still has none, so it
+                // ends this pass failed — and must not be retried in the same pass.
+                featuredImage: id.endsWith('/860')
+                  ? { url: 'https://cdn.shopify.com/a.jpg' }
+                  : null,
+                collections: { nodes: [] },
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`unexpected graphql query: ${body.query}`);
+    }) as typeof fetch;
+
+    try {
+      await syncOneTask(app, { storeId: store.id, mode: 'reconcile' });
+
+      const rows = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(eq(schema.shopifyProductGarments.storeId, store.id));
+      const byId = new Map(rows.map((r) => [r.shopifyProductId, r]));
+
+      expect(byId.get(860)?.status).toBe('active');
+      expect(byId.get(860)?.failedReason).toBeNull();
+      expect(byId.get(861)?.status).toBe('deleted');
+      expect(byId.get(862)?.status).toBe('failed');
+      // One lookup each for the new product (862) and the retried one (860); the
+      // gone product is never fetched, and 862 is not fetched a second time.
+      expect(fetched.sort()).toEqual(['860', '862']);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   it('marks every non-deleted row deleted when Shopify returns zero products', async () => {
     const store = await upsertShopifyStore(
       app,

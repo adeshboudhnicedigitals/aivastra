@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  type BasketImageChange,
+  BasketImageField,
+  uploadBasketImage,
+} from '../components/BasketImageField';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
@@ -17,6 +22,9 @@ interface FunnelTemplate {
   id: string;
   slug: string;
   label: string;
+  description: string | null;
+  imageKey: string | null;
+  imageUrl: string | null;
   workflowTemplateId: string;
   isActive: boolean;
   sortOrder: number;
@@ -222,6 +230,8 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   const [slugTouched, setSlugTouched] = useState(false);
   const [workflowTemplateId, setWorkflowTemplateId] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
+  const [description, setDescription] = useState('');
+  const [image, setImage] = useState<BasketImageChange>({ kind: 'keep' });
   const [creating, setCreating] = useState(false);
   const showCreate = modalParam === 'create-basket';
 
@@ -230,6 +240,8 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   const [editLabel, setEditLabel] = useState('');
   const [editWorkflowTemplateId, setEditWorkflowTemplateId] = useState('');
   const [editSortOrder, setEditSortOrder] = useState(0);
+  const [editDescription, setEditDescription] = useState('');
+  const [editImage, setEditImage] = useState<BasketImageChange>({ kind: 'keep' });
   const [editSaving, setEditSaving] = useState(false);
 
   const confirmDelete =
@@ -292,6 +304,8 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
     setEditLabel(editingItem.label);
     setEditWorkflowTemplateId(editingItem.workflowTemplateId);
     setEditSortOrder(editingItem.sortOrder);
+    setEditDescription(editingItem.description ?? '');
+    setEditImage({ kind: 'keep' });
   }, [editingItemId]);
 
   const editingRuleId = editingRule?.id ?? null;
@@ -393,15 +407,18 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
     setSlugTouched(false);
     setWorkflowTemplateId('');
     setSortOrder(0);
+    setDescription('');
+    setImage({ kind: 'keep' });
   }
 
   async function create() {
     if (!slug || !label || !workflowTemplateId) return;
     setCreating(true);
     try {
+      const imageKey = image.kind === 'upload' ? await uploadBasketImage(image.file) : undefined;
       await apiFetch('/admin/shopify/funnel-templates', {
         method: 'POST',
-        body: JSON.stringify({ slug, label, workflowTemplateId, sortOrder }),
+        body: JSON.stringify({ slug, label, workflowTemplateId, sortOrder, description, imageKey }),
       });
       toast({ title: 'Funnel template created' });
       resetCreateForm();
@@ -439,17 +456,32 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
     if (!editingItem || !editLabel || !editWorkflowTemplateId) return;
     setEditSaving(true);
     try {
+      // undefined = leave the image alone, null = clear it, string = the new upload.
+      const imageKey =
+        editImage.kind === 'upload'
+          ? await uploadBasketImage(editImage.file)
+          : editImage.kind === 'remove'
+            ? null
+            : undefined;
       await apiFetch(`/admin/shopify/funnel-templates/${editingItem.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
           label: editLabel,
           workflowTemplateId: editWorkflowTemplateId,
           sortOrder: editSortOrder,
+          description: editDescription,
+          imageKey,
         }),
       });
       toast({ title: 'Funnel template updated' });
       closeModal();
       load();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update funnel template',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
     } finally {
       setEditSaving(false);
     }
@@ -703,6 +735,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
           <table className="table">
             <thead>
               <tr>
+                <th style={{ width: 56 }}>Image</th>
                 <th>Label</th>
                 <th>Slug</th>
                 <th>Workflow</th>
@@ -713,6 +746,40 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
             <tbody>
               {items.map((item) => (
                 <tr key={item.id}>
+                  <td>
+                    {item.imageUrl ? (
+                      // biome-ignore lint/performance/noImgElement: admin panel thumbnail
+                      <img
+                        src={item.imageUrl}
+                        alt={`${item.label} basket`}
+                        style={{
+                          width: 40,
+                          height: 40,
+                          objectFit: 'cover',
+                          borderRadius: 6,
+                          display: 'block',
+                          border: '1px solid var(--border)',
+                        }}
+                      />
+                    ) : (
+                      <div
+                        title="No image"
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 6,
+                          border: '1px dashed var(--border)',
+                          background: 'var(--bg-2)',
+                          color: 'var(--muted)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Icon.Image />
+                      </div>
+                    )}
+                  </td>
                   <td style={{ fontWeight: 500 }}>{item.label}</td>
                   <td>
                     <code
@@ -742,7 +809,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
                       type="button"
                       className="btn sm ghost"
                       onClick={() => openEdit(item)}
-                      title="Edit label, workflow, or sort order"
+                      title="Edit label, description, image, workflow, or sort order"
                     >
                       <Icon.Edit /> Edit
                     </button>{' '}
@@ -925,6 +992,22 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
               onChange={(e) => setSortOrder(Number(e.target.value))}
             />
           </div>
+          <div className="field">
+            <label>Description (shown to merchants)</label>
+            <textarea
+              className="input"
+              rows={3}
+              maxLength={500}
+              style={{ height: 'auto', resize: 'vertical' }}
+              value={description}
+              disabled={creating}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label>Image (shown to merchants)</label>
+            <BasketImageField change={image} disabled={creating} onChange={setImage} />
+          </div>
         </EditDrawer>
       )}
 
@@ -972,6 +1055,27 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
               value={editSortOrder}
               disabled={editSaving}
               onChange={(e) => setEditSortOrder(Number(e.target.value))}
+            />
+          </div>
+          <div className="field">
+            <label>Description (shown to merchants)</label>
+            <textarea
+              className="input"
+              rows={3}
+              maxLength={500}
+              style={{ height: 'auto', resize: 'vertical' }}
+              value={editDescription}
+              disabled={editSaving}
+              onChange={(e) => setEditDescription(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label>Image (shown to merchants)</label>
+            <BasketImageField
+              currentUrl={editingItem.imageUrl}
+              change={editImage}
+              disabled={editSaving}
+              onChange={setEditImage}
             />
           </div>
         </EditDrawer>
