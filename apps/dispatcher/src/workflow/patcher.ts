@@ -68,6 +68,10 @@ export interface WorkflowInputs {
   lowerGarmentFile?: string;
   shoeGarmentFile?: string;
   thirdGarmentFile?: string;
+  /** Pre-stacked composite of every selected accessory image (see
+   *  stackAccessoryImages) — a single file regardless of how many accessory
+   *  categories were selected. */
+  accessoryGarmentFile?: string;
   promptFacePhase?: string;
   promptGarmentPhase?: string;
   aspectRatio?: string;
@@ -155,6 +159,20 @@ export function applyWorkflowPatch(
   } else if (inputs.thirdGarmentFile) {
     log?.warn(
       `patchWorkflow: third garment provided but workflow "${tmpl.slug}" has no third_node_id — skipping`,
+    );
+  }
+
+  // Accessories are never mandatory, unlike lower/shoe/third above: a mapped
+  // accessoryNodeId with nothing selected simply leaves the node untouched,
+  // carrying whatever placeholder the template's JSON shipped with.
+  if (tmpl.accessoryNodeId) {
+    if (inputs.accessoryGarmentFile) {
+      requireNode(workflow, tmpl.accessoryNodeId, 'accessory').inputs.image =
+        inputs.accessoryGarmentFile;
+    }
+  } else if (inputs.accessoryGarmentFile) {
+    log?.warn(
+      `patchWorkflow: accessory image provided but workflow "${tmpl.slug}" has no accessory_node_id — skipping`,
     );
   }
 

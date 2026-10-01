@@ -282,6 +282,54 @@ describe('third garment', () => {
   });
 });
 
+// ── Accessories ───────────────────────────────────────────────────────────
+
+describe('accessories', () => {
+  function makeWorkflowWithAccessoryNode() {
+    return {
+      ...makeWorkflow(),
+      '1370': {
+        inputs: { image: 'placeholder_accessory.png' },
+        class_type: 'LoadImage',
+        _meta: { title: 'accessory' },
+      },
+    };
+  }
+
+  it('patches the accessory node with the provided accessoryGarmentFile', () => {
+    const wf = makeWorkflowWithAccessoryNode();
+    const tmpl = makeTemplate({ accessoryNodeId: '1370' });
+    applyWorkflowPatch(wf, tmpl, {
+      ...BASE_INPUTS,
+      accessoryGarmentFile: 'accessory_stack_abc.png',
+    });
+    expect(wf['1370']?.inputs.image).toBe('accessory_stack_abc.png');
+  });
+
+  it('leaves the accessory node untouched when no accessory was selected', () => {
+    const wf = makeWorkflowWithAccessoryNode();
+    const tmpl = makeTemplate({ accessoryNodeId: '1370' });
+    applyWorkflowPatch(wf, tmpl, BASE_INPUTS);
+    // No throw, and the template's own placeholder survives unchanged —
+    // unlike lower/shoe/third, a mapped-but-unselected accessory is valid.
+    expect(wf['1370']?.inputs.image).toBe('placeholder_accessory.png');
+  });
+
+  it('warns when an accessory file is provided but no accessoryNodeId is mapped', () => {
+    const wf = makeWorkflowWithAccessoryNode();
+    const warn = vi.fn();
+    const tmpl = makeTemplate({ accessoryNodeId: null });
+    applyWorkflowPatch(
+      wf,
+      tmpl,
+      { ...BASE_INPUTS, accessoryGarmentFile: 'accessory_stack_abc.png' },
+      { warn },
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no accessory_node_id'));
+    expect(wf['1370']?.inputs.image).toBe('placeholder_accessory.png');
+  });
+});
+
 // ── Prompts ───────────────────────────────────────────────────────────────
 
 describe('prompts', () => {
