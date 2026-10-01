@@ -14,7 +14,7 @@ embedded = true
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 # Mirrors shopify.app.toml: managed installation, so no
 # `use_legacy_install_flow` here either. See that file for why.
-scopes = "read_products,write_products"
+scopes = "read_products,write_products,read_themes"
 optional_scopes = [ ]
 
 [auth]
