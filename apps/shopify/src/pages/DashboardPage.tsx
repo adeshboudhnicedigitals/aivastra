@@ -137,6 +137,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<ClassifiedError | null>(null);
   const [loading, setLoading] = useState(true);
   const [openingEditor, setOpeningEditor] = useState(false);
+  const [checkingEmbed, setCheckingEmbed] = useState(false);
   const navigate = useNavigate();
 
   const load = useCallback(() => {
@@ -200,6 +201,24 @@ export default function DashboardPage() {
     }
   }
 
+  // For stores that already flipped the embed on before reopening this page —
+  // an explicit, human-paced check against the Admin API, same budget
+  // rationale as OnboardingThemePage's "Refresh status". Best-effort: a failed
+  // check still falls through to refreshMe(), which picks up whatever the
+  // storefront-ping path already recorded, same as that page's checkStatus.
+  async function checkEmbedNow() {
+    if (checkingEmbed) return;
+    setCheckingEmbed(true);
+    try {
+      await apiFetch('/v1/shopify/onboarding/check-theme-embed', { method: 'POST' }).catch(
+        () => {},
+      );
+      await refreshMe();
+    } finally {
+      setCheckingEmbed(false);
+    }
+  }
+
   if (loading) {
     return (
       <AppFont>
@@ -233,11 +252,16 @@ export default function DashboardPage() {
                 content: 'Enable app embed',
                 onAction: openThemeEditor,
               }}
+              secondaryAction={{
+                content: 'Check now',
+                onAction: checkEmbedNow,
+              }}
             >
               <Text as="p">
                 The try-on button is now switched on with one toggle instead of being placed in your
-                theme, so shoppers won't see it until you enable the app embed and save. This
-                message goes away once we see the button on a product page of your store.
+                theme, so shoppers won't see it until you enable the app embed and save. Already
+                turned it on? Press Check now — or this message clears on its own once we see the
+                button on a product page of your store.
               </Text>
             </Banner>
           )}
