@@ -17,7 +17,7 @@ import {
 } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 
 import {
@@ -33,6 +33,7 @@ import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
+import { stackAccessoryImages } from '../workflow/accessory-stack.js';
 import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
 import { encodeCompressedImage, finalizeOutput } from '../workflow/finalize.js';
 import { patchWorkflow } from '../workflow/patcher.js';
@@ -683,6 +684,40 @@ export async function processJob(
       return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
     }
 
+    // Resolve selected accessory catalog items → fetch bytes, vertically stack
+    // into one composite. Unlike lower/shoe above, a missing item here fails
+    // the whole job rather than silently skipping — the user explicitly chose
+    // these, so dropping one silently would produce a result they didn't ask
+    // for. Category sortOrder (not selection order) decides the stack order.
+    let accessoryBytes: Buffer | null = null;
+    const accessoryCatalogIds = inputs.accessoryCatalogIds ?? [];
+    if (accessoryCatalogIds.length > 0) {
+      const accessoryRows = await db
+        .select({
+          id: schema.catalogItems.id,
+          r2Key: schema.catalogItems.r2Key,
+          sortOrder: schema.catalogCategories.sortOrder,
+        })
+        .from(schema.catalogItems)
+        .innerJoin(
+          schema.catalogCategories,
+          eq(schema.catalogCategories.id, schema.catalogItems.categoryId),
+        )
+        .where(inArray(schema.catalogItems.id, accessoryCatalogIds));
+
+      const rowsById = new Map(accessoryRows.map((r) => [r.id, r]));
+      const missing = accessoryCatalogIds.filter((id) => !rowsById.has(id));
+      if (missing.length > 0) {
+        throw new Error(`accessory catalog item(s) not found: ${missing.join(', ')}`);
+      }
+
+      const ordered = [...accessoryRows].sort((a, b) => a.sortOrder - b.sortOrder);
+      const accessoryBuffers = await Promise.all(
+        ordered.map(async (r) => Buffer.from(await r2Download(r.r2Key))),
+      );
+      accessoryBytes = await stackAccessoryImages(accessoryBuffers);
+    }
+
     // 4. Upload only the images that ComfyUI actually needs.
     // Display images (faceRow.r2Key, bgRow.r2Key) are UI-only and never sent to ComfyUI.
     jobLog.info({ needsFace, needsBg, needsUpper }, 'uploading inputs to ComfyUI');
@@ -694,6 +729,18 @@ export async function processJob(
     if (lowerKey) baseTasks.push(uploadToComfy(lowerKey, 'lower'));
     if (shoeKey) baseTasks.push(uploadToComfy(shoeKey, 'shoe'));
     if (inputs.thirdGarmentKey) baseTasks.push(uploadToComfy(inputs.thirdGarmentKey, 'third'));
+    if (accessoryBytes) {
+      baseTasks.push(
+        uploadImageToComfy(
+          w.url,
+          w.apiKey,
+          accessoryBytes,
+          `accessory_${jobId}.png`,
+          'image/png',
+          jobLog,
+        ),
+      );
+    }
     const uploaded = await Promise.all(baseTasks);
 
     let idx = 0;
@@ -705,6 +752,7 @@ export async function processJob(
     const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
     const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
     const thirdGarmentFile = inputs.thirdGarmentKey ? uploaded[idx++] : undefined;
+    const accessoryGarmentFile = accessoryBytes ? uploaded[idx++] : undefined;
     jobLog.info(
       {
         upperGarmentFile,
@@ -714,6 +762,7 @@ export async function processJob(
         lowerGarmentFile,
         shoeGarmentFile,
         thirdGarmentFile,
+        accessoryGarmentFile,
       },
       'inputs uploaded',
     );
@@ -736,6 +785,7 @@ export async function processJob(
         lowerGarmentFile,
         shoeGarmentFile,
         thirdGarmentFile,
+        accessoryGarmentFile,
         promptFacePhase: effectivePromptFacePhase ?? undefined,
         promptGarmentPhase: effectivePromptGarmentPhase ?? undefined,
         aspectRatio: jobAspectRatio,
@@ -772,6 +822,7 @@ export async function processJob(
           lowerGarmentFile,
           shoeGarmentFile,
           thirdGarmentFile,
+          accessoryGarmentFile: accessoryGarmentFile ?? null,
           promptFacePhase: effectivePromptFacePhase ?? null,
           promptGarmentPhase: effectivePromptGarmentPhase ?? null,
           aspectRatio: jobAspectRatio ?? null,
@@ -787,6 +838,7 @@ export async function processJob(
             lowerKey,
             shoeKey,
             thirdGarmentKey: inputs.thirdGarmentKey,
+            accessoryCatalogIds: accessoryCatalogIds.length > 0 ? accessoryCatalogIds : null,
           },
         },
         prompt,
