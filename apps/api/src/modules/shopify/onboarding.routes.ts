@@ -31,6 +31,34 @@ const SaveContactBody = z.object({
 const TRYON_BLOCK_HANDLE = 'tryon-button';
 
 /**
+ * Pure parse: does the live theme's `config/settings_data.json` (verbatim
+ * Admin API content) contain our app embed block, switched on?
+ *
+ * Shopify sometimes prefixes this file with a `/* ... *\/` comment block
+ * that would otherwise break JSON.parse — stripped first. Block `type`
+ * strings look like `shopify://apps/{api_key}/blocks/{handle}/{extension_uid}`;
+ * matched on the handle prefix only, since the trailing UID belongs to this
+ * extension's own installed-block identity and isn't worth hard-coding here.
+ * A block with no `disabled` key is enabled by Shopify's own convention —
+ * only an explicit `disabled: true` turns it off.
+ */
+export function findThemeEmbedEnabled(content: string, apiKey: string): boolean {
+  const stripped = content.replace(/\/\*[\s\S]*?\*\//, '');
+  let parsed: { current?: { blocks?: Record<string, { type?: string; disabled?: boolean }> } };
+  try {
+    parsed = JSON.parse(stripped);
+  } catch {
+    return false;
+  }
+  const blocks = parsed.current?.blocks ?? {};
+  const prefix = `shopify://apps/${apiKey}/blocks/${TRYON_BLOCK_HANDLE}/`;
+  return Object.values(blocks).some(
+    (block) =>
+      typeof block.type === 'string' && block.type.startsWith(prefix) && block.disabled !== true,
+  );
+}
+
+/**
  * Deep link into the merchant's live theme editor, opened on the App embeds
  * panel with our embed switched on (the merchant still has to press Save).
  *

@@ -2,7 +2,10 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
-import { buildThemeEditorDeepLink } from '../../src/modules/shopify/onboarding.routes.js';
+import {
+  buildThemeEditorDeepLink,
+  findThemeEmbedEnabled,
+} from '../../src/modules/shopify/onboarding.routes.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
 import { signSessionToken } from '../helpers/shopify-session.js';
@@ -53,6 +56,67 @@ describe('buildThemeEditorDeepLink', () => {
     const url = buildThemeEditorDeepLink('o.myshopify.com', 'abc123');
     expect(url).toContain('/themes/current/');
     expect(url).not.toMatch(/\/themes\/\d+\//);
+  });
+});
+
+describe('findThemeEmbedEnabled', () => {
+  const API_KEY_UNDER_TEST = 'abc123';
+
+  function settingsJson(blocks: Record<string, { type: string; disabled?: boolean }>): string {
+    return JSON.stringify({ current: { blocks } });
+  }
+
+  it('is true when the block type matches our handle and disabled is absent', () => {
+    const content = settingsJson({
+      'block-1': { type: `shopify://apps/${API_KEY_UNDER_TEST}/blocks/tryon-button/uuid-1` },
+    });
+    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(true);
+  });
+
+  it('is true when disabled is explicitly false', () => {
+    const content = settingsJson({
+      'block-1': {
+        type: `shopify://apps/${API_KEY_UNDER_TEST}/blocks/tryon-button/uuid-1`,
+        disabled: false,
+      },
+    });
+    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(true);
+  });
+
+  it('is false when disabled is true', () => {
+    const content = settingsJson({
+      'block-1': {
+        type: `shopify://apps/${API_KEY_UNDER_TEST}/blocks/tryon-button/uuid-1`,
+        disabled: true,
+      },
+    });
+    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(false);
+  });
+
+  it('is false when no block matches our handle', () => {
+    const content = settingsJson({
+      'block-1': { type: `shopify://apps/${API_KEY_UNDER_TEST}/blocks/some-other-embed/uuid-1` },
+    });
+    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(false);
+  });
+
+  it("is false for a different app's api key, even with the same block handle", () => {
+    const content = settingsJson({
+      'block-1': { type: 'shopify://apps/someone-elses-key/blocks/tryon-button/uuid-1' },
+    });
+    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(false);
+  });
+
+  it('strips a leading /* ... */ comment block before parsing', () => {
+    const json = settingsJson({
+      'block-1': { type: `shopify://apps/${API_KEY_UNDER_TEST}/blocks/tryon-button/uuid-1` },
+    });
+    const content = `/* some editor-added comment\nspanning lines */\n${json}`;
+    expect(findThemeEmbedEnabled(content, API_KEY_UNDER_TEST)).toBe(true);
+  });
+
+  it('is false (not a throw) on unparseable content', () => {
+    expect(findThemeEmbedEnabled('not json at all', API_KEY_UNDER_TEST)).toBe(false);
   });
 });
 
