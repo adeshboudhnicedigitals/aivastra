@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
 import { BackgroundUploadModal } from '../../components/BackgroundUploadModal';
 import { EditBackgroundModal } from '../../components/EditBackgroundModal';
@@ -6,6 +6,9 @@ import { EditDrawer } from '../../components/EditDrawer';
 import { Icon } from '../../components/Icons';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
+import { useCrumb } from '../../context/BreadcrumbContext';
+import { useCloseOverlay } from '../../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type { CatalogCategory, CategoryTag, GenderSlug, ModelBackground } from '../../types';
@@ -61,27 +64,84 @@ export function BackgroundsTab() {
     if (r2Url) setPreviewUrl(r2Url);
   }
 
-  const [bgView, setBgView] = useState<BgView>({ kind: 'list' });
+  const tabHref = '/assets?tab=backgrounds';
   const [categories, setCategories] = useState<CatalogCategory[]>([]);
+
+  // Sub-view (list ↔ category ↔ uncategorized) — resolved against `categories`
+  // once loaded, same approach as GarmentTypesTab's pilot: no GET-by-id
+  // endpoint is needed since the id is just looked up in an already-loaded list.
+  const [{ view: viewParam, catId }, setViewParams] = useUrlStateMulti(['view', 'catId']);
+  const bgView: BgView = useMemo(() => {
+    if (viewParam === 'category' && catId) {
+      const cat = categories.find((c) => String(c.id) === catId);
+      if (cat) return { kind: 'category', cat };
+    }
+    if (viewParam === 'uncategorized') return { kind: 'uncategorized' };
+    return { kind: 'list' };
+  }, [viewParam, catId, categories]);
+  // Primitive identity for effects below — `bgView` itself is a new object on
+  // every `categories` update (e.g. after an edit-category save), which would
+  // otherwise retrigger the item-loading effect for no reason.
+  const viewKey = bgView.kind === 'category' ? `category:${bgView.cat.id}` : bgView.kind;
+  const openCategory = useCallback(
+    (cat: CatalogCategory) => setViewParams({ view: 'category', catId: String(cat.id) }),
+    [setViewParams],
+  );
+  const openUncategorized = useCallback(
+    () => setViewParams({ view: 'uncategorized', catId: null }),
+    [setViewParams],
+  );
+  const closeView = useCloseOverlay(['view', 'catId']);
+  // View-scoped params (background-level modals/confirms only ever open from
+  // inside a category/uncategorized view) so a hard refresh or breadcrumb
+  // jump lands back with the right item list loaded, not the bare list view.
+  const viewQuery =
+    bgView.kind === 'category'
+      ? `&view=category&catId=${encodeURIComponent(String(bgView.cat.id))}`
+      : bgView.kind === 'uncategorized'
+        ? '&view=uncategorized'
+        : '';
+  useCrumb(0, { label: 'Backgrounds', href: tabHref });
+  useCrumb(
+    1,
+    bgView.kind === 'category'
+      ? { label: bgView.cat.label, href: `${tabHref}${viewQuery}` }
+      : bgView.kind === 'uncategorized'
+        ? { label: 'Uncategorized', href: `${tabHref}${viewQuery}` }
+        : null,
+  );
+
   const [backgroundTypeId, setBackgroundTypeId] = useState<number | null>(null);
   const [uncategorizedCount, setUncategorizedCount] = useState(0);
 
   const [backgrounds, setBackgrounds] = useState<ModelBackground[]>([]);
   const [selectedBgIds, setSelectedBgIds] = useState<string[]>([]);
+  // Dialog open-ness is URL state; the specific ids being deleted are a
+  // snapshot of `selectedBgIds` taken at open time and stay local, same as
+  // UsersPage's bulk-delete precedent (confirm=bulk-delete-users) — a refresh
+  // mid-dialog shows "0 selected" gracefully rather than restoring the list.
   const [confirmBulkDeleteBgIds, setConfirmBulkDeleteBgIds] = useState<string[]>([]);
   const [deleteBgConfirmText, setDeleteBgConfirmText] = useState('');
-  const [showBgUpload, setShowBgUpload] = useState(false);
-  const [editingBackground, setEditingBackground] = useState<ModelBackground | null>(null);
-  const [confirmDeleteBg, setConfirmDeleteBg] = useState<ModelBackground | null>(null);
-  const [showBulkCategory, setShowBulkCategory] = useState(false);
+
+  // One shared `modal` param for every single-record modal on this tab,
+  // mirroring UsersPage's modal enum. `editId` only matters for
+  // edit-background/edit-category, resolved against already-loaded lists.
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const showBgUpload = modalParam === 'upload-background';
+  const editingBackground: ModelBackground | null =
+    modalParam === 'edit-background' && editId
+      ? (backgrounds.find((b) => b.id === editId) ?? null)
+      : null;
+  const showBulkCategory = modalParam === 'bulk-category';
   const [bulkCategoryId, setBulkCategoryId] = useState<number | null>(null);
   const [bulkCategorySaving, setBulkCategorySaving] = useState(false);
-  const [showBulkGender, setShowBulkGender] = useState(false);
+  const showBulkGender = modalParam === 'bulk-gender';
   const [bulkGenderSlug, setBulkGenderSlug] = useState<GenderSlug | ''>('');
   const [bulkGenderSaving, setBulkGenderSaving] = useState(false);
 
   // Category modals
-  const [showAddCategory, setShowAddCategory] = useState(false);
+  const showAddCategory = modalParam === 'add-category';
   const [catForm, setCatForm] = useState<{
     label: string;
     slug: string;
@@ -90,11 +150,69 @@ export function BackgroundsTab() {
   }>({ label: '', slug: '', genderSlug: '', sortOrder: 0 });
   const [catImageFile, setCatImageFile] = useState<File | null>(null);
   const [catSaving, setCatSaving] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<CatalogCategory | null>(null);
+  const editingCategory: CatalogCategory | null =
+    modalParam === 'edit-category' && editId
+      ? (categories.find((c) => String(c.id) === editId) ?? null)
+      : null;
   const [editCatLabel, setEditCatLabel] = useState('');
   const [editCatImageFile, setEditCatImageFile] = useState<File | null>(null);
   const [editCatSaving, setEditCatSaving] = useState(false);
-  const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<CatalogCategory | null>(null);
+
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const confirmDeleteBg: ModelBackground | null =
+    confirmParam === 'delete-background' && confirmId
+      ? (backgrounds.find((b) => b.id === confirmId) ?? null)
+      : null;
+  const confirmDeleteCategory: CatalogCategory | null =
+    confirmParam === 'delete-category' && confirmId
+      ? (categories.find((c) => String(c.id) === confirmId) ?? null)
+      : null;
+
+  useCrumb(
+    2,
+    showBgUpload
+      ? { label: 'Add background', href: `${tabHref}${viewQuery}&modal=upload-background` }
+      : editingBackground
+        ? {
+            label: 'Edit background',
+            href: `${tabHref}${viewQuery}&modal=edit-background&editId=${encodeURIComponent(editingBackground.id)}`,
+          }
+        : showBulkCategory
+          ? { label: 'Change category', href: `${tabHref}${viewQuery}&modal=bulk-category` }
+          : showBulkGender
+            ? { label: 'Change gender', href: `${tabHref}${viewQuery}&modal=bulk-gender` }
+            : showAddCategory
+              ? { label: 'Add category', href: `${tabHref}&modal=add-category` }
+              : editingCategory
+                ? {
+                    label: 'Edit category',
+                    href: `${tabHref}&modal=edit-category&editId=${encodeURIComponent(String(editingCategory.id))}`,
+                  }
+                : null,
+  );
+  useCrumb(
+    3,
+    confirmDeleteBg
+      ? {
+          label: 'Delete background',
+          href: `${tabHref}${viewQuery}&confirm=delete-background&confirmId=${encodeURIComponent(confirmDeleteBg.id)}`,
+        }
+      : confirmDeleteCategory
+        ? {
+            label: 'Delete category',
+            href: `${tabHref}&confirm=delete-category&confirmId=${encodeURIComponent(String(confirmDeleteCategory.id))}`,
+          }
+        : confirmParam === 'bulk-delete-backgrounds'
+          ? {
+              label: 'Move to recycle bin',
+              href: `${tabHref}${viewQuery}&confirm=bulk-delete-backgrounds`,
+            }
+          : null,
+  );
 
   const loadCategoriesAndType = useCallback(async () => {
     try {
@@ -165,19 +283,25 @@ export function BackgroundsTab() {
   );
 
   useEffect(() => {
-    setBgView({ kind: 'list' });
-    setSelectedBgIds([]);
     void loadCategoriesAndType();
   }, [loadCategoriesAndType]);
 
+  // Resets selection whenever the resolved view changes (list ↔ a specific
+  // category ↔ uncategorized) — mirrors the pre-URL code's reset at every
+  // open/close call site, now centralized since those are URL pushes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: viewKey change is the trigger, not read in the body
+  useEffect(() => {
+    setSelectedBgIds([]);
+  }, [viewKey]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: viewKey (not bgView) is the intended trigger — see its own comment above
   useEffect(() => {
     const g = genderFilter === 'all' ? undefined : genderFilter;
     void loadAllBackgrounds(g);
     void loadUncategorizedCount(g);
     if (bgView.kind === 'category') void loadViewBackgrounds(g, bgView.cat.id);
     else if (bgView.kind === 'uncategorized') void loadViewBackgrounds(g, undefined, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [genderFilter, bgView, loadAllBackgrounds, loadUncategorizedCount, loadViewBackgrounds]);
+  }, [genderFilter, viewKey, loadAllBackgrounds, loadUncategorizedCount, loadViewBackgrounds]);
 
   useEffect(() => {
     const onVisible = () => {
@@ -235,6 +359,7 @@ export function BackgroundsTab() {
   const doBulkDeleteBackgrounds = async () => {
     if (deleteBgConfirmText !== 'move to recycle bin') return;
     const ids = confirmBulkDeleteBgIds;
+    closeConfirm();
     setConfirmBulkDeleteBgIds([]);
     setDeleteBgConfirmText('');
     if (ids.length === 0) return;
@@ -278,7 +403,7 @@ export function BackgroundsTab() {
         prev.map((b) => (ids.includes(b.id) ? { ...b, categoryId: bulkCategoryId } : b)),
       );
       setSelectedBgIds([]);
-      setShowBulkCategory(false);
+      closeModal();
       toast({ title: `${ids.length} background${ids.length !== 1 ? 's' : ''} moved` });
     } catch (e) {
       toast({
@@ -303,7 +428,7 @@ export function BackgroundsTab() {
       setBackgrounds((prev) => prev.map((b) => (ids.includes(b.id) ? { ...b, genderSlug } : b)));
       setAllBackgrounds((prev) => prev.map((b) => (ids.includes(b.id) ? { ...b, genderSlug } : b)));
       setSelectedBgIds([]);
-      setShowBulkGender(false);
+      closeModal();
       toast({ title: `${ids.length} background${ids.length !== 1 ? 's' : ''} updated` });
     } catch (e) {
       toast({
@@ -341,9 +466,8 @@ export function BackgroundsTab() {
               <button
                 className="btn sm ghost"
                 onClick={() => {
-                  setBgView({ kind: 'list' });
-                  setSelectedBgIds([]);
                   setBackgrounds([]);
+                  closeView();
                 }}
                 style={{ padding: '2px 8px', fontSize: 13 }}
               >
@@ -366,14 +490,17 @@ export function BackgroundsTab() {
               className="btn"
               onClick={() => {
                 setCatForm({ label: '', slug: '', genderSlug: '', sortOrder: 0 });
-                setShowAddCategory(true);
+                setModalParams({ modal: 'add-category', editId: null });
               }}
             >
               <Icon.Add /> Add category
             </button>
           )}
           {bgView.kind !== 'list' && (
-            <button className="btn" onClick={() => setShowBgUpload(true)}>
+            <button
+              className="btn"
+              onClick={() => setModalParams({ modal: 'upload-background', editId: null })}
+            >
               <Icon.Add /> Add background
             </button>
           )}
@@ -409,10 +536,7 @@ export function BackgroundsTab() {
                 key={cat.id}
                 className="card"
                 style={{ padding: 14, cursor: 'pointer', opacity: cat.isActive ? 1 : 0.55 }}
-                onClick={() => {
-                  setBgView({ kind: 'category', cat });
-                  setSelectedBgIds([]);
-                }}
+                onClick={() => openCategory(cat)}
               >
                 {cat.thumbnailUrl ? (
                   // biome-ignore lint/performance/noImgElement: admin panel
@@ -491,13 +615,18 @@ export function BackgroundsTab() {
                     className="btn sm ghost"
                     style={{ marginLeft: 'auto' }}
                     onClick={() => {
-                      setEditingCategory(cat);
                       setEditCatLabel(cat.label);
+                      setModalParams({ modal: 'edit-category', editId: String(cat.id) });
                     }}
                   >
                     <Icon.Edit />
                   </button>
-                  <button className="btn sm ghost" onClick={() => setConfirmDeleteCategory(cat)}>
+                  <button
+                    className="btn sm ghost"
+                    onClick={() =>
+                      setConfirmParams({ confirm: 'delete-category', confirmId: String(cat.id) })
+                    }
+                  >
                     <Icon.Trash />
                   </button>
                 </div>
@@ -508,10 +637,7 @@ export function BackgroundsTab() {
           <div
             className="card"
             style={{ padding: 14, cursor: 'pointer' }}
-            onClick={() => {
-              setBgView({ kind: 'uncategorized' });
-              setSelectedBgIds([]);
-            }}
+            onClick={openUncategorized}
           >
             <div
               style={{
@@ -564,9 +690,8 @@ export function BackgroundsTab() {
             <button
               className="btn sm ghost"
               onClick={() => {
-                setBgView({ kind: 'list' });
-                setSelectedBgIds([]);
                 setBackgrounds([]);
+                closeView();
               }}
               style={{ display: 'flex', alignItems: 'center', gap: 4 }}
             >
@@ -596,7 +721,7 @@ export function BackgroundsTab() {
                   className="btn sm"
                   onClick={() => {
                     setBulkCategoryId(null);
-                    setShowBulkCategory(true);
+                    setModalParams({ modal: 'bulk-category', editId: null });
                   }}
                 >
                   Change category ({selectedBgIds.length})
@@ -605,14 +730,17 @@ export function BackgroundsTab() {
                   className="btn sm"
                   onClick={() => {
                     setBulkGenderSlug('');
-                    setShowBulkGender(true);
+                    setModalParams({ modal: 'bulk-gender', editId: null });
                   }}
                 >
                   Change gender ({selectedBgIds.length})
                 </button>
                 <button
                   className="btn sm danger"
-                  onClick={() => setConfirmBulkDeleteBgIds([...selectedBgIds])}
+                  onClick={() => {
+                    setConfirmBulkDeleteBgIds([...selectedBgIds]);
+                    setConfirmParams({ confirm: 'bulk-delete-backgrounds', confirmId: null });
+                  }}
                 >
                   <Icon.Trash /> Move to recycle bin ({selectedBgIds.length})
                 </button>
@@ -717,14 +845,16 @@ export function BackgroundsTab() {
                       <button
                         className="btn sm ghost"
                         style={{ marginLeft: 'auto', padding: '2px 4px' }}
-                        onClick={() => setEditingBackground(bg)}
+                        onClick={() => setModalParams({ modal: 'edit-background', editId: bg.id })}
                       >
                         <Icon.Edit />
                       </button>
                       <button
                         className="btn sm ghost"
                         style={{ padding: '2px 4px' }}
-                        onClick={() => setConfirmDeleteBg(bg)}
+                        onClick={() =>
+                          setConfirmParams({ confirm: 'delete-background', confirmId: bg.id })
+                        }
                       >
                         <Icon.Trash />
                       </button>
@@ -740,7 +870,7 @@ export function BackgroundsTab() {
       {/* ── Modals ── */}
 
       {confirmDeleteBg && (
-        <div className="modal-overlay" onClick={() => setConfirmDeleteBg(null)}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Move to recycle bin</h3>
@@ -752,14 +882,14 @@ export function BackgroundsTab() {
               </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDeleteBg(null)}>
+              <button className="btn ghost" onClick={closeConfirm}>
                 Cancel
               </button>
               <button
                 className="btn danger"
                 onClick={async () => {
                   const { id, label } = confirmDeleteBg;
-                  setConfirmDeleteBg(null);
+                  closeConfirm();
                   if (id.startsWith('bg_demo_')) {
                     setBackgrounds((prev) => prev.filter((b) => b.id !== id));
                     setAllBackgrounds((prev) => prev.filter((b) => b.id !== id));
@@ -787,10 +917,11 @@ export function BackgroundsTab() {
         </div>
       )}
 
-      {confirmBulkDeleteBgIds.length > 0 && (
+      {confirmParam === 'bulk-delete-backgrounds' && (
         <div
           className="modal-overlay"
           onClick={() => {
+            closeConfirm();
             setConfirmBulkDeleteBgIds([]);
             setDeleteBgConfirmText('');
           }}
@@ -832,6 +963,7 @@ export function BackgroundsTab() {
               <button
                 className="btn ghost"
                 onClick={() => {
+                  closeConfirm();
                   setConfirmBulkDeleteBgIds([]);
                   setDeleteBgConfirmText('');
                 }}
@@ -851,10 +983,7 @@ export function BackgroundsTab() {
       )}
 
       {showBulkCategory && (
-        <div
-          className="modal-overlay"
-          onClick={bulkCategorySaving ? undefined : () => setShowBulkCategory(false)}
-        >
+        <div className="modal-overlay" onClick={bulkCategorySaving ? undefined : closeModal}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -867,7 +996,7 @@ export function BackgroundsTab() {
               </h3>
               <button
                 className="btn sm ghost"
-                onClick={() => setShowBulkCategory(false)}
+                onClick={closeModal}
                 disabled={bulkCategorySaving}
                 style={{ marginLeft: 'auto' }}
               >
@@ -888,11 +1017,7 @@ export function BackgroundsTab() {
               </div>
             </div>
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => setShowBulkCategory(false)}
-                disabled={bulkCategorySaving}
-              >
+              <button className="btn ghost" onClick={closeModal} disabled={bulkCategorySaving}>
                 Cancel
               </button>
               <button
@@ -908,10 +1033,7 @@ export function BackgroundsTab() {
       )}
 
       {showBulkGender && (
-        <div
-          className="modal-overlay"
-          onClick={bulkGenderSaving ? undefined : () => setShowBulkGender(false)}
-        >
+        <div className="modal-overlay" onClick={bulkGenderSaving ? undefined : closeModal}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -924,7 +1046,7 @@ export function BackgroundsTab() {
               </h3>
               <button
                 className="btn sm ghost"
-                onClick={() => setShowBulkGender(false)}
+                onClick={closeModal}
                 disabled={bulkGenderSaving}
                 style={{ marginLeft: 'auto' }}
               >
@@ -949,11 +1071,7 @@ export function BackgroundsTab() {
               </div>
             </div>
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => setShowBulkGender(false)}
-                disabled={bulkGenderSaving}
-              >
+              <button className="btn ghost" onClick={closeModal} disabled={bulkGenderSaving}>
                 Cancel
               </button>
               <button className="btn primary" onClick={applyBulkGender} disabled={bulkGenderSaving}>
@@ -965,7 +1083,7 @@ export function BackgroundsTab() {
       )}
 
       {confirmDeleteCategory && (
-        <div className="modal-overlay" onClick={() => setConfirmDeleteCategory(null)}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Delete category</h3>
@@ -977,14 +1095,14 @@ export function BackgroundsTab() {
               </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDeleteCategory(null)}>
+              <button className="btn ghost" onClick={closeConfirm}>
                 Cancel
               </button>
               <button
                 className="btn danger"
                 onClick={async () => {
                   const cat = confirmDeleteCategory;
-                  setConfirmDeleteCategory(null);
+                  closeConfirm();
                   try {
                     await apiFetch(`/admin/catalog/categories/${cat.id}`, { method: 'DELETE' });
                     setCategories((prev) => prev.filter((c) => c.id !== cat.id));
@@ -1013,7 +1131,7 @@ export function BackgroundsTab() {
             setBackgrounds((prev) => [...prev, ...rows]);
             setAllBackgrounds((prev) => [...prev, ...rows]);
           }}
-          onClose={() => setShowBgUpload(false)}
+          onClose={closeModal}
           toast={toast}
         />
       )}
@@ -1034,9 +1152,9 @@ export function BackgroundsTab() {
                 }),
             );
             setAllBackgrounds((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
-            setEditingBackground(null);
+            closeModal();
           }}
-          onClose={() => setEditingBackground(null)}
+          onClose={closeModal}
           toast={toast}
         />
       )}
@@ -1045,8 +1163,8 @@ export function BackgroundsTab() {
       {showAddCategory && (
         <EditDrawer
           onClose={() => {
-            setShowAddCategory(false);
             setCatImageFile(null);
+            closeModal();
           }}
           title="Add background category"
           width="min(420px, calc(100vw - 40px))"
@@ -1087,7 +1205,7 @@ export function BackgroundsTab() {
                 }),
               });
               setCategories((prev) => [...prev, cat]);
-              setShowAddCategory(false);
+              closeModal();
               setCatImageFile(null);
               toast({ title: `Category "${cat.label}" created` });
             } catch (e) {
@@ -1214,8 +1332,8 @@ export function BackgroundsTab() {
       {editingCategory && (
         <EditDrawer
           onClose={() => {
-            setEditingCategory(null);
             setEditCatImageFile(null);
+            closeModal();
           }}
           title="Edit category"
           width="min(380px, calc(100vw - 40px))"
@@ -1264,13 +1382,10 @@ export function BackgroundsTab() {
                     : c,
                 ),
               );
-              if (bgView.kind === 'category' && bgView.cat.id === editingCategory.id) {
-                setBgView({
-                  kind: 'category',
-                  cat: { ...bgView.cat, label: editCatLabel.trim() },
-                });
-              }
-              setEditingCategory(null);
+              // No manual bgView sync needed here — bgView is derived from
+              // `categories` via useMemo, so the setCategories call above
+              // already flows through to the label shown in the header.
+              closeModal();
               setEditCatImageFile(null);
               toast({ title: 'Category updated' });
             } catch (e) {

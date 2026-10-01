@@ -1766,6 +1766,18 @@ p {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  /* No-op on the <a> tags this was originally written for (already
+     transparent/borderless by default) — needed so a <button className="link">
+     doesn't keep the browser's default button chrome (grey background, border,
+     padding). */
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+}
+.link[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .code-block {
   margin: 0;
@@ -2852,4 +2864,15 @@ p {
     margin-top: 8px;
     box-shadow: var(--shadow-sm);
   }
+}
+
+/* Recharts gives its wrapper div tabindex="0" for keyboard a11y, so hovering
+   to trigger a tooltip can leave the browser's default focus ring (blue box)
+   sitting around the whole chart — reading as if the chart were a clickable
+   control, when hovering it only ever shows a tooltip. */
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus,
+.recharts-surface:focus-visible {
+  outline: none;
 }

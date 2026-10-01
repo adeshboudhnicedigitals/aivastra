@@ -9,12 +9,13 @@ import type {
 } from '@aivastra/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, PlusIcon, TrashIcon, UploadIcon } from '@/components/icons';
+import { ArrowLeft, PlusIcon, TrashIcon, UploadIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { DemoVideoSection, GetAppButton } from '@/components/try-on-promo';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { ZoomableImage } from '@/components/ZoomableImage';
 import { api } from '@/lib/api';
 import { BREAKPOINTS } from '@/lib/breakpoints';
 import { DEFAULT_GARMENT_ICON as DefaultGarmentIcon, getGarmentIcon } from '@/lib/garment-icons';
@@ -22,6 +23,222 @@ import { reconcileHeldProducts } from './api';
 import { BulkUploadModal } from './BulkUploadModal';
 import { ProductModal } from './ProductModal';
 import { SubcategoryModal } from './SubcategoryModal';
+
+/** A generate+import job started from ProductModal that's still running — tracked
+ * here (not inside ProductModal) specifically so it survives the merchant closing
+ * that dialog mid-generation; see ProductModal's onGenerationStart/onGenerationEnd.
+ * previewUrl is an object URL onto the flat image being generated from, owned by
+ * this component (not ProductModal's own previewUrl, which it revokes on close) —
+ * used as the blurred background, same idea as catalogs/[id]/page.tsx's ImageCard
+ * blurring garmentUrl behind an in-progress job. */
+interface PendingGeneration {
+  jobId: string;
+  subcategoryId: string;
+  status: string;
+  previewUrl: string;
+}
+
+// Same dispatcher stage transitions every job type goes through
+// (apps/dispatcher/src/job/processor.ts) — mirrors catalogs/[id]/page.tsx's own
+// STAGE_RANGES/useAnimatedProgress/ProgressRing exactly, so a generate job started
+// from this page animates identically to one started from "My Creations".
+const STAGE_RANGES: Record<string, [number, number, number]> = {
+  QUEUED: [0, 5, 0],
+  PREPROCESSING: [5, 25, 30_000],
+  GENERATING: [25, 88, 240_000],
+  UPLOADING: [88, 96, 20_000],
+};
+
+function useAnimatedProgress(status: string): number {
+  const range = STAGE_RANGES[status];
+  const [pct, setPct] = useState(range?.[0] ?? 100);
+
+  useEffect(() => {
+    if (!range || range[2] === 0) {
+      setPct(range?.[0] ?? 100);
+      return;
+    }
+    const [min, max, dur] = range;
+    setPct(min);
+    const start = Date.now();
+    const id = setInterval(() => {
+      const t = Math.min((Date.now() - start) / dur, 1);
+      setPct(min + (max - min) * (1 - (1 - t) ** 2));
+    }, 800);
+    return () => clearInterval(id);
+  }, [range]);
+
+  return Math.round(pct);
+}
+
+function ProgressRing({
+  pct,
+  size = 56,
+  stroke = 4,
+}: {
+  pct: number;
+  size?: number;
+  stroke?: number;
+}) {
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const filled = (pct / 100) * circ;
+  return (
+    <svg
+      width={size}
+      height={size}
+      aria-hidden="true"
+      style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}
+    >
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke="rgba(255,255,255,0.15)"
+        strokeWidth={stroke}
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke="#F55C7A"
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        strokeDasharray={`${filled} ${circ - filled}`}
+      />
+    </svg>
+  );
+}
+
+function generationStageLabel(status: string): string {
+  if (status === 'PREPROCESSING') return 'Preparing…';
+  if (status === 'UPLOADING') return 'Saving…';
+  if (status === 'GENERATING') return 'Generating…';
+  return 'Queued…';
+}
+
+/** One "processing" tile in the product grid — useAnimatedProgress is a hook, so
+ * this has to be its own component rather than inlined in a .map() callback. */
+function GenerationTile({ gen }: { gen: PendingGeneration }) {
+  const pct = useAnimatedProgress(gen.status);
+  const isQueued = gen.status === 'QUEUED' || !STAGE_RANGES[gen.status];
+
+  return (
+    <div
+      className="prod-card"
+      style={{
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        border: `1px solid ${C.border}`,
+        borderRadius: 14,
+        overflow: 'hidden',
+        background: C.card,
+      }}
+    >
+      <div
+        style={{
+          aspectRatio: '3/4',
+          background: '#141414',
+          position: 'relative',
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {/* biome-ignore lint/performance/noImgElement: local object URL, Next/Image incompatible */}
+        <img
+          src={gen.previewUrl}
+          alt=""
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: 'center top',
+            filter: 'blur(2px) brightness(0.35)',
+            transform: 'scale(1.05)',
+          }}
+        />
+        <div
+          style={{
+            position: 'relative',
+            zIndex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 10,
+            padding: '0 16px',
+            textAlign: 'center',
+          }}
+        >
+          {isQueued ? (
+            <>
+              <span
+                style={{ fontSize: 15, fontWeight: 700, color: '#fff', letterSpacing: '-0.01em' }}
+              >
+                Queued
+              </span>
+              <div
+                style={{
+                  width: 120,
+                  height: 3,
+                  borderRadius: 2,
+                  background: 'rgba(255,255,255,0.1)',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    height: '100%',
+                    width: '40%',
+                    borderRadius: 2,
+                    background: 'linear-gradient(90deg,#F55C7A,#F6B553)',
+                    animation: 'tryonCardShimmer 1.8s ease-in-out infinite',
+                  }}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ position: 'relative', width: 56, height: 56 }}>
+                <ProgressRing pct={pct} />
+                <span
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: '#fff',
+                  }}
+                >
+                  {pct}%
+                </span>
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
+                {generationStageLabel(gen.status)}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+      <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: C.mid }}>Processing</div>
+        <div style={{ fontSize: 12, color: C.mid }}>
+          This will appear here once it&apos;s ready.
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: 'men', label: 'Men' },
@@ -52,6 +269,31 @@ export function CatalogueManagerContent() {
 
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
   const [reconcileFailedCount, setReconcileFailedCount] = useState(0);
+
+  // Jobs started from ProductModal's "Generate Catalogue Image" that are still
+  // running when the merchant closes it — rendered as a "processing" tile in
+  // the product grid below until ProductModal's onGenerationEnd reports in.
+  const [pendingGenerations, setPendingGenerations] = useState<PendingGeneration[]>([]);
+
+  // Full-size click-to-preview overlay for a product tile's image.
+  const [zoomUrl, setZoomUrl] = useState<string | undefined>(undefined);
+  const [zoomVisible, setZoomVisible] = useState(false);
+  useEffect(() => {
+    if (!zoomUrl) {
+      setZoomVisible(false);
+      return;
+    }
+    const raf = requestAnimationFrame(() => setZoomVisible(true));
+    return () => cancelAnimationFrame(raf);
+  }, [zoomUrl]);
+  useEffect(() => {
+    if (!zoomUrl) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setZoomUrl(undefined);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zoomUrl]);
 
   const subcategoriesQuery = useQuery({
     queryKey: ['merchant-catalog-subcategories'],
@@ -175,6 +417,37 @@ export function CatalogueManagerContent() {
     invalidateSubcategories();
     setProdModalOpen(false);
     setEditingProd(undefined);
+  };
+
+  const handleGenerationStart = (jobId: string, subcategoryId: string, sourceFile: File) => {
+    setPendingGenerations((prev) => [
+      ...prev,
+      { jobId, subcategoryId, status: 'QUEUED', previewUrl: URL.createObjectURL(sourceFile) },
+    ]);
+  };
+
+  const handleGenerationStatus = (jobId: string, _subcategoryId: string, status: string) => {
+    setPendingGenerations((prev) => prev.map((g) => (g.jobId === jobId ? { ...g, status } : g)));
+  };
+
+  // Fires whether or not ProductModal is still open for this job — that's the
+  // whole point (see its own onGenerationEnd doc comment). Invalidates by the
+  // job's own subcategoryId, not selectedSubcategoryId, since the merchant may
+  // have navigated to a different category while this ran in the background.
+  const handleGenerationEnd = (
+    jobId: string,
+    subcategoryId: string,
+    result: 'success' | 'error',
+  ) => {
+    setPendingGenerations((prev) => {
+      const gen = prev.find((g) => g.jobId === jobId);
+      if (gen) URL.revokeObjectURL(gen.previewUrl);
+      return prev.filter((g) => g.jobId !== jobId);
+    });
+    if (result === 'success') {
+      qc.invalidateQueries({ queryKey: ['merchant-catalog-products', subcategoryId] });
+      invalidateSubcategories(); // productCount changed
+    }
   };
 
   const handleBulkSaved = () => {
@@ -501,7 +774,9 @@ export function CatalogueManagerContent() {
       );
     }
 
-    if (products.length === 0) {
+    const subcategoryPending = pendingGenerations.filter((g) => g.subcategoryId === selectedSub.id);
+
+    if (products.length === 0 && subcategoryPending.length === 0) {
       return (
         <div
           className="tryon-hpad tryon-empty-pad"
@@ -545,6 +820,9 @@ export function CatalogueManagerContent() {
           padding: '24px 28px 40px',
         }}
       >
+        {subcategoryPending.map((gen) => (
+          <GenerationTile key={gen.jobId} gen={gen} />
+        ))}
         {products.map((product) => (
           <div
             key={product.id}
@@ -632,6 +910,10 @@ export function CatalogueManagerContent() {
 
             {/* Image Area */}
             <div
+              onClick={() => {
+                const url = product.imageUrl ?? product.thumbnailUrl;
+                if (url) setZoomUrl(url);
+              }}
               style={{
                 aspectRatio: '3/4',
                 background: C.lighter,
@@ -640,6 +922,7 @@ export function CatalogueManagerContent() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                cursor: product.imageUrl || product.thumbnailUrl ? 'zoom-in' : 'default',
               }}
             >
               <div className="prod-card-img" style={{ width: '100%', height: '100%' }}>
@@ -751,6 +1034,10 @@ export function CatalogueManagerContent() {
       <style
         dangerouslySetInnerHTML={{
           __html: `
+            @keyframes tryonCardShimmer {
+              0%   { transform: translateX(-150%); }
+              100% { transform: translateX(400%); }
+            }
             .tryon-cat-tabs::-webkit-scrollbar {
               display: none;
             }
@@ -1027,8 +1314,10 @@ export function CatalogueManagerContent() {
         subcategoryId={selectedSubcategoryId}
         supportsTwoInputMannequin={selectedSub?.supportsTwoInputMannequin ?? false}
         supportsTwoInputDirectTryon={selectedSub?.supportsTwoInputDirectTryon ?? false}
-        requiresMannequinStep={selectedSub?.requiresMannequinStep ?? false}
         initialData={editingProd}
+        onGenerationStart={handleGenerationStart}
+        onGenerationStatus={handleGenerationStatus}
+        onGenerationEnd={handleGenerationEnd}
       />
 
       <BulkUploadModal
@@ -1036,7 +1325,6 @@ export function CatalogueManagerContent() {
         onClose={() => setBulkModalOpen(false)}
         onSaved={handleBulkSaved}
         subcategoryId={selectedSubcategoryId}
-        requiresMannequinStep={selectedSub?.requiresMannequinStep ?? false}
       />
 
       <ConfirmDialog
@@ -1058,6 +1346,55 @@ export function CatalogueManagerContent() {
         onConfirm={handleDeleteProduct}
         onCancel={() => setDeleteProd(undefined)}
       />
+
+      {zoomUrl && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image preview"
+          onClick={() => setZoomUrl(undefined)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setZoomUrl(undefined);
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.85)',
+            zIndex: 1200,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 40,
+          }}
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setZoomUrl(undefined);
+            }}
+            aria-label="Close preview"
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              border: 'none',
+              background: 'rgba(255,255,255,0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: C.onDark,
+              cursor: 'pointer',
+            }}
+          >
+            <XIcon size={18} />
+          </button>
+          <ZoomableImage src={zoomUrl} visible={zoomVisible} variant="scale" />
+        </div>
+      )}
     </div>
   );
 }

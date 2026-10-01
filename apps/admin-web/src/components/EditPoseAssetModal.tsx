@@ -1,11 +1,12 @@
-import { useRef, useState } from 'react';
-import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import { useEffect, useRef, useState } from 'react';
+import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../types';
+import type { GenderSlug, ModelPoseAsset, PoseGarmentTypeConfig, WorkflowOption } from '../types';
 import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 import { PublicApiSlugField } from './PublicApiSlugField';
 import { SearchableSelect } from './SearchableSelect';
+import { Switch } from './Switch';
 
 async function putFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -166,6 +167,142 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
+function GarmentTypesSection({
+  poseAssetId,
+  toast,
+}: {
+  poseAssetId: string;
+  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+}) {
+  const [items, setItems] = useState<PoseGarmentTypeConfig[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    apiFetch<{ items: PoseGarmentTypeConfig[] }>(
+      `/admin/assets/pose-assets/${poseAssetId}/garment-configs`,
+    )
+      .then((res) => {
+        if (!cancelled) setItems(res.items);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          toast({
+            kind: 'error',
+            title: 'Failed to load garment types',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [poseAssetId, toast]);
+
+  const toggle = async (garmentTypeId: string, next: boolean) => {
+    const item = items.find((g) => g.id === garmentTypeId);
+    if (!item) return;
+    setSavingId(garmentTypeId);
+    setItems((prev) => prev.map((g) => (g.id === garmentTypeId ? { ...g, isActive: next } : g)));
+    try {
+      // Preserve any existing workflow/prompt override for this pose+garment-type
+      // pair — this toggle only changes visibility, same as the Garment Types
+      // tab's "Setup Poses" panel Switch (togglePoseActive in GarmentTypesTab.tsx).
+      await apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseAssetId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          workflowTemplateId: item.config?.workflowTemplateId ?? null,
+          promptGarmentPhase: item.config?.promptGarmentPhase ?? null,
+          promptFacePhase: item.config?.promptFacePhase ?? null,
+          isActive: next,
+        }),
+      });
+      setItems((prev) =>
+        prev.map((g) =>
+          g.id === garmentTypeId
+            ? {
+                ...g,
+                config: {
+                  ...(g.config ?? {
+                    workflowTemplateId: null,
+                    promptGarmentPhase: null,
+                    promptFacePhase: null,
+                  }),
+                  isActive: next,
+                },
+              }
+            : g,
+        ),
+      );
+    } catch (e) {
+      setItems((prev) =>
+        prev.map((g) => (g.id === garmentTypeId ? { ...g, isActive: item.isActive } : g)),
+      );
+      toast({
+        kind: 'error',
+        title: 'Failed to update garment type',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <div className="field">
+      <label>Garment types</label>
+      <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12, display: 'block' }}>
+        This pose shows for every garment type of its gender by default. Turn a type off here to
+        hide this pose from it — the workflow/prompt override for that type (if any) is kept.
+      </span>
+      {loading ? (
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Loading…</p>
+      ) : items.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+          No garment types for this gender yet.
+        </p>
+      ) : (
+        <div
+          style={{
+            marginTop: 8,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            maxHeight: 220,
+            overflowY: 'auto',
+          }}
+        >
+          {items.map((g) => (
+            <div
+              key={g.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '4px 8px',
+                borderRadius: 6,
+                background: 'var(--surface-2)',
+              }}
+            >
+              <span style={{ fontSize: 12 }}>{g.label}</span>
+              <Switch
+                checked={g.isActive}
+                disabled={savingId === g.id}
+                onChange={(checked) => void toggle(g.id, checked)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }: Props) {
   const [label] = useState(asset.label);
   const [displayName, setDisplayName] = useState(asset.displayName ?? '');
@@ -173,6 +310,9 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
     (asset.genderSlug ?? 'men') as GenderSlug,
   );
   const [workflowTemplateId, setWorkflowTemplateId] = useState(asset.workflowTemplateId ?? '');
+  // A pinned override already exists iff promptGarmentPhase is non-null on the asset
+  // itself — mirrors GarmentTypesTab.tsx's PoseConfigsPanel edit-override modal.
+  const [promptOverrideEnabled, setPromptOverrideEnabled] = useState(!!asset.promptGarmentPhase);
   const [prompt, setPrompt] = useState(
     asset.promptGarmentPhase ??
       workflows.find((w) => w.id === asset.workflowTemplateId)?.defaultGarmentPhasePrompt ??
@@ -190,7 +330,10 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
         displayName: displayName.trim() || null,
         genderSlug,
         workflowTemplateId: workflowTemplateId || null,
-        promptGarmentPhase: prompt.trim() || null,
+        // Toggle off means "inherit" — send null regardless of what's in the
+        // (read-only preview) textarea so this pose keeps following the assigned
+        // workflow's live prompt instead of freezing today's snapshot of it.
+        promptGarmentPhase: promptOverrideEnabled ? prompt.trim() || null : null,
         sortOrder,
         publicApiSlug,
       };
@@ -327,9 +470,13 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
             placeholder="— search workflow —"
             onChange={(newId) => {
               setWorkflowTemplateId(newId);
-              // Always follow the newly selected workflow's default prompt — admin can
-              // still hand-edit the textarea below before saving if they want an override.
-              setPrompt(workflows.find((w) => w.id === newId)?.defaultGarmentPhasePrompt ?? '');
+              // Only follow the newly selected workflow's default prompt while the
+              // override toggle is off (the textarea is just a live preview then).
+              // When the toggle is on, leave the admin's own pinned text alone --
+              // switching workflows shouldn't silently discard it.
+              if (!promptOverrideEnabled) {
+                setPrompt(workflows.find((w) => w.id === newId)?.defaultGarmentPhasePrompt ?? '');
+              }
             }}
           />
         </div>
@@ -345,16 +492,44 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
         />
 
         <div className="field">
-          <label>Positive prompt</label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <label style={{ margin: 0 }}>Positive prompt</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Custom prompt</span>
+              <Switch
+                checked={promptOverrideEnabled}
+                disabled={saving}
+                onChange={(checked) => {
+                  setPromptOverrideEnabled(checked);
+                  if (!checked) {
+                    // Snap the preview back to the assigned workflow's live default --
+                    // the admin may have edited the textarea before turning this off.
+                    setPrompt(
+                      workflows.find((w) => w.id === workflowTemplateId)
+                        ?.defaultGarmentPhasePrompt ?? '',
+                    );
+                  }
+                }}
+              />
+            </div>
+          </div>
           <textarea
             className="input"
             value={prompt}
-            disabled={saving}
+            disabled={!promptOverrideEnabled || saving}
             rows={4}
+            placeholder="Inherited from workflow"
             onChange={(e) => setPrompt(e.target.value)}
             style={{ fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
           />
+          <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+            {promptOverrideEnabled
+              ? "Pinned — overrides the workflow's default. Cleared automatically (and replaced with the new text) if the workflow's own prompt is edited."
+              : "Read-only preview of the assigned workflow's live default prompt."}
+          </span>
         </div>
+
+        <GarmentTypesSection poseAssetId={asset.id} toast={toast} />
       </div>
     </EditDrawer>
   );

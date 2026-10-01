@@ -20,13 +20,18 @@ describe('grant merchant access to an existing user', () => {
     await ctx.stop();
   });
 
-  it('grants merchant access via userId to a username-only account with no email', async () => {
+  it('grants merchant access via userId to an existing account', async () => {
     const username = `granttarget${Date.now()}`;
     const createRes = await app.inject({
       method: 'POST',
       url: '/admin/users',
       headers: authHeader,
-      payload: { username, password: 'password123', displayName: 'Walk-in Customer' },
+      payload: {
+        username,
+        password: 'password123',
+        displayName: 'Grant Target',
+        email: `${username}@example.com`,
+      },
     });
     expect(createRes.statusCode).toBe(201);
     const { userId } = createRes.json() as { userId: string };
@@ -46,9 +51,6 @@ describe('grant merchant access to an existing user', () => {
       .where(eq(schema.merchants.id, merchantId));
     expect(merchant?.userId).toBe(userId);
     expect(merchant?.companyName).toBe('Walk-in Shop');
-
-    const [user] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
-    expect(user?.email).toBeNull();
   });
 
   it('still supports the email-based find-or-create path (no userId given)', async () => {
@@ -81,7 +83,12 @@ describe('grant merchant access to an existing user', () => {
       method: 'POST',
       url: '/admin/users',
       headers: authHeader,
-      payload: { username, password: 'password123', displayName: 'Already Merchant' },
+      payload: {
+        username,
+        password: 'password123',
+        displayName: 'Already Merchant',
+        email: `${username}@example.com`,
+      },
     });
     const { userId } = createRes.json() as { userId: string };
 

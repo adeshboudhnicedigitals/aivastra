@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { getPixverseVideoPricingConfig } from '../../lib/resolution-config.js';
+import { poseGarmentRoles } from './garment-roles.js';
 
 export async function modelsRoutes(app: FastifyInstance) {
   app.get(
@@ -202,6 +203,13 @@ export async function modelsRoutes(app: FastifyInstance) {
                 )
               : undefined,
           ),
+        )
+        // Admin-curated position (Assets → Backgrounds → Sort order); label/id break
+        // ties so the picker order is stable instead of Postgres heap order.
+        .orderBy(
+          asc(schema.modelBackgrounds.sortOrder),
+          asc(schema.modelBackgrounds.label),
+          asc(schema.modelBackgrounds.id),
         );
 
       return {
@@ -300,9 +308,11 @@ export async function modelsRoutes(app: FastifyInstance) {
           label: schema.modelPoseAssets.label,
           thumbnailUrl: schema.modelPoseAssets.thumbnailKey,
           // Default workflow from pose asset
+          upperNodeIds: schema.workflowTemplates.upperNodeIds,
           lowerNodeId: schema.workflowTemplates.lowerNodeId,
           shoeNodeId: schema.workflowTemplates.shoeNodeId,
           sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+          garmentView: schema.workflowTemplates.garmentView,
         })
         .from(schema.modelPoseAssets)
         .leftJoin(
@@ -326,7 +336,13 @@ export async function modelsRoutes(app: FastifyInstance) {
       // touching its global isActive flag or its visibility under other garment types).
       let configMap = new Map<
         string,
-        { lowerNodeId: string | null; shoeNodeId: string | null; sizeNodeIds: string[] | null }
+        {
+          upperNodeIds: string[] | null;
+          lowerNodeId: string | null;
+          shoeNodeId: string | null;
+          sizeNodeIds: string[] | null;
+          garmentView: string;
+        }
       >();
       let inactiveForType = new Set<string>();
       if (garmentTypeId && items.length > 0) {
@@ -336,9 +352,11 @@ export async function modelsRoutes(app: FastifyInstance) {
             poseAssetId: schema.poseGarmentConfigs.poseAssetId,
             workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
             isActive: schema.poseGarmentConfigs.isActive,
+            upperNodeIds: schema.workflowTemplates.upperNodeIds,
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+            garmentView: schema.workflowTemplates.garmentView,
           })
           .from(schema.poseGarmentConfigs)
           .leftJoin(
@@ -360,9 +378,11 @@ export async function modelsRoutes(app: FastifyInstance) {
             .map((c) => [
               c.poseAssetId,
               {
+                upperNodeIds: c.upperNodeIds ?? null,
                 lowerNodeId: c.lowerNodeId ?? null,
                 shoeNodeId: c.shoeNodeId ?? null,
                 sizeNodeIds: c.sizeNodeIds ?? null,
+                garmentView: c.garmentView ?? 'front',
               },
             ]),
         );
@@ -377,15 +397,17 @@ export async function modelsRoutes(app: FastifyInstance) {
             .filter((i) => !inactiveForType.has(i.id))
             .map(async (i) => {
               const cfg = configMap.get(i.id);
+              const upperNodeIds = cfg !== undefined ? cfg.upperNodeIds : i.upperNodeIds;
               const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : i.lowerNodeId;
               const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : i.shoeNodeId;
               const sizeNodeIds = cfg !== undefined ? cfg.sizeNodeIds : i.sizeNodeIds;
+              const garmentView = cfg !== undefined ? cfg.garmentView : i.garmentView;
               return {
                 id: i.id,
                 label: i.displayName ?? i.label,
                 thumbnailUrl: (await app.storage.presignGet(i.thumbnailUrl, 3600)).url,
-                hasLower: lowerNodeId != null,
-                hasShoes: shoeNodeId != null,
+                ...poseGarmentRoles({ upperNodeIds, lowerNodeId, shoeNodeId }),
+                garmentView: garmentView ?? 'front',
                 hasAspectRatio: (sizeNodeIds?.length ?? 0) > 0,
               };
             }),
@@ -448,6 +470,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           poseLabel: schema.modelPoseAssets.label,
           poseDisplayName: schema.modelPoseAssets.displayName,
           poseThumbnailKey: schema.modelPoseAssets.thumbnailKey,
+          upperNodeIds: schema.workflowTemplates.upperNodeIds,
           lowerNodeId: schema.workflowTemplates.lowerNodeId,
           shoeNodeId: schema.workflowTemplates.shoeNodeId,
           backgroundId: schema.modelBackgrounds.id,
@@ -543,8 +566,7 @@ export async function modelsRoutes(app: FastifyInstance) {
                 backgroundThumbnailUrl: (
                   await app.storage.presignGet(r.backgroundThumbnailKey, 3600)
                 ).url,
-                hasLower: r.lowerNodeId != null,
-                hasShoes: r.shoeNodeId != null,
+                ...poseGarmentRoles(r),
               })),
             );
             return {

@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import {
   BulkDeleteUsersBody,
+  BulkSetOrganizationBody,
   CreateUserBody,
   ResetPasswordBody,
   UpdateUserBody,
@@ -13,6 +14,7 @@ import {
   exists,
   gte,
   ilike,
+  inArray,
   isNotNull,
   isNull,
   lte,
@@ -45,6 +47,15 @@ const PaginatedSearch = z.object({
   createdTo: z.string().optional(),
   tier: z.string().optional(),
   excludeFree: z.coerce.boolean().optional(),
+  // Excludes users holding this admin role from the results — e.g. "any paid
+  // plan" + "exclude Support" surfaces paid clients without internal support
+  // staff whose own account happens to carry a paid tier. A user with no
+  // admin role at all is never excluded by this filter. 'ALL' excludes anyone
+  // holding any admin role, regardless of which.
+  excludeAdminRole: z.enum(['ALL', 'SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'SUPPORT']).optional(),
+  // Excludes users tagged as organization (internal team) members — a plain data
+  // flag, unrelated to admin_users roles, set via POST /admin/users/bulk-set-organization.
+  excludeOrganizationMembers: z.coerce.boolean().optional(),
 });
 
 export async function adminUsersRoutes(app: FastifyInstance) {
@@ -65,6 +76,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         createdTo,
         tier,
         excludeFree,
+        excludeAdminRole,
+        excludeOrganizationMembers,
       } = req.query as z.infer<typeof PaginatedSearch>;
 
       const searchWhere = search
@@ -89,12 +102,21 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
         tier ? eq(schema.users.tier, tier) : undefined,
         excludeFree === true ? ne(schema.users.tier, 'free') : undefined,
+        excludeAdminRole === 'ALL'
+          ? isNull(schema.adminUsers.role)
+          : excludeAdminRole
+            ? or(isNull(schema.adminUsers.role), ne(schema.adminUsers.role, excludeAdminRole))
+            : undefined,
+        excludeOrganizationMembers === true
+          ? eq(schema.users.isOrganizationMember, false)
+          : undefined,
       );
 
       const [{ total }] = await app.db
         .select({ total: count() })
         .from(schema.users)
         .leftJoin(schema.merchants, eq(schema.merchants.userId, schema.users.id))
+        .leftJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
         .where(where);
 
       const rows = await app.db
@@ -108,6 +130,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           maxActiveDevices: schema.users.maxActiveDevices,
           isBanned: schema.users.isBanned,
           banReason: schema.users.banReason,
+          isOrganizationMember: schema.users.isOrganizationMember,
           createdAt: schema.users.createdAt,
           updatedAt: schema.users.updatedAt,
           balance: sql<number>`COALESCE(${schema.userCredits.balance}, 0)`,
@@ -274,6 +297,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           maxActiveDevices: schema.users.maxActiveDevices,
           isBanned: schema.users.isBanned,
           banReason: schema.users.banReason,
+          isOrganizationMember: schema.users.isOrganizationMember,
           createdAt: schema.users.createdAt,
           updatedAt: schema.users.updatedAt,
           isAdmin: isNotNull(schema.adminUsers.id),
@@ -385,9 +409,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
-      const { tier, maxActiveDevices, isBanned, banReason, forceLogout } = req.body as z.infer<
-        typeof UpdateUserBody
-      >;
+      const { tier, maxActiveDevices, isBanned, banReason, forceLogout, isOrganizationMember } =
+        req.body as z.infer<typeof UpdateUserBody>;
 
       if (tier !== undefined) {
         const [plan] = await app.db
@@ -411,6 +434,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       if (maxActiveDevices !== undefined) patch.maxActiveDevices = maxActiveDevices;
       if (isBanned !== undefined) patch.isBanned = isBanned;
       if (banReason !== undefined) patch.banReason = banReason;
+      if (isOrganizationMember !== undefined) patch.isOrganizationMember = isOrganizationMember;
 
       await app.db.transaction(async (tx) => {
         const [existing] = await tx
@@ -660,6 +684,35 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
   );
 
+  // Bulk-tags/untags the organization flag — a plain data label distinct from
+  // admin_users roles: no password required, no admin-panel login granted, just
+  // marks these accounts as internal staff so they can be excluded from
+  // client-facing lists/exports without the friction of a real admin role grant.
+  app.post(
+    '/admin/users/bulk-set-organization',
+    { preHandler: WRITE, schema: { body: BulkSetOrganizationBody } },
+    async (req) => {
+      const { ids, isOrganizationMember } = req.body as z.infer<typeof BulkSetOrganizationBody>;
+
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(schema.users)
+          .set({ isOrganizationMember, updatedAt: new Date() })
+          .where(inArray(schema.users.id, ids));
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: isOrganizationMember ? 'users.mark_organization' : 'users.unmark_organization',
+          resourceType: 'user',
+          after: { ids, isOrganizationMember },
+          request: req,
+        });
+      });
+
+      return { ok: true, count: ids.length };
+    },
+  );
+
   // Admin request management (SUPER_ADMIN only)
   const SUPER = requirePermission('admin_users.manage');
 
@@ -749,23 +802,53 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         body: z.object({
           userId: z.string().uuid(),
           role: z.enum(['ADMIN', 'MODERATOR', 'SUPPORT']).default('ADMIN'),
+          // Sets a login password dedicated to admin.aivastra.com, distinct from the
+          // account's own password. Required when the account has none of its own
+          // (a Google-only signup) — there's nothing to fall back to. Optional
+          // otherwise: leave blank to keep reusing whatever's on record (the
+          // account's password on first grant, or the admin password already set on
+          // a re-grant), or set one to rotate the admin login password on demand —
+          // this is also how an admin panel password gets rotated now, replacing the
+          // old separate "sync admin password" action.
+          password: z.string().min(8).optional(),
         }),
       },
     },
     async (req) => {
-      const { userId, role } = req.body as { userId: string; role: string };
+      const { userId, role, password } = req.body as {
+        userId: string;
+        role: string;
+        password?: string;
+      };
       await app.db.transaction(async (tx) => {
         const [user] = await tx
           .select({ id: schema.users.id, passwordHash: schema.users.passwordHash })
           .from(schema.users)
           .where(eq(schema.users.id, userId));
         if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
+
+        const [existingAdmin] = await tx
+          .select({ passwordHash: schema.adminUsers.passwordHash })
+          .from(schema.adminUsers)
+          .where(eq(schema.adminUsers.userId, userId));
+
+        const passwordHash = password
+          ? await hashPassword(password)
+          : (existingAdmin?.passwordHash ?? user.passwordHash);
+        if (!passwordHash) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'An admin login password is required — this account has no password of its own to use',
+          );
+        }
+
         await tx
           .insert(schema.adminUsers)
-          .values({ userId, role, status: 'active', passwordHash: user.passwordHash })
+          .values({ userId, role, status: 'active', passwordHash })
           .onConflictDoUpdate({
             target: schema.adminUsers.userId,
-            set: { role, status: 'active', passwordHash: user.passwordHash },
+            set: { role, status: 'active', passwordHash },
           });
 
         await recordAudit(tx, {

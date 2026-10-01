@@ -5,6 +5,9 @@ import { DemoSetModal } from '../components/DemoSetModal';
 import type { DemoSubcategoryEditData } from '../components/DemoSubcategoryModal';
 import { DemoSubcategoryModal } from '../components/DemoSubcategoryModal';
 import { Icon } from '../components/Icons';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 interface Props {
@@ -61,25 +64,66 @@ const CATEGORIES: { id: Category; label: string }[] = [
  * bootstrap-create form below only appears the first time, when it doesn't
  * exist yet.
  */
+const CATEGORY_IDS: readonly string[] = CATEGORIES.map((c) => c.id);
+
 export default function DemoCatalogPage({ toast }: Props) {
   const [sets, setSets] = useState<DemoSet[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<Category>('men');
+  const [categoryParam, setCategoryParam] = useUrlState('category');
+  const selectedCategory: Category = CATEGORY_IDS.includes(categoryParam ?? '')
+    ? (categoryParam as Category)
+    : 'men';
   const [subcategories, setSubcategories] = useState<DemoSubcategory[]>([]);
-  const [selectedSubId, setSelectedSubId] = useState<string | null>(null);
+  const [selectedSubId, setSelectedSubId] = useUrlState('sub');
+  const closeSub = useCloseOverlay(['sub']);
   const [items, setItems] = useState<DemoItem[]>([]);
   const [garmentTypes, setGarmentTypes] = useState<GarmentType[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Modals
-  const [setModalOpen, setSetModalOpen] = useState(false);
+  // Modals — one shared enum since setup/add-subcategory/edit-subcategory/
+  // add-item/edit-item are mutually exclusive.
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const setModalOpen = modalParam === 'setup-demo-set';
 
-  const [subModalOpen, setSubModalOpen] = useState(false);
-  const [editingSub, setEditingSub] = useState<DemoSubcategoryEditData | undefined>(undefined);
-  const [deleteSub, setDeleteSubTarget] = useState<DemoSubcategory | undefined>(undefined);
+  const subModalOpen = modalParam === 'add-subcategory' || modalParam === 'edit-subcategory';
+  const editingSubRow =
+    modalParam === 'edit-subcategory' && editId
+      ? (subcategories.find((s) => s.id === editId) ?? null)
+      : null;
+  const editingSub: DemoSubcategoryEditData | undefined = editingSubRow
+    ? {
+        id: editingSubRow.id,
+        name: editingSubRow.name,
+        garmentSubcategoryId: editingSubRow.garmentSubcategoryId,
+      }
+    : undefined;
 
-  const [itemModalOpen, setItemModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<DemoItemEditData | undefined>(undefined);
-  const [deleteItem, setDeleteItemTarget] = useState<DemoItem | undefined>(undefined);
+  const itemModalOpen = modalParam === 'add-item' || modalParam === 'edit-item';
+  const editingItemRow =
+    modalParam === 'edit-item' && editId ? (items.find((i) => i.id === editId) ?? null) : null;
+  const editingItem: DemoItemEditData | undefined = editingItemRow
+    ? {
+        id: editingItemRow.id,
+        label: editingItemRow.label,
+        sku: editingItemRow.sku,
+        actualPrice: editingItemRow.actualPrice,
+        offerPrice: editingItemRow.offerPrice,
+        isActive: editingItemRow.isActive,
+        thumbnailUrl: editingItemRow.thumbnailUrl,
+      }
+    : undefined;
+
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const deleteSub =
+    confirmParam === 'delete-subcategory' && confirmId
+      ? subcategories.find((s) => s.id === confirmId)
+      : undefined;
+  const deleteItem =
+    confirmParam === 'delete-item' && confirmId ? items.find((i) => i.id === confirmId) : undefined;
 
   const [busy, setBusy] = useState(false);
 
@@ -135,7 +179,7 @@ export default function DemoCatalogPage({ toast }: Props) {
       return;
     }
     void loadSubcategories(selectedSetId);
-  }, [selectedSetId, loadSubcategories]);
+  }, [selectedSetId, loadSubcategories, setSelectedSubId]);
 
   const loadItems = useCallback(
     async (subcategoryId: string) => {
@@ -163,6 +207,40 @@ export default function DemoCatalogPage({ toast }: Props) {
   const visibleSubs = subcategories.filter((s) => s.category === selectedCategory);
   const categoryGarmentTypes = garmentTypes.filter((g) => g.genderSlug === selectedCategory);
 
+  useCrumb(
+    0,
+    selectedSub
+      ? { label: selectedSub.name, href: `/demo-catalog?sub=${encodeURIComponent(selectedSub.id)}` }
+      : null,
+  );
+  useCrumb(
+    1,
+    confirmParam
+      ? {
+          label: confirmParam === 'delete-item' ? 'Delete demo product' : 'Delete subcategory',
+          href: `/demo-catalog?confirm=${confirmParam}&confirmId=${encodeURIComponent(confirmId ?? '')}`,
+        }
+      : null,
+  );
+  useCrumb(
+    2,
+    modalParam
+      ? {
+          label:
+            modalParam === 'setup-demo-set'
+              ? 'Set up demo data'
+              : modalParam === 'add-subcategory'
+                ? 'Add subcategory'
+                : modalParam === 'edit-subcategory'
+                  ? 'Edit subcategory'
+                  : modalParam === 'add-item'
+                    ? 'Add product'
+                    : 'Edit product',
+          href: `/demo-catalog?modal=${modalParam}${editId ? `&editId=${encodeURIComponent(editId)}` : ''}`,
+        }
+      : null,
+  );
+
   // --- Bootstrap: create the one universal set ---
   const handleCreateSet = async (name: string, description: string) => {
     setBusy(true);
@@ -172,7 +250,7 @@ export default function DemoCatalogPage({ toast }: Props) {
         body: JSON.stringify({ name, description: description || undefined }),
       });
       await loadSets();
-      setSetModalOpen(false);
+      closeModal();
       toast({ title: 'Demo data set up' });
     } catch (err) {
       notifyError('Could not set up demo data', err);
@@ -183,8 +261,7 @@ export default function DemoCatalogPage({ toast }: Props) {
 
   // --- Subcategory handlers ---
   const openAddSubcategory = () => {
-    setEditingSub(undefined);
-    setSubModalOpen(true);
+    setModalParams({ modal: 'add-subcategory', editId: null });
   };
 
   const handleSaveSubcategory = async (name: string, garmentSubcategoryId: string) => {
@@ -208,8 +285,7 @@ export default function DemoCatalogPage({ toast }: Props) {
         });
       }
       await Promise.all([loadSubcategories(selectedSetId), loadSets()]);
-      setSubModalOpen(false);
-      setEditingSub(undefined);
+      closeModal();
       toast({ title: editingSub ? 'Subcategory updated' : 'Subcategory created' });
     } catch (err) {
       notifyError('Could not save the subcategory', err);
@@ -223,8 +299,8 @@ export default function DemoCatalogPage({ toast }: Props) {
     setBusy(true);
     try {
       await apiFetch(`/admin/demo-catalog/subcategories/${deleteSub.id}`, { method: 'DELETE' });
-      if (selectedSubId === deleteSub.id) setSelectedSubId(null);
-      setDeleteSubTarget(undefined);
+      if (selectedSubId === deleteSub.id) closeSub();
+      closeConfirm();
       await Promise.all([loadSubcategories(selectedSetId), loadSets()]);
       toast({ title: 'Subcategory deleted' });
     } catch (err) {
@@ -236,15 +312,13 @@ export default function DemoCatalogPage({ toast }: Props) {
 
   // --- Item handlers ---
   const openAddItem = () => {
-    setEditingItem(undefined);
-    setItemModalOpen(true);
+    setModalParams({ modal: 'add-item', editId: null });
   };
 
   const handleItemSaved = async () => {
     if (!selectedSubId || !selectedSetId) return;
     await Promise.all([loadItems(selectedSubId), loadSubcategories(selectedSetId), loadSets()]);
-    setItemModalOpen(false);
-    setEditingItem(undefined);
+    closeModal();
     toast({ title: editingItem ? 'Demo product updated' : 'Demo product added' });
   };
 
@@ -253,7 +327,7 @@ export default function DemoCatalogPage({ toast }: Props) {
     setBusy(true);
     try {
       await apiFetch(`/admin/demo-catalog/items/${deleteItem.id}`, { method: 'DELETE' });
-      setDeleteItemTarget(undefined);
+      closeConfirm();
       await Promise.all([loadItems(selectedSubId), loadSubcategories(selectedSetId), loadSets()]);
       toast({ title: 'Demo product deleted' });
     } catch (err) {
@@ -289,13 +363,16 @@ export default function DemoCatalogPage({ toast }: Props) {
           </div>
           <h3 style={{ margin: '0 0 4px' }}>Demo data isn't set up yet</h3>
           <p style={{ margin: '0 0 16px' }}>Create the demo data set to start adding products.</p>
-          <button className="btn primary" onClick={() => setSetModalOpen(true)}>
+          <button
+            className="btn primary"
+            onClick={() => setModalParams({ modal: 'setup-demo-set', editId: null })}
+          >
             <Icon.Add /> Set up demo data
           </button>
         </div>
         <DemoSetModal
           open={setModalOpen}
-          onClose={() => setSetModalOpen(false)}
+          onClose={closeModal}
           onSave={handleCreateSet}
           isSaving={busy}
         />
@@ -312,7 +389,7 @@ export default function DemoCatalogPage({ toast }: Props) {
       <>
         <div className="page-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button className="btn sm ghost" onClick={() => setSelectedSubId(null)}>
+            <button className="btn sm ghost" onClick={closeSub}>
               <Icon.Back />
             </button>
             <div>
@@ -347,18 +424,7 @@ export default function DemoCatalogPage({ toast }: Props) {
                     type="button"
                     className="btn sm ghost"
                     style={{ background: 'var(--surface)' }}
-                    onClick={() => {
-                      setEditingItem({
-                        id: item.id,
-                        label: item.label,
-                        sku: item.sku,
-                        actualPrice: item.actualPrice,
-                        offerPrice: item.offerPrice,
-                        isActive: item.isActive,
-                        thumbnailUrl: item.thumbnailUrl,
-                      });
-                      setItemModalOpen(true);
-                    }}
+                    onClick={() => setModalParams({ modal: 'edit-item', editId: item.id })}
                     title="Edit"
                   >
                     <Icon.Edit />
@@ -367,7 +433,7 @@ export default function DemoCatalogPage({ toast }: Props) {
                     type="button"
                     className="btn sm ghost"
                     style={{ background: 'var(--surface)' }}
-                    onClick={() => setDeleteItemTarget(item)}
+                    onClick={() => setConfirmParams({ confirm: 'delete-item', confirmId: item.id })}
                     title="Delete"
                   >
                     <Icon.Trash />
@@ -416,10 +482,7 @@ export default function DemoCatalogPage({ toast }: Props) {
 
         <DemoItemModal
           open={itemModalOpen}
-          onClose={() => {
-            setItemModalOpen(false);
-            setEditingItem(undefined);
-          }}
+          onClose={closeModal}
           onSaved={handleItemSaved}
           subcategoryId={selectedSubId}
           initialData={editingItem}
@@ -427,7 +490,7 @@ export default function DemoCatalogPage({ toast }: Props) {
         />
 
         {deleteItem && (
-          <div className="modal-overlay" onClick={() => setDeleteItemTarget(undefined)}>
+          <div className="modal-overlay" onClick={closeConfirm}>
             <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h3>Delete demo product</h3>
@@ -438,7 +501,7 @@ export default function DemoCatalogPage({ toast }: Props) {
                 </p>
               </div>
               <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setDeleteItemTarget(undefined)}>
+                <button className="btn ghost" onClick={closeConfirm}>
                   Cancel
                 </button>
                 <button className="btn danger" disabled={busy} onClick={handleDeleteItem}>
@@ -475,7 +538,7 @@ export default function DemoCatalogPage({ toast }: Props) {
           <button
             key={cat.id}
             className={`tab ${selectedCategory === cat.id ? 'active' : ''}`}
-            onClick={() => setSelectedCategory(cat.id)}
+            onClick={() => setCategoryParam(cat.id === 'men' ? null : cat.id)}
           >
             {cat.label}
           </button>
@@ -520,12 +583,7 @@ export default function DemoCatalogPage({ toast }: Props) {
                     style={{ background: 'var(--surface)' }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setEditingSub({
-                        id: sub.id,
-                        name: sub.name,
-                        garmentSubcategoryId: sub.garmentSubcategoryId,
-                      });
-                      setSubModalOpen(true);
+                      setModalParams({ modal: 'edit-subcategory', editId: sub.id });
                     }}
                     title="Edit"
                   >
@@ -537,7 +595,7 @@ export default function DemoCatalogPage({ toast }: Props) {
                     style={{ background: 'var(--surface)' }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setDeleteSubTarget(sub);
+                      setConfirmParams({ confirm: 'delete-subcategory', confirmId: sub.id });
                     }}
                     title="Delete"
                   >
@@ -563,10 +621,7 @@ export default function DemoCatalogPage({ toast }: Props) {
 
       <DemoSubcategoryModal
         open={subModalOpen}
-        onClose={() => {
-          setSubModalOpen(false);
-          setEditingSub(undefined);
-        }}
+        onClose={closeModal}
         onSave={handleSaveSubcategory}
         initialData={editingSub}
         category={selectedCategory}
@@ -575,7 +630,7 @@ export default function DemoCatalogPage({ toast }: Props) {
       />
 
       {deleteSub && (
-        <div className="modal-overlay" onClick={() => setDeleteSubTarget(undefined)}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Delete subcategory</h3>
@@ -587,7 +642,7 @@ export default function DemoCatalogPage({ toast }: Props) {
               </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setDeleteSubTarget(undefined)}>
+              <button className="btn ghost" onClick={closeConfirm}>
                 Cancel
               </button>
               <button className="btn danger" disabled={busy} onClick={handleDeleteSub}>

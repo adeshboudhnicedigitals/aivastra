@@ -749,3 +749,180 @@ describe('syncOneTask — product mode', () => {
     }
   });
 });
+
+describe('syncOneTask — collection mode, refreshProducts', () => {
+  it('resyncs every current member so its collections field reflects the change, not just the membership cache', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { query: string; variables?: { id?: string } };
+      if (body.query.includes('CollectionMembers')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              collection: {
+                title: 'Sarees',
+                products: {
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                  nodes: [{ id: 'gid://shopify/Product/801' }, { id: 'gid://shopify/Product/802' }],
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      // OneProduct — id encodes which of the two members this call is for.
+      const productId = body.variables?.id?.endsWith('801') ? 801 : 802;
+      return new Response(
+        JSON.stringify({
+          data: {
+            product: {
+              id: `gid://shopify/Product/${productId}`,
+              title: `Product ${productId}`,
+              productType: null,
+              tags: null,
+              vendor: null,
+              featuredImage: null,
+              collections: { nodes: [{ title: 'Sarees' }] },
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await syncOneTask(app, {
+        storeId,
+        mode: 'collection',
+        shopifyCollectionId: 950,
+        refreshProducts: true,
+      });
+
+      const memberRows = await app.db
+        .select()
+        .from(schema.shopifyCollectionProducts)
+        .where(
+          and(
+            eq(schema.shopifyCollectionProducts.storeId, storeId),
+            eq(schema.shopifyCollectionProducts.shopifyCollectionId, 950),
+          ),
+        );
+      expect(memberRows).toHaveLength(2);
+
+      for (const productId of [801, 802]) {
+        const [row] = await app.db
+          .select()
+          .from(schema.shopifyProductGarments)
+          .where(
+            and(
+              eq(schema.shopifyProductGarments.storeId, storeId),
+              eq(schema.shopifyProductGarments.shopifyProductId, productId),
+            ),
+          );
+        expect(row.title).toBe(`Product ${productId}`);
+        expect(row.collections).toEqual(['Sarees']);
+      }
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('also refreshes a product that just left the collection, and skips one that stayed', async () => {
+    const originalFetch = global.fetch;
+    const oneProductCalls: number[] = [];
+
+    function collectionMembersResponse(nodeIds: number[]) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            collection: {
+              title: 'Winter',
+              products: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: nodeIds.map((id) => ({ id: `gid://shopify/Product/${id}` })),
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    function oneProductResponse(productId: number, collections: string[]) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            product: {
+              id: `gid://shopify/Product/${productId}`,
+              title: `Product ${productId}`,
+              productType: null,
+              tags: null,
+              vendor: null,
+              featuredImage: null,
+              collections: { nodes: collections.map((title) => ({ title })) },
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    try {
+      // Establish previous membership: 811 and 812 both in the collection.
+      global.fetch = (async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as { query: string };
+        if (body.query.includes('CollectionMembers')) return collectionMembersResponse([811, 812]);
+        throw new Error('unexpected OneProduct call during setup');
+      }) as typeof fetch;
+      await syncOneTask(app, { storeId, mode: 'collection', shopifyCollectionId: 960 });
+
+      // Now the live collection only has 812 and 813: 811 left, 813 joined, 812
+      // is unchanged. Refresh products for this second sync.
+      global.fetch = (async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as {
+          query: string;
+          variables?: { id?: string };
+        };
+        if (body.query.includes('CollectionMembers')) return collectionMembersResponse([812, 813]);
+        const productId = Number(body.variables?.id?.split('/').pop());
+        oneProductCalls.push(productId);
+        if (productId === 811) return oneProductResponse(811, []); // left the collection
+        if (productId === 813) return oneProductResponse(813, ['Winter']); // just joined
+        throw new Error(`unexpected OneProduct call for product ${productId}`);
+      }) as typeof fetch;
+      await syncOneTask(app, {
+        storeId,
+        mode: 'collection',
+        shopifyCollectionId: 960,
+        refreshProducts: true,
+      });
+
+      expect(oneProductCalls.sort()).toEqual([811, 813]); // 812 (unchanged) never fetched
+
+      const [removed] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 811),
+          ),
+        );
+      expect(removed.collections).toEqual([]);
+
+      const [joined] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 813),
+          ),
+        );
+      expect(joined.collections).toEqual(['Winter']);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});

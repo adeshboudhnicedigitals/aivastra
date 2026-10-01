@@ -2,6 +2,387 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-09-30 — Queue-aware worker routing (Projects A, B, C-observability)
+
+Spec: `docs/superpowers/specs/2026-09-30-queue-aware-worker-routing-design.md` (not committed to the repo — pasted into the session). PRs #436 → #437 → #438, stacked, merged into `dev` in that order.
+
+- **Problem:** the dispatcher decides a GPU worker is free from its own Redis bookkeeping, so it can send a production job to a worker where a developer is running a workflow straight in ComfyUI. The job queues behind it, can hit the timeout, and burns one of `MAX_ATTEMPTS = 2`.
+- **Done:**
+  1. **A (#436):** `runMannequinPhase` returns `{status:'no_worker'}` instead of throwing `MANNEQUIN_NO_WORKER`; `processJob` requeues or terminates with `NO_WORKER` (past `MAX_QUEUE_WAIT_MS`) without consuming `attempts`. The phase also skips the GPU run when `outputs/{jobId}/mannequin-intermediate.png` already exists.
+  2. **B (#437):** `selectWorker` live-probes ComfyUI `GET /prompt` after the atomic claim for workers with the queue gate on; keeps the worker only when `exec_info.queue_remaining === 0`, fail-closed, max 4 probes, rejected workers released via an atomic `BUSY→IDLE` Lua script and excluded for the rest of the selection. Flag is `worker:routing-config:{id}` (missing = off), toggled by `PUT /admin/workers/:id/queue-gate` (audited) and the Workers page menu.
+  3. **C, observability slice (#438):** health monitor writes a display-only `worker:queue:{id}` snapshot (60s TTL) from `/queue`; the admin workers list returns `queue` + `routing` (`ok|ungated|externally_busy|unavailable`); metrics `comfy_worker_queue_remaining`, `comfy_worker_external_busy`, `comfy_worker_queue_probes_total`, `comfy_worker_queue_probe_duration_seconds`, `dispatcher_no_worker_requeues_total`, `dispatcher_worker_external_busy_rejections_total`, `dispatcher_worker_release_failures_total`.
+- **State outside the repo / rollout (NOT done — every gate ships OFF):**
+  - Before enabling a worker: with **its own** key, `GET /system_stats`, `/prompt`, `/queue` must all return 200 with the expected shapes (verified only on w7, idle, on 2026-09-30). Fail-closed gating makes any worker whose proxy differs permanently unclaimable.
+  - Browser-visibility test not run: start a workflow in a worker's ComfyUI UI, confirm `queue_remaining > 0`, confirm production jobs skip it.
+  - The w7 API key was pasted into a session transcript during testing — rotate it.
+  - The flag lives only in Redis: if prod Redis does not persist across restarts, gating silently turns off. Verify prod Redis persistence.
+- **Failed / Not done:** queue-wait and probe-failure alerts (thresholds TBD by Ops/Product; the latter needs the worker-incident-alerting incident model); `dispatcher_job_queue_wait_seconds` (no single observation point across the 8 claim sites); queue-anchor normalization (`queuedAt ?? createdAt` everywhere — product-visible, ship separately); head-of-line-blocking investigation of the 10s in-consumer requeue sleep.
+- **Open questions:** Redis-only flag vs durable desired state; alert thresholds; whether the other workers' nginx auth rules match w7.
+- **Known limits:** the probe runs while the worker is marked BUSY, so a concurrent selector can briefly see it as unavailable and requeue; admin drain/undrain/sync still read-modify-write the whole registry entry and can clobber a concurrent release; a dev can still submit between the probe and our `POST /prompt`; `externally_busy` compares a ≤15s-old sample with current status (advisory).
+
+## 2026-09-30 — Activity Logs: UX redesign, popover filters, humanized diffs & table hierarchy
+
+- **Goal:** Redesign `apps/admin-web/src/pages/AuditLogsPage.tsx` and standardize terminology across the admin app (`apps/admin-web/src/components/Sidebar.tsx`), addressing layout shifts, giant unreadable raw-ID diff blocks, and unrefined filtering.
+- **Changes Done:**
+  1. **Standardized terminology & header polish:** Renamed "Team Activity" to "Activity Logs" in the sidebar, breadcrumb, and page header. Shortened lede to `N logged events · Actions performed through the admin panel.` with an info tooltip explaining that direct database access is excluded.
+  2. **Filter bar redesign & consolidation:**
+     - Positioned the search bar on the far-left (`.filter-search-box`) with search icon and clear button for instant Record ID lookup.
+     - Searchable dropdowns for Activity and Category.
+     - Date preset popover (`Date: All time ▾`) with `Today`, `7d`, `30d`, and Custom range.
+     - Consolidated secondary filters behind `More filters ▾` (with active dot indicator) to avoid layout clutter.
+     - Dynamic active filter chips row with 1-click dismiss (`✕`) for Record ID, Team Member, Activity, Category, and Date.
+  3. **Visual action indicators & hierarchy in "What Happened":**
+     - Added subtle colored status dots (🟢 Created, 🔵 Updated, 🟠 Changed/Approved, 🔴 Deleted, ⚪ Default) to visually scan action categories.
+     - Cleanly separated the bold action sentence from the secondary Record ID (monospace, 11px, with click-to-copy button).
+  4. **Humanized Expanded Details & Event-Specific Archetypes:**
+     - Moved details from a detached panel below the entire table to an **expandable inline child row directly beneath the corresponding log row** (`<tr className="expanded-detail-row"><td colSpan={4}>...</td></tr>`), connected by an unbroken accent left border.
+     - **4-Column Event Metadata Summary Strip:** Displays Target Entity (with copyable ID), Team Member (with role badge), Exact + Relative Timestamp (`Sep 30, 2026, 11:42 AM · 24m ago`), and Event Identifier.
+     - **Tightened Vertical Footprint (~20% height reduction):** Reduced card padding from 18px/22px to 12px/18px, table cell padding to 6px/10px, and outer row container padding to 4px/16px/10px/16px so adjacent rows remain in view.
+     - **Simplified Header:** Streamlined header to `[🟢 CAT] Event Details`, removing the duplicated "What happened" title and the redundant `Close` button (the row already has `Hide details ↑`).
+     - **Neutral Consequence Card:** Shifted consequence cards from strong green/red tints to a neutral surface (`var(--surface)` / `var(--border)`), preserving semantic colors solely for the status icon and text.
+     - **Admin Wording & Singularization:** Used human resource wording (`${count} ${noun} created/removed`) and dynamic singular/plural buttons (`Copy ID` vs `Copy all N IDs`, `View ID ▾` vs `View all N IDs ▾`).
+     - **URL & Long Value Truncation:** Truncated long URLs (showing host + trimmed path) with an external link launcher (`<Icon.ExternalLink />`) and 1-click copy button, and truncated long unbroken IDs/hashes (>36 chars).
+     - **Structured Property Changes Table:** Key-value diffs render as clean `Property | Previous value | New value` tables, filtering out noisy DB timestamps (`created_at`, `updated_at`, internal IDs).
+     - **Technical Audit & Network Context:** Clean footer strip with IP (copyable), Request ID (copyable), and human-parsed client badge (e.g. `Chrome · Linux`, with full UA tooltip).
+  5. **Pagination & discovery polish:** Updated table footer to standard `Showing 1–25 of 3,066` with `‹ Previous` and `Next ›`. Upgraded action triggers to `View details →` and `Hide details ↑`.
+  6. Verified clean build with `tsc -b` and Biome format/lint.
+
+## 2026-09-30 — Recycle Bin: Visual polish, contextual selection toolbar & sorting refinements
+
+- **Goal:** Elevate `apps/admin-web/src/pages/RecycleBinPage.tsx` from functional to a premium, intentional UI with refined tabs, contextual selection mode toolbar, sortable deleted dates with relative timestamps, enhanced thumbnails, and clear row hover/selected states.
+- **Changes Done:**
+  1. **Page header hierarchy:** Made header more compact with clean lede: *"Manage deleted assets and restore or permanently remove them."*, removing low-level storage implementation jargon.
+  2. **Refined asset switcher tabs:** Transformed tab buttons into an application switcher with secondary pill counters (`Faces [961]`, `Backgrounds [163]`, `Pose assets [182]`) and clear active indicator.
+  3. **Table header hierarchy:** Reduced uppercase header visual weight, gave primary dominance to the `ASSET` column (42%), with quieter `GENDER` and `DELETED` columns.
+  4. **Interactive sorting on Deleted:** Added togglable sorting (`Deleted ↓` newest first, `Deleted ↑` oldest first) across all three tabs, resetting pagination smoothly.
+  5. **Deleted date hierarchy:** Rendered formatted date (e.g. `Jun 19, 2026`) as primary text, accompanied by human-friendly relative age (e.g. `3mo ago`, `2d ago`, `yesterday`) as subtle subtext.
+  6. **Enhanced asset thumbnails:** Upgraded in-table thumbnails with larger, comfortable dimensions (Faces: 64×64px, Backgrounds: 88×58px, Pose assets: 52×76px), rounded corners (8px), soft shadow, and clickable `cursor: zoom-in`.
+  7. **Interactive 3-state row styling:**
+     - Normal: clean table surface.
+     - Hover: subtle interactive background (`var(--surface-2)`).
+     - Selected: persistent tinted highlight (`rgba(var(--primary-rgb), 0.05)`) with an indigo accent indicator (`3px solid var(--accent)`).
+  8. **Contextual selection mode toolbar:**
+     - Page selection mode: elevated floating surface with count, "Select all N", and clear actions.
+     - "All selected" mode: transitions to an accented state with `<Icon.Check />` badge and `All N assets selected (across all pages)`.
+  9. **Beautiful empty state:** Replaced plain card with a clean, friendly empty state featuring ♻ icon, clear title, concise copy, and a `[ ↻ Refresh ]` button.
+  10. **Targeted confirmation verification previews & lightbox:**
+     - Enlarged in-table thumbnails to 64px for fast, confident visual recognition without squinting.
+     - Clicking any thumbnail opens an instant high-resolution lightbox modal showing the full uncropped asset (`r2Url`).
+     - Upgraded single-item permanent delete dialog with an enlarged preview card (72×72px for faces, 96×68px for backgrounds, 52×76px for poses), prominent name, metadata badges (gender, continent, shot type), and full ID.
+     - Upgraded bulk delete dialog with a 4-sample thumbnail preview strip + `+N more` counter.
+  11. Verified clean `tsc -b` and `biome check` with 0 errors and 0 warnings.
+
+
+
+
+
+## 2026-09-30 — Recycle Bin: UX redesign, bulk selection toolbar & destructive action clarity
+
+- **Goal:** Redesign `apps/admin-web/src/pages/RecycleBinPage.tsx` from a generic soft-delete CRUD table into a deliberate, polished recycle bin workflow with explicit destructive actions and a modern bulk selection model.
+- **Changes Done:**
+  1. **Destructive action clarity:** Renamed ambiguous row-action `Delete` to `Permanently delete` in danger styling.
+  2. **Confirmation modal with explicit R2 warning:** Redesigned permanent delete confirmation dialog to display an explicit warning: *"Permanently delete N assets? This will permanently remove the selected assets and their files from R2 storage. This cannot be undone."* For single asset deletions, displays the asset thumbnail, label/displayName, and truncated ID.
+  3. **Table header selection & indeterminate state:** Replaced plain-text "Select page" with a standard table header checkbox (`☐`), supporting checked, unchecked, and indeterminate states via ref.
+  4. **Floating/docked bulk selection toolbar:** When assets are selected, a distinct surface toolbar appears above the table displaying:
+     - Count of selected items (`N faces/backgrounds/pose assets selected`).
+     - "Select all N [assets]" cross-page button when the current page is selected and total items exceed page size.
+     - "Clear selection" action.
+     - "Restore (N)" and "Permanently delete (N)" actions.
+  5. **Explicit Refresh button:** Replaced detached plain-text button with `[ ↻ Refresh ]` icon button matching the page header pattern.
+  6. **Table column tightening:** Sized columns with fixed bounds (checkbox 44px, gender 130px, deleted date 140px, actions 230px right-aligned) to eliminate empty whitespace stretching.
+  7. **Thumbnail sizing & aspect ratio optimization:**
+     - Faces: 40×40px square (border-radius: 6px).
+     - Backgrounds: 52×38px landscape (border-radius: 4px).
+     - Pose assets: 34×48px vertical portrait (border-radius: 4px).
+  8. **Pose Assets table cleanup:** Removed predominantly empty standalone `Variant` column; displayed `poseVariant` as an inline pill next to asset title when present, alongside `shotType` and label subtext.
+  9. **Contextual metadata display:** Added secondary context to cryptic names (e.g. continent for faces, white background / scope / tags for backgrounds, display name and shot type for poses).
+  10. **Tab-specific empty states:** Replaced generic empty text with centered cards featuring an icon, friendly title, and explanatory copy.
+  11. **Final interaction safety pass:**
+     - Header checkbox uses callback ref so indeterminate `-` state correctly binds across tab switches and page navigation.
+     - Fully explicit scope transition: `50 pose assets selected on this page · Select all 182 pose assets` -> `182 pose assets selected (all pages) · Clear selection`.
+     - Confirmation modal displays exact count in button: `Permanently delete 50`.
+     - Error handling re-syncs table state upon partial delete failure.
+     - Table column layout redistributed (`38% / 18% / 20% / actions`) to bring metadata closer to the asset and eliminate dead whitespace.
+  12. Verified clean `tsc -b` and `biome check` with 0 errors and 0 warnings.
+
+
+## 2026-09-30 — Credit Analysis: Section spacing and filter row alignment fixes
+
+- **Goal:** Correct uneven vertical rhythm, mismatched control heights, and accidental wrapping in `apps/admin-web/src/pages/CreditAnalysisPage.tsx`.
+- **Changes Done:**
+  1. **Fixed section vertical spacing rhythm:** Unified `.page-head` and the summary strip into a coherent header block with `16px` gap. Removed artificial `marginBottom: 20` and `marginBottom: 18` that previously doubled the parent `.content` gap into an awkward 44px dead space.
+  2. **Typographic baseline alignment:** Aligned summary strip metric numbers and labels on their typographic baseline (`alignItems: 'baseline'`, `gap: 6`), with balanced `32px` separation between metric pairs.
+  3. **Pixel-perfect filter heights (36px uniform):** Matched the segmented DayRange pill container (`height: 36px`, `boxSizing: border-box`, `padding: 2px`, `borderRadius: var(--r)`) and buttons (`height: 100%`) with `.filter-search-box` and `.filter-select`.
+  4. **Single-row filter layout & desktop-only flex fix:** Found root cause of the two-row wrap: `.desktop-only` in `tokens.css` had `display: block !important;`, which overrode `display: flex` when combined directly on the same element (`className="desktop-only filter-row"`), forcing flex items to render in normal block flow (Search on row 1, pills + select on row 2). Separated `.desktop-only` wrapper from `.filter-row` so `display: flex; flex-wrap: nowrap;` takes full effect, locking all 3 controls onto a single line.
+  5. Verified clean `tsc --noEmit` and `biome check` with 0 errors and 0 warnings.
+
+## 2026-09-29 — Credit Analysis: UX redesign & user detail drawer
+
+- **Goal:** Transform `apps/admin-web/src/pages/CreditAnalysisPage.tsx` from a simple ranking report into an actionable analysis tool with summary metrics, clear credit terminology, unified filter bar, and a slide-over user detail drawer.
+- **Changes Done:**
+  1. **Top summary metrics strip:** Compact insight strip showing `Credits spent · Jobs completed · Avg. credits/job · Active users` across the selected window and filter.
+  2. **Backend summary aggregates:** Added `summary: { totalSpent, totalJobs, avgCostPerJob, totalUsers }` to `GET /admin/credit-analysis/users` in `apps/api/src/modules/admin/credit-analysis.routes.ts`.
+  3. **Unified filter bar:** Single `.filter-row` integrating search box (with clear button), segmented DayRange pill group (`7d`, `30d`, `90d`, `All time` with distinct active state), and source select dropdown.
+  4. **Clear terminology:** Renamed table columns to eliminate financial ambiguity:
+     - `SPENT` → `CREDITS SPENT`
+     - `BALANCE` → `CREDIT BALANCE`
+     - `AVG/JOB` → `AVG. CREDITS/JOB`
+  5. **User list hierarchy:** User name styled dominant (`font-weight: 600`, `color: var(--ink)`), email clearly subordinate (`0.78rem`, `var(--muted)`), with green Shopify badge.
+  6. **Slide-over User Details Drawer:** Clicking a user opens a right-side drawer with 2x2 key metrics, daily spend bar chart, top products (if Shopify), recent credit ledger activity with source filter, and a direct "View user profile →" navigation button to the Users page.
+  7. **Drawer analytical polish:**
+     - Chart shows selected date range: `Daily credit spend · Last 30 days` (or `7 days`, `90 days`, `All time`).
+     - Recharts custom tooltip shows formatted date (`Sep 3, 2026`) and formatted credits (`Credits spent: 2,750`).
+     - Activity feed humanized from raw database codes: e.g. `JOB_DISPATCH` → `Catalogue job` / `Job dispatch · 6:29 PM · Sep 3`.
+     - Removed circular bullet icon from activity items that resembled toggles/radios.
+     - Activity feed expands vertically to eliminate unused space at the bottom of the drawer.
+     - Cleaned plan tier and Shopify badges in drawer header.
+  8. **Mobile cards updated:** Aligned metrics terminology with desktop table.
+  9. **Drawer render loop fix:** Resolved infinite re-fetch flickering when opening user drawer caused by unstable `closeDetail` / `toast` references in the `useEffect` dependency array.
+  10. **Interaction sanity pass:** Added text truncation (`ellipsis`) for long names and emails in both table and drawer; hardened Recharts Tooltip with `zIndex: 100` to prevent clipping; confirmed empty states, date range syncing (`7d`/`30d`/`90d`/`all`), and non-job ledger entries (refunds, adjustments).
+  11. **View user profile navigation fix:** Updated button to navigate directly to `/users?user=${detail.id}` with search state, and updated `UsersPage.tsx` to read `location.state` search/filter fallback so clicking the button smoothly opens that user's full management drawer and filters the background list.
+  12. Verified clean `tsc --noEmit` and `biome check` across both `@aivastra/admin` and `@aivastra/api`, and passed all 8 integration tests (`admin-credit-analysis.test.ts`).
+
+## 2026-09-29 — Workers page: full UX redesign
+
+- **Goal:** Modernise `apps/admin-web/src/pages/WorkersPage.tsx` per detailed product brief.
+- **Changes Done:**
+  1. Summary strip: compact `Total · Healthy · Offline · Draining` counters.
+  2. Search + filter bar: search (ID, label, URL, job type) + Status + Job type dropdowns.
+  3. Worker column: ID dominant, display name (monospace) beneath.
+  4. Combined Status + Health → single `● Primary / detail` cell. Removed two separate columns.
+  5. URL + API key removed from the table; drawer-only.
+  6. Compact job-type summary (`All`, `Catalogue`, `Saree +3`) — no coloured pills in table.
+  7. Labelled enable toggle: `Enabled` / `Disabled` text next to Switch.
+  8. `⋯` RowMenu replaces 3 unlabelled icon buttons (Edit, Drain/Undrain, Enable/Disable, Delete).
+  9. Right-side EditDrawer for both Add and Edit — replaced the centred modal.
+  10. "Label" → "Display name" in the form.
+  11. Job types: explicit `All job types` / `Selected job types` radio — replaces "leave unchecked to accept all".
+  12. API key reveal (Eye/EyeOff) in drawer; hidden by default.
+  13. Empty state with icon, description, and Add worker CTA.
+  14. Mobile cards updated: StatusDot, unified state label, labelled toggle.
+  15. `tsc --noEmit` and `biome check` both clean.
+
+## 2026-09-28 — WordPress demo store: Product card border fixed to match reference image
+
+- **Goal:** Product card border was an animated gradient (`::before` pseudo-element, purple → magenta). Reference image shows plain `1px solid #000` matching the live `shopify.aivastra.com` style.
+- **Changes Done:**
+  1. **`storefront-aivastra/style.css`:** Removed `@keyframes aivastra-gradient-spin` and the animated gradient `::before`. Added `ul.products li.product::before { content: none }` and `ul.products li.product img { border: 1px solid #000 }`. Removed the 4px inset margin that was needed to reveal the gradient.
+- **Verified:** Playwright computed style confirms `border: 1px solid rgb(0, 0, 0)` on `img`. Screenshot matches reference image.
+
+## 2026-09-25 (later) — Pose pin leaking into a redirected workflow's prompt
+
+**Root cause:** when a `pose_garment_configs` row overrides a pose+garmentType to a
+*different* workflow template than the pose's own default, and that config row has no
+`promptGarmentPhase`/`promptFacePhase` of its own, both `resolveTryonPlan`
+(`apps/api/src/modules/jobs/create.ts`) and the dispatcher's non-snapshot standard path
+(`apps/dispatcher/src/job/processor.ts`) fell back to the **pose's own pin**
+(`model_pose_assets.promptGarmentPhase`/`promptFacePhase`) regardless of which workflow was
+actually selected. That pin was written for the pose's own default workflow's graph, so a
+redirected job sent a prompt describing the wrong graph to ComfyUI. PR #355 (merge 9ecc3fe7,
+code commit eedfff93) introduced the `configPromptGarmentPhase || defaultPromptGarmentPhase`
+fallback into the **api snapshot path** (`resolveTryonPlan`) — before that PR, `resolveTryonPlan`
+hardcoded the prompt fields to `null` for every non-mapped job, so the override never reached
+`job_inputs.params` at all. That's why every snapshotted job started carrying this bug from
+#355 onward. The **dispatcher's non-snapshot path** (`poseRow` default init +
+`if (cfgRow.promptGarmentPhase)` override, `processor.ts`) already had the identical flaw
+before #355 — traced to commit `d8325a9d` (2026-06-16, `feat(admin): per-garment-type pose
+workflow/prompt overrides + pose asset admin polish`), nearly three months earlier; PR #355
+didn't touch that branch. It only matters for jobs that never got a `workflowTemplateId`
+snapshotted into `params` (the dispatcher's own lookup is unreachable once a snapshot exists).
+
+**Done**
+- `apps/api/src/modules/jobs/create.ts`: added a `poseDefaultApplies` helper (only the
+  standard-branch `poseWorkflows` map, ~line 762) — the pose's default prompt now only
+  applies when the config row's `workflowTemplateId` is null or equals the pose's own
+  `defaultWorkflowTemplateId`; otherwise the field is left `null` so the dispatcher patcher
+  leaves the redirected workflow's own baked-in prompt untouched.
+- `apps/dispatcher/src/job/processor.ts`: the non-snapshot `else if (cfgRow?.workflowTemplateId)`
+  branch now nulls `effectivePromptGarmentPhase`/`effectivePromptFacePhase` when
+  `cfgRow.workflowTemplateId !== poseRow.workflowTemplateId` and the config row has no prompt
+  of its own.
+- `promptByPose` (`create.ts` ~line 747, feeds the `requiresMannequinStep`/saree branch) and
+  the snapshot/`requiresMannequinStep` branches of `processor.ts` are **deliberately
+  unchanged** — the config-workflow-override is already ignored for that path by design (see
+  the existing comment at `create.ts`), so the same gating doesn't apply there.
+- Regression tests: 4 new cases in `apps/api/test/integration/jobs-create-looks.test.ts`
+  (redirect+no-prompt, no override, override equals pose default, config has its own prompt)
+  and a new `apps/dispatcher/test/integration/pose-garment-config-workflow-override.test.ts`
+  (3 cases for the dispatcher's non-snapshot path, previously uncovered — existing dispatcher
+  coverage of `pose_garment_configs` was all `requiresMannequinStep` saree tests). The two
+  redirect-case tests (one api, one dispatcher — the actual bug reproduction) were confirmed
+  FAILING on pre-fix code and PASSING after via stash/pop; the other five new tests assert
+  unchanged behaviour (no override, override equals pose default, config has its own prompt)
+  and pass either way.
+- `pnpm --filter @aivastra/api typecheck`, `tsc --noEmit` in `apps/dispatcher` (no `typecheck`
+  script exists there), full `test`/`test:unit`/`test:integration` for both packages, and
+  `biome check` on all 4 changed files all clean.
+
+**Not fixed by this change**
+- Already-created jobs keep whatever prompt was snapshotted into `job_inputs.params` at
+  creation time — this fix only changes what gets resolved for jobs created *after* it ships.
+  ~354 production jobs (2026-09-11 to 2026-09-25) and 39 staging jobs were already dispatched
+  with the wrong (pose-pin) prompt under this bug and are not corrected retroactively. These
+  counts were measured on 2026-09-25 by read-only SQL directly against the staging and
+  production databases (not reproducible from local dev, which has no path to either). The
+  counts mean "the job's snapshotted `params` carried the pose's own prompt while the config
+  row overrode the workflow and had no prompt of its own" — a structural match on the bug's
+  precondition, not a per-job judgement that the resulting image was actually wrong.
+
+**Open question**
+- 208 production poses carry a `promptGarmentPhase`/`promptFacePhase` pin identical to their
+  assigned workflow template's own default prompt — a side effect of the old
+  `EditPoseAssetModal` silently pinning the template default onto the pose the first time it
+  was opened, rather than leaving the field null (also measured 2026-09-25, read-only SQL
+  against prod). These 208 pins were the actual source of the leak in production: whenever a
+  config row redirected one of these poses to a different workflow, the pin was the wrong
+  prompt fed to that redirected graph. After this fix they're harmless, because the pose pin is
+  now only used when the job is actually running the pose's own workflow — a redirect either
+  gets the config's own prompt or falls through to the new workflow's baked-in default.
+  "Does this pose have a real prompt override" still can't be read off `IS NOT NULL` alone,
+  though. Nulling the pins that are pure duplicates of their template's default would still
+  need a data migration — not attempted here.
+
+## 2026-09-25 — WordPress demo store: Account popover card parity with shopify.aivastra.com
+
+- **Goal:** Implement the account dropdown popover when clicking the navbar account icon, matching `https://shopify.aivastra.com/` pixel-for-pixel (rounded card, "Sign in or create account", circular close button, "Sign in with shop" purple button, OR divider, email input with submit arrow, marketing checkbox, and Orders/Profile action buttons).
+- **Changes Done:**
+  1. **Account Popover Include (`inc/account-popover.php`):**
+     - Renders `<div class="aivastra-account-popover">` in `wp_footer`.
+     - Supports logged-out state with exact replica of Shop Pay login card: "Sign in with shop" button (`#5a31f4`), "OR" divider, email input with submit arrow (`→`), "Email me with news and offers" checkbox, and dual quick-link buttons ("Orders" and "Profile").
+     - Supports logged-in state greeting with direct links to WooCommerce orders, account profile, and sign-out.
+  2. **Client-Side Interactions (`assets/account-popover.js`):**
+     - Anchors and positions the dropdown card dynamically right beneath the account navbar icon.
+     - Supports open/close toggle, close button (`✕`), click-outside dismissal, and `Escape` key dismissal.
+     - Smooth entrance animation with subtle transform/fade.
+  3. **Theme Integration (`functions.php` & `style.css`):**
+     - Added `inc/account-popover.php` include and added `aivastra-account-trigger` class to the navbar account icon.
+     - Added complete CSS styling for the popover card (24px border radius, elevation shadow, buttons, input, and responsive constraints).
+- **Verified:** Tested via headless Chromium and Playwright. Verified popover toggle on account icon click, close button dismissal, Escape key dismissal, click-outside dismissal, and mutual exclusivity with the cart drawer.
+
+## 2026-09-25 — WordPress demo store: Slide-out cart drawer parity with shopify.aivastra.com
+
+
+- **Goal:** Implement the slide-out cart drawer when clicking the navbar cart icon, matching `https://shopify.aivastra.com/` pixel-for-pixel (empty state, typography, circular close button, backdrop overlay, interactive filled state).
+- **Changes Done:**
+  1. **Cart Drawer Include (`inc/cart-drawer.php`):**
+     - Renders `<aside class="aivastra-cart-drawer">` and backdrop overlay in `wp_footer`.
+     - Features circular close button `✕` (`34px`, `border: 1px solid rgba(0,0,0,0.06)`, `box-shadow: 0 2px 6px rgba(0,0,0,0.06)`).
+     - Renders pixel-exact empty state: centered heading `"Your cart is empty"`, subtitle `"Have an account? Log in to check out faster."`, and black pill button `"Continue shopping"` (`#000`, `14px border-radius`, Inter font).
+     - Provides interactive filled state when cart has items: product thumbnail, title, line price, quantity stepper (`−`/`+`), remove button (`✕`), subtotal row (`Estimated total`), disclaimer, and black `"Check out"` button.
+     - Implements secure AJAX endpoints: `aivastra_cart_drawer_get`, `aivastra_cart_drawer_update_qty`, `aivastra_cart_drawer_remove`, `aivastra_cart_drawer_add`.
+  2. **Client-Side Interactions (`assets/cart-drawer.js`):**
+     - Intercepts clicks on `.aivastra-nav-cart` to slide open the drawer with smooth easing (`transform: translateX(0)`).
+     - Handles close via close button, backdrop click, and Escape key.
+     - Intercepts single-product "Add to cart" form submissions to add via AJAX and automatically slide open the drawer.
+     - Handles live quantity increment/decrement and item removal via AJAX with instant state updates.
+     - Synchronizes header cart count badge in real time.
+  3. **Theme Integration (`functions.php` & `style.css`):**
+     - Included `inc/cart-drawer.php` and attached `aivastra-cart-trigger` to navbar cart icon.
+     - Added comprehensive styling for backdrop, drawer animations, empty state typography, stepper controls, and responsive layout.
+- **Verified:** Tested via headless Chromium and Playwright. Verified drawer open/close on cart icon click, close button click, backdrop click, Escape key, empty state layout matching reference screenshots, filled state upon adding product, and dynamic transition back to empty state on item removal.
+
+## 2026-09-23 (continued) — WordPress demo store: match shopify.aivastra.com exactly
+
+
+- **Goal:** Make `http://localhost:8888` look pixel-close to `https://shopify.aivastra.com/`.
+- **Changes Done:**
+  1. **Font:** Switched theme font tokens `--aivastra-font-body` and `--aivastra-font-display` from `Plus Jakarta Sans / Outfit` → **`Inter`** (Google Fonts, weights 300–800). Matches Shopify reference exactly.
+  2. **Navbar:** Replaced search pill + account pill + WooCommerce cart pill with 3 minimal outline icon links (Search SVG, Account SVG, Shopping Bag SVG + red count badge) matching the Shopify right-side icon trio. CSS classes: `aivastra-nav-icon`, `aivastra-nav-cart`, `aivastra-nav-cart-badge`. Announcement bar removed.
+  3. **Homepage content:** Rewrote via `setup-homepage.php` — Shopify-style split hero (left: bold black headline + subtitle; right: hero image with gradient circle) + Women's Wear section + Men's Wear section (both with section title row + "View all" link + 4-column WC product grid). Applied via WP-CLI.
+  4. **Navigation:** Rewrote via `setup-navigation.php` — HOME, MEN (with sub-categories), WOMEN (with sub-categories), CONTACT.
+  5. **Footer:** Replaced 4-column dark luxury footer with simple Shopify-style white footer: centered "Join our email list" heading, subtitle, email subscribe form, and minimal copyright line with Terms + Privacy links.
+  6. **Button underline bug:** Added `text-decoration: none !important` to `.aivastra-btn-primary` and `.aivastra-btn-secondary` to override Storefront parent theme's `.hentry .entry-content a { text-decoration: underline }` specificity.
+  7. **Footer background:** Used `wp_add_inline_style` + `set_theme_mod` to force white footer background, overriding Storefront's customizer inline `<style>` tag.
+- **Verified:** Playwright headless screenshots taken (`homepage_v3.png`). Homepage, collection sections, and footer all match the Shopify reference design.
+- **Open:** Hero image container has some extra padding above it — could tighten to match Shopify's flush hero. Not blocking.
+
+## 2026-09-23 — Local WordPress demo store design, typography & authentic copy overhaul
+
+
+- **Context & Goal:** The local WordPress demo store (`http://localhost:8888`) running WooCommerce and `aivastra-tryon` needed a comprehensive visual, alignment, and content overhaul. Key requirements: eliminate all childish emojis across the entire site, replace with premium vector SVGs (Lucide icons), remove unrealistic/exaggerated marketing claims and fake customer reviews/statistics, and modernize the theme (`storefront-aivastra`).
+- **Changes Done:**
+  1. **Strict Emoji Removal & Lucide SVG Icons:**
+     - Removed all emojis from navigation menus, hero titles, buttons, announcement bars, trust strips, and footers.
+     - Overrode Storefront's core `🔍` gallery zoom emoji with a clean vector Lucide search SVG.
+     - Overrode WooCommerce cart block's crying sad-face emoji mask with a clean vector Lucide shopping bag SVG badge.
+     - Scanned both codebase files and WordPress database: zero emojis remaining.
+  2. **Grounded & Authentic E-Commerce Copy:**
+     - Eliminated fake reviews ("Vikramaditya S.", "12,000+ shoppers") and fake VIP promo banners ("VASTRA15").
+     - Eliminated exaggerated metrics ("99.8% Photorealistic AI Drape", "Instant 5-Sec Fit", "25,000+ fashion insiders").
+     - Replaced with realistic, honest copy centered on actual Ai Vastra try-on capabilities (virtual garment preview, standard domestic delivery, cash on delivery, and 7-day sizing exchanges).
+  3. **Theme Architecture & Layout Fixes (`storefront-aivastra`):**
+     - Enqueued `Plus Jakarta Sans` and `Outfit` via Google Fonts.
+     - Replaced fragmented Storefront float header with unified single-row flex navbar (`[Brand Logo] [Center Menu] [Search Pill + Account Button + Cart Pill]`).
+     - Fixed Storefront's `.clearfix` / `div.product::before` flex item collision on single product pages; gallery (50%) and summary (50%) now align side-by-side with vertical consistency.
+     - Replaced Storefront's dated float-based review tabs (`width: 30%` / `65%`) with modern horizontal tabs spanning full width, styled review forms, and subtle border alert notices.
+     - Overhauled Cart empty state and My Account login/register into dual luxury cards with rounded pill buttons.
+     - Styled Shop page with a dark slate collection header banner and 4-column product grid with 1:1 image aspect ratios and Lucide Try-On badges.
+- **Verification:** Verified in headless Chromium via Playwright; captured and inspected screenshots for Homepage, Shop Archive, Single Product Details, Cart, and My Account.
+
+## 2026-09-25 — `quay.io/minio/minio` now also returns 401 on anonymous pull (CI-blocking)
+
+- **Found:** PR #414's CI failed both `Unit tests (@aivastra/api)` and
+  `Integration tests (@aivastra/api)` at the exact same step —
+  `docker compose -f infra/docker-compose.yml up -d --wait postgres redis minio` —
+  with `minio Error unauthorized: access to the requested resource is not
+  authorized`. Confirmed this is **not** caused by that PR's diff (which never
+  touches `infra/docker-compose.yml`): reproduced the identical `401
+  UNAUTHORIZED` locally via a direct `docker pull quay.io/minio/minio:latest`,
+  and also against a specific older pinned tag
+  (`RELEASE.2024-01-16T16-07-38Z`) — the whole `quay.io/minio/minio` repo is
+  behind auth now, not just a `:latest`-tag rate limit. `docker.io/minio/minio`
+  (the original Docker Hub path) fails too, with "repository does not exist,"
+  consistent with the 2026-09-15 entry below.
+- **This escalates the 2026-09-15 finding below**, not a new independent
+  issue: this repo already migrated Docker Hub → quay.io for MinIO in PR #362
+  after Docker Hub lockdown, confirmed working then. quay.io has since locked
+  down the same repo too. Every fresh CI run and every fresh local clone is
+  now blocked at `docker compose up`/`pnpm docker:up` on `minio` — this is
+  repo-wide/team-wide, not specific to any one branch or PR.
+- **Why local dev machines may not notice:** a machine that pulled the image
+  before quay.io's lockdown (confirmed here: a `quay.io/minio/minio:latest`
+  image cached ~12 months ago, digest
+  `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`,
+  still runs fine via the existing container) has no reason to re-pull, so
+  `docker compose up` silently keeps working there while failing on every
+  CI runner and every fresh checkout.
+- **Not fixed here** — this needs a team decision (mirror the still-good
+  cached digest to a registry this org controls, e.g. GHCR; authenticate CI to
+  quay.io if MinIO now permits pulls for registered/authenticated accounts; or
+  switch the S3-compatible test double entirely) and touches
+  `infra/docker-compose.yml`, `infra/docker-compose.staging.yml`,
+  `infra/docker-compose.prod.yml`, and `.github/workflows/ci.yml` uniformly —
+  out of scope for a one-off PR to patch silently.
+
+## 2026-09-21 — /results grid thumbnails (stored output thumb + on-demand input thumbs)
+
+- **Change:** the `/results` webtool grid was loading full-res objects for every
+  cell. `apps/api/src/modules/results/routes.ts` now serves thumbnails while the
+  lightbox/download keep the full object:
+  1. `/results/data` returns `outputThumbUrl` — presigned `job_outputs.thumbnailKey`
+     (the dispatcher's stored 512px JPEG) with fallback to the on-demand endpoint
+     for pre-thumbnail rows; `outputUrl` is unchanged (full object).
+  2. New `GET /results/:id/thumb/:slot` (`garment-upper|garment-lower|garment-third|`
+     `person|output`, results-cookie auth, own 300/min bucket like
+     `/v1/jobs/:id/thumbnail`) — sharp-resizes to 256px JPEG
+     (`private, max-age=31536000, immutable`; inputs/outputs never change).
+     Keys resolve server-side from the job row, never from caller input.
+     Stored output thumbs and `.mp4` video outputs 302-redirect to R2 instead of
+     proxying bytes; corrupt/unsupported bytes redirect to the full object rather
+     than 500ing the cell.
+  3. Garment entries carry `{url (full), thumbUrl (endpoint), label}`; person/source
+     inputs get `personThumbUrl`/`poseFullUrl` (suppressed when a pose asset exists
+     so the pose thumbnail stays authoritative). Frontend `renderThumb` takes a
+     separate `fullUrl` for lightbox/download; video detection runs on the full URL.
+- **Not done:** no stored thumbnails for uploaded inputs (no new R2 keys, no
+  backfill) — input thumbs are resized on demand per fresh browser cache. If the QA
+  page gets heavy use, generate-and-cache input thumbs at dispatch time instead.
+- **Test impact:** new `apps/api/test/integration/results-thumbnails.test.ts`
+  (9 tests: data contract, resize size/format/headers, redirect paths, 404/400/401,
+  served `app.js` syntax-check via `node:vm`). Full api unit suite (678) and all
+  existing results integration tests (11) green. One Biome finding on the file
+  (`noUselessEscapeInString` in `isVideoUrl`) is pre-existing, verified via stash.
+
 ## 2026-09-19 — Routing-aware enablement counts + hardened full-sync deletion race
 
 - **Change:** Implemented both findings from
@@ -274,6 +655,30 @@
   browser click-through of the merged `/manage` page (no browser tooling was available to any
   implementer this session) and a Grafana/alerting check for anything keyed on `level=error`
   for the now-`warn` refusal log message.
+
+## 2026-09-15 — Fresh local setup: `minio/minio` and `minio/mc` pulled from Docker Hub
+
+- **Found:** `pnpm docker:up` failed outright on a clean checkout —
+  `docker pull minio/minio:latest` / `minio/mc:latest` both return "pull access denied,
+  repository does not exist" from Docker Hub. Confirmed via direct `docker pull`, not
+  inferred. `quay.io/minio/minio:latest` and `quay.io/minio/mc:latest` pull fine — MinIO
+  appears to have stopped publishing to Docker Hub. `redis:7-alpine` and
+  `pgvector/pgvector:pg16` are unaffected.
+- **Fix already landed upstream:** independently repointed `infra/docker-compose.yml`'s
+  `minio`/`minio-bootstrap` services to `quay.io/minio/minio:latest` / `quay.io/minio/mc:latest`
+  locally, then found on pulling `dev` that PR #362 (`fix/minio-quay-registry`,
+  commit `61b0e373`) had already made the identical change — and, further, also covered
+  `infra/docker-compose.staging.yml` and `infra/docker-compose.prod.yml`, so staging/prod
+  are already fixed too. Local change dropped in favor of upstream's.
+- **Also found:** a fresh `pnpm install` + `pnpm dev` fails for `api`, `dispatcher`, and
+  `chatbot` with `ERR_MODULE_NOT_FOUND` on `@aivastra/db`, `@aivastra/logger`, and
+  `@aivastra/observability` — those packages resolve via `dist/` (their `package.json`
+  `main`/`exports`) and nothing builds that `dist/` before `pnpm dev` runs it. Root
+  `README`/`CLAUDE.md` setup steps don't mention a build-packages step. Worked around by
+  running `pnpm --filter "./packages/*" build` (plus `pnpm --filter @aivastra/types build:cjs`
+  for `apps/admin-web`'s Vite dep-scan, which needs the `require` condition) before `pnpm dev`.
+  Not yet folded into `package.json`'s `dev` script or documented as a setup step — worth
+  doing if this keeps tripping fresh checkouts.
 
 ## 2026-09-11 — Admin can edit a workflow's SAM3 segmentation prompt
 

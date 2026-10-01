@@ -17,6 +17,47 @@ export function healthKey(workerId: string) {
   return `worker:health:${workerId}`;
 }
 
+// Per-worker routing flags live OUTSIDE worker:registry on purpose: registerWorkers
+// rebuilds every registry entry on dispatcher boot and would wipe a flag stored there.
+// Missing key = queue gating off, so unmigrated workers keep today's semantics.
+export function routingConfigKey(workerId: string) {
+  return `worker:routing-config:${workerId}`;
+}
+
+// Display-only snapshot of a worker's ComfyUI /queue, written by the health monitor with a
+// short TTL. The api can't reach ComfyUI, so this is how the admin Workers view sees it.
+// Routing NEVER reads this — it probes live after the claim (see selector.ts).
+export function queueSnapshotKey(workerId: string) {
+  return `worker:queue:${workerId}`;
+}
+
+export async function isQueueGateEnabled(redis: Redis, workerId: string): Promise<boolean> {
+  const raw = await redis.get(routingConfigKey(workerId));
+  if (!raw) return false;
+  try {
+    return (JSON.parse(raw) as { queueGateEnabled?: unknown }).queueGateEnabled === true;
+  } catch {
+    return false;
+  }
+}
+
+// Atomic BUSY → IDLE. Unlike setWorkerStatus (read-all / write-one, not atomic) this
+// never touches a DRAINING entry and never resurrects a worker the admin removed.
+const RELEASE_IF_BUSY_LUA = `
+local raw = redis.call('HGET', KEYS[1], ARGV[1])
+if not raw then return 0 end
+local ok, val = pcall(cjson.decode, raw)
+if not ok or val.status ~= 'BUSY' then return 0 end
+val.status = 'IDLE'
+val.lastSeen = tonumber(ARGV[2])
+redis.call('HSET', KEYS[1], ARGV[1], cjson.encode(val))
+return 1
+`;
+
+export async function releaseWorkerIfBusy(redis: Redis, workerId: string): Promise<void> {
+  await redis.eval(RELEASE_IF_BUSY_LUA, 1, REGISTRY_KEY, workerId, String(Date.now()));
+}
+
 export async function getWorkers(redis: Redis): Promise<Map<string, WorkerEntry>> {
   const raw = await redis.hgetall(REGISTRY_KEY);
   const map = new Map<string, WorkerEntry>();

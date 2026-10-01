@@ -1,5 +1,8 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { ImageLightbox } from '../components/ImageLightbox';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState } from '../hooks/use-url-state';
 import type { ChatMessageT, WsAgentFrameT, WsServerFrameT } from '../lib/chatws';
 import { connectAgentWs, fetchChatbot } from '../lib/chatws';
 import { apiErrorMessage, apiFetch } from '../lib/data';
@@ -90,12 +93,22 @@ export default function ChatInboxPage({ toast }: Props) {
   const [queue, setQueue] = useState<ConvRow[]>([]);
   const [myTickets, setMyTickets] = useState<ConvRow[]>([]);
   const [onDuty, setOnDuty] = useState(false);
-  const [selectedConv, setSelectedConv] = useState<string | null>(null);
+  const [selectedConv, setSelectedConv] = useUrlState('conv');
+  const closeConv = useCloseOverlay(['conv']);
   const [messages, setMessages] = useState<ChatMessageT[]>([]);
+  // Tracks which conversation's messages are currently loaded, so the fetch
+  // effect below doesn't refire on every unrelated queue poll.
+  const [messagesConvId, setMessagesConvId] = useState<string | null>(null);
+  // Tracks which conversation's status/fields have been resolved from the
+  // queue/myTickets lists — lets a deep link resolve once those lists finish
+  // their initial load, without clobbering an in-progress subject edit on
+  // every later poll.
+  const [resolvedConvId, setResolvedConvId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [typing, setTyping] = useState<string | null>(null);
+  const [wsReady, setWsReady] = useState(false);
   // Local edit buffer for the selected ticket's subject/category/priority — seeded from
   // the row when a conversation is selected, pushed to the server via updateFields.
   const [fields, setFields] = useState<{ subject: string; category: string; priority: string }>({
@@ -107,6 +120,17 @@ export default function ChatInboxPage({ toast }: Props) {
   const selectedRef = useRef(selectedConv);
   selectedRef.current = selectedConv;
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useCrumb(
+    0,
+    selectedConv
+      ? {
+          label:
+            [...queue, ...myTickets].find((c) => c.id === selectedConv)?.subject ?? 'Conversation',
+          href: `/chat-inbox?conv=${encodeURIComponent(selectedConv)}`,
+        }
+      : null,
+  );
 
   const load = useCallback(async () => {
     const [q, m, d] = await Promise.all([
@@ -137,6 +161,7 @@ export default function ChatInboxPage({ toast }: Props) {
     });
     p.then((w) => {
       wsRef.current = w;
+      setWsReady(true);
     });
     return () => {
       wsRef.current?.close();
@@ -148,23 +173,47 @@ export default function ChatInboxPage({ toast }: Props) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  async function selectConv(id: string) {
-    setSelectedConv(id);
-    const msgs = await fetchChatbot<{ messages: ChatMessageT[] }>(
-      `/conversations/${id}/messages?limit=100`,
-    );
-    setMessages(msgs.messages);
-    const conv = [...queue, ...myTickets].find((c) => c.id === id);
-    if (conv) {
-      setStatus(conv.status);
-      setFields({
-        subject: conv.subject ?? '',
-        category: conv.category ?? '',
-        priority: conv.priority,
-      });
-    }
-    wsRef.current?.send({ type: 'join', conversationId: id } as WsAgentFrameT);
-  }
+  // Reconstructs the message list from the URL alone — hard refresh or deep
+  // link. Skipped once already loaded for this id, so a row click doesn't
+  // double-fetch.
+  useEffect(() => {
+    if (!selectedConv || messagesConvId === selectedConv) return;
+    let cancelled = false;
+    (async () => {
+      const msgs = await fetchChatbot<{ messages: ChatMessageT[] }>(
+        `/conversations/${selectedConv}/messages?limit=100`,
+      );
+      if (!cancelled) {
+        setMessages(msgs.messages);
+        setMessagesConvId(selectedConv);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedConv, messagesConvId]);
+
+  // Resolves status/fields against the already-loaded queue/myTickets lists —
+  // waits for them if a deep link lands before the initial load() completes,
+  // then resolves once and never reseeds on a later poll (which would
+  // clobber an in-progress subject edit).
+  useEffect(() => {
+    if (!selectedConv || resolvedConvId === selectedConv) return;
+    const conv = [...queue, ...myTickets].find((c) => c.id === selectedConv);
+    if (!conv) return;
+    setStatus(conv.status);
+    setFields({
+      subject: conv.subject ?? '',
+      category: conv.category ?? '',
+      priority: conv.priority,
+    });
+    setResolvedConvId(selectedConv);
+  }, [selectedConv, queue, myTickets, resolvedConvId]);
+
+  useEffect(() => {
+    if (!selectedConv || !wsReady) return;
+    wsRef.current?.send({ type: 'join', conversationId: selectedConv } as WsAgentFrameT);
+  }, [selectedConv, wsReady]);
 
   async function claim(id: string) {
     try {
@@ -184,7 +233,7 @@ export default function ChatInboxPage({ toast }: Props) {
     try {
       await apiFetch(`/admin/chatbot/conversations/${id}/end`, { method: 'POST' });
       toast({ title: 'Closed' });
-      setSelectedConv(null);
+      closeConv();
       void load();
     } catch (e) {
       toast({
@@ -307,7 +356,7 @@ export default function ChatInboxPage({ toast }: Props) {
             sortedQueue.map((c) => (
               <div
                 key={c.id}
-                onClick={() => selectConv(c.id)}
+                onClick={() => setSelectedConv(c.id)}
                 style={{
                   padding: '8px 10px',
                   borderRadius: 'var(--r)',
@@ -382,7 +431,7 @@ export default function ChatInboxPage({ toast }: Props) {
             myTickets.map((c) => (
               <div
                 key={c.id}
-                onClick={() => selectConv(c.id)}
+                onClick={() => setSelectedConv(c.id)}
                 style={{
                   padding: '8px 10px',
                   borderRadius: 'var(--r)',

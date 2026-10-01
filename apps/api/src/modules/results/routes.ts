@@ -16,6 +16,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import sharp from 'sharp';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { recordAudit } from '../admin/audit.js';
@@ -257,6 +258,10 @@ export async function resultsRoutes(app: FastifyInstance) {
           id: schema.jobs.id,
           catalogueId: schema.jobs.catalogueId,
           userEmail: schema.users.email,
+          userDisplayName: schema.users.displayName,
+          userPhone: schema.users.phone,
+          userTier: schema.users.tier,
+          userCreatedAt: schema.users.createdAt,
           creditsCharged: schema.jobs.creditsCharged,
           createdAt: schema.jobs.createdAt,
           status: schema.jobs.status,
@@ -272,6 +277,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
           poseThumbKey: schema.modelPoseAssets.thumbnailKey,
+          poseFullKey: schema.modelPoseAssets.r2Key,
           // No admin pose asset (poseThumbKey) means this job's "pose" slot
           // is actually whatever image the customer/system supplied instead —
           // a widget/kiosk customer photo (jobs.customerPhotoKey) or an
@@ -290,13 +296,23 @@ export async function resultsRoutes(app: FastifyInstance) {
             ELSE NULL
           END`,
           backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
+          backgroundFullKey: schema.modelBackgrounds.r2Key,
           lowerThumbKey: sql<
             string | null
           >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.lowerCatalogId})`,
           shoeThumbKey: sql<
             string | null
           >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
+          shoeFullKey: sql<
+            string | null
+          >`(select ${schema.catalogItems.r2Key} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
           outputKey: schema.jobOutputs.resultKey,
+          // Stored 512px JPEG written by the dispatcher at finalize time
+          // (apps/dispatcher/src/workflow/finalize.ts). NULL for jobs that
+          // pre-date the thumbnail feature (see scripts/backfill-thumbnails.mts)
+          // and for catalog-video jobs, whose .mp4 output has no thumbnail —
+          // both fall back to the on-demand /results/:id/thumb/output endpoint.
+          outputThumbKey: schema.jobOutputs.thumbnailKey,
         })
         .from(schema.jobs)
         .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
@@ -324,20 +340,32 @@ export async function resultsRoutes(app: FastifyInstance) {
       // pyjama set upper + lower; 3-input jobs like chudidhar additionally set
       // third for the dupatta) — surface every slot that's actually populated,
       // not just one, so QA can see (and later download) all of them.
-      const presignGarments = async (r: {
-        upperGarmentKey: string | null;
-        lowerGarmentKey: string | null;
-        thirdGarmentKey: string | null;
-      }) => {
-        const slots: { key: string | null; label: string }[] = [
-          { key: r.upperGarmentKey, label: 'Upper' },
-          { key: r.lowerGarmentKey, label: 'Lower' },
-          { key: r.thirdGarmentKey, label: 'Third' },
+      //
+      // Uploaded garments have no stored thumbnail (unlike pose/background/shoe
+      // catalog assets, which carry thumbnailKey columns) — the grid renders
+      // each slot through the on-demand /results/:id/thumb/:slot endpoint
+      // (256px JPEG, immutable-cached), while `url` stays the full-res
+      // presigned object for the lightbox and downloads.
+      const presignGarments = async (
+        jobId: string,
+        r: {
+          upperGarmentKey: string | null;
+          lowerGarmentKey: string | null;
+          thirdGarmentKey: string | null;
+        },
+      ) => {
+        const slots: { key: string | null; label: string; slot: string }[] = [
+          { key: r.upperGarmentKey, label: 'Upper', slot: 'garment-upper' },
+          { key: r.lowerGarmentKey, label: 'Lower', slot: 'garment-lower' },
+          { key: r.thirdGarmentKey, label: 'Third', slot: 'garment-third' },
         ];
-        const present = slots.filter((s): s is { key: string; label: string } => s.key !== null);
+        const present = slots.filter(
+          (s): s is { key: string; label: string; slot: string } => s.key !== null,
+        );
         return Promise.all(
           present.map(async (s) => ({
             url: await presign(s.key),
+            thumbUrl: `/results/${jobId}/thumb/${s.slot}`,
             label: present.length > 1 ? s.label : null,
           })),
         );
@@ -348,6 +376,10 @@ export async function resultsRoutes(app: FastifyInstance) {
           id: r.id,
           catalogueId: r.catalogueId,
           userEmail: r.userEmail,
+          userDisplayName: r.userDisplayName,
+          userPhone: r.userPhone,
+          userTier: r.userTier,
+          userCreatedAt: r.userCreatedAt,
           creditsCharged: r.creditsCharged,
           createdAt: r.createdAt,
           status: r.status,
@@ -359,17 +391,141 @@ export async function resultsRoutes(app: FastifyInstance) {
           flaggedAt: r.flaggedAt,
           resolvedAt: r.resolvedAt,
           resolvedNote: r.resolvedNote,
-          garments: await presignGarments(r),
+          garments: await presignGarments(r.id, r),
           poseUrl: await presign(r.poseThumbKey ?? r.personOrSourceKey),
           poseTag: r.poseThumbKey ? null : r.personOrSourceTag,
+          // Person/source inputs (customer photo, tryon-direct personKey,
+          // regenerate sourceImageKey) likewise have no stored thumbnail —
+          // same on-demand endpoint for the grid, full object for lightbox.
+          // Suppressed when an admin pose asset exists: the pose thumbnail is
+          // the authoritative image for that cell, and the grid must not
+          // shadow it with the person photo.
+          personThumbUrl:
+            r.poseThumbKey || !r.personOrSourceKey ? null : `/results/${r.id}/thumb/person`,
+          // Full-res target for the lightbox/download: the pose asset's own
+          // r2Key when one is assigned (poseUrl above is that asset's
+          // thumbnailKey), otherwise the same person/source object as the grid.
+          poseFullUrl: r.poseThumbKey
+            ? await presign(r.poseFullKey)
+            : await presign(r.personOrSourceKey),
           backgroundUrl: await presign(r.backgroundThumbKey),
+          backgroundFullUrl: await presign(r.backgroundFullKey),
           lowerUrl: await presign(r.lowerThumbKey),
           shoeUrl: await presign(r.shoeThumbKey),
+          shoeFullUrl: await presign(r.shoeFullKey),
           outputUrl: await presign(r.outputKey),
+          // Grid thumbnail: the dispatcher's stored 512px JPEG when present,
+          // otherwise the on-demand endpoint resizes resultKey on the fly
+          // (covers pre-thumbnail jobs and falls through to the raw file for
+          // .mp4 catalog-video outputs, which sharp can't read).
+          outputThumbUrl: r.outputThumbKey
+            ? await presign(r.outputThumbKey)
+            : r.outputKey
+              ? `/results/${r.id}/thumb/output`
+              : null,
         })),
       );
 
       return { page, pageSize, total, items };
+    },
+  );
+
+  const ThumbSlot = z.object({
+    id: z.string().uuid(),
+    slot: z.enum(['garment-upper', 'garment-lower', 'garment-third', 'person', 'output']),
+  });
+
+  // On-demand 256px JPEG thumbnail for /results grid cells whose source image
+  // has no stored thumbnailKey: uploaded garments (upper/lower/third),
+  // person/source inputs (customer photo, personKey, sourceImageKey), and
+  // outputs that pre-date the dispatcher thumbnail feature.
+  //
+  // Keys are resolved server-side from the job row — the caller only names a
+  // slot, never an R2 key, so this can't be used to read arbitrary objects.
+  // Job inputs/outputs are immutable once written, so the resized bytes are
+  // cacheable indefinitely; auth is via the results cookie, hence `private`.
+  app.get(
+    '/results/:id/thumb/:slot',
+    {
+      preHandler: requireResultsUser,
+      schema: { params: ThumbSlot },
+      // Same reasoning as /v1/jobs/:id/thumbnail: one request per thumbnail
+      // rendered, so a full results page legitimately bursts dozens of these.
+      config: { rateLimit: { max: 300, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const { id, slot } = req.params as z.infer<typeof ThumbSlot>;
+
+      const [row] = await app.db
+        .select({
+          upperGarmentKey: schema.jobInputs.upperGarmentKey,
+          lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+          thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
+          personOrSourceKey: sql<
+            string | null
+          >`COALESCE(${schema.jobs.customerPhotoKey}, ${schema.jobInputs.params}->>'personKey', ${schema.jobInputs.params}->>'sourceImageKey')`,
+          outputKey: schema.jobOutputs.resultKey,
+          outputThumbKey: schema.jobOutputs.thumbnailKey,
+        })
+        .from(schema.jobs)
+        .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(eq(schema.jobs.id, id));
+      if (!row) throw new AppError('NOT_FOUND', 404, 'job not found');
+
+      // Stored output thumbnail exists — redirect straight to R2 instead of
+      // proxying bytes through the API (grid could equally use the presigned
+      // outputThumbUrl from /results/data; this keeps the endpoint usable
+      // standalone). Short-lived redirect target, so only a short cache here.
+      if (slot === 'output' && row.outputThumbKey) {
+        const { url } = await app.storage.presignGet(row.outputThumbKey, 3600);
+        return reply.header('Cache-Control', 'private, max-age=300').redirect(url);
+      }
+
+      const key =
+        slot === 'garment-upper'
+          ? row.upperGarmentKey
+          : slot === 'garment-lower'
+            ? row.lowerGarmentKey
+            : slot === 'garment-third'
+              ? row.thirdGarmentKey
+              : slot === 'person'
+                ? row.personOrSourceKey
+                : row.outputKey;
+      if (!key) throw new AppError('NOT_FOUND', 404, 'no image for this slot');
+
+      // sharp can't read video — catalog-video outputs (.mp4) fall through to
+      // the raw file so the grid's <video preload="metadata"> keeps working.
+      if (slot === 'output' && /\.(mp4|webm|mov|m4v)$/i.test(key.split('?')[0])) {
+        const { url } = await app.storage.presignGet(key, 3600);
+        return reply.header('Cache-Control', 'private, max-age=300').redirect(url);
+      }
+
+      let buf: Buffer;
+      try {
+        buf = await app.storage.getObject(key);
+      } catch {
+        throw new AppError('NOT_FOUND', 404, 'image not found in storage');
+      }
+
+      let thumb: Buffer;
+      try {
+        thumb = await sharp(buf)
+          .rotate()
+          .resize({ width: 256, height: 256, fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 70 })
+          .toBuffer();
+      } catch {
+        // Corrupt/unsupported bytes — redirect to the full object rather than
+        // 500ing the whole grid cell; the browser will show whatever it can.
+        const { url } = await app.storage.presignGet(key, 3600);
+        return reply.header('Cache-Control', 'private, max-age=300').redirect(url);
+      }
+
+      return reply
+        .type('image/jpeg')
+        .header('Cache-Control', 'private, max-age=31536000, immutable')
+        .send(thumb);
     },
   );
 
@@ -538,8 +694,10 @@ export async function resultsRoutes(app: FastifyInstance) {
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
-          faceThumbKey: schema.modelFaces.thumbnailKey,
-          poseThumbKey: schema.modelPoseAssets.thumbnailKey,
+          // Bundle is a QA download, not a grid cell — every admin-curated
+          // asset below is selected by its full r2Key, never thumbnailKey.
+          faceKey: schema.modelFaces.r2Key,
+          poseAssetKey: schema.modelPoseAssets.r2Key,
           // See the matching fields in /results/data above — same fallback
           // for jobs with no admin pose asset.
           personOrSourceKey: sql<
@@ -551,13 +709,13 @@ export async function resultsRoutes(app: FastifyInstance) {
             WHEN ${schema.jobInputs.params}->>'sourceImageKey' IS NOT NULL THEN 'input'
             ELSE NULL
           END`,
-          backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
-          lowerThumbKey: sql<
+          backgroundKey: schema.modelBackgrounds.r2Key,
+          lowerKey: sql<
             string | null
-          >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.lowerCatalogId})`,
-          shoeThumbKey: sql<
+          >`(select ${schema.catalogItems.r2Key} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.lowerCatalogId})`,
+          shoeKey: sql<
             string | null
-          >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
+          >`(select ${schema.catalogItems.r2Key} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
           outputKey: schema.jobOutputs.resultKey,
         })
         .from(schema.jobs)
@@ -615,12 +773,12 @@ export async function resultsRoutes(app: FastifyInstance) {
       } else {
         await addKey('inputs', 'garment', uploadedGarmentKeys[0] ?? null);
       }
-      await addKey('inputs', 'face', row.faceThumbKey);
+      await addKey('inputs', 'face', row.faceKey);
       // No admin pose asset means this job's only "pose"-slot image is
       // whatever person/source photo it actually used — see the matching
       // field comment above.
-      if (row.poseThumbKey) {
-        await addKey('inputs', 'pose', row.poseThumbKey);
+      if (row.poseAssetKey) {
+        await addKey('inputs', 'pose', row.poseAssetKey);
       } else {
         await addKey(
           'inputs',
@@ -628,9 +786,9 @@ export async function resultsRoutes(app: FastifyInstance) {
           row.personOrSourceKey,
         );
       }
-      await addKey('inputs', 'background', row.backgroundThumbKey);
-      await addKey('inputs', 'lower', row.lowerThumbKey);
-      await addKey('inputs', 'shoe', row.shoeThumbKey);
+      await addKey('inputs', 'background', row.backgroundKey);
+      await addKey('inputs', 'lower', row.lowerKey);
+      await addKey('inputs', 'shoe', row.shoeKey);
       await addKey('output', 'output', row.outputKey);
 
       dispatchEvents.forEach((ev, i) => {
@@ -858,7 +1016,7 @@ ${commonCss()}
 .results-table tr:last-child td { border-bottom: 0; }
 
 .col-id { width: 70px; }
-.col-user { width: 190px; }
+.col-user { width: 240px; }
 .col-img { width: 130px; text-align: center; }
 .col-garments { width: 220px; text-align: center; }
 .col-credits { width: 70px; text-align: center; }
@@ -869,6 +1027,13 @@ ${commonCss()}
 .id-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; cursor: help; }
 .user-name { font-weight: 500; color: var(--ink); word-break: break-all; }
 .user-email { font-size: 12px; color: var(--muted); margin-top: 2px; word-break: break-all; }
+.user-phone { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.user-since { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.user-tier {
+  display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 999px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--ink);
+}
 
 .thumb-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .thumb-img { position: relative; width: 100%; max-width: 110px; }
@@ -1363,12 +1528,16 @@ function appJs(): string {
         rows.push(
           '<tr class="' + rowClass + '" title="' + esc(rowTitle) + '">' +
           '<td class="col-id"><div class="id-num">' + rev + '</div><div class="id-sub">#' + seq + '</div></td>' +
-          '<td class="col-user"><div class="user-name">' + esc(item.userEmail || '—') + '</div><div class="user-email">' + esc(item.userEmail || '') + '</div></td>' +
+          '<td class="col-user"><div class="user-name">' + esc(item.userDisplayName || item.userEmail || '—') + '</div>' +
+          '<div class="user-email">' + esc(item.userEmail || '—') + '</div>' +
+          '<div class="user-phone">' + esc(item.userPhone || 'No phone') + '</div>' +
+          '<div class="user-since">Member since ' + fmtDate(item.userCreatedAt) + '</div>' +
+          '<div class="user-tier">Plan: ' + esc(item.userTier || 'free') + '</div></td>' +
           '<td class="col-garments">' + renderGarmentCell(item.garments) + '</td>' +
-          '<td class="col-img">' + renderThumb(item.poseUrl, poseLabel, item.poseTag ? poseLabel : null) + '</td>' +
-          '<td class="col-img">' + renderThumb(item.backgroundUrl, 'Background') + '</td>' +
-          '<td class="col-img">' + renderThumb(item.shoeUrl, 'Shoes') + '</td>' +
-          '<td class="col-img">' + renderThumb(item.outputUrl, 'Output') + '</td>' +
+          '<td class="col-img">' + renderThumb(item.personThumbUrl || item.poseUrl, poseLabel, item.poseTag ? poseLabel : null, false, item.poseFullUrl || item.poseUrl) + '</td>' +
+          '<td class="col-img">' + renderThumb(item.backgroundUrl, 'Background', null, false, item.backgroundFullUrl) + '</td>' +
+          '<td class="col-img">' + renderThumb(item.shoeUrl, 'Shoes', null, false, item.shoeFullUrl) + '</td>' +
+          '<td class="col-img">' + renderThumb(item.outputThumbUrl || item.outputUrl, 'Output', null, false, item.outputUrl) + '</td>' +
           '<td class="col-credits"><span class="credits-num">' + item.creditsCharged + '</span></td>' +
           '<td class="col-when"><span class="when-text">' + fmtDate(item.createdAt) + '</span></td>' +
           '<td class="col-flag">' + renderFlagCell(item) + '</td>' +
@@ -1423,17 +1592,23 @@ function appJs(): string {
     return html;
   }
 
-  function renderThumb(url, label, tag, small) {
+  // Grid cells render a small thumbnail but open/download the full object:
+  // thumbUrl is the <img>/<video> src, fullUrl (when different) is what the
+  // lightbox and the download badge point at. Video detection runs on the
+  // full URL — an output thumbnail falls back to the .mp4 itself, and a
+  // future video-poster thumbnail must not change which element renders.
+  function renderThumb(url, label, tag, small, fullUrl) {
     if (!url) return '<div class="thumb-placeholder' + (small ? ' sm' : '') + '">—</div>';
-    var video = isVideoUrl(url);
+    var full = fullUrl || url;
+    var video = isVideoUrl(full);
     var media = video
-      ? '<video class="thumb" src="' + esc(url) + '" muted playsinline preload="metadata" data-lb="' + esc(url) + '"></video>'
-      : '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" data-lb="' + esc(url) + '">';
+      ? '<video class="thumb" src="' + esc(url) + '" muted playsinline preload="metadata" data-lb="' + esc(full) + '"></video>'
+      : '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" decoding="async" data-lb="' + esc(full) + '">';
     return '<div class="thumb-wrap">' +
       '<div class="thumb-img' + (small ? ' sm' : '') + (video ? ' thumb-video' : '') + '">' +
         (tag ? '<span class="thumb-tag">' + esc(tag) + '</span>' : '') +
         media +
-        '<a class="thumb-dl" href="' + esc(url) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.' + extOf(url) + '" title="Download">' +
+        '<a class="thumb-dl" href="' + esc(full) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.' + extOf(full) + '" title="Download">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>' +
         '</a>' +
       '</div>' +
@@ -1443,12 +1618,13 @@ function appJs(): string {
   // A job's garments array holds every uploaded garment slot present (upper,
   // lower, third/dupatta) — most jobs have exactly one and render like any
   // other single-image column, but 2- and 3-input jobs render every uploaded
-  // image side by side instead of only the first one.
+  // image side by side instead of only the first one. Each entry carries the
+  // full object (url) plus its on-demand thumbnail (thumbUrl).
   function renderGarmentCell(garments) {
     if (!garments || garments.length === 0) return '<div class="thumb-placeholder">—</div>';
-    if (garments.length === 1) return renderThumb(garments[0].url, garments[0].label || 'Garment');
+    if (garments.length === 1) return renderThumb(garments[0].thumbUrl || garments[0].url, garments[0].label || 'Garment', null, false, garments[0].url);
     return '<div class="garments-row">' + garments.map(function(g) {
-      return renderThumb(g.url, g.label || 'Garment', g.label, true);
+      return renderThumb(g.thumbUrl || g.url, g.label || 'Garment', g.label, true, g.url);
     }).join('') + '</div>';
   }
 

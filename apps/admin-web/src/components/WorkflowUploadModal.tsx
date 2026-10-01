@@ -5,6 +5,11 @@ import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 import { SearchableSelect } from './SearchableSelect';
 
+// Matches ProposeWorkflowChangeRequestBody's min(80) in packages/types/src/admin.ts —
+// keep both a substantive length so a SUPER_ADMIN reviewing the queue has enough
+// context to judge the proposal without opening the diff.
+export const MIN_PROPOSAL_NOTE_LENGTH = 80;
+
 interface ParsedNode {
   id: string;
   class_type: string;
@@ -41,6 +46,13 @@ interface Props {
   onCreated: (wf: WorkflowOption) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+  // When true, submit creates a workflow_change_requests row (changeType:
+  // 'create') instead of POSTing straight to /admin/workflows — used by
+  // MODERATOR/ADMIN, who can only reach workflow_templates through the
+  // propose -> approve queue. SUPER_ADMIN keeps the direct-create path.
+  proposeMode?: boolean;
+  activeWorkflows?: WorkflowOption[];
+  onProposed?: () => void;
 }
 
 function NodeBadge({ node }: { node: ParsedNode }) {
@@ -114,7 +126,19 @@ Optional:
   shoes           → shoes LoadImage node
   size            → EmptyLatentImage node for dynamic aspect ratio`;
 
-export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
+export function WorkflowUploadModal({
+  onCreated,
+  onClose,
+  toast,
+  proposeMode = false,
+  activeWorkflows = [],
+  onProposed,
+}: Props) {
+  // 'new' adds a standalone workflow; 'replace' supersedes an existing active one.
+  const [proposalKind, setProposalKind] = useState<'new' | 'replace'>('new');
+  const [targetWorkflowId, setTargetWorkflowId] = useState('');
+  const [previousLimitations, setPreviousLimitations] = useState('');
+  const [proposeReason, setProposeReason] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const [jsonFile, setJsonFile] = useState<File | null>(null);
   const [parsed, setParsed] = useState<ParseResult | null>(null);
@@ -134,6 +158,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [upperNodeIds, setUpperNodeIds] = useState<string[]>(['']);
   const [lowerNodeId, setLowerNodeId] = useState('');
   const [shoeNodeId, setShoeNodeId] = useState('');
+  const [garmentView, setGarmentView] = useState<'front' | 'back'>('front');
   const [thirdNodeId, setThirdNodeId] = useState('');
   const [sizeNodeIds, setSizeNodeIds] = useState<string[]>([]);
   const [positivePromptNode, setPositivePromptNode] = useState('');
@@ -428,6 +453,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           label: label.trim(),
           jsonContent,
           workflowType: 'regular',
+          garmentView,
           faceNodeId: faceNodeId || undefined,
           poseNodeId,
           bgNodeId: bgNodeId || undefined,
@@ -449,6 +475,22 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
         };
       }
 
+      if (proposeMode) {
+        await apiFetch('/admin/workflow-change-requests', {
+          method: 'POST',
+          body: JSON.stringify({
+            changeType: 'create',
+            ...(proposalKind === 'replace'
+              ? { targetWorkflowId, previousLimitations: previousLimitations.trim() }
+              : {}),
+            reason: proposeReason.trim(),
+            proposedFields: payload,
+          }),
+        });
+        onProposed?.();
+        return;
+      }
+
       const created = await apiFetch<WorkflowOption>('/admin/workflows', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -456,7 +498,9 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       toast({ title: `Workflow "${created.label}" created` });
       onCreated(created);
     } catch (e) {
-      setError(apiErrorMessage(e, 'Failed to create workflow'));
+      setError(
+        apiErrorMessage(e, proposeMode ? 'Failed to submit proposal' : 'Failed to create workflow'),
+      );
     } finally {
       setSaving(false);
     }
@@ -537,16 +581,19 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               poseNodeId &&
               positivePromptNode &&
               (!faceNodeId || negativePromptNode) &&
-              (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId));
+              (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId)) &&
+    (!proposeMode ||
+      (proposeReason.trim() &&
+        (proposalKind === 'new' || (targetWorkflowId && previousLimitations.trim()))));
 
   return (
     <EditDrawer
       onClose={onClose}
-      title="Upload workflow"
+      title={proposeMode ? 'Propose workflow' : 'Upload workflow'}
       width="min(960px, calc(100vw - 40px))"
       saving={saving || parsing}
       onSave={() => void handleSubmit()}
-      saveLabel="Create workflow"
+      saveLabel={proposeMode ? 'Submit for approval' : 'Create workflow'}
       saveDisabled={!canSubmit}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -644,6 +691,83 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               </pre>
             )}
           </div>
+        )}
+
+        {proposeMode && (
+          <>
+            <div className="field">
+              <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'block' }}>
+                What are you proposing?
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className={`btn sm ${proposalKind === 'new' ? 'primary' : 'ghost'}`}
+                  disabled={saving}
+                  onClick={() => setProposalKind('new')}
+                >
+                  Add new workflow
+                </button>
+                <button
+                  type="button"
+                  className={`btn sm ${proposalKind === 'replace' ? 'primary' : 'ghost'}`}
+                  disabled={saving}
+                  onClick={() => setProposalKind('replace')}
+                >
+                  Replace existing workflow
+                </button>
+              </div>
+            </div>
+            {proposalKind === 'replace' && (
+              <>
+                <div className="field">
+                  <label
+                    style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'block' }}
+                  >
+                    Which existing workflow does this replace?{' '}
+                    <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <SearchableSelect
+                    options={activeWorkflows.map((w) => ({ id: w.id, label: w.label }))}
+                    value={targetWorkflowId}
+                    onChange={setTargetWorkflowId}
+                    disabled={saving}
+                    emptyLabel="— select workflow to replace —"
+                    placeholder="— search workflow —"
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    What does the current workflow lack?{' '}
+                    <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={previousLimitations}
+                    disabled={saving}
+                    onChange={(e) => setPreviousLimitations(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+            <div className="field">
+              <label>
+                {proposalKind === 'new'
+                  ? 'Why is this workflow needed?'
+                  : "What's updated in this workflow?"}{' '}
+                <span style={{ color: 'var(--danger)' }}>*</span>
+              </label>
+              <textarea
+                className="input"
+                rows={3}
+                value={proposeReason}
+                disabled={saving}
+                onChange={(e) => setProposeReason(e.target.value)}
+              />
+            </div>
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+          </>
         )}
 
         {/* Step 1: JSON file */}
@@ -1041,6 +1165,27 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                   onChange={(e) => setLabel(e.target.value)}
                 />
               </div>
+            </div>
+
+            <div className="field">
+              <label>Garment view</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {(['front', 'back'] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    className={`btn sm ${garmentView === v ? 'primary' : 'ghost'}`}
+                    disabled={saving}
+                    onClick={() => setGarmentView(v)}
+                  >
+                    {v === 'front' ? 'Front' : 'Back'}
+                  </button>
+                ))}
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 4 }}>
+                "Back" means this graph's pose reference shows the subject from behind — Studio will
+                ask the customer for a back-view garment photo instead of the usual front one.
+              </span>
             </div>
 
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />

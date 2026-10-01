@@ -168,6 +168,16 @@ export const shopifyStores = pgTable('shopify_stores', {
   // we can reach a merchant on: owner_user_id is nullable and ON DELETE SET
   // NULL, so it cannot be the basis for a billing notification.
   shopEmail: text('shop_email'),
+  // Business identity, also from SHOP_DETAILS (shop.name / shopOwnerName /
+  // billingAddress) and, like shopEmail above, fetched on every install and
+  // reinstall but previously discarded rather than persisted. shopName is the
+  // storefront's own display name, not personal data. shopOwnerName/shopPhone/
+  // shopAddress ARE personal data belonging to the shop owner — cleared on
+  // shop_redact alongside shopEmail, for the same GDPR reasoning.
+  shopName: text('shop_name'),
+  shopOwnerName: text('shop_owner_name'),
+  shopPhone: text('shop_phone'),
+  shopAddress: text('shop_address'),
   // The worst alert level we have already emailed this store about. The
   // scheduler emails only when the current level ranks worse than this, so a
   // merchant sitting at 'warning' for a week gets one email rather than 168.

@@ -60,7 +60,10 @@ const groups: NavGroup[] = [
         k: 'workflows',
         label: 'Workflows',
         icon: Icon.Workflow,
-        perm: 'workflows.write',
+        // 'read' on purpose, not 'write' — MODERATOR/ADMIN can only propose
+        // changes here now (see workflow_change_requests.propose), but still
+        // need to see the list to do that and to track outcomes.
+        perm: 'workflows.read',
       },
       {
         k: 'tryon',
@@ -109,6 +112,15 @@ const groups: NavGroup[] = [
     label: 'Operations',
     items: [
       {
+        k: 'workflow-approvals',
+        label: 'Flow Approvals',
+        icon: Icon.Workflow,
+        // Granted to SUPER_ADMIN, MODERATOR and ADMIN (not SUPPORT) — non-super-admins
+        // need this to track the outcome of their own proposals even though they
+        // can't act on anyone else's.
+        perm: 'workflow_change_requests.propose',
+      },
+      {
         k: 'jobs',
         label: 'Jobs',
         icon: Icon.Jobs,
@@ -155,13 +167,13 @@ const groups: NavGroup[] = [
       },
       {
         k: 'shopify-stores',
-        label: 'Shopify Stores',
+        label: 'Shopify Dashboard',
         icon: Icon.Coin,
         perm: 'shopify_stores.read',
       },
       {
         k: 'audit-logs',
-        label: 'Team Activity',
+        label: 'Activity Logs',
         icon: Icon.Clock,
         perm: 'audit.read',
       },
@@ -201,8 +213,9 @@ export function Sidebar({
   mobileOpen,
   onCloseMobile,
 }: SidebarProps) {
-  const { token, hasPermission } = useAuth();
+  const { token, role: authRole, hasPermission, logout } = useAuth();
   const [contactBadge, setContactBadge] = useState(0);
+  const [pendingApprovalsBadge, setPendingApprovalsBadge] = useState(0);
 
   useEffect(() => {
     if (!token) return;
@@ -214,6 +227,20 @@ export function Sidebar({
     const t = setInterval(fetchCount, 5_000);
     return () => clearInterval(t);
   }, [token]);
+
+  // Pending-count badge on Flow Approvals — SUPER_ADMIN only, since the full
+  // pending queue (as opposed to just the viewer's own proposals) is only
+  // ever meaningful to whoever can act on it.
+  useEffect(() => {
+    if (!token || authRole !== 'SUPER_ADMIN') return;
+    const fetchCount = () =>
+      apiFetch<unknown[]>('/admin/workflow-change-requests?status=pending')
+        .then((rows) => setPendingApprovalsBadge(rows.length))
+        .catch(() => {});
+    void fetchCount();
+    const t = setInterval(fetchCount, 5_000);
+    return () => clearInterval(t);
+  }, [token, authRole]);
 
   const isVisible = (item: NavItem) =>
     item.perm ? hasPermission(item.perm) : (item.roles ?? []).includes(role);
@@ -264,7 +291,12 @@ export function Sidebar({
         </div>
         <nav>
           {visible.map((item) => {
-            const badge = item.k === 'contacts' ? contactBadge : (item.count ?? 0);
+            const badge =
+              item.k === 'contacts'
+                ? contactBadge
+                : item.k === 'workflow-approvals'
+                  ? pendingApprovalsBadge
+                  : (item.count ?? 0);
             return (
               <button
                 key={item.k}
@@ -296,6 +328,16 @@ export function Sidebar({
             <Icon.Settings />
           </button>
         )}
+        <button
+          className="nav-item nav-item--icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            void logout();
+          }}
+          title="Log out"
+        >
+          <Icon.Logout />
+        </button>
       </aside>
     );
   }
@@ -331,7 +373,12 @@ export function Sidebar({
           <div key={group.label || '__top__'}>
             {group.label && <div className="nav-label">{group.label}</div>}
             {group.items.map((item) => {
-              const badge = item.k === 'contacts' ? contactBadge : (item.count ?? 0);
+              const badge =
+                item.k === 'contacts'
+                  ? contactBadge
+                  : item.k === 'workflow-approvals'
+                    ? pendingApprovalsBadge
+                    : (item.count ?? 0);
               return (
                 <button
                   key={item.k}
@@ -363,6 +410,10 @@ export function Sidebar({
           <span>Settings</span>
         </button>
       )}
+      <button className="nav-item" onClick={() => void logout()}>
+        <Icon.Logout />
+        <span>Log out</span>
+      </button>
     </aside>
   );
 }

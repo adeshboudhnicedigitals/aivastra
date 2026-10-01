@@ -3,6 +3,9 @@ import { Icon } from '../components/Icons';
 import { SampleVideoEditDrawer } from '../components/SampleVideoEditDrawer';
 import { type SampleVideo, SampleVideoUploadModal } from '../components/SampleVideoUploadModal';
 import { Switch } from '../components/Switch';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 
 interface Props {
@@ -16,9 +19,37 @@ interface Props {
 export default function PixversePage({ toast }: Props) {
   const [items, setItems] = useState<SampleVideo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [editingItem, setEditingItem] = useState<SampleVideo | null>(null);
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const modalOpen = modalParam === 'upload-video';
+  const editingItem =
+    modalParam === 'edit-video' && editId ? (items.find((i) => i.id === editId) ?? null) : null;
+
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const confirmDeleteId = confirmParam === 'delete-video' ? confirmId : null;
+
+  useCrumb(
+    0,
+    confirmDeleteId
+      ? {
+          label: 'Delete sample video',
+          href: `/pixverse?confirm=delete-video&confirmId=${encodeURIComponent(confirmDeleteId)}`,
+        }
+      : null,
+  );
+  useCrumb(
+    1,
+    modalParam
+      ? {
+          label: modalParam === 'upload-video' ? 'Add sample video' : 'Edit sample video',
+          href: `/pixverse?modal=${modalParam}${editId ? `&editId=${encodeURIComponent(editId)}` : ''}`,
+        }
+      : null,
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,7 +90,7 @@ export default function PixversePage({ toast }: Props) {
   const doDelete = async () => {
     if (!confirmDeleteId) return;
     const id = confirmDeleteId;
-    setConfirmDeleteId(null);
+    closeConfirm();
     try {
       await apiFetch(`/admin/assets/sample-videos/${id}`, { method: 'DELETE' });
       setItems((v) => v.filter((x) => x.id !== id));
@@ -84,7 +115,10 @@ export default function PixversePage({ toast }: Props) {
           </p>
         </div>
         <div className="head-tools">
-          <button className="btn" onClick={() => setModalOpen(true)}>
+          <button
+            className="btn"
+            onClick={() => setModalParams({ modal: 'upload-video', editId: null })}
+          >
             <Icon.Add /> Add sample video
           </button>
         </div>
@@ -167,11 +201,16 @@ export default function PixversePage({ toast }: Props) {
                     <button
                       className="btn sm"
                       style={{ marginLeft: 'auto' }}
-                      onClick={() => setEditingItem(item)}
+                      onClick={() => setModalParams({ modal: 'edit-video', editId: item.id })}
                     >
                       <Icon.Edit /> Edit
                     </button>
-                    <button className="btn sm danger" onClick={() => setConfirmDeleteId(item.id)}>
+                    <button
+                      className="btn sm danger"
+                      onClick={() =>
+                        setConfirmParams({ confirm: 'delete-video', confirmId: item.id })
+                      }
+                    >
                       <Icon.Trash /> Delete
                     </button>
                   </div>
@@ -182,7 +221,7 @@ export default function PixversePage({ toast }: Props) {
         ))}
 
       {confirmDeleteId && (
-        <div className="modal-overlay" onClick={() => setConfirmDeleteId(null)}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Delete sample video</h3>
@@ -191,7 +230,7 @@ export default function PixversePage({ toast }: Props) {
               <p>Delete this sample video? It will no longer appear in the Catalog Video wizard.</p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDeleteId(null)}>
+              <button className="btn ghost" onClick={closeConfirm}>
                 Cancel
               </button>
               <button className="btn danger" onClick={doDelete}>
@@ -205,10 +244,10 @@ export default function PixversePage({ toast }: Props) {
       {modalOpen && (
         <SampleVideoUploadModal
           toast={toast}
-          onClose={() => setModalOpen(false)}
+          onClose={closeModal}
           onDone={(created) => {
             setItems((v) => [...v, created]);
-            setModalOpen(false);
+            closeModal();
           }}
         />
       )}
@@ -217,10 +256,10 @@ export default function PixversePage({ toast }: Props) {
         <SampleVideoEditDrawer
           item={editingItem}
           toast={toast}
-          onClose={() => setEditingItem(null)}
+          onClose={closeModal}
           onSaved={(updated) => {
             setItems((v) => v.map((x) => (x.id === editingItem.id ? { ...x, ...updated } : x)));
-            setEditingItem(null);
+            closeModal();
           }}
         />
       )}

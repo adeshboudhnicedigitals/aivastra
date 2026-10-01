@@ -33,9 +33,14 @@ export const UpdateUserBody = z.object({
   isBanned: z.boolean().optional(),
   banReason: z.string().max(500).nullable().optional(),
   forceLogout: z.boolean().optional(),
+  isOrganizationMember: z.boolean().optional(),
 });
 export const BulkDeleteUsersBody = z.object({
   ids: z.array(z.string().uuid()).min(1),
+});
+export const BulkSetOrganizationBody = z.object({
+  ids: z.array(z.string().uuid()).min(1),
+  isOrganizationMember: z.boolean(),
 });
 export const CreateUserBody = z.object({
   username: z
@@ -50,7 +55,7 @@ export const CreateUserBody = z.object({
     .regex(/[a-zA-Z]/, 'Password must contain at least one letter')
     .regex(/[0-9]/, 'Password must contain at least one number'),
   displayName: z.string().min(1).max(80),
-  email: z.string().email().max(254).optional(),
+  email: z.string().email().max(254),
   phone: z
     .string()
     .regex(/^\d{10}$/, 'phone must be a 10-digit number')
@@ -417,6 +422,9 @@ export const CreateWorkflowBody = z
         'regeneration',
       ])
       .default('regular'),
+    // Only meaningful for workflowType='regular' — see garmentView on the
+    // workflow_templates schema for what this drives.
+    garmentView: z.enum(['front', 'back']).default('front'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
@@ -569,6 +577,7 @@ export const UpdateWorkflowBody = z.object({
     .regex(/^[a-z0-9_]+$/, 'slug must be lowercase alphanumeric with underscores')
     .optional(),
   isActive: z.boolean().optional(),
+  garmentView: z.enum(['front', 'back']).optional(),
   // Regular workflow node mappings (not the JSON itself)
   faceNodeId: z.string().min(1).optional(),
   poseNodeId: z.string().min(1).optional(),
@@ -677,6 +686,48 @@ export const DEFAULT_REGENERATION_REASON_PROMPTS: {
 
 export const ReassignWorkflowBody = z.object({
   targetWorkflowId: z.string().uuid(),
+});
+
+// ── Workflow governance: propose -> approve/reject ─────────────────────────
+// MODERATOR/ADMIN reach workflow_templates only through this queue; SUPER_ADMIN
+// can still write workflow_templates directly. See
+// apps/api/src/modules/admin/workflow-change-requests.routes.ts.
+
+// targetWorkflowId is optional only for a 'create': omitted means "add a brand-new
+// workflow" (nothing is replaced/deactivated); present means "replace this one".
+// An 'update' always needs its target. previousLimitations only makes sense
+// against a workflow being replaced, so it is required exactly when a target is.
+export const ProposeWorkflowChangeRequestBody = z
+  .object({
+    changeType: z.enum(['create', 'update']),
+    targetWorkflowId: z.string().uuid().optional(),
+    reason: z.string().min(1).max(2000),
+    previousLimitations: z.string().max(2000).optional(),
+    proposedFields: z.record(z.any()),
+  })
+  .superRefine((b, ctx) => {
+    if (b.changeType === 'update' && !b.targetWorkflowId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['targetWorkflowId'],
+        message: 'targetWorkflowId is required for an update',
+      });
+    }
+    if (b.targetWorkflowId && !b.previousLimitations?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['previousLimitations'],
+        message: 'previousLimitations is required when replacing a workflow',
+      });
+    }
+  });
+
+export const ApproveWorkflowChangeRequestBody = z.object({
+  reviewNote: z.string().max(2000).optional(),
+});
+
+export const RejectWorkflowChangeRequestBody = z.object({
+  reviewNote: z.string().min(1).max(2000),
 });
 
 // ── Pose schemas ──────────────────────────────────────────────────────────

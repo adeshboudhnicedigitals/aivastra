@@ -6,6 +6,7 @@ import { AppError } from '../../lib/errors.js';
 import { sendAutorefillCapApproachingEmail } from '../../lib/mailer.js';
 import { appLinkFor } from './alert-scheduler.js';
 import { refreshAutorefillState } from './autorefill.js';
+import { loadRuleSet, ruleSetReferencesCollectionTitle } from './funnel-resolution.js';
 import { collectShopperData, type RedactResult, redactShopperData } from './gdpr.js';
 import { defaultFetchPurchase, grantForPurchase, type OneTimePurchaseState } from './purchase.js';
 import { enqueueSync, shopifyAdminFetch, verifyWebhookHmac } from './service.js';
@@ -75,6 +76,7 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
     'products_create',
     'products_update',
     'products_delete',
+    'collections_update',
     'customers_data_request',
     'customers_redact',
     'shop_redact',
@@ -93,6 +95,10 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
       const shopDomain = req.headers['x-shopify-shop-domain'] as string | undefined;
       const payload = JSON.parse(raw.toString() || '{}') as {
         id?: number;
+        // collections_update only — the collection's own title, used to decide
+        // whether this collection is even routing-relevant before doing any
+        // Shopify calls. See the collections_update branch below.
+        title?: string;
         customer?: { id?: number; email?: string };
         // Shopify nests the whole resource one level down under this key —
         // see the app_purchases_one_time_update branch below for why only
@@ -168,6 +174,25 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
                 );
             }
             break;
+          case 'collections_update': {
+            // No membership diff arrives on the payload — just the collection's
+            // current id/title — so relevance is decided by title. The actual
+            // membership resync (mode: 'collection', refreshProducts: true)
+            // diffs current members against the membership cache from just
+            // before this update, so both a product newly added AND one just
+            // removed get their own row refreshed — see the 'collection' mode
+            // branch in products.sync.ts.
+            if (!store || payload.id == null) break;
+            const ruleSet = await loadRuleSet(app, store.id);
+            if (!ruleSetReferencesCollectionTitle(ruleSet, payload.title ?? '')) break;
+            await enqueueSync(app.redis, {
+              storeId: store.id,
+              mode: 'collection',
+              shopifyCollectionId: payload.id,
+              refreshProducts: true,
+            });
+            break;
+          }
           case 'customers_redact': {
             if (store) {
               const result = await redactShopperData(app, store.id, {
@@ -190,14 +215,19 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
                 .where(eq(schema.shopifyStores.id, store.id));
               const result = await redactShopperData(app, store.id, { matchAll: true });
               // Shoppers and job objects are only half of what this webhook is
-              // supposed to purge — shop_email is the shop owner's own PII,
-              // introduced this phase, and was left untouched here. Clear it
-              // along with the alert state that was derived from it, so a
-              // redacted store carries no residual contact info.
+              // supposed to purge — shop_email, shop_owner_name, shop_phone and
+              // shop_address are all the shop owner's own PII (see the schema
+              // comment on shopify_stores.shop_name for why shop_name itself,
+              // the storefront's business name rather than a person's, stays).
+              // Clear them along with the alert state derived from shop_email,
+              // so a redacted store carries no residual contact info.
               await app.db
                 .update(schema.shopifyStores)
                 .set({
                   shopEmail: null,
+                  shopOwnerName: null,
+                  shopPhone: null,
+                  shopAddress: null,
                   lastAlertLevel: null,
                   lastAlertAt: null,
                   // Cleared here only when this pass left nothing behind, so
@@ -409,6 +439,41 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
   }
 }
 
+/**
+ * topic -> delivery address for every per-shop webhook this app registers.
+ * Shared by the install-time registration below and by
+ * `webhook-registration-reconciler.ts`, which re-checks this same set against
+ * what Shopify actually has on file — registration failures here are only
+ * logged, never retried on their own, so that reconciler is what actually
+ * catches a store stuck with a gap.
+ *
+ * GDPR/compliance topics (customers/data_request, customers/redact,
+ * shop/redact) and the three billing topics (app_purchases_one_time/update,
+ * app_subscriptions/update, app_subscriptions/approaching_capped_amount) are
+ * NOT included — Shopify's webhooks.json API rejects at least some of them
+ * with a 404 ("Could not find the webhook topic"), confirmed live for
+ * app_purchases_one_time/update and app_subscriptions/approaching_capped_amount
+ * (app_subscriptions/update happened to be accepted, but is redundant either
+ * way). All six are configured once, app-wide, in Partners → app →
+ * Configuration (or shopify.app*.toml's webhooks.privacy_compliance and
+ * webhooks.subscriptions blocks for CLI-managed apps) — they apply
+ * automatically to every install, no per-shop registration call exists for
+ * them. A prior version of this map included the three billing topics
+ * anyway, so every install silently 404'd on two of them from day one —
+ * exactly the kind of gap this file's registration errors already being
+ * "merely logged" was letting through unnoticed.
+ */
+export function buildWebhookTopicMap(appUrl: string): Record<string, string> {
+  const base = `${appUrl}/v1/shopify/webhooks`;
+  return {
+    'app/uninstalled': `${base}/app_uninstalled`,
+    'products/create': `${base}/products_create`,
+    'products/update': `${base}/products_update`,
+    'products/delete': `${base}/products_delete`,
+    'collections/update': `${base}/collections_update`,
+  };
+}
+
 // Wrapped in fp() (matching every other decorator plugin in this codebase —
 // see plugins/db.ts, plugins/redis.ts, plugins/auth.ts): without it, this would
 // be registered as a plain function and get its own encapsulated child context,
@@ -418,23 +483,7 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
 // chaining, that failure mode is silent (webhook registration just never fires).
 export const registerWebhooksDecorator = fp(async (app: FastifyInstance) => {
   app.decorate('shopifyRegisterWebhooks', async (shop: string, token: string) => {
-    const base = `${app.env.SHOPIFY_APP_URL}/v1/shopify/webhooks`;
-    // GDPR/compliance topics (customers/data_request, customers/redact, shop/redact)
-    // are NOT registered here — Shopify's webhooks.json API rejects them with a 404
-    // ("Could not find the webhook topic"), confirmed live. Those three are
-    // configured once, app-wide, in Partners → app → Configuration →
-    // "Compliance webhooks" (or shopify.app.toml's webhooks.privacy_compliance
-    // for CLI-managed apps) — they apply automatically to every install, no
-    // per-shop registration call exists for them.
-    const map: Record<string, string> = {
-      'app/uninstalled': `${base}/app_uninstalled`,
-      'products/create': `${base}/products_create`,
-      'products/update': `${base}/products_update`,
-      'products/delete': `${base}/products_delete`,
-      'app_purchases_one_time/update': `${base}/app_purchases_one_time_update`,
-      'app_subscriptions/update': `${base}/app_subscriptions_update`,
-      'app_subscriptions/approaching_capped_amount': `${base}/app_subscriptions_approaching_capped_amount`,
-    };
+    const map = buildWebhookTopicMap(app.env.SHOPIFY_APP_URL ?? '');
     for (const [topic, address] of Object.entries(map)) {
       try {
         const res = await shopifyAdminFetch(shop, token, '/webhooks.json', {

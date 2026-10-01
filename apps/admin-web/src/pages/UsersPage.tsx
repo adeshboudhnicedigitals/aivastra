@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { ImageLightbox } from '../components/ImageLightbox';
@@ -123,11 +123,27 @@ export default function UsersPage({ onNav, toast }: Props) {
     setConfirmParams({ confirm: 'bulk-delete-users', confirmId: null });
   const { role: myRole } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(
+    (location.state as { search?: string; filter?: string })?.search ||
+      (location.state as { search?: string; filter?: string })?.filter ||
+      '',
+  );
   const [merchantsOnly, setMerchantsOnly] = useState(false);
+  // Applied filters — these drive load()/handleExport() and the active-filter
+  // chips. The popover edits a separate draft copy so nothing here changes
+  // until "Apply Filters" is clicked.
   const [showBanned, setShowBanned] = useState(false);
   const [planFilter, setPlanFilter] = useState('');
+  const [excludeRoleFilter, setExcludeRoleFilter] = useState('');
+  const [excludeOrgMembers, setExcludeOrgMembers] = useState(false);
+  const [draftShowBanned, setDraftShowBanned] = useState(false);
+  const [draftPlanFilter, setDraftPlanFilter] = useState('');
+  const [draftExcludeRoleFilter, setDraftExcludeRoleFilter] = useState('');
+  const [draftExcludeOrgMembers, setDraftExcludeOrgMembers] = useState(false);
+  const [draftExportFrom, setDraftExportFrom] = useState('');
+  const [draftExportTo, setDraftExportTo] = useState('');
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof User>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -145,6 +161,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [deletingUser, setDeletingUser] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkTaggingOrg, setBulkTaggingOrg] = useState(false);
   const [grantMode, setGrantMode] = useState<'grant' | 'deduct'>('grant');
   const [grantAmount, setGrantAmount] = useState('');
   const [grantReason, setGrantReason] = useState('');
@@ -175,7 +192,8 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [createUserForm, setCreateUserForm] = useState(EMPTY_CREATE_USER_FORM);
   const [creatingUser, setCreatingUser] = useState(false);
   const [createUserError, setCreateUserError] = useState('');
-  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [grantAdminRole, setGrantAdminRole] = useState('ADMIN');
+  const [grantAdminPassword, setGrantAdminPassword] = useState('');
   const [creditActivity, setCreditActivity] = useState<CreditLedgerEntry[]>([]);
   const [creditActivityLoading, setCreditActivityLoading] = useState(false);
   const [showAllCreditActivity, setShowAllCreditActivity] = useState(false);
@@ -224,6 +242,8 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (exportTo) params.set('createdTo', exportTo);
       if (planFilter === PAID_PLAN_FILTER) params.set('excludeFree', 'true');
       else if (planFilter) params.set('tier', planFilter);
+      if (excludeRoleFilter) params.set('excludeAdminRole', excludeRoleFilter);
+      if (excludeOrgMembers) params.set('excludeOrganizationMembers', 'true');
       const data = await apiFetch<{ items: User[]; total: number }>(`/admin/users?${params}`);
       setUsers(data.items);
       setTotal(data.total);
@@ -236,7 +256,18 @@ export default function UsersPage({ onNav, toast }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [page, query, merchantsOnly, showBanned, exportFrom, exportTo, planFilter, toast]);
+  }, [
+    page,
+    query,
+    merchantsOnly,
+    showBanned,
+    exportFrom,
+    exportTo,
+    planFilter,
+    excludeRoleFilter,
+    excludeOrgMembers,
+    toast,
+  ]);
 
   useEffect(() => {
     load();
@@ -270,6 +301,8 @@ export default function UsersPage({ onNav, toast }: Props) {
       if (exportTo) params.set('createdTo', exportTo);
       if (planFilter === PAID_PLAN_FILTER) params.set('excludeFree', 'true');
       else if (planFilter) params.set('tier', planFilter);
+      if (excludeRoleFilter) params.set('excludeAdminRole', excludeRoleFilter);
+      if (excludeOrgMembers) params.set('excludeOrganizationMembers', 'true');
       const blob = await apiFetchBlob(`/admin/users/export.${format}?${params}`);
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -505,7 +538,7 @@ export default function UsersPage({ onNav, toast }: Props) {
     'grant-merchant': 'Grant merchant access',
     'edit-merchant': 'Edit merchant',
     'create-user': 'Create user',
-    'reset-password': 'Reset password',
+    'grant-admin': 'Grant admin access',
   };
   useCrumb(
     2,
@@ -520,7 +553,6 @@ export default function UsersPage({ onNav, toast }: Props) {
   const showGrantMerchant = modalParam === 'grant-merchant';
   const showEditMerchant = modalParam === 'edit-merchant';
   const showCreateUser = modalParam === 'create-user';
-  const resettingPassword = modalParam === 'reset-password';
 
   const handleGrantUnlimitedPlan = async () => {
     if (!detail || !unlimitedPlanForm) return;
@@ -690,6 +722,32 @@ export default function UsersPage({ onNav, toast }: Props) {
     } finally {
       setBulkDeleting(false);
       closeConfirm();
+    }
+  };
+
+  const handleBulkSetOrganization = async (isOrganizationMember: boolean) => {
+    if (selectedUserIds.length === 0) return;
+    setBulkTaggingOrg(true);
+    try {
+      await apiFetch('/admin/users/bulk-set-organization', {
+        method: 'POST',
+        body: JSON.stringify({ ids: selectedUserIds, isOrganizationMember }),
+      });
+      toast({
+        title: `${selectedUserIds.length} user${selectedUserIds.length > 1 ? 's' : ''} ${
+          isOrganizationMember ? 'marked as' : 'removed from'
+        } Organization`,
+      });
+      setSelectedUserIds([]);
+      await load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update organization tag',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkTaggingOrg(false);
     }
   };
 
@@ -990,9 +1048,10 @@ export default function UsersPage({ onNav, toast }: Props) {
     if (
       !createUserForm.username.trim() ||
       !createUserForm.password ||
-      !createUserForm.displayName.trim()
+      !createUserForm.displayName.trim() ||
+      !createUserForm.email.trim()
     ) {
-      setCreateUserError('Username, password, and name are required.');
+      setCreateUserError('Username, password, name, and email are required.');
       return;
     }
     setCreatingUser(true);
@@ -1018,45 +1077,17 @@ export default function UsersPage({ onNav, toast }: Props) {
     }
   }
 
-  async function handleResetPassword(newPassword: string) {
-    if (!detail) return;
-    await apiFetch(`/admin/users/${detail.id}/reset-password`, {
-      method: 'POST',
-      body: JSON.stringify({ newPassword }),
-    });
-    if (detail.isAdmin) {
-      toast({
-        kind: 'warning',
-        title: 'Password reset \u2014 admin panel access not yet updated',
-        body: `${userLabel(detail)} is also an active admin. Use "Sync Admin Password" to update their admin.aivastra.com login too.`,
-      });
-    } else {
-      toast({ title: 'Password reset \u2014 share the new password with the customer' });
-    }
-  }
-
-  async function syncAdminPassword(u: User) {
-    setAdminActioning(true);
-    try {
-      await apiFetch(`/admin/admin-users/${u.id}/sync-password`, { method: 'POST' });
-      toast({ title: `${userLabel(u)}'s admin panel password now matches their account password` });
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Failed to sync admin password',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
-    } finally {
-      setAdminActioning(false);
-    }
-  }
-
-  async function assignAdminRole(u: User, role: string) {
+  // password is the admin-panel-only login password — required by the API when
+  // the account has no password of its own (Google login) to fall back to,
+  // optional otherwise (blank keeps whatever's already on record; set one to
+  // rotate the admin login password on demand, replacing the old separate
+  // "sync admin password" action).
+  async function assignAdminRole(u: User, role: string, password?: string) {
     setAdminActioning(true);
     try {
       await apiFetch('/admin/admin-users', {
         method: 'POST',
-        body: JSON.stringify({ userId: u.id, role }),
+        body: JSON.stringify({ userId: u.id, role, ...(password ? { password } : {}) }),
       });
       setDetail((prev) => prev && { ...prev, isAdmin: true, adminRole: role });
       setUsers((prev) =>
@@ -1119,6 +1150,7 @@ export default function UsersPage({ onNav, toast }: Props) {
             </div>
             <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
               {u.isAdmin && <span className="badge accent">{adminRoleLabel(u.adminRole)}</span>}
+              {u.isOrganizationMember && <span className="badge info">Organization</span>}
               {u.isMerchant && <span className="badge success">Merchant</span>}
               {u.hasShopifyStore && <span className="badge success">Shopify</span>}
               {!u.hasPassword && <span className="badge info">Google account</span>}
@@ -1130,41 +1162,18 @@ export default function UsersPage({ onNav, toast }: Props) {
             </div>
           </div>
           <div className="head-tools">
-            <button
-              className="btn ghost"
-              onClick={() => {
-                setNewPasswordInput('');
-                setModalParam('reset-password');
-              }}
-            >
-              <Icon.Refresh /> Reset Password
-            </button>
-            {isSuperAdmin && u.isAdmin && (
+            {isSuperAdmin && u.adminRole !== 'SUPER_ADMIN' && (
               <button
-                className="btn ghost"
+                className="link"
                 disabled={adminActioning}
-                onClick={() => void syncAdminPassword(u)}
-              >
-                <Icon.Refresh /> Sync Admin Password
-              </button>
-            )}
-            {isSuperAdmin && u.adminRole !== 'SUPER_ADMIN' && (u.isAdmin || u.hasPassword) && (
-              <SearchableSelect
-                options={[
-                  { id: 'NONE', label: 'Not admin' },
-                  { id: 'ADMIN', label: 'Admin' },
-                  { id: 'MODERATOR', label: 'Moderator' },
-                  { id: 'SUPPORT', label: 'Support' },
-                ]}
-                value={u.isAdmin ? (u.adminRole ?? 'ADMIN') : 'NONE'}
-                disabled={adminActioning}
-                onChange={(next) => {
-                  if (next === 'NONE') void revokeAdminRole(u);
-                  else void assignAdminRole(u, next);
+                onClick={() => {
+                  setGrantAdminRole(u.adminRole ?? 'ADMIN');
+                  setGrantAdminPassword('');
+                  setModalParam('grant-admin');
                 }}
-                ariaLabel="Admin role"
-                style={{ width: 'auto', height: 36 }}
-              />
+              >
+                <Icon.Check /> {u.isAdmin ? adminRoleLabel(u.adminRole) : 'Grant admin'}
+              </button>
             )}
             {!u.isAdmin && (
               <button className="btn danger" onClick={openConfirmSuspend}>
@@ -1493,29 +1502,101 @@ export default function UsersPage({ onNav, toast }: Props) {
           </>
         )}
 
-        {resettingPassword && (
-          <EditDrawer
-            onClose={closeModal}
-            title="Reset Password"
-            width="min(420px, calc(100vw - 40px))"
-            onSave={async () => {
-              await handleResetPassword(newPasswordInput);
-              closeModal();
-            }}
-            saveLabel="Reset Password"
-            saveDisabled={!newPasswordInput}
-          >
-            <div className="field">
-              <label>New password</label>
-              <input
-                className="input"
-                type="password"
-                value={newPasswordInput}
-                onChange={(e) => setNewPasswordInput(e.target.value)}
-                placeholder="At least 8 characters with a letter and number"
-              />
+        {modalParam === 'grant-admin' && (
+          <div className="modal-overlay" onClick={adminActioning ? undefined : closeModal}>
+            <div
+              className="modal"
+              onClick={(e) => e.stopPropagation()}
+              style={{ width: 'min(460px, calc(100vw - 40px))' }}
+            >
+              <div className="modal-head">
+                <h3>Grant admin access</h3>
+                <button
+                  className="btn sm ghost"
+                  onClick={closeModal}
+                  disabled={adminActioning}
+                  style={{ marginLeft: 'auto' }}
+                >
+                  <Icon.Close />
+                </button>
+              </div>
+              <div
+                className="modal-body"
+                style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+              >
+                <div className="field">
+                  <label>Role</label>
+                  <SearchableSelect
+                    options={[
+                      { id: 'ADMIN', label: 'Admin' },
+                      { id: 'MODERATOR', label: 'Moderator' },
+                      { id: 'SUPPORT', label: 'Support' },
+                    ]}
+                    value={grantAdminRole}
+                    disabled={adminActioning}
+                    onChange={setGrantAdminRole}
+                    ariaLabel="Role"
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    Admin login password{' '}
+                    {u.hasPassword
+                      ? '(optional — leave blank to keep the current one)'
+                      : '(required — Google account, no password)'}
+                  </label>
+                  <input
+                    className="input"
+                    type="password"
+                    value={grantAdminPassword}
+                    disabled={adminActioning}
+                    onChange={(e) => setGrantAdminPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                  />
+                  <span
+                    style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'block' }}
+                  >
+                    This is a separate password used only for the admin panel login — it isn't the
+                    same as {u.email}'s regular account password.
+                  </span>
+                </div>
+              </div>
+              <div className="modal-foot">
+                {u.isAdmin && (
+                  <button
+                    className="link"
+                    style={{ color: 'var(--danger)', marginRight: 'auto' }}
+                    disabled={adminActioning}
+                    onClick={async () => {
+                      await revokeAdminRole(u);
+                      closeModal();
+                    }}
+                  >
+                    Revoke admin access
+                  </button>
+                )}
+                <button className="btn ghost" onClick={closeModal} disabled={adminActioning}>
+                  Cancel
+                </button>
+                <button
+                  className="btn primary"
+                  disabled={
+                    adminActioning || (!u.hasPassword && grantAdminPassword.trim().length < 8)
+                  }
+                  onClick={async () => {
+                    await assignAdminRole(
+                      u,
+                      grantAdminRole,
+                      grantAdminPassword.trim() || undefined,
+                    );
+                    closeModal();
+                  }}
+                >
+                  {adminActioning ? 'Granting…' : 'Grant admin'}
+                </button>
+              </div>
             </div>
-          </EditDrawer>
+          </div>
         )}
 
         {jobPreviewId && (
@@ -2231,7 +2312,14 @@ export default function UsersPage({ onNav, toast }: Props) {
   }
 
   const hasActiveFilters = Boolean(
-    query || merchantsOnly || showBanned || exportFrom || exportTo || planFilter,
+    query ||
+      merchantsOnly ||
+      showBanned ||
+      exportFrom ||
+      exportTo ||
+      planFilter ||
+      excludeRoleFilter ||
+      excludeOrgMembers,
   );
   const clearFilters = () => {
     setQuery('');
@@ -2240,6 +2328,14 @@ export default function UsersPage({ onNav, toast }: Props) {
     setExportFrom('');
     setExportTo('');
     setPlanFilter('');
+    setExcludeRoleFilter('');
+    setExcludeOrgMembers(false);
+    setDraftShowBanned(false);
+    setDraftExportFrom('');
+    setDraftExportTo('');
+    setDraftPlanFilter('');
+    setDraftExcludeRoleFilter('');
+    setDraftExcludeOrgMembers(false);
     setPage(0);
   };
 
@@ -2311,13 +2407,31 @@ export default function UsersPage({ onNav, toast }: Props) {
           <div ref={menuRef} className="filter-popover-wrapper">
             <button
               type="button"
-              className={`filter-toggle-btn ${menuOpen || showBanned || exportFrom || exportTo || planFilter ? 'active' : ''}`}
-              onClick={() => setMenuOpen(!menuOpen)}
+              className={`filter-toggle-btn ${menuOpen || showBanned || exportFrom || exportTo || planFilter || excludeRoleFilter || excludeOrgMembers ? 'active' : ''}`}
+              onClick={() => {
+                if (!menuOpen) {
+                  // Opening — seed the draft with whatever's currently applied,
+                  // so reopening after an Apply (or a chip removal) doesn't show
+                  // stale, already-abandoned selections.
+                  setDraftShowBanned(showBanned);
+                  setDraftPlanFilter(planFilter);
+                  setDraftExcludeRoleFilter(excludeRoleFilter);
+                  setDraftExcludeOrgMembers(excludeOrgMembers);
+                  setDraftExportFrom(exportFrom);
+                  setDraftExportTo(exportTo);
+                }
+                setMenuOpen(!menuOpen);
+              }}
               title="Filters & Export options"
             >
               <Icon.Filter />
               <span>Options</span>
-              {(showBanned || exportFrom || exportTo || planFilter) && (
+              {(showBanned ||
+                exportFrom ||
+                exportTo ||
+                planFilter ||
+                excludeRoleFilter ||
+                excludeOrgMembers) && (
                 <span
                   style={{
                     width: 6,
@@ -2353,11 +2467,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                       <input
                         type="date"
                         className="filter-input"
-                        value={exportFrom}
-                        onChange={(e) => {
-                          setExportFrom(e.target.value);
-                          setPage(0);
-                        }}
+                        value={draftExportFrom}
+                        onChange={(e) => setDraftExportFrom(e.target.value)}
                         style={{ flex: 1, height: 32, fontSize: 12 }}
                       />
                     </div>
@@ -2366,11 +2477,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                       <input
                         type="date"
                         className="filter-input"
-                        value={exportTo}
-                        onChange={(e) => {
-                          setExportTo(e.target.value);
-                          setPage(0);
-                        }}
+                        value={draftExportTo}
+                        onChange={(e) => setDraftExportTo(e.target.value)}
                         style={{ flex: 1, height: 32, fontSize: 12 }}
                       />
                     </div>
@@ -2399,14 +2507,89 @@ export default function UsersPage({ onNav, toast }: Props) {
                       { id: PAID_PLAN_FILTER, label: 'Any paid plan' },
                       ...tierOptions.map((slug) => ({ id: slug, label: slug })),
                     ]}
-                    value={planFilter}
-                    onChange={(v) => {
-                      setPlanFilter(v);
-                      setPage(0);
-                    }}
+                    value={draftPlanFilter}
+                    onChange={(v) => setDraftPlanFilter(v)}
                     emptyLabel="All plans"
                     style={{ width: '100%', height: 32, fontSize: 12.5 }}
                   />
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* Exclude Admin Role — e.g. "any paid plan" + "exclude Support"
+                    surfaces paid clients without internal staff whose own
+                    account happens to carry a paid tier. */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Exclude Admin Role
+                  </span>
+                  <SearchableSelect
+                    options={[
+                      { id: 'ALL', label: 'All (any admin role)' },
+                      { id: 'SUPER_ADMIN', label: 'Super Admin' },
+                      { id: 'ADMIN', label: 'Admin' },
+                      { id: 'MODERATOR', label: 'Moderator' },
+                      { id: 'SUPPORT', label: 'Support' },
+                    ]}
+                    value={draftExcludeRoleFilter}
+                    onChange={(v) => setDraftExcludeRoleFilter(v)}
+                    emptyLabel="Don't exclude anyone"
+                    style={{ width: '100%', height: 32, fontSize: 12.5 }}
+                  />
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* Exclude Organization Members — a plain data tag (see the bulk
+                    "Mark as Organization" action below the table), unrelated to
+                    admin_users roles: excludes internal team accounts from
+                    client-facing lists/exports without needing a real admin grant. */}
+                <div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Organization
+                  </span>
+                  <button
+                    type="button"
+                    className={`filter-toggle-btn ${draftExcludeOrgMembers ? 'active' : ''}`}
+                    onClick={() => setDraftExcludeOrgMembers(!draftExcludeOrgMembers)}
+                    style={{
+                      width: '100%',
+                      justifyContent: 'flex-start',
+                      height: 32,
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: draftExcludeOrgMembers ? 'var(--accent)' : 'var(--muted)',
+                        display: 'inline-block',
+                      }}
+                    />
+                    Exclude organization members
+                  </button>
                 </div>
 
                 <div style={{ borderTop: '1px solid var(--border)' }} />
@@ -2428,11 +2611,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                   </span>
                   <button
                     type="button"
-                    className={`filter-toggle-btn ${showBanned ? 'active' : ''}`}
-                    onClick={() => {
-                      setShowBanned(!showBanned);
-                      setPage(0);
-                    }}
+                    className={`filter-toggle-btn ${draftShowBanned ? 'active' : ''}`}
+                    onClick={() => setDraftShowBanned(!draftShowBanned)}
                     style={{
                       width: '100%',
                       justifyContent: 'flex-start',
@@ -2445,13 +2625,35 @@ export default function UsersPage({ onNav, toast }: Props) {
                         width: 6,
                         height: 6,
                         borderRadius: '50%',
-                        background: showBanned ? 'var(--accent)' : 'var(--muted)',
+                        background: draftShowBanned ? 'var(--accent)' : 'var(--muted)',
                         display: 'inline-block',
                       }}
                     />
                     Show suspended/deleted
                   </button>
                 </div>
+
+                <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                {/* Apply — nothing above changes the table/exports until this
+                    is clicked, so multiple filters can be set at once. */}
+                <button
+                  type="button"
+                  className="btn primary sm"
+                  style={{ width: '100%', justifyContent: 'center', height: 36 }}
+                  onClick={() => {
+                    setShowBanned(draftShowBanned);
+                    setPlanFilter(draftPlanFilter);
+                    setExcludeRoleFilter(draftExcludeRoleFilter);
+                    setExcludeOrgMembers(draftExcludeOrgMembers);
+                    setExportFrom(draftExportFrom);
+                    setExportTo(draftExportTo);
+                    setPage(0);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Apply Filters
+                </button>
 
                 <div style={{ borderTop: '1px solid var(--border)' }} />
 
@@ -2571,6 +2773,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                   className="filter-chip-remove"
                   onClick={() => {
                     setShowBanned(false);
+                    setDraftShowBanned(false);
                     setPage(0);
                   }}
                 >
@@ -2590,6 +2793,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                   onClick={() => {
                     setExportFrom('');
                     setExportTo('');
+                    setDraftExportFrom('');
+                    setDraftExportTo('');
                     setPage(0);
                   }}
                 >
@@ -2608,6 +2813,42 @@ export default function UsersPage({ onNav, toast }: Props) {
                   className="filter-chip-remove"
                   onClick={() => {
                     setPlanFilter('');
+                    setDraftPlanFilter('');
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {excludeRoleFilter && (
+              <span className="filter-chip">
+                Excluding:{' '}
+                <strong>
+                  {excludeRoleFilter === 'ALL' ? 'All admins' : adminRoleLabel(excludeRoleFilter)}
+                </strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setExcludeRoleFilter('');
+                    setDraftExcludeRoleFilter('');
+                    setPage(0);
+                  }}
+                >
+                  <Icon.Close />
+                </button>
+              </span>
+            )}
+            {excludeOrgMembers && (
+              <span className="filter-chip">
+                Filter: <strong>Excluding organization members</strong>
+                <button
+                  type="button"
+                  className="filter-chip-remove"
+                  onClick={() => {
+                    setExcludeOrgMembers(false);
+                    setDraftExcludeOrgMembers(false);
                     setPage(0);
                   }}
                 >
@@ -2661,6 +2902,23 @@ export default function UsersPage({ onNav, toast }: Props) {
                     onClick={() => setSelectedUserIds([])}
                   >
                     Clear selection
+                  </button>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    disabled={bulkTaggingOrg}
+                    onClick={() => void handleBulkSetOrganization(true)}
+                    title="Tag as internal team accounts — no admin login or permissions granted, just excludes them from client-facing lists/exports"
+                  >
+                    Mark as Organization
+                  </button>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    disabled={bulkTaggingOrg}
+                    onClick={() => void handleBulkSetOrganization(false)}
+                  >
+                    Remove from Organization
                   </button>
                   {isSuperAdmin && (
                     <button
@@ -2968,8 +3226,8 @@ export default function UsersPage({ onNav, toast }: Props) {
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
-              Give the account a username and password now. Email and phone are optional here — the
-              customer will be prompted to add them the first time they log in.
+              Username, password, name, and email are all required. Phone is optional — the customer
+              can add it the first time they log in.
             </p>
             {createUserError && (
               <div className="banner warn">
@@ -3002,25 +3260,22 @@ export default function UsersPage({ onNav, toast }: Props) {
                 onChange={(e) => setCreateUserForm((f) => ({ ...f, displayName: e.target.value }))}
               />
             </div>
-            <div className="field-row">
-              <div className="field">
-                <label>Email</label>
-                <input
-                  className="input"
-                  value={createUserForm.email}
-                  onChange={(e) => setCreateUserForm((f) => ({ ...f, email: e.target.value }))}
-                  placeholder="Optional"
-                />
-              </div>
-              <div className="field">
-                <label>Phone</label>
-                <input
-                  className="input"
-                  value={createUserForm.phone}
-                  onChange={(e) => setCreateUserForm((f) => ({ ...f, phone: e.target.value }))}
-                  placeholder="Optional — 10-digit mobile number"
-                />
-              </div>
+            <div className="field">
+              <label>Email</label>
+              <input
+                className="input"
+                value={createUserForm.email}
+                onChange={(e) => setCreateUserForm((f) => ({ ...f, email: e.target.value }))}
+              />
+            </div>
+            <div className="field">
+              <label>Phone</label>
+              <input
+                className="input"
+                value={createUserForm.phone}
+                onChange={(e) => setCreateUserForm((f) => ({ ...f, phone: e.target.value }))}
+                placeholder="Optional — 10-digit mobile number"
+              />
             </div>
           </div>
         </EditDrawer>

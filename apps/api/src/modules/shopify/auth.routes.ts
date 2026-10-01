@@ -63,6 +63,10 @@ export async function upsertShopifyStore(
           scope,
           ianaTimezone: shop.ianaTimezone ?? null,
           shopEmail: shop.email,
+          shopName: shop.name ?? null,
+          shopOwnerName: shop.shopOwner ?? null,
+          shopPhone: shop.phone ?? null,
+          shopAddress: shop.address || null,
           allowedOrigins: origins,
           // Refreshed rather than left at the install-time value: a store can
           // stop being a development store (a partner transfers it to a real
@@ -87,6 +91,10 @@ export async function upsertShopifyStore(
         scope,
         ianaTimezone: shop.ianaTimezone ?? null,
         shopEmail: shop.email,
+        shopName: shop.name ?? null,
+        shopOwnerName: shop.shopOwner ?? null,
+        shopPhone: shop.phone ?? null,
+        shopAddress: shop.address || null,
         allowedOrigins: origins,
         partnerDevelopment: shop.partnerDevelopment,
       })

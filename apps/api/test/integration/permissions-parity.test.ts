@@ -157,22 +157,60 @@ describe('permissions parity test across all 4 admin roles', () => {
     expect(supportRes.statusCode).toBe(403);
   });
 
-  it('workflows write (workflows.write): SUPER_ADMIN, MODERATOR allowed; ADMIN, SUPPORT forbidden', async () => {
-    for (const auth of [superAuth, modAuth]) {
+  // MODERATOR lost direct workflows.write when the propose->approve queue shipped
+  // (workflow_change_requests) — it, like ADMIN, can now only reach
+  // workflow_templates through a change request that a SUPER_ADMIN approves. See
+  // migration 0205_curvy_sersi and test/integration/workflow-change-requests.test.ts.
+  it('workflows write (workflows.write): only SUPER_ADMIN allowed; ADMIN, MODERATOR, SUPPORT forbidden', async () => {
+    const superRes = await app.inject({
+      method: 'DELETE',
+      url: '/admin/workflows/00000000-0000-0000-0000-000000000000',
+      headers: superAuth,
+    });
+    // Not 403 (will be 404 because ID doesn't exist)
+    expect(superRes.statusCode).not.toBe(403);
+
+    for (const auth of [adminAuth, modAuth, supportAuth]) {
       const res = await app.inject({
         method: 'DELETE',
         url: '/admin/workflows/00000000-0000-0000-0000-000000000000',
         headers: auth,
       });
-      // Not 403 (will be 404 because ID doesn't exist)
-      expect(res.statusCode).not.toBe(403);
+      expect(res.statusCode).toBe(403);
     }
+  });
 
-    for (const auth of [adminAuth, supportAuth]) {
+  it('workflow change requests (workflow_change_requests.propose/.review): SUPER_ADMIN, MODERATOR, ADMIN can propose; only SUPER_ADMIN can review', async () => {
+    for (const auth of [superAuth, modAuth, adminAuth]) {
       const res = await app.inject({
-        method: 'DELETE',
-        url: '/admin/workflows/00000000-0000-0000-0000-000000000000',
+        method: 'GET',
+        url: '/admin/workflow-change-requests',
         headers: auth,
+      });
+      expect(res.statusCode).toBe(200);
+    }
+    const supportListRes = await app.inject({
+      method: 'GET',
+      url: '/admin/workflow-change-requests',
+      headers: supportAuth,
+    });
+    expect(supportListRes.statusCode).toBe(403);
+
+    const superApproveRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflow-change-requests/00000000-0000-0000-0000-000000000000/approve',
+      headers: superAuth,
+      payload: {},
+    });
+    // Not 403 (will be 404 because the id doesn't exist)
+    expect(superApproveRes.statusCode).not.toBe(403);
+
+    for (const auth of [adminAuth, modAuth, supportAuth]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/admin/workflow-change-requests/00000000-0000-0000-0000-000000000000/approve',
+        headers: auth,
+        payload: {},
       });
       expect(res.statusCode).toBe(403);
     }

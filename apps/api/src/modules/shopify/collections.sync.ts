@@ -131,7 +131,7 @@ export async function syncCollectionMembership(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
   shopifyCollectionId: number,
-): Promise<{ title: string; productCount: number }> {
+): Promise<{ title: string; productCount: number; productIds: number[] }> {
   const token = await getValidAccessToken(app, store);
   const { title, productIds } = await fetchCollectionTitleAndMembers(
     store.shopDomain,
@@ -168,7 +168,7 @@ export async function syncCollectionMembership(
     }
   });
 
-  return { title, productCount: productIds.length };
+  return { title, productCount: productIds.length, productIds };
 }
 
 /**

@@ -3,6 +3,33 @@
     return;
   }
 
+  // Onboarding topbar's Support dropdown (render_onboarding_connect()) — a
+  // native <details> already toggles open/closed on its own summary click;
+  // this only adds the outside-click and Escape closing a floating menu is
+  // expected to have on top of that. No-ops on any other page, where the
+  // element doesn't exist.
+  var supportMenu = document.querySelector('.aivastra-topbar-support');
+  if (supportMenu) {
+    document.addEventListener('click', function (event) {
+      if (supportMenu.open && !supportMenu.contains(event.target)) {
+        supportMenu.open = false;
+      }
+    });
+    supportMenu.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') {
+        supportMenu.open = false;
+        supportMenu.querySelector('summary').focus();
+      }
+    });
+    // Picking "Start a chat" opens the modal (wired below); close the menu
+    // itself so it isn't left open behind it.
+    supportMenu.addEventListener('click', function (event) {
+      if (event.target.closest('.aivastra-start-chat-trigger')) {
+        supportMenu.open = false;
+      }
+    });
+  }
+
   var STATUS_COPY = {
     CONNECTING: 'Connecting…',
     OPEN: 'Connected',
@@ -11,7 +38,12 @@
     CLOSED: 'Chat closed',
   };
 
-  var startBtn = document.getElementById('aivastra-start-chat');
+  // A class, not one id: the same modal now has three possible triggers on
+  // one page — the app header's "Get Support" button (every connected tab),
+  // the Support tab's own "Start a chat" card, and the onboarding topbar's
+  // Support dropdown — and a page can render more than one of them at once
+  // (e.g. the Support tab shows both its own card and the header button).
+  var startBtns = document.querySelectorAll('.aivastra-start-chat-trigger');
   var modal = document.getElementById('aivastra-chat-modal');
   var statusEl = document.getElementById('aivastra-chat-status');
   var errorEl = document.getElementById('aivastra-chat-error');
@@ -19,7 +51,7 @@
   var composer = document.getElementById('aivastra-chat-composer');
   var input = document.getElementById('aivastra-chat-input');
 
-  if (!startBtn || !modal) {
+  if (!startBtns.length || !modal) {
     return;
   }
 
@@ -185,7 +217,9 @@
     disconnect();
   }
 
-  startBtn.addEventListener('click', openModal);
+  startBtns.forEach((btn) => {
+    btn.addEventListener('click', openModal);
+  });
   modal.querySelectorAll('[data-aivastra-chat-close]').forEach((el) => {
     el.addEventListener('click', closeModal);
   });

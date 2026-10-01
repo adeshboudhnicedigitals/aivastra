@@ -438,7 +438,48 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
     );
     const shopifyCollectionId = task.shopifyCollectionId;
     try {
-      await syncCollectionMembership(app, store, shopifyCollectionId);
+      // Read BEFORE syncCollectionMembership overwrites it (delete+reinsert) —
+      // this is the only place the pre-change membership is still visible, and
+      // it's what lets refreshProducts below catch a product that just left the
+      // collection, not only ones currently in it.
+      const previousMemberRows = task.refreshProducts
+        ? await app.db
+            .select({ shopifyProductId: schema.shopifyCollectionProducts.shopifyProductId })
+            .from(schema.shopifyCollectionProducts)
+            .where(
+              and(
+                eq(schema.shopifyCollectionProducts.storeId, store.id),
+                eq(schema.shopifyCollectionProducts.shopifyCollectionId, shopifyCollectionId),
+              ),
+            )
+        : [];
+
+      const { productIds } = await syncCollectionMembership(app, store, shopifyCollectionId);
+
+      // Only for the collections/update webhook path (see SyncTask.refreshProducts).
+      // syncCollectionMembership above already refreshed shopify_collection_products;
+      // this is what refreshes each affected member's OWN
+      // shopify_product_garments.collections title array — the field routing
+      // (funnel-resolution.ts) actually reads. Refreshing the symmetric
+      // difference (previous membership vs current membership), not just
+      // current members, is what catches a product that was just REMOVED —
+      // it won't be in productIds, but it will be in previousMemberRows, so
+      // its own row still gets re-fetched and its stale collection title
+      // cleared. A member unchanged by this event is skipped: its own row
+      // already reflects this collection correctly.
+      if (task.refreshProducts) {
+        const currentIds = new Set(productIds);
+        const previousIds = new Set(previousMemberRows.map((r) => r.shopifyProductId));
+        const toRefresh = new Set(
+          [...currentIds, ...previousIds].filter(
+            (id) => currentIds.has(id) !== previousIds.has(id),
+          ),
+        );
+        for (const productId of toRefresh) {
+          await fetchAndSyncOneProduct(productId);
+          await new Promise((r) => setTimeout(r, 300)); // throttle, same cadence as elsewhere in this file
+        }
+      }
     } catch (err) {
       if (err instanceof CollectionNotFoundError) {
         // Confirmed deleted on Shopify's side — the selection itself is

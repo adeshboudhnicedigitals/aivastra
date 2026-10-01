@@ -68,8 +68,8 @@ export default function CatalogVideoPage(): React.ReactElement {
 
   async function handleUpload(file: File) {
     if (uploading) return;
-    if (file.size > 10 * 1024 * 1024) {
-      setUploadError('File exceeds 10 MB. Please choose a smaller image.');
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadError('File exceeds 20 MB. Please choose a smaller image.');
       return;
     }
     if (!(await isSupportedImageBytes(file))) {

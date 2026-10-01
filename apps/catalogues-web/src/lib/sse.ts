@@ -25,6 +25,14 @@ export interface SSEConnection {
 
 export type SSEState = 'connecting' | 'connected' | 'reconnecting';
 
+/** Token source for a connection — defaults to the main site's session (lib/api.ts). */
+export interface SSEAuth {
+  getToken(): string | null;
+  refresh(): Promise<string | null>;
+}
+
+const MAIN_SITE_AUTH: SSEAuth = { getToken, refresh: tryRefresh };
+
 function parseSSEBlocks<T>(text: string, onEvent: (e: SSEEvent<T>) => void): void {
   for (const block of text.split('\n\n')) {
     let eventType = 'message';
@@ -48,6 +56,7 @@ export function createSSEConnection<T = unknown>(
   onEvent: (e: SSEEvent<T>) => void,
   onError?: (err: Error) => void,
   onStateChange?: (state: SSEState) => void,
+  auth: SSEAuth = MAIN_SITE_AUTH,
 ): SSEConnection {
   let closed = false;
   let controller: AbortController | null = null;
@@ -61,9 +70,9 @@ export function createSSEConnection<T = unknown>(
     controller = new AbortController();
 
     try {
-      let token = getToken();
+      let token = auth.getToken();
       if (!token) {
-        token = await tryRefresh();
+        token = await auth.refresh();
       }
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;
@@ -75,7 +84,7 @@ export function createSSEConnection<T = unknown>(
       });
 
       if (res.status === 401) {
-        token = await tryRefresh();
+        token = await auth.refresh();
         if (!token) {
           // Session expired — stop reconnecting, redirect handled by app
           closed = true;

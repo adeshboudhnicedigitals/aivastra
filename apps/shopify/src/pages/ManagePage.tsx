@@ -85,6 +85,12 @@ const BASKET_SOURCE_TONE: Record<BasketSource, 'success' | 'info'> = {
   rule: 'info',
 };
 
+interface ProductSyncStatus {
+  state: 'running' | 'idle';
+  startedAt: number;
+  completedAt: number | null;
+}
+
 interface ActivationSummary {
   mode: 'global' | 'selective';
   counts: {
@@ -984,11 +990,27 @@ export default function ManagePage() {
   // marks any product Shopify no longer returns as deleted. Nothing extra to
   // wire up here: this button already enqueues a 'full' sync task, which is
   // the same path.
+  //
+  // The POST only enqueues — the actual sync runs in a background consumer
+  // and can take well past a single refetch's worth of time (throttled
+  // Shopify calls, paginated). Refetching right after the 202 used to show
+  // stale data until a later manual page reload happened to land after the
+  // background job finished. Polling /sync/status until it reports 'idle'
+  // is what makes the button's own refetch trustworthy.
   async function syncProducts() {
     setSyncing(true);
     setError(null);
     try {
       await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
+
+      const pollIntervalMs = 1500;
+      const maxAttempts = 120; // ~3 minutes — generous over any full sync seen in practice
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+        const status = await apiFetch<ProductSyncStatus>('/v1/shopify/products/sync/status');
+        if (status.state === 'idle') break;
+      }
+
       setToastMessage('Products synced from Shopify.');
       loadSummary();
       setRefreshToken((t) => t + 1);

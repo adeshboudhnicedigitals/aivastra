@@ -1,5 +1,6 @@
 import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
+import { JOB_SOURCE } from '@aivastra/types';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
@@ -109,6 +110,10 @@ describe('merchant widget job — result uploaded as WebP q90', () => {
       customerPhotoKey,
       status: 'QUEUED',
       creditsCharged: 2,
+      // Real merchant-widget jobs get this set by create-tryon-job.ts; the
+      // per-job-type compression config keys off it, so it must be seeded
+      // here too or getImageCompressionConfig falls back to uncompressed PNG.
+      source: JOB_SOURCE.MERCHANT_TRYON,
     }).returning();
     if (!job) throw new Error('failed to seed job');
 

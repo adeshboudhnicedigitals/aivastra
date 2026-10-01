@@ -154,6 +154,12 @@ jobs:
     needs: [detect]
     # See lint's comment — skip on push, already validated at PR time.
     if: needs.detect.outputs.has_tests == 'true' && github.event_name != 'push'
+    # Job-level `permissions` replaces the default token scope entirely, so
+    # `contents: read` has to be listed alongside `packages: read` or
+    # actions/checkout below loses its read access.
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -182,6 +188,19 @@ jobs:
           pnpm --filter @aivastra/storage build
           pnpm --filter @aivastra/observability build
 
+      # quay.io withdrew anonymous pulls for minio/minio and minio/mc (both
+      # Docker Hub and quay.io have now locked the images down — see the
+      # infra/docker-compose.yml minio comment) — GITHUB_TOKEN reads the
+      # private ghcr.io mirror instead. The token is scoped to this run only
+      # (packages: read above) and needs the repo added under each package's
+      # "Manage Actions access" or the pull below still gets refused.
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # Both suites use apps/api/test/helpers/containers.ts, which provisions a
       # fresh database and bucket against these services on localhost.
       - name: Start test infra (Postgres, Redis, MinIO)
@@ -195,6 +214,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [detect]
+    # See test's comment — contents: read has to be listed alongside
+    # packages: read or the job-level override drops checkout's access.
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -233,6 +257,15 @@ jobs:
           pnpm --filter @aivastra/logger build
           pnpm --filter @aivastra/storage build
           pnpm --filter @aivastra/observability build
+
+      # See test's comment — private ghcr.io mirror, quay.io withdrew anonymous pulls.
+      - name: Log in to GHCR
+        if: contains(needs.detect.outputs.test_targets, matrix.package) && github.event_name != 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Same fresh-DB-per-file harness as the unit job (apps/api/test/helpers/containers.ts).
       - name: Start test infra (Postgres, Redis, MinIO)

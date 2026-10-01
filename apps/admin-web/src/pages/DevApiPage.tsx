@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { WorkflowOption } from '../types';
 
@@ -79,11 +82,13 @@ export default function DevApiPage({ toast }: Props) {
   // Public catalog: one-time bulk opt-in for existing assets + manual cache trigger.
   const [backfilling, setBackfilling] = useState(false);
   const [rebuildingCache, setRebuildingCache] = useState(false);
-  const [confirmingBackfill, setConfirmingBackfill] = useState(false);
 
-  // Category modal state
-  const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
-  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  // Category modal state — one shared enum since create/edit are mutually exclusive.
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModalOverlay = useCloseOverlay(['modal', 'editId']);
+  const modalMode: 'create' | 'edit' | null =
+    modalParam === 'create' || modalParam === 'edit' ? modalParam : null;
+  const editingCategoryId = modalMode === 'edit' ? editId : null;
   const [formName, setFormName] = useState('');
   const [formSlug, setFormSlug] = useState('');
   const [formWorkflowId, setFormWorkflowId] = useState('');
@@ -92,8 +97,14 @@ export default function DevApiPage({ toast }: Props) {
   const [formSaving, setFormSaving] = useState(false);
   const [slugEdited, setSlugEdited] = useState(false);
 
-  // Delete category confirm
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Delete category confirm + backfill confirm — one shared enum, mutually exclusive.
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirmOverlay = useCloseOverlay(['confirm', 'confirmId']);
+  const deletingId = confirmParam === 'delete-category' ? confirmId : null;
+  const confirmingBackfill = confirmParam === 'backfill-slugs';
   const [deleteConfirming, setDeleteConfirming] = useState(false);
 
   // Dev tryon categories point at 'tryon' workflows, same as internal tryon_categories.
@@ -135,8 +146,7 @@ export default function DevApiPage({ toast }: Props) {
     setFormSortOrder(categories.length);
     setFormIsActive(true);
     setSlugEdited(false);
-    setEditingCategoryId(null);
-    setModalMode('create');
+    setModalParams({ modal: 'create', editId: null });
   };
 
   const openEdit = (cat: DevTryonCategory) => {
@@ -146,14 +156,12 @@ export default function DevApiPage({ toast }: Props) {
     setFormSortOrder(cat.sortOrder);
     setFormIsActive(cat.isActive);
     setSlugEdited(true);
-    setEditingCategoryId(cat.id);
-    setModalMode('edit');
+    setModalParams({ modal: 'edit', editId: cat.id });
   };
 
   const closeModal = () => {
     if (formSaving) return;
-    setModalMode(null);
-    setEditingCategoryId(null);
+    closeModalOverlay();
   };
 
   const handleNameChange = (value: string) => {
@@ -180,8 +188,7 @@ export default function DevApiPage({ toast }: Props) {
         });
         setCategories((prev) => [...prev, created]);
         toast({ title: `Category "${created.name}" created` });
-        setModalMode(null);
-        setEditingCategoryId(null);
+        closeModalOverlay();
       } else if (modalMode === 'edit' && editingCategoryId) {
         const updated = await apiFetch<DevTryonCategory>(
           `/admin/dev-api/tryon-categories/${editingCategoryId}`,
@@ -197,8 +204,7 @@ export default function DevApiPage({ toast }: Props) {
         );
         setCategories((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
         toast({ title: `Category "${updated.name}" updated` });
-        setModalMode(null);
-        setEditingCategoryId(null);
+        closeModalOverlay();
       }
     } catch (e) {
       // Surface the real backend message (e.g. 409 duplicate slug) — never a generic toast.
@@ -225,7 +231,7 @@ export default function DevApiPage({ toast }: Props) {
         body: e instanceof Error ? e.message : String(e),
       });
     } finally {
-      setDeletingId(null);
+      closeConfirmOverlay();
       setDeleteConfirming(false);
     }
   };
@@ -273,7 +279,7 @@ export default function DevApiPage({ toast }: Props) {
   };
 
   const handleBackfillSlugs = async () => {
-    setConfirmingBackfill(false);
+    closeConfirmOverlay();
     setBackfilling(true);
     try {
       const res = await apiFetch<BackfillResponse>('/admin/dev-api/catalog/backfill-slugs', {
@@ -300,6 +306,25 @@ export default function DevApiPage({ toast }: Props) {
   };
 
   const deletingCategory = deletingId ? categories.find((c) => c.id === deletingId) : null;
+
+  useCrumb(
+    0,
+    confirmParam
+      ? {
+          label: confirmParam === 'backfill-slugs' ? 'Backfill public slugs' : 'Delete category',
+          href: `/dev-api?confirm=${confirmParam}${confirmId ? `&confirmId=${encodeURIComponent(confirmId)}` : ''}`,
+        }
+      : null,
+  );
+  useCrumb(
+    1,
+    modalMode
+      ? {
+          label: modalMode === 'create' ? 'Add category' : 'Edit category',
+          href: `/dev-api?modal=${modalMode}${editId ? `&editId=${encodeURIComponent(editId)}` : ''}`,
+        }
+      : null,
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -439,7 +464,9 @@ export default function DevApiPage({ toast }: Props) {
                   <button
                     className="btn sm ghost"
                     style={{ color: 'var(--danger)', marginLeft: 'auto' }}
-                    onClick={() => setDeletingId(cat.id)}
+                    onClick={() =>
+                      setConfirmParams({ confirm: 'delete-category', confirmId: cat.id })
+                    }
                     title="Delete category"
                   >
                     <Icon.Trash />
@@ -467,7 +494,7 @@ export default function DevApiPage({ toast }: Props) {
           <button
             className="btn primary"
             disabled={backfilling}
-            onClick={() => setConfirmingBackfill(true)}
+            onClick={() => setConfirmParams({ confirm: 'backfill-slugs', confirmId: null })}
           >
             {backfilling ? 'Publishing…' : 'Backfill public slugs'}
           </button>
@@ -479,10 +506,7 @@ export default function DevApiPage({ toast }: Props) {
 
       {/* Backfill confirm modal */}
       {confirmingBackfill && (
-        <div
-          className="modal-overlay"
-          onClick={backfilling ? undefined : () => setConfirmingBackfill(false)}
-        >
+        <div className="modal-overlay" onClick={backfilling ? undefined : closeConfirmOverlay}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -499,11 +523,7 @@ export default function DevApiPage({ toast }: Props) {
               </p>
             </div>
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={() => setConfirmingBackfill(false)}
-                disabled={backfilling}
-              >
+              <button className="btn ghost" onClick={closeConfirmOverlay} disabled={backfilling}>
                 Cancel
               </button>
               <button
@@ -695,10 +715,7 @@ export default function DevApiPage({ toast }: Props) {
 
       {/* Delete confirmation modal */}
       {deletingId && deletingCategory && (
-        <div
-          className="modal-overlay"
-          onClick={deleteConfirming ? undefined : () => setDeletingId(null)}
-        >
+        <div className="modal-overlay" onClick={deleteConfirming ? undefined : closeConfirmOverlay}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -715,7 +732,7 @@ export default function DevApiPage({ toast }: Props) {
             <div className="modal-foot">
               <button
                 className="btn ghost"
-                onClick={() => setDeletingId(null)}
+                onClick={closeConfirmOverlay}
                 disabled={deleteConfirming}
               >
                 Cancel

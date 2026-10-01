@@ -171,4 +171,100 @@ describe('POST /admin/workers — allowedJobTypes validation', () => {
     expect(patchRes.statusCode).toBe(200);
     expect(patchRes.json().allowedJobTypes).toEqual(['merchant']);
   });
+
+  it('PUT /queue-gate toggles the dispatcher routing flag and lists it, and delete clears it', async () => {
+    const id = 'test-worker-queue-gate';
+    const created = await app.inject({
+      method: 'POST',
+      url: '/admin/workers',
+      headers: authHeader,
+      payload: { id, label: '', url: 'https://example.com/', apiKey: 'k'.repeat(8) },
+    });
+    expect(created.statusCode).toBe(201);
+    const listed = async () => {
+      const res = await app.inject({ method: 'GET', url: '/admin/workers', headers: authHeader });
+      return (res.json() as Array<{ id: string; queueGateEnabled: boolean }>).find(
+        (w) => w.id === id,
+      )?.queueGateEnabled;
+    };
+    expect(await listed()).toBe(false);
+
+    const on = await app.inject({
+      method: 'PUT',
+      url: `/admin/workers/${id}/queue-gate`,
+      headers: authHeader,
+      payload: { enabled: true },
+    });
+    expect(on.statusCode).toBe(200);
+    expect(JSON.parse((await app.redis.get(`worker:routing-config:${id}`)) ?? '{}')).toEqual({
+      queueGateEnabled: true,
+    });
+    expect(await listed()).toBe(true);
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/admin/workers/${id}`,
+      headers: authHeader,
+    });
+    expect(del.statusCode).toBe(204);
+    expect(await app.redis.get(`worker:routing-config:${id}`)).toBeNull();
+  });
+
+  it('PUT /queue-gate 404s for an unknown worker', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/admin/workers/does-not-exist/queue-gate',
+      headers: authHeader,
+      payload: { enabled: true },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('lists the ComfyUI queue snapshot and a routing verdict (healthy but never routable is explainable)', async () => {
+    const id = 'test-worker-routing-state';
+    const created = await app.inject({
+      method: 'POST',
+      url: '/admin/workers',
+      headers: authHeader,
+      payload: { id, label: '', url: 'https://example.com/', apiKey: 'k'.repeat(8) },
+    });
+    expect(created.statusCode).toBe(201);
+    const routing = async () => {
+      const res = await app.inject({ method: 'GET', url: '/admin/workers', headers: authHeader });
+      const w = (res.json() as Array<{ id: string; routing: string; queue: unknown }>).find(
+        (x) => x.id === id,
+      );
+      return w;
+    };
+
+    await app.redis.setex(`worker:health:${id}`, 30, '1');
+    // Gate off → routing ignores ComfyUI's queue.
+    expect((await routing())?.routing).toBe('ungated');
+
+    await app.redis.set(`worker:routing-config:${id}`, JSON.stringify({ queueGateEnabled: true }));
+    // Gate on, no snapshot (monitor not sampling / probe failing) → healthy but unroutable.
+    expect((await routing())?.routing).toBe('unavailable');
+
+    const snap = { queueRemaining: 2, running: 1, pending: 1, probedAt: Date.now() };
+    await app.redis.setex(`worker:queue:${id}`, 60, JSON.stringify(snap));
+    const busy = await routing();
+    expect(busy?.routing).toBe('externally_busy');
+    expect(busy?.queue).toMatchObject({ queueRemaining: 2 });
+
+    await app.redis.setex(`worker:queue:${id}`, 60, JSON.stringify({ ...snap, queueRemaining: 0 }));
+    expect((await routing())?.routing).toBe('ok');
+
+    await app.redis.setex(
+      `worker:queue:${id}`,
+      60,
+      JSON.stringify({
+        queueRemaining: null,
+        running: null,
+        pending: null,
+        probedAt: 1,
+        error: 'x',
+      }),
+    );
+    expect((await routing())?.routing).toBe('unavailable');
+  });
 });

@@ -4,7 +4,11 @@ import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { ReplaceWorkflowModal } from '../components/ReplaceWorkflowModal';
 import { SearchableSelect } from '../components/SearchableSelect';
-import { WorkflowUploadModal } from '../components/WorkflowUploadModal';
+import { MIN_PROPOSAL_NOTE_LENGTH, WorkflowUploadModal } from '../components/WorkflowUploadModal';
+import { useAuth } from '../context/AuthContext';
+import { useCrumb } from '../context/BreadcrumbContext';
+import { useCloseOverlay } from '../hooks/use-close-overlay';
+import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 import { ApiError, apiErrorMessage, apiFetch } from '../lib/data';
 import type { WorkflowOption } from '../types';
 
@@ -27,6 +31,40 @@ interface WorkflowDetail extends WorkflowOption {
   outputSizeNodeIds: string[];
   outputMaxPx: number;
   resultNodeId: string | null;
+}
+
+interface WorkflowVersionEntry {
+  id: string;
+  versionNumber: number;
+  changeRequestId: string | null;
+  appliedAt: string;
+  appliedByEmail: string;
+  reason: string | null;
+  previousLimitations: string | null;
+}
+
+type WorkflowStats =
+  | { tracked: false }
+  | {
+      tracked: true;
+      totalJobs: number;
+      completedJobs: number;
+      failedJobs: number;
+      successRatePct: number | null;
+      avgGenerationSeconds: number | null;
+      lastUsedAt: string | null;
+    };
+
+interface ReplacedByInfo {
+  reason: string;
+  previousLimitations: string | null;
+  proposedByEmail: string;
+  proposedByRole: string;
+  proposedAt: string;
+  approvedByEmail: string | null;
+  approvedAt: string | null;
+  resultingWorkflowId: string | null;
+  resultingWorkflowLabel: string | null;
 }
 
 interface Props {
@@ -56,22 +94,44 @@ function ksamplerOverridesFromWf(wf: WorkflowOption) {
 }
 
 export default function WorkflowsPage({ toast }: Props) {
+  const { role } = useAuth();
+  const isSuperAdmin = role === 'SUPER_ADMIN';
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [statusTab, setStatusTab] = useState<'active' | 'inactive'>('active');
   const [loading, setLoading] = useState(true);
-  const [showUpload, setShowUpload] = useState(false);
-  const [expandedWorkflowId, setExpandedWorkflowId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [expandedWorkflowId, setExpandedWorkflowId] = useUrlState('expanded');
+  const closeExpanded = useCloseOverlay(['expanded']);
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const deletingId = confirmParam === 'delete-workflow' ? confirmId : null;
   const [togglingId, setTogglingId] = useState<string | null>(null);
-  const [reassigning, setReassigning] = useState<WorkflowOption | null>(null);
   const [reassignTargetId, setReassignTargetId] = useState('');
   const [reassignSaving, setReassignSaving] = useState(false);
+  const [detailIdParam, setDetailIdParam] = useUrlState('view');
+  const closeViewDetail = useCloseOverlay(['view']);
   const [viewingDetail, setViewingDetail] = useState<WorkflowDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [jsonCopied, setJsonCopied] = useState(false);
-  const [editingWf, setEditingWf] = useState<WorkflowOption | null>(null);
-  const [replacingWf, setReplacingWf] = useState<WorkflowOption | null>(null);
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const showUpload = modalParam === 'upload-workflow';
+  const editingWf =
+    modalParam === 'edit-workflow' && editId
+      ? (workflows.find((w) => w.id === editId) ?? null)
+      : null;
+  const replacingWf =
+    modalParam === 'replace-workflow' && editId
+      ? (workflows.find((w) => w.id === editId) ?? null)
+      : null;
+  const reassigning =
+    modalParam === 'reassign-workflow' && editId
+      ? (workflows.find((w) => w.id === editId) ?? null)
+      : null;
   const [editForm, setEditForm] = useState({
     label: '',
     slug: '',
@@ -91,8 +151,97 @@ export default function WorkflowsPage({ toast }: Props) {
       denoise: string;
       seed: string;
     }[],
+    // Only used (and required) when the current user isn't SUPER_ADMIN — the
+    // edit turns into a change-request proposal instead of a direct PATCH.
+    previousLimitations: '',
+    reason: '',
   });
   const [editSaving, setEditSaving] = useState(false);
+
+  // Supplementary detail-modal data — fetched independently of the main
+  // /admin/workflows/:id call and failed silently, since they're
+  // supplementary and shouldn't block the core detail view from showing.
+  const [versions, setVersions] = useState<WorkflowVersionEntry[] | null>(null);
+  const [stats, setStats] = useState<WorkflowStats | null>(null);
+  const [replacedBy, setReplacedBy] = useState<ReplacedByInfo | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (!viewingDetail) {
+      setVersions(null);
+      setStats(null);
+      setReplacedBy(undefined);
+      return;
+    }
+    const id = viewingDetail.id;
+    apiFetch<WorkflowVersionEntry[]>(`/admin/workflows/${id}/versions`)
+      .then(setVersions)
+      .catch(() => {});
+    apiFetch<WorkflowStats>(`/admin/workflows/${id}/stats`)
+      .then(setStats)
+      .catch(() => {});
+    if (!viewingDetail.isActive) {
+      apiFetch<{ replacedBy: ReplacedByInfo | null }>(`/admin/workflows/${id}/replaced-by`)
+        .then((r) => setReplacedBy(r.replacedBy))
+        .catch(() => {});
+    } else {
+      setReplacedBy(undefined);
+    }
+  }, [viewingDetail]);
+
+  const editingWfId = editingWf?.id ?? null;
+  // Reseeds the edit form once per distinct id when the URL opens the edit
+  // modal — an inline onClick can't seed it since editingWf is now derived
+  // from the URL + already-loaded list, not set at click time.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on id only, see comment above
+  useEffect(() => {
+    if (!editingWf) return;
+    setEditForm({
+      label: editingWf.label,
+      slug: editingWf.slug,
+      garmentPhasePrompt: editingWf.defaultGarmentPhasePrompt,
+      facePhasePrompt: editingWf.defaultFacePhasePrompt,
+      regenerationReasonPrompts: regenerationReasonPromptsFromWf(editingWf),
+      stage1PositivePrompt: editingWf.defaultStage1PositivePrompt,
+      stage1NegativePrompt: editingWf.defaultStage1NegativePrompt,
+      samSegmentationPrompt: editingWf.defaultSamSegmentationPrompt,
+      samSegmentationPromptNodeInput: editingWf.samSegmentationPromptNode ?? '',
+      latentMaxPx: String(editingWf.latentMaxPx ?? ''),
+      outputMaxPx: String(editingWf.outputMaxPx ?? ''),
+      ksamplerOverrides: ksamplerOverridesFromWf(editingWf),
+      previousLimitations: '',
+      reason: '',
+    });
+  }, [editingWfId]);
+
+  // Reconstructs from the URL alone — hard refresh or deep link. Skipped when
+  // viewingDetail already holds this same id, so opening from a row click
+  // doesn't double-fetch.
+  useEffect(() => {
+    if (!detailIdParam || viewingDetail?.id === detailIdParam) return;
+    let cancelled = false;
+    setViewingDetail(null);
+    setDetailLoading(true);
+    (async () => {
+      try {
+        const data = await apiFetch<WorkflowDetail>(`/admin/workflows/${detailIdParam}`);
+        if (!cancelled) setViewingDetail(data);
+      } catch (e) {
+        if (!cancelled) {
+          toast({
+            kind: 'error',
+            title: 'Failed to load workflow detail',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
+          closeViewDetail();
+        }
+      } finally {
+        if (!cancelled) setDetailLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [detailIdParam, viewingDetail?.id, toast, closeViewDetail]);
 
   const loadWorkflows = useCallback(async () => {
     setLoading(true);
@@ -112,16 +261,19 @@ export default function WorkflowsPage({ toast }: Props) {
 
   const handleCreated = (wf: WorkflowOption) => {
     setWorkflows((prev) => [wf, ...prev]);
-    setShowUpload(false);
+    closeModal();
   };
 
   const handleReplaced = (updated: WorkflowOption) => {
     setWorkflows((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
-    setReplacingWf(null);
+    closeModal();
   };
 
   const handleDelete = async (id: string) => {
-    setDeleting(null);
+    // Closes optimistically, once — closeConfirm() navigates back and a
+    // second call (as the old finally-block setDeleting(null) did when this
+    // was plain state) would double-pop browser history.
+    closeConfirm();
     if (id.startsWith('wf_demo_')) {
       setWorkflows((prev) => prev.filter((w) => w.id !== id));
       toast({ title: 'Workflow deleted' });
@@ -138,8 +290,6 @@ export default function WorkflowsPage({ toast }: Props) {
             'Failed to delete workflow')
           : 'Failed to delete workflow';
       toast({ kind: 'error', title: msg });
-    } finally {
-      setDeleting(null);
     }
   };
 
@@ -169,22 +319,28 @@ export default function WorkflowsPage({ toast }: Props) {
     if (!reassigning || !reassignTargetId) return;
     setReassignSaving(true);
     try {
-      await apiFetch(`/admin/workflows/${reassigning.id}/reassign`, {
+      const result = await apiFetch<{
+        ok: true;
+        updated: number;
+        clearedPosePromptCount: number;
+        clearedGarmentConfigPromptCount: number;
+      }>(`/admin/workflows/${reassigning.id}/reassign`, {
         method: 'POST',
         body: JSON.stringify({ targetWorkflowId: reassignTargetId }),
       });
-      setWorkflows((prev) =>
-        prev.map((w) => {
-          if (w.id === reassigning.id) return { ...w, poseCount: 0 };
-          if (w.id === reassignTargetId)
-            return { ...w, poseCount: w.poseCount + reassigning.poseCount };
-          return w;
-        }),
-      );
+      // Counts can't be derived client-side after a reassign — direct config
+      // overrides pinned at the source template deliberately survive it, so
+      // an optimistic patch can't know the source's new override counts.
+      void loadWorkflows();
+      const clearedCount = result.clearedPosePromptCount + result.clearedGarmentConfigPromptCount;
       toast({
         title: `Poses reassigned from "${reassigning.label}"`,
+        body:
+          clearedCount > 0
+            ? `Cleared ${clearedCount} prompt override${clearedCount === 1 ? '' : 's'} tuned to the old workflow — they'll now inherit the target's prompt.`
+            : undefined,
       });
-      setReassigning(null);
+      closeModal();
       setReassignTargetId('');
     } catch (e) {
       const msg =
@@ -194,23 +350,6 @@ export default function WorkflowsPage({ toast }: Props) {
       toast({ kind: 'error', title: msg });
     } finally {
       setReassignSaving(false);
-    }
-  };
-
-  const handleViewDetail = async (id: string) => {
-    setDetailLoading(true);
-    setViewingDetail(null);
-    try {
-      const detail = await apiFetch<WorkflowDetail>(`/admin/workflows/${id}`);
-      setViewingDetail(detail);
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Failed to load workflow detail',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
-    } finally {
-      setDetailLoading(false);
     }
   };
 
@@ -296,7 +435,26 @@ export default function WorkflowsPage({ toast }: Props) {
         .filter((o) => Object.keys(o).length > 1);
       if (ksamplerOverrides.length > 0) patch.ksamplerOverrides = ksamplerOverrides;
 
-      await apiFetch(`/admin/workflows/${editingWf.id}`, {
+      if (!isSuperAdmin) {
+        await apiFetch('/admin/workflow-change-requests', {
+          method: 'POST',
+          body: JSON.stringify({
+            changeType: 'update',
+            targetWorkflowId: editingWf.id,
+            reason: editForm.reason.trim(),
+            previousLimitations: editForm.previousLimitations.trim(),
+            proposedFields: patch,
+          }),
+        });
+        toast({ title: 'Workflow change submitted for approval' });
+        closeModal();
+        return;
+      }
+
+      const patched = await apiFetch<{
+        clearedPosePromptCount?: number;
+        clearedGarmentConfigPromptCount?: number;
+      }>(`/admin/workflows/${editingWf.id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
@@ -360,8 +518,16 @@ export default function WorkflowsPage({ toast }: Props) {
             : w,
         ),
       );
-      toast({ title: 'Workflow updated' });
-      setEditingWf(null);
+      const clearedCount =
+        (patched.clearedPosePromptCount ?? 0) + (patched.clearedGarmentConfigPromptCount ?? 0);
+      toast({
+        title: 'Workflow updated',
+        body:
+          clearedCount > 0
+            ? `Synced the new prompt to ${clearedCount} pinned override${clearedCount === 1 ? '' : 's'} that were tuned to the old text.`
+            : undefined,
+      });
+      closeModal();
     } catch (e) {
       const msg =
         e instanceof ApiError
@@ -373,12 +539,52 @@ export default function WorkflowsPage({ toast }: Props) {
     }
   };
 
-  const deletingWorkflow = deleting ? workflows.find((w) => w.id === deleting) : null;
+  const deletingWorkflow = deletingId ? workflows.find((w) => w.id === deletingId) : null;
+
+  useCrumb(
+    0,
+    detailIdParam
+      ? {
+          label: viewingDetail?.label ?? 'Workflow detail',
+          href: `/workflows?view=${encodeURIComponent(detailIdParam)}`,
+        }
+      : null,
+  );
+  useCrumb(
+    1,
+    deletingId
+      ? {
+          label: 'Delete workflow',
+          href: `/workflows?confirm=delete-workflow&confirmId=${encodeURIComponent(deletingId)}`,
+        }
+      : null,
+  );
+  useCrumb(
+    2,
+    modalParam
+      ? {
+          label:
+            modalParam === 'upload-workflow'
+              ? 'Add workflow'
+              : modalParam === 'edit-workflow'
+                ? 'Edit workflow'
+                : modalParam === 'replace-workflow'
+                  ? 'Replace workflow'
+                  : 'Reassign workflow',
+          href: `/workflows?modal=${modalParam}${editId ? `&editId=${encodeURIComponent(editId)}` : ''}`,
+        }
+      : null,
+  );
 
   const q = query.trim().toLowerCase();
-  const filteredWorkflows = workflows
+  const searchedWorkflows = workflows
     .filter((w) => !q || w.label.toLowerCase().includes(q) || w.slug.toLowerCase().includes(q))
     .filter((w) => !typeFilter || w.workflowType === typeFilter);
+  const activeCount = searchedWorkflows.filter((w) => w.isActive).length;
+  const inactiveCount = searchedWorkflows.filter((w) => !w.isActive).length;
+  const filteredWorkflows = searchedWorkflows.filter((w) =>
+    statusTab === 'active' ? w.isActive : !w.isActive,
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -416,12 +622,32 @@ export default function WorkflowsPage({ toast }: Props) {
               />
             </>
           )}
-          <button className="btn primary" onClick={() => setShowUpload(true)}>
+          <button
+            className="btn primary"
+            onClick={() => setModalParams({ modal: 'upload-workflow', editId: null })}
+          >
             <Icon.Plus />
-            Add workflow
+            {isSuperAdmin ? 'Add workflow' : 'Propose workflow'}
           </button>
         </div>
       </div>
+
+      {workflows.length > 0 && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className={`btn sm ${statusTab === 'active' ? 'primary' : 'ghost'}`}
+            onClick={() => setStatusTab('active')}
+          >
+            Active ({activeCount})
+          </button>
+          <button
+            className={`btn sm ${statusTab === 'inactive' ? 'primary' : 'ghost'}`}
+            onClick={() => setStatusTab('inactive')}
+          >
+            Inactive ({inactiveCount})
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       {loading ? (
@@ -448,7 +674,7 @@ export default function WorkflowsPage({ toast }: Props) {
           <button
             className="btn primary"
             style={{ marginTop: 12 }}
-            onClick={() => setShowUpload(true)}
+            onClick={() => setModalParams({ modal: 'upload-workflow', editId: null })}
           >
             <Icon.Plus /> Add workflow
           </button>
@@ -466,8 +692,12 @@ export default function WorkflowsPage({ toast }: Props) {
         >
           {query ? (
             <>No workflows match &ldquo;{query}&rdquo;.</>
-          ) : (
+          ) : typeFilter ? (
             'No workflows match the selected type.'
+          ) : statusTab === 'inactive' ? (
+            'No inactive workflows — nothing has been replaced or deactivated yet.'
+          ) : (
+            'No active workflows.'
           )}
         </div>
       ) : (
@@ -597,71 +827,80 @@ export default function WorkflowsPage({ toast }: Props) {
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          {isSuperAdmin && (
+                            <button
+                              className="btn sm ghost"
+                              disabled={Boolean(wf.draining)}
+                              onClick={() =>
+                                setModalParams({ modal: 'replace-workflow', editId: wf.id })
+                              }
+                              title={
+                                wf.draining
+                                  ? 'Cannot replace while draining previous version'
+                                  : 'Replace workflow in place (updates ComfyUI graph)'
+                              }
+                            >
+                              <Icon.Replace /> Replace
+                            </button>
+                          )}
                           <button
                             className="btn sm ghost"
-                            disabled={Boolean(wf.draining)}
-                            onClick={() => setReplacingWf(wf)}
-                            title={
-                              wf.draining
-                                ? 'Cannot replace while draining previous version'
-                                : 'Replace workflow in place (updates ComfyUI graph)'
+                            onClick={() =>
+                              setModalParams({ modal: 'edit-workflow', editId: wf.id })
                             }
-                          >
-                            <Icon.Replace /> Replace
-                          </button>
-                          <button
-                            className="btn sm ghost"
-                            onClick={() => {
-                              setEditingWf(wf);
-                              setEditForm({
-                                label: wf.label,
-                                slug: wf.slug,
-                                garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
-                                facePhasePrompt: wf.defaultFacePhasePrompt,
-                                regenerationReasonPrompts: regenerationReasonPromptsFromWf(wf),
-                                stage1PositivePrompt: wf.defaultStage1PositivePrompt,
-                                stage1NegativePrompt: wf.defaultStage1NegativePrompt,
-                                samSegmentationPrompt: wf.defaultSamSegmentationPrompt,
-                                samSegmentationPromptNodeInput: wf.samSegmentationPromptNode ?? '',
-                                latentMaxPx: String(wf.latentMaxPx ?? ''),
-                                outputMaxPx: String(wf.outputMaxPx ?? ''),
-                                ksamplerOverrides: ksamplerOverridesFromWf(wf),
-                              });
-                            }}
-                            title="Edit workflow"
+                            title={
+                              isSuperAdmin ? 'Edit workflow' : 'Propose a change to this workflow'
+                            }
                           >
                             <Icon.Edit /> Edit
                           </button>
                           <button
                             className="btn sm ghost"
                             disabled={detailLoading}
-                            onClick={() => handleViewDetail(wf.id)}
+                            onClick={() => setDetailIdParam(wf.id)}
                             title="View parsed data"
                           >
                             <Icon.Eye /> View
                           </button>
-                          <button
-                            className="btn sm ghost"
-                            disabled={togglingId === wf.id}
-                            onClick={() => handleToggleActive(wf)}
-                            title={wf.isActive ? 'Deactivate' : 'Activate'}
-                          >
-                            {wf.isActive ? <Icon.Eye /> : <Icon.Eye />}
-                            {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
-                          </button>
-                          <button
-                            className="btn sm ghost"
-                            style={{ color: 'var(--danger)' }}
-                            disabled={wf.poseCount > 0}
-                            onClick={() => setDeleting(wf.id)}
-                            title={
-                              wf.poseCount > 0
-                                ? 'Cannot delete — in use by poses'
-                                : 'Delete workflow'
-                            }
-                          >
-                            <Icon.Trash />
-                          </button>
+                          {isSuperAdmin && (
+                            <button
+                              className="btn sm ghost"
+                              disabled={togglingId === wf.id}
+                              onClick={() => handleToggleActive(wf)}
+                              title={wf.isActive ? 'Deactivate' : 'Activate'}
+                            >
+                              {wf.isActive ? <Icon.Eye /> : <Icon.Eye />}
+                              {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
+                            </button>
+                          )}
+                          {isSuperAdmin && wf.poseCount > 0 && (
+                            <button
+                              className="btn sm ghost"
+                              onClick={() =>
+                                setModalParams({ modal: 'reassign-workflow', editId: wf.id })
+                              }
+                              title="Move poses off this workflow onto another"
+                            >
+                              <Icon.Refresh /> Reassign
+                            </button>
+                          )}
+                          {isSuperAdmin && (
+                            <button
+                              className="btn sm ghost"
+                              style={{ color: 'var(--danger)' }}
+                              disabled={wf.poseCount > 0}
+                              onClick={() =>
+                                setConfirmParams({ confirm: 'delete-workflow', confirmId: wf.id })
+                              }
+                              title={
+                                wf.poseCount > 0
+                                  ? 'Cannot delete — in use by poses'
+                                  : 'Delete workflow'
+                              }
+                            >
+                              <Icon.Trash />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -689,7 +928,7 @@ export default function WorkflowsPage({ toast }: Props) {
                 >
                   <button
                     type="button"
-                    onClick={() => setExpandedWorkflowId(isExpanded ? null : wf.id)}
+                    onClick={() => (isExpanded ? closeExpanded() : setExpandedWorkflowId(wf.id))}
                     style={{
                       padding: '14px 16px',
                       display: 'flex',
@@ -893,61 +1132,65 @@ export default function WorkflowsPage({ toast }: Props) {
                           paddingTop: 10,
                         }}
                       >
+                        {isSuperAdmin && (
+                          <button
+                            className="btn sm ghost"
+                            disabled={Boolean(wf.draining)}
+                            onClick={() =>
+                              setModalParams({ modal: 'replace-workflow', editId: wf.id })
+                            }
+                            title={
+                              wf.draining
+                                ? 'Cannot replace while draining previous version'
+                                : 'Replace workflow in place (updates ComfyUI graph)'
+                            }
+                          >
+                            <Icon.Replace /> Replace
+                          </button>
+                        )}
                         <button
                           className="btn sm ghost"
-                          disabled={Boolean(wf.draining)}
-                          onClick={() => setReplacingWf(wf)}
-                          title={
-                            wf.draining
-                              ? 'Cannot replace while draining previous version'
-                              : 'Replace workflow in place (updates ComfyUI graph)'
-                          }
-                        >
-                          <Icon.Replace /> Replace
-                        </button>
-                        <button
-                          className="btn sm ghost"
-                          onClick={() => {
-                            setEditingWf(wf);
-                            setEditForm({
-                              label: wf.label,
-                              slug: wf.slug,
-                              garmentPhasePrompt: wf.defaultGarmentPhasePrompt,
-                              facePhasePrompt: wf.defaultFacePhasePrompt,
-                              regenerationReasonPrompts: regenerationReasonPromptsFromWf(wf),
-                              stage1PositivePrompt: wf.defaultStage1PositivePrompt,
-                              stage1NegativePrompt: wf.defaultStage1NegativePrompt,
-                              samSegmentationPrompt: wf.defaultSamSegmentationPrompt,
-                              samSegmentationPromptNodeInput: wf.samSegmentationPromptNode ?? '',
-                              latentMaxPx: String(wf.latentMaxPx ?? ''),
-                              outputMaxPx: String(wf.outputMaxPx ?? ''),
-                              ksamplerOverrides: ksamplerOverridesFromWf(wf),
-                            });
-                          }}
+                          onClick={() => setModalParams({ modal: 'edit-workflow', editId: wf.id })}
                         >
                           <Icon.Edit /> Edit
                         </button>
                         <button
                           className="btn sm ghost"
                           disabled={detailLoading}
-                          onClick={() => handleViewDetail(wf.id)}
+                          onClick={() => setDetailIdParam(wf.id)}
                         >
                           <Icon.Eye /> View
                         </button>
-                        <button
-                          className="btn sm ghost"
-                          disabled={togglingId === wf.id}
-                          onClick={() => handleToggleActive(wf)}
-                        >
-                          {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
-                        </button>
-                        <button
-                          className="btn sm ghost danger"
-                          disabled={wf.poseCount > 0}
-                          onClick={() => setDeleting(wf.id)}
-                        >
-                          <Icon.Trash /> Delete
-                        </button>
+                        {isSuperAdmin && (
+                          <button
+                            className="btn sm ghost"
+                            disabled={togglingId === wf.id}
+                            onClick={() => handleToggleActive(wf)}
+                          >
+                            {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
+                          </button>
+                        )}
+                        {isSuperAdmin && wf.poseCount > 0 && (
+                          <button
+                            className="btn sm ghost"
+                            onClick={() =>
+                              setModalParams({ modal: 'reassign-workflow', editId: wf.id })
+                            }
+                          >
+                            <Icon.Refresh /> Reassign
+                          </button>
+                        )}
+                        {isSuperAdmin && (
+                          <button
+                            className="btn sm ghost danger"
+                            disabled={wf.poseCount > 0}
+                            onClick={() =>
+                              setConfirmParams({ confirm: 'delete-workflow', confirmId: wf.id })
+                            }
+                          >
+                            <Icon.Trash /> Delete
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -959,11 +1202,8 @@ export default function WorkflowsPage({ toast }: Props) {
       )}
 
       {/* Detail modal */}
-      {(viewingDetail || detailLoading) && (
-        <div
-          className="modal-overlay"
-          onClick={detailLoading ? undefined : () => setViewingDetail(null)}
-        >
+      {detailIdParam && (
+        <div className="modal-overlay" onClick={detailLoading ? undefined : closeViewDetail}>
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
@@ -973,7 +1213,7 @@ export default function WorkflowsPage({ toast }: Props) {
               <h3>{viewingDetail ? viewingDetail.label : 'Loading…'}</h3>
               <button
                 className="btn sm ghost"
-                onClick={() => setViewingDetail(null)}
+                onClick={closeViewDetail}
                 disabled={detailLoading}
                 style={{ marginLeft: 'auto' }}
               >
@@ -1104,6 +1344,69 @@ export default function WorkflowsPage({ toast }: Props) {
                   </div>
                 </div>
 
+                {/* Why this workflow is inactive */}
+                {!viewingDetail.isActive && (
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        color: 'var(--muted)',
+                        marginBottom: 10,
+                      }}
+                    >
+                      Why this workflow is inactive
+                    </div>
+                    {replacedBy === undefined ? (
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading…</div>
+                    ) : replacedBy === null ? (
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        This workflow wasn't replaced through a reviewed proposal — it was
+                        deactivated directly by a SUPER_ADMIN, or auto-demoted when another active
+                        workflow of the same shape/type was uploaded.
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          border: '1px solid var(--border)',
+                          borderRadius: 8,
+                          padding: '12px 14px',
+                          fontSize: 13,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ fontWeight: 600 }}>
+                          Replaced by {replacedBy.resultingWorkflowLabel ?? 'a new workflow'}
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--muted)' }}>What it lacked: </span>
+                          {replacedBy.previousLimitations || '—'}
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--muted)' }}>What was updated: </span>
+                          {replacedBy.reason}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                          Proposed by {replacedBy.proposedByEmail} ({replacedBy.proposedByRole}) on{' '}
+                          {new Date(replacedBy.proposedAt).toLocaleDateString()}
+                        </div>
+                        {replacedBy.approvedByEmail && (
+                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                            Approved by {replacedBy.approvedByEmail} on{' '}
+                            {replacedBy.approvedAt
+                              ? new Date(replacedBy.approvedAt).toLocaleDateString()
+                              : '—'}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Default prompts */}
                 {(viewingDetail.defaultFacePhasePrompt ||
                   viewingDetail.defaultGarmentPhasePrompt ||
@@ -1211,6 +1514,123 @@ export default function WorkflowsPage({ toast }: Props) {
                   </div>
                 )}
 
+                {/* Usage */}
+                <div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                      color: 'var(--muted)',
+                      marginBottom: 10,
+                    }}
+                  >
+                    Usage
+                  </div>
+                  {stats === null ? (
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading…</div>
+                  ) : !stats.tracked ? (
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      Usage isn't tracked for this workflow type — jobs can't be traced back to it.
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                        gap: 10,
+                      }}
+                    >
+                      {[
+                        ['Jobs run', String(stats.totalJobs)],
+                        [
+                          'Success rate',
+                          stats.successRatePct != null ? `${stats.successRatePct}%` : '—',
+                        ],
+                        [
+                          'Avg. generation time',
+                          stats.avgGenerationSeconds != null
+                            ? `${stats.avgGenerationSeconds}s`
+                            : '—',
+                        ],
+                        [
+                          'Last used',
+                          stats.lastUsedAt ? new Date(stats.lastUsedAt).toLocaleDateString() : '—',
+                        ],
+                      ].map(([label, value]) => (
+                        <div
+                          key={label}
+                          style={{
+                            border: '1px solid var(--border)',
+                            borderRadius: 8,
+                            padding: '10px 12px',
+                          }}
+                        >
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{label}</div>
+                          <div style={{ fontSize: 16, fontWeight: 600, marginTop: 2 }}>{value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Version history */}
+                <div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                      color: 'var(--muted)',
+                      marginBottom: 10,
+                    }}
+                  >
+                    Version history
+                  </div>
+                  {versions === null ? (
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading…</div>
+                  ) : versions.length === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>No versions recorded.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {versions.map((v) => (
+                        <div
+                          key={v.id}
+                          style={{
+                            border: '1px solid var(--border)',
+                            borderRadius: 8,
+                            padding: '10px 12px',
+                            fontSize: 12,
+                          }}
+                        >
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                            <span style={{ fontWeight: 600 }}>v{v.versionNumber}</span>
+                            <span style={{ color: 'var(--muted)' }}>
+                              {new Date(v.appliedAt).toLocaleString()}
+                            </span>
+                            <span style={{ color: 'var(--muted)' }}>· {v.appliedByEmail}</span>
+                            <span
+                              style={{
+                                marginLeft: 'auto',
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: v.changeRequestId ? 'var(--accent)' : 'var(--muted)',
+                              }}
+                            >
+                              {v.changeRequestId ? 'via approved proposal' : 'direct edit'}
+                            </span>
+                          </div>
+                          {v.reason && (
+                            <div style={{ marginTop: 6, color: 'var(--ink-2)' }}>{v.reason}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Raw JSON */}
                 <div>
                   <div
@@ -1287,7 +1707,7 @@ export default function WorkflowsPage({ toast }: Props) {
               </div>
             ) : null}
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setViewingDetail(null)}>
+              <button className="btn ghost" onClick={closeViewDetail}>
                 Close
               </button>
             </div>
@@ -1298,12 +1718,12 @@ export default function WorkflowsPage({ toast }: Props) {
       {/* Edit label/slug modal */}
       {editingWf && (
         <EditDrawer
-          onClose={() => setEditingWf(null)}
+          onClose={closeModal}
           title="Edit workflow"
           width="min(640px, calc(100vw - 40px))"
           saving={editSaving}
           onSave={handleEditSave}
-          saveLabel="Save"
+          saveLabel={isSuperAdmin ? 'Save' : 'Submit for approval'}
           saveDisabled={
             !editForm.label.trim() ||
             !editForm.slug.trim() ||
@@ -1325,7 +1745,10 @@ export default function WorkflowsPage({ toast }: Props) {
                 Number(o.denoise) > 1 ||
                 Number.isNaN(Number(o.seed)) ||
                 Number(o.seed) < 0,
-            )
+            ) ||
+            (!isSuperAdmin &&
+              (editForm.previousLimitations.trim().length < MIN_PROPOSAL_NOTE_LENGTH ||
+                editForm.reason.trim().length < MIN_PROPOSAL_NOTE_LENGTH))
           }
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1362,6 +1785,29 @@ export default function WorkflowsPage({ toast }: Props) {
                 disabled={editSaving}
                 onChange={(e) => setEditForm((f) => ({ ...f, garmentPhasePrompt: e.target.value }))}
               />
+              {((editingWf?.posePromptOverrideCount ?? 0) > 0 ||
+                (editingWf?.garmentConfigPromptOverrideCount ?? 0) > 0) && (
+                <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                  {editingWf?.posePromptOverrideCount
+                    ? `${editingWf.posePromptOverrideCount} pose${editingWf.posePromptOverrideCount === 1 ? '' : 's'}`
+                    : null}
+                  {editingWf?.posePromptOverrideCount && editingWf?.garmentConfigPromptOverrideCount
+                    ? ' and '
+                    : null}
+                  {editingWf?.garmentConfigPromptOverrideCount
+                    ? `${editingWf.garmentConfigPromptOverrideCount} garment-type config${editingWf.garmentConfigPromptOverrideCount === 1 ? '' : 's'}`
+                    : null}
+                  {(() => {
+                    const overrideCountIsSingular =
+                      (editingWf?.posePromptOverrideCount ?? 0) +
+                        (editingWf?.garmentConfigPromptOverrideCount ?? 0) ===
+                      1;
+                    return overrideCountIsSingular
+                      ? " overrides this and won't use this text."
+                      : " override this and won't use this text.";
+                  })()}
+                </span>
+              )}
             </div>
             {editingWf?.facePhasePromptNode && (
               <div className="field">
@@ -1637,6 +2083,75 @@ export default function WorkflowsPage({ toast }: Props) {
                 </div>
               </div>
             ))}
+            {!isSuperAdmin && editingWf && (
+              <div
+                style={{
+                  borderTop: '1px solid var(--border)',
+                  paddingTop: 14,
+                  marginTop: 4,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600 }}>Proposal details</div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Which flow does this replace?</label>
+                  <input className="input" value={editingWf.label} disabled readOnly />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>
+                    What does the current workflow lack?{' '}
+                    <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={editForm.previousLimitations}
+                    disabled={editSaving}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, previousLimitations: e.target.value }))
+                    }
+                  />
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color:
+                        editForm.previousLimitations.trim().length >= MIN_PROPOSAL_NOTE_LENGTH
+                          ? 'var(--ink-2)'
+                          : 'var(--danger)',
+                    }}
+                  >
+                    {editForm.previousLimitations.trim().length}/{MIN_PROPOSAL_NOTE_LENGTH}{' '}
+                    characters minimum
+                  </span>
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>
+                    What's updated in this workflow?{' '}
+                    <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={editForm.reason}
+                    disabled={editSaving}
+                    onChange={(e) => setEditForm((f) => ({ ...f, reason: e.target.value }))}
+                  />
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color:
+                        editForm.reason.trim().length >= MIN_PROPOSAL_NOTE_LENGTH
+                          ? 'var(--ink-2)'
+                          : 'var(--danger)',
+                    }}
+                  >
+                    {editForm.reason.trim().length}/{MIN_PROPOSAL_NOTE_LENGTH} characters minimum
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </EditDrawer>
       )}
@@ -1645,8 +2160,14 @@ export default function WorkflowsPage({ toast }: Props) {
       {showUpload && (
         <WorkflowUploadModal
           onCreated={handleCreated}
-          onClose={() => setShowUpload(false)}
+          onClose={closeModal}
           toast={toast}
+          proposeMode={!isSuperAdmin}
+          activeWorkflows={workflows.filter((w) => w.isActive)}
+          onProposed={() => {
+            toast({ title: 'Workflow submitted for approval' });
+            closeModal();
+          }}
         />
       )}
 
@@ -1655,20 +2176,20 @@ export default function WorkflowsPage({ toast }: Props) {
         <ReplaceWorkflowModal
           workflow={replacingWf}
           onReplaced={handleReplaced}
-          onClose={() => setReplacingWf(null)}
+          onClose={closeModal}
           toast={toast}
         />
       )}
 
       {/* Delete confirmation */}
-      {deleting && deletingWorkflow && (
+      {deletingId && deletingWorkflow && (
         <ConfirmModal
           title="Delete workflow"
           body={`Delete "${deletingWorkflow.label}"? This cannot be undone.`}
           confirmLabel="Delete"
           danger
-          onConfirm={() => handleDelete(deleting)}
-          onClose={() => setDeleting(null)}
+          onConfirm={() => handleDelete(deletingId)}
+          onClose={closeConfirm}
         />
       )}
 
@@ -1676,7 +2197,7 @@ export default function WorkflowsPage({ toast }: Props) {
       {reassigning && (
         <EditDrawer
           onClose={() => {
-            setReassigning(null);
+            closeModal();
             setReassignTargetId('');
           }}
           title="Reassign workflow"
@@ -1691,6 +2212,12 @@ export default function WorkflowsPage({ toast }: Props) {
               Poses use <strong>{reassigning.label}</strong>. Choose a target workflow to move them
               to.
             </p>
+            {(reassigning.posePromptOverrideCount ?? 0) > 0 && (
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12 }}>
+                {reassigning.posePromptOverrideCount} of these poses have a pinned prompt override.
+                Reassigning clears it — they'll inherit the target's prompt.
+              </p>
+            )}
             <div className="field">
               <label>Target workflow</label>
               <SearchableSelect

@@ -6,6 +6,7 @@ import {
   jobAttemptsTotal,
   jobProcessingDuration,
   jobsProcessedTotal,
+  noWorkerRequeuesTotal,
 } from '@aivastra/observability';
 import { keys, type StorageProvider } from '@aivastra/storage';
 import {
@@ -18,7 +19,6 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
-import sharp from 'sharp';
 
 import {
   downloadOutputImage,
@@ -27,13 +27,14 @@ import {
   uploadImageToComfy,
 } from '../comfyui/client.js';
 import { JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
+import { getImageCompressionConfig } from '../config/image-compression.js';
 import { loadEnv } from '../env.js';
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
-import { finalizeOutput } from '../workflow/finalize.js';
+import { encodeCompressedImage, finalizeOutput } from '../workflow/finalize.js';
 import { patchWorkflow } from '../workflow/patcher.js';
 import { resolveWorkflowTemplateVersion } from '../workflow/resolve-template-version.js';
 import { runMannequinPhase } from './mannequin-phase.js';
@@ -126,6 +127,7 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
       'job starved of a worker for too long — promoting to priority lane',
     );
   }
+  noWorkerRequeuesTotal.inc({ job_type: jobType ?? 'unknown' });
   await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
   await new Promise((resolve) => setTimeout(resolve, REQUEUE_BACKOFF_MS));
   await redis.xadd(
@@ -475,7 +477,7 @@ export async function processJob(
           return;
         }
         try {
-          effectiveUpperGarmentKey = await runMannequinPhase(cfg, {
+          const mannequin = await runMannequinPhase(cfg, {
             jobId,
             garmentKey: inputs.upperGarmentKey,
             faceId: inputs.faceId,
@@ -483,6 +485,43 @@ export async function processJob(
             jobLog,
             jobType: job.source,
           });
+          if (mannequin.status === 'no_worker') {
+            // Capacity, not failure — same terminate-or-requeue as the main claim
+            // below. Going straight to requeueForNoWorker would skip the age check
+            // and let a starved job re-XADD forever.
+            const queueWaitBaseline = (job.queuedAt ?? job.createdAt).getTime();
+            if (Date.now() - queueWaitBaseline > MAX_QUEUE_WAIT_MS) {
+              jobLog.warn('no idle mannequin worker — job exceeded max queue wait, terminating');
+              await terminateJob(
+                cfg,
+                jobId,
+                userId,
+                stream,
+                messageId,
+                'NO_WORKER',
+                job.creditsCharged,
+                jobLog,
+                startedAt,
+                job.source,
+              );
+            } else {
+              jobLog.warn('no idle mannequin worker — re-enqueuing with backoff');
+              await requeueForNoWorker({
+                db,
+                redis,
+                jobId,
+                stream,
+                messageId,
+                retryCount,
+                extraFields: ['userId', userId],
+                jobLog,
+                startedAt,
+                jobType: job.source,
+              });
+            }
+            return;
+          }
+          effectiveUpperGarmentKey = mannequin.key;
         } catch (err) {
           jobLog.error({ err }, 'mannequin phase failed');
           const errMsg = err instanceof Error ? err.message : String(err);
@@ -492,6 +531,15 @@ export async function processJob(
       }
     } else if (cfgRow?.workflowTemplateId) {
       effectiveWorkflowTemplateId = cfgRow.workflowTemplateId;
+      // The pose's pin (still sitting in effectivePromptGarmentPhase/FacePhase
+      // from the initialisation above) was written for the pose's OWN workflow.
+      // If this config row redirects to a different workflow and has no prompt
+      // of its own, drop the pin so the patcher leaves the new graph's baked-in
+      // prompt alone instead of feeding it a prompt meant for a different graph.
+      if (cfgRow.workflowTemplateId !== poseRow.workflowTemplateId) {
+        if (!cfgRow.promptGarmentPhase) effectivePromptGarmentPhase = null;
+        if (!cfgRow.promptFacePhase) effectivePromptFacePhase = null;
+      }
     }
   }
 
@@ -785,11 +833,13 @@ export async function processJob(
     );
 
     // 9. Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
+    const compression = await getImageCompressionConfig(redis, job.source);
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: job.watermark,
+      compression,
       db,
       pub,
       s3,
@@ -1153,14 +1203,15 @@ async function processTryonDirectJob(
     );
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
-    // outputFormat: 'webp' — tryon-direct is the only job kind (source='tryon' /
-    // 'api_tryon') whose result is WebP-encoded; see finalize.ts's doc comment.
+    // Compression is configurable per job source (admin Settings → Image
+    // Compression); tryon/api_tryon/merchant_tryon default to enabled q90.
+    const compression = await getImageCompressionConfig(redis, job.source);
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: job.watermark,
-      outputFormat: 'webp',
+      compression,
       db,
       pub,
       s3,
@@ -1392,14 +1443,13 @@ async function processRegenerateJob(
       firstImage.subfolder,
     );
 
-    // outputFormat: 'webp' — same convention as tryon-direct (processTryonDirectJob):
-    // a direct edit of an existing image, not a from-scratch catalogue render.
+    const compression = await getImageCompressionConfig(redis, job.source);
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: job.watermark,
-      outputFormat: 'webp',
+      compression,
       db,
       pub,
       s3,
@@ -1749,11 +1799,13 @@ async function processSareeMannequinJob(
     );
 
     // Mannequin images are never delivered to the user — no watermark applies.
+    const compression = await getImageCompressionConfig(redis, job.source);
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: false,
+      compression,
       db,
       pub,
       s3,
@@ -1978,11 +2030,13 @@ async function processSareeJob(
     );
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
+    const compression = await getImageCompressionConfig(redis, job.source);
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
       jobWatermark: job.watermark,
+      compression,
       db,
       pub,
       s3,
@@ -2347,15 +2401,22 @@ async function processWidgetJob(
       firstImage.subfolder,
     );
 
-    // Upload result to R2 as WebP (q90) — smaller payload for the merchant/kiosk clients.
-    const resultKey = `widget-outputs/${jobId}/result.webp`;
-    const webpBuffer = await sharp(imageBytes).webp({ quality: 90 }).toBuffer();
+    // Upload result to R2 — per-job-type compression config (admin Settings →
+    // Image Compression), defaults to enabled q90 for merchant_tryon so this
+    // matches today's previously-hardcoded behavior.
+    const compression = await getImageCompressionConfig(redis, job.source);
+    const {
+      buffer: encodedBuffer,
+      format: outputFormat,
+      contentType,
+    } = await encodeCompressedImage(imageBytes, compression);
+    const resultKey = `widget-outputs/${jobId}/result.${outputFormat}`;
     await s3.send(
       new PutObjectCommand({
         Bucket: r2Bucket,
         Key: resultKey,
-        Body: webpBuffer,
-        ContentType: 'image/webp',
+        Body: encodedBuffer,
+        ContentType: contentType,
       }),
     );
 
@@ -2637,12 +2698,14 @@ async function processShopifyJob(
       firstImage.subfolder,
     );
 
+    const compression = await getImageCompressionConfig(redis, job.source);
     const { resultKey } = await finalizeOutput({
       imageBytes,
       jobId,
       userId: '',
       shopifyStoreId,
       jobWatermark: job.watermark,
+      compression,
       db,
       pub,
       s3,

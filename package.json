@@ -26,6 +26,7 @@
     "db:seed": "pnpm --filter @aivastra/db run seed",
     "check:billing": "tsx --env-file=.env apps/api/scripts/check-billing-api-enabled.mts",
     "backfill:shopify-products-create-webhook": "tsx --env-file=.env apps/api/scripts/backfill-shopify-products-create-webhook.mts",
+    "backfill:missing-invoices": "tsx --env-file=.env apps/api/scripts/backfill-missing-invoices.mts",
     "docker:up": "docker compose -f infra/docker-compose.yml --env-file .env up -d",
     "docker:down": "docker compose -f infra/docker-compose.yml --env-file .env down",
     "docker:logs": "docker compose -f infra/docker-compose.yml --env-file .env logs -f",
@@ -37,7 +38,8 @@
     "seed:model-images": "tsx --env-file=.env scripts/seed-model-images.mts",
     "seed:garment-types": "tsx --env-file=.env scripts/seed-garment-types.mts",
     "seed:invoices": "tsx --env-file=.env scripts/seed-invoices.mts",
-    "seed:audit-logs": "tsx --env-file=.env scripts/seed-audit-logs.mts"
+    "seed:audit-logs": "tsx --env-file=.env scripts/seed-audit-logs.mts",
+    "seed:admin-demo": "tsx --env-file=.env scripts/seed-admin-demo-data.mts"
   },
   "devDependencies": {
     "@aivastra/db": "workspace:*",

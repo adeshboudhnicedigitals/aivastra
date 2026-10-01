@@ -6,6 +6,9 @@ import { Icon } from '../../components/Icons';
 import { Pager } from '../../components/Pager';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
+import { useCrumb } from '../../context/BreadcrumbContext';
+import { useCloseOverlay } from '../../hooks/use-close-overlay';
+import { useUrlStateMulti } from '../../hooks/use-url-state';
 import { CONTINENTS, continentLabel } from '../../lib/continents';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type { Continent, ModelFace } from '../../types';
@@ -55,12 +58,54 @@ export function FacesTab() {
     if (r2Url) setPreviewUrl(r2Url);
   }
 
+  const tabHref = '/assets?tab=faces';
   const [selectedFaceIds, setSelectedFaceIds] = useState<string[]>([]);
+  // Dialog open-ness is URL state; the specific ids being deleted are a
+  // snapshot of `selectedFaceIds` taken at open time and stay local, same as
+  // UsersPage's bulk-delete precedent (confirm=bulk-delete-users).
   const [confirmBulkDeleteFaceIds, setConfirmBulkDeleteFaceIds] = useState<string[]>([]);
   const [deleteFaceConfirmText, setDeleteFaceConfirmText] = useState('');
-  const [showFaceUpload, setShowFaceUpload] = useState(false);
-  const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
-  const [confirmDeleteFace, setConfirmDeleteFace] = useState<ModelFace | null>(null);
+
+  const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
+  const closeModal = useCloseOverlay(['modal', 'editId']);
+  const showFaceUpload = modalParam === 'upload-face';
+  const editingFace: ModelFace | null =
+    modalParam === 'edit-face' && editId ? (faces.find((f) => f.id === editId) ?? null) : null;
+
+  const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
+    'confirm',
+    'confirmId',
+  ]);
+  const closeConfirm = useCloseOverlay(['confirm', 'confirmId']);
+  const confirmDeleteFace: ModelFace | null =
+    confirmParam === 'delete-face' && confirmId
+      ? (faces.find((f) => f.id === confirmId) ?? null)
+      : null;
+
+  useCrumb(0, { label: 'Faces', href: tabHref });
+  useCrumb(
+    1,
+    showFaceUpload
+      ? { label: 'Add face', href: `${tabHref}&modal=upload-face` }
+      : editingFace
+        ? {
+            label: 'Edit face',
+            href: `${tabHref}&modal=edit-face&editId=${encodeURIComponent(editingFace.id)}`,
+          }
+        : null,
+  );
+  useCrumb(
+    2,
+    confirmDeleteFace
+      ? {
+          label: 'Delete face',
+          href: `${tabHref}&confirm=delete-face&confirmId=${encodeURIComponent(confirmDeleteFace.id)}`,
+        }
+      : confirmParam === 'bulk-delete-faces'
+        ? { label: 'Move to recycle bin', href: `${tabHref}&confirm=bulk-delete-faces` }
+        : null,
+  );
+
   const [facesPage, setFacesPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [bulkSortStart, setBulkSortStart] = useState(0);
@@ -125,6 +170,7 @@ export function FacesTab() {
   const doBulkDeleteFaces = async () => {
     if (deleteFaceConfirmText !== 'move to recycle bin') return;
     const ids = confirmBulkDeleteFaceIds;
+    closeConfirm();
     setConfirmBulkDeleteFaceIds([]);
     setDeleteFaceConfirmText('');
     if (ids.length === 0) return;
@@ -258,7 +304,10 @@ export function FacesTab() {
               }}
             />
           </div>
-          <button className="btn" onClick={() => setShowFaceUpload(true)}>
+          <button
+            className="btn"
+            onClick={() => setModalParams({ modal: 'upload-face', editId: null })}
+          >
             <Icon.Add /> Add face
           </button>
         </div>
@@ -378,7 +427,10 @@ export function FacesTab() {
                 </div>
                 <button
                   className="btn sm danger"
-                  onClick={() => setConfirmBulkDeleteFaceIds([...selectedFaceIds])}
+                  onClick={() => {
+                    setConfirmBulkDeleteFaceIds([...selectedFaceIds]);
+                    setConfirmParams({ confirm: 'bulk-delete-faces', confirmId: null });
+                  }}
                 >
                   <Icon.Trash /> Move to recycle bin ({selectedFaceIds.length})
                 </button>
@@ -455,10 +507,18 @@ export function FacesTab() {
                     <Switch checked={face.isActive} onChange={() => toggleFace(face.id)} />
                   </div>
                   <div style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>
-                    <button className="btn sm ghost" onClick={() => setEditingFace(face)}>
+                    <button
+                      className="btn sm ghost"
+                      onClick={() => setModalParams({ modal: 'edit-face', editId: face.id })}
+                    >
                       <Icon.Edit />
                     </button>
-                    <button className="btn sm ghost" onClick={() => setConfirmDeleteFace(face)}>
+                    <button
+                      className="btn sm ghost"
+                      onClick={() =>
+                        setConfirmParams({ confirm: 'delete-face', confirmId: face.id })
+                      }
+                    >
                       <Icon.Trash />
                     </button>
                   </div>
@@ -495,7 +555,7 @@ export function FacesTab() {
       {/* ── Modals ── */}
 
       {confirmDeleteFace && (
-        <div className="modal-overlay" onClick={() => setConfirmDeleteFace(null)}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Move to recycle bin</h3>
@@ -507,14 +567,14 @@ export function FacesTab() {
               </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDeleteFace(null)}>
+              <button className="btn ghost" onClick={closeConfirm}>
                 Cancel
               </button>
               <button
                 className="btn danger"
                 onClick={async () => {
                   const { id, label } = confirmDeleteFace;
-                  setConfirmDeleteFace(null);
+                  closeConfirm();
                   if (id.startsWith('face_demo_')) {
                     setFaces((prev) => prev.filter((f) => f.id !== id));
                     toast({ title: `${label} moved to recycle bin` });
@@ -540,10 +600,11 @@ export function FacesTab() {
         </div>
       )}
 
-      {confirmBulkDeleteFaceIds.length > 0 && (
+      {confirmParam === 'bulk-delete-faces' && (
         <div
           className="modal-overlay"
           onClick={() => {
+            closeConfirm();
             setConfirmBulkDeleteFaceIds([]);
             setDeleteFaceConfirmText('');
           }}
@@ -585,6 +646,7 @@ export function FacesTab() {
               <button
                 className="btn ghost"
                 onClick={() => {
+                  closeConfirm();
                   setConfirmBulkDeleteFaceIds([]);
                   setDeleteFaceConfirmText('');
                 }}
@@ -607,10 +669,10 @@ export function FacesTab() {
         <AddFaceModal
           knownContinents={knownContinents}
           onDone={(newFaces) => {
-            setShowFaceUpload(false);
+            closeModal();
             setFaces((prev) => [...prev, ...newFaces]);
           }}
-          onClose={() => setShowFaceUpload(false)}
+          onClose={closeModal}
           toast={toast}
         />
       )}
@@ -621,9 +683,9 @@ export function FacesTab() {
           knownContinents={knownContinents}
           onSaved={(updated) => {
             setFaces((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
-            setEditingFace(null);
+            closeModal();
           }}
-          onClose={() => setEditingFace(null)}
+          onClose={closeModal}
           toast={toast}
         />
       )}

@@ -134,6 +134,75 @@ describe('shopify webhooks', () => {
     expect(afterLen).toBeGreaterThan(beforeLen);
   });
 
+  it('processes collections/update: skips a collection no rule references', async () => {
+    const beforeLen = await app.redis.xlen('shopify:sync');
+    const raw = JSON.stringify({ id: 777, title: 'Random Lookbook' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/webhooks/collections_update',
+      headers: {
+        'x-shopify-hmac-sha256': sign(raw),
+        'x-shopify-shop-domain': 'w.myshopify.com',
+        'content-type': 'application/json',
+      },
+      payload: raw,
+    });
+    expect(res.statusCode).toBe(200);
+    const afterLen = await app.redis.xlen('shopify:sync');
+    expect(afterLen).toBe(beforeLen);
+  });
+
+  it('processes collections/update: enqueues a refreshing collection sync when a rule routes by this title', async () => {
+    const [wf] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: 'webhook-test-wf',
+        label: 'Test WF',
+        jsonContent: {},
+        faceNodeId: 'x',
+        poseNodeId: 'x',
+        bgNodeId: 'x',
+        upperNodeIds: [],
+        facePhasePromptNode: 'x',
+        garmentPhasePromptNode: 'x',
+        workflowType: 'tryon',
+      })
+      .returning();
+    const [basket] = await app.db
+      .insert(schema.shopifyFunnelTemplates)
+      .values({ slug: 'webhook-test-basket', label: 'Sarees', workflowTemplateId: wf.id })
+      .returning();
+    await app.db.insert(schema.shopifyFunnelRules).values({
+      storeId,
+      funnelTemplateId: basket.id,
+      conditions: [{ field: 'collections', operator: 'equals', value: 'sarees' }],
+      priority: 0,
+    });
+
+    const raw = JSON.stringify({ id: 778, title: 'Sarees' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/webhooks/collections_update',
+      headers: {
+        'x-shopify-hmac-sha256': sign(raw),
+        'x-shopify-shop-domain': 'w.myshopify.com',
+        'content-type': 'application/json',
+      },
+      payload: raw,
+    });
+    expect(res.statusCode).toBe(200);
+
+    const entries = await app.redis.xrevrange('shopify:sync', '+', '-', 'COUNT', 1);
+    const [, fields] = entries[0];
+    const task = JSON.parse(fields[fields.indexOf('task') + 1]);
+    expect(task).toMatchObject({
+      storeId,
+      mode: 'collection',
+      shopifyCollectionId: 778,
+      refreshProducts: true,
+    });
+  });
+
   it('responds 200 to GDPR customers/redact', async () => {
     const raw = '{"shop_id":999,"customer":{"id":1}}';
     const res = await app.inject({
