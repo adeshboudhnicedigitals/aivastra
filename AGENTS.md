@@ -129,8 +129,8 @@ directly and cast them, so gates guarding money or access must compare
 ## Invariants
 
 - Credit deduct + job insert in one transaction; refund on terminal failure too.
-- Catalog ID → R2 key resolution happens in api before enqueue; the dispatcher
-  trusts `job_inputs`.
+- Catalog IDs (lower, shoe, accessory) are validated in api before credit deduction; the
+  dispatcher resolves their R2 keys live at dispatch time.
 - Workflow templates: `structuredClone` then patch, never inline-mutate.
 - Postgres and Redis bind `127.0.0.1` only.
 - Every `/admin/*` route checks the JWT claim **and** an `admin_users` row.
