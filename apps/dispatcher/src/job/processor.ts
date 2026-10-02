@@ -928,7 +928,7 @@ export async function processJob(
 
     // 9. Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     const compression = await getImageCompressionConfig(redis, job.source);
-    await finalizeOutput({
+    const { completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId,
@@ -940,6 +940,10 @@ export async function processJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('job completed successfully');
@@ -1084,7 +1088,10 @@ async function processVideoJob(
       }),
     );
 
-    await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog);
+    if (!(await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog))) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, jobType);
   } catch (err) {
@@ -1318,7 +1325,7 @@ async function processTryonDirectJob(
     // Compression is configurable per job source (admin Settings → Image
     // Compression); tryon/api_tryon/merchant_tryon default to enabled q90.
     const compression = await getImageCompressionConfig(redis, job.source);
-    await finalizeOutput({
+    const { completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId,
@@ -1330,6 +1337,10 @@ async function processTryonDirectJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('tryon direct job completed');
@@ -1576,7 +1587,7 @@ async function processRegenerateJob(
     );
 
     const compression = await getImageCompressionConfig(redis, job.source);
-    await finalizeOutput({
+    const { completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId,
@@ -1588,6 +1599,10 @@ async function processRegenerateJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('regenerate job completed');
@@ -1952,7 +1967,7 @@ async function processSareeMannequinJob(
 
     // Mannequin images are never delivered to the user — no watermark applies.
     const compression = await getImageCompressionConfig(redis, job.source);
-    await finalizeOutput({
+    const { completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId,
@@ -1964,6 +1979,10 @@ async function processSareeMannequinJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('mannequin job completed successfully');
@@ -2203,7 +2222,7 @@ async function processSareeJob(
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     const compression = await getImageCompressionConfig(redis, job.source);
-    await finalizeOutput({
+    const { completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId,
@@ -2215,6 +2234,10 @@ async function processSareeJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('saree job completed successfully');
@@ -2613,7 +2636,10 @@ async function processWidgetJob(
     );
 
     // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
-    await transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog);
+    if (!(await transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog))) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await pub.publish(
       `sse:events:widget:${merchantId}`,
       JSON.stringify({ jobId, type: 'STATUS', status: 'COMPLETED', resultKey }),
@@ -2912,7 +2938,7 @@ async function processShopifyJob(
     );
 
     const compression = await getImageCompressionConfig(redis, job.source);
-    const { resultKey } = await finalizeOutput({
+    const { resultKey, completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId: '',
@@ -2925,6 +2951,10 @@ async function processShopifyJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
 
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
@@ -3107,12 +3137,32 @@ async function terminateJob(
   const now = new Date();
   const refundReason = status === 'CANCELLED' ? 'JOB_CANCEL_REFUND' : 'JOB_FAIL_REFUND';
 
-  await db.transaction(async (tx) => {
+  const transitioned = await db.transaction(async (tx) => {
+    const [job] = await tx
+      .select({ status: schema.jobs.status })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, jobId))
+      .for('update');
+    if (!job || job.status === 'COMPLETED') return false;
+    const [priorRefund] = await tx
+      .select({ id: schema.creditLedger.id })
+      .from(schema.creditLedger)
+      .where(
+        and(
+          eq(schema.creditLedger.jobId, jobId),
+          inArray(schema.creditLedger.reason, [
+            'JOB_FAIL_REFUND',
+            'JOB_CANCEL_REFUND',
+            'REFUND_ADMIN_CANCEL',
+          ]),
+        ),
+      )
+      .limit(1);
     // Insert ledger row first — unique index on (job_id, reason) prevents double-refund.
     // A conflict (already refunded, e.g. this job was retried via admin after a prior
     // terminal fail) must only skip the balance update — the status transition below
     // still has to run, or the job is left orphaned in a non-terminal status forever.
-    if (creditsCharged > 0) {
+    if (creditsCharged > 0 && !priorRefund) {
       const inserted = await tx
         .insert(schema.creditLedger)
         .values({ userId, delta: creditsCharged, reason: refundReason, jobId })
@@ -3140,7 +3190,12 @@ async function terminateJob(
       eventType: status,
       payload: (status === 'CANCELLED' ? {} : { errorCode }) as Record<string, unknown>,
     });
+    return true;
   });
+  if (!transitioned) {
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    return;
+  }
 
   // SSE publish after commit — not critical, clients reconnect on miss
   const ssePayload = JSON.stringify(
