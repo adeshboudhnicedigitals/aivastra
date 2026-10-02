@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, eq, exists, inArray, isNotNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -159,12 +159,28 @@ export async function catalogRoutes(app: FastifyInstance) {
         // Garment type determines the pose workflow, while the Studio picker must
         // offer every active lower garment or shoe for the selected gender. Its
         // configured default is selected client-side, but does not narrow the
-        // available alternatives.
+        // available alternatives. Accessories are the exception: they are only
+        // offered when mapped to the selected garment type (catalog_item_subcategories).
         const conditions = [
           eq(schema.catalogItems.isActive, true),
           eq(schema.catalogItems.type, type),
         ];
         if (gender) conditions.push(eq(schema.catalogItems.genderSlug, gender));
+        if (type === 'accessory' && garmentTypeId) {
+          conditions.push(
+            exists(
+              app.db
+                .select({ one: schema.catalogItemSubcategories.catalogItemId })
+                .from(schema.catalogItemSubcategories)
+                .where(
+                  and(
+                    eq(schema.catalogItemSubcategories.catalogItemId, schema.catalogItems.id),
+                    eq(schema.catalogItemSubcategories.subcategoryId, garmentTypeId),
+                  ),
+                ),
+            ),
+          );
+        }
 
         const items = await app.db
           .select()
