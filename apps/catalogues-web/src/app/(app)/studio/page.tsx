@@ -1252,13 +1252,20 @@ export default function StudioPage(): React.ReactElement {
   // pick; picking the selected item again clears it.
   const toggleAccessory = (categoryId: number, itemId: string) => {
     setAccessoryCatalogIds((prev) => {
+      // Deselect must work even when the category list has moved on under a stale pick.
+      if (prev.includes(itemId)) return prev.filter((id) => id !== itemId);
       const category = accessoryCategories.find((c) => c.id === categoryId);
       const otherCategoryIds = category
         ? prev.filter((id) => !category.items.some((i) => i.id === id))
         : prev;
-      return prev.includes(itemId) ? otherCategoryIds : [...otherCategoryIds, itemId];
+      return [...otherCategoryIds, itemId];
     });
   };
+  // Only ids the customer can currently see in the accessory step; anything stale
+  // (garment type / gender / poses changed) must never be submitted invisibly.
+  const visibleAccessoryIds = accessoryCatalogIds.filter((id) =>
+    accessoryCategories.some((c) => c.items.some((i) => i.id === id)),
+  );
   const lowerNodes = useMemo(
     () => lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [],
     [lowerCatalog],
@@ -1530,6 +1537,7 @@ export default function StudioPage(): React.ReactElement {
       // Clear when no longer needed; leave empty otherwise (default sent at submit time)
       if (!nextNeedsLower) setLowerCatalogId('');
       if (!nextNeedsShoes) setShoeCatalogId('');
+      if (!nextPoses.some((p) => p.hasAccessory)) setAccessoryCatalogIds([]);
       if (!nextNeedsUpperBack) {
         setUpperGarmentBackFile(null);
         setUpperGarmentBackKey('');
@@ -1585,7 +1593,7 @@ export default function StudioPage(): React.ReactElement {
 
       // Drop selections that no longer apply (poses changed so the step vanished).
       const effectiveAccessoryIds =
-        needsAccessory && accessoryCatalogIds.length > 0 ? accessoryCatalogIds : undefined;
+        needsAccessory && visibleAccessoryIds.length > 0 ? visibleAccessoryIds : undefined;
       const step2InputsBase = {
         faceId,
         garmentTypeId: garmentTypeId || undefined,
@@ -1704,7 +1712,7 @@ export default function StudioPage(): React.ReactElement {
         shoeCatalogId ||
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
       const effectiveAccessoryIds =
-        needsAccessory && accessoryCatalogIds.length > 0 ? accessoryCatalogIds : undefined;
+        needsAccessory && visibleAccessoryIds.length > 0 ? visibleAccessoryIds : undefined;
 
       // Main image: white Amazon-compliant background
       const { catalogueId, jobIds: mainJobIds } = await api.post<{
@@ -2239,6 +2247,7 @@ export default function StudioPage(): React.ReactElement {
                     // garment type for the new gender, same as switching gender
                     // in single mode.
                     setGarmentTypeId('');
+                    setAccessoryCatalogIds([]);
                   }}
                 />
               ))}
@@ -2396,6 +2405,7 @@ export default function StudioPage(): React.ReactElement {
                       onClick={() => {
                         setGender(g.value);
                         setGarmentTypeId('');
+                        setAccessoryCatalogIds([]);
                         setCatalogueTemplateId('custom');
                         setGarmentModalOpen(false);
                       }}
@@ -2498,6 +2508,7 @@ export default function StudioPage(): React.ReactElement {
                                 setPoseIds([]);
                                 setLowerCatalogId('');
                                 setShoeCatalogId('');
+                                setAccessoryCatalogIds([]);
                                 setSareeUploadMode('two_input');
                                 setPalluGarmentFile(null);
                                 setPalluGarmentKey('');
@@ -5271,6 +5282,7 @@ export default function StudioPage(): React.ReactElement {
               setPoseIds([]);
               setLowerCatalogId('');
               setShoeCatalogId('');
+              setAccessoryCatalogIds([]);
             }
           }}
           onClose={() => setGarmentModalOpen(false)}
