@@ -22,6 +22,7 @@ import { BREAKPOINTS } from '@/lib/breakpoints';
 import { ApiError } from '@/lib/errors';
 import { isSupportedImageBytes } from '@/lib/image-validation';
 import { extractYoutubeId } from '@/lib/youtube';
+import { AccessoryStep } from './accessory-step';
 import { BatchMode } from './batch/batch-mode';
 import { type GenerationJob, GenerationPanel } from './generation-panel';
 import { PreviewPanel } from './preview-panel';
@@ -105,6 +106,7 @@ interface PoseItem {
   hasUpper: boolean;
   hasLower: boolean;
   hasShoes: boolean;
+  hasAccessory: boolean;
   garmentView: 'front' | 'back';
 }
 interface TemplateLook {
@@ -118,6 +120,7 @@ interface TemplateLook {
   hasUpper: boolean;
   hasLower: boolean;
   hasShoes: boolean;
+  hasAccessory: boolean;
 }
 interface CatalogueTemplateItem {
   id: string;
@@ -709,6 +712,7 @@ export default function StudioPage(): React.ReactElement {
   const [selectedLookIds, setSelectedLookIds] = useState<string[]>([]);
   const [lowerCatalogId, setLowerCatalogId] = useState('');
   const [shoeCatalogId, setShoeCatalogId] = useState('');
+  const [accessoryCatalogIds, setAccessoryCatalogIds] = useState<string[]>([]);
   const [lowerItemsOpen, setLowerItemsOpen] = useState(false);
   const [shoeItemsOpen, setShoeItemsOpen] = useState(false);
 
@@ -1101,6 +1105,12 @@ export default function StudioPage(): React.ReactElement {
     catalogueTemplateId === 'custom'
       ? selectedPoses.some((p) => p.hasShoes)
       : selectedLooks.some((l) => l.hasShoes);
+  // Always optional: the step only appears when a selected pose's workflow maps an
+  // accessory node, and never gates submission.
+  const needsAccessory =
+    catalogueTemplateId === 'custom'
+      ? selectedPoses.some((p) => p.hasAccessory)
+      : selectedLooks.some((l) => l.hasAccessory);
   // Template mode never sets garmentView on TemplateLook (out of scope — see
   // docs/superpowers/plans/2026-09-29-studio-back-pose-garment-view.md), so
   // these are always false there.
@@ -1215,6 +1225,40 @@ export default function StudioPage(): React.ReactElement {
     );
     return [...allItems].sort(() => Math.random() - 0.5).slice(0, shoeVisibleCount);
   }, [shoesCatalog, shoeVisibleCount]);
+  const { data: accessoryCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
+    queryKey: ['catalog', 'accessory', gender, garmentTypeId, effectivePoseIds.join(',')],
+    queryFn: () => {
+      const params = [
+        poseIdsParam,
+        gender ? `gender=${gender}` : '',
+        garmentTypeId ? `garmentTypeId=${garmentTypeId}` : '',
+      ]
+        .filter(Boolean)
+        .join('&');
+      return api.get(`/v1/catalog/accessory?${params}`);
+    },
+    enabled: needsAccessory,
+  });
+  const accessoryCategories = useMemo(
+    () =>
+      (accessoryCatalog?.tree.filter((n) => n.slug !== 'other') ?? []).map((node) => ({
+        id: node.id,
+        label: node.label,
+        items: flattenNode(node),
+      })),
+    [accessoryCatalog],
+  );
+  // Single-select per category: picking an item replaces that category's previous
+  // pick; picking the selected item again clears it.
+  const toggleAccessory = (categoryId: number, itemId: string) => {
+    setAccessoryCatalogIds((prev) => {
+      const category = accessoryCategories.find((c) => c.id === categoryId);
+      const otherCategoryIds = category
+        ? prev.filter((id) => !category.items.some((i) => i.id === id))
+        : prev;
+      return prev.includes(itemId) ? otherCategoryIds : [...otherCategoryIds, itemId];
+    });
+  };
   const lowerNodes = useMemo(
     () => lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [],
     [lowerCatalog],
@@ -1539,6 +1583,9 @@ export default function StudioPage(): React.ReactElement {
         shoeCatalogId ||
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
 
+      // Drop selections that no longer apply (poses changed so the step vanished).
+      const effectiveAccessoryIds =
+        needsAccessory && accessoryCatalogIds.length > 0 ? accessoryCatalogIds : undefined;
       const step2InputsBase = {
         faceId,
         garmentTypeId: garmentTypeId || undefined,
@@ -1555,6 +1602,7 @@ export default function StudioPage(): React.ReactElement {
             ? lowerGarmentBackKey || undefined
             : undefined,
         shoeCatalogId: effectiveShoesId,
+        accessoryCatalogIds: effectiveAccessoryIds,
         thirdGarmentKey: thirdGarmentKey || undefined,
       };
       const step2Inputs =
@@ -1655,6 +1703,8 @@ export default function StudioPage(): React.ReactElement {
       const effectiveShoesId =
         shoeCatalogId ||
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
+      const effectiveAccessoryIds =
+        needsAccessory && accessoryCatalogIds.length > 0 ? accessoryCatalogIds : undefined;
 
       // Main image: white Amazon-compliant background
       const { catalogueId, jobIds: mainJobIds } = await api.post<{
@@ -1676,6 +1726,7 @@ export default function StudioPage(): React.ReactElement {
               ? lowerGarmentBackKey || undefined
               : undefined,
           shoeCatalogId: effectiveShoesId,
+          accessoryCatalogIds: effectiveAccessoryIds,
           thirdGarmentKey: thirdGarmentKey || undefined,
         },
         aspectRatio: aspect,
@@ -1718,6 +1769,7 @@ export default function StudioPage(): React.ReactElement {
                 ? lowerGarmentBackKey || undefined
                 : undefined,
             shoeCatalogId: effectiveShoesId,
+            accessoryCatalogIds: effectiveAccessoryIds,
             thirdGarmentKey: thirdGarmentKey || undefined,
           },
           aspectRatio: aspect,
@@ -1828,6 +1880,7 @@ export default function StudioPage(): React.ReactElement {
     catalogueTemplateId === 'custom' && 'poses',
     needsLower && !requiresLowerUpload && !lowerOnly && 'lower',
     needsShoes && 'shoes',
+    needsAccessory && accessoryCategories.length > 0 && 'accessory',
     needsUpperBackUpload && 'upperBack',
     needsLowerBack && !lowerOnlyIsBack && 'lowerBack',
     'platform',
@@ -4506,6 +4559,15 @@ export default function StudioPage(): React.ReactElement {
                     </section>
                   );
                 })()}
+
+              {needsAccessory && accessoryCategories.length > 0 && (
+                <AccessoryStep
+                  categories={accessoryCategories}
+                  selectedIds={accessoryCatalogIds}
+                  stepNumber={stepNumberOf('accessory')}
+                  onToggle={toggleAccessory}
+                />
+              )}
 
               {needsUpperBackUpload && (
                 <section className="studio-section-card" style={sectionCardStyle}>
