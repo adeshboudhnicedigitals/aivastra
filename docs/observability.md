@@ -115,6 +115,49 @@ Create these in Grafana Cloud (**Alerting → Alert rules**), wired to an email/
 | API p95 latency high | `histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 2` |
 | E2E latency high | `histogram_quantile(0.95, sum by (le) (rate(job_e2e_duration_seconds_bucket[10m]))) > 120` |
 
+### ComfyUI execution-start timeout (Stage 1 with approved exhaustion cleanup)
+
+These rules use the same Grafana Cloud provisioning procedure above. No runtime quarantine:
+queue-budget exhaustion and unconfirmed/conservative cancellation release the worker and refund
+through the caller. Exhaustion now attempts bounded scoped deletion and confirmation first;
+a confirmed deletion still uses the terminal/refund policy. Enable the queue gate before validating capabilities.
+
+| Alert | Condition (PromQL), any event in 5m |
+|-------|-----------------------------------|
+| Terminal queue-budget exhaustion after cleanup | `increase(comfy_queue_cleanup_failed_total[5m]) > 0` |
+| Unconfirmed or conservative scoped cancellation | `increase(comfy_cancels_total{mode="conservative"}[5m]) > 0 or increase(comfy_cancels_total{mode="safe_scoped",outcome!="confirmed"}[5m]) > 0` |
+| Live destructive authorization denied | `increase(comfy_destructive_calls_skipped_total[5m]) > 0` |
+| Validated version missing or changed | `increase(comfy_version_guard_mismatches_total[5m]) > 0` |
+| Capability read unreadable (all workers/contexts) | `increase(comfy_capability_read_unreadable_total[5m]) > 0` |
+| Configured worker has no queue gate | `increase(comfy_capability_gate_drift_total[5m]) > 0` |
+| Cancel ratchet after configuration loss | `increase(comfy_cancel_config_loss_total[5m]) > 0` |
+
+Runtime key `config:comfy-timeout` contains JSON `{ "maxQueueWaitMs": 900000 }` when
+Ops elect to enable the timeout feature. This value is a proposal, not a default.
+A missing, malformed or non-positive budget keeps timeout polling in LEGACY. Optional
+engineering fields are `queueStateUnknownGraceMs` (10000), `cancelConfirmationTimeoutMs`
+(20000), `cancelAbsentRecheckMs` (2000), and `requestTimeoutMs` (5000); all must be
+positive integers. The dispatcher reads them per submission. Following review scope approval,
+`queueCleanupTimeoutMs` defaults to 30000 and must be at least
+`queueStateUnknownGraceMs + 2 * 3000`. This default keeps the previously approved
+max-queue-budget-only enablement usable while providing a finite cleanup bound.
+Admin display reads emit warnings, while monitor reads own drift and unreadable alerts.
+
+`GET/PUT/DELETE /admin/workers/:id/capabilities` reads/replaces/clears worker validation.
+PUT accepts the three validation booleans, `validatedComfyVersion`, `validatedAt`, and
+`validationReference`. Setting scoped-interrupt validation requires a reference to a
+recorded two-real-prompts test on that worker/version. These are operator assertions;
+mock tests never authorize production enablement. Partial revocation is immediate.
+Complete clear, version change, protected rename or disabling the gate requires DRAINING;
+the operator must separately verify that ComfyUI's queue is empty.
+
+Queue-aware timeout requires identity and delete capabilities, a matching fresh version,
+the gate and a valid queue budget. Safe scoped cancel requires all three capabilities and
+a matching version, independently of budgets and the gate. Every submission now uses typed
+completion handling and the rewritten loop; execution-vs-queue clocks split only when
+the timeout feature is effective. RUNNING polls history only. Mid-flight LEGACY entry
+starts a full execution allowance; a submission starting LEGACY keeps its original budget.
+
 ## Security: keep `/metrics` off the public internet
 
 Alloy scrapes `/metrics` directly over the Docker network, so the endpoints do **not** need to be

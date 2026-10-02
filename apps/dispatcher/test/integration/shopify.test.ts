@@ -9,6 +9,7 @@ import { processJob } from '../../src/job/processor.js';
 import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { assertQueueExhaustion } from '../helpers/queue-exhaustion.js';
 
 const WORKER_ID = 'test-worker-shopify';
 const PERSON_NODE_ID = '20';
@@ -25,8 +26,8 @@ describe('dispatcher shopify job routing', () => {
 
   beforeAll(async () => {
     env = await setupTestEnv();
-    redis = new Redis('redis://127.0.0.1:6379');
-    pub = new Redis('redis://127.0.0.1:6379');
+    redis = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
+    pub = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
     comfy = await startComfyMock();
 
     // Only accepts 'shopify' job type — proves processShopifyJob's
@@ -47,6 +48,7 @@ describe('dispatcher shopify job routing', () => {
   });
 
   beforeEach(async () => {
+    comfy.resetPrompts();
     comfy.setOptions({});
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
@@ -445,5 +447,24 @@ describe('dispatcher shopify job routing', () => {
       .from(schema.jobEvents)
       .where(eq(schema.jobEvents.jobId, jobId));
     expect(events.some((e) => e.eventType === 'COMFY_DISPATCH')).toBe(false);
+  });
+  it('queue_cleanup_failed terminates and refunds without attempts, output handling or requeue', async () => {
+    const { jobId } = await seedShopifyJob();
+    if (!jobId) throw new Error('missing fixture IDs');
+    await assertQueueExhaustion(
+      {
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log: createLogger('test'),
+      },
+      comfy,
+      WORKER_ID,
+      jobId,
+      '',
+    );
   });
 });

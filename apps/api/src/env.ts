@@ -73,7 +73,7 @@ const Env = z.object({
   // .../apps/...) so that Shopify re-opens the app with the host/id_token params
   // App Bridge requires. Never redirect at the SPA's own URL directly.
   SHOPIFY_APP_URL: optionalUrl(),
-  SHOPIFY_SCOPES: z.string().default('read_products'),
+  SHOPIFY_SCOPES: z.string().default('read_products,write_products,read_themes'),
   // 32-byte key, base64-encoded (44 chars). Required only when Shopify is enabled.
   SHOPIFY_TOKEN_ENC_KEY: z.string().optional(),
   // 32-byte key, base64-encoded (44 chars). Required only when Google Drive

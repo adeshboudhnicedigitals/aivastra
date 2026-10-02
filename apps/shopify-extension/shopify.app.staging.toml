@@ -17,7 +17,7 @@ embedded = true
 [access_scopes]
 # Mirrors shopify.app.toml — see that file for why use_legacy_install_flow is
 # deliberately absent and how the managed-installation token exchange works.
-scopes = "read_products,write_products"
+scopes = "read_products,write_products,read_themes"
 optional_scopes = [ ]
 
 [auth]

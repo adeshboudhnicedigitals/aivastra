@@ -39,7 +39,8 @@
     "seed:garment-types": "tsx --env-file=.env scripts/seed-garment-types.mts",
     "seed:invoices": "tsx --env-file=.env scripts/seed-invoices.mts",
     "seed:audit-logs": "tsx --env-file=.env scripts/seed-audit-logs.mts",
-    "seed:admin-demo": "tsx --env-file=.env scripts/seed-admin-demo-data.mts"
+    "seed:admin-demo": "tsx --env-file=.env scripts/seed-admin-demo-data.mts",
+    "seed:admin-linking": "tsx --env-file=.env scripts/seed-admin-linking-demo.mts"
   },
   "devDependencies": {
     "@aivastra/db": "workspace:*",
