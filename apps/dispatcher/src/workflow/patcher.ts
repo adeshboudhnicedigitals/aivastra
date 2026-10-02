@@ -34,6 +34,45 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
   return node;
 }
 
+const isLink = (v: unknown): v is [string, number] =>
+  Array.isArray(v) && v.length === 2 && typeof v[0] === 'string' && typeof v[1] === 'number';
+
+/**
+ * Removes an optional image node from the graph the way ComfyUI's own Bypass does when
+ * exporting API JSON: each node that consumes the image is a pass-through (it carries a
+ * `configs` link from upstream), so whatever read its output is rewired to that upstream
+ * link and the node is dropped, along with the image node itself.
+ *
+ * Fails closed if a consumer has no `configs` link to fall back on — leaving the node in
+ * would feed the template's placeholder image to the model as a real reference.
+ */
+function bypassOptionalImageNode(workflow: Workflow, imageNodeId: string, role: string): void {
+  requireNode(workflow, imageNodeId, role);
+
+  const consumers = Object.entries(workflow).filter(
+    ([id, node]) =>
+      id !== imageNodeId &&
+      Object.values(node.inputs).some((v) => isLink(v) && v[0] === imageNodeId),
+  );
+
+  for (const [consumerId, consumer] of consumers) {
+    const upstream = consumer.inputs.configs;
+    if (!isLink(upstream)) {
+      throw new Error(
+        `Workflow node "${consumerId}" consumes the optional ${role} node "${imageNodeId}" but has ` +
+          `no linked "configs" input to bypass to — cannot drop the ${role} when none is selected`,
+      );
+    }
+    for (const node of Object.values(workflow)) {
+      for (const [key, value] of Object.entries(node.inputs)) {
+        if (isLink(value) && value[0] === consumerId) node.inputs[key] = upstream;
+      }
+    }
+    delete workflow[consumerId];
+  }
+  delete workflow[imageNodeId];
+}
+
 /**
  * A template's latentMaxPx/outputMaxPx is a ceiling, not a target — it only ever
  * shrinks the resolved dims (proportionally, preserving aspect ratio), never grows
@@ -163,12 +202,14 @@ export function applyWorkflowPatch(
   }
 
   // Accessories are never mandatory, unlike lower/shoe/third above: a mapped
-  // accessoryNodeId with nothing selected simply leaves the node untouched,
-  // carrying whatever placeholder the template's JSON shipped with.
+  // accessoryNodeId with nothing selected is bypassed out of the graph, because the
+  // template ships a placeholder image that would otherwise reach the model.
   if (tmpl.accessoryNodeId) {
     if (inputs.accessoryGarmentFile) {
       requireNode(workflow, tmpl.accessoryNodeId, 'accessory').inputs.image =
         inputs.accessoryGarmentFile;
+    } else {
+      bypassOptionalImageNode(workflow, tmpl.accessoryNodeId, 'accessory');
     }
   } else if (inputs.accessoryGarmentFile) {
     log?.warn(

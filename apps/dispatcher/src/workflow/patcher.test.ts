@@ -306,13 +306,58 @@ describe('accessories', () => {
     expect(wf['1370']?.inputs.image).toBe('accessory_stack_abc.png');
   });
 
-  it('leaves the accessory node untouched when no accessory was selected', () => {
+  it('drops an unconsumed accessory node when none was selected', () => {
     const wf = makeWorkflowWithAccessoryNode();
     const tmpl = makeTemplate({ accessoryNodeId: '1370' });
+    // No throw — unlike lower/shoe/third, a mapped-but-unselected accessory is valid.
     applyWorkflowPatch(wf, tmpl, BASE_INPUTS);
-    // No throw, and the template's own placeholder survives unchanged —
-    // unlike lower/shoe/third, a mapped-but-unselected accessory is valid.
-    expect(wf['1370']?.inputs.image).toBe('placeholder_accessory.png');
+    expect(wf['1370']).toBeUndefined();
+  });
+
+  // Mirrors the real template: the accessory LoadImage feeds a config parser spliced into
+  // the middle of a configs chain (prev → parser → prompt node).
+  function makeChainedWorkflow() {
+    return {
+      ...makeWorkflow(),
+      '1302': { inputs: {}, class_type: 'QwenEditConfigJsonParser' },
+      '1325': {
+        inputs: { image: 'placeholder_accessory.png' },
+        class_type: 'LoadImage',
+        _meta: { title: 'accessory' },
+      },
+      '1324': {
+        inputs: { image: ['1325', 0], configs: ['1302', 0] },
+        class_type: 'QwenEditConfigJsonParser',
+      },
+      '1301': { inputs: { configs: ['1324', 0] }, class_type: 'TextEncodeQwenImageEditPlusCustom' },
+    };
+  }
+
+  it('rewires the configs chain past the accessory parser when none was selected', () => {
+    const wf = makeChainedWorkflow();
+    const tmpl = makeTemplate({ accessoryNodeId: '1325' });
+    applyWorkflowPatch(wf, tmpl, BASE_INPUTS);
+    expect(wf['1325']).toBeUndefined();
+    expect(wf['1324']).toBeUndefined();
+    expect(wf['1301']?.inputs.configs).toEqual(['1302', 0]);
+  });
+
+  it('keeps the chain intact and patches the image when an accessory was selected', () => {
+    const wf = makeChainedWorkflow();
+    const tmpl = makeTemplate({ accessoryNodeId: '1325' });
+    applyWorkflowPatch(wf, tmpl, {
+      ...BASE_INPUTS,
+      accessoryGarmentFile: 'accessory_stack_abc.png',
+    });
+    expect(wf['1325']?.inputs.image).toBe('accessory_stack_abc.png');
+    expect(wf['1301']?.inputs.configs).toEqual(['1324', 0]);
+  });
+
+  it('fails closed when the accessory consumer has no configs link to bypass to', () => {
+    const wf = makeChainedWorkflow();
+    (wf['1324'] as { inputs: Record<string, unknown> }).inputs = { image: ['1325', 0] };
+    const tmpl = makeTemplate({ accessoryNodeId: '1325' });
+    expect(() => applyWorkflowPatch(wf, tmpl, BASE_INPUTS)).toThrow(/no linked "configs" input/);
   });
 
   it('warns when an accessory file is provided but no accessoryNodeId is mapped', () => {

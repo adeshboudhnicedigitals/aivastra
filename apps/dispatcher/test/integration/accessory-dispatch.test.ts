@@ -291,7 +291,7 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
     // First attempt — accessory resolution throws, caught by the generic
     // error handler, which re-enqueues (attempts=1, status back to QUEUED) —
     // same MAX_ATTEMPTS=2 retry path every other processing error takes.
-    await processJob(cfg, jobId, userId, 'jobs:normal', 'acc-missing-msg-1');
+    await processJob(cfg, jobId, userId, 'jobs:normal', '1700000000001-0');
     const [after1] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(after1?.status).toBe('QUEUED');
     expect(after1?.attempts).toBe(1);
@@ -300,7 +300,7 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
 
     // Second attempt — the item is still missing, so this exhausts
     // MAX_ATTEMPTS and the job terminates FAILED with a credit refund.
-    await processJob(cfg, jobId, userId, 'jobs:normal', 'acc-missing-msg-2');
+    await processJob(cfg, jobId, userId, 'jobs:normal', '1700000000002-0');
     const [after2] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(after2?.status).toBe('FAILED');
     expect(after2?.attempts).toBe(2);
