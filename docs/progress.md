@@ -2,6 +2,14 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-02 — Admin catalogue cancellation reaches the GPU (Stage 1)
+
+- **Done:** admin PREPROCESSING/GENERATING catalogue cancel sets the existing 600s Redis signal and returns pending without a refund or DB status change. Admin UI waits for dispatcher status updates. Queued and non-catalogue behavior retained.
+- **Done:** dispatcher/admin refund paths serialize on the job row and recognize all three terminal refund reasons. CANCELLED cannot be overwritten by intermediate/completion transitions; output metadata and completion transition are atomic. All eight completion paths ACK rejected completions and suppress success delivery, including widget SSE/webhooks. FAILED → QUEUED remains supported.
+- **Validation:** dispatcher units 157 passed; full dispatcher integration 120 passed, followed by the expanded widget file (5 passed). API units 752 passed; relevant API integrations 21 passed. API/dispatcher/admin typechecks passed. Lint exited 0 with 751 warnings and 12 infos. Exact commands/output and resolved initial failures: [report](superpowers/reports/2026-10-02-admin-cancel-stage1.md).
+- **Failed-Not-Done:** no production access, commits, push, deployment, schema changes, browser verification or Stage 2 cancellation wiring. Widget/merchant GPU execution still continues after admin cancellation. Existing admin-cancel audit gap intentionally unchanged.
+- **Open Questions / accepted risks:** private uploaded objects can remain when cancellation wins before completion is recorded. The local-only audit file was absent; user supplied the graceful-abort rationale and authorized proceeding without restoring it.
+
 ## 2026-10-02 — Accessory images (optional studio add-on)
 
 - **Done:** optional accessory images across db / types / dispatcher / api / admin-web / catalogues-web. Studio wizard only; free add-on (no extra credits). Selected accessories (`accessoryCatalogIds`) are stacked vertically by category `sortOrder` into one image that the dispatcher uploads to the template's `accessoryNodeId`. `GET /v1/catalog/accessory` filters items by garment-type mapping (`catalog_item_subcategories`) when `garmentTypeId` is given.
