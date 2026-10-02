@@ -58,7 +58,7 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
    * sortOrder, each backed by a real PNG in the test MinIO bucket (required —
    * stackAccessoryImages reads real image dimensions via sharp).
    */
-  async function seedAccessoryJob() {
+  async function seedAccessoryJob(opts: { accessoryNodeMapped?: boolean } = {}) {
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const [user] = await env.db
@@ -160,7 +160,7 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
         poseNodeId: POSE_NODE_ID,
         bgNodeId: BG_NODE_ID,
         upperNodeIds: [UPPER_NODE_ID],
-        accessoryNodeId: ACCESSORY_NODE_ID,
+        accessoryNodeId: opts.accessoryNodeMapped === false ? null : ACCESSORY_NODE_ID,
         facePhasePromptNode: FACE_NODE_ID,
         garmentPhasePromptNode: FACE_NODE_ID,
       })
@@ -319,6 +319,29 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
 
     // No accessory composite was ever uploaded to ComfyUI for this job — it
     // never got past resolution to the upload step.
+    const accessoryUploads = comfy
+      .uploadedFilenames()
+      .filter((name) => name.startsWith(`accessory_${jobId}`));
+    expect(accessoryUploads).toHaveLength(0);
+  });
+
+  it('ignores selected accessories entirely when the template has no accessoryNodeId', async () => {
+    const { jobId, userId, beltItem } = await seedAccessoryJob({ accessoryNodeMapped: false });
+    const log = createLogger('test');
+    // A stale item would fail the job if accessories were resolved; they must
+    // be skipped without even being looked up.
+    await env.db.delete(schema.catalogItems).where(eq(schema.catalogItems.id, beltItem.id));
+
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      jobId,
+      userId,
+      'jobs:normal',
+      `${Date.now()}-1`,
+    );
+
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.status).toBe('COMPLETED');
     const accessoryUploads = comfy
       .uploadedFilenames()
       .filter((name) => name.startsWith(`accessory_${jobId}`));

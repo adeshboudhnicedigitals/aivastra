@@ -691,11 +691,15 @@ export async function processJob(
     // for. Category sortOrder (not selection order) decides the stack order.
     let accessoryBytes: Buffer | null = null;
     const accessoryCatalogIds = inputs.accessoryCatalogIds ?? [];
-    if (accessoryCatalogIds.length > 0) {
+    // Gated on the resolved template actually mapping an accessory node — a
+    // selection on a pose without one is ignored, so it does no work and can't
+    // fail the job over an item the workflow never uses.
+    if (accessoryCatalogIds.length > 0 && tmplRoles?.accessoryNodeId) {
       const accessoryRows = await db
         .select({
           id: schema.catalogItems.id,
           r2Key: schema.catalogItems.r2Key,
+          categoryId: schema.catalogItems.categoryId,
           sortOrder: schema.catalogCategories.sortOrder,
         })
         .from(schema.catalogItems)
@@ -711,7 +715,9 @@ export async function processJob(
         throw new Error(`accessory catalog item(s) not found: ${missing.join(', ')}`);
       }
 
-      const ordered = [...accessoryRows].sort((a, b) => a.sortOrder - b.sortOrder);
+      const ordered = [...accessoryRows].sort(
+        (a, b) => a.sortOrder - b.sortOrder || (a.categoryId ?? 0) - (b.categoryId ?? 0),
+      );
       const accessoryBuffers = await Promise.all(
         ordered.map(async (r) => Buffer.from(await r2Download(r.r2Key))),
       );

@@ -153,7 +153,7 @@ export function BatchCatalogUploadModal({
   return (
     <EditDrawer
       onClose={onClose}
-      title={`Batch upload ${typeLabel}s`}
+      title={`Batch upload ${typeLabel === 'accessory' ? 'accessories' : `${typeLabel}s`}`}
       width="min(640px, calc(100vw - 40px))"
       saving={running}
       onSave={() => void handleUpload()}

@@ -229,6 +229,111 @@ describe('POST /v1/jobs/saree-mannequin', () => {
     expect(balance).toBe(100 - (step2Job?.creditsCharged ?? 0));
   });
 
+  it('persists accessoryCatalogIds onto the step-2 job_inputs row', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('mannequin-accessory@x.com');
+    await grantCredits(userId, 100);
+    const faceId = await seedFace();
+    const backgroundId = await seedActiveBackground();
+    const poseId = await seedActivePose();
+    const garmentTypeId = await seedFlatSareeGarmentType(true, null);
+    const [wf] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `saree-step1-acc-${Date.now()}`,
+        label: 'Step1',
+        jsonContent: {},
+        workflowType: 'saree_step1',
+        faceNodeId: '',
+        poseNodeId: '',
+        bgNodeId: '',
+        upperNodeIds: [],
+        facePhasePromptNode: '',
+        garmentPhasePromptNode: '',
+        tryonPersonNodeId: '1',
+        tryonGarmentNodeId: '2',
+        tryonOutputNodeId: '3',
+      })
+      .returning();
+    const [step2Wf] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `saree-step2-acc-${Date.now()}`,
+        label: 'Step2',
+        jsonContent: {},
+        workflowType: 'saree_step2',
+        faceNodeId: '',
+        poseNodeId: '',
+        bgNodeId: '',
+        upperNodeIds: ['10'],
+        facePhasePromptNode: '',
+        garmentPhasePromptNode: '',
+        tryonPersonNodeId: '1',
+        tryonGarmentNodeId: '2',
+        tryonOutputNodeId: '3',
+      })
+      .returning();
+    await app.db
+      .update(schema.garmentSubcategories)
+      .set({ mannequinWorkflowTemplateId: wf.id, sareeStep2WorkflowTemplateId: step2Wf.id })
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+    const [accessoryType] = await app.db
+      .select()
+      .from(schema.catalogTypes)
+      .where(eq(schema.catalogTypes.slug, 'accessory'));
+    const [accessoryCategory] = await app.db
+      .insert(schema.catalogCategories)
+      .values({
+        typeId: accessoryType.id,
+        slug: `mannequin-acc-cat-${Date.now()}`,
+        label: 'Necklaces',
+      })
+      .returning();
+    const [accessory] = await app.db
+      .insert(schema.catalogItems)
+      .values({
+        categoryId: accessoryCategory.id,
+        type: 'accessory',
+        genderSlug: 'women',
+        label: 'Accessory',
+        r2Key: 'accessory-mannequin.jpg',
+        thumbnailKey: 'accessory-mannequin-thumb.jpg',
+        isActive: true,
+      })
+      .returning();
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/saree-mannequin',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        garmentTypeId,
+        garmentKey,
+        faceId,
+        step2: {
+          inputs: {
+            faceId,
+            backgroundId,
+            poseIds: [poseId],
+            garmentTypeId,
+            accessoryCatalogIds: [accessory.id],
+          },
+          aspectRatio: '1:1',
+          resolution: '2K',
+        },
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const { jobIds } = res.json();
+    const [step2Inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobIds[0]));
+    expect(step2Inputs?.accessoryCatalogIds).toEqual([accessory.id]);
+  });
+
   it('creates a two-input mannequin job snapshotting the two-input workflow into params', async () => {
     await seedCreditPlan('free', false);
     const { token, userId } = await registerUser('mannequin-two-input@x.com');

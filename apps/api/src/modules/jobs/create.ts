@@ -262,7 +262,8 @@ export async function resolveTryonPlan(
     shoeCatalogId,
     accessoryCatalogIds: rawAccessoryCatalogIds,
   } = body.inputs;
-  const accessoryCatalogIds = rawAccessoryCatalogIds ?? [];
+  // Literal duplicate ids collapse to one selection before validation/persistence.
+  const accessoryCatalogIds = [...new Set(rawAccessoryCatalogIds ?? [])];
   const upperGarmentBackKey = body.inputs.upperGarmentBackKey;
   const aspectRatio: string = body.aspectRatio;
   const platform: string | undefined = body.platform;
@@ -613,7 +614,11 @@ export async function resolveTryonPlan(
     }
     const seenCategories = new Set<number>();
     for (const row of accessoryRows) {
-      if (row.categoryId == null) continue;
+      // An uncategorised accessory can't be ordered or de-duplicated by
+      // category, and the dispatcher inner-joins on category — reject it here.
+      if (row.categoryId == null) {
+        throw new AppError('BAD_CATALOG', 400, 'accessory catalog item has no category');
+      }
       if (seenCategories.has(row.categoryId)) {
         throw new AppError(
           'VALIDATION',

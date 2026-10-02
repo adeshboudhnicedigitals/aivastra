@@ -99,8 +99,26 @@ describe('jobs-accessory', () => {
 
   async function seedAccessoryItem(
     suffix: string,
-    opts: { categoryId?: number; isActive?: boolean } = {},
+    opts: { categoryId?: number | null; isActive?: boolean } = {},
   ) {
+    // Accessories must be categorised (the API rejects a null category), so
+    // default to a fresh category per item; pass categoryId: null to opt out.
+    let categoryId = opts.categoryId;
+    if (categoryId === undefined) {
+      const [accessoryType] = await app.db
+        .select()
+        .from(schema.catalogTypes)
+        .where(eq(schema.catalogTypes.slug, 'accessory'));
+      const [category] = await app.db
+        .insert(schema.catalogCategories)
+        .values({
+          typeId: accessoryType.id,
+          slug: `acc-cat-${suffix}-${Date.now()}`,
+          label: `Cat ${suffix}`,
+        })
+        .returning();
+      categoryId = category.id;
+    }
     const [item] = await app.db
       .insert(schema.catalogItems)
       .values({
@@ -110,7 +128,7 @@ describe('jobs-accessory', () => {
         r2Key: `accessory-${suffix}.jpg`,
         thumbnailKey: `accessory-${suffix}-thumb.jpg`,
         isActive: opts.isActive ?? true,
-        categoryId: opts.categoryId ?? null,
+        categoryId,
       })
       .returning();
     return item;
@@ -213,6 +231,67 @@ describe('jobs-accessory', () => {
     });
 
     expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects an accessory item with no category', async () => {
+    await seedCreditPlan('free');
+    const { token, userId } = await registerUser('accessory-nocat@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, backgroundId, poseId } = await seedFaceAndLook('-nocat');
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+    const item = await seedAccessoryItem('nocat', { categoryId: null });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          looks: [{ poseId, backgroundId }],
+          accessoryCatalogIds: [item.id],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('dedupes literal duplicate accessory ids instead of rejecting or double-storing', async () => {
+    await seedCreditPlan('free');
+    const { token, userId } = await registerUser('accessory-dupid@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, backgroundId, poseId } = await seedFaceAndLook('-dupid');
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+    const item = await seedAccessoryItem('dupid');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          looks: [{ poseId, backgroundId }],
+          accessoryCatalogIds: [item.id, item.id],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, res.json().jobIds[0]));
+    expect(inputs.accessoryCatalogIds).toEqual([item.id]);
   });
 
   it('does not require accessoryCatalogIds even when the resolved pose workflow has an accessoryNodeId', async () => {

@@ -1,5 +1,7 @@
 import sharp from 'sharp';
 
+const MAX_STACK_WIDTH = 2048;
+
 /**
  * Vertically concatenates admin-curated accessory images into one composite —
  * a plain top-to-bottom stack (y-axis), never an overlay/z-axis composite.
@@ -13,14 +15,20 @@ export async function stackAccessoryImages(images: Buffer[]): Promise<Buffer> {
     throw new Error('stackAccessoryImages requires at least one image');
   }
 
-  const metas = await Promise.all(images.map((img) => sharp(img).metadata()));
-  const targetWidth = Math.max(...metas.map((m) => m.width ?? 0));
-  if (targetWidth <= 0) {
+  // Bake EXIF orientation in up front: sharp's metadata() reports the stored
+  // (pre-rotation) dimensions, so phone-shot portraits would otherwise be
+  // measured and stacked sideways.
+  const oriented = await Promise.all(images.map((img) => sharp(img).rotate().toBuffer()));
+  const metas = await Promise.all(oriented.map((img) => sharp(img).metadata()));
+  const widest = Math.max(...metas.map((m) => m.width ?? 0));
+  if (widest <= 0) {
     throw new Error('stackAccessoryImages: could not read image dimensions');
   }
+  // Downscale only: a huge upload must not balloon the composite sent to ComfyUI.
+  const targetWidth = Math.min(widest, MAX_STACK_WIDTH);
 
   const layers = await Promise.all(
-    images.map(async (img, i) => {
+    oriented.map(async (img, i) => {
       const meta = metas[i];
       if (meta?.width === targetWidth) {
         return { buffer: img, height: meta.height ?? 0 };

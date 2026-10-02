@@ -64,4 +64,27 @@ describe('stackAccessoryImages', () => {
     const meta = await sharp(result).metadata();
     expect(meta.width).toBe(200);
   });
+
+  it('clamps the composite width to 2048, downscaling wider inputs', async () => {
+    const huge = await makeColorImage(3000, 100, { r: 255, g: 0, b: 0 });
+    const result = await stackAccessoryImages([huge]);
+    const meta = await sharp(result).metadata();
+    expect(meta.width).toBe(2048);
+    expect(meta.height).toBe(Math.round((100 * 2048) / 3000));
+  });
+
+  it('stacks three images in order, summing heights', async () => {
+    const a = await makeColorImage(80, 10, { r: 255, g: 0, b: 0 });
+    const b = await makeColorImage(80, 20, { r: 0, g: 255, b: 0 });
+    const c = await makeColorImage(80, 30, { r: 0, g: 0, b: 255 });
+    const result = await stackAccessoryImages([a, b, c]);
+    const meta = await sharp(result).metadata();
+    expect(meta.width).toBe(80);
+    expect(meta.height).toBe(60);
+    const bottom = await sharp(result)
+      .extract({ left: 5, top: 50, width: 1, height: 1 })
+      .raw()
+      .toBuffer();
+    expect(bottom[2]).toBeGreaterThan(200);
+  });
 });
