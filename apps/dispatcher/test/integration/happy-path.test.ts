@@ -159,6 +159,7 @@ describe('dispatcher happy path', () => {
 
     await processJob(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,
@@ -205,6 +206,7 @@ describe('dispatcher happy path', () => {
     try {
       await processJob(
         {
+          comfyRedis: redis,
           db: env.db,
           redis,
           pub,
@@ -255,6 +257,7 @@ describe('dispatcher happy path', () => {
     try {
       await processJob(
         {
+          comfyRedis: redis,
           db: env.db,
           redis,
           pub,
@@ -283,6 +286,7 @@ describe('dispatcher happy path', () => {
     if (!jobId || !userId) throw new Error('missing fixture IDs');
     await assertQueueExhaustion(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,

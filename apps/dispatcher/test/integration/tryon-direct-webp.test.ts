@@ -133,7 +133,16 @@ describe('tryon-direct job (source=tryon / api_tryon) — result uploaded as Web
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -168,6 +177,7 @@ describe('tryon-direct job (source=tryon / api_tryon) — result uploaded as Web
     if (!jobId || !userId) throw new Error('missing fixture IDs');
     await assertQueueExhaustion(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,

@@ -17,3 +17,15 @@ export function makeRedis(env: Env) {
   }
   return { main, pub, close };
 }
+
+export function makeComfyRedis(main: Redis): Redis {
+  // Authorization reads must fail rather than accumulate behind a Redis outage.
+  const redis = main.duplicate({
+    lazyConnect: true,
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
+    commandTimeout: 5_000,
+  });
+  redis.on('error', () => {});
+  return redis;
+}

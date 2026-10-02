@@ -120,7 +120,16 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -205,7 +214,16 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -317,7 +335,16 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
 
     const log = createLogger('test');
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       job.id,
       user.id,
       'jobs:normal',
@@ -395,7 +422,16 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
 
     const log = createLogger('test');
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       job.id,
       user.id,
       'jobs:normal',
@@ -505,7 +541,16 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
     const { jobId, userId } = await seedTwoInputMannequinJob();
     const log = createLogger('test');
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -522,6 +567,7 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
     if (!jobId || !userId) throw new Error('missing fixture IDs');
     await assertQueueExhaustion(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,
@@ -562,6 +608,7 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
     await env.db.update(schema.jobs).set({ creditsCharged: 1 }).where(eq(schema.jobs.id, jobId));
     await assertQueueExhaustion(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,

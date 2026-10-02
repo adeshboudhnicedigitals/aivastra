@@ -133,7 +133,16 @@ describe('finalizeOutput — fail-closed on watermark failure', () => {
     const stream = `jobs:test-${jobId}`;
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       stream,
@@ -164,6 +173,7 @@ describe('finalizeOutput — fail-closed on watermark failure', () => {
     const { jobId, userId } = await seedWatermarkedSareeJob();
     const log = createLogger('test');
     const cfg = {
+      comfyRedis: redis,
       db: env.db,
       redis,
       pub,
