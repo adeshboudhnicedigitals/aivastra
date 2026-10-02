@@ -30,8 +30,8 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
 
   beforeAll(async () => {
     env = await setupTestEnv();
-    redis = new Redis('redis://127.0.0.1:6379');
-    pub = new Redis('redis://127.0.0.1:6379');
+    redis = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
+    pub = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
     comfy = await startComfyMock();
 
     await registerWorkers(redis, [{ id: WORKER_ID, url: comfy.url, apiKey: 'test-key' }]);
@@ -47,6 +47,7 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
   });
 
   beforeEach(async () => {
+    comfy.resetPrompts();
     comfy.setOptions({});
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
@@ -235,7 +236,16 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -273,6 +283,7 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
     const { jobId, userId, beltItem } = await seedAccessoryJob();
     const log = createLogger('test');
     const cfg = {
+      comfyRedis: redis,
       db: env.db,
       redis,
       pub,
@@ -333,7 +344,16 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
     await env.db.delete(schema.catalogItems).where(eq(schema.catalogItems.id, beltItem.id));
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
