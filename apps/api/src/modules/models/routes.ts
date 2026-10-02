@@ -311,6 +311,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           upperNodeIds: schema.workflowTemplates.upperNodeIds,
           lowerNodeId: schema.workflowTemplates.lowerNodeId,
           shoeNodeId: schema.workflowTemplates.shoeNodeId,
+          accessoryNodeId: schema.workflowTemplates.accessoryNodeId,
           sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
           garmentView: schema.workflowTemplates.garmentView,
         })
@@ -340,6 +341,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           upperNodeIds: string[] | null;
           lowerNodeId: string | null;
           shoeNodeId: string | null;
+          accessoryNodeId: string | null;
           sizeNodeIds: string[] | null;
           garmentView: string;
         }
@@ -355,6 +357,7 @@ export async function modelsRoutes(app: FastifyInstance) {
             upperNodeIds: schema.workflowTemplates.upperNodeIds,
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
+            accessoryNodeId: schema.workflowTemplates.accessoryNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
             garmentView: schema.workflowTemplates.garmentView,
           })
@@ -381,6 +384,7 @@ export async function modelsRoutes(app: FastifyInstance) {
                 upperNodeIds: c.upperNodeIds ?? null,
                 lowerNodeId: c.lowerNodeId ?? null,
                 shoeNodeId: c.shoeNodeId ?? null,
+                accessoryNodeId: c.accessoryNodeId ?? null,
                 sizeNodeIds: c.sizeNodeIds ?? null,
                 garmentView: c.garmentView ?? 'front',
               },
@@ -400,13 +404,14 @@ export async function modelsRoutes(app: FastifyInstance) {
               const upperNodeIds = cfg !== undefined ? cfg.upperNodeIds : i.upperNodeIds;
               const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : i.lowerNodeId;
               const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : i.shoeNodeId;
+              const accessoryNodeId = cfg !== undefined ? cfg.accessoryNodeId : i.accessoryNodeId;
               const sizeNodeIds = cfg !== undefined ? cfg.sizeNodeIds : i.sizeNodeIds;
               const garmentView = cfg !== undefined ? cfg.garmentView : i.garmentView;
               return {
                 id: i.id,
                 label: i.displayName ?? i.label,
                 thumbnailUrl: (await app.storage.presignGet(i.thumbnailUrl, 3600)).url,
-                ...poseGarmentRoles({ upperNodeIds, lowerNodeId, shoeNodeId }),
+                ...poseGarmentRoles({ upperNodeIds, lowerNodeId, shoeNodeId, accessoryNodeId }),
                 garmentView: garmentView ?? 'front',
                 hasAspectRatio: (sizeNodeIds?.length ?? 0) > 0,
               };
@@ -473,6 +478,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           upperNodeIds: schema.workflowTemplates.upperNodeIds,
           lowerNodeId: schema.workflowTemplates.lowerNodeId,
           shoeNodeId: schema.workflowTemplates.shoeNodeId,
+          accessoryNodeId: schema.workflowTemplates.accessoryNodeId,
           backgroundId: schema.modelBackgrounds.id,
           backgroundLabel: schema.modelBackgrounds.label,
           backgroundThumbnailKey: schema.modelBackgrounds.thumbnailKey,

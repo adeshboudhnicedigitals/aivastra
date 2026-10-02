@@ -37,6 +37,47 @@ describe('downloadOutputImage', () => {
   });
 });
 
+describe('downloadOutputImage retries', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  const okRes = { ok: true, arrayBuffer: async () => new ArrayBuffer(4) };
+
+  it('retries a network failure and then succeeds', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce({ ok: false, status: 502 })
+      .mockResolvedValueOnce(okRes);
+    vi.stubGlobal('fetch', fetchMock);
+    const p = downloadOutputImage('https://w', 'k', 'a.png');
+    await vi.runAllTimersAsync();
+    expect((await p).byteLength).toBe(4);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('gives up after 3 attempts', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockRejectedValue(new Error('stalled'));
+    vi.stubGlobal('fetch', fetchMock);
+    const p = downloadOutputImage('https://w', 'k', 'a.png');
+    const assertion = expect(p).rejects.toThrow('stalled');
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry a 4xx', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(downloadOutputImage('https://w', 'k', 'a.png')).rejects.toThrow('404');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('interruptPrompt', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

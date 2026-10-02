@@ -29,7 +29,12 @@ describe('GET /v1/models/poses — garment roles', () => {
     return signAccess(secret, user.id, { kind: 'access' }, '15m');
   }
 
-  async function workflow(slug: string, upperNodeIds: string[], lowerNodeId: string | null) {
+  async function workflow(
+    slug: string,
+    upperNodeIds: string[],
+    lowerNodeId: string | null,
+    accessoryNodeId: string | null = null,
+  ) {
     const [wf] = await app.db
       .insert(schema.workflowTemplates)
       .values({
@@ -39,6 +44,7 @@ describe('GET /v1/models/poses — garment roles', () => {
         poseNodeId: '2',
         upperNodeIds,
         lowerNodeId,
+        accessoryNodeId,
         garmentPhasePromptNode: '6',
       })
       .returning();
@@ -87,6 +93,26 @@ describe('GET /v1/models/poses — garment roles', () => {
     expect(byId.get(pFull.id)).toMatchObject({ hasUpper: true, hasLower: true });
     expect(byId.get(pUpper.id)).toMatchObject({ hasUpper: true, hasLower: false });
     expect(byId.get(pNone.id)).toMatchObject({ hasUpper: false, hasLower: false });
+  });
+
+  it('reports hasAccessory based on the resolved workflow template', async () => {
+    const sfx = Date.now() + 3;
+    const withAccessory = await workflow(`roles-accessory-yes-${sfx}`, ['1'], null, '9');
+    const withoutAccessory = await workflow(`roles-accessory-no-${sfx}`, ['1'], null, null);
+    const pWith = await pose(`roles-p-accessory-yes-${sfx}`, withAccessory.id);
+    const pWithout = await pose(`roles-p-accessory-no-${sfx}`, withoutAccessory.id);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/models/poses?gender=boys',
+      headers: { authorization: `Bearer ${await token(`roles-accessory-${sfx}@x.com`)}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const byId = new Map(
+      (res.json().items as { id: string; hasAccessory: boolean }[]).map((i) => [i.id, i]),
+    );
+    expect(byId.get(pWith.id)).toMatchObject({ hasAccessory: true });
+    expect(byId.get(pWithout.id)).toMatchObject({ hasAccessory: false });
   });
 
   it('applies a per-garment-type workflow override to hasUpper/hasLower', async () => {

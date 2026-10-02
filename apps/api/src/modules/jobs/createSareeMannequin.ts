@@ -139,6 +139,7 @@ export async function createSareeMannequinJob(
         lowerGarmentKey: look.lowerGarmentKey,
         thirdGarmentKey: step2.inputs.thirdGarmentKey ?? null,
         shoeCatalogId: look.shoeCatalogId,
+        accessoryCatalogIds: look.accessoryCatalogIds,
         userHint: promptGuard(step2.userHint),
         params: { ...look.params, mannequinJobId: mannequinJob.id },
       });

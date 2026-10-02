@@ -179,6 +179,58 @@ describe('admin workflows - floor validation', () => {
     expect(row?.thirdNodeId).toBe('third_node');
   });
 
+  it('accepts accessoryNodeId on create and validates it exists in the JSON', async () => {
+    const withAccessory = {
+      ...jsonContent,
+      accessory_node: {
+        inputs: { image: '' },
+        class_type: 'LoadImage',
+        _meta: { title: 'accessory' },
+      },
+    };
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `accessory_node_create_${Date.now()}`,
+        label: 'Accessory node create',
+        jsonContent: withAccessory,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        accessoryNodeId: 'accessory_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({ accessoryNodeId: schema.workflowTemplates.accessoryNodeId })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, response.json().id));
+    expect(row?.accessoryNodeId).toBe('accessory_node');
+  });
+
+  it('rejects accessoryNodeId pointing at a non-existent node', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `accessory_node_bad_${Date.now()}`,
+        label: 'Accessory node bad',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        accessoryNodeId: 'does_not_exist',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
   it('PATCH persists thirdNodeId', async () => {
     const withThird = {
       ...jsonContent,
@@ -217,6 +269,81 @@ describe('admin workflows - floor validation', () => {
       .from(schema.workflowTemplates)
       .where(eq(schema.workflowTemplates.id, id));
     expect(row?.thirdNodeId).toBe('third_node');
+  });
+
+  it('updates accessoryNodeId via PATCH /admin/workflows/:id', async () => {
+    const withAccessory = {
+      ...jsonContent,
+      accessory_node: {
+        inputs: { image: '' },
+        class_type: 'LoadImage',
+        _meta: { title: 'accessory' },
+      },
+    };
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `accessory_node_patch_${Date.now()}`,
+        label: 'Accessory node patch target',
+        jsonContent: withAccessory,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { accessoryNodeId: 'accessory_node' },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({ accessoryNodeId: schema.workflowTemplates.accessoryNodeId })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    expect(row?.accessoryNodeId).toBe('accessory_node');
+  });
+
+  it('includes accessoryNodeId in the workflow detail response', async () => {
+    const withAccessory = {
+      ...jsonContent,
+      accessory_node: {
+        inputs: { image: '' },
+        class_type: 'LoadImage',
+        _meta: { title: 'accessory' },
+      },
+    };
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `accessory_node_detail_${Date.now()}`,
+        label: 'Accessory node detail',
+        jsonContent: withAccessory,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        accessoryNodeId: 'accessory_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const detailRes = await app.inject({
+      method: 'GET',
+      url: `/admin/workflows/${id}`,
+      headers,
+    });
+    expect(detailRes.statusCode).toBe(200);
+    expect(detailRes.json().accessoryNodeId).toBe('accessory_node');
   });
 
   it('PATCH updates garmentPhasePrompt text in both jsonContent and defaultGarmentPhasePrompt', async () => {
@@ -1212,6 +1339,64 @@ describe('admin workflows - floor validation', () => {
       });
       expect(replaceAgainRes.statusCode).toBe(409);
       expect(replaceAgainRes.json().error.message).toContain('draining');
+    });
+
+    it('carries accessoryNodeId into the archived row on replace', async () => {
+      const withAccessory = {
+        ...jsonContent,
+        accessory_node: {
+          inputs: { image: '' },
+          class_type: 'LoadImage',
+          _meta: { title: 'accessory' },
+        },
+      };
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: `accessory_node_replace_${Date.now()}`,
+          label: 'Accessory node replace',
+          jsonContent: withAccessory,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          accessoryNodeId: 'accessory_node',
+          garmentPhasePromptNode: 'positive_node',
+        },
+      });
+      expect(createRes.statusCode).toBe(200);
+      const id = createRes.json().id as string;
+      const version = createRes.json().version as number;
+
+      // A non-terminal job stamped with the current version is what makes
+      // this replace archive the outgoing row instead of overwriting it.
+      await seedNonTerminalJobOnTemplate(id, version);
+
+      const replaceRes = await app.inject({
+        method: 'POST',
+        url: `/admin/workflows/${id}/replace`,
+        headers,
+        payload: {
+          slug: `accessory_node_replace_${Date.now()}`,
+          label: 'Accessory node replaced',
+          jsonContent: withAccessory,
+          workflowType: 'regular',
+          poseNodeId: 'pose_node',
+          lowerNodeId: 'lower_node',
+          accessoryNodeId: 'accessory_node',
+          garmentPhasePromptNode: 'positive_node',
+          password: 'password123',
+        },
+      });
+      expect(replaceRes.statusCode).toBe(200);
+      expect(replaceRes.json().draining).not.toBeNull();
+
+      const [archiveRow] = await app.db
+        .select()
+        .from(schema.workflowTemplateArchives)
+        .where(eq(schema.workflowTemplateArchives.workflowTemplateId, id));
+      expect(archiveRow?.accessoryNodeId).toBe('accessory_node');
     });
 
     async function seedWorkflowTemplate(labelSuffix: string) {

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
@@ -232,5 +233,65 @@ describe('catalogue_templates + catalogue_template_looks', () => {
         backgroundId: bg.id,
       }),
     ).rejects.toThrow();
+  });
+});
+
+describe('accessory catalog type', () => {
+  it('seeds the accessory catalog type', async () => {
+    const [accessoryType] = await db
+      .select()
+      .from(schema.catalogTypes)
+      .where(eq(schema.catalogTypes.slug, 'accessory'));
+    expect(accessoryType).toBeTruthy();
+    expect(accessoryType.label).toBeTruthy();
+  });
+});
+
+describe('workflow_templates.accessoryNodeId', () => {
+  it('accepts a nullable accessory node id', async () => {
+    const [face] = await db
+      .insert(schema.modelFaces)
+      .values({
+        gender: 'men',
+        label: 'accessory-test-face',
+        r2Key: 'faces/accessory-test.jpg',
+        thumbnailKey: 'faces/accessory-test_thumb.jpg',
+      })
+      .returning();
+    expect(face.id).toBeTruthy();
+
+    const [tmpl] = await db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: 'accessory_node_test',
+        label: 'Accessory Node Test',
+        jsonContent: {},
+        poseNodeId: '1',
+        upperNodeIds: [],
+        garmentPhasePromptNode: '2',
+        accessoryNodeId: '3',
+      })
+      .returning();
+    expect(tmpl.accessoryNodeId).toBe('3');
+  });
+});
+
+describe('job_inputs.accessoryCatalogIds', () => {
+  it('defaults to an empty array', async () => {
+    const [face] = await db
+      .insert(schema.modelFaces)
+      .values({
+        gender: 'men',
+        label: 'job-inputs-accessory-test-face',
+        r2Key: 'faces/job-inputs-accessory-test.jpg',
+        thumbnailKey: 'faces/job-inputs-accessory-test_thumb.jpg',
+      })
+      .returning();
+    const [job] = await db.insert(schema.jobs).values({ status: 'QUEUED' }).returning();
+    const [inputs] = await db
+      .insert(schema.jobInputs)
+      .values({ jobId: job.id, faceId: face.id })
+      .returning();
+    expect(inputs.accessoryCatalogIds).toEqual([]);
   });
 });

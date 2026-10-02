@@ -20,6 +20,7 @@ interface WorkflowDetail extends WorkflowOption {
   lowerNodeId: string | null;
   shoeNodeId: string | null;
   thirdNodeId: string | null;
+  accessoryNodeId: string | null;
   facePhasePromptNode: string;
   garmentPhasePromptNode: string;
   defaultFacePhasePrompt: string;
@@ -1292,6 +1293,7 @@ export default function WorkflowsPage({ toast }: Props) {
                           ['Lower node', viewingDetail.lowerNodeId ?? '—'],
                           ['Shoe node', viewingDetail.shoeNodeId ?? '—'],
                           ['Third node', viewingDetail.thirdNodeId ?? '—'],
+                          ['Accessory node', viewingDetail.accessoryNodeId ?? '—'],
                           [
                             'Size nodes',
                             viewingDetail.sizeNodeIds.length > 0

@@ -17,7 +17,7 @@ import {
 } from '@aivastra/types';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 
 import {
@@ -34,6 +34,7 @@ import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 import { releaseWorker } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
+import { stackAccessoryImages } from '../workflow/accessory-stack.js';
 import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
 import { encodeCompressedImage, finalizeOutput } from '../workflow/finalize.js';
 import { patchWorkflow } from '../workflow/patcher.js';
@@ -700,6 +701,46 @@ export async function processJob(
       return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
     }
 
+    // Resolve selected accessory catalog items → fetch bytes, vertically stack
+    // into one composite. Unlike lower/shoe above, a missing item here fails
+    // the whole job rather than silently skipping — the user explicitly chose
+    // these, so dropping one silently would produce a result they didn't ask
+    // for. Category sortOrder (not selection order) decides the stack order.
+    let accessoryBytes: Buffer | null = null;
+    const accessoryCatalogIds = inputs.accessoryCatalogIds ?? [];
+    // Gated on the resolved template actually mapping an accessory node — a
+    // selection on a pose without one is ignored, so it does no work and can't
+    // fail the job over an item the workflow never uses.
+    if (accessoryCatalogIds.length > 0 && tmplRoles?.accessoryNodeId) {
+      const accessoryRows = await db
+        .select({
+          id: schema.catalogItems.id,
+          r2Key: schema.catalogItems.r2Key,
+          categoryId: schema.catalogItems.categoryId,
+          sortOrder: schema.catalogCategories.sortOrder,
+        })
+        .from(schema.catalogItems)
+        .innerJoin(
+          schema.catalogCategories,
+          eq(schema.catalogCategories.id, schema.catalogItems.categoryId),
+        )
+        .where(inArray(schema.catalogItems.id, accessoryCatalogIds));
+
+      const rowsById = new Map(accessoryRows.map((r) => [r.id, r]));
+      const missing = accessoryCatalogIds.filter((id) => !rowsById.has(id));
+      if (missing.length > 0) {
+        throw new Error(`accessory catalog item(s) not found: ${missing.join(', ')}`);
+      }
+
+      const ordered = [...accessoryRows].sort(
+        (a, b) => a.sortOrder - b.sortOrder || (a.categoryId ?? 0) - (b.categoryId ?? 0),
+      );
+      const accessoryBuffers = await Promise.all(
+        ordered.map(async (r) => Buffer.from(await r2Download(r.r2Key))),
+      );
+      accessoryBytes = await stackAccessoryImages(accessoryBuffers);
+    }
+
     // 4. Upload only the images that ComfyUI actually needs.
     // Display images (faceRow.r2Key, bgRow.r2Key) are UI-only and never sent to ComfyUI.
     jobLog.info({ needsFace, needsBg, needsUpper }, 'uploading inputs to ComfyUI');
@@ -711,6 +752,18 @@ export async function processJob(
     if (lowerKey) baseTasks.push(uploadToComfy(lowerKey, 'lower'));
     if (shoeKey) baseTasks.push(uploadToComfy(shoeKey, 'shoe'));
     if (inputs.thirdGarmentKey) baseTasks.push(uploadToComfy(inputs.thirdGarmentKey, 'third'));
+    if (accessoryBytes) {
+      baseTasks.push(
+        uploadImageToComfy(
+          w.url,
+          w.apiKey,
+          accessoryBytes,
+          `accessory_${jobId}.png`,
+          'image/png',
+          jobLog,
+        ),
+      );
+    }
     const uploaded = await Promise.all(baseTasks);
 
     let idx = 0;
@@ -722,6 +775,7 @@ export async function processJob(
     const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
     const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
     const thirdGarmentFile = inputs.thirdGarmentKey ? uploaded[idx++] : undefined;
+    const accessoryGarmentFile = accessoryBytes ? uploaded[idx++] : undefined;
     jobLog.info(
       {
         upperGarmentFile,
@@ -731,6 +785,7 @@ export async function processJob(
         lowerGarmentFile,
         shoeGarmentFile,
         thirdGarmentFile,
+        accessoryGarmentFile,
       },
       'inputs uploaded',
     );
@@ -753,6 +808,7 @@ export async function processJob(
         lowerGarmentFile,
         shoeGarmentFile,
         thirdGarmentFile,
+        accessoryGarmentFile,
         promptFacePhase: effectivePromptFacePhase ?? undefined,
         promptGarmentPhase: effectivePromptGarmentPhase ?? undefined,
         aspectRatio: jobAspectRatio,
@@ -789,6 +845,7 @@ export async function processJob(
           lowerGarmentFile,
           shoeGarmentFile,
           thirdGarmentFile,
+          accessoryGarmentFile: accessoryGarmentFile ?? null,
           promptFacePhase: effectivePromptFacePhase ?? null,
           promptGarmentPhase: effectivePromptGarmentPhase ?? null,
           aspectRatio: jobAspectRatio ?? null,
@@ -804,6 +861,7 @@ export async function processJob(
             lowerKey,
             shoeKey,
             thirdGarmentKey: inputs.thirdGarmentKey,
+            accessoryCatalogIds: accessoryCatalogIds.length > 0 ? accessoryCatalogIds : null,
           },
         },
         prompt,
@@ -870,7 +928,7 @@ export async function processJob(
 
     // 9. Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     const compression = await getImageCompressionConfig(redis, job.source);
-    await finalizeOutput({
+    const { completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId,
@@ -882,6 +940,10 @@ export async function processJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('job completed successfully');
@@ -1026,7 +1088,10 @@ async function processVideoJob(
       }),
     );
 
-    await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog);
+    if (!(await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog))) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, jobType);
   } catch (err) {
@@ -1260,7 +1325,7 @@ async function processTryonDirectJob(
     // Compression is configurable per job source (admin Settings → Image
     // Compression); tryon/api_tryon/merchant_tryon default to enabled q90.
     const compression = await getImageCompressionConfig(redis, job.source);
-    await finalizeOutput({
+    const { completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId,
@@ -1272,6 +1337,10 @@ async function processTryonDirectJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('tryon direct job completed');
@@ -1518,7 +1587,7 @@ async function processRegenerateJob(
     );
 
     const compression = await getImageCompressionConfig(redis, job.source);
-    await finalizeOutput({
+    const { completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId,
@@ -1530,6 +1599,10 @@ async function processRegenerateJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('regenerate job completed');
@@ -1894,7 +1967,7 @@ async function processSareeMannequinJob(
 
     // Mannequin images are never delivered to the user — no watermark applies.
     const compression = await getImageCompressionConfig(redis, job.source);
-    await finalizeOutput({
+    const { completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId,
@@ -1906,6 +1979,10 @@ async function processSareeMannequinJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('mannequin job completed successfully');
@@ -2145,7 +2222,7 @@ async function processSareeJob(
 
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     const compression = await getImageCompressionConfig(redis, job.source);
-    await finalizeOutput({
+    const { completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId,
@@ -2157,6 +2234,10 @@ async function processSareeJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('saree job completed successfully');
@@ -2555,7 +2636,10 @@ async function processWidgetJob(
     );
 
     // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
-    await transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog);
+    if (!(await transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog))) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     await pub.publish(
       `sse:events:widget:${merchantId}`,
       JSON.stringify({ jobId, type: 'STATUS', status: 'COMPLETED', resultKey }),
@@ -2854,7 +2938,7 @@ async function processShopifyJob(
     );
 
     const compression = await getImageCompressionConfig(redis, job.source);
-    const { resultKey } = await finalizeOutput({
+    const { resultKey, completed } = await finalizeOutput({
       imageBytes,
       jobId,
       userId: '',
@@ -2867,6 +2951,10 @@ async function processShopifyJob(
       r2Bucket,
       jobLog,
     });
+    if (!completed) {
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
 
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
@@ -3049,12 +3137,32 @@ async function terminateJob(
   const now = new Date();
   const refundReason = status === 'CANCELLED' ? 'JOB_CANCEL_REFUND' : 'JOB_FAIL_REFUND';
 
-  await db.transaction(async (tx) => {
+  const transitioned = await db.transaction(async (tx) => {
+    const [job] = await tx
+      .select({ status: schema.jobs.status })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, jobId))
+      .for('update');
+    if (!job || job.status === 'COMPLETED') return false;
+    const [priorRefund] = await tx
+      .select({ id: schema.creditLedger.id })
+      .from(schema.creditLedger)
+      .where(
+        and(
+          eq(schema.creditLedger.jobId, jobId),
+          inArray(schema.creditLedger.reason, [
+            'JOB_FAIL_REFUND',
+            'JOB_CANCEL_REFUND',
+            'REFUND_ADMIN_CANCEL',
+          ]),
+        ),
+      )
+      .limit(1);
     // Insert ledger row first — unique index on (job_id, reason) prevents double-refund.
     // A conflict (already refunded, e.g. this job was retried via admin after a prior
     // terminal fail) must only skip the balance update — the status transition below
     // still has to run, or the job is left orphaned in a non-terminal status forever.
-    if (creditsCharged > 0) {
+    if (creditsCharged > 0 && !priorRefund) {
       const inserted = await tx
         .insert(schema.creditLedger)
         .values({ userId, delta: creditsCharged, reason: refundReason, jobId })
@@ -3082,7 +3190,12 @@ async function terminateJob(
       eventType: status,
       payload: (status === 'CANCELLED' ? {} : { errorCode }) as Record<string, unknown>,
     });
+    return true;
   });
+  if (!transitioned) {
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    return;
+  }
 
   // SSE publish after commit — not critical, clients reconnect on miss
   const ssePayload = JSON.stringify(

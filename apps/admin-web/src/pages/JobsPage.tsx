@@ -616,7 +616,18 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     if (!confirmCancelJobId) return;
     setActioning(true);
     try {
-      await apiFetch(`/admin/jobs/${confirmCancelJobId}/cancel`, { method: 'POST' });
+      const response = await apiFetch<{ ok: boolean; pending?: boolean }>(
+        `/admin/jobs/${confirmCancelJobId}/cancel`,
+        { method: 'POST' },
+      );
+      if (response.pending === true) {
+        toast({
+          title: 'Cancellation requested',
+          body: 'Waiting for the dispatcher to stop the job.',
+        });
+        closeConfirm();
+        return;
+      }
       toast({ title: `Job cancelled` });
       closeConfirm();
       if (detail?.id === confirmCancelJobId)
