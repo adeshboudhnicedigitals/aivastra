@@ -273,7 +273,16 @@ describe('dispatcher shopify job routing', () => {
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       '',
       'jobs:normal',
@@ -289,7 +298,16 @@ describe('dispatcher shopify job routing', () => {
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       '',
       'jobs:normal',
@@ -306,7 +324,16 @@ describe('dispatcher shopify job routing', () => {
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       '', // widget/shopify jobs have no userId
       'jobs:normal',
@@ -348,6 +375,7 @@ describe('dispatcher shopify job routing', () => {
     const { jobId, storeId } = await seedStoreBilledShopifyJob({ withFunnel: false });
 
     const cfg = {
+      comfyRedis: redis,
       db: env.db,
       redis,
       pub,
@@ -408,6 +436,7 @@ describe('dispatcher shopify job routing', () => {
     });
 
     const cfg = {
+      comfyRedis: redis,
       db: env.db,
       redis,
       pub,
@@ -453,6 +482,7 @@ describe('dispatcher shopify job routing', () => {
     if (!jobId) throw new Error('missing fixture IDs');
     await assertQueueExhaustion(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,

@@ -168,6 +168,7 @@ describe('dispatcher — mannequin phase capacity handling', () => {
   async function run(jobId: string, userId: string, messageId: string) {
     await processJob(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,
@@ -260,6 +261,7 @@ describe('dispatcher — mannequin phase capacity handling', () => {
     if (!jobId || !userId) throw new Error('missing fixture IDs');
     await assertQueueExhaustion(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,

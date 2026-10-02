@@ -2,6 +2,19 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-02 — Redis isolation lifecycle verified and committed in authorized batches
+
+- **Done:** user authorized committing on the current branch. Code/tests committed as `217c6fc6`; report/progress form the documentation batch. No push or deployment.
+- **Done:** centralized `makeComfyRedis` factory with an error handler, offline queue disabled, one request retry and 5s command timeout. Startup awaits connection readiness; shutdown disconnects. Added a real offline-read rejection regression using the same factory. Atomic selector/worker-release code unchanged; retry fixture assertions unchanged.
+- **Validation:** latest units 141 passed; targeted isolation/retry integrations 5 passed; dispatcher typecheck, lint and whitespace checks pass. Initial reconnect-teardown timing failure corrected and rerun. Full integration suite was not repeated after the lifecycle follow-up; earlier 108-pass/one-invalid-fixture-failure result is retained in the report. Exact latest output: `docs/superpowers/reports/2026-10-02-comfyui-redis-isolation.md`.
+- **Not done:** production access, deployment, post-deploy timing/alert verification, worker capability changes, push. w7 remains the only configured worker per user direction; no external configuration was touched. Unrelated untracked root rev 4.4.8 spec excluded.
+
+## 2026-10-02 — Dispatcher capability/config Redis reads isolated from BLOCK (class A)
+
+- **Done:** dedicated `comfyRedis = redis.duplicate()` in startup, required in completion/processor/mannequin context, used by all eight wait sites for capability/config/version/gate reads and live cancel/cleanup authorization. The health monitor uses the same non-blocking connection, including version publication and drift checks. Shutdown disconnects it. Consumer BLOCK durations and selector gate logic unchanged.
+- **Validation:** local Docker services healthy. Dispatcher units 141 passed. Full integrations: 108 passed, one pre-existing invalid-XACK-ID retry fixture failure. Corrected fixture plus the parked-main-connection regression rerun: 4 passed; the full suite was not rerun afterward. Feature reads/drift, monitor completion and cancel authorization assert <200ms while main has a server-confirmed 2s XREADGROUP BLOCK. Correct capabilities/version produce no mismatch/failure. Typecheck and whitespace check pass; lint exits 0 with 751 warnings and 12 infos. Actual output: `docs/superpowers/reports/2026-10-02-comfyui-redis-isolation.md`.
+- **Not done:** no production access or latency measurement, deployment, API tests, quarantine, staging/commits/pushes. Existing untracked root rev 4.4.8 spec left untouched. Initial sandbox socket, group-prefix fixture, typecheck and formatting failures are recorded in the report with the successful reruns.
+
 ## 2026-10-01 — ComfyUI changes prepared for authorized commit
 
 - **Done:** user authorized committing the complete change in one commit, without pushing. Moved the unchanged rev 4.4.9 specification to `docs/superpowers/specs/2026-09-30-comfyui-timeout-from-execution-start-design-rev4.4.9.md`; SHA-256 remains `ca30211627405593bf05ba41af601b0c1208f88c15bac9fd2265227df46e2199`. Earlier root-location notes below describe the state before this move.
