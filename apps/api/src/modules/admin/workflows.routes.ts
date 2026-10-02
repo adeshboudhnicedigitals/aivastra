@@ -310,6 +310,7 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       shoeNodeId: null,
       garmentView: 'front',
       thirdNodeId: null,
+      accessoryNodeId: null,
       sizeNodeIds: [],
       latentSizeNodeIds: [],
       latentMaxPx: 4096,
@@ -415,6 +416,7 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       shoeNodeId: null,
       garmentView: 'front',
       thirdNodeId: null,
+      accessoryNodeId: null,
       sizeNodeIds,
       latentSizeNodeIds: [],
       latentMaxPx: 4096,
@@ -490,6 +492,7 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       shoeNodeId: null,
       garmentView: 'front',
       thirdNodeId: null,
+      accessoryNodeId: null,
       sizeNodeIds: [],
       latentSizeNodeIds: [],
       latentMaxPx: 4096,
@@ -567,6 +570,7 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       shoeNodeId: null,
       garmentView: 'front',
       thirdNodeId: null,
+      accessoryNodeId: null,
       sizeNodeIds: [],
       latentSizeNodeIds: [],
       latentMaxPx: 4096,
@@ -623,6 +627,10 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
     validateNodeExists(body.jsonContent, body.thirdNodeId, 'third garment');
     validateNodeType(body.jsonContent, body.thirdNodeId, 'image', 'third garment');
   }
+  if (body.accessoryNodeId) {
+    validateNodeExists(body.jsonContent, body.accessoryNodeId, 'accessory');
+    validateNodeType(body.jsonContent, body.accessoryNodeId, 'image', 'accessory');
+  }
   for (const uid of body.sizeNodeIds ?? []) {
     validateNodeExists(body.jsonContent, uid, 'size');
   }
@@ -653,6 +661,7 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
     shoeNodeId: body.shoeNodeId ?? null,
     garmentView: body.garmentView ?? 'front',
     thirdNodeId: body.thirdNodeId ?? null,
+    accessoryNodeId: body.accessoryNodeId ?? null,
     sizeNodeIds: body.sizeNodeIds ?? [],
     latentSizeNodeIds: body.latentSizeNodeIds ?? [],
     latentMaxPx: body.latentMaxPx ?? 4096,
@@ -800,6 +809,10 @@ export async function updateWorkflowRow(
   if (body.thirdNodeId) {
     validateNodeExists(json, body.thirdNodeId, 'third garment');
     validateNodeType(json, body.thirdNodeId, 'image', 'third garment');
+  }
+  if (body.accessoryNodeId) {
+    validateNodeExists(json, body.accessoryNodeId, 'accessory');
+    validateNodeType(json, body.accessoryNodeId, 'image', 'accessory');
   }
   if (body.facePhasePromptNode) {
     validateNodeExists(json, body.facePhasePromptNode, 'negative prompt');
@@ -1023,6 +1036,7 @@ export async function updateWorkflowRow(
   if ('lowerNodeId' in body) updateValues.lowerNodeId = body.lowerNodeId ?? null;
   if ('shoeNodeId' in body) updateValues.shoeNodeId = body.shoeNodeId ?? null;
   if ('thirdNodeId' in body) updateValues.thirdNodeId = body.thirdNodeId ?? null;
+  if ('accessoryNodeId' in body) updateValues.accessoryNodeId = body.accessoryNodeId ?? null;
   if ('sizeNodeIds' in body) updateValues.sizeNodeIds = body.sizeNodeIds ?? [];
   if ('latentSizeNodeIds' in body) updateValues.latentSizeNodeIds = body.latentSizeNodeIds ?? [];
   if (body.latentMaxPx !== undefined) updateValues.latentMaxPx = body.latentMaxPx;
@@ -1313,6 +1327,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       lowerNodeId: r.lowerNodeId,
       shoeNodeId: r.shoeNodeId,
       thirdNodeId: r.thirdNodeId,
+      accessoryNodeId: r.accessoryNodeId,
       sizeNodeIds: r.sizeNodeIds,
       latentSizeNodeIds: r.latentSizeNodeIds,
       latentMaxPx: r.latentMaxPx,
@@ -1710,6 +1725,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
             lowerNodeId: existing.lowerNodeId,
             shoeNodeId: existing.shoeNodeId,
             thirdNodeId: existing.thirdNodeId,
+            accessoryNodeId: existing.accessoryNodeId,
             sizeNodeIds: existing.sizeNodeIds,
             latentSizeNodeIds: existing.latentSizeNodeIds,
             latentMaxPx: existing.latentMaxPx,

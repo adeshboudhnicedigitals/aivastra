@@ -23,6 +23,7 @@ const TABS = [
   { k: 'pose-assets' as const, l: 'Pose Assets' },
   { k: 'lower' as const, l: 'Lower garments' },
   { k: 'shoe' as const, l: 'Shoes' },
+  { k: 'accessory' as const, l: 'Accessories' },
   { k: 'catalogue-templates' as const, l: 'Templates' },
   { k: 'saree-styles' as const, l: 'Saree Styles' },
 ];
@@ -179,7 +180,9 @@ function AssetsShell() {
       {activeTab === 'faces' && <FacesTab />}
       {activeTab === 'garment-types' && <GarmentTypesTab />}
       {activeTab === 'pose-assets' && <PoseAssetsTab />}
-      {(activeTab === 'lower' || activeTab === 'shoe') && <CatalogTab />}
+      {(activeTab === 'lower' || activeTab === 'shoe' || activeTab === 'accessory') && (
+        <CatalogTab />
+      )}
       {activeTab === 'catalogue-templates' && <CatalogueTemplatesTab />}
       {activeTab === 'saree-styles' && <SareeStylesTab />}
 

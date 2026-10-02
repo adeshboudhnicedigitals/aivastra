@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
@@ -115,6 +116,15 @@ export const jobInputs = pgTable('job_inputs', {
   lowerGarmentKey: text('lower_garment_key'),
   thirdGarmentKey: text('third_garment_key'),
   shoeCatalogId: uuid('shoe_catalog_id').references(() => catalogItems.id),
+  // Selected accessory catalog items (at most one per category, zero or more
+  // categories) — never mandatory, unlike lower/shoe. The dispatcher resolves
+  // these to live R2 keys and vertically stacks them into one composite image
+  // at dispatch time (see apps/dispatcher/src/job/processor.ts). See
+  // docs/superpowers/specs/2026-10-01-accessory-images-design.md.
+  accessoryCatalogIds: uuid('accessory_catalog_ids')
+    .array()
+    .notNull()
+    .default(sql`ARRAY[]::uuid[]`),
   userHint: text('user_hint'),
   params: jsonb('params'),
 });

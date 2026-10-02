@@ -2,6 +2,16 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-02 — Accessory images (optional studio add-on)
+
+- **Done:** optional accessory images across db / types / dispatcher / api / admin-web / catalogues-web. Studio wizard only; free add-on (no extra credits). Selected accessories (`accessoryCatalogIds`) are stacked vertically by category `sortOrder` into one image that the dispatcher uploads to the template's `accessoryNodeId`. `GET /v1/catalog/accessory` filters items by garment-type mapping (`catalog_item_subcategories`) when `garmentTypeId` is given.
+- **Open / notes:**
+  - Migrations `0210_classy_dorian_gray` and `0211_seed_accessory_catalog_type` need `db:migrate:prod` through CI/CD. When merging with `dev`, re-chain 0210's snapshot `prevId` onto dev's `0209_worried_lethal_legion` and regenerate snapshots so they include 0209's Shopify columns.
+  - Accessory items need `gender_slug` set or the studio step never appears; items must be mapped to garment types (per-item checklist) to appear.
+  - Templates need `accessoryNodeId` mapped manually in the workflow editor (no title auto-detection).
+  - Studio multi-pose Amazon path and template-look mode were typechecked but not browser-verified.
+  - No GPU worker was available, so dispatch-to-ComfyUI was covered only by the dispatcher integration test.
+- **Known follow-ups:** duplicate `CatalogTypeSlug` in `packages/types/src/catalog.ts` still lists only lower/shoe (dead schema); stale comment in `packages/db/src/schema/catalog.ts`; no admin-job-detail display of `accessoryCatalogIds`; catalog delete doesn't clear accessory ids from `job_inputs`; `createBatch` never carries accessories.
 ## 2026-10-02 — Redis isolation lifecycle verified and committed in authorized batches
 
 - **Done:** user authorized committing on the current branch. Code/tests committed as `217c6fc6`; report/progress form the documentation batch. No push or deployment.

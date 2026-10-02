@@ -34,6 +34,10 @@ export interface ComfyMock {
   /** The full `{ prompt, client_id }` body of the most recent POST /prompt — lets
    *  tests assert on the actual patched workflow JSON rather than network I/O. */
   lastPrompt: () => { prompt: Record<string, { inputs?: Record<string, unknown> }> } | null;
+  /** Original filenames (e.g. `accessory_<jobId>.png`) from every POST /upload/image
+   *  call so far, in call order — lets tests assert how MANY uploads of a given kind
+   *  actually hit ComfyUI, not just what the final patched workflow looks like. */
+  uploadedFilenames: () => string[];
   setOptions: (opts: ComfyMockOptions) => void;
   resetPrompts: () => void;
   close: () => Promise<void>;
@@ -47,6 +51,7 @@ export function startComfyMock(): Promise<ComfyMock> {
     // Monotonic counter (not Date.now()) so two uploads racing in the same
     // Promise.all in the same millisecond still get distinguishable filenames.
     let uploadSeq = 0;
+    const uploadedFilenames: string[] = [];
     let promptSeq = 0;
     const deleted: string[][] = [];
     const interrupted: Array<string | undefined> = [];
@@ -239,6 +244,7 @@ export function startComfyMock(): Promise<ComfyMock> {
           const body = Buffer.concat(chunks).toString('utf8');
           const match = body.match(/filename="([^"]*)"/);
           const originalName = match?.[1] ?? 'unknown';
+          uploadedFilenames.push(originalName);
           const stem = originalName.replace(/\.[^./]+$/, '') || 'unknown';
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ name: `uploaded-${stem}-${uploadSeq++}.jpg` }));
@@ -268,6 +274,7 @@ export function startComfyMock(): Promise<ComfyMock> {
         deleteCalls: () => deleted,
         interruptCalls: () => interrupted,
         lastPrompt: () => lastPrompt,
+        uploadedFilenames: () => [...uploadedFilenames],
         resetPrompts: () => {
           for (const timer of timers) clearTimeout(timer);
           timers.clear();

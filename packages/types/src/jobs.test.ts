@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ASPECT_RATIOS,
+  CreateTryOnJobInputsBase,
   computeOutputDims,
   computePixverseVideoCost,
   type PixverseVideoPricingConfig,
@@ -73,5 +74,39 @@ describe('computeOutputDims', () => {
     for (const r of ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9']) {
       expect(ASPECT_RATIOS[r]).toBeDefined();
     }
+  });
+});
+
+describe('CreateTryOnJobInputsBase accessoryCatalogIds', () => {
+  it('accepts an array of uuids', () => {
+    const result = CreateTryOnJobInputsBase.safeParse({
+      faceId: '11111111-1111-1111-1111-111111111111',
+      backgroundId: '22222222-2222-2222-2222-222222222222',
+      poseIds: ['33333333-3333-3333-3333-333333333333'],
+      accessoryCatalogIds: ['44444444-4444-4444-4444-444444444444'],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.accessoryCatalogIds).toEqual(['44444444-4444-4444-4444-444444444444']);
+    }
+  });
+
+  it('rejects a non-uuid entry', () => {
+    const result = CreateTryOnJobInputsBase.safeParse({
+      faceId: '11111111-1111-1111-1111-111111111111',
+      backgroundId: '22222222-2222-2222-2222-222222222222',
+      poseIds: ['33333333-3333-3333-3333-333333333333'],
+      accessoryCatalogIds: ['not-a-uuid'],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('is optional', () => {
+    const result = CreateTryOnJobInputsBase.safeParse({
+      faceId: '11111111-1111-1111-1111-111111111111',
+      backgroundId: '22222222-2222-2222-2222-222222222222',
+      poseIds: ['33333333-3333-3333-3333-333333333333'],
+    });
+    expect(result.success).toBe(true);
   });
 });

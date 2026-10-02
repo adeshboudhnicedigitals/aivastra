@@ -25,6 +25,7 @@ interface DetectedMappings {
   lowerNodeId?: string;
   shoeNodeId?: string;
   thirdNodeId?: string;
+  accessoryNodeId?: string;
   sizeNodeIds: string[];
   positivePromptNode?: string;
   negativePromptNode?: string;
@@ -160,6 +161,7 @@ export function WorkflowUploadModal({
   const [shoeNodeId, setShoeNodeId] = useState('');
   const [garmentView, setGarmentView] = useState<'front' | 'back'>('front');
   const [thirdNodeId, setThirdNodeId] = useState('');
+  const [accessoryNodeId, setAccessoryNodeId] = useState('');
   const [sizeNodeIds, setSizeNodeIds] = useState<string[]>([]);
   const [positivePromptNode, setPositivePromptNode] = useState('');
   const [negativePromptNode, setNegativePromptNode] = useState('');
@@ -312,6 +314,7 @@ export function WorkflowUploadModal({
       setLowerNodeId(d.lowerNodeId ?? '');
       setShoeNodeId(d.shoeNodeId ?? '');
       setThirdNodeId(d.thirdNodeId ?? '');
+      setAccessoryNodeId(d.accessoryNodeId ?? '');
       setSizeNodeIds(d.sizeNodeIds ?? []);
       setPositivePromptNode(d.positivePromptNode ?? '');
       setNegativePromptNode(d.negativePromptNode ?? '');
@@ -461,6 +464,7 @@ export function WorkflowUploadModal({
           lowerNodeId: lowerNodeId || undefined,
           shoeNodeId: shoeNodeId || undefined,
           thirdNodeId: thirdNodeId || undefined,
+          accessoryNodeId: accessoryNodeId || undefined,
           sizeNodeIds: sizeNodeIds.filter(Boolean),
           ...(latentSizeNodeIds.length === 2 ? { latentSizeNodeIds } : {}),
           ...(outputSizeNodeIds.length === 2 ? { outputSizeNodeIds } : {}),
@@ -1308,6 +1312,14 @@ export function WorkflowUploadModal({
                 onChange={setThirdNodeId}
                 disabled={saving}
                 hint='Title convention: "third_garment"'
+              />
+              <NodeSelect
+                label="Accessory node (optional)"
+                nodes={nodes.image}
+                value={accessoryNodeId}
+                onChange={setAccessoryNodeId}
+                disabled={saving}
+                hint='Title convention: "accessory". Only patched when the user selects at least one accessory; left untouched otherwise.'
               />
             </div>
 

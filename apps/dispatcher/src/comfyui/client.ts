@@ -137,6 +137,10 @@ export async function uploadImageToComfy(
   return json.name;
 }
 
+const VIEW_ATTEMPTS = 3;
+const VIEW_ATTEMPT_TIMEOUT_MS = 60_000;
+const VIEW_RETRY_DELAY_MS = 2_000;
+
 export async function downloadOutputImage(
   workerUrl: string,
   apiKey: string,
@@ -146,13 +150,29 @@ export async function downloadOutputImage(
   const url =
     `${workerUrl.replace(/\/$/, '')}/view?filename=${encodeURIComponent(filename)}` +
     `&type=output&subfolder=${encodeURIComponent(subfolder)}`;
-  const res = await fetch(url, {
-    headers: { 'X-Api-Key': apiKey },
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (!res.ok) throw new Error(`ComfyUI /view failed: ${res.status}`);
-  const buf = await res.arrayBuffer();
-  return new Uint8Array(buf);
+  // The finished image already sits on the worker, so a stalled tunnel must not fall through
+  // to the job-level retry — that regenerates the whole image on another worker. Retry just
+  // the download; a short per-attempt timeout makes a stall fail fast instead of burning 120s.
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= VIEW_ATTEMPTS; attempt++) {
+    let permanent = false;
+    try {
+      const res = await fetch(url, {
+        headers: { 'X-Api-Key': apiKey },
+        signal: AbortSignal.timeout(VIEW_ATTEMPT_TIMEOUT_MS),
+      });
+      if (res.ok) return new Uint8Array(await res.arrayBuffer());
+      lastErr = new Error(`ComfyUI /view failed: ${res.status}`);
+      // A 4xx will not heal on retry (missing file, bad key).
+      permanent = res.status < 500;
+    } catch (err) {
+      lastErr = err;
+    }
+    if (permanent) break;
+    if (attempt < VIEW_ATTEMPTS)
+      await new Promise((r) => setTimeout(r, VIEW_RETRY_DELAY_MS * attempt));
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('ComfyUI /view failed');
 }
 
 // These endpoints are destructive only with live validation of this worker/version.
