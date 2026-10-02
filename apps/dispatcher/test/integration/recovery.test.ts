@@ -171,6 +171,7 @@ describe('dispatcher crash recovery', () => {
     // Run recovery with threshold=0 (claim everything regardless of idle time)
     const log = createLogger('test');
     const cfg = {
+      comfyRedis: redis,
       db: env.db,
       redis,
       pub,

@@ -191,3 +191,65 @@ export function metricsText(): Promise<string> {
 }
 
 export const metricsContentType = register.contentType;
+
+export const comfyPromptQueueWait = new Histogram({
+  name: 'comfy_prompt_queue_wait_seconds',
+  help: 'Submission to first observed execution',
+  labelNames: ['workerId'] as const,
+  buckets: [1, 3, 10, 30, 60, 180, 300, 600, 900],
+  registers: [register],
+});
+export const comfyQueueCleanupFailed = new Counter({
+  name: 'comfy_queue_cleanup_failed_total',
+  help: 'Queue budget exhausted with an orphaned prompt',
+  labelNames: ['workerId'] as const,
+  registers: [register],
+});
+export const comfyLegacyFallback = new Counter({
+  name: 'comfy_legacy_fallback_total',
+  help: 'Submission based timeout mode entries',
+  labelNames: ['workerId', 'entry'] as const,
+  registers: [register],
+});
+export const comfyCapabilityUnreadable = new Counter({
+  name: 'comfy_capability_read_unreadable_total',
+  help: 'Capability state unavailable or malformed',
+  labelNames: ['workerId', 'context'] as const,
+  registers: [register],
+});
+export const comfyVersionMismatch = new Counter({
+  name: 'comfy_version_guard_mismatches_total',
+  help: 'Validated worker version missing or different',
+  labelNames: ['workerId'] as const,
+  registers: [register],
+});
+export const comfyGateDrift = new Counter({
+  name: 'comfy_capability_gate_drift_total',
+  help: 'Configured worker without queue gate protection',
+  labelNames: ['workerId'] as const,
+  registers: [register],
+});
+export const comfyConfigLoss = new Counter({
+  name: 'comfy_cancel_config_loss_total',
+  help: 'Cancellation ratchet prevents legacy after configuration loss',
+  labelNames: ['workerId'] as const,
+  registers: [register],
+});
+export const comfyDestructiveSkipped = new Counter({
+  name: 'comfy_destructive_calls_skipped_total',
+  help: 'Destructive call denied by live authorization',
+  labelNames: ['workerId', 'operation'] as const,
+  registers: [register],
+});
+export const comfyCancelTotal = new Counter({
+  name: 'comfy_cancels_total',
+  help: 'Cancellation modes and confirmation outcomes',
+  labelNames: ['workerId', 'mode', 'outcome'] as const,
+  registers: [register],
+});
+export const comfyDeleteFailures = new Counter({
+  name: 'comfy_delete_failures_total',
+  help: 'Scoped cancellation delete failures',
+  labelNames: ['workerId'] as const,
+  registers: [register],
+});

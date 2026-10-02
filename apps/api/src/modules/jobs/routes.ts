@@ -101,6 +101,10 @@ export async function jobsRoutes(app: FastifyInstance) {
           status: row.status,
           createdAt: row.createdAt,
           sampleVideoId: params?.sampleVideoId ?? null,
+          // Snapshotted onto the job at creation time (see jobs/create.ts) —
+          // whole seconds, 1-15. Lets the UI show "0:08" on a finished video
+          // card without having to probe the video file itself.
+          duration: typeof params?.duration === 'number' ? params.duration : null,
           videoUrl,
           thumbnailUrl,
         };

@@ -22,7 +22,10 @@ import {
   Toast,
 } from '@shopify/polaris';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { AppFont } from '../components/AppFont';
+import { CollectionPickerModal } from '../components/CollectionPickerModal';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { ProductPickerModal } from '../components/ProductPickerModal';
 import {
   type DraftList,
   diffActions,
@@ -33,7 +36,9 @@ import {
 import { isTabEditable } from '../lib/activationTabState';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
+import { resolveImageUrl } from '../lib/images';
 import { setNavGuard } from '../lib/navGuard';
+import { CLEARED_FILTER, type ProductFilterState } from '../lib/products';
 import type { ShopifyProductListItem } from '../types';
 import RoutingTab from './RoutingPage';
 
@@ -125,7 +130,7 @@ interface FunnelRulesSummary {
 }
 
 function basketLabelFor(baskets: Basket[], id: string): string {
-  return baskets.find((b) => b.id === id)?.label ?? 'Unknown basket';
+  return baskets.find((b) => b.id === id)?.label ?? 'Unknown try-on style';
 }
 
 interface CollectionRow {
@@ -150,11 +155,22 @@ interface ProductListResponse {
 
 const PAGE_SIZE = 20;
 
+// After opening Manage finds products in Shopify we haven't synced, poll the counts
+// this often, this many times (~3 minutes), before giving up quietly.
+const CATCH_UP_POLL_MS = 5000;
+const CATCH_UP_MAX_POLLS = 36;
+
 const TABS = [
   { id: 'exclusion', content: 'Exclusion' },
   { id: 'collections', content: 'Collections' },
   { id: 'individual', content: 'Individual Products' },
 ] as const;
+
+// What each picker is always scoped to. Only active products can be enabled, so
+// "Add products" fixes the status (and hides that filter); exclusion has no such
+// rule, so it lists any status. Module-level: the picker needs a stable reference.
+const ADD_PRODUCTS_LOCKED: Partial<ProductFilterState> = { enabled: false, status: 'active' };
+const EXCLUDE_PRODUCTS_LOCKED: Partial<ProductFilterState> = { excluded: false };
 
 const OUTER_TABS = [
   { id: 'routing', content: 'Routing' },
@@ -166,71 +182,11 @@ const OUTER_TABS = [
 // intent; the actual PATCH/POST/DELETE calls only fire from saveChanges, when
 // the merchant clicks Save.
 
-function CollectionPickerModal({
-  onClose,
-  onPicked,
-  setError,
-}: {
-  onClose: () => void;
-  onPicked: (result: CollectionSearchResult) => void;
-  setError: (e: ClassifiedError) => void;
-}) {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<CollectionSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-
-  useEffect(() => {
-    if (query.trim().length === 0) {
-      setResults([]);
-      return;
-    }
-    const timer = setTimeout(() => {
-      setSearching(true);
-      apiFetch<{ items: CollectionSearchResult[] }>(
-        `/v1/shopify/activation/collections/search?q=${encodeURIComponent(query)}`,
-      )
-        .then((res) => setResults(res.items))
-        .catch((err) => setError(classifyError(err)))
-        .finally(() => setSearching(false));
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [query, setError]);
-
-  return (
-    <Modal open title="Add a collection" onClose={onClose}>
-      <Modal.Section>
-        <BlockStack gap="300">
-          <TextField
-            label="Search collections"
-            labelHidden
-            autoComplete="off"
-            placeholder="Search by collection name"
-            value={query}
-            onChange={setQuery}
-          />
-          {searching && (
-            <Text as="p" tone="subdued">
-              Searching…
-            </Text>
-          )}
-          {results.map((r) => (
-            <InlineStack key={r.shopifyCollectionId} align="space-between" blockAlign="center">
-              <Text as="span">{r.title}</Text>
-              <Button size="slim" onClick={() => onPicked(r)}>
-                Add
-              </Button>
-            </InlineStack>
-          ))}
-        </BlockStack>
-      </Modal.Section>
-    </Modal>
-  );
-}
-
 function CollectionsPanel({
   basePath,
   editable,
   addLabel,
+  confirmVerb,
   emptyHeading,
   refreshToken,
   draft,
@@ -241,6 +197,8 @@ function CollectionsPanel({
   basePath: string;
   editable: boolean;
   addLabel: string;
+  /** "Add" / "Exclude" — the picker's confirm button reads "{verb} N collections". */
+  confirmVerb: string;
   emptyHeading: string;
   refreshToken: number;
   draft: DraftList<CollectionRow>;
@@ -316,84 +274,18 @@ function CollectionsPanel({
 
       {pickerOpen && (
         <CollectionPickerModal
+          title={addLabel}
+          confirmVerb={confirmVerb}
+          alreadyIds={new Set(items.map((i) => i.shopifyCollectionId))}
           onClose={() => setPickerOpen(false)}
           setError={setError}
-          onPicked={(result) => {
-            onAdd(result);
+          onConfirm={(picked) => {
+            for (const result of picked) onAdd(result);
             setPickerOpen(false);
           }}
         />
       )}
     </BlockStack>
-  );
-}
-
-function ProductPickerModal({
-  title,
-  searchParams,
-  actionLabel,
-  onClose,
-  onPicked,
-  setError,
-}: {
-  title: string;
-  searchParams: Record<string, string>;
-  actionLabel: string;
-  onClose: () => void;
-  onPicked: (item: ShopifyProductListItem) => void;
-  setError: (e: ClassifiedError) => void;
-}) {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<ShopifyProductListItem[]>([]);
-  const [searching, setSearching] = useState(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearching(true);
-      const params = new URLSearchParams({
-        ...searchParams,
-        pageSize: '20',
-        ...(query ? { q: query } : {}),
-      });
-      apiFetch<ProductListResponse>(`/v1/shopify/products?${params}`)
-        .then((res) => setResults(res.items))
-        .catch((err) => setError(classifyError(err)))
-        .finally(() => setSearching(false));
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [query, searchParams, setError]);
-
-  return (
-    <Modal open title={title} onClose={onClose}>
-      <Modal.Section>
-        <BlockStack gap="300">
-          <TextField
-            label="Search products"
-            labelHidden
-            autoComplete="off"
-            placeholder="Search by product name"
-            value={query}
-            onChange={setQuery}
-          />
-          {searching && (
-            <Text as="p" tone="subdued">
-              Searching…
-            </Text>
-          )}
-          {results.map((r) => (
-            <InlineStack key={r.shopifyProductId} align="space-between" blockAlign="center">
-              <InlineStack gap="200" blockAlign="center">
-                <Thumbnail source={r.thumbnailUrl} alt={r.title ?? 'Product'} size="small" />
-                <Text as="span">{r.title}</Text>
-              </InlineStack>
-              <Button size="slim" onClick={() => onPicked(r)}>
-                {actionLabel}
-              </Button>
-            </InlineStack>
-          ))}
-        </BlockStack>
-      </Modal.Section>
-    </Modal>
   );
 }
 
@@ -571,7 +463,12 @@ function IndividualProductsPanel({
         loading={loading}
         itemCount={items.length}
         resourceName={{ singular: 'product', plural: 'products' }}
-        headings={[{ title: 'Product' }, { title: 'Status' }, { title: 'Basket' }, { title: '' }]}
+        headings={[
+          { title: 'Product' },
+          { title: 'Status' },
+          { title: 'Try-on style' },
+          { title: '' },
+        ]}
         emptyState={<EmptyState heading="No individually enabled products" image="" />}
       >
         {items.map((item, index) => {
@@ -587,7 +484,7 @@ function IndividualProductsPanel({
               <IndexTable.Cell>
                 <InlineStack gap="300" blockAlign="center">
                   <Thumbnail
-                    source={item.thumbnailUrl}
+                    source={resolveImageUrl(item.thumbnailUrl)}
                     alt={item.title ?? 'Product'}
                     size="small"
                   />
@@ -613,7 +510,7 @@ function IndividualProductsPanel({
                     </Text>
                     {item.pinnedBasketId !== null && (
                       <Text as="span" tone="subdued">
-                        Pinned basket unavailable, no fallback configured
+                        Pinned try-on style unavailable, no fallback configured
                       </Text>
                     )}
                     {item.pinnedBasketId !== null && (
@@ -641,12 +538,12 @@ function IndividualProductsPanel({
                         "Reset to automatic" (below) has a reason to still be offered. */}
                     {item.pinnedBasketId !== null && item.basket.source !== 'manual' && (
                       <Text as="span" tone="subdued">
-                        Pinned basket unavailable, using {item.basket.label}
+                        Pinned try-on style unavailable, using {item.basket.label}
                       </Text>
                     )}
                     <InlineStack gap="200" blockAlign="center">
                       <Select
-                        label="Basket"
+                        label="Try-on style"
                         labelHidden
                         disabled={!editable || basketBusy || baskets.length === 0}
                         options={baskets.map((b) => ({ value: b.id, label: b.label }))}
@@ -691,12 +588,12 @@ function IndividualProductsPanel({
       {pickerOpen && (
         <ProductPickerModal
           title="Add products"
-          searchParams={{ enabled: 'false', status: 'active' }}
-          actionLabel="Add"
+          confirmVerb="Add"
+          startFilter={CLEARED_FILTER}
+          locked={ADD_PRODUCTS_LOCKED}
           onClose={() => setPickerOpen(false)}
-          setError={setError}
-          onPicked={(item) => {
-            onAdd(item);
+          onConfirm={(items) => {
+            for (const item of items) onAdd(item);
             setPickerOpen(false);
           }}
         />
@@ -774,7 +671,7 @@ function ExclusionPanel({
               <IndexTable.Cell>
                 <InlineStack gap="300" blockAlign="center">
                   <Thumbnail
-                    source={item.thumbnailUrl}
+                    source={resolveImageUrl(item.thumbnailUrl)}
                     alt={item.title ?? 'Product'}
                     size="small"
                   />
@@ -804,6 +701,7 @@ function ExclusionPanel({
         basePath="/v1/shopify/activation/exclusions/collections"
         editable={editable}
         addLabel="Exclude collections"
+        confirmVerb="Exclude"
         emptyHeading="No excluded collections"
         refreshToken={refreshToken}
         draft={collectionDraft}
@@ -815,12 +713,12 @@ function ExclusionPanel({
       {productPickerOpen && (
         <ProductPickerModal
           title="Exclude products"
-          searchParams={{ excluded: 'false' }}
-          actionLabel="Exclude"
+          confirmVerb="Exclude"
+          startFilter={CLEARED_FILTER}
+          locked={EXCLUDE_PRODUCTS_LOCKED}
           onClose={() => setProductPickerOpen(false)}
-          setError={setError}
-          onPicked={(item) => {
-            onAddProduct(item);
+          onConfirm={(items) => {
+            for (const item of items) onAddProduct(item);
             setProductPickerOpen(false);
           }}
         />
@@ -829,25 +727,68 @@ function ExclusionPanel({
   );
 }
 
+// How long to wait after queueing the retries before re-reading. The single-
+// product syncs run in the background consumer, one product at a time, so this
+// is a short fixed wait rather than a poll; anything still failed after it
+// stays listed and can be retried again.
+const RETRY_SETTLE_MS = 4000;
+
 function FailedProductsModal({
   onClose,
+  onRetried,
   setError,
 }: {
   onClose: () => void;
+  /** Called after a retry has had time to run, so the tile's counts refresh. */
+  onRetried: () => void;
   setError: (e: ClassifiedError) => void;
 }) {
   const [items, setItems] = useState<ShopifyProductListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [retrying, setRetrying] = useState(false);
 
-  useEffect(() => {
-    apiFetch<ProductListResponse>('/v1/shopify/products?status=failed&pageSize=100')
-      .then((res) => setItems(res.items))
-      .catch((err) => setError(classifyError(err)))
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    try {
+      const res = await apiFetch<ProductListResponse>(
+        '/v1/shopify/products?status=failed&pageSize=100',
+      );
+      setItems(res.items);
+    } catch (err) {
+      setError(classifyError(err));
+    } finally {
+      setLoading(false);
+    }
   }, [setError]);
 
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await apiFetch('/v1/shopify/products/retry-failed', { method: 'POST' });
+      await new Promise((r) => setTimeout(r, RETRY_SETTLE_MS));
+      await load();
+      onRetried();
+    } catch (err) {
+      setError(classifyError(err));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
-    <Modal open title="Failed to sync" onClose={onClose}>
+    <Modal
+      open
+      title="Failed to sync"
+      onClose={onClose}
+      primaryAction={
+        items.length > 0
+          ? { content: 'Retry sync', onAction: retry, loading: retrying, disabled: retrying }
+          : undefined
+      }
+    >
       <Modal.Section>
         <IndexTable
           selectable={false}
@@ -866,7 +807,7 @@ function FailedProductsModal({
               <IndexTable.Cell>
                 <InlineStack gap="300" blockAlign="center">
                   <Thumbnail
-                    source={item.thumbnailUrl}
+                    source={resolveImageUrl(item.thumbnailUrl)}
                     alt={item.title ?? 'Product'}
                     size="small"
                   />
@@ -937,6 +878,8 @@ export default function ManagePage() {
   // Bumped after a successful save so every panel re-fetches its base list —
   // the draft entries that just got cleared are now real server rows.
   const [refreshToken, setRefreshToken] = useState(0);
+  // True while products added in Shopify are being brought in after opening this page.
+  const [catchingUp, setCatchingUp] = useState(false);
 
   const loadSummary = useCallback(() => {
     apiFetch<ActivationSummary>('/v1/shopify/activation')
@@ -947,6 +890,40 @@ export default function ManagePage() {
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
+
+  // On opening Manage, ask the server whether Shopify has products we have no row
+  // for (a CSV import, a bulk edit, dropped webhooks). If so it queues a reconcile,
+  // and this watches the counts until they catch up, so imported products just
+  // appear. Best-effort: any failure leaves the manual Sync button as before.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { behindBy } = await apiFetch<{ behindBy: number; queued: boolean }>(
+        '/v1/shopify/products/catch-up',
+        { method: 'POST' },
+      );
+      if (behindBy <= 0 || cancelled) return;
+      setCatchingUp(true);
+      for (let attempt = 0; attempt < CATCH_UP_MAX_POLLS && !cancelled; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, CATCH_UP_POLL_MS));
+        if (cancelled) return;
+        const latest = await apiFetch<ActivationSummary>('/v1/shopify/activation');
+        setSummary(latest);
+        const { syncedProductCount, failedToSync, totalProductCount } = latest.counts;
+        if (totalProductCount === null || syncedProductCount + failedToSync >= totalProductCount) {
+          break;
+        }
+      }
+      if (!cancelled) setRefreshToken((t) => t + 1);
+    })()
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setCatchingUp(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Lightweight, independent of RoutingTab's own fetch — feeds both the
   // unrouted banner below and the "Where your products land" card, so
@@ -1184,11 +1161,13 @@ export default function ManagePage() {
 
   if (!summary) {
     return (
-      <Page title="Manage">
-        <Card>
-          <Text as="p">Loading…</Text>
-        </Card>
-      </Page>
+      <AppFont>
+        <Page title="Manage">
+          <Card>
+            <Text as="p">Loading…</Text>
+          </Card>
+        </Page>
+      </AppFont>
     );
   }
 
@@ -1196,226 +1175,283 @@ export default function ManagePage() {
   const activeTabId = TABS[selectedTab].id;
 
   return (
-    <Page
-      title="Manage"
-      subtitle="Control which products offer Try-On."
-      primaryAction={{ content: 'Sync products', onAction: syncProducts, loading: syncing }}
-    >
-      {isDirty && (
-        <ContextualSaveBar
-          message="Unsaved changes"
-          saveAction={{ content: 'Save', onAction: saveChanges, loading: saving }}
-          discardAction={{ content: 'Discard', onAction: discardChanges, disabled: saving }}
-        />
-      )}
-      <BlockStack gap="400">
-        <ErrorBanner error={error} onRetry={loadSummary} onDismiss={() => setError(null)} />
-
-        {unrouted !== null && unrouted > 0 && (
-          <Banner tone="warning">
-            {unrouted} product{unrouted === 1 ? ' has' : 's have'} no basket assigned — Try-On won't
-            work for {unrouted === 1 ? 'it' : 'them'} until you add a routing rule or pin{' '}
-            {unrouted === 1 ? 'it' : 'them'} individually.
-          </Banner>
+    <AppFont>
+      <Page
+        title="Manage"
+        subtitle="Control which products offer Try-On."
+        primaryAction={{ content: 'Sync products', onAction: syncProducts, loading: syncing }}
+      >
+        {isDirty && (
+          <ContextualSaveBar
+            message="Unsaved changes"
+            saveAction={{ content: 'Save', onAction: saveChanges, loading: saving }}
+            discardAction={{ content: 'Discard', onAction: discardChanges, disabled: saving }}
+          />
         )}
+        <BlockStack gap="400">
+          <ErrorBanner error={error} onRetry={loadSummary} onDismiss={() => setError(null)} />
 
-        <Card>
-          <BlockStack gap="200">
-            <Checkbox
-              label="Enable Try-On on all products (except exclusions)"
-              checked={mode === 'global'}
-              onChange={stageMode}
-            />
-            <Text as="p" tone="subdued">
-              When on, every synced product offers Try-On unless it — or a collection it belongs to
-              — is excluded below. Click Save above to apply.
-            </Text>
-          </BlockStack>
-        </Card>
+          {catchingUp && (
+            <Banner tone="info">
+              Bringing in products you added in Shopify. The counts below update as they arrive.
+            </Banner>
+          )}
 
-        <InlineGrid columns={{ xs: 1, sm: 4 }} gap="400">
+          {unrouted !== null && unrouted > 0 && (
+            <Banner tone="warning">
+              {unrouted} product{unrouted === 1 ? ' has' : 's have'} no try-on style assigned —
+              Try-On won't work for {unrouted === 1 ? 'it' : 'them'} until you add a routing rule or
+              pin {unrouted === 1 ? 'it' : 'them'} individually.
+            </Banner>
+          )}
+
           <Card>
             <BlockStack gap="200">
+              <Checkbox
+                label="Enable Try-On on all products (except exclusions)"
+                checked={mode === 'global'}
+                onChange={stageMode}
+              />
               <Text as="p" tone="subdued">
-                Products Synced
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {summary.counts.syncedProductCount}
-                {summary.counts.totalProductCount !== null && (
-                  <Text as="span" tone="subdued">
-                    {' '}
-                    / {summary.counts.totalProductCount}
-                  </Text>
-                )}
-              </Text>
-              {summary.counts.totalProductCount !== null &&
-                summary.counts.syncedProductCount < summary.counts.totalProductCount && (
-                  <Text as="p" tone="subdued">
-                    Use Sync products above to import the rest.
-                  </Text>
-                )}
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Try-On Enabled
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {summary.counts.tryonEnabledProducts}
-                <Text as="span" tone="subdued">
-                  {' '}
-                  / {summary.counts.syncedProductCount}
-                </Text>
-              </Text>
-              <Text as="p" tone="subdued">
-                {mode === 'global'
-                  ? 'All synced products, minus exclusions and unrouted products.'
-                  : 'Enabled individually or via a collection, minus exclusions and unrouted products.'}
+                When on, every synced product offers Try-On unless it — or a collection it belongs
+                to — is excluded below. Click Save above to apply.
               </Text>
             </BlockStack>
           </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="p" tone="subdued">
-                Collections
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {summary.counts.enabledCollections}
-                <Text as="span" tone="subdued">
-                  {' '}
-                  enabled
-                </Text>
-              </Text>
-              <Text as="p" tone="subdued">
-                {summary.counts.excludedCollections} excluded
-              </Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            {/* Deviation from the brief: Polaris `Button`'s `children` type is
-                `string | string[]` (Button.d.ts), so it cannot wrap the
-                BlockStack/Text stat block below — the brief's literal
-                `<Button variant="plain">…</Button>` here fails to typecheck
-                (TS2322). A native `<button>` is used instead. Reset to
-                block-level, full-width, no default chrome so it reads as the
-                same plain clickable stat card the brief intended. */}
-            <button
-              type="button"
-              onClick={() => setFailedModalOpen(true)}
-              style={{
-                all: 'unset',
-                display: 'block',
-                width: '100%',
-                cursor: 'pointer',
-              }}
-            >
+
+          <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
+            <Card>
               <BlockStack gap="200">
                 <Text as="p" tone="subdued">
-                  Failed to Sync
+                  Products Synced
                 </Text>
-                <Text as="p" variant="heading2xl" tone="critical">
-                  {summary.counts.failedToSync}
+                <Text as="p" variant="heading2xl">
+                  {summary.counts.syncedProductCount}
+                  {summary.counts.totalProductCount !== null && (
+                    <Text as="span" tone="subdued">
+                      {' '}
+                      / {summary.counts.totalProductCount}
+                    </Text>
+                  )}
+                </Text>
+                {summary.counts.totalProductCount !== null &&
+                  summary.counts.syncedProductCount < summary.counts.totalProductCount && (
+                    <Text as="p" tone="subdued">
+                      Use Sync products above to import the rest.
+                    </Text>
+                  )}
+                {/* Products that failed to sync can't be tried on, so they sit next
+                  to the synced count; the modal lists them. */}
+                {summary.counts.failedToSync > 0 && (
+                  <div>
+                    <Button
+                      variant="plain"
+                      tone="critical"
+                      onClick={() => setFailedModalOpen(true)}
+                    >
+                      {`${summary.counts.failedToSync} failed to sync`}
+                    </Button>
+                  </div>
+                )}
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">
+                  Try-On Enabled
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {summary.counts.tryonEnabledProducts}
+                  <Text as="span" tone="subdued">
+                    {' '}
+                    / {summary.counts.syncedProductCount}
+                  </Text>
+                </Text>
+                <Text as="p" tone="subdued">
+                  {mode === 'global'
+                    ? 'All synced products, minus exclusions and unrouted products.'
+                    : 'Enabled individually or via a collection, minus exclusions and unrouted products.'}
                 </Text>
               </BlockStack>
-            </button>
-          </Card>
-        </InlineGrid>
+            </Card>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">
+                  Collections
+                </Text>
+                <Text as="p" variant="heading2xl">
+                  {summary.counts.enabledCollections}
+                  <Text as="span" tone="subdued">
+                    {' '}
+                    enabled
+                  </Text>
+                </Text>
+                <Text as="p" tone="subdued">
+                  {summary.counts.excludedCollections} excluded
+                </Text>
+              </BlockStack>
+            </Card>
+          </InlineGrid>
 
-        {rulesSummary && (
-          <Card>
-            <BlockStack gap="300">
-              <Text as="h2" variant="headingMd">
-                Where your products land
-              </Text>
-              {rulesSummary.countsOmitted ? (
-                <Text as="p" tone="subdued">
-                  Catalog too large to summarize.
+          {rulesSummary && (
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Where your products land
                 </Text>
-              ) : Object.keys(rulesSummary.counts).length === 0 && !rulesSummary.unrouted ? (
-                <Text as="p" tone="subdued">
-                  No products have matched a rule yet.
-                </Text>
-              ) : (
-                <BlockStack gap="200">
-                  {Object.entries(rulesSummary.counts)
-                    .sort(([a], [b]) =>
-                      basketLabelFor(landingBaskets, a).localeCompare(
-                        basketLabelFor(landingBaskets, b),
-                      ),
-                    )
-                    .map(([basketId, productCount]) => (
-                      <InlineStack key={basketId} align="space-between">
-                        <Text as="span">{basketLabelFor(landingBaskets, basketId)}</Text>
-                        <Text as="span" fontWeight="semibold">
-                          {productCount}
-                        </Text>
-                      </InlineStack>
-                    ))}
-                  {rulesSummary.unrouted !== null && (
-                    <InlineStack align="space-between">
-                      {rulesSummary.unrouted > 0 ? (
-                        <button
-                          type="button"
-                          onClick={() => setUnroutedModalOpen(true)}
-                          style={{
-                            all: 'unset',
-                            cursor: 'pointer',
-                            textDecoration: 'underline',
-                          }}
-                        >
-                          <Text as="span" tone="critical">
+                {rulesSummary.countsOmitted ? (
+                  <Text as="p" tone="subdued">
+                    Catalog too large to summarize.
+                  </Text>
+                ) : Object.keys(rulesSummary.counts).length === 0 && !rulesSummary.unrouted ? (
+                  <Text as="p" tone="subdued">
+                    No products have matched a rule yet.
+                  </Text>
+                ) : (
+                  <BlockStack gap="200">
+                    {Object.entries(rulesSummary.counts)
+                      .sort(([a], [b]) =>
+                        basketLabelFor(landingBaskets, a).localeCompare(
+                          basketLabelFor(landingBaskets, b),
+                        ),
+                      )
+                      .map(([basketId, productCount]) => (
+                        <InlineStack key={basketId} align="space-between">
+                          <Text as="span">{basketLabelFor(landingBaskets, basketId)}</Text>
+                          <Text as="span" fontWeight="semibold">
+                            {productCount}
+                          </Text>
+                        </InlineStack>
+                      ))}
+                    {rulesSummary.unrouted !== null && (
+                      <InlineStack align="space-between">
+                        {rulesSummary.unrouted > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setUnroutedModalOpen(true)}
+                            style={{
+                              all: 'unset',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                            }}
+                          >
+                            <Text as="span" tone="critical">
+                              Not routed (try-on unavailable)
+                            </Text>
+                          </button>
+                        ) : (
+                          <Text as="span" tone="subdued">
                             Not routed (try-on unavailable)
                           </Text>
-                        </button>
-                      ) : (
-                        <Text as="span" tone="subdued">
-                          Not routed (try-on unavailable)
+                        )}
+                        <Text
+                          as="span"
+                          fontWeight="semibold"
+                          tone={rulesSummary.unrouted > 0 ? 'critical' : 'subdued'}
+                        >
+                          {rulesSummary.unrouted}
                         </Text>
-                      )}
-                      <Text
-                        as="span"
-                        fontWeight="semibold"
-                        tone={rulesSummary.unrouted > 0 ? 'critical' : 'subdued'}
-                      >
-                        {rulesSummary.unrouted}
-                      </Text>
-                    </InlineStack>
-                  )}
-                </BlockStack>
-              )}
-            </BlockStack>
-          </Card>
-        )}
+                      </InlineStack>
+                    )}
+                  </BlockStack>
+                )}
+              </BlockStack>
+            </Card>
+          )}
 
-        <Card>
-          <Tabs
-            // Polaris's TabProps[] is mutable; OUTER_TABS's `as const` tuple
-            // is readonly (TS4104), same reason TABS below is never passed
-            // directly either — .map(...) produces a fresh mutable array.
-            tabs={OUTER_TABS.map((t) => ({ ...t }))}
-            selected={outerTabIndex}
-            onSelect={setOuterTabIndex}
-          >
-            <Box padding="400">
-              {OUTER_TABS[outerTabIndex].id === 'eligibility' && (
-                <Tabs
-                  tabs={TABS.map((t) => ({ ...t, disabled: !isTabEditable(mode, t.id) }))}
-                  selected={selectedTab}
-                  onSelect={setSelectedTab}
-                >
-                  <Box padding="400">
-                    {activeTabId === 'collections' && (
-                      <DisabledTabView disabled={!isTabEditable(mode, 'collections')}>
-                        <CollectionsPanel
-                          basePath="/v1/shopify/activation/collections"
-                          editable={isTabEditable(mode, 'collections')}
-                          addLabel="Add collections"
-                          emptyHeading="No enabled collections"
+          <Card>
+            <Tabs
+              // Polaris's TabProps[] is mutable; OUTER_TABS's `as const` tuple
+              // is readonly (TS4104), same reason TABS below is never passed
+              // directly either — .map(...) produces a fresh mutable array.
+              tabs={OUTER_TABS.map((t) => ({ ...t }))}
+              selected={outerTabIndex}
+              onSelect={setOuterTabIndex}
+            >
+              <Box padding="400">
+                {OUTER_TABS[outerTabIndex].id === 'eligibility' && (
+                  <Tabs
+                    tabs={TABS.map((t) => ({ ...t, disabled: !isTabEditable(mode, t.id) }))}
+                    selected={selectedTab}
+                    onSelect={setSelectedTab}
+                  >
+                    <Box padding="400">
+                      {activeTabId === 'collections' && (
+                        <DisabledTabView disabled={!isTabEditable(mode, 'collections')}>
+                          <CollectionsPanel
+                            basePath="/v1/shopify/activation/collections"
+                            editable={isTabEditable(mode, 'collections')}
+                            addLabel="Add collections"
+                            confirmVerb="Add"
+                            emptyHeading="No enabled collections"
+                            refreshToken={refreshToken}
+                            draft={enabledCollections}
+                            onAdd={(result) =>
+                              setEnabledCollections((d) => {
+                                const actions = new Map(d.actions).set(
+                                  result.shopifyCollectionId,
+                                  'add',
+                                );
+                                const meta = new Map(d.meta).set(result.shopifyCollectionId, {
+                                  ...result,
+                                  productCount: null,
+                                });
+                                return { actions, meta };
+                              })
+                            }
+                            onRemove={(id) =>
+                              setEnabledCollections((d) => ({
+                                actions: new Map(d.actions).set(id, 'remove'),
+                                meta: d.meta,
+                              }))
+                            }
+                            setError={setError}
+                          />
+                        </DisabledTabView>
+                      )}
+                      {activeTabId === 'individual' && (
+                        <DisabledTabView disabled={!isTabEditable(mode, 'individual')}>
+                          <IndividualProductsPanel
+                            editable={isTabEditable(mode, 'individual')}
+                            refreshToken={refreshToken}
+                            draft={individualProducts}
+                            onAdd={(item) =>
+                              setIndividualProducts((d) => ({
+                                actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
+                                meta: new Map(d.meta).set(item.shopifyProductId, item),
+                              }))
+                            }
+                            onRemove={(id) =>
+                              setIndividualProducts((d) => ({
+                                actions: new Map(d.actions).set(id, 'remove'),
+                                meta: d.meta,
+                              }))
+                            }
+                            onBasketChanged={() => setUnroutedRefreshToken((n) => n + 1)}
+                            setError={setError}
+                          />
+                        </DisabledTabView>
+                      )}
+                      {activeTabId === 'exclusion' && (
+                        <ExclusionPanel
+                          mode={mode}
                           refreshToken={refreshToken}
-                          draft={enabledCollections}
-                          onAdd={(result) =>
-                            setEnabledCollections((d) => {
+                          productDraft={excludedProducts}
+                          collectionDraft={excludedCollections}
+                          onAddProduct={(item) =>
+                            setExcludedProducts((d) => ({
+                              actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
+                              meta: new Map(d.meta).set(item.shopifyProductId, item),
+                            }))
+                          }
+                          onRemoveProduct={(id) =>
+                            setExcludedProducts((d) => ({
+                              actions: new Map(d.actions).set(id, 'remove'),
+                              meta: d.meta,
+                            }))
+                          }
+                          onAddCollection={(result) =>
+                            setExcludedCollections((d) => {
                               const actions = new Map(d.actions).set(
                                 result.shopifyCollectionId,
                                 'add',
@@ -1427,100 +1463,42 @@ export default function ManagePage() {
                               return { actions, meta };
                             })
                           }
-                          onRemove={(id) =>
-                            setEnabledCollections((d) => ({
+                          onRemoveCollection={(id) =>
+                            setExcludedCollections((d) => ({
                               actions: new Map(d.actions).set(id, 'remove'),
                               meta: d.meta,
                             }))
                           }
                           setError={setError}
                         />
-                      </DisabledTabView>
-                    )}
-                    {activeTabId === 'individual' && (
-                      <DisabledTabView disabled={!isTabEditable(mode, 'individual')}>
-                        <IndividualProductsPanel
-                          editable={isTabEditable(mode, 'individual')}
-                          refreshToken={refreshToken}
-                          draft={individualProducts}
-                          onAdd={(item) =>
-                            setIndividualProducts((d) => ({
-                              actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
-                              meta: new Map(d.meta).set(item.shopifyProductId, item),
-                            }))
-                          }
-                          onRemove={(id) =>
-                            setIndividualProducts((d) => ({
-                              actions: new Map(d.actions).set(id, 'remove'),
-                              meta: d.meta,
-                            }))
-                          }
-                          onBasketChanged={() => setUnroutedRefreshToken((n) => n + 1)}
-                          setError={setError}
-                        />
-                      </DisabledTabView>
-                    )}
-                    {activeTabId === 'exclusion' && (
-                      <ExclusionPanel
-                        mode={mode}
-                        refreshToken={refreshToken}
-                        productDraft={excludedProducts}
-                        collectionDraft={excludedCollections}
-                        onAddProduct={(item) =>
-                          setExcludedProducts((d) => ({
-                            actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
-                            meta: new Map(d.meta).set(item.shopifyProductId, item),
-                          }))
-                        }
-                        onRemoveProduct={(id) =>
-                          setExcludedProducts((d) => ({
-                            actions: new Map(d.actions).set(id, 'remove'),
-                            meta: d.meta,
-                          }))
-                        }
-                        onAddCollection={(result) =>
-                          setExcludedCollections((d) => {
-                            const actions = new Map(d.actions).set(
-                              result.shopifyCollectionId,
-                              'add',
-                            );
-                            const meta = new Map(d.meta).set(result.shopifyCollectionId, {
-                              ...result,
-                              productCount: null,
-                            });
-                            return { actions, meta };
-                          })
-                        }
-                        onRemoveCollection={(id) =>
-                          setExcludedCollections((d) => ({
-                            actions: new Map(d.actions).set(id, 'remove'),
-                            meta: d.meta,
-                          }))
-                        }
-                        setError={setError}
-                      />
-                    )}
-                  </Box>
-                </Tabs>
-              )}
-              {OUTER_TABS[outerTabIndex].id === 'routing' && (
-                <RoutingTab
-                  refreshToken={refreshToken}
-                  onChanged={() => setUnroutedRefreshToken((n) => n + 1)}
-                />
-              )}
-            </Box>
-          </Tabs>
-        </Card>
-      </BlockStack>
+                      )}
+                    </Box>
+                  </Tabs>
+                )}
+                {OUTER_TABS[outerTabIndex].id === 'routing' && (
+                  <RoutingTab
+                    refreshToken={refreshToken}
+                    globalMode={summary?.mode === 'global'}
+                    onChanged={() => setUnroutedRefreshToken((n) => n + 1)}
+                  />
+                )}
+              </Box>
+            </Tabs>
+          </Card>
+        </BlockStack>
 
-      {failedModalOpen && (
-        <FailedProductsModal onClose={() => setFailedModalOpen(false)} setError={setError} />
-      )}
+        {failedModalOpen && (
+          <FailedProductsModal
+            onClose={() => setFailedModalOpen(false)}
+            onRetried={loadSummary}
+            setError={setError}
+          />
+        )}
 
-      {unroutedModalOpen && <UnroutedProductsModal onClose={() => setUnroutedModalOpen(false)} />}
+        {unroutedModalOpen && <UnroutedProductsModal onClose={() => setUnroutedModalOpen(false)} />}
 
-      {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
-    </Page>
+        {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
+      </Page>
+    </AppFont>
   );
 }

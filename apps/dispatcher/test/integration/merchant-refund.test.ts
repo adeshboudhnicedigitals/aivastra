@@ -83,7 +83,16 @@ describe('merchant/kiosk widget job refund — markWidgetFailed', () => {
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       '', // widget jobs have no userId
       'jobs:normal',
@@ -118,6 +127,7 @@ describe('merchant/kiosk widget job refund — markWidgetFailed', () => {
     const { jobId, userId } = await seedMerchantJobWithNoPhoto();
     const log = createLogger('test');
     const cfg = {
+      comfyRedis: redis,
       db: env.db,
       redis,
       pub,

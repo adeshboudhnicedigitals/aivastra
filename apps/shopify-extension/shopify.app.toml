@@ -21,7 +21,7 @@ embedded = true
 # installation Shopify installs the app without calling us, and the first
 # authenticated request's session token is exchanged for an offline access
 # token (see exchangeSessionToken in apps/api/src/modules/shopify/token.ts).
-scopes = "read_products,write_products"
+scopes = "read_products,write_products,read_themes"
 optional_scopes = [ ]
 
 [auth]

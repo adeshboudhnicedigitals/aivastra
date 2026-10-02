@@ -4,6 +4,12 @@ import { WebSocketServer } from 'ws';
 
 export interface ComfyMockOptions {
   fail?: boolean;
+  startDelayMs?: number;
+  comfyVersion?: string;
+  deleteStatus?: number;
+  interruptStatus?: number;
+  /** Runs before each response so a test can revoke Redis capabilities mid-wait. */
+  onRequest?: (method: string, path: string) => void | Promise<void>;
   completionDelayMs?: number;
   outputFilename?: string;
   outputBytes?: Uint8Array;
@@ -23,6 +29,8 @@ export interface ComfyMockOptions {
 export interface ComfyMock {
   url: string;
   lastPromptId: () => string | null;
+  deleteCalls: () => string[][];
+  interruptCalls: () => Array<string | undefined>;
   /** The full `{ prompt, client_id }` body of the most recent POST /prompt — lets
    *  tests assert on the actual patched workflow JSON rather than network I/O. */
   lastPrompt: () => { prompt: Record<string, { inputs?: Record<string, unknown> }> } | null;
@@ -31,11 +39,12 @@ export interface ComfyMock {
    *  actually hit ComfyUI, not just what the final patched workflow looks like. */
   uploadedFilenames: () => string[];
   setOptions: (opts: ComfyMockOptions) => void;
+  resetPrompts: () => void;
   close: () => Promise<void>;
 }
 
 export function startComfyMock(): Promise<ComfyMock> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let opts: ComfyMockOptions = {};
     let lastPromptId: string | null = null;
     let lastPrompt: { prompt: Record<string, { inputs?: Record<string, unknown> }> } | null = null;
@@ -43,13 +52,24 @@ export function startComfyMock(): Promise<ComfyMock> {
     // Promise.all in the same millisecond still get distinguishable filenames.
     let uploadSeq = 0;
     const uploadedFilenames: string[] = [];
+    let promptSeq = 0;
+    const deleted: string[][] = [];
+    const interrupted: Array<string | undefined> = [];
+    const prompts = new Map<string, { startAt: number; finishAt: number; removed: boolean }>();
+    const histories: Record<string, unknown> = {};
+    const timers = new Set<ReturnType<typeof setTimeout>>();
 
-    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = new URL(req.url ?? '/', 'http://localhost');
+      await opts.onRequest?.(req.method ?? '', url.pathname);
 
       if (req.method === 'GET' && url.pathname === '/system_stats') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ system: { python_version: '3.10' } }));
+        res.end(
+          JSON.stringify({
+            system: { python_version: '3.10', comfyui_version: opts.comfyVersion ?? '0.37.0' },
+          }),
+        );
         return;
       }
 
@@ -57,8 +77,24 @@ export function startComfyMock(): Promise<ComfyMock> {
         res.writeHead(opts.queueStatus ?? 200, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify({
-            queue_running: Array.from({ length: opts.queueRunning ?? 0 }, () => [0]),
-            queue_pending: Array.from({ length: opts.queuePending ?? 0 }, () => [0]),
+            queue_running: [
+              ...Array.from({ length: opts.queueRunning ?? 0 }, (_, i) => [
+                i,
+                `foreign-running-${i}`,
+              ]),
+              ...[...prompts]
+                .filter(([, p]) => !p.removed && Date.now() >= p.startAt && Date.now() < p.finishAt)
+                .map(([id]) => [0, id]),
+            ],
+            queue_pending: [
+              ...Array.from({ length: opts.queuePending ?? 0 }, (_, i) => [
+                i,
+                `foreign-pending-${i}`,
+              ]),
+              ...[...prompts]
+                .filter(([, p]) => !p.removed && Date.now() < p.startAt)
+                .map(([id]) => [0, id]),
+            ],
           }),
         );
         return;
@@ -68,7 +104,13 @@ export function startComfyMock(): Promise<ComfyMock> {
         res.writeHead(opts.promptStatus ?? 200, { 'Content-Type': 'application/json' });
         res.end(
           opts.promptBody ??
-            JSON.stringify({ exec_info: { queue_remaining: opts.queueRemaining ?? 0 } }),
+            JSON.stringify({
+              exec_info: {
+                queue_remaining:
+                  opts.queueRemaining ??
+                  [...prompts.values()].filter((p) => !p.removed && Date.now() < p.finishAt).length,
+              },
+            }),
         );
         return;
       }
@@ -82,13 +124,46 @@ export function startComfyMock(): Promise<ComfyMock> {
           } catch {
             lastPrompt = null;
           }
-          const promptId = `mock-prompt-${Date.now()}`;
+          const promptId = `mock-prompt-${promptSeq++}`;
           lastPromptId = promptId;
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ prompt_id: promptId }));
 
-          const delayMs = opts.completionDelayMs ?? 50;
-          setTimeout(() => {
+          const delayMs = (opts.startDelayMs ?? 0) + (opts.completionDelayMs ?? 50);
+          const state = {
+            startAt: Date.now() + (opts.startDelayMs ?? 0),
+            finishAt: Date.now() + delayMs,
+            removed: false,
+          };
+          prompts.set(promptId, state);
+          const timer = setTimeout(() => {
+            timers.delete(timer);
+            if (state.removed) return;
+            histories[promptId] = opts.fail
+              ? {
+                  status: {
+                    status_str: 'error',
+                    messages: [
+                      [
+                        'execution_error',
+                        { node_type: 'MockNode', node_id: '1', exception_message: 'mock error' },
+                      ],
+                    ],
+                  },
+                }
+              : {
+                  outputs: {
+                    '10': {
+                      images: [
+                        {
+                          filename: opts.outputFilename ?? 'result.png',
+                          subfolder: '',
+                          type: 'output',
+                        },
+                      ],
+                    },
+                  },
+                };
             wss.clients.forEach((ws) => {
               const event = opts.fail
                 ? {
@@ -99,6 +174,7 @@ export function startComfyMock(): Promise<ComfyMock> {
               if (ws.readyState === 1) ws.send(JSON.stringify(event));
             });
           }, delayMs);
+          timers.add(timer);
         });
         return;
       }
@@ -106,36 +182,52 @@ export function startComfyMock(): Promise<ComfyMock> {
       if (req.method === 'GET' && url.pathname.startsWith('/history/')) {
         const promptId = url.pathname.split('/').pop() ?? '';
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        if (opts.fail) {
-          // waitForCompletion (src/comfyui/progress.ts) polls this endpoint and
-          // fails a job only on status.status_str === 'error' — it does not
-          // consult the /prompt websocket event above, so that's the shape
-          // ComfyMockOptions.fail must produce here to actually force a failure.
-          res.end(
-            JSON.stringify({
-              [promptId]: {
-                status: {
-                  status_str: 'error',
-                  messages: [
-                    [
-                      'execution_error',
-                      { node_type: 'MockNode', node_id: '1', exception_message: 'mock error' },
-                    ],
-                  ],
-                },
-              },
-            }),
+        res.end(JSON.stringify(histories[promptId] ? { [promptId]: histories[promptId] } : {}));
+        return;
+      }
+
+      if (req.method === 'POST' && (url.pathname === '/queue' || url.pathname === '/interrupt')) {
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk) => chunks.push(chunk));
+        req.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          const body = raw ? (JSON.parse(raw) as { delete?: string[]; prompt_id?: string }) : {};
+          if (url.pathname === '/queue') {
+            deleted.push(body.delete ?? []);
+            if ((opts.deleteStatus ?? 200) === 200) {
+              for (const id of body.delete ?? []) {
+                const state = prompts.get(id);
+                // ComfyUI 0.37.0 returns success but does nothing to a running prompt.
+                if (state && Date.now() < state.startAt) state.removed = true;
+              }
+            }
+          } else {
+            interrupted.push(body.prompt_id);
+            if ((opts.interruptStatus ?? 200) === 200) {
+              for (const [id, state] of prompts) {
+                if (
+                  (!body.prompt_id || body.prompt_id === id) &&
+                  !state.removed &&
+                  Date.now() >= state.startAt &&
+                  Date.now() < state.finishAt
+                ) {
+                  state.removed = true;
+                  histories[id] = {
+                    status: {
+                      status_str: 'error',
+                      messages: [['execution_interrupted', { prompt_id: id }]],
+                    },
+                  };
+                }
+              }
+            }
+          }
+          res.writeHead(
+            url.pathname === '/queue' ? (opts.deleteStatus ?? 200) : (opts.interruptStatus ?? 200),
+            { 'Content-Type': 'application/json' },
           );
-          return;
-        }
-        const filename = opts.outputFilename ?? 'result.png';
-        res.end(
-          JSON.stringify({
-            [promptId]: {
-              outputs: { '10': { images: [{ filename, subfolder: '', type: 'output' }] } },
-            },
-          }),
-        );
+          res.end('{}');
+        });
         return;
       }
 
@@ -173,18 +265,30 @@ export function startComfyMock(): Promise<ComfyMock> {
 
     const wss = new WebSocketServer({ server });
 
+    server.once('error', reject);
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address() as AddressInfo;
       resolve({
         url: `http://127.0.0.1:${port}`,
         lastPromptId: () => lastPromptId,
+        deleteCalls: () => deleted,
+        interruptCalls: () => interrupted,
         lastPrompt: () => lastPrompt,
         uploadedFilenames: () => [...uploadedFilenames],
+        resetPrompts: () => {
+          for (const timer of timers) clearTimeout(timer);
+          timers.clear();
+          prompts.clear();
+          for (const id of Object.keys(histories)) delete histories[id];
+          deleted.length = 0;
+          interrupted.length = 0;
+        },
         setOptions: (newOpts) => {
           opts = newOpts;
         },
         close: () =>
           new Promise<void>((r) => {
+            for (const timer of timers) clearTimeout(timer);
             wss.close();
             server.close(() => r());
           }),

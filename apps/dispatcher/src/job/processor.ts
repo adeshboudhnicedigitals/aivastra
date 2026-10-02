@@ -26,12 +26,13 @@ import {
   submitPrompt,
   uploadImageToComfy,
 } from '../comfyui/client.js';
+import { handleCompletionResult } from '../comfyui/completion-result.js';
 import { JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
 import { getImageCompressionConfig } from '../config/image-compression.js';
 import { loadEnv } from '../env.js';
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
-import { setWorkerStatus } from '../worker/registry.js';
+import { releaseWorker } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 import { stackAccessoryImages } from '../workflow/accessory-stack.js';
 import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
@@ -150,6 +151,7 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
 export interface ProcessorConfig {
   db: DB;
   redis: Redis;
+  comfyRedis: Redis;
   pub: Redis;
   storage: StorageProvider;
   s3: S3Client;
@@ -486,6 +488,21 @@ export async function processJob(
             jobLog,
             jobType: job.source,
           });
+          if (mannequin.status === 'cleanup_failed') {
+            await terminateJob(
+              cfg,
+              jobId,
+              userId,
+              stream,
+              messageId,
+              'QUEUE_CLEANUP_FAILED',
+              job.creditsCharged,
+              jobLog,
+              startedAt,
+              job.source,
+            );
+            return;
+          }
           if (mannequin.status === 'no_worker') {
             // Capacity, not failure — same terminate-or-requeue as the main claim
             // below. Going straight to requeueForNoWorker would skip the age check
@@ -855,7 +872,7 @@ export async function processJob(
     // Checked each 3s poll tick — see JOB_CANCEL_KEY_PREFIX comment on the
     // /v1/jobs/:id/cancel route (apps/api) for why only 'tryon'-source jobs
     // can set this flag.
-    await waitForCompletion(
+    const completion = await waitForCompletion(
       w.url,
       w.apiKey,
       clientUuid,
@@ -866,9 +883,28 @@ export async function processJob(
         info: jobLog.info.bind(jobLog),
         debug: jobLog.debug.bind(jobLog),
         error: jobLog.error.bind(jobLog),
+        warn: jobLog.warn.bind(jobLog),
       },
-      async () => (await redis.exists(`job:cancel:${jobId}`)) === 1,
+      async () => (await cfg.comfyRedis.exists(`job:cancel:${jobId}`)) === 1,
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
+    if (
+      await handleCompletionResult(completion, async () => {
+        await terminateJob(
+          cfg,
+          jobId,
+          userId,
+          stream,
+          messageId,
+          'QUEUE_CLEANUP_FAILED',
+          job.creditsCharged,
+          jobLog,
+          startedAt,
+          job.source,
+        );
+      })
+    )
+      return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     // 8. Fetch output metadata + download image
@@ -905,14 +941,12 @@ export async function processJob(
       jobLog,
     });
     await redis.xack(stream, 'dispatcher-cg', messageId);
-    await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('job completed successfully');
   } catch (err) {
     if (err instanceof JobCancelledError) {
       jobLog.info({ err: err.message }, 'job cancelled by user during generation');
       await redis.del(`job:cancel:${jobId}`);
-      await setWorkerStatus(redis, w.id, 'IDLE');
       await terminateJob(
         cfg,
         jobId,
@@ -933,7 +967,6 @@ export async function processJob(
       /no .* image was provided|no .* garment image was provided/.test(err.message)
     ) {
       jobLog.error({ err: err.message }, 'missing garment input for a mapped workflow role');
-      await setWorkerStatus(redis, w.id, 'IDLE');
       await markFailed(
         cfg,
         jobId,
@@ -947,9 +980,10 @@ export async function processJob(
       return;
     }
     jobLog.error({ err }, 'job processing error');
-    await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  } finally {
+    await releaseWorker(redis, w.id, jobLog);
   }
 }
 
@@ -1233,7 +1267,7 @@ async function processTryonDirectJob(
       },
     });
 
-    await waitForCompletion(
+    const completion = await waitForCompletion(
       w.url,
       w.apiKey,
       clientUuid,
@@ -1244,8 +1278,28 @@ async function processTryonDirectJob(
         info: jobLog.info.bind(jobLog),
         debug: jobLog.debug.bind(jobLog),
         error: jobLog.error.bind(jobLog),
+        warn: jobLog.warn.bind(jobLog),
       },
+      undefined,
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
+    if (
+      await handleCompletionResult(completion, async () => {
+        await terminateJob(
+          cfg,
+          jobId,
+          userId,
+          stream,
+          messageId,
+          'QUEUE_CLEANUP_FAILED',
+          job.creditsCharged,
+          jobLog,
+          startedAt,
+          job.source,
+        );
+      })
+    )
+      return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
@@ -1277,14 +1331,14 @@ async function processTryonDirectJob(
       jobLog,
     });
     await redis.xack(stream, 'dispatcher-cg', messageId);
-    await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('tryon direct job completed');
   } catch (err) {
     jobLog.error({ err }, 'tryon direct job processing error');
-    await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  } finally {
+    await releaseWorker(redis, w.id, jobLog);
   }
 }
 
@@ -1474,7 +1528,7 @@ async function processRegenerateJob(
       },
     });
 
-    await waitForCompletion(
+    const completion = await waitForCompletion(
       w.url,
       w.apiKey,
       clientUuid,
@@ -1485,8 +1539,28 @@ async function processRegenerateJob(
         info: jobLog.info.bind(jobLog),
         debug: jobLog.debug.bind(jobLog),
         error: jobLog.error.bind(jobLog),
+        warn: jobLog.warn.bind(jobLog),
       },
+      undefined,
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
+    if (
+      await handleCompletionResult(completion, async () => {
+        await terminateJob(
+          cfg,
+          jobId,
+          userId,
+          stream,
+          messageId,
+          'QUEUE_CLEANUP_FAILED',
+          job.creditsCharged,
+          jobLog,
+          startedAt,
+          job.source,
+        );
+      })
+    )
+      return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
@@ -1515,14 +1589,14 @@ async function processRegenerateJob(
       jobLog,
     });
     await redis.xack(stream, 'dispatcher-cg', messageId);
-    await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('regenerate job completed');
   } catch (err) {
     jobLog.error({ err }, 'regenerate job processing error');
-    await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  } finally {
+    await releaseWorker(redis, w.id, jobLog);
   }
 }
 
@@ -1829,7 +1903,7 @@ async function processSareeMannequinJob(
       },
     });
 
-    await waitForCompletion(
+    const completion = await waitForCompletion(
       w.url,
       w.apiKey,
       clientUuid,
@@ -1840,8 +1914,28 @@ async function processSareeMannequinJob(
         info: jobLog.info.bind(jobLog),
         debug: jobLog.debug.bind(jobLog),
         error: jobLog.error.bind(jobLog),
+        warn: jobLog.warn.bind(jobLog),
       },
+      undefined,
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
+    if (
+      await handleCompletionResult(completion, async () => {
+        await terminateJob(
+          cfg,
+          jobId,
+          userId,
+          stream,
+          messageId,
+          'QUEUE_CLEANUP_FAILED',
+          0,
+          jobLog,
+          startedAt,
+          job.source,
+        );
+      })
+    )
+      return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
@@ -1871,14 +1965,14 @@ async function processSareeMannequinJob(
       jobLog,
     });
     await redis.xack(stream, 'dispatcher-cg', messageId);
-    await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('mannequin job completed successfully');
   } catch (err) {
     jobLog.error({ err }, 'mannequin job processing error');
-    await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  } finally {
+    await releaseWorker(redis, w.id, jobLog);
   }
 }
 
@@ -2060,7 +2154,7 @@ async function processSareeJob(
       },
     });
 
-    await waitForCompletion(
+    const completion = await waitForCompletion(
       w.url,
       w.apiKey,
       clientUuid,
@@ -2071,8 +2165,28 @@ async function processSareeJob(
         info: jobLog.info.bind(jobLog),
         debug: jobLog.debug.bind(jobLog),
         error: jobLog.error.bind(jobLog),
+        warn: jobLog.warn.bind(jobLog),
       },
+      undefined,
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
+    if (
+      await handleCompletionResult(completion, async () => {
+        await terminateJob(
+          cfg,
+          jobId,
+          userId,
+          stream,
+          messageId,
+          'QUEUE_CLEANUP_FAILED',
+          job.creditsCharged,
+          jobLog,
+          startedAt,
+          job.source,
+        );
+      })
+    )
+      return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
@@ -2102,14 +2216,14 @@ async function processSareeJob(
       jobLog,
     });
     await redis.xack(stream, 'dispatcher-cg', messageId);
-    await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('saree job completed successfully');
   } catch (err) {
     jobLog.error({ err }, 'saree job processing error');
-    await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  } finally {
+    await releaseWorker(redis, w.id, jobLog);
   }
 }
 
@@ -2432,7 +2546,7 @@ async function processWidgetJob(
       },
     });
 
-    await waitForCompletion(
+    const completion = await waitForCompletion(
       w.url,
       w.apiKey,
       clientUuid,
@@ -2443,8 +2557,28 @@ async function processWidgetJob(
         info: jobLog.info.bind(jobLog),
         debug: jobLog.debug.bind(jobLog),
         error: jobLog.error.bind(jobLog),
+        warn: jobLog.warn.bind(jobLog),
       },
+      undefined,
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
+    if (
+      await handleCompletionResult(completion, async () => {
+        await markWidgetFailed(
+          cfg,
+          jobId,
+          merchantId,
+          creditsCharged,
+          stream,
+          messageId,
+          'QUEUE_CLEANUP_FAILED',
+          jobLog,
+          startedAt,
+          job.source,
+        );
+      })
+    )
+      return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, '', 'UPLOADING', {}, jobLog);
@@ -2500,13 +2634,11 @@ async function processWidgetJob(
       resultKey,
     );
     await redis.xack(stream, 'dispatcher-cg', messageId);
-    await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info({ resultKey }, 'widget job completed successfully');
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     jobLog.error({ err }, 'widget job processing error');
-    await setWorkerStatus(redis, w.id, 'IDLE');
     await markWidgetFailed(
       cfg,
       jobId,
@@ -2519,6 +2651,8 @@ async function processWidgetJob(
       startedAt,
       job.source,
     );
+  } finally {
+    await releaseWorker(redis, w.id, jobLog);
   }
 }
 
@@ -2729,7 +2863,7 @@ async function processShopifyJob(
       },
     });
 
-    await waitForCompletion(
+    const completion = await waitForCompletion(
       w.url,
       w.apiKey,
       clientUuid,
@@ -2740,8 +2874,29 @@ async function processShopifyJob(
         info: jobLog.info.bind(jobLog),
         debug: jobLog.debug.bind(jobLog),
         error: jobLog.error.bind(jobLog),
+        warn: jobLog.warn.bind(jobLog),
       },
+      undefined,
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
+    if (
+      await handleCompletionResult(completion, async () => {
+        await markShopifyFailed(
+          cfg,
+          jobId,
+          shopifyStoreId,
+          creditsCharged,
+          stream,
+          messageId,
+          'QUEUE_CLEANUP_FAILED',
+          jobLog,
+          startedAt,
+          job.source,
+          params.storeCapKey,
+        );
+      })
+    )
+      return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, '', 'UPLOADING', { shopifyStoreId }, jobLog);
@@ -2772,12 +2927,10 @@ async function processShopifyJob(
     });
 
     await redis.xack(stream, 'dispatcher-cg', messageId);
-    await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info({ resultKey }, 'shopify job completed successfully');
   } catch (err) {
     jobLog.error({ err }, 'shopify job processing error');
-    await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
     await markShopifyFailed(
       cfg,
@@ -2792,6 +2945,8 @@ async function processShopifyJob(
       job.source,
       params.storeCapKey,
     );
+  } finally {
+    await releaseWorker(redis, w.id, jobLog);
   }
 }
 

@@ -1,6 +1,6 @@
 {
   "id": "2d87b0ea-54fc-4574-a2ec-880638849c73",
-  "prevId": "96e61666-0266-4d45-bcfb-dad70144b1af",
+  "prevId": "15794214-18ef-4c28-b6fe-7d380096af04",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2747,13 +2747,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "accessory_catalog_ids": {
-          "name": "accessory_catalog_ids",
-          "type": "uuid[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "ARRAY[]::uuid[]"
-        },
         "user_hint": {
           "name": "user_hint",
           "type": "text",
@@ -2765,6 +2758,13 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "accessory_catalog_ids": {
+          "name": "accessory_catalog_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "ARRAY[]::uuid[]"
         }
       },
       "indexes": {},
@@ -5913,12 +5913,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "accessory_node_id": {
-          "name": "accessory_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "size_node_id": {
           "name": "size_node_id",
           "type": "text",
@@ -6068,6 +6062,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "accessory_node_id": {
+          "name": "accessory_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -6183,12 +6183,6 @@
         },
         "third_node_id": {
           "name": "third_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "accessory_node_id": {
-          "name": "accessory_node_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -6377,6 +6371,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "accessory_node_id": {
+          "name": "accessory_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -7110,6 +7110,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "image_key": {
+          "name": "image_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "workflow_template_id": {
           "name": "workflow_template_id",
           "type": "uuid",
@@ -7249,6 +7261,12 @@
         },
         "vendor": {
           "name": "vendor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
           "type": "text",
           "primaryKey": false,
           "notNull": false

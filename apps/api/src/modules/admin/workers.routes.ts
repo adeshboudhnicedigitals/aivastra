@@ -1,11 +1,19 @@
 import { schema } from '@aivastra/db';
-import { WORKER_POOL, workerPoolSchema } from '@aivastra/types';
+import {
+  capabilitiesKey,
+  capabilityMutationError,
+  comfyVersionKey,
+  WORKER_POOL,
+  workerCapabilitiesSchema,
+  workerPoolSchema,
+} from '@aivastra/types';
 import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
+import { readWorkerCapabilities, requireCapabilityDrain } from './worker-capabilities.js';
 
 const REGISTRY_KEY = 'worker:registry';
 
@@ -109,6 +117,9 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
         const healthy = (await app.redis.get(healthKey(w.id))) === '1';
         const queueGateEnabled = await readQueueGate(app.redis, w.id);
         const queue = await readQueueSnapshot(app.redis, w.id);
+        const capabilities = await readWorkerCapabilities(app, w.id);
+        const capabilityGateDrift =
+          capabilities.status === 'configured' && queueGateEnabled !== true;
         return {
           id: w.id,
           label: w.label,
@@ -119,6 +130,14 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
           healthy,
           queueGateEnabled,
+          capabilities,
+          comfyVersion: await app.redis.get(comfyVersionKey(w.id)),
+          capabilityWarning:
+            capabilities.status === 'unreadable'
+              ? 'Capabilities unreadable — drain before repair'
+              : capabilityGateDrift
+                ? 'Validated worker has no queue gate protection'
+                : null,
           queue,
           routing: routingState({
             healthy,
@@ -296,6 +315,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
       };
 
       const nextId = body.id ?? id;
+      if (nextId !== id) await requireCapabilityDrain(app, id);
 
       const { updated, existing } = await app.db.transaction(async (tx) => {
         const [existingRow] = await tx
@@ -362,6 +382,13 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           await app.redis.del(healthKey(id));
         }
 
+        const capabilities = await app.redis.get(capabilitiesKey(id));
+        if (capabilities !== null) {
+          await app.redis.set(capabilitiesKey(nextId), capabilities);
+          await app.redis.del(capabilitiesKey(id));
+        }
+        // Version belongs to the probed identity; the monitor rebuilds it after rename.
+        await app.redis.del(comfyVersionKey(id));
         const gate = await app.redis.get(routingConfigKey(id));
         if (gate !== null) {
           await app.redis.set(routingConfigKey(nextId), gate);
@@ -469,10 +496,80 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
       await app.redis.hdel(REGISTRY_KEY, id);
       await app.redis.del(healthKey(id));
       await app.redis.del(routingConfigKey(id));
+      await app.redis.del(capabilitiesKey(id));
+      await app.redis.del(comfyVersionKey(id));
 
       return reply.code(204).send();
     },
   );
+
+  app.get(
+    '/admin/workers/:id/capabilities',
+    {
+      preHandler: requirePermission('workers.read'),
+      schema: { params: z.object({ id: z.string() }) },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [worker] = await app.db
+        .select({ id: schema.workers.id })
+        .from(schema.workers)
+        .where(eq(schema.workers.id, id));
+      if (!worker) throw new AppError('NOT_FOUND', 404, 'Worker not found');
+      return {
+        ...(await readWorkerCapabilities(app, id)),
+        comfyVersion: await app.redis.get(comfyVersionKey(id)),
+      };
+    },
+  );
+
+  // Full replacement makes partial revocation explicit. Audit precedes the Redis write,
+  // as for queue-gate; the cross-store commit window remains the existing limitation.
+  for (const method of ['PUT', 'DELETE'] as const) {
+    app.route({
+      method,
+      url: '/admin/workers/:id/capabilities',
+      preHandler: requirePermission('workers.write'),
+      schema: {
+        params: z.object({ id: z.string() }),
+        ...(method === 'PUT' ? { body: workerCapabilitiesSchema } : {}),
+      },
+      handler: async (req, reply) => {
+        const { id } = req.params as { id: string };
+        const [worker] = await app.db
+          .select({ id: schema.workers.id })
+          .from(schema.workers)
+          .where(eq(schema.workers.id, id));
+        if (!worker) throw new AppError('NOT_FOUND', 404, 'Worker not found');
+        const before = await readWorkerCapabilities(app, id, true);
+        const next = method === 'PUT' ? workerCapabilitiesSchema.parse(req.body) : null;
+        const raw = await app.redis.hget(REGISTRY_KEY, id);
+        const draining =
+          raw !== null && (JSON.parse(raw) as { status?: unknown }).status === 'DRAINING';
+        const error = capabilityMutationError(
+          before,
+          next,
+          draining,
+          await readQueueGate(app.redis, id),
+        );
+        if (error) throw new AppError('WORKER_CAPABILITIES_PROTECTED', 409, error);
+        await app.db.transaction(async (tx) => {
+          await recordAudit(tx, {
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'worker.capabilities',
+            resourceType: 'worker',
+            resourceId: id,
+            before: { state: before },
+            after: { capabilities: next },
+            request: req,
+          });
+          if (next === null) await app.redis.del(capabilitiesKey(id));
+          else await app.redis.set(capabilitiesKey(id), JSON.stringify(next));
+        });
+        return method === 'DELETE' ? reply.code(204).send() : { ok: true, capabilities: next };
+      },
+    });
+  }
 
   // Toggles the dispatcher's ComfyUI queue gate for one worker. Live: the dispatcher
   // reads the flag on every claim, so no restart. Audit first, Redis write last, so a
@@ -492,6 +589,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
       const [row] = await app.db.select().from(schema.workers).where(eq(schema.workers.id, id));
       if (!row) return reply.code(404).send({ ok: false });
 
+      if (enabled === false) await requireCapabilityDrain(app, id);
       const before = await readQueueGate(app.redis, id);
       await app.db.transaction(async (tx) => {
         await recordAudit(tx, {

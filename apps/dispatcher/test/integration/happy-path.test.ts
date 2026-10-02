@@ -3,11 +3,14 @@ import { createLogger } from '@aivastra/logger';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as progress from '../../src/comfyui/progress.js';
 import { processJob } from '../../src/job/processor.js';
+import * as registry from '../../src/worker/registry.js';
 import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { assertQueueExhaustion } from '../helpers/queue-exhaustion.js';
 
 const WORKER_ID = 'test-worker-happy';
 
@@ -19,8 +22,8 @@ describe('dispatcher happy path', () => {
 
   beforeAll(async () => {
     env = await setupTestEnv();
-    redis = new Redis('redis://127.0.0.1:6379');
-    pub = new Redis('redis://127.0.0.1:6379');
+    redis = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
+    pub = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
     comfy = await startComfyMock();
 
     await registerWorkers(redis, [{ id: WORKER_ID, url: comfy.url, apiKey: 'test-key' }]);
@@ -36,6 +39,7 @@ describe('dispatcher happy path', () => {
   });
 
   beforeEach(async () => {
+    comfy.resetPrompts();
     comfy.setOptions({});
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
@@ -155,6 +159,7 @@ describe('dispatcher happy path', () => {
 
     await processJob(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,
@@ -166,7 +171,7 @@ describe('dispatcher happy path', () => {
       jobId,
       userId,
       'jobs:normal',
-      'mock-msg-id',
+      '1-1',
     );
 
     const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
@@ -189,5 +194,111 @@ describe('dispatcher happy path', () => {
     const { getWorkers } = await import('../../src/worker/registry.js');
     const workers = await getWorkers(redis);
     expect(workers.get(WORKER_ID)?.status).toBe('IDLE');
+  });
+  it('execution timeout remains an ordinary failure: consumes an attempt and requeues without refund', async () => {
+    const { jobId, userId } = await seedJob();
+    if (!jobId || !userId) throw new Error('missing fixture IDs');
+    const completion = vi
+      .spyOn(progress, 'waitForCompletion')
+      .mockRejectedValue(
+        new Error(`ComfyUI history polling timeout after 300000ms for prompt mock`),
+      );
+    try {
+      await processJob(
+        {
+          comfyRedis: redis,
+          db: env.db,
+          redis,
+          pub,
+          storage: env.storage,
+          s3: env.s3,
+          r2Bucket: env.r2Bucket,
+          log: createLogger('test'),
+        },
+        jobId,
+        userId,
+        'jobs:normal',
+        '2-1',
+      );
+      const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+      expect(job?.status).toBe('QUEUED');
+      expect(job?.attempts).toBe(1);
+      const [credits] = await env.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, userId));
+      expect(credits?.balance).toBe(5);
+      expect(
+        await env.db.select().from(schema.jobOutputs).where(eq(schema.jobOutputs.jobId, jobId)),
+      ).toEqual([]);
+    } finally {
+      completion.mockRestore();
+    }
+  });
+
+  it('holds the worker through terminal publication failure and releases it once', async () => {
+    const { jobId, userId } = await seedJob();
+    const completion = vi
+      .spyOn(progress, 'waitForCompletion')
+      .mockResolvedValue({ status: 'queue_cleanup_failed' });
+    const release = vi.spyOn(registry, 'releaseWorker');
+    const originalPublish = pub.publish.bind(pub);
+    const publication = vi.spyOn(pub, 'publish');
+    let failed = false;
+    publication.mockImplementation(async (...args) => {
+      if (!failed && String(args[1]).includes('FAILED')) {
+        failed = true;
+        expect((await registry.getWorkers(redis)).get(WORKER_ID)?.status).toBe('BUSY');
+        expect(release).not.toHaveBeenCalled();
+        throw new Error('injected terminal publication failure');
+      }
+      return originalPublish(...args);
+    });
+    try {
+      await processJob(
+        {
+          comfyRedis: redis,
+          db: env.db,
+          redis,
+          pub,
+          storage: env.storage,
+          s3: env.s3,
+          r2Bucket: env.r2Bucket,
+          log: createLogger('test'),
+        },
+        jobId,
+        userId,
+        'jobs:normal',
+        '4-1',
+      );
+      expect(failed).toBe(true);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect((await registry.getWorkers(redis)).get(WORKER_ID)?.status).toBe('IDLE');
+    } finally {
+      completion.mockRestore();
+      release.mockRestore();
+      publication.mockRestore();
+    }
+  });
+
+  it('queue_cleanup_failed terminates and refunds without attempts, output handling or requeue', async () => {
+    const { jobId, userId } = await seedJob();
+    if (!jobId || !userId) throw new Error('missing fixture IDs');
+    await assertQueueExhaustion(
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log: createLogger('test'),
+      },
+      comfy,
+      WORKER_ID,
+      jobId,
+      userId,
+    );
   });
 });

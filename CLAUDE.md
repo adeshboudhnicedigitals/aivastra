@@ -393,12 +393,17 @@ Traps worth knowing:
   could double-charge a charge Shopify had actually accepted.
 
 **Theme extension** (`apps/shopify-extension/extensions/tryon-theme-extension`)
-ships one **app block** (`blocks/tryon-button.liquid`, `target: "section"`) that
-the merchant drags into their product template. It is not an app embed — an
-earlier version was, and it relocated itself via guessed CSS selectors, breaking
-on every theme switch. App blocks need an Online Store 2.0 (JSON) template;
-vintage themes are unsupported. Theme-check requires `width`/`height` on `<img>`
-tags, so placeholder attributes are present and CSS must set the real size.
+ships one **app embed** (`blocks/tryon-button.liquid`, `target: "body"`) that
+the merchant switches on once under Theme editor → App embeds; onboarding's theme
+step deep-links there (`activateAppId`). There is no per-template placement, so
+`tryon-widget.js` (`placeWidget`) moves the button into the product form directly
+above the buy buttons, waits up to 3s for JS-rendered forms, honours the optional
+`placement_selector` setting, and falls back to a floating button. This is the
+third form of it: embed → app block (2026-07-31, dropped because guessed selectors
+broke on theme switches) → embed again, chosen for the one-toggle setup and vintage
+theme support. Expect per-theme placement support work. Theme-check requires
+`width`/`height` on `<img>` tags, so placeholder attributes are present and CSS
+must set the real size.
 
 **Widget config:** modal copy, accent color and result actions come from the
 `aivastra.widget_config` shop metafield, written by
