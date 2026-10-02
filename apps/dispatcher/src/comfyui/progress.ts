@@ -45,10 +45,10 @@ export async function waitForCompletion(
   const submittedAt = Date.now();
   const workerId = context?.workerId ?? 'unknown';
   const startRead: CapabilityRead = context
-    ? await readCapabilities(context.redis, workerId, 'submission', 5_000, log)
+    ? await readCapabilities(context.comfyRedis, workerId, 'submission', 5_000, log)
     : { status: 'unreadable' };
   const { config, reason: budgetReason } = context
-    ? await getComfyTimeoutConfig(context.redis)
+    ? await getComfyTimeoutConfig(context.comfyRedis)
     : { config: comfyTimeoutConfigSchema.parse({}), reason: 'context_unavailable' };
   let reason = budgetReason ?? 'capabilities_not_effective';
   let enabled = false;
@@ -58,11 +58,11 @@ export async function waitForCompletion(
     startRead.status === 'configured' &&
     startRead.capabilities.queuePromptIdentityValidated === true &&
     startRead.capabilities.queueDeleteValidated === true &&
-    (await versionMatches(context.redis, workerId, startRead, config.requestTimeoutMs, log))
+    (await versionMatches(context.comfyRedis, workerId, startRead, config.requestTimeoutMs, log))
   ) {
     try {
       enabled = await boundedRead(
-        () => isQueueGateEnabled(context.redis, workerId),
+        () => isQueueGateEnabled(context.comfyRedis, workerId),
         config.requestTimeoutMs,
       );
     } catch {
@@ -231,14 +231,26 @@ export async function waitForCompletion(
           } else {
             absentSince = undefined;
             const authorization = context
-              ? await readCapabilities(context.redis, workerId, 'timeout_delete', remaining(), log)
+              ? await readCapabilities(
+                  context.comfyRedis,
+                  workerId,
+                  'timeout_delete',
+                  remaining(),
+                  log,
+                )
               : ({ status: 'unreadable' } as CapabilityRead);
             if (
               context &&
               authorization.status === 'configured' &&
               authorization.capabilities.queuePromptIdentityValidated === true &&
               authorization.capabilities.queueDeleteValidated === true &&
-              (await versionMatches(context.redis, workerId, authorization, remaining(), log)) &&
+              (await versionMatches(
+                context.comfyRedis,
+                workerId,
+                authorization,
+                remaining(),
+                log,
+              )) &&
               remaining() > 0
             ) {
               try {

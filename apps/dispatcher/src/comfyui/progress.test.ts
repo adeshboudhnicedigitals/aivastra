@@ -42,7 +42,7 @@ function wait(timeoutMs = 300_000) {
     undefined,
     log,
     cancel,
-    { redis: { get } as unknown as Redis, workerId: 'w' },
+    { comfyRedis: { get } as unknown as Redis, workerId: 'w' },
   );
 }
 async function settle<T>(promise: Promise<T>, advanceMs = 1_000_000) {

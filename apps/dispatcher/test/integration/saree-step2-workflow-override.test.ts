@@ -147,7 +147,16 @@ describe('dispatcher — saree step-2 workflow override', () => {
 
     const log = createLogger('test');
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       job.id,
       user.id,
       'jobs:normal',
@@ -271,7 +280,16 @@ describe('dispatcher — saree step-2 workflow override', () => {
 
     const log = createLogger('test');
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       job.id,
       user.id,
       'jobs:normal',
@@ -373,6 +391,7 @@ describe('dispatcher — saree step-2 workflow override', () => {
 
     await assertQueueExhaustion(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,

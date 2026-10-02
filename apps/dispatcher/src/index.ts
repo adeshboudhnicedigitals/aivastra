@@ -19,7 +19,7 @@ import { loadEnv } from './env.js';
 import { startHealthServer } from './health/server.js';
 import { promoteSareeStep2Jobs } from './job/saree-step2-promoter.js';
 import { makeDb } from './lib/db.js';
-import { makeRedis } from './lib/redis.js';
+import { makeComfyRedis, makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
 import { runShopifyRetention } from './shopify/retention.js';
 import { runConsumer } from './stream/consumer.js';
@@ -74,6 +74,9 @@ async function main(): Promise<void> {
 
   const { db, close: closeDb } = makeDb(env);
   const { main: redis, pub, close: closeRedis } = makeRedis(env);
+  // Capability deadlines must not queue behind the main connection's blocking consumers.
+  const comfyRedis = makeComfyRedis(redis);
+  await comfyRedis.connect();
   const storage = makeStorage(env);
   const s3 = new S3Client({
     endpoint: env.R2_ENDPOINT,
@@ -141,6 +144,7 @@ async function main(): Promise<void> {
   const processorCfg = {
     db,
     redis,
+    comfyRedis,
     pub,
     storage,
     s3,
@@ -152,7 +156,7 @@ async function main(): Promise<void> {
   await recoverPendingJobs(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
 
   // Start subsystems
-  const stopHealthMonitor = startHealthMonitor(redis, log);
+  const stopHealthMonitor = startHealthMonitor(comfyRedis, log);
   const stopConsumer = await runConsumer(redis, processorCfg, log);
   // Separate lane: PixVerse video jobs need no GPU worker, so they must not be
   // gated by the GPU consumer's registry-derived in-flight cap.
@@ -199,6 +203,7 @@ async function main(): Promise<void> {
     stopWebhooks();
     stopHealthMonitor();
     stopHealthServer();
+    comfyRedis.disconnect();
     await closeRedis();
     await closeDb();
     process.exit(0);

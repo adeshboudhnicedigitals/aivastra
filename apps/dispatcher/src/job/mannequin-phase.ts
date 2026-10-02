@@ -21,6 +21,7 @@ import { selectWorker } from '../worker/selector.js';
 export interface MannequinPhaseConfig {
   db: DB;
   redis: Redis;
+  comfyRedis: Redis;
   s3: S3Client;
   r2Bucket: string;
 }
@@ -155,7 +156,7 @@ export async function runMannequinPhase(
         error: jobLog.error.bind(jobLog),
       },
       undefined,
-      { redis, workerId: w.id },
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
     switch (completion.status) {
       case 'completed':

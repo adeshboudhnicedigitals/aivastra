@@ -129,7 +129,16 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -156,7 +165,16 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -180,7 +198,16 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -196,6 +223,7 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
     if (!jobId || !userId) throw new Error('missing fixture IDs');
     await assertQueueExhaustion(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,

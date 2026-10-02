@@ -150,6 +150,7 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
 export interface ProcessorConfig {
   db: DB;
   redis: Redis;
+  comfyRedis: Redis;
   pub: Redis;
   storage: StorageProvider;
   s3: S3Client;
@@ -826,8 +827,8 @@ export async function processJob(
         error: jobLog.error.bind(jobLog),
         warn: jobLog.warn.bind(jobLog),
       },
-      async () => (await redis.exists(`job:cancel:${jobId}`)) === 1,
-      { redis, workerId: w.id },
+      async () => (await cfg.comfyRedis.exists(`job:cancel:${jobId}`)) === 1,
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -1222,7 +1223,7 @@ async function processTryonDirectJob(
         warn: jobLog.warn.bind(jobLog),
       },
       undefined,
-      { redis, workerId: w.id },
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -1483,7 +1484,7 @@ async function processRegenerateJob(
         warn: jobLog.warn.bind(jobLog),
       },
       undefined,
-      { redis, workerId: w.id },
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -1858,7 +1859,7 @@ async function processSareeMannequinJob(
         warn: jobLog.warn.bind(jobLog),
       },
       undefined,
-      { redis, workerId: w.id },
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -2109,7 +2110,7 @@ async function processSareeJob(
         warn: jobLog.warn.bind(jobLog),
       },
       undefined,
-      { redis, workerId: w.id },
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -2501,7 +2502,7 @@ async function processWidgetJob(
         warn: jobLog.warn.bind(jobLog),
       },
       undefined,
-      { redis, workerId: w.id },
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -2818,7 +2819,7 @@ async function processShopifyJob(
         warn: jobLog.warn.bind(jobLog),
       },
       undefined,
-      { redis, workerId: w.id },
+      { comfyRedis: cfg.comfyRedis, workerId: w.id },
     );
     if (
       await handleCompletionResult(completion, async () => {

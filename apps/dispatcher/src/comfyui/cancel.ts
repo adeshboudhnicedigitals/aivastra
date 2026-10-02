@@ -18,7 +18,7 @@ import {
 
 export type ComfyLog = Pick<Logger, 'info' | 'debug' | 'error'> & Partial<Pick<Logger, 'warn'>>;
 export interface CompletionContext {
-  redis: Redis;
+  comfyRedis: Redis;
   workerId: string;
 }
 
@@ -52,12 +52,12 @@ export async function cancelPrompt(
   const remaining = () => Math.max(0, Math.min(config.requestTimeoutMs, deadline - Date.now()));
   const read = () =>
     context
-      ? readCapabilities(context.redis, workerId, 'cancel', remaining(), log)
+      ? readCapabilities(context.comfyRedis, workerId, 'cancel', remaining(), log)
       : Promise.resolve<CapabilityRead>({ status: 'unreadable' });
   const safe = async (capabilities: CapabilityRead) =>
     context &&
     hasSafeCancelCapabilities(capabilities) &&
-    (await versionMatches(context.redis, workerId, capabilities, remaining(), log));
+    (await versionMatches(context.comfyRedis, workerId, capabilities, remaining(), log));
   let skippedOperation: string | undefined;
   const skipped = (operation: string) => {
     skippedOperation = operation;
