@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { Icon } from '../components/Icons';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { useCloseOverlay } from '../hooks/use-close-overlay';
@@ -21,6 +22,11 @@ interface AuditLogItem {
   userAgent: string | null;
   requestId: string | null;
   createdAt: string;
+  isRevertible?: boolean;
+  revertReason?: string | null;
+  revertSummary?: string | null;
+  isReverted?: boolean;
+  revertedAt?: string | null;
 }
 
 interface AuditLogsResponse {
@@ -37,9 +43,10 @@ interface Props {
 type ActionCategory = 'created' | 'updated' | 'changed' | 'deleted' | 'default';
 
 function getActionCategory(action: string): ActionCategory {
+  if (action === 'audit.revert') return 'changed';
   if (/(\.|_)(delete|delete_\w+|revoke|erase|ban|deduct)$/.test(action)) return 'deleted';
   if (/(\.|_)(create|grant|import)$/.test(action)) return 'created';
-  if (/(\.|_)(approve|release|restore)$/.test(action)) return 'changed';
+  if (/(\.|_)(approve|release|restore|revert)$/.test(action)) return 'changed';
   if (/(\.|_)(update|update_\w+|reassign|rename)$/.test(action)) return 'updated';
   return 'default';
 }
@@ -401,12 +408,20 @@ function describeAction(log: AuditLogItem): string {
         ? `Released ${released} held bulk-flat job(s)`
         : 'Released held bulk-flat jobs';
     }
+    case 'audit.revert': {
+      const orig = typeof after.originalAction === 'string' ? after.originalAction : undefined;
+      const summ = typeof after.summary === 'string' ? after.summary : undefined;
+      if (summ) return `Reverted — ${summ}`;
+      if (orig) return `Reverted activity: ${orig}`;
+      return `Reverted previous activity on ${who}`;
+    }
     default:
       return `${humanizeActionFallback(log.action)} — ${who}`;
   }
 }
 
 const ACTION_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'audit.revert', label: 'Activity reverted' },
   { value: 'credits.grant', label: 'Credits added' },
   { value: 'credits.deduct', label: 'Credits removed' },
   { value: 'users.ban', label: 'User banned' },
@@ -582,6 +597,33 @@ export default function AuditLogsPage({ toast }: Props) {
     setActorFilter(userId);
     setActorFilterLabel(label);
     setPage(1);
+  };
+
+  const [revertingLog, setRevertingLog] = useState<AuditLogItem | null>(null);
+  const [reverting, setReverting] = useState(false);
+
+  const handleRevert = async (item: AuditLogItem) => {
+    setReverting(true);
+    try {
+      const res = await apiFetch<{ ok: boolean; message: string }>(
+        `/admin/audit-logs/${item.id}/revert`,
+        { method: 'POST' },
+      );
+      toast({
+        title: 'Activity reverted',
+        body: res.message || 'The activity has been successfully undone.',
+      });
+      setRevertingLog(null);
+      void fetchLogs();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to revert activity',
+        body: apiErrorMessage(e, 'Could not undo this activity.'),
+      });
+    } finally {
+      setReverting(false);
+    }
   };
 
   useEffect(() => {
@@ -831,6 +873,52 @@ export default function AuditLogsPage({ toast }: Props) {
             <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' }}>
               Event Details
             </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {item.isReverted ? (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '3px 8px',
+                  borderRadius: 4,
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  fontSize: 11,
+                  color: 'var(--muted)',
+                  fontWeight: 500,
+                }}
+              >
+                <Icon.Check
+                  style={{ width: 11, height: 11, color: 'var(--success-ink, #22c55e)' }}
+                />
+                Reverted
+              </span>
+            ) : item.isRevertible ? (
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => setRevertingLog(item)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 11.5,
+                  padding: '4px 10px',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--danger-ink, #ef4444)',
+                  color: 'var(--danger-ink, #ef4444)',
+                  cursor: 'pointer',
+                  borderRadius: 'var(--r, 6px)',
+                  fontWeight: 500,
+                }}
+              >
+                <Icon.Undo style={{ width: 12, height: 12 }} />
+                <span>Revert this activity</span>
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -1780,7 +1868,7 @@ export default function AuditLogsPage({ toast }: Props) {
               <th
                 style={{
                   textAlign: 'right',
-                  width: 140,
+                  width: 220,
                   paddingRight: 16,
                   textTransform: 'uppercase',
                   fontSize: 11,
@@ -1789,7 +1877,7 @@ export default function AuditLogsPage({ toast }: Props) {
                   fontWeight: 600,
                 }}
               >
-                Details
+                Actions
               </th>
             </tr>
           </thead>
@@ -1920,31 +2008,95 @@ export default function AuditLogsPage({ toast }: Props) {
                         )}
                       </td>
                       <td style={{ textAlign: 'right', paddingRight: 16 }}>
-                        {hasDetails ? (
-                          <button
-                            type="button"
-                            className={`btn sm ${isExpanded ? 'secondary' : 'ghost'}`}
-                            onClick={() => {
-                              if (isExpanded) {
-                                closeExpanded();
-                                setExpandedIdKey(null);
-                              } else {
-                                setExpandedLogId(log.id);
-                                setExpandedIdKey(null);
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end',
+                            gap: 8,
+                          }}
+                        >
+                          {log.isReverted ? (
+                            <span
+                              className="badge"
+                              title={
+                                log.revertedAt
+                                  ? `Reverted ${formatDate(log.revertedAt)}`
+                                  : 'This activity was reverted'
                               }
-                            }}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              fontSize: 12,
-                            }}
-                          >
-                            <span>{isExpanded ? 'Hide details ↑' : 'View details →'}</span>
-                          </button>
-                        ) : (
-                          <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
-                        )}
+                              style={{
+                                fontSize: 10.5,
+                                background: 'var(--surface-2)',
+                                color: 'var(--muted)',
+                                border: '1px solid var(--border)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '2px 7px',
+                              }}
+                            >
+                              <Icon.Check
+                                style={{
+                                  width: 10,
+                                  height: 10,
+                                  color: 'var(--success-ink, #22c55e)',
+                                }}
+                              />
+                              Reverted
+                            </span>
+                          ) : log.isRevertible ? (
+                            <button
+                              type="button"
+                              className="btn sm ghost"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRevertingLog(log);
+                              }}
+                              title={
+                                log.revertSummary
+                                  ? `Revert: ${log.revertSummary}`
+                                  : 'Undo this activity'
+                              }
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                fontSize: 11.5,
+                                color: 'var(--danger-ink, #ef4444)',
+                                padding: '3px 8px',
+                              }}
+                            >
+                              <Icon.Undo style={{ width: 12, height: 12 }} />
+                              <span>Revert</span>
+                            </button>
+                          ) : null}
+
+                          {hasDetails ? (
+                            <button
+                              type="button"
+                              className={`btn sm ${isExpanded ? 'secondary' : 'ghost'}`}
+                              onClick={() => {
+                                if (isExpanded) {
+                                  closeExpanded();
+                                  setExpandedIdKey(null);
+                                } else {
+                                  setExpandedLogId(log.id);
+                                  setExpandedIdKey(null);
+                                }
+                              }}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                fontSize: 12,
+                              }}
+                            >
+                              <span>{isExpanded ? 'Hide details ↑' : 'View details →'}</span>
+                            </button>
+                          ) : (
+                            <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
+                          )}
+                        </div>
                       </td>
                     </tr>
 
@@ -2053,6 +2205,21 @@ export default function AuditLogsPage({ toast }: Props) {
                       <span className="badge" style={{ fontSize: 10 }}>
                         {log.actorRole}
                       </span>
+                      {log.isReverted && (
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: 10,
+                            background: 'var(--surface-2)',
+                            color: 'var(--muted)',
+                          }}
+                        >
+                          Reverted
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 2 }}>
+                      {describeAction(log)}
                     </div>
                     <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                       {formatDate(log.createdAt)}
@@ -2121,6 +2288,23 @@ export default function AuditLogsPage({ toast }: Props) {
             </button>
           </div>
         </div>
+      )}
+
+      {revertingLog && (
+        <ConfirmModal
+          title="Revert activity"
+          body={`Are you sure you want to revert this activity? This will undo the action performed by ${
+            revertingLog.actorEmail ?? revertingLog.actorDisplayName ?? revertingLog.actorUserId
+          } on ${formatDate(revertingLog.createdAt)}.`}
+          what={revertingLog.revertSummary ?? describeAction(revertingLog)}
+          confirmLabel={reverting ? 'Reverting...' : 'Revert Activity'}
+          confirmDisabled={reverting}
+          danger
+          onConfirm={() => handleRevert(revertingLog)}
+          onClose={() => {
+            if (!reverting) setRevertingLog(null);
+          }}
+        />
       )}
     </>
   );

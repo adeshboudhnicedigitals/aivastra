@@ -310,4 +310,16 @@ export const Icon: Record<string, (props?: IconProps) => JSX.Element> = {
       <path d="M6.5 6l4 2.5-4 2.5V6z" fill="currentColor" stroke="none" />
     </svg>
   ),
+  Undo: (props) => (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      style={props?.style}
+    >
+      <path d="M3 6.5h7a3.5 3.5 0 1 1 0 7H4.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5.5 4L3 6.5l2.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
 };

@@ -2,6 +2,16 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-03 — Admin Activity Log Revert feature
+
+- **Done:** Added "Revert" functionality to Admin Activity Logs (`/admin/audit-logs`).
+  - Backend: Added `apps/api/src/modules/admin/audit-revert.ts` implementing `isAuditActionRevertible` and `executeAuditRevert` supporting reversing credit grants/deductions, merchant credit grants, user bans/unbans, admin user approvals and role changes, worker creations/updates/deletions, garment type creations/updates/deletions, workflow updates/deactivations, and soft-deletable catalog assets.
+  - Endpoints: Updated `GET /admin/audit-logs` to query and return dynamic revert metadata (`isRevertible`, `revertReason`, `revertSummary`, `isReverted`, `revertedAt`). Added `POST /admin/audit-logs/:id/revert` protected by `requirePermission('audit.read')`.
+  - Database Constraint Compliance: Enforced PostgreSQL append-only trigger constraint on `audit_logs` (never modifies or deletes rows in `audit_logs`; records reversals as append-only `action: 'audit.revert'` referencing `revertedLogId`).
+  - Frontend: Added `Icon.Undo` to `Icons.tsx`. In `AuditLogsPage.tsx`, added Revert action buttons and Reverted badges in the desktop table, mobile card view, and expanded detail view, with a `ConfirmModal` dialog confirming the activity reversal before executing.
+- **Validation:** 5/5 integration tests in `admin-audit-logs.test.ts` passed; 85/85 unit test files (768 tests) in `@aivastra/api` passed; `admin-web` built cleanly with Vite/tsc; Biome check and repo-wide typecheck passed with 0 errors.
+- **Not done / follow-ups:** Permanent deletions lacking snapshot data (e.g. workflow templates with omitted graph JSON, permanent user deletions) are marked non-revertible by design.
+
 ## 2026-10-03 — Performance routing authorized for commit and PR
 
 - **Done:** committed verified feature/review fixes as `87b8e947` on `feat/performance-aware-routing`, integrated current `dev` (`2406931e`) via `5703f0ba`, and prepared the authorized PR into `dev`; feature remains OFF by default with ACTIVE blocked. Updated review artifacts previously transferred to VPS `/tmp/` with matching hashes; no deploy or production routing configuration changed.
