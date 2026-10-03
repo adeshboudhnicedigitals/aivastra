@@ -47,6 +47,152 @@ class Aivastra_Connection_Service
     }
 
     /**
+     * "Connect with Ai Vastra" account-link flow (docs/wordpress-plugin-design.md
+     * §4.1) — redeems the one-time code the browser carried back from the
+     * app.aivastra.com consent screen for the full+widget key pair minted
+     * there, then stores them exactly the same way connect() does for a
+     * manually-pasted pair. Server-to-server call (no shopper or admin
+     * browser involved), protected only by the code's own one-time, 60s-TTL
+     * nature — mirrors POST /v1/auth/google/exchange's OTP redemption.
+     *
+     * @return array{ok: bool, error?: string}
+     */
+    public function exchange_connect_code(string $code): array
+    {
+        $response = wp_remote_post($this->apiBase . '/v1/wordpress/connect/exchange', [
+            'headers' => ['Content-Type' => 'application/json'],
+            'body' => wp_json_encode(['code' => $code]),
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['ok' => false, 'error' => 'Could not reach the aivastra API.'];
+        }
+
+        $httpCode = wp_remote_retrieve_response_code($response);
+        if ($httpCode !== 200) {
+            return ['ok' => false, 'error' => 'The connection code was rejected or had expired (HTTP ' . $httpCode . ').'];
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        $fullKey = is_array($body) ? ($body['fullKey'] ?? '') : '';
+        $widgetKey = is_array($body) ? ($body['widgetKey'] ?? '') : '';
+        $companyName = is_array($body) ? ($body['companyName'] ?? '') : '';
+        $credits = is_array($body) ? (int) ($body['credits'] ?? 0) : 0;
+
+        if ($fullKey === '' || $widgetKey === '') {
+            return ['ok' => false, 'error' => 'The aivastra API returned an unexpected response.'];
+        }
+
+        $this->settings->set_widget_key_and_snapshot($widgetKey, $fullKey, $companyName, $credits, current_time('mysql'));
+
+        return ['ok' => true];
+    }
+
+    /**
+     * Embedded, no-redirect "log in or sign up with your Ai Vastra email"
+     * path (docs/wordpress-plugin-design.md §4.1, superseding the
+     * browser-redirect flow as the primary one): one server-to-server call
+     * that either logs an existing, verified account in or registers a
+     * brand-new one, mints this site's key pair, and stores them — all
+     * without the admin ever leaving wp-admin. The password is used only as
+     * this call's POST body and is never written to any option, transient,
+     * or log.
+     *
+     * $status mirrors POST /v1/merchant/wordpress-login's own branches:
+     * 'connected' (same as connect()/exchange_connect_code()'s outcome),
+     * 'verification_required' (brand-new account — a verification email was
+     * just sent), 'merchant_details_required' (caller must supply $phone and
+     * retry), 'invalid_credentials', 'email_not_verified', or 'error' for
+     * anything else (an inactive merchant account, an unexpected response
+     * shape, etc. — all surfaced as one generic message since none of them
+     * are actionable from this form beyond "contact support").
+     *
+     * @return array{ok: bool, status: string, error?: string, companyName?: string, credits?: int}
+     */
+    public function login_or_register(
+        string $email,
+        string $password,
+        string $siteUrl,
+        string $siteName,
+        string $displayName,
+        ?string $phone
+    ): array {
+        $payload = [
+            'email' => $email,
+            'password' => $password,
+            'siteUrl' => $siteUrl,
+        ];
+        if ($siteName !== '') {
+            $payload['siteName'] = $siteName;
+        }
+        if ($displayName !== '') {
+            $payload['displayName'] = $displayName;
+        }
+        if ($phone !== null && $phone !== '') {
+            $payload['phone'] = $phone;
+        }
+
+        $response = wp_remote_post($this->apiBase . '/v1/merchant/wordpress-login', [
+            'headers' => ['Content-Type' => 'application/json'],
+            'body' => wp_json_encode($payload),
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['ok' => false, 'status' => 'error', 'error' => 'Could not reach the aivastra API.'];
+        }
+
+        $httpCode = wp_remote_retrieve_response_code($response);
+
+        if ($httpCode === 202) {
+            return ['ok' => true, 'status' => 'verification_required'];
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($httpCode === 200) {
+            $fullKey = is_array($body) ? ($body['fullKey'] ?? '') : '';
+            $widgetKey = is_array($body) ? ($body['widgetKey'] ?? '') : '';
+            $companyName = is_array($body) ? ($body['companyName'] ?? '') : '';
+            $credits = is_array($body) ? (int) ($body['credits'] ?? 0) : 0;
+
+            if ($fullKey === '' || $widgetKey === '') {
+                return ['ok' => false, 'status' => 'error', 'error' => 'Unexpected response from the aivastra API.'];
+            }
+
+            $this->settings->set_widget_key_and_snapshot($widgetKey, $fullKey, $companyName, $credits, current_time('mysql'));
+
+            return ['ok' => true, 'status' => 'connected', 'companyName' => $companyName, 'credits' => $credits];
+        }
+
+        $errorCode = is_array($body) && is_array($body['error'] ?? null) ? (string) ($body['error']['code'] ?? '') : '';
+
+        return match ($errorCode) {
+            'MERCHANT_DETAILS_REQUIRED' => [
+                'ok' => false,
+                'status' => 'merchant_details_required',
+                'error' => 'A phone number is needed to finish setting up your business account.',
+            ],
+            'EMAIL_NOT_VERIFIED' => [
+                'ok' => false,
+                'status' => 'email_not_verified',
+                'error' => 'Check your email to verify your account, then try connecting again.',
+            ],
+            'INVALID' => [
+                'ok' => false,
+                'status' => 'invalid_credentials',
+                'error' => 'Incorrect email or password.',
+            ],
+            default => [
+                'ok' => false,
+                'status' => 'error',
+                'error' => 'Something went wrong — try again in a moment (HTTP ' . $httpCode . ').',
+            ],
+        };
+    }
+
+    /**
      * Re-reads the credit balance using the already-stored widget key —
      * GET /v1/dev/balance accepts widget-scoped keys (unlike /v1/dev/me),
      * so this never requires the merchant to re-paste the full key, which

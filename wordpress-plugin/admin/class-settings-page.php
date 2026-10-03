@@ -15,17 +15,31 @@ class Aivastra_Settings_Page
 {
     // Production serves the API from the SAME host as the web app, reverse-
     // proxied at /v1/* (see infra/docker-compose.prod.yml) — there is no
-    // separate api.aivastra.com. For local development against
-    // `pnpm --filter @aivastra/api dev` (port 4000), override this to reach
-    // the host from inside the WordPress container (its own network
-    // namespace, not localhost). `host.docker.internal` only resolves if
-    // local-wp's compose file sets `extra_hosts: host.docker.internal:
-    // host-gateway` — it doesn't here (Docker Desktop adds it automatically;
-    // plain Docker Engine on Linux doesn't). Verified working alternative:
-    // the docker bridge gateway IP, e.g. 'http://172.19.0.1:4000' — get the
-    // actual value via `docker network inspect local-wp_default` (or `docker
-    // inspect local-wp-wordpress-1 --format '{{json .NetworkSettings.Networks}}'`),
-    // it can differ per machine/network recreation.
+    // separate api.aivastra.com. This is the value every *server-to-server*
+    // call in this plugin needs (every Aivastra_Connection_Service
+    // construction — login, refresh, checkout, connect, disconnect, buy,
+    // etc.) as well as the browser-driven Google-init redirect in
+    // handle_connect_start() below, since both reach the same host in
+    // production. For local development against `pnpm --filter
+    // @aivastra/api dev` (port 4000), override this to reach the host from
+    // inside the WordPress container (its own network namespace, not
+    // localhost). `host.docker.internal` only resolves if local-wp's compose
+    // file sets `extra_hosts: host.docker.internal: host-gateway` — it
+    // doesn't by default (Docker Desktop adds it automatically; plain Docker
+    // Engine on Linux doesn't). Verified working alternative: the docker
+    // bridge gateway IP, e.g. 'http://172.19.0.1:4000' — get the actual value
+    // via `docker network inspect local-wp_default` (or `docker inspect
+    // local-wp-wordpress-1 --format '{{json .NetworkSettings.Networks}}'`),
+    // it can differ per machine/network recreation. Local testing against
+    // Google sign-in specifically needs a browser-reachable host instead
+    // (the gateway IP won't work — Google itself rejects it as a
+    // redirect_uri, "device_id and device_name are required for private
+    // IP" — and GOOGLE_CALLBACK_URL is hardcoded in .env to
+    // http://localhost:4000/v1/auth/google/callback, so the Google-init
+    // redirect must share that same host or the API's google_state/
+    // google_next cookies never reach the callback request); point this
+    // constant at 'http://localhost:4000' for that case instead, accepting
+    // that server-to-server calls will then fail until switched back.
     // Public: Aivastra_Checkout_Ajax (includes/class-checkout-ajax.php) needs
     // the same base URL and has no other way to reach it.
     public const API_BASE = 'https://app.aivastra.com';
@@ -48,7 +62,9 @@ class Aivastra_Settings_Page
     // (categories/funnels — render_onboarding_categories()), so the bare page
     // URL stops showing that step and goes straight to the dashboard.
     // Deleted by uninstall.php alongside the rest of the plugin's options.
-    private const ONBOARDING_DONE_OPTION_KEY = 'aivastra_tryon_onboarding_done';
+    // Public: Aivastra_Category_Map_Ajax (includes/class-category-map-ajax.php)
+    // needs it too, same cross-class reason API_BASE is public.
+    public const ONBOARDING_DONE_OPTION_KEY = 'aivastra_tryon_onboarding_done';
 
     // Step labels for the onboarding wizard's progress row, in order — read
     // by render_progress_steps() so every step's number and the total stay
@@ -61,7 +77,7 @@ class Aivastra_Settings_Page
     // rejected (HTTP 401).") and is shown as-is.
     private const ERROR_MESSAGES = [
         'invalid_key_format' => 'Please paste both keys — check they match the sk_live_… format exactly.',
-        'not_connected' => 'Connect your account before setting up categories.',
+        'invalid_state' => 'That connection attempt expired or didn\'t match — please try "Continue with Google" again.',
     ];
 
     // Hardcoded, no user data ever passed through — safe to echo raw.
@@ -132,8 +148,14 @@ class Aivastra_Settings_Page
         add_action('admin_head', [self::class, 'print_menu_icon_style']);
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_assets']);
         add_action('admin_post_aivastra_tryon_connect', [self::class, 'handle_connect']);
+        add_action('admin_post_aivastra_tryon_connect_start', [self::class, 'handle_connect_start']);
+        // No nonce check on the callback action below — it's a cross-site
+        // redirect from app.aivastra.com, not a same-site form submit, so
+        // there's no WordPress session to carry a nonce through. CSRF
+        // protection is the `state` parameter matching the transient
+        // handle_connect_start() stored, checked inside the handler itself.
+        add_action('admin_post_aivastra_tryon_connect_callback', [self::class, 'handle_connect_callback']);
         add_action('admin_post_aivastra_tryon_disconnect', [self::class, 'handle_disconnect']);
-        add_action('admin_post_aivastra_tryon_save_category_map', [self::class, 'handle_save_category_map']);
         add_action('admin_post_aivastra_tryon_skip_onboarding', [self::class, 'handle_skip_onboarding']);
         add_action('admin_post_aivastra_tryon_buy', [self::class, 'handle_buy']);
         add_action('admin_post_aivastra_tryon_save_widget_customization', [self::class, 'handle_save_widget_customization']);
@@ -187,6 +209,30 @@ class Aivastra_Settings_Page
         // (render_connection_section()), not here — only the AJAX URL is the
         // same on every load.
         wp_localize_script('aivastra-tryon-refresh-balance', 'aivastraRefreshBalance', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+        ]);
+        wp_enqueue_script(
+            'aivastra-tryon-connect',
+            AIVASTRA_TRYON_URL . 'admin/assets/connect.js',
+            [],
+            AIVASTRA_TRYON_VERSION,
+            true
+        );
+        wp_localize_script('aivastra-tryon-connect', 'aivastraConnect', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce(Aivastra_Connect_Ajax::NONCE_ACTION),
+        ]);
+        wp_enqueue_script(
+            'aivastra-tryon-save-categories',
+            AIVASTRA_TRYON_URL . 'admin/assets/save-categories.js',
+            [],
+            AIVASTRA_TRYON_VERSION,
+            true
+        );
+        // No nonce here — the form's own wp_nonce_field() (render_category_mapping())
+        // already carries it as _wpnonce, read straight out via FormData the
+        // same way the rest of that form's fields are.
+        wp_localize_script('aivastra-tryon-save-categories', 'aivastraSaveCategories', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
         ]);
 
@@ -320,6 +366,106 @@ class Aivastra_Settings_Page
         exit;
     }
 
+    // 10 minutes — generous enough to survive the admin switching tabs to
+    // log in or register on app.aivastra.com, short enough that a stale
+    // transient from an abandoned attempt doesn't linger.
+    private const CONNECT_STATE_TRANSIENT = 'aivastra_tryon_connect_state';
+    private const CONNECT_STATE_TTL = 10 * MINUTE_IN_SECONDS;
+
+    /**
+     * "Continue with Google" sub-path (docs/wordpress-plugin-design.md §4.1)
+     * — generates a one-time state token, stashes it in a transient, and
+     * sends the browser to Google's own consent screen first rather than our
+     * branded /login form, landing back on the already-built
+     * /connect/wordpress consent page once Google hands control back.
+     * Google requires an exact-match registered redirect URI
+     * (GOOGLE_CALLBACK_URL, fixed to api.aivastra.com) — it can never
+     * redirect straight into a WordPress site's admin-post.php — so this
+     * still has to bounce through our own domain once; what changed from the
+     * previous version of this method is skipping our own login page on the
+     * way there, not the number of hops. `next` round-trips through
+     * /v1/auth/google/init as an opaque, re-encoded query value and lands
+     * the browser on exactly that path+query under the web app's own origin
+     * (apps/catalogues-web/src/app/api/auth/google/callback/route.ts treats
+     * it as a path relative to that origin, never a full URL — so it must be
+     * passed as one here too). wp_redirect() (not wp_safe_redirect()) is
+     * correct here — the target is built from the fixed, plugin-controlled
+     * API_BASE constant, not user input, so there is nothing for the
+     * allowed-hosts check to guard against.
+     */
+    public static function handle_connect_start(): void
+    {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html('You do not have permission to do this.'), 403);
+        }
+        check_admin_referer('aivastra_tryon_connect_start');
+
+        $state = wp_generate_password(32, false);
+        set_transient(self::CONNECT_STATE_TRANSIENT, $state, self::CONNECT_STATE_TTL);
+
+        $callbackUrl = admin_url('admin-post.php?action=aivastra_tryon_connect_callback');
+        $consentPath = add_query_arg([
+            'state' => $state,
+            'site_url' => home_url('/'),
+            'site_name' => get_bloginfo('name'),
+            'redirect_uri' => $callbackUrl,
+        ], '/connect/wordpress');
+
+        // add_query_arg() does NOT urlencode its array values — passing
+        // $consentPath (itself a URL with its own ?state=&site_url=&...) in
+        // raw would let its &/= characters leak out as top-level params of
+        // this outer URL instead of staying part of `next`'s value, silently
+        // truncating `next` at the first & and dropping site_url/site_name/
+        // redirect_uri entirely. rawurlencode() first keeps it one opaque value.
+        $googleInitUrl = add_query_arg([
+            'next' => rawurlencode($consentPath),
+            'src' => 'wordpress_plugin',
+        ], self::API_BASE . '/v1/auth/google/init');
+
+        wp_redirect($googleInitUrl);
+        exit;
+    }
+
+    /**
+     * Step 2: the browser lands back here from app.aivastra.com with either
+     * `code` (approved) or `error=access_denied` (the admin clicked Cancel
+     * on the consent screen). The transient is the only thing authenticating
+     * this request — there is no nonce, since app.aivastra.com's redirect is
+     * cross-site and carries no WordPress session.
+     */
+    public static function handle_connect_callback(): void
+    {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html('You do not have permission to do this.'), 403);
+        }
+
+        $expectedState = get_transient(self::CONNECT_STATE_TRANSIENT);
+        delete_transient(self::CONNECT_STATE_TRANSIENT); // one-time use regardless of outcome
+
+        $state = isset($_GET['state']) ? sanitize_text_field(wp_unslash($_GET['state'])) : '';
+        $redirectArgs = ['page' => 'aivastra-tryon'];
+
+        if ($expectedState === false || $state === '' || !hash_equals((string) $expectedState, $state)) {
+            $redirectArgs['aivastra_error'] = 'invalid_state';
+        } elseif (isset($_GET['error'])) {
+            // Admin clicked Cancel — not a failure, just an abandoned attempt.
+            $redirectArgs['aivastra_cancelled'] = '1';
+        } else {
+            $code = isset($_GET['code']) ? sanitize_text_field(wp_unslash($_GET['code'])) : '';
+            if ($code === '') {
+                $redirectArgs['aivastra_error'] = 'invalid_state';
+            } else {
+                $service = new Aivastra_Connection_Service(new Aivastra_Connection_Settings(), self::API_BASE);
+                $result = $service->exchange_connect_code($code);
+                $redirectArgs[$result['ok'] ? 'aivastra_connected' : 'aivastra_error'] =
+                    $result['ok'] ? '1' : ($result['error'] ?? 'unknown');
+            }
+        }
+
+        wp_safe_redirect(add_query_arg($redirectArgs, admin_url('admin.php')));
+        exit;
+    }
+
     // "Refresh balance" is now AJAX (Aivastra_Refresh_Ajax, admin/assets/refresh-balance.js)
     // — a full-page admin-post.php round trip landed the merchant back on the
     // page with a dismissible WP admin notice, which on the one-page
@@ -361,57 +507,18 @@ class Aivastra_Settings_Page
         exit;
     }
 
-    /**
-     * Saves the WooCommerce-category -> aivastra-category mapping (see
-     * Aivastra_Category_Mapping) that class-widget-loader.php reads to pick a
-     * per-product try-on workflow — an unmapped category gets no button at
-     * all (Aivastra_Category_Mapping::resolve()'s doc comment).
-     * Re-validates against both taxonomies server-side — a stale term ID (a
-     * deleted WooCommerce category) or an unknown/inactive aivastra slug must
-     * never be persisted, even if that's what the form posted.
-     */
-    public static function handle_save_category_map(): void
-    {
-        if (!current_user_can('manage_woocommerce')) {
-            wp_die(esc_html('You do not have permission to do this.'), 403);
-        }
-        check_admin_referer('aivastra_tryon_save_category_map');
-
-        $settings = new Aivastra_Connection_Settings();
-        $widgetKey = $settings->get_widget_key();
-        $redirectArgs = ['page' => 'aivastra-tryon', 'section' => 'categories'];
-
-        if ($widgetKey === null) {
-            $redirectArgs['aivastra_error'] = 'not_connected';
-            wp_safe_redirect(add_query_arg($redirectArgs, admin_url('admin.php')));
-            exit;
-        }
-
-        $service = new Aivastra_Connection_Service($settings, self::API_BASE);
-        $result = $service->list_categories($widgetKey);
-        $validSlugs = array_map(
-            static fn (array $c): string => (string) ($c['slug'] ?? ''),
-            $result['categories']
-        );
-
-        $terms = get_terms(['taxonomy' => 'product_cat', 'hide_empty' => false, 'fields' => 'ids']);
-        $validTermIds = is_wp_error($terms) ? [] : array_map('intval', $terms);
-
-        $rawMap = $_POST['aivastra_category_map'] ?? [];
-        $clean = Aivastra_Category_Mapping::sanitize(
-            is_array($rawMap) ? $rawMap : [],
-            $validTermIds,
-            $validSlugs
-        );
-        $settings->set_category_map($clean);
-        // Reachable from the regular dashboard's Categories tab too, long after
-        // onboarding — an extra write of an already-'1' option there is harmless.
-        update_option(self::ONBOARDING_DONE_OPTION_KEY, '1', false);
-
-        $redirectArgs['aivastra_category_map_saved'] = '1';
-        wp_safe_redirect(add_query_arg($redirectArgs, admin_url('admin.php')));
-        exit;
-    }
+    // "Save categories" is now AJAX (Aivastra_Category_Map_Ajax,
+    // admin/assets/save-categories.js) — same reasoning as "Refresh balance"
+    // above: a full-page admin-post.php round trip landed the merchant back
+    // on the page with a dismissible "Categories saved." WP admin notice,
+    // which core's own common.js relocates to right after the page's first
+    // <h1>/<h2>, popping up nowhere near the Save button that was actually
+    // clicked. AJAX saves the mapping in place and shows a small inline
+    // confirmation next to the button instead — except when this save is
+    // completing onboarding step 2, where the destination itself (the
+    // dashboard) is the confirmation, same as every other onboarding
+    // transition on this page; the AJAX handler tells the JS to navigate
+    // there instead of showing an inline message in that one case.
 
     /**
      * "Skip for now" on the onboarding wizard's Step 2 — a merchant who isn't
@@ -688,10 +795,33 @@ class Aivastra_Settings_Page
     {
         if (!$connected) {
             ?>
-            <div class="aivastra-card aivastra-connect-card">
-              <h2 class="aivastra-connect-heading"><?php echo self::heading_icon('link'); ?>Connect your Ai Vastra account</h2>
-              <p class="aivastra-connect-description">Paste two keys from your Ai Vastra dashboard to get started.</p>
-              <?php self::render_connect_form(); ?>
+            <?php // No boxed white card here any more — this flows straight on the
+            // page's own background, same as every other screen in the plugin
+            // (render_dashboard(), render_onboarding_categories()). Reuses
+            // .aivastra-onboarding-heading — the exact same centred, 30px page-
+            // title treatment render_onboarding_categories() gives step 2 — rather
+            // than the old small left-aligned icon+heading row, so both onboarding
+            // steps read as one consistent wizard. No description line under the
+            // heading any more (the merchant found it redundant with the form
+            // right below it) — just the bare page title. render_connect_form(false):
+            // "Advanced: connect with API keys instead" moved out of this form
+            // entirely, into the onboarding topbar instead (render_onboarding_topbar()'s
+            // $showAdvanced); same flag also drops the form's own intro line
+            // ("Log in or create your free Ai Vastra account…") for the same
+            // reason. The "Update connection keys" reveal in the connected
+            // dashboard is the only caller that still wants that line, so it
+            // stays the default there. ?>
+            <div class="aivastra-onboarding-heading">
+              <h2>Connect your Ai Vastra account</h2>
+            </div>
+            <?php // Narrower than the 760px heading above it and the wider
+            // .aivastra-onboarding-body it both sit inside — two short fields
+            // filling the full wizard width read as oversized, and this is also
+            // where the taller input/button sizing lives (.aivastra-connect-column
+            // in the CSS), scoped here rather than globally so every other form
+            // on the page keeps its normal size. ?>
+            <div class="aivastra-connect-column">
+              <?php self::render_connect_form(false); ?>
             </div>
             <?php
             return;
@@ -818,8 +948,8 @@ class Aivastra_Settings_Page
      * an empty category map is a legitimate permanent choice (the button
      * just doesn't show anywhere yet), not an unfinished step, so unlike the
      * welcome page this needs an explicit, persisted "done" flag — set by
-     * either saving a mapping (handle_save_category_map()) or skipping
-     * (handle_skip_onboarding()).
+     * either saving a mapping (Aivastra_Category_Map_Ajax::handle()) or
+     * skipping (handle_skip_onboarding()).
      */
     public static function should_show_categories_step(bool $connected): bool
     {
@@ -1117,8 +1247,15 @@ class Aivastra_Settings_Page
      *   revisit, but a merchant who connected the wrong account needs a way
      *   back to fix it, and the dashboard's own Connection card (render_dashboard())
      *   is where that happens now.
+     * @param bool $showAdvanced Step 1 only (render_onboarding_connect()) —
+     *   docks "Advanced: connect with API keys instead" here as a second
+     *   dropdown beside Support instead of inline at the bottom of the
+     *   connect form, now that the form flows on the bare page background
+     *   with nothing below it to visually separate it from. Step 2 has no
+     *   paste-key fallback (there's nothing left to connect by then), so it
+     *   never passes true.
      */
-    private static function render_onboarding_topbar(?string $backUrl = null): void
+    private static function render_onboarding_topbar(?string $backUrl = null, bool $showAdvanced = false): void
     {
         ?>
         <div class="aivastra-topbar">
@@ -1136,17 +1273,25 @@ class Aivastra_Settings_Page
             </div>
           </div>
 
-          <?php // A native <details> menu, same idiom as the "Update connection keys" accordion elsewhere on this page — support-chat.js adds the outside-click/Escape close a floating menu needs on top of it. ?>
-          <details class="aivastra-topbar-support">
-            <summary class="aivastra-topbar-support-trigger">
-              <?php echo self::icon('life-buoy'); ?>
-              Support
-            </summary>
-            <div class="aivastra-topbar-support-menu">
-              <a href="mailto:support@aivastra.com" class="aivastra-topbar-support-item">Email us</a>
-              <button type="button" class="aivastra-topbar-support-item aivastra-start-chat-trigger">Start a chat</button>
-            </div>
-          </details>
+          <div class="aivastra-topbar-right">
+            <?php // Both <details> menus below share the same floating-popover idiom
+            // (.aivastra-topbar-support / .aivastra-topbar-advanced in the CSS) —
+            // support-chat.js's outside-click/Escape handling covers both by
+            // selector, not just Support. ?>
+            <?php if ($showAdvanced): ?>
+              <?php self::render_advanced_connect_accordion('aivastra-topbar-advanced'); ?>
+            <?php endif; ?>
+            <details class="aivastra-topbar-support">
+              <summary class="aivastra-topbar-support-trigger">
+                <?php echo self::icon('life-buoy'); ?>
+                Support
+              </summary>
+              <div class="aivastra-topbar-support-menu">
+                <a href="mailto:support@aivastra.com" class="aivastra-topbar-support-item">Email us</a>
+                <button type="button" class="aivastra-topbar-support-item aivastra-start-chat-trigger">Start a chat</button>
+              </div>
+            </details>
+          </div>
         </div>
         <?php
     }
@@ -1190,7 +1335,7 @@ class Aivastra_Settings_Page
     {
         ?>
         <div class="wrap aivastra-settings-wrap aivastra-onboarding-wrap">
-          <?php self::render_onboarding_topbar(admin_url('admin.php?page=aivastra-tryon')); ?>
+          <?php self::render_onboarding_topbar(admin_url('admin.php?page=aivastra-tryon'), true); ?>
 
           <div class="aivastra-page-flat-body">
             <?php self::render_progress_steps(1); ?>
@@ -1242,12 +1387,15 @@ class Aivastra_Settings_Page
             <?php self::render_notices(false); ?>
 
             <div class="aivastra-onboarding-body">
-              <?php // false, false: no "Categories" card heading/description and no
-              // Linked/Unlinked split here — this step's own heading and subtext
-              // above already say what to do (see render_category_mapping()'s doc
-              // comment for $showGroups), so this shows one flat grid of every
-              // category instead. ?>
-              <?php self::render_category_mapping($settings, true, false, false); ?>
+              <?php // false, false, false: no boxed white card (flows on the page's
+              // own background, same as the connect step — no
+              // .aivastra-card wrapper here any more), no "Categories" card
+              // heading/description, and no Linked/Unlinked split — this
+              // step's own heading and subtext above already say what to do
+              // (see render_category_mapping()'s doc comment for
+              // $showGroups), so this shows one flat grid of every category
+              // instead. ?>
+              <?php self::render_category_mapping($settings, false, false, false); ?>
             </div>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-onboarding-skip">
@@ -1412,42 +1560,129 @@ class Aivastra_Settings_Page
 
     /**
      * Shared by the not-connected default view and the "Update connection keys"
-     * reveal. The banner above the form points a fresh marketplace install
-     * (no aivastra account yet) or an existing merchant who's forgotten where
-     * keys live at the web app — the plugin never mints an account or a key
-     * itself (docs/wordpress-plugin-design.md §4.1).
+     * reveal. Primary path is the embedded email/password form
+     * (admin/assets/connect.js → Aivastra_Connect_Ajax →
+     * POST /v1/merchant/wordpress-login) — everything happens server-to-
+     * server in one AJAX call, no redirect anywhere, and a free account is
+     * created automatically if the email doesn't match one yet (it only
+     * needs a verification-email click, same as any direct signup). The
+     * previous version of this form — a single "Log in with Ai Vastra"
+     * button that round-tripped to the app.aivastra.com consent screen — is
+     * now the "Continue with Google" link, since Google's own redirect-URI
+     * requirement is the one case that can't be made to skip our domain
+     * entirely (see handle_connect_start()). The original two-field paste
+     * form stays available behind "Advanced", collapsed — some hosting
+     * setups block the AJAX/redirect round trips, and it's a safety net for
+     * already-connected merchants used to it.
+     *
+     * $showAdvanced also gates this form's own intro line, not just the
+     * "Advanced" accordion — both exist for the same reason (give a merchant
+     * who's just landed on "Update connection keys", with no surrounding
+     * heading, enough context to know what the form in front of them is for)
+     * and both are redundant on render_onboarding_connect(), which already
+     * has its own centred page heading/description saying the same thing.
      */
-    private static function render_connect_form(): void
+    private static function render_connect_form(bool $showAdvanced = true): void
     {
         ?>
-        <div class="aivastra-onboarding-banner">
-          <p class="aivastra-onboarding-banner-text">You&rsquo;ll need two keys from your Ai Vastra account to connect your store:</p>
-          <div class="aivastra-onboarding-links">
-            <a href="<?php echo esc_url(self::API_BASE . '/register?src=wordpress_plugin'); ?>" target="_blank" rel="noopener noreferrer" class="aivastra-btn aivastra-btn-primary">Create a free account &rarr;</a>
-            <a href="<?php echo esc_url(self::API_BASE . '/developers'); ?>" target="_blank" rel="noopener noreferrer" class="aivastra-btn aivastra-btn-ghost">Already have an account? Get your API keys &rarr;</a>
+        <?php if ($showAdvanced): ?>
+          <p class="aivastra-step-hint">Log in or create your free Ai Vastra account to connect your store — no copy/paste.</p>
+        <?php endif; ?>
+        <form id="aivastra-connect-form" class="aivastra-form">
+          <div class="aivastra-step-body">
+            <label for="aivastra_connect_email">Email</label>
+            <input type="email" id="aivastra_connect_email" name="email" class="aivastra-input" autocomplete="email" required>
           </div>
-        </div>
-        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-form aivastra-connect-form">
-          <input type="hidden" name="action" value="aivastra_tryon_connect">
-          <?php wp_nonce_field('aivastra_tryon_connect'); ?>
-          <div class="aivastra-step">
-            <span class="aivastra-step-number">1</span>
-            <div class="aivastra-step-body">
-              <label for="aivastra_full_key">Full API key</label>
-              <p class="aivastra-step-hint">We check it against your account and store it securely (encrypted), so you won&rsquo;t need to re-enter it when buying credits.</p>
-              <input type="password" id="aivastra_full_key" name="aivastra_full_key" class="aivastra-input" autocomplete="off" placeholder="sk_live_&hellip;">
-            </div>
+          <div class="aivastra-step-body">
+            <label for="aivastra_connect_password">Password</label>
+            <input type="password" id="aivastra_connect_password" name="password" class="aivastra-input" autocomplete="current-password" required>
           </div>
-          <div class="aivastra-step">
-            <span class="aivastra-step-number">2</span>
-            <div class="aivastra-step-body">
-              <label for="aivastra_widget_key">Widget API key</label>
-              <p class="aivastra-step-hint">From "Create WordPress Widget Key" in the same screen. This is the key that powers the storefront button.</p>
-              <input type="password" id="aivastra_widget_key" name="aivastra_widget_key" class="aivastra-input" autocomplete="off" placeholder="sk_live_&hellip;">
-            </div>
+          <div class="aivastra-step-body" id="aivastra-connect-phone-row" hidden>
+            <label for="aivastra_connect_phone">Phone number</label>
+            <p class="aivastra-step-hint">Needed once, to finish setting up your Ai Vastra business account.</p>
+            <input type="tel" id="aivastra_connect_phone" name="phone" class="aivastra-input" autocomplete="tel">
           </div>
-          <button type="submit" class="aivastra-btn aivastra-btn-primary aivastra-btn-block">Test connection</button>
+          <div id="aivastra-connect-message" class="aivastra-connect-message" role="status" aria-live="polite"></div>
         </form>
+        <?php // A separate, fieldless form purely so "Continue with Google" can submit
+        // it via the button's form="" attribute below — same admin-post.php
+        // round trip as before, just no longer nested inside the email/password
+        // form, so it can sit as its own row in .aivastra-connect-actions-row
+        // instead of stacked under an "or" divider. ?>
+        <form id="aivastra-google-connect-form" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+          <input type="hidden" name="action" value="aivastra_tryon_connect_start">
+          <?php wp_nonce_field('aivastra_tryon_connect_start'); ?>
+        </form>
+        <div class="aivastra-connect-actions-row">
+          <?php // "Log in" covers both — Aivastra_Connect_Ajax / POST
+          // /v1/merchant/wordpress-login creates a free account automatically
+          // when the email doesn't match one yet, same as this button used to
+          // say explicitly ("Log in / Sign up") before the merchant asked for
+          // the shorter label. ?>
+          <button type="submit" form="aivastra-connect-form" id="aivastra-connect-submit" class="aivastra-btn aivastra-btn-primary">
+            <?php echo self::icon('link'); ?>
+            Log in
+          </button>
+          <button type="submit" form="aivastra-google-connect-form" class="aivastra-btn aivastra-btn-primary">Continue with Google</button>
+        </div>
+        <?php // false for render_onboarding_connect() (step 1) — it docks this in the
+        // topbar instead (render_onboarding_topbar()'s $showAdvanced). Every other
+        // caller (the "Update connection keys" reveal in the connected dashboard)
+        // keeps it right here, inline. ?>
+        <?php if ($showAdvanced): ?>
+          <?php self::render_advanced_connect_accordion(); ?>
+        <?php endif; ?>
+        <?php
+    }
+
+    /**
+     * "Advanced: connect with API keys instead" — the original two-field
+     * paste form, kept as a fallback for hosting setups that block the
+     * AJAX/redirect round trips above and for already-connected merchants
+     * used to it. Extracted out of render_connect_form() so the exact same
+     * markup (same nonce action, same POST handler) can render in either of
+     * two very different spots: inline at the bottom of that form (the
+     * default, still how the connected dashboard's "Update connection keys"
+     * reveal shows it) or, via $extraClass, as a floating topbar dropdown for
+     * step 1 of the onboarding wizard only (render_onboarding_topbar()).
+     */
+    private static function render_advanced_connect_accordion(string $extraClass = ''): void
+    {
+        ?>
+        <details class="aivastra-accordion aivastra-connect-advanced<?php echo $extraClass !== '' ? ' ' . esc_attr($extraClass) : ''; ?>">
+          <summary>
+            Advanced: connect with API keys instead
+            <?php echo self::icon('chevron'); ?>
+          </summary>
+          <div class="aivastra-accordion-body">
+            <p class="aivastra-step-hint">If the login button above doesn&rsquo;t work for your hosting setup, paste two keys from your Ai Vastra account instead:</p>
+            <div class="aivastra-onboarding-links">
+              <a href="<?php echo esc_url(self::API_BASE . '/register?src=wordpress_plugin'); ?>" target="_blank" rel="noopener noreferrer" class="aivastra-btn aivastra-btn-ghost">Create a free account &rarr;</a>
+              <a href="<?php echo esc_url(self::API_BASE . '/developers'); ?>" target="_blank" rel="noopener noreferrer" class="aivastra-btn aivastra-btn-ghost">Already have an account? Get your API keys &rarr;</a>
+            </div>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-form aivastra-connect-form">
+              <input type="hidden" name="action" value="aivastra_tryon_connect">
+              <?php wp_nonce_field('aivastra_tryon_connect'); ?>
+              <div class="aivastra-step">
+                <span class="aivastra-step-number">1</span>
+                <div class="aivastra-step-body">
+                  <label for="aivastra_full_key">Full API key</label>
+                  <p class="aivastra-step-hint">We check it against your account and store it securely (encrypted), so you won&rsquo;t need to re-enter it when buying credits.</p>
+                  <input type="password" id="aivastra_full_key" name="aivastra_full_key" class="aivastra-input" autocomplete="off" placeholder="sk_live_&hellip;">
+                </div>
+              </div>
+              <div class="aivastra-step">
+                <span class="aivastra-step-number">2</span>
+                <div class="aivastra-step-body">
+                  <label for="aivastra_widget_key">Widget API key</label>
+                  <p class="aivastra-step-hint">From "Create WordPress Widget Key" in the same screen. This is the key that powers the storefront button.</p>
+                  <input type="password" id="aivastra_widget_key" name="aivastra_widget_key" class="aivastra-input" autocomplete="off" placeholder="sk_live_&hellip;">
+                </div>
+              </div>
+              <button type="submit" class="aivastra-btn aivastra-btn-primary aivastra-btn-block">Test connection</button>
+            </form>
+          </div>
+        </details>
         <?php
     }
 
@@ -1467,8 +1702,8 @@ class Aivastra_Settings_Page
         if (isset($_GET['aivastra_disconnected'])) {
             self::render_notice('success', 'Disconnected. All stored settings, including your saved categories, have been cleared.');
         }
-        if (isset($_GET['aivastra_category_map_saved'])) {
-            self::render_notice('success', 'Categories saved.');
+        if (isset($_GET['aivastra_cancelled'])) {
+            self::render_notice('info', 'Connection cancelled — nothing was changed.');
         }
         if (isset($_GET['aivastra_widget_saved'])) {
             self::render_notice('success', 'Try-on button settings saved.');
@@ -1942,7 +2177,13 @@ class Aivastra_Settings_Page
             <?php if ($showHeading): ?>
               <p class="aivastra-card-description">Choose which try-on style each of your product categories should use. A category with no option selected won't show the Try-On button at all.</p>
             <?php endif; ?>
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-form">
+            <?php // No method/action — admin/assets/save-categories.js always
+            // intercepts the submit and posts to admin-ajax.php instead, same
+            // JS-only pattern as the embedded connect form above. The hidden
+            // action field still carries the wp_ajax_* action name the JS
+            // reads out, and wp_nonce_field()'s own _wpnonce input is what
+            // check_ajax_referer() on the other end verifies. ?>
+            <form id="aivastra-category-map-form" class="aivastra-form">
               <input type="hidden" name="action" value="aivastra_tryon_save_category_map">
               <?php wp_nonce_field('aivastra_tryon_save_category_map'); ?>
 
@@ -1986,7 +2227,10 @@ class Aivastra_Settings_Page
                 </div>
               <?php endif; ?>
 
-              <button type="submit" class="aivastra-btn aivastra-btn-primary">Save categories</button>
+              <div class="aivastra-save-row">
+                <button type="submit" id="aivastra-category-map-submit" class="aivastra-btn aivastra-btn-primary">Save categories</button>
+                <span class="aivastra-refresh-confirm" id="aivastra-category-map-confirm" aria-live="polite"></span>
+              </div>
             </form>
           <?php endif; ?>
         <?php if ($wrapInCard): ?></div><?php endif; ?>

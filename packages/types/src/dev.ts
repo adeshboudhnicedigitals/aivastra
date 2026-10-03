@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { AssetContentType } from './admin.js';
+import { LoginBody, RegisterBody } from './auth.js';
+import { MerchantOnboardingBody } from './widget.js';
 
 export const DevJobStatus = z.enum(['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED']);
 
@@ -329,6 +331,84 @@ export const ApiKeyCreateBody = z
     }
   });
 export type ApiKeyCreateBody = z.infer<typeof ApiKeyCreateBody>;
+
+// "Connect with Ai Vastra" account-link flow (docs/wordpress-plugin-design.md
+// §4.1) — the WordPress plugin's in-browser consent step, which mints both an
+// `ApiKeyCreateBody` full key and a `wordpress_widget` key in one call and
+// hands them back via a short-lived one-time code instead of rendering them
+// into the page (see wordpress-connect.routes.ts for the exchange step).
+export const WordpressConnectBody = z.object({
+  siteUrl: z.string().url(),
+  siteName: z.string().min(1).max(200).optional(),
+});
+export type WordpressConnectBody = z.infer<typeof WordpressConnectBody>;
+
+export const WordpressConnectResponse = z.object({
+  code: z.string().uuid(),
+});
+export type WordpressConnectResponse = z.infer<typeof WordpressConnectResponse>;
+
+export const WordpressConnectExchangeBody = z.object({
+  code: z.string().uuid(),
+});
+export type WordpressConnectExchangeBody = z.infer<typeof WordpressConnectExchangeBody>;
+
+export const WordpressConnectExchangeResponse = z.object({
+  fullKey: z.string(),
+  widgetKey: z.string(),
+  companyName: z.string(),
+  credits: z.number().int(),
+});
+export type WordpressConnectExchangeResponse = z.infer<typeof WordpressConnectExchangeResponse>;
+
+// Lets a brand-new Google signup landing on /connect/wordpress with no
+// merchant row yet finish setup inline instead of dead-ending on "contact
+// support". phone is optional — ensureMerchantForUser (wordpress-shared.ts)
+// falls back to a placeholder when it's left blank, so a merchant can connect
+// without ever being forced to supply one.
+export const WordpressConnectBodyWithPhone = WordpressConnectBody.extend({
+  phone: MerchantOnboardingBody.shape.phone.optional(),
+});
+export type WordpressConnectBodyWithPhone = z.infer<typeof WordpressConnectBodyWithPhone>;
+
+// POST /v1/merchant/wordpress-login — the embedded, no-redirect connect path
+// (docs/wordpress-plugin-design.md §4.1): the WordPress plugin posts this
+// server-to-server (PHP wp_remote_post, never a browser) after collecting
+// email+password directly in wp-admin. siteName/displayName are supplied by
+// the plugin from WordPress's own context (get_bloginfo('name'),
+// wp_get_current_user()->display_name) so the admin never has to type them;
+// phone is optional, even when this call ends up creating a brand-new
+// merchant row — merchants.phone is NOT NULL (packages/db/src/schema/
+// merchant.ts), but ensureMerchantForUser falls back to a placeholder rather
+// than ever forcing the admin to type one.
+//
+// `password` deliberately reuses LoginBody's loose shape (any non-empty
+// string up to 128 chars), not RegisterBody's letter+number complexity
+// regex — this field also carries a *login* attempt against an existing
+// account, whose password may predate that complexity rule. The route
+// applies RegisterBody.shape.password's stricter check itself, only on the
+// branch that's actually creating a new account.
+export const WordpressLoginBody = z.object({
+  email: RegisterBody.shape.email,
+  password: LoginBody.shape.password,
+  siteUrl: z.string().url(),
+  siteName: z.string().max(200).optional(),
+  displayName: z.string().max(80).optional(),
+  phone: MerchantOnboardingBody.shape.phone.optional(),
+});
+export type WordpressLoginBody = z.infer<typeof WordpressLoginBody>;
+
+export const WordpressLoginResponse = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('connected'),
+    fullKey: z.string(),
+    widgetKey: z.string(),
+    companyName: z.string(),
+    credits: z.number().int(),
+  }),
+  z.object({ status: z.literal('verification_required') }),
+]);
+export type WordpressLoginResponse = z.infer<typeof WordpressLoginResponse>;
 
 // `key` is present ONLY here — the one and only time the plaintext is returned.
 export const ApiKeyCreateResponse = z.object({

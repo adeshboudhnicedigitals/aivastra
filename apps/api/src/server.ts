@@ -81,6 +81,8 @@ import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
 import { merchantTryonRoutes } from './modules/merchant/tryon.routes.js';
 import { merchantTryonResultsRoutes } from './modules/merchant/tryon-results.routes.js';
 import { merchantUploadSessionRoutes } from './modules/merchant/upload-sessions.routes.js';
+import { wordpressConnectRoutes } from './modules/merchant/wordpress-connect.routes.js';
+import { wordpressLoginRoutes } from './modules/merchant/wordpress-login.routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
 import { paymentsRoutes } from './modules/payments/routes.js';
 import { posePresetsRoutes } from './modules/pose-presets/routes.js';
@@ -415,6 +417,8 @@ export async function buildServer(env: Env) {
   await app.register(kioskDownloadRoutes);
   await app.register(merchantPaymentsRoutes);
   await app.register(merchantApiKeysRoutes);
+  await app.register(wordpressConnectRoutes);
+  await app.register(wordpressLoginRoutes);
   await app.register(devRoutes);
   await app.register(devCatalogRoutes);
   await app.register(devBackgroundsRoutes);
