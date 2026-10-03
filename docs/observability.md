@@ -117,12 +117,22 @@ gets. Add a box once its exporter is up and its firewall allows the VPS egress I
 box side lives in the aivastra-gpu ops repo, then recreate Alloy (`docker compose up -d alloy`).
 Check with `up{job="gpu"}`.
 
+**The dashboard JSON is not read from the repo.** Grafana keeps its own copy, so after editing
+`aivastra-gpus.json` it must be re-imported (**Dashboards → New → Import**, same uid) for the change
+to show.
+
 **Host metrics (CPU, RAM, disk, network).** The dashboard also has a Host section. GPU boxes run
 `node_exporter` (Ubuntu package `prometheus-node-exporter`, port 9100), scraped as `job="node"`
 from `ALLOY_NODE_TARGETS` (same JSON format as above, port 9100). The backend VPS reports itself
 through the built-in `prometheus.exporter.unix`; the prod Alloy mounts `/proc`, `/sys` and `/`
 read-only for that and labels it `box="backend"`. Staging leaves `ALLOY_HOST_BOX` unset, so it
 pushes nothing. Check with `up{job="node"}`. Series use `instance=<box>`, never the address.
+
+**Series budget.** Grafana Cloud free tier allows 15,000 active series and each `node_exporter` exposes
+~2,300, so all node series go through a keep-list (`prometheus.relabel "node_keep"` in `alloy.alloy`)
+that holds only the metrics the dashboard and alerts use. Before adding a panel or alert on another
+`node_*` metric, add its name to that list or it never reaches Grafana. Check usage in Grafana Cloud
+under **Administration → Usage** or with `count({__name__=~".+"})`.
 
 ## Alerts
 
@@ -196,3 +206,33 @@ location = /v1/metrics {
 ```
 
 The dispatcher publishes no host port, so its `/metrics` is already private.
+
+## Performance routing (Stage 2)
+
+`config:perf-routing` is absent/OFF by default. OBSERVE retains the exact round-robin
+claim, logs preferred versus actual scores, and never writes or applies probe backoff.
+ACTIVE ranking remains blocked while executable-node counting is unverified. Worker
+eligibility, ownership, health and live queue probes retain their existing rules.
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `dispatcher_perf_samples_total` | `outcome`, `reason` | Accepted/skipped sample counts, including missing timing, invalid timing and cache-policy skips |
+| `dispatcher_perf_cached_skips_total` | none | Cache-policy exclusions |
+| `dispatcher_perf_probe_backoff_total` | `pool` | ACTIVE-only backoff writes after a failed live probe |
+| `dispatcher_perf_selections_total` | `mode`, `pool` | Atomic claims by effective routing mode |
+
+Performance keys are logged rather than used as Prometheus labels. The completion log
+contains worker-clock duration, cache/node counts and best-effort shared-GPU measurements.
+A registry `gpuGroup` identifies siblings; it never constrains capacity. Missing measurement
+metadata is unknown, rather than a claim that no overlap occurred.
+
+After freezing the cache policy, switch any ACTIVE pools to OBSERVE and run the dispatcher
+ops script `apps/dispatcher/scripts/reseed-performance-routing.mts` with an explicitly supplied
+`REDIS_URL`. It previews by default; `--apply` unlinks only `worker:perfstats:*` and
+`perf:score:*` and `perf:cachedist:*`. It refuses an ACTIVE configuration. Fresh aggregates are required for
+certification; changing the config does not certify an existing provisional EWMA.
+
+OBSERVE admits usable timing under a provisional policy even when candidate-node counts are
+unreliable. `perf:cachedist:{performanceKey}` records available cached counts for accepted and
+skipped successful samples (at most 256 distinct counts; 14-day TTL). Provisional aggregates
+cannot certify ACTIVE. No outlier threshold has been chosen.

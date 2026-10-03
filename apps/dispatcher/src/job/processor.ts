@@ -19,7 +19,6 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
-
 import {
   downloadOutputImage,
   fetchHistory,
@@ -30,6 +29,12 @@ import { handleCompletionResult } from '../comfyui/completion-result.js';
 import { JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
 import { getImageCompressionConfig } from '../config/image-compression.js';
 import { loadEnv } from '../env.js';
+import {
+  logSelection,
+  observeCompletion,
+  settlePerformanceSample,
+} from '../perf/observe-completion.js';
+import { performanceKey as getPerformanceKey } from '../perf/performance-key.js';
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 import { releaseWorker } from '../worker/registry.js';
@@ -638,7 +643,8 @@ export async function processJob(
 
   // 3. Claim a worker
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-  const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE);
+  const performanceKey = tmplRoles ? getPerformanceKey(tmplRoles) : undefined;
+  const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey);
   if (!worker) {
     // Released held jobs (queuedAt set) can legitimately wait far longer than
     // MAX_QUEUE_WAIT_MS measured from createdAt would allow — createdAt is
@@ -818,6 +824,7 @@ export async function processJob(
       db,
       jobLog,
       snapshotVersion,
+      tmplRoles,
     );
 
     // 6. Submit to ComfyUI
@@ -872,21 +879,32 @@ export async function processJob(
     // Checked each 3s poll tick — see JOB_CANCEL_KEY_PREFIX comment on the
     // /v1/jobs/:id/cancel route (apps/api) for why only 'tryon'-source jobs
     // can set this flag.
-    const completion = await waitForCompletion(
-      w.url,
-      w.apiKey,
-      clientUuid,
-      promptId,
-      300_000,
-      (update) => jobLog.debug(update, 'comfyui progress'),
-      {
-        info: jobLog.info.bind(jobLog),
-        debug: jobLog.debug.bind(jobLog),
-        error: jobLog.error.bind(jobLog),
-        warn: jobLog.warn.bind(jobLog),
-      },
-      async () => (await cfg.comfyRedis.exists(`job:cancel:${jobId}`)) === 1,
-      { comfyRedis: cfg.comfyRedis, workerId: w.id },
+    logSelection(cfg.comfyRedis, w, WORKER_POOL.CATALOGUE, performanceKey ?? '', jobLog);
+    const completion = await observeCompletion(
+      cfg.comfyRedis,
+      w,
+      WORKER_POOL.CATALOGUE,
+      performanceKey ?? '',
+      prompt,
+      jobLog,
+      (totalNodeCount) =>
+        waitForCompletion(
+          w.url,
+          w.apiKey,
+          clientUuid,
+          promptId,
+          300_000,
+          (update) => jobLog.debug(update, 'comfyui progress'),
+          {
+            info: jobLog.info.bind(jobLog),
+            debug: jobLog.debug.bind(jobLog),
+            error: jobLog.error.bind(jobLog),
+            warn: jobLog.warn.bind(jobLog),
+          },
+          async () => (await cfg.comfyRedis.exists(`job:cancel:${jobId}`)) === 1,
+          { comfyRedis: cfg.comfyRedis, workerId: w.id },
+          totalNodeCount,
+        ),
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -941,13 +959,16 @@ export async function processJob(
       jobLog,
     });
     if (!completed) {
+      settlePerformanceSample(w, 'cancelled');
       await redis.xack(stream, 'dispatcher-cg', messageId);
       return;
     }
+    settlePerformanceSample(w, 'success');
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('job completed successfully');
   } catch (err) {
+    settlePerformanceSample(w, err instanceof JobCancelledError ? 'cancelled' : 'workflow_failure');
     if (err instanceof JobCancelledError) {
       jobLog.info({ err: err.message }, 'job cancelled by user during generation');
       await redis.del(`job:cancel:${jobId}`);
@@ -1183,7 +1204,8 @@ async function processTryonDirectJob(
     return;
   }
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-  const worker = await selectWorker(redis, WORKER_POOL.TRYON);
+  const performanceKey = template ? getPerformanceKey(template) : undefined;
+  const worker = await selectWorker(redis, WORKER_POOL.TRYON, performanceKey);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle tryon worker — job exceeded max queue wait, terminating with refund');
@@ -1274,21 +1296,32 @@ async function processTryonDirectJob(
       },
     });
 
-    const completion = await waitForCompletion(
-      w.url,
-      w.apiKey,
-      clientUuid,
-      promptId,
-      300_000,
-      (update) => jobLog.debug(update, 'comfyui progress'),
-      {
-        info: jobLog.info.bind(jobLog),
-        debug: jobLog.debug.bind(jobLog),
-        error: jobLog.error.bind(jobLog),
-        warn: jobLog.warn.bind(jobLog),
-      },
-      undefined,
-      { comfyRedis: cfg.comfyRedis, workerId: w.id },
+    logSelection(cfg.comfyRedis, w, WORKER_POOL.TRYON, performanceKey ?? '', jobLog);
+    const completion = await observeCompletion(
+      cfg.comfyRedis,
+      w,
+      WORKER_POOL.TRYON,
+      performanceKey ?? '',
+      workflow,
+      jobLog,
+      (totalNodeCount) =>
+        waitForCompletion(
+          w.url,
+          w.apiKey,
+          clientUuid,
+          promptId,
+          300_000,
+          (update) => jobLog.debug(update, 'comfyui progress'),
+          {
+            info: jobLog.info.bind(jobLog),
+            debug: jobLog.debug.bind(jobLog),
+            error: jobLog.error.bind(jobLog),
+            warn: jobLog.warn.bind(jobLog),
+          },
+          undefined,
+          { comfyRedis: cfg.comfyRedis, workerId: w.id },
+          totalNodeCount,
+        ),
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -1338,13 +1371,16 @@ async function processTryonDirectJob(
       jobLog,
     });
     if (!completed) {
+      settlePerformanceSample(w, 'cancelled');
       await redis.xack(stream, 'dispatcher-cg', messageId);
       return;
     }
+    settlePerformanceSample(w, 'success');
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('tryon direct job completed');
   } catch (err) {
+    settlePerformanceSample(w, err instanceof JobCancelledError ? 'cancelled' : 'workflow_failure');
     jobLog.error({ err }, 'tryon direct job processing error');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
@@ -1440,7 +1476,8 @@ async function processRegenerateJob(
   }
 
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-  const worker = await selectWorker(redis, WORKER_POOL.TRYON);
+  const performanceKey = template ? getPerformanceKey(template) : undefined;
+  const worker = await selectWorker(redis, WORKER_POOL.TRYON, performanceKey);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
@@ -1539,21 +1576,32 @@ async function processRegenerateJob(
       },
     });
 
-    const completion = await waitForCompletion(
-      w.url,
-      w.apiKey,
-      clientUuid,
-      promptId,
-      300_000,
-      (update) => jobLog.debug(update, 'comfyui progress'),
-      {
-        info: jobLog.info.bind(jobLog),
-        debug: jobLog.debug.bind(jobLog),
-        error: jobLog.error.bind(jobLog),
-        warn: jobLog.warn.bind(jobLog),
-      },
-      undefined,
-      { comfyRedis: cfg.comfyRedis, workerId: w.id },
+    logSelection(cfg.comfyRedis, w, WORKER_POOL.TRYON, performanceKey ?? '', jobLog);
+    const completion = await observeCompletion(
+      cfg.comfyRedis,
+      w,
+      WORKER_POOL.TRYON,
+      performanceKey ?? '',
+      workflow,
+      jobLog,
+      (totalNodeCount) =>
+        waitForCompletion(
+          w.url,
+          w.apiKey,
+          clientUuid,
+          promptId,
+          300_000,
+          (update) => jobLog.debug(update, 'comfyui progress'),
+          {
+            info: jobLog.info.bind(jobLog),
+            debug: jobLog.debug.bind(jobLog),
+            error: jobLog.error.bind(jobLog),
+            warn: jobLog.warn.bind(jobLog),
+          },
+          undefined,
+          { comfyRedis: cfg.comfyRedis, workerId: w.id },
+          totalNodeCount,
+        ),
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -1600,13 +1648,16 @@ async function processRegenerateJob(
       jobLog,
     });
     if (!completed) {
+      settlePerformanceSample(w, 'cancelled');
       await redis.xack(stream, 'dispatcher-cg', messageId);
       return;
     }
+    settlePerformanceSample(w, 'success');
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('regenerate job completed');
   } catch (err) {
+    settlePerformanceSample(w, err instanceof JobCancelledError ? 'cancelled' : 'workflow_failure');
     jobLog.error({ err }, 'regenerate job processing error');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
@@ -1814,7 +1865,8 @@ async function processSareeMannequinJob(
 
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
 
-  const worker = await selectWorker(redis, WORKER_POOL.SAREE);
+  const performanceKey = template ? getPerformanceKey(template) : undefined;
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — mannequin job exceeded max queue wait, terminating');
@@ -1918,21 +1970,32 @@ async function processSareeMannequinJob(
       },
     });
 
-    const completion = await waitForCompletion(
-      w.url,
-      w.apiKey,
-      clientUuid,
-      promptId,
-      300_000,
-      (update) => jobLog.debug(update, 'comfyui progress'),
-      {
-        info: jobLog.info.bind(jobLog),
-        debug: jobLog.debug.bind(jobLog),
-        error: jobLog.error.bind(jobLog),
-        warn: jobLog.warn.bind(jobLog),
-      },
-      undefined,
-      { comfyRedis: cfg.comfyRedis, workerId: w.id },
+    logSelection(cfg.comfyRedis, w, WORKER_POOL.SAREE, performanceKey ?? '', jobLog);
+    const completion = await observeCompletion(
+      cfg.comfyRedis,
+      w,
+      WORKER_POOL.SAREE,
+      performanceKey ?? '',
+      workflow,
+      jobLog,
+      (totalNodeCount) =>
+        waitForCompletion(
+          w.url,
+          w.apiKey,
+          clientUuid,
+          promptId,
+          300_000,
+          (update) => jobLog.debug(update, 'comfyui progress'),
+          {
+            info: jobLog.info.bind(jobLog),
+            debug: jobLog.debug.bind(jobLog),
+            error: jobLog.error.bind(jobLog),
+            warn: jobLog.warn.bind(jobLog),
+          },
+          undefined,
+          { comfyRedis: cfg.comfyRedis, workerId: w.id },
+          totalNodeCount,
+        ),
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -1980,13 +2043,16 @@ async function processSareeMannequinJob(
       jobLog,
     });
     if (!completed) {
+      settlePerformanceSample(w, 'cancelled');
       await redis.xack(stream, 'dispatcher-cg', messageId);
       return;
     }
+    settlePerformanceSample(w, 'success');
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('mannequin job completed successfully');
   } catch (err) {
+    settlePerformanceSample(w, err instanceof JobCancelledError ? 'cancelled' : 'workflow_failure');
     jobLog.error({ err }, 'mannequin job processing error');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
@@ -2082,7 +2148,8 @@ async function processSareeJob(
 
   // Saree jobs route to workers with 'saree' in their allowedJobTypes. Workers
   // self-declare this in the workers table (admin can edit from the Workers page).
-  const worker = await selectWorker(redis, WORKER_POOL.SAREE);
+  const performanceKey = template ? getPerformanceKey(template) : undefined;
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — job exceeded max queue wait, terminating with refund');
@@ -2173,21 +2240,32 @@ async function processSareeJob(
       },
     });
 
-    const completion = await waitForCompletion(
-      w.url,
-      w.apiKey,
-      clientUuid,
-      promptId,
-      300_000,
-      (update) => jobLog.debug(update, 'comfyui progress'),
-      {
-        info: jobLog.info.bind(jobLog),
-        debug: jobLog.debug.bind(jobLog),
-        error: jobLog.error.bind(jobLog),
-        warn: jobLog.warn.bind(jobLog),
-      },
-      undefined,
-      { comfyRedis: cfg.comfyRedis, workerId: w.id },
+    logSelection(cfg.comfyRedis, w, WORKER_POOL.SAREE, performanceKey ?? '', jobLog);
+    const completion = await observeCompletion(
+      cfg.comfyRedis,
+      w,
+      WORKER_POOL.SAREE,
+      performanceKey ?? '',
+      workflow,
+      jobLog,
+      (totalNodeCount) =>
+        waitForCompletion(
+          w.url,
+          w.apiKey,
+          clientUuid,
+          promptId,
+          300_000,
+          (update) => jobLog.debug(update, 'comfyui progress'),
+          {
+            info: jobLog.info.bind(jobLog),
+            debug: jobLog.debug.bind(jobLog),
+            error: jobLog.error.bind(jobLog),
+            warn: jobLog.warn.bind(jobLog),
+          },
+          undefined,
+          { comfyRedis: cfg.comfyRedis, workerId: w.id },
+          totalNodeCount,
+        ),
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -2235,13 +2313,16 @@ async function processSareeJob(
       jobLog,
     });
     if (!completed) {
+      settlePerformanceSample(w, 'cancelled');
       await redis.xack(stream, 'dispatcher-cg', messageId);
       return;
     }
+    settlePerformanceSample(w, 'success');
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info('saree job completed successfully');
   } catch (err) {
+    settlePerformanceSample(w, err instanceof JobCancelledError ? 'cancelled' : 'workflow_failure');
     jobLog.error({ err }, 'saree job processing error');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
@@ -2462,7 +2543,8 @@ async function processWidgetJob(
   // (or an empty allowedJobTypes, i.e. "accepts any") — the same admin-managed pool the
   // main studio flow and Shopify jobs use, via selectWorker. See processShopifyJob for
   // the precedent this mirrors.
-  const worker = await selectWorker(redis, WORKER_POOL.MERCHANT);
+  const performanceKey = templateRow ? getPerformanceKey(templateRow) : undefined;
+  const worker = await selectWorker(redis, WORKER_POOL.MERCHANT, performanceKey);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
@@ -2569,21 +2651,32 @@ async function processWidgetJob(
       },
     });
 
-    const completion = await waitForCompletion(
-      w.url,
-      w.apiKey,
-      clientUuid,
-      promptId,
-      300_000,
-      (update) => jobLog.debug(update, 'comfyui progress'),
-      {
-        info: jobLog.info.bind(jobLog),
-        debug: jobLog.debug.bind(jobLog),
-        error: jobLog.error.bind(jobLog),
-        warn: jobLog.warn.bind(jobLog),
-      },
-      undefined,
-      { comfyRedis: cfg.comfyRedis, workerId: w.id },
+    logSelection(cfg.comfyRedis, w, WORKER_POOL.MERCHANT, performanceKey ?? '', jobLog);
+    const completion = await observeCompletion(
+      cfg.comfyRedis,
+      w,
+      WORKER_POOL.MERCHANT,
+      performanceKey ?? '',
+      workflow,
+      jobLog,
+      (totalNodeCount) =>
+        waitForCompletion(
+          w.url,
+          w.apiKey,
+          clientUuid,
+          promptId,
+          300_000,
+          (update) => jobLog.debug(update, 'comfyui progress'),
+          {
+            info: jobLog.info.bind(jobLog),
+            debug: jobLog.debug.bind(jobLog),
+            error: jobLog.error.bind(jobLog),
+            warn: jobLog.warn.bind(jobLog),
+          },
+          undefined,
+          { comfyRedis: cfg.comfyRedis, workerId: w.id },
+          totalNodeCount,
+        ),
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -2637,9 +2730,11 @@ async function processWidgetJob(
 
     // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
     if (!(await transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog))) {
+      settlePerformanceSample(w, 'cancelled');
       await redis.xack(stream, 'dispatcher-cg', messageId);
       return;
     }
+    settlePerformanceSample(w, 'success');
     await pub.publish(
       `sse:events:widget:${merchantId}`,
       JSON.stringify({ jobId, type: 'STATUS', status: 'COMPLETED', resultKey }),
@@ -2663,6 +2758,7 @@ async function processWidgetJob(
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info({ resultKey }, 'widget job completed successfully');
   } catch (err) {
+    settlePerformanceSample(w, err instanceof JobCancelledError ? 'cancelled' : 'workflow_failure');
     const errMsg = err instanceof Error ? err.message : String(err);
     jobLog.error({ err }, 'widget job processing error');
     await markWidgetFailed(
@@ -2787,7 +2883,8 @@ async function processShopifyJob(
   // Shopify jobs route to workers with 'shopify' in their allowedJobTypes. An admin
   // must configure at least one such worker (or one with an empty allowedJobTypes,
   // i.e. "accepts any") for these jobs to ever be picked up — see selectWorker.
-  const worker = await selectWorker(redis, WORKER_POOL.SHOPIFY);
+  const performanceKey = template ? getPerformanceKey(template) : undefined;
+  const worker = await selectWorker(redis, WORKER_POOL.SHOPIFY, performanceKey);
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
@@ -2889,21 +2986,32 @@ async function processShopifyJob(
       },
     });
 
-    const completion = await waitForCompletion(
-      w.url,
-      w.apiKey,
-      clientUuid,
-      promptId,
-      300_000,
-      (update) => jobLog.debug(update, 'comfyui progress'),
-      {
-        info: jobLog.info.bind(jobLog),
-        debug: jobLog.debug.bind(jobLog),
-        error: jobLog.error.bind(jobLog),
-        warn: jobLog.warn.bind(jobLog),
-      },
-      undefined,
-      { comfyRedis: cfg.comfyRedis, workerId: w.id },
+    logSelection(cfg.comfyRedis, w, WORKER_POOL.SHOPIFY, performanceKey ?? '', jobLog);
+    const completion = await observeCompletion(
+      cfg.comfyRedis,
+      w,
+      WORKER_POOL.SHOPIFY,
+      performanceKey ?? '',
+      workflow,
+      jobLog,
+      (totalNodeCount) =>
+        waitForCompletion(
+          w.url,
+          w.apiKey,
+          clientUuid,
+          promptId,
+          300_000,
+          (update) => jobLog.debug(update, 'comfyui progress'),
+          {
+            info: jobLog.info.bind(jobLog),
+            debug: jobLog.debug.bind(jobLog),
+            error: jobLog.error.bind(jobLog),
+            warn: jobLog.warn.bind(jobLog),
+          },
+          undefined,
+          { comfyRedis: cfg.comfyRedis, workerId: w.id },
+          totalNodeCount,
+        ),
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -2952,14 +3060,17 @@ async function processShopifyJob(
       jobLog,
     });
     if (!completed) {
+      settlePerformanceSample(w, 'cancelled');
       await redis.xack(stream, 'dispatcher-cg', messageId);
       return;
     }
+    settlePerformanceSample(w, 'success');
 
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info({ resultKey }, 'shopify job completed successfully');
   } catch (err) {
+    settlePerformanceSample(w, err instanceof JobCancelledError ? 'cancelled' : 'workflow_failure');
     jobLog.error({ err }, 'shopify job processing error');
     const errMsg = err instanceof Error ? err.message : String(err);
     await markShopifyFailed(

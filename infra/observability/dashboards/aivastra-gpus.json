@@ -35,7 +35,7 @@
         },
         "label": "GPU box",
         "query": {
-          "query": "label_values(up{job=~\"gpu|node\"}, box)",
+          "query": "label_values(nvidia_smi_gpu_info{job=\"gpu\"}, box)",
           "refId": "box_values"
         },
         "refresh": 2,
@@ -67,7 +67,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 6,
+        "w": 4,
         "h": 4
       },
       "fieldConfig": {
@@ -114,9 +114,9 @@
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
-        "x": 6,
+        "x": 4,
         "y": 0,
-        "w": 6,
+        "w": 4,
         "h": 4
       },
       "fieldConfig": {
@@ -153,7 +153,53 @@
     },
     {
       "id": 3,
-      "title": "Max temperature",
+      "title": "Avg temperature",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "celsius",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "expr": "avg(nvidia_smi_temperature_gpu{job=\"gpu\", box=~\"$box\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "title": "Hottest GPU",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
@@ -162,7 +208,7 @@
       "gridPos": {
         "x": 12,
         "y": 0,
-        "w": 6,
+        "w": 4,
         "h": 4
       },
       "fieldConfig": {
@@ -203,20 +249,67 @@
           "expr": "max(nvidia_smi_temperature_gpu{job=\"gpu\", box=~\"$box\"})",
           "refId": "A"
         }
-      ]
+      ],
+      "description": "Highest temperature across the selected boxes. The average hides one overheating card."
     },
     {
       "id": 4,
-      "title": "Total power draw",
+      "title": "Avg power per GPU",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
-        "x": 18,
+        "x": 16,
         "y": 0,
-        "w": 6,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "watt",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "expr": "avg(nvidia_smi_power_draw_watts{job=\"gpu\", box=~\"$box\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "Total power",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
         "h": 4
       },
       "fieldConfig": {
