@@ -1,7 +1,7 @@
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { creditsDeductedTotal, creditsRefundedTotal } from '@aivastra/observability';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 import { AppError } from '../../lib/errors.js';
 import { getActiveUnlimitedPlan } from './unlimited-plan.js';
 
@@ -45,6 +45,29 @@ export async function refund(
   reason = 'REFUND',
 ) {
   const refunded = await db.transaction(async (tx) => {
+    if (reason === 'REFUND_ADMIN_CANCEL') {
+      // Share the dispatcher terminal lock so either refund reason can win once.
+      await tx
+        .select({ id: schema.jobs.id })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, jobId))
+        .for('update');
+      const [priorRefund] = await tx
+        .select({ id: schema.creditLedger.id })
+        .from(schema.creditLedger)
+        .where(
+          and(
+            eq(schema.creditLedger.jobId, jobId),
+            inArray(schema.creditLedger.reason, [
+              'JOB_FAIL_REFUND',
+              'JOB_CANCEL_REFUND',
+              'REFUND_ADMIN_CANCEL',
+            ]),
+          ),
+        )
+        .limit(1);
+      if (priorRefund) return false;
+    }
     // Insert ledger row first — unique index on (job_id, reason) WHERE job_id IS NOT NULL
     // guarantees at-most-once without a racy SELECT check.
     const inserted = await tx

@@ -635,6 +635,15 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
       if (['COMPLETED', 'CANCELLED'].includes(job.status)) return { ok: true };
 
+      if (
+        (job.status === 'PREPROCESSING' || job.status === 'GENERATING') &&
+        job.source === JOB_SOURCE.CATALOG
+      ) {
+        // Only the catalogue processor polls this signal; it owns termination/refund.
+        await app.redis.set(`job:cancel:${id}`, '1', 'EX', 600);
+        return { ok: true, pending: true };
+      }
+
       // Store-billed Shopify job: no userId, so the user-ledger refund below
       // would silently skip it and leave the merchant paying for a generation
       // that never ran. The helper does the status flip and the refund in one
