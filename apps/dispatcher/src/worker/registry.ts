@@ -7,6 +7,7 @@ import { boundedRead } from './bounded-read.js';
 export type WorkerStatus = 'IDLE' | 'BUSY' | 'DRAINING';
 
 export interface WorkerEntry {
+  gpuGroup?: string;
   url: string;
   apiKey: string;
   status: WorkerStatus;
@@ -108,7 +109,15 @@ export async function registerWorkers(
   }
 
   for (const w of workers) {
+    const previous = await redis.hget(REGISTRY_KEY, w.id);
+    let gpuGroup: string | undefined;
+    try {
+      gpuGroup = previous ? (JSON.parse(previous) as WorkerEntry).gpuGroup : undefined;
+    } catch {
+      /* Optional measurement metadata. */
+    }
     const entry: WorkerEntry = {
+      ...(gpuGroup ? { gpuGroup } : {}),
       url: w.url,
       apiKey: w.apiKey,
       status: 'IDLE',

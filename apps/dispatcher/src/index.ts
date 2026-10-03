@@ -4,6 +4,7 @@ import { createLogger } from '@aivastra/logger';
 import { S3Client } from '@aws-sdk/client-s3';
 import * as Sentry from '@sentry/node';
 import { Agent, setGlobalDispatcher } from 'undici';
+import { startPerformanceRefresh } from './perf/record-sample.js';
 
 // Node's built-in fetch (undici) ignores NODE_TLS_REJECT_UNAUTHORIZED set via dotenv
 // because undici is initialised before env vars load. Override the global dispatcher
@@ -156,6 +157,7 @@ async function main(): Promise<void> {
   await recoverPendingJobs(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
 
   // Start subsystems
+  const stopPerformanceRefresh = startPerformanceRefresh(comfyRedis);
   const stopHealthMonitor = startHealthMonitor(comfyRedis, log);
   const stopConsumer = await runConsumer(redis, processorCfg, log);
   // Separate lane: PixVerse video jobs need no GPU worker, so they must not be
@@ -201,6 +203,7 @@ async function main(): Promise<void> {
     stopConsumer();
     stopVideoConsumer();
     stopWebhooks();
+    stopPerformanceRefresh();
     stopHealthMonitor();
     stopHealthServer();
     comfyRedis.disconnect();

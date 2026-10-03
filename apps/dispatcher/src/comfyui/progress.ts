@@ -15,6 +15,7 @@ import { boundedRead, readCapabilities, versionMatches } from '../worker/capabil
 import { isQueueGateEnabled } from '../worker/registry.js';
 import { type ComfyLog, type CompletionContext, cancelPrompt } from './cancel.js';
 import { deleteQueuedPrompt, fetchPromptQueueState } from './client.js';
+import { type ExecutionTiming, executionTiming } from './execution-timing.js';
 
 export { JobCancelledError } from './cancel.js';
 
@@ -24,7 +25,9 @@ export interface ProgressUpdate {
   max: number;
 }
 export type ProgressCallback = (update: ProgressUpdate) => void;
-export type WaitForCompletionResult = { status: 'completed' } | { status: 'queue_cleanup_failed' };
+export type WaitForCompletionResult =
+  | { status: 'completed'; executionTiming?: ExecutionTiming }
+  | { status: 'queue_cleanup_failed' };
 
 export function assertNever(value: never): never {
   throw new Error(`Unexpected completion result: ${JSON.stringify(value)}`);
@@ -41,6 +44,7 @@ export async function waitForCompletion(
   log?: ComfyLog,
   isCancelled?: () => Promise<boolean>,
   context?: CompletionContext,
+  totalNodeCount = 0,
 ): Promise<WaitForCompletionResult> {
   const submittedAt = Date.now();
   const workerId = context?.workerId ?? 'unknown';
@@ -162,7 +166,8 @@ export async function waitForCompletion(
 
     if (entry?.outputs && Object.keys(entry.outputs).length > 0) {
       log?.info({ promptId }, 'ComfyUI generation complete');
-      return { status: 'completed' };
+      const timing = executionTiming(entry, totalNodeCount);
+      return { status: 'completed', ...(timing ? { executionTiming: timing } : {}) };
     }
 
     if (
@@ -195,12 +200,17 @@ export async function waitForCompletion(
           if (!reconciliation.ok) throw new Error('cleanup history unavailable');
           const latest = (await reconciliation.json()) as Record<
             string,
-            { outputs?: Record<string, unknown>; status?: { status_str?: string } }
+            {
+              outputs?: Record<string, unknown>;
+              status?: { status_str?: string; messages?: [string, Record<string, unknown>][] };
+            }
           >;
           if (latest[promptId]?.status?.status_str === 'error')
             throw new Error(`ComfyUI execution error for prompt ${promptId}`);
-          if (Object.keys(latest[promptId]?.outputs ?? {}).length > 0)
-            return { status: 'completed' };
+          if (Object.keys(latest[promptId]?.outputs ?? {}).length > 0) {
+            const timing = executionTiming(latest[promptId], totalNodeCount);
+            return { status: 'completed', ...(timing ? { executionTiming: timing } : {}) };
+          }
           if (remaining() <= 0) break;
           const state = await fetchPromptQueueState(workerUrl, apiKey, promptId, remaining());
           if (state === 'running') {
@@ -219,12 +229,17 @@ export async function waitForCompletion(
               if (!finalHistory.ok) throw new Error('cleanup final history unavailable');
               const final = (await finalHistory.json()) as Record<
                 string,
-                { outputs?: Record<string, unknown>; status?: { status_str?: string } }
+                {
+                  outputs?: Record<string, unknown>;
+                  status?: { status_str?: string; messages?: [string, Record<string, unknown>][] };
+                }
               >;
               if (final[promptId]?.status?.status_str === 'error')
                 throw new Error(`ComfyUI execution error for prompt ${promptId}`);
-              if (Object.keys(final[promptId]?.outputs ?? {}).length > 0)
-                return { status: 'completed' };
+              if (Object.keys(final[promptId]?.outputs ?? {}).length > 0) {
+                const timing = executionTiming(final[promptId], totalNodeCount);
+                return { status: 'completed', ...(timing ? { executionTiming: timing } : {}) };
+              }
               cleanupConfirmed = true;
               break;
             }

@@ -13,7 +13,10 @@ export async function resolveWorkflowTemplateVersion(
   db: DB,
   workflowTemplateId: string,
   snapshotVersion: number | null | undefined,
-): Promise<typeof schema.workflowTemplates.$inferSelect | undefined> {
+): Promise<
+  | (typeof schema.workflowTemplates.$inferSelect & { performanceArchivedVersion?: number })
+  | undefined
+> {
   const [live] = await db
     .select()
     .from(schema.workflowTemplates)
@@ -38,6 +41,7 @@ export async function resolveWorkflowTemplateVersion(
 
   return {
     ...live,
+    performanceArchivedVersion: archived.version,
     jsonContent: archived.jsonContent,
     faceNodeId: archived.faceNodeId,
     poseNodeId: archived.poseNodeId,
