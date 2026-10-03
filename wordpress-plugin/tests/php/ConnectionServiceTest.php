@@ -436,4 +436,267 @@ final class ConnectionServiceTest extends TestCase
         $this->assertFalse($result['ok']);
         $this->assertSame('not_connected', $result['error']);
     }
+
+    public function test_exchange_connect_code_stores_the_minted_keys_and_snapshot(): void
+    {
+        Functions\expect('wp_json_encode')->once()->with(['code' => 'abc123'])->andReturn('{"code":"abc123"}');
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->with(
+                'https://api.aivastra.com/v1/wordpress/connect/exchange',
+                Mockery::on(fn ($args) => $args['body'] === '{"code":"abc123"}')
+            )
+            ->andReturn(['response' => ['code' => 200]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(200);
+        Functions\expect('wp_remote_retrieve_body')
+            ->once()
+            ->andReturn(json_encode([
+                'fullKey' => 'sk_live_full',
+                'widgetKey' => 'sk_live_widget',
+                'companyName' => 'Acme Co',
+                'credits' => 500,
+            ]));
+        Functions\expect('current_time')->once()->with('mysql')->andReturn('2026-10-02 00:00:00');
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('set_widget_key_and_snapshot')
+            ->once()
+            ->with('sk_live_widget', 'sk_live_full', 'Acme Co', 500, '2026-10-02 00:00:00');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->exchange_connect_code('abc123');
+
+        $this->assertTrue($result['ok']);
+    }
+
+    public function test_exchange_connect_code_network_error_does_not_touch_settings(): void
+    {
+        Functions\expect('wp_json_encode')->once()->andReturn('{"code":"abc123"}');
+        Functions\expect('wp_remote_post')->once()->andReturn(new WP_Error('http_request_failed'));
+        Functions\expect('is_wp_error')->once()->andReturn(true);
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldNotReceive('set_widget_key_and_snapshot');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->exchange_connect_code('abc123');
+
+        $this->assertFalse($result['ok']);
+        $this->assertNotEmpty($result['error']);
+    }
+
+    public function test_exchange_connect_code_rejects_an_invalid_or_expired_code(): void
+    {
+        Functions\expect('wp_json_encode')->once()->andReturn('{"code":"bad"}');
+        Functions\expect('wp_remote_post')->once()->andReturn(['response' => ['code' => 400]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(400);
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldNotReceive('set_widget_key_and_snapshot');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->exchange_connect_code('bad');
+
+        $this->assertFalse($result['ok']);
+    }
+
+    public function test_exchange_connect_code_missing_keys_in_response_does_not_touch_settings(): void
+    {
+        Functions\expect('wp_json_encode')->once()->andReturn('{"code":"abc123"}');
+        Functions\expect('wp_remote_post')->once()->andReturn(['response' => ['code' => 200]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(200);
+        Functions\expect('wp_remote_retrieve_body')->once()->andReturn(json_encode(['foo' => 'bar']));
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldNotReceive('set_widget_key_and_snapshot');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->exchange_connect_code('abc123');
+
+        $this->assertFalse($result['ok']);
+    }
+
+    public function test_login_or_register_connects_an_existing_verified_account(): void
+    {
+        Functions\expect('wp_json_encode')
+            ->once()
+            ->with([
+                'email' => 'merchant@example.com',
+                'password' => 'correct horse',
+                'siteUrl' => 'https://shop.example.com/',
+                'siteName' => 'Shop Example',
+                'displayName' => 'Jane Admin',
+            ])
+            ->andReturn('{"payload":"..."}');
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->with(
+                'https://api.aivastra.com/v1/merchant/wordpress-login',
+                Mockery::on(fn ($args) => $args['body'] === '{"payload":"..."}')
+            )
+            ->andReturn(['response' => ['code' => 200]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(200);
+        Functions\expect('wp_remote_retrieve_body')
+            ->once()
+            ->andReturn(json_encode([
+                'status' => 'connected',
+                'fullKey' => 'sk_live_full',
+                'widgetKey' => 'sk_live_widget',
+                'companyName' => 'Acme Co',
+                'credits' => 500,
+            ]));
+        Functions\expect('current_time')->once()->with('mysql')->andReturn('2026-10-02 00:00:00');
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('set_widget_key_and_snapshot')
+            ->once()
+            ->with('sk_live_widget', 'sk_live_full', 'Acme Co', 500, '2026-10-02 00:00:00');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->login_or_register(
+            'merchant@example.com',
+            'correct horse',
+            'https://shop.example.com/',
+            'Shop Example',
+            'Jane Admin',
+            null
+        );
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('connected', $result['status']);
+        $this->assertSame('Acme Co', $result['companyName']);
+        $this->assertSame(500, $result['credits']);
+    }
+
+    public function test_login_or_register_registers_a_brand_new_account(): void
+    {
+        Functions\expect('wp_json_encode')->once()->andReturn('{"payload":"..."}');
+        Functions\expect('wp_remote_post')->once()->andReturn(['response' => ['code' => 202]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(202);
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldNotReceive('set_widget_key_and_snapshot');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->login_or_register(
+            'new@example.com',
+            'a new password',
+            'https://shop.example.com/',
+            'Shop Example',
+            'Jane Admin',
+            '+15551234567'
+        );
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('verification_required', $result['status']);
+    }
+
+    public function test_login_or_register_rejects_wrong_password(): void
+    {
+        Functions\expect('wp_json_encode')->once()->andReturn('{"payload":"..."}');
+        Functions\expect('wp_remote_post')->once()->andReturn(['response' => ['code' => 401]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(401);
+        Functions\expect('wp_remote_retrieve_body')
+            ->once()
+            ->andReturn(json_encode(['error' => ['code' => 'INVALID', 'message' => 'invalid credentials']]));
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldNotReceive('set_widget_key_and_snapshot');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->login_or_register(
+            'merchant@example.com',
+            'wrong password',
+            'https://shop.example.com/',
+            'Shop Example',
+            'Jane Admin',
+            null
+        );
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_credentials', $result['status']);
+    }
+
+    public function test_login_or_register_flags_an_unverified_account(): void
+    {
+        Functions\expect('wp_json_encode')->once()->andReturn('{"payload":"..."}');
+        Functions\expect('wp_remote_post')->once()->andReturn(['response' => ['code' => 403]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(403);
+        Functions\expect('wp_remote_retrieve_body')
+            ->once()
+            ->andReturn(json_encode(['error' => ['code' => 'EMAIL_NOT_VERIFIED', 'message' => 'email not verified']]));
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldNotReceive('set_widget_key_and_snapshot');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->login_or_register(
+            'unverified@example.com',
+            'correct horse',
+            'https://shop.example.com/',
+            'Shop Example',
+            'Jane Admin',
+            null
+        );
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('email_not_verified', $result['status']);
+    }
+
+    public function test_login_or_register_asks_for_a_phone_number_for_a_brand_new_merchant(): void
+    {
+        Functions\expect('wp_json_encode')->once()->andReturn('{"payload":"..."}');
+        Functions\expect('wp_remote_post')->once()->andReturn(['response' => ['code' => 400]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(400);
+        Functions\expect('wp_remote_retrieve_body')
+            ->once()
+            ->andReturn(json_encode(['error' => ['code' => 'MERCHANT_DETAILS_REQUIRED', 'message' => 'phone required']]));
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldNotReceive('set_widget_key_and_snapshot');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->login_or_register(
+            'new@example.com',
+            'a new password',
+            'https://shop.example.com/',
+            'Shop Example',
+            'Jane Admin',
+            null
+        );
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('merchant_details_required', $result['status']);
+    }
+
+    public function test_login_or_register_network_error_does_not_touch_settings(): void
+    {
+        Functions\expect('wp_json_encode')->once()->andReturn('{"payload":"..."}');
+        Functions\expect('wp_remote_post')->once()->andReturn(new WP_Error('http_request_failed'));
+        Functions\expect('is_wp_error')->once()->andReturn(true);
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldNotReceive('set_widget_key_and_snapshot');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->login_or_register(
+            'merchant@example.com',
+            'correct horse',
+            'https://shop.example.com/',
+            'Shop Example',
+            'Jane Admin',
+            null
+        );
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('error', $result['status']);
+    }
 }

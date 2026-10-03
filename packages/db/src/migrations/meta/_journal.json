@@ -1457,6 +1457,13 @@
       "when": 1790601485418,
       "tag": "0208_backfill_shoe_subcategories",
       "breakpoints": true
+    },
+    {
+      "idx": 209,
+      "version": "7",
+      "when": 1790937754175,
+      "tag": "0209_merchant_wordpress_signup_source",
+      "breakpoints": true
     }
   ]
 }

@@ -3,26 +3,31 @@
     return;
   }
 
-  // Onboarding topbar's Support dropdown (render_onboarding_connect()) — a
-  // native <details> already toggles open/closed on its own summary click;
-  // this only adds the outside-click and Escape closing a floating menu is
-  // expected to have on top of that. No-ops on any other page, where the
-  // element doesn't exist.
+  // Onboarding topbar's Support dropdown (render_onboarding_connect()) and,
+  // on step 1 only, the "Advanced: connect with API keys instead" dropdown
+  // beside it (.aivastra-topbar-advanced) — both native <details> already
+  // toggle open/closed on their own summary click; this only adds the
+  // outside-click and Escape closing a floating menu is expected to have on
+  // top of that. No-ops on any other page, where neither element exists.
+  document
+    .querySelectorAll('.aivastra-topbar-support, .aivastra-topbar-advanced')
+    .forEach(function (menu) {
+      document.addEventListener('click', function (event) {
+        if (menu.open && !menu.contains(event.target)) {
+          menu.open = false;
+        }
+      });
+      menu.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+          menu.open = false;
+          menu.querySelector('summary').focus();
+        }
+      });
+    });
+  // Picking "Start a chat" opens the modal (wired below); close the Support
+  // menu itself so it isn't left open behind it.
   var supportMenu = document.querySelector('.aivastra-topbar-support');
   if (supportMenu) {
-    document.addEventListener('click', function (event) {
-      if (supportMenu.open && !supportMenu.contains(event.target)) {
-        supportMenu.open = false;
-      }
-    });
-    supportMenu.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape') {
-        supportMenu.open = false;
-        supportMenu.querySelector('summary').focus();
-      }
-    });
-    // Picking "Start a chat" opens the modal (wired below); close the menu
-    // itself so it isn't left open behind it.
     supportMenu.addEventListener('click', function (event) {
       if (event.target.closest('.aivastra-start-chat-trigger')) {
         supportMenu.open = false;

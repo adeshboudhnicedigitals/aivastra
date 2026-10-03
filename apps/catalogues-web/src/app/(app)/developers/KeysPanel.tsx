@@ -8,13 +8,8 @@ import { TrashIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { isMerchantGateError } from '@/lib/api';
 import { type CreatedApiKey, createApiKey, listApiKeys, revokeApiKey } from './api';
-
-// "not a merchant account" / "merchant account inactive" — thrown by requireMerchant
-// (apps/api/src/plugins/portal-auth.ts) when the logged-in user has no merchants row.
-function isMerchantGateError(err: unknown): boolean {
-  return err instanceof Error && /merchant account/i.test(err.message);
-}
 
 const fmtDate = (s: string | null) =>
   s
