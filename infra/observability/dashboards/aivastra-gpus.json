@@ -35,7 +35,7 @@
         },
         "label": "GPU box",
         "query": {
-          "query": "label_values(up{job=~\"gpu|node\"}, box)",
+          "query": "label_values(nvidia_smi_gpu_info{job=\"gpu\"}, box)",
           "refId": "box_values"
         },
         "refresh": 2,
