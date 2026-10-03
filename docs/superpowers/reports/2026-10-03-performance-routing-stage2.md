@@ -509,3 +509,51 @@ Earlier no-commit/no-push statements describe the implementation/review phase. D
 OBSERVE/ACTIVE enablement remain unauthorized in this delivery step. Refreshed `origin/dev`
 contains 22 newer commits with no dispatcher source overlap; only progress/observability docs
 overlap this feature. Combined-branch validation will be recorded after integrating the target.
+
+### Current dev integration verification
+
+Feature commit: `87b8e947`; integrated `origin/dev` at `2406931e` via merge `5703f0ba`.
+Only `docs/progress.md` conflicted; both feature entries and dev's GPU/host entry were retained.
+`docs/observability.md` auto-merged. Dispatcher/performance code did not change during integration.
+Incoming dev migrations are target-branch history, not feature-added schema changes.
+
+Dispatcher units, exit 0 (`pnpm --filter @aivastra/dispatcher test`, `/tmp/perf-pr-unit.log`):
+
+```text
+ Test Files  13 passed (13)
+      Tests  188 passed (188)
+   Start at  16:49:52
+   Duration  2.35s (transform 429ms, setup 0ms, collect 1.14s, tests 826ms, environment 0ms, prepare 52ms)
+```
+
+`pnpm typecheck` exited 0 (`/tmp/perf-pr-typecheck.log`). Explicit dispatcher
+`pnpm --filter @aivastra/dispatcher exec tsc --noEmit` also exited 0, with empty output
+(`/tmp/perf-pr-dispatcher-typecheck.log`).
+
+`pnpm lint` exited 0 (`/tmp/perf-pr-lint.log`):
+
+```text
+The number of diagnostics exceeds the limit allowed. Use --max-diagnostics to increase it.
+Diagnostics not shown: 748.
+Checked 1209 files in 751ms. No fixes applied.
+Found 755 warnings.
+Found 13 infos.
+```
+
+These supersede the earlier 751-warning/12-info totals for PR delivery. Individual warning
+ancestry was not audited. No feature code changed to suppress warnings.
+
+Full dispatcher integration on combined dev, exit 0:
+`pnpm --filter @aivastra/dispatcher test:integration` (`/tmp/perf-pr-integration.log`):
+
+```text
+ Test Files  35 passed (35)
+      Tests  165 passed (165)
+   Start at  16:49:50
+   Duration  343.40s (transform 845ms, setup 110ms, collect 4.43s, tests 338.49s, environment 0ms, prepare 42ms)
+```
+
+No test failures in combined-branch verification. Final PR targets `dev`; the description uses
+effective mode metrics and distinguishes perfstats `cachePolicy`/`updatedAt` fields from score
+and histogram structures. No Claude Code attribution. No production commands in the checklist
+were executed. Deployment/OBSERVE/ACTIVE rollout remain operator steps after review and merge.

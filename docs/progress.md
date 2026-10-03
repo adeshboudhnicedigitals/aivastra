@@ -4,8 +4,8 @@
 
 ## 2026-10-03 — Performance routing authorized for commit and PR
 
-- **Done:** user authorized committing `feat/performance-aware-routing` and opening a PR into `dev`; feature and review follow-up remain OFF by default with ACTIVE blocked. Updated review artifacts previously transferred to VPS `/tmp/` with matching hashes; no deploy or production routing configuration changed.
-- **Validation:** reviewed branch/status and refreshed `origin/dev`; target advanced with no dispatcher source overlap, only progress/observability documentation overlaps. Prior verified feature tests are recorded in the report; combined-branch verification will follow target integration.
+- **Done:** committed verified feature/review fixes as `87b8e947` on `feat/performance-aware-routing`, integrated current `dev` (`2406931e`) via `5703f0ba`, and prepared the authorized PR into `dev`; feature remains OFF by default with ACTIVE blocked. Updated review artifacts previously transferred to VPS `/tmp/` with matching hashes; no deploy or production routing configuration changed.
+- **Validation:** target integration had only a progress-log conflict, retaining both entries; no dispatcher source overlap. Combined-branch dispatcher units 188 passed and full integrations 165 passed (343.40s); workspace/dispatcher typechecks passed. Lint passed with 755 warnings and 13 infos, no errors (totals differ after integrating dev). Exact output in the report.
 - **Open / not done:** merge/deployment/OBSERVE rollout remain separate; no production Redis SET authorized in this step.
 
 ## 2026-10-03 — Performance routing review follow-up
