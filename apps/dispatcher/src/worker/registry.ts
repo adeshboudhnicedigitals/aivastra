@@ -1,5 +1,8 @@
+import type { Logger } from '@aivastra/logger';
+import { workerReleaseFailuresTotal } from '@aivastra/observability';
 import type { WorkerPool } from '@aivastra/types';
 import type { Redis } from 'ioredis';
+import { boundedRead } from './bounded-read.js';
 
 export type WorkerStatus = 'IDLE' | 'BUSY' | 'DRAINING';
 
@@ -119,4 +122,21 @@ export async function registerWorkers(
 export async function deregisterWorker(redis: Redis, workerId: string): Promise<void> {
   await redis.hdel(REGISTRY_KEY, workerId);
   await redis.del(healthKey(workerId));
+}
+
+/** Release has its own finite retry, independent of an exhausted cancel deadline. */
+export async function releaseWorker(redis: Redis, workerId: string, log: Logger): Promise<void> {
+  // Bounding the wait does not cancel Redis's command. A late attempt can release
+  // a newly claimed BUSY worker; preventing that requires an ownership token.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await boundedRead(() => releaseWorkerIfBusy(redis, workerId), 5_000);
+      return;
+    } catch (err) {
+      if (attempt === 1) {
+        workerReleaseFailuresTotal.inc();
+        log.error({ workerId, err }, 'worker release failed after bounded retry');
+      }
+    }
+  }
 }

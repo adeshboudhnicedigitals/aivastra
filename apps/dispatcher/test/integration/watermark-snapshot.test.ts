@@ -127,7 +127,16 @@ describe('watermark entitlement snapshot — core business rule', () => {
     const log = createLogger('test');
     const stream = `jobs:test-${jobId}`;
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       stream,
@@ -158,7 +167,16 @@ describe('watermark entitlement snapshot — core business rule', () => {
     const log = createLogger('test');
     const stream = `jobs:test-${jobId}`;
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       stream,
@@ -178,7 +196,16 @@ describe('watermark entitlement snapshot — core business rule', () => {
     const log = createLogger('test');
     const stream = `jobs:test-${jobId}`;
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       stream,

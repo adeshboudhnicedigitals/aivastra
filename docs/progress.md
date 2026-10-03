@@ -2,6 +2,69 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-02 — Admin catalogue cancellation reaches the GPU (Stage 1)
+
+- **Done:** admin PREPROCESSING/GENERATING catalogue cancel sets the existing 600s Redis signal and returns pending without a refund or DB status change. Admin UI waits for dispatcher status updates. Queued and non-catalogue behavior retained.
+- **Done:** dispatcher/admin refund paths serialize on the job row and recognize all three terminal refund reasons. CANCELLED cannot be overwritten by intermediate/completion transitions; output metadata and completion transition are atomic. All eight completion paths ACK rejected completions and suppress success delivery, including widget SSE/webhooks. FAILED → QUEUED remains supported.
+- **Validation:** dispatcher units 157 passed; full dispatcher integration 120 passed, followed by the expanded widget file (5 passed). API units 752 passed; relevant API integrations 21 passed. API/dispatcher/admin typechecks passed. Lint exited 0 with 751 warnings and 12 infos. Exact commands/output and resolved initial failures: [report](superpowers/reports/2026-10-02-admin-cancel-stage1.md).
+- **Failed-Not-Done:** no production access, commits, push, deployment, schema changes, browser verification or Stage 2 cancellation wiring. Widget/merchant GPU execution still continues after admin cancellation. Existing admin-cancel audit gap intentionally unchanged.
+- **Open Questions / accepted risks:** private uploaded objects can remain when cancellation wins before completion is recorded. The local-only audit file was absent; user supplied the graceful-abort rationale and authorized proceeding without restoring it.
+
+## 2026-10-02 — Accessory images (optional studio add-on)
+
+- **Done:** optional accessory images across db / types / dispatcher / api / admin-web / catalogues-web. Studio wizard only; free add-on (no extra credits). Selected accessories (`accessoryCatalogIds`) are stacked vertically by category `sortOrder` into one image that the dispatcher uploads to the template's `accessoryNodeId`. `GET /v1/catalog/accessory` filters items by garment-type mapping (`catalog_item_subcategories`) when `garmentTypeId` is given.
+- **Open / notes:**
+  - Migrations `0210_classy_dorian_gray` and `0211_seed_accessory_catalog_type` need `db:migrate:prod` through CI/CD. When merging with `dev`, re-chain 0210's snapshot `prevId` onto dev's `0209_worried_lethal_legion` and regenerate snapshots so they include 0209's Shopify columns.
+  - Accessory items need `gender_slug` set or the studio step never appears; items must be mapped to garment types (per-item checklist) to appear.
+  - Templates need `accessoryNodeId` mapped manually in the workflow editor (no title auto-detection).
+  - Studio multi-pose Amazon path and template-look mode were typechecked but not browser-verified.
+  - No GPU worker was available, so dispatch-to-ComfyUI was covered only by the dispatcher integration test.
+- **Known follow-ups:** duplicate `CatalogTypeSlug` in `packages/types/src/catalog.ts` still lists only lower/shoe (dead schema); stale comment in `packages/db/src/schema/catalog.ts`; no admin-job-detail display of `accessoryCatalogIds`; catalog delete doesn't clear accessory ids from `job_inputs`; `createBatch` never carries accessories.
+## 2026-10-02 — Redis isolation lifecycle verified and committed in authorized batches
+
+- **Done:** user authorized committing on the current branch. Code/tests committed as `217c6fc6`; report/progress form the documentation batch. No push or deployment.
+- **Done:** centralized `makeComfyRedis` factory with an error handler, offline queue disabled, one request retry and 5s command timeout. Startup awaits connection readiness; shutdown disconnects. Added a real offline-read rejection regression using the same factory. Atomic selector/worker-release code unchanged; retry fixture assertions unchanged.
+- **Validation:** latest units 141 passed; targeted isolation/retry integrations 5 passed; dispatcher typecheck, lint and whitespace checks pass. Initial reconnect-teardown timing failure corrected and rerun. Full integration suite was not repeated after the lifecycle follow-up; earlier 108-pass/one-invalid-fixture-failure result is retained in the report. Exact latest output: `docs/superpowers/reports/2026-10-02-comfyui-redis-isolation.md`.
+- **Not done:** production access, deployment, post-deploy timing/alert verification, worker capability changes, push. w7 remains the only configured worker per user direction; no external configuration was touched. Unrelated untracked root rev 4.4.8 spec excluded.
+
+## 2026-10-02 — Dispatcher capability/config Redis reads isolated from BLOCK (class A)
+
+- **Done:** dedicated `comfyRedis = redis.duplicate()` in startup, required in completion/processor/mannequin context, used by all eight wait sites for capability/config/version/gate reads and live cancel/cleanup authorization. The health monitor uses the same non-blocking connection, including version publication and drift checks. Shutdown disconnects it. Consumer BLOCK durations and selector gate logic unchanged.
+- **Validation:** local Docker services healthy. Dispatcher units 141 passed. Full integrations: 108 passed, one pre-existing invalid-XACK-ID retry fixture failure. Corrected fixture plus the parked-main-connection regression rerun: 4 passed; the full suite was not rerun afterward. Feature reads/drift, monitor completion and cancel authorization assert <200ms while main has a server-confirmed 2s XREADGROUP BLOCK. Correct capabilities/version produce no mismatch/failure. Typecheck and whitespace check pass; lint exits 0 with 751 warnings and 12 infos. Actual output: `docs/superpowers/reports/2026-10-02-comfyui-redis-isolation.md`.
+- **Not done:** no production access or latency measurement, deployment, API tests, quarantine, staging/commits/pushes. Existing untracked root rev 4.4.8 spec left untouched. Initial sandbox socket, group-prefix fixture, typecheck and formatting failures are recorded in the report with the successful reruns.
+
+## 2026-10-01 — ComfyUI changes prepared for authorized commit
+
+- **Done:** user authorized committing the complete change in one commit, without pushing. Moved the unchanged rev 4.4.9 specification to `docs/superpowers/specs/2026-09-30-comfyui-timeout-from-execution-start-design-rev4.4.9.md`; SHA-256 remains `ca30211627405593bf05ba41af601b0c1208f88c15bac9fd2265227df46e2199`. Earlier root-location notes below describe the state before this move.
+- **Validation:** prior verified suites remain recorded below; no partial-commit isolation checks are applicable to this single complete commit. Documentation/comment-only follow-up passed whitespace validation. Branch policy requires any future PR to target `dev`.
+- **Open Questions:** unresolved cancellation quarantine remains proposed, not implemented. No production access or push.
+
+## 2026-10-01 — Cancellation review: unresolved running prompt containment
+
+- **Done:** reviewed cancellation confirmation and worker release. Added a comment documenting that bounded Redis release attempts can complete late; ownership tokens would be needed to eliminate the reclaim race. No behavior changes, commits, pushes or production access.
+- **Open Questions (medium):** when scoped interrupt authorization is revoked, cancellation can exhaust its confirmation bound and release a worker whose prompt is still running. The job is cancelled/refunded while GPU work continues. SAFE_SCOPED cancellation does not require the queue gate, so that gate cannot be assumed to protect this path. Should unresolved cancellation place the worker in a persistent unavailable state until reconciliation confirms the prompt has cleared? This applies to unreadable state and failed interruption as well as weakened authorization.
+- **Tradeoff — retain bounded release:** developers retain simpler lifecycle handling and avoid stuck-worker recovery; users retain routing capacity but may queue behind cancelled work and consume GPU capacity without a billable job.
+- **Tradeoff — persistent quarantine (recommended):** developers need an atomic marker that release/selection honor, restart-safe reconciliation, observability and manual recovery. Users lose that worker's capacity while state is uncertain, but subsequent dispatch cannot queue behind the unresolved prompt. Clearing must preserve admin DRAINING and independently require successful queue/history reconciliation; read failures must retain quarantine. No destructive call becomes authorized by quarantine.
+- **Open Questions (low):** verify the two-absence-read cancellation confirmation assumption against the authoritative ComfyUI behavior in `aivastra-gpu`; mock tests do not establish transition visibility. LEGACY unscoped cancellation still assumes single-job ownership.
+- **Review correction:** the two `JobCancelledError` rethrows in cancellation confirmation are necessary: `finish()` throws that error inside both try blocks on confirmation. Removing the guards would swallow successful cancellation and continue polling.
+- **Validation:** `git diff --check` passed. No new test suite run for documentation/comment-only changes. Quarantine is a proposal, not implemented; the immutable timeout spec's release behavior remains in effect for cancellation.
+
+## 2026-10-01 — ComfyUI review fixes and approved exhaustion cleanup (working tree)
+
+- **Done:** fixed double release in all seven processor lifecycles with a single finally; admin display no longer emits drift/unreadable alerts; health probes run concurrently with bounded drift diagnostics and overlap prevention.
+- **Done / scope clarification:** user approved expanding exhaustion handling and adding cleanup. History now wins before exhaustion, followed by bounded reconciliation/scoped deletion with live authorization and absence confirmation. A 30s default cleanup bound validates grace plus two polls. Confirmed absence still terminates/refunds; capacity requeue remains absent. Spec unchanged.
+- **Validation:** dispatcher units 141 passed; API units 750 passed; eight dispatcher integration files 35 passed, including injected terminal-publication failure; API worker/audit integrations 22 passed. Dispatcher/API typechecks and whitespace check passed. Final lint passes with 751 warnings and 12 infos. Local PostgreSQL/Redis/MinIO verified healthy. Actual output and residual risks: `docs/superpowers/reports/2026-10-01-comfyui-timeout-stage1.md`.
+- **Not done / residual:** full Stage 2 capacity-requeue delivery, durable orphan sweeping/quarantine, ordinary history timeout fix, BUSY rename fix, queue-gate changes, production access/enablement, commits/pushes. Revocation/unreachable workers can prevent cleanup; existing gate remains required. Earlier Stage 1 no-I/O exhaustion notes below are superseded by this explicit review authorization.
+
+## 2026-10-01 — ComfyUI timeout from execution start, Stage 1 (working tree)
+
+- **Done:** implemented on `feat/comfy-timeout-execution-start` off `dev`, no commits or pushes. Root rev 4.4.9 spec SHA-256 verified as `ca30211627405593bf05ba41af601b0c1208f88c15bac9fd2265227df46e2199`; spec unchanged. Report: `docs/superpowers/reports/2026-10-01-comfyui-timeout-stage1.md`.
+- **Done:** PRE_START/RUNNING/LEGACY_FALLBACK waiter, history-first queue observation, execution deadline from first observed running, full mid-flight fallback allowance, Stage 1 immediate queue-budget exhaustion (`queue_cleanup_failed`, no further ComfyUI I/O/delete/requeue), typed handling at all eight callers, mannequin `cleanup_failed` translation, terminal refunds and bounded atomic worker release preserving DRAINING.
+- **Done:** capability keys and three-outcome parsing, fresh version guards including draining-worker monitoring, independently live-authorized scoped cancellation, conservative/legacy ratchet, bounded confirmation and authorization, audited capability routes and mutation protections, gate-drift warning in Workers, metrics and documented Grafana alert conditions. No queue-gate implementation changes.
+- **Validation:** dispatcher unit suite 134 tests passed; API unit suite 749 passed; API worker/audit integrations 22 passed; dispatcher caller integrations 33 passed, followed by happy-path/timeout-policy integrations 3 passed (includes the newly added attempt-consumption check). Dispatcher/API/admin typechecks passed. `pnpm lint` exits successfully with 751 warnings and 12 infos; `git diff --check` passed. Local compose services already healthy; startup's private MinIO pull failed with `unauthorized`, so tests used those existing local services. Dispatcher integration fixtures now prefix worker/stream Redis keys, preserving the two existing local dev worker entries.
+- **Failed / Not done:** initial sandbox socket failures, a stale Redis routing fixture, an incomplete billing fixture, and a test run that loaded a mock while it was being edited were resolved and rerun; actual outputs and failure details are linked in the report. No Stage 2 cleanup/delete/reconcile/capacity-requeue code, no history-resilience fix, no BUSY-rename fix, no production access/enablement/worker compatibility validation/Grafana provisioning. The spec is now at `docs/superpowers/specs/2026-09-30-comfyui-timeout-from-execution-start-design-rev4.4.9.md` (relocated unchanged before committing).
+- **Clarification applied:** Stage 1 enablement requires only a valid positive `maxQueueWaitMs`, plus configured identity/delete capabilities, version match and the queue gate. Cleanup budget/constraint deferred to Stage 2. Safe scoped cancel requires all three capabilities and version match, independent of gate/budgets. Engineering defaults retained. Redis-read-to-HTTP revocation window and orphaned pending work after queue exhaustion remain accepted residual risks.
+
 ## 2026-09-30 — Queue-aware worker routing (Projects A, B, C-observability)
 
 Spec: `docs/superpowers/specs/2026-09-30-queue-aware-worker-routing-design.md` (not committed to the repo — pasted into the session). PRs #436 → #437 → #438, stacked, merged into `dev` in that order.
@@ -353,6 +416,240 @@ snapshotted into `params` (the dispatcher's own lookup is unreachable once a sna
   `infra/docker-compose.yml`, `infra/docker-compose.staging.yml`,
   `infra/docker-compose.prod.yml`, and `.github/workflows/ci.yml` uniformly —
   out of scope for a one-off PR to patch silently.
+## 2026-09-25 — Onboarding: numbered steps, Previous button, baskets chosen in the product picker
+
+- **Done:** every onboarding page drops the bottom progress bar for a numbered step row pinned
+  at the top (`OnboardingSteps`, driven by `STEP_PAGES`). The welcome intro is not a step and shows
+  no row; numbering starts at page 2 (products = 1 … theme = 4). Pages 2–5 get a **Previous** button (same
+  primary style as Continue, equal widths). The intro page always renders now so page 2 can go
+  back to it; the theme page hides Previous once the embed is detected, because the App gate
+  bounces every `/onboarding/*` route to the dashboard at that point.
+- **Page 2 is one step:** the separate "Choose a basket" card is gone. The "Select products" popup
+  has a last **Basket** column (picking one also ticks the row) plus a "Basket for all selected
+  products" control, needed because "select all matching" rows are never loaded. The popup's
+  Select button stays disabled until every picked product has a basket. Confirm enables and pins
+  in one `POST /products/bulk` per distinct basket (`toBasketedBulkBodies`); "all matching" goes
+  first under the shared basket, then the exceptions are re-pinned by id. Not atomic across calls.
+- **After Confirm:** the enabled-products list carries a basket dropdown per row, which is also how
+  a resumed setup fixes an unrouted product. In global mode it lists every non-excluded product
+  and shows no remove button.
+- **Removed:** `getOnboardingProgress` (+ tests), the unused `step`/`totalSteps` text, `BasketTiles`
+  and the bulk "Apply to all" path of `BasketAssignmentStage` (Manage → Routing keeps the
+  per-product list).
+- **Inline picker (2026-09-27):** the "Select products" popup is gone: step 1 embeds the same
+  picker (search, filters, tick boxes, Basket column) directly in the card, with "Confirm N
+  products" at its bottom right. After confirming, the enabled list shows on top and an "Add more
+  products" picker (locked to active, not-yet-enabled products) sits below it; global-mode stores
+  get no add-more picker. `SelectProductsModal` and `SelectedProductsList` were deleted.
+- **Not verified in a browser** — typecheck, Biome and the vitest suite only.
+
+## 2026-09-27 — Onboarding welcome page redesigned
+
+- **Done:** `OnboardingIntroPage` is now the AI Vastra logo, the headline "Let your customers see
+  themselves in your products.", and three photo cards (Customer Photo + Your Product Image =
+  Virtual Try-On) joined by "+" / "=" connectors, then a three-item benefits row. The old single
+  composite hero (`onboarding-hero.jpg`) is unwired but left on disk. The three photos come from
+  `person.png` / `garment.png` / `result.png` (2.6MB each, in the repo root, untracked), resized
+  to 720px-wide JPEGs under `src/assets/welcome-*.jpg` (~60-70KB each). Card size follows viewport
+  height, so it fits without scrolling at 1440x900 and 1280x720 (checked with headless Chromium).
+- **Logo:** copied `logo.svg` / `logo-text.svg` from `apps/catalogues-web/public/assets` — the
+  real brand mark is the colourful gradient one, not the grey mark in the mockup.
+
+## 2026-09-27 — Dev: product thumbnails were blank (Chrome blocks loopback fetch from the ngrok origin)
+
+- **Root cause:** presigned thumbnail URLs point at `R2_ENDPOINT` (`http://127.0.0.1:9000` in dev).
+  The Shopify admin SPA loads from the public `https://<tunnel>.ngrok-free.dev` origin, and Chrome's
+  Private Network Access policy blocks a public-origin page from fetching a bare loopback address
+  outright (`net::ERR_FAILED`, "Permission was denied ... `loopback` address space") — every product
+  row showed with no image, though sync itself worked (rows were `active`, files existed in MinIO).
+- **First attempt (reverted):** pointing `R2_PUBLIC_PRESIGN_BASE` at `<tunnel>/minio` fixed Shopify
+  but was wrong — that env var is one process-wide setting on the single shared `app.storage`, so it
+  would follow every other app (admin-web, catalogues-web) into their own local dev too, breaking
+  their images whenever the Shopify app's Vite server + tunnel weren't also running.
+- **Fix:** a new dev-only proxy, `apps/api/src/modules/dev/minio-proxy.routes.ts`, mounted at
+  `/minio/*` and registered in `server.ts` only when `NODE_ENV === 'development'`; it forwards to
+  `R2_ENDPOINT` and streams the response back. `apps/shopify/vite.config.ts` gets a matching
+  `/minio` proxy entry (same shape as the existing `/v1` one). `R2_PUBLIC_PRESIGN_BASE` stays at
+  the plain `http://127.0.0.1:9000` it always was — every app keeps getting ordinary loopback
+  URLs. Instead, `apps/shopify/src/lib/images.ts`'s `resolveImageUrl` rewrites a thumbnail URL to
+  go through this same-origin `/minio` proxy client-side, and only when the page itself isn't
+  already on a loopback origin (i.e. only when actually viewed through the tunnel) — used at every
+  `<img>`/`<Thumbnail source=...>` site in `apps/shopify` (`ProductRow`, `ProductSelectionStage`,
+  `BasketAssignmentStage`, `ManagePage`). Production URLs are never loopback, so it's a no-op there
+  by construction, no `NODE_ENV` check needed.
+  Verified end to end: curled a live presigned URL through both the API (port 4000) and the Vite
+  dev server (port 5174) and got the real JPEG back.
+
+## 2026-09-25 — Manage page: failed products no longer counted as synced, and can be retried
+
+- **Done:** the Manage page's "Products Synced" numerator counted every non-deleted row, so a store
+  with one failed product read "9/9". It now counts `status = 'active'` only (`activation.routes.ts`),
+  and the separate "Failed to Sync" tile is gone — a red "N failed to sync" link under the synced
+  count opens the same modal.
+- **Retry:** `syncProduct` retries the image download once after a 500ms pause on a thrown network
+  error or an HTTP 429/5xx (not on a 4xx). The failed modal has a **Retry sync** button calling
+  `POST /v1/shopify/products/retry-failed`, which enqueues one `mode: 'product'` task per failed
+  product (cap 100); each re-reads the product from Shopify, so a newly added image is picked up.
+- **Failure reasons are clearer:** Node's bare "fetch failed" now records its cause, e.g.
+  `fetch failed (ETIMEDOUT)`.
+- **Per-product basket routing on Manage → Routing:** the step-2 basket picker from onboarding
+  (tiles, "Apply to all N products", a Basket dropdown per enabled product) now also sits in a card
+  titled "Individual product routing" above "Your rules". `BasketAssignmentStage` was changed to take
+  plain props (`globalMode`, `reloadKey`, `unrouted`, `onChanged`, `bulk`) instead of the
+  `/me` payload so both places share it; onboarding is unchanged. Manage shows only the per-product
+  list (`bulk={false}`: no tiles, no "Apply to all", which would overwrite every pin on a live
+  store); onboarding keeps the tiles and bulk apply. Changing a basket re-reads the rules
+  quietly (no tab spinner) and bumps the parent's unrouted banner. Lists enabled products only, as
+  in onboarding.
+- **Manage → Eligibility pickers match onboarding's:** "Add products" and "Exclude products" were a
+  search box with one Add/Exclude button per row. They are now the same picker as onboarding step 2
+  (search, Product type / Vendor / Tag / Collection / Category / Status filters, tick boxes, "N of M
+  selected", one "Add N products" confirm), via a shared `ProductPickerModal` around
+  `ProductSelectionStage`. The stage gained `startFilter`, `locked` (fields the merchant can't
+  change) and `allowSelectAll`. "Add products" locks `enabled=false, status=active` (only active
+  products can be enabled), so it hides the Status filter; "Exclude products" locks only
+  `excluded=false`. Ticks survive paging and are staged in the existing draft lists — nothing is sent
+  until Save. **No "Select all N matching" here:** a draft is a list of concrete ids and Save sends
+  one PATCH per product, so a filter-wide select would mean thousands of parallel requests. The
+  fix, if wanted, is bulk endpoints for enable/exclude/disable that Save can call. The collection
+  pickers are unchanged.
+- **Collection pickers list the store's collections:** "Add collections" / "Exclude collections"
+  used to show nothing until a name was typed. They now open on the full list (fetched once from
+  `GET /v1/shopify/activation/collections/search`, whose `q` is now optional and results sorted by
+  title), with an in-browser search box, tick boxes that survive paging/searching, and one
+  "Add/Exclude N collections" confirm. Collections already in the list are left out. Same shared
+  component for both tabs (`components/CollectionPickerModal.tsx`). The list is a live Shopify
+  read on each open, as the per-keystroke search already was.
+- **Add/Edit rule popup:** default modal width (620px — it was briefly `size="large"`, which was too
+  wide); each condition row is a grid with fixed-width Field (170px) and Match (120px) selects and a Value box that takes all the
+  remaining space, plus Remove. The per-row character counter was dropped (the 200-character
+  `maxLength` still applies) because it made the Value box taller than its neighbours and threw the
+  row's alignment off. The fixed widths don't shrink, so on a very narrow window the row can overflow.
+- **Rule editor Value is selectable:** the Value box in Add/Edit rule is now a combobox listing the
+  store's own values for the chosen field (product types, tags, vendors, collections — from
+  `GET /v1/shopify/products/facets`, the same lists the product filters use). Typing narrows the
+  list, and what is typed is kept as-is, so "contains" rules can still use a fragment, a value past
+  the facet cap (200) can still be entered, and an old rule whose value has left the catalog still
+  loads. Product title has no list, so it stays a text box. Changing a row's Field clears its Value.
+- **Trap (now closed):** nothing revisited a failed product automatically. The hourly `reconcile`
+  only fetched ids it had never seen, and `product` tasks come from webhooks, so a one-off dropped
+  download, or a CSV-imported product created before Shopify had attached its image (which
+  `products/create` reports as `no product image`), stayed failed until the merchant edited it.
+- **Products imported in Shopify (CSV etc.) now arrive without pressing Sync:**
+  1. `reconcile` also gives up to 50 failed products a second chance per pass (newest ids first,
+     after the deletion pass so a product that is really gone is marked deleted, and skipping ids it
+     just fetched). Cost: at most 50 extra Shopify calls per store per hour.
+  2. New `POST /v1/shopify/products/catch-up`, called when Manage opens: if Shopify's live product
+     count is above our non-deleted rows, it queues a `reconcile`. Rate-limited per store in Redis
+     (one live-count check per 30s, cached; one reconcile queued per 30 min). The page shows an info
+     banner and polls the counts every 5s for up to ~3 minutes, then refreshes the lists.
+- **Finding on the dev store (`ai-vastra-store`):** it had **no product webhooks registered**
+  (REST `webhooks.json` returned an empty list), and ngrok saw no webhook deliveries during the CSV
+  import, so its products only arrived via the manual Sync. The registration reconciler is
+  deliberately skipped when `NODE_ENV=development` (commit 9fb5dfbe: local stores may carry
+  production-encrypted tokens), so nothing repairs that locally. Not changed here; the catch-up above
+  covers the merchant-facing effect. To fix the dev store itself, register the topics in
+  `buildWebhookTopicMap` against the ngrok URL, or run the reconciler once by hand.
+
+## 2026-09-25 — Onboarding gains contact (page 3) and shopper-limits (page 4) pages; theme becomes page 5
+
+- **Change:** new `/onboarding/contact` page between baskets and the theme embed: "Emergency contact
+  details" with Your name (required), Your email address (required), Phone number (optional), all
+  prefilled; no skip (Continue waits for valid name + email). `POST /v1/shopify/onboarding/contact` writes the existing
+  `shopify_stores` columns `shop_owner_name`, `shop_email`, `shop_phone` (no migration), so the
+  admin store list, the low-credit alert emails and GDPR redaction keep reading one place. `/me`
+  now returns `shopOwnerName` and `shopPhone` for the prefill. Page 2's Continue goes to contact;
+  contact's Continue goes to `/onboarding/limits`.
+- **Shopper limits (page 4, `/onboarding/limits`):** the Per-shopper limit (+ "Resets every") and
+  Ask-for-an-email cards from Settings → Limits, shared via `ShopperLimitCards` / `lib/limits.ts` so
+  the two places cannot drift; Settings keeps them (and the Store daily limit, which is not on
+  this page). Continue PATCHes only those three keys (the API merges `limits`) and writes nothing if
+  they are unchanged; all default to off. Contact's Continue → limits → theme.
+- **Welcome credits are automatic.** No claim tile, popup or email step any more: the Dashboard calls
+  `POST /v1/shopify/onboarding/welcome-credits` on arrival when `emailBonusClaimed` isn't set, and
+  shows a "N free credits added" toast. Idempotent (flag + ledger `external_ref`
+  `shopify_email_bonus:{storeId}`, tested under two concurrent arrivals); the amount is the
+  admin-configured `shopify.trialCredits` (default 25). Removed `claim-email-bonus`,
+  `EmailBonusModal`, `CreditsSection` and the Dashboard's free-credits tile. **Side effect:** any
+  existing store that never claimed gets the credits the next time it opens the Dashboard, whether or
+  not it skipped the contact step. Contact details saving is now independent of credits.
+- **Not a gate in the wizard's derived step:** nothing on this page is stored as a flag, and the derived step (`getOnboardingStep`) is unchanged
+  (`canShowPostBasketPage` = step `theme` or finished, shared by contact and limits).
+- **Progress bar is now per page** (`getOnboardingProgress(me, page)`): page N of 5 reads N/6
+  (17, 33→46 within page 2 as products are picked / baskets assigned, 50, 67, 83) and only reaches
+  100% once the app embed is confirmed. Previously it was a three-milestone formula that could not
+  tell the contact and limits pages apart.
+- **Caveat:** a reinstall re-reads Shopify's owner name/email/phone over the merchant's entry.
+- **Reverted mid-session:** a first attempt moved the credit packs + free-credits tile onto a
+  page 3 and off the Dashboard; that was a misreading and was undone. `CreditsSection` (packs +
+  free tile + popup) is now the Dashboard's component, behaving as before.
+
+## 2026-09-25 — Try-on button: app block → app embed (onboarding page 3)
+
+- **Change:** the theme extension's `tryon-button.liquid` is now `target: "body"` (app embed)
+  instead of `target: "section"`. `tryon-widget.js` re-gains `placeWidget`: it inserts the
+  button into the product form directly above the buy buttons (`.product-form__buttons`,
+  `[data-shopify="payment-button"]`, `button[name="add"]`, …), waits up to 3s via a
+  `MutationObserver` for JS-rendered forms, honours a new optional `placement_selector`
+  setting (text, no default — Shopify rejects `"default": ""`), and otherwise adds
+  `.aivastra-tryon--floating` (fixed bottom-left). `buildThemeEditorDeepLink` now returns
+  `?context=apps&template=product&activateAppId={key}/tryon-button`. Page 3 is "Enable the Try It On
+  app embed" with an "Enable app embed" button. New setting `themeEmbedConfirmed` (no migration);
+  stores with `themeBlockConfirmed` but not `themeEmbedConfirmed` get a Dashboard banner
+  (`needsEmbedEnable`).
+- **No manual "I've added it" button.** `POST /v1/shopify/onboarding/confirm-theme-block` is
+  removed (now 404). Instead the widget's first request on a live product page —
+  `GET …/customer/products/:id/enabled` — calls `markThemeEmbedSeen`, which sets both flags. Only
+  Shopify-signed App Proxy requests count (the legacy `X-Widget-Key` is public in the page HTML), and
+  the widget adds `dm=1` in the theme editor / unpublished themes (`Shopify.designMode`,
+  `Shopify.theme.role !== 'main'`) so a toggled-but-unsaved embed isn't counted. Page 3 polls `/me`
+  every 5s and on tab focus. **Trap:** detection needs one real product-page view; a merchant whose
+  storefront is password-protected, or who never opens a product page, stays on page 3 with Continue
+  disabled and no override.
+- **Decision reversed:** 2026-07-31 moved embed → block because guessed selectors broke on
+  theme switches. Chosen again for one-toggle setup and vintage-theme support; CLAUDE.md updated.
+- **Must do before this reaches merchants:** `make shopify-deploy` publishes the extension (CI never
+  does), and existing merchants keep the old block until they enable the embed — placed blocks
+  no longer exist in the extension after deploy, so their button disappears until then.
+  Verify the deep link and placement on a dev store; neither has been run against a real theme.
+
+## 2026-09-25 — Basket description + image (admin-authored, shown to merchants)
+
+- **Change:** each basket (`shopify_funnel_templates`) can carry a short description and an
+  image. Migration `0206` adds nullable `description` and `image_key`; applied to local
+  `tryon_dev` only, ships via CI → `db:migrate:prod`. Admin: image presign route
+  (`POST /admin/shopify/funnel-templates/image/presign`), `description`/`imageKey` on create and
+  patch, and an upload + textarea in the Funnels page drawers. `imageKey` must match
+  `shopify/baskets/<uuid>.jpg` and the object must exist (else 400); the old file is deleted
+  after a replace/clear and on basket delete. Merchant: `GET /v1/shopify/baskets` returns
+  `description` and a 1h signed `imageUrl` (never the key); onboarding step 2 shows the chosen
+  "Apply to all" basket's image and text.
+- **Not done:** merchant Routing page does not show the image yet (decide later). Not looked at in
+  a browser. `packages/storage` must be rebuilt (`dist/` is git-ignored) for the new key builder.
+
+## 2026-09-25 — Shopify onboarding: pick products, then baskets
+
+- **Change:** onboarding page 2 is now two stages (spec:
+  `docs/superpowers/specs/2026-09-25-shopify-onboarding-product-basket-design.md`).
+  1. New product filters on `GET /v1/shopify/products` (type, vendor, tag, collection,
+     category, status, title search with literal `%`/`_`), a facets endpoint, and a
+     transactional `POST /v1/shopify/products/bulk` (enable and/or pin, by ids or by
+     filter + `excludeIds`, store-scoped, 404 on an inactive basket).
+  2. New nullable `shopify_product_garments.category` (Shopify taxonomy `fullName`),
+     filled by the product sync. **Migration `0205_big_monster_badoon.sql` is generated
+     locally and ships via CI → `db:migrate:prod`; existing stores get categories only
+     after their next sync.**
+  3. `/me` returns `stats.unroutedEnabledCount`. The SPA derives wizard progress from it
+     (no new flag): Intro → Page 2 (pick, then baskets) → Theme, progress 25/50/75/100%.
+  4. The Routing onboarding page is removed; `/onboarding/routing` redirects to page 2.
+     `confirm-routing` and `onboardingRoutingConfirmed` are left in place, unused.
+- **Behaviour change:** the wizard's sync no longer switches the store to global mode.
+- **Not done:** assigning baskets by filter group, a Back control between the stages,
+  removing the unused `confirm-routing` route/flag, backfilling categories for existing
+  stores without waiting for a re-sync. The `category { fullName }` GraphQL field has not
+  been exercised against a live Shopify store (needs a dev-store sync to confirm).
+- **Open question:** none blocking. The page-2 layout has only been checked by typecheck
+  and build; it needs a browser pass inside the Shopify admin iframe (dev store).
 
 ## 2026-09-21 — /results grid thumbnails (stored output thumb + on-demand input thumbs)
 

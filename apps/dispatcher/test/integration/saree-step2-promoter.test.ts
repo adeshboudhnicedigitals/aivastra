@@ -20,6 +20,7 @@ describe('promoteSareeStep2Jobs', () => {
     redis = new Redis('redis://127.0.0.1:6379');
     pub = new Redis('redis://127.0.0.1:6379');
     cfg = {
+      comfyRedis: redis,
       db: env.db,
       redis,
       pub,

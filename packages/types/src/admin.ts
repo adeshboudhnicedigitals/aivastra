@@ -95,7 +95,7 @@ const CoercedPositiveInt = z.union([
   z.number().int().positive(),
   z.string().regex(/^\d+$/).transform(Number),
 ]);
-const CatalogTypeSlug = z.enum(['lower', 'shoe']);
+const CatalogTypeSlug = z.enum(['lower', 'shoe', 'accessory']);
 
 export const PresignCatalogItemBody = z.object({
   typeSlug: CatalogTypeSlug,
@@ -436,6 +436,7 @@ export const CreateWorkflowBody = z
     lowerNodeId: z.string().min(1).optional(),
     shoeNodeId: z.string().min(1).optional(),
     thirdNodeId: z.string().min(1).optional(),
+    accessoryNodeId: z.string().min(1).optional(),
     sizeNodeIds: z.array(z.string().min(1)).optional(),
     // Dual-size-group templates (build_model_main v2+) — server-computed from node
     // titles at parse time, not manually edited via the admin form.
@@ -589,6 +590,7 @@ export const UpdateWorkflowBody = z.object({
   lowerNodeId: z.string().min(1).nullable().optional(),
   shoeNodeId: z.string().min(1).nullable().optional(),
   thirdNodeId: z.string().min(1).nullable().optional(),
+  accessoryNodeId: z.string().min(1).nullable().optional(),
   sizeNodeId: z.string().min(1).nullable().optional(),
   sizeNodeIds: z.array(z.string().min(1)).optional(),
   latentSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),

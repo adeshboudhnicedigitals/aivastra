@@ -117,6 +117,7 @@ export interface WorkflowOption {
   lowerNodeId: string | null;
   shoeNodeId: string | null;
   thirdNodeId: string | null;
+  accessoryNodeId: string | null;
   sizeNodeIds: string[];
   // Dual-size-group templates (build_model_main v2+) — empty arrays mean "use sizeNodeIds above".
   latentSizeNodeIds: string[];
@@ -445,6 +446,7 @@ export interface PoseGarmentConfig {
   id: string;
   isActive: boolean; // effective for this garment type: config.isActive ?? globalIsActive
   globalIsActive: boolean; // the pose asset's own flag (Pose Assets tab), shared by every garment type
+  globalSortOrder: number; // the pose asset's own order (Pose Assets tab), shared by every garment type
   defaultWorkflowTemplateId: string | null;
   defaultPromptGarmentPhase: string | null;
   defaultPromptFacePhase: string | null;
@@ -457,6 +459,7 @@ export interface PoseGarmentConfig {
     promptGarmentPhase: string | null;
     promptFacePhase: string | null;
     isActive: boolean | null;
+    sortOrder: number | null;
   } | null;
 }
 

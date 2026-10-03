@@ -40,19 +40,19 @@ export async function submitPrompt(
   return { promptId: json.prompt_id };
 }
 
-// ComfyUI's /interrupt stops whatever prompt is currently executing on that worker —
-// it takes no prompt_id, so this must only be called while this job's prompt is the
-// one actually running there (i.e. from inside the GENERATING poll loop, never after).
+// Unscoped compatibility path for never-configured workers only. The caller must
+// freshly authorize LEGACY before sending; a queued prompt can interrupt foreign work.
 export async function interruptPrompt(
   workerUrl: string,
   apiKey: string,
   log?: { info: (obj: unknown, msg: string) => void; error: (obj: unknown, msg: string) => void },
+  timeoutMs = 10_000,
 ): Promise<void> {
   const url = `${workerUrl.replace(/\/$/, '')}/interrupt`;
   const res = await fetch(url, {
     method: 'POST',
     headers: apiHeaders(apiKey),
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -137,6 +137,10 @@ export async function uploadImageToComfy(
   return json.name;
 }
 
+const VIEW_ATTEMPTS = 3;
+const VIEW_ATTEMPT_TIMEOUT_MS = 60_000;
+const VIEW_RETRY_DELAY_MS = 2_000;
+
 export async function downloadOutputImage(
   workerUrl: string,
   apiKey: string,
@@ -146,11 +150,83 @@ export async function downloadOutputImage(
   const url =
     `${workerUrl.replace(/\/$/, '')}/view?filename=${encodeURIComponent(filename)}` +
     `&type=output&subfolder=${encodeURIComponent(subfolder)}`;
-  const res = await fetch(url, {
-    headers: { 'X-Api-Key': apiKey },
-    signal: AbortSignal.timeout(120_000),
+  // The finished image already sits on the worker, so a stalled tunnel must not fall through
+  // to the job-level retry — that regenerates the whole image on another worker. Retry just
+  // the download; a short per-attempt timeout makes a stall fail fast instead of burning 120s.
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= VIEW_ATTEMPTS; attempt++) {
+    let permanent = false;
+    try {
+      const res = await fetch(url, {
+        headers: { 'X-Api-Key': apiKey },
+        signal: AbortSignal.timeout(VIEW_ATTEMPT_TIMEOUT_MS),
+      });
+      if (res.ok) return new Uint8Array(await res.arrayBuffer());
+      lastErr = new Error(`ComfyUI /view failed: ${res.status}`);
+      // A 4xx will not heal on retry (missing file, bad key).
+      permanent = res.status < 500;
+    } catch (err) {
+      lastErr = err;
+    }
+    if (permanent) break;
+    if (attempt < VIEW_ATTEMPTS)
+      await new Promise((r) => setTimeout(r, VIEW_RETRY_DELAY_MS * attempt));
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('ComfyUI /view failed');
+}
+
+// These endpoints are destructive only with live validation of this worker/version.
+export async function deleteQueuedPrompt(
+  workerUrl: string,
+  apiKey: string,
+  promptId: string,
+  timeoutMs: number,
+): Promise<void> {
+  await scopedRequest(workerUrl, apiKey, '/queue', { delete: [promptId] }, timeoutMs);
+}
+export async function interruptScopedPrompt(
+  workerUrl: string,
+  apiKey: string,
+  promptId: string,
+  timeoutMs: number,
+): Promise<void> {
+  await scopedRequest(workerUrl, apiKey, '/interrupt', { prompt_id: promptId }, timeoutMs);
+}
+async function scopedRequest(
+  workerUrl: string,
+  apiKey: string,
+  path: string,
+  body: unknown,
+  timeoutMs: number,
+): Promise<void> {
+  const res = await fetch(`${workerUrl.replace(/\/$/, '')}${path}`, {
+    method: 'POST',
+    headers: apiHeaders(apiKey),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!res.ok) throw new Error(`ComfyUI /view failed: ${res.status}`);
-  const buf = await res.arrayBuffer();
-  return new Uint8Array(buf);
+  if (!res.ok) throw new Error(`ComfyUI ${path} failed: ${res.status}`);
+}
+
+export type PromptQueueState = 'pending' | 'running' | 'absent';
+export async function fetchPromptQueueState(
+  workerUrl: string,
+  apiKey: string,
+  promptId: string,
+  timeoutMs = 10_000,
+): Promise<PromptQueueState> {
+  const res = await fetch(`${workerUrl.replace(/\/$/, '')}/queue`, {
+    headers: { 'X-Api-Key': apiKey },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`ComfyUI /queue failed: ${res.status}`);
+  const queue = (await res.json()) as { queue_running?: unknown; queue_pending?: unknown };
+  const valid = (items: unknown): items is unknown[][] =>
+    Array.isArray(items) &&
+    items.every((item) => Array.isArray(item) && typeof item[1] === 'string');
+  if (!valid(queue.queue_running) || !valid(queue.queue_pending))
+    throw new Error('Malformed ComfyUI /queue');
+  if (queue.queue_running.some((item) => item[1] === promptId)) return 'running';
+  if (queue.queue_pending.some((item) => item[1] === promptId)) return 'pending';
+  return 'absent';
 }

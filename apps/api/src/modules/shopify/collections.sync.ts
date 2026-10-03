@@ -173,7 +173,8 @@ export async function syncCollectionMembership(
 
 /**
  * Live search over every collection, for the "Add collections"/"Exclude
- * collections" picker modal.
+ * collections" picker modal. An empty `q` returns every collection, so the
+ * picker can list them all to tick from. Sorted by title.
  *
  * Fetches the full list and filters in memory. Shopify's native
  * `query: "title:*needle*"` search was considered and rejected: it tokenizes on
@@ -191,5 +192,6 @@ export async function searchCollections(
   const needle = q.toLowerCase();
   return [...titleById.entries()]
     .filter(([, title]) => title.toLowerCase().includes(needle))
-    .map(([shopifyCollectionId, title]) => ({ shopifyCollectionId, title }));
+    .map(([shopifyCollectionId, title]) => ({ shopifyCollectionId, title }))
+    .sort((a, b) => a.title.localeCompare(b.title));
 }

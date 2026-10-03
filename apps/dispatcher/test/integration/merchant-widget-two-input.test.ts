@@ -4,11 +4,12 @@ import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import sharp from 'sharp';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { processJob } from '../../src/job/processor.js';
 import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { assertQueueExhaustion } from '../helpers/queue-exhaustion.js';
 
 const WORKER_ID = 'test-worker-merchant-widget-two-input';
 const PERSON_NODE_ID = '26';
@@ -31,8 +32,8 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
 
   beforeAll(async () => {
     env = await setupTestEnv();
-    redis = new Redis('redis://127.0.0.1:6379');
-    pub = new Redis('redis://127.0.0.1:6379');
+    redis = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
+    pub = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
     comfy = await startComfyMock();
 
     await registerWorkers(redis, [
@@ -56,6 +57,7 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
   });
 
   beforeEach(async () => {
+    comfy.resetPrompts();
     comfy.setOptions({ outputBytes: realOutputBytes });
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
@@ -156,7 +158,16 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       '',
       'jobs:normal',
@@ -188,7 +199,16 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       '',
       'jobs:normal',
@@ -211,7 +231,16 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       '',
       'jobs:normal',
@@ -221,5 +250,77 @@ describe('merchant widget job — two-input (body + pallu) garment patching', ()
     const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(job?.status).toBe('FAILED');
     expect(job?.errorCode).toBe('TRYON_NODES_NOT_CONFIGURED');
+  });
+  it('queue_cleanup_failed terminates and refunds without attempts, output handling or requeue', async () => {
+    const { jobId } = await seedTwoInputMerchantWidgetJob();
+    if (!jobId) throw new Error('missing fixture IDs');
+    await assertQueueExhaustion(
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log: createLogger('test'),
+      },
+      comfy,
+      WORKER_ID,
+      jobId,
+      '',
+    );
+  });
+  it('DB cancellation suppresses widget output, completion SSE and completion webhook while ACKing', async () => {
+    const { jobId } = await seedTwoInputMerchantWidgetJob();
+    let cancelled = false;
+    comfy.setOptions({
+      onRequest: async (_method, path) => {
+        if (path === '/view' && !cancelled) {
+          cancelled = true;
+          await env.db
+            .update(schema.jobs)
+            .set({ status: 'CANCELLED', errorCode: 'ADMIN_CANCEL' })
+            .where(eq(schema.jobs.id, jobId));
+        }
+      },
+    });
+    const publication = vi.spyOn(pub, 'publish');
+    const outbound = vi.spyOn(redis, 'xadd');
+    const ack = vi.spyOn(redis, 'xack');
+    try {
+      await processJob(
+        {
+          db: env.db,
+          redis,
+          comfyRedis: redis,
+          pub,
+          storage: env.storage,
+          s3: env.s3,
+          r2Bucket: env.r2Bucket,
+          log: createLogger('test'),
+        },
+        jobId,
+        '',
+        'jobs:normal',
+        '10-1',
+      );
+      expect(cancelled).toBe(true);
+      const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+      expect(job.status).toBe('CANCELLED');
+      expect(job.errorCode).toBe('ADMIN_CANCEL');
+      expect(
+        await env.db.select().from(schema.jobOutputs).where(eq(schema.jobOutputs.jobId, jobId)),
+      ).toEqual([]);
+      expect(publication.mock.calls.some((call) => String(call[1]).includes('COMPLETED'))).toBe(
+        false,
+      );
+      expect(outbound.mock.calls.some((call) => call[0] === 'webhooks:outbound')).toBe(false);
+      expect(ack).toHaveBeenCalledWith('jobs:normal', 'dispatcher-cg', '10-1');
+    } finally {
+      publication.mockRestore();
+      outbound.mockRestore();
+      ack.mockRestore();
+    }
   });
 });

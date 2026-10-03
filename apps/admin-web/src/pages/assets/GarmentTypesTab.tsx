@@ -308,6 +308,7 @@ export function GarmentTypesTab() {
       promptGarmentPhase: string | null;
       promptFacePhase: string | null;
       isActive: boolean | null;
+      sortOrder?: number | null;
     },
   ) => {
     setSavingConfigId(poseAssetId);
@@ -316,23 +317,30 @@ export function GarmentTypesTab() {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
-      setPoseConfigs((prev) =>
-        prev.map((p) =>
-          p.id === poseAssetId
-            ? {
-                ...p,
-                isActive: patch.isActive ?? p.globalIsActive,
-                config:
-                  patch.workflowTemplateId ||
-                  patch.promptGarmentPhase ||
-                  patch.promptFacePhase ||
-                  patch.isActive !== null
-                    ? patch
-                    : null,
-              }
-            : p,
-        ),
-      );
+      if (typeof patch.sortOrder === 'number') {
+        // A reorder shifts every pose between the old and new position server-side,
+        // not just this one row - refetch the whole list rather than guessing at
+        // everyone else's new position optimistically.
+        await loadPoseConfigs(garmentTypeId);
+      } else {
+        setPoseConfigs((prev) =>
+          prev.map((p) =>
+            p.id === poseAssetId
+              ? {
+                  ...p,
+                  isActive: patch.isActive ?? p.globalIsActive,
+                  config:
+                    patch.workflowTemplateId ||
+                    patch.promptGarmentPhase ||
+                    patch.promptFacePhase ||
+                    patch.isActive !== null
+                      ? { ...patch, sortOrder: p.config?.sortOrder ?? null }
+                      : null,
+                }
+              : p,
+          ),
+        );
+      }
       toast({ title: 'Config saved' });
     } catch (e) {
       toast({
@@ -381,6 +389,7 @@ export function GarmentTypesTab() {
       promptGarmentPhase: prevItem?.config?.promptGarmentPhase ?? null,
       promptFacePhase: prevItem?.config?.promptFacePhase ?? null,
       isActive,
+      sortOrder: prevItem?.config?.sortOrder ?? null,
     };
     setPoseConfigs((prev) =>
       prev.map((p) => (p.id === poseAssetId ? { ...p, isActive, config: patch } : p)),
@@ -2012,6 +2021,7 @@ interface PoseConfigsPanelProps {
       promptGarmentPhase: string | null;
       promptFacePhase: string | null;
       isActive: boolean | null;
+      sortOrder?: number | null;
     },
   ) => Promise<void>;
   onToggleActive: (poseAssetId: string, isActive: boolean) => Promise<void>;
@@ -2045,6 +2055,7 @@ function PoseConfigsPanel({
   // permanent override — pinning must be a conscious choice, never a side effect of
   // picking a workflow (see the prompt-inheritance bug this was built to fix).
   const [editPromptOverrideEnabled, setEditPromptOverrideEnabled] = useState(false);
+  const [editSortOrder, setEditSortOrder] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkWorkflow, setBulkWorkflow] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -2234,6 +2245,12 @@ function PoseConfigsPanel({
     // with the toggle reflecting that, not just whatever text happens to be there.
     setEditPromptOverrideEnabled(!!item.config?.promptGarmentPhase);
     setEditGarmentPrompt(item.config?.promptGarmentPhase ?? wf?.defaultGarmentPhasePrompt ?? '');
+    // `items` already comes back from the server in effective order (per-type
+    // override, else the pose's global order), so this pose's position in that
+    // array IS its current rank — same source of truth whether or not it has a
+    // materialized override yet.
+    const currentRank = items.findIndex((i) => i.id === item.id) + 1;
+    setEditSortOrder(item.config?.sortOrder ?? currentRank);
   };
 
   const closeEdit = () => {
@@ -2241,10 +2258,12 @@ function PoseConfigsPanel({
     setEditWorkflow('');
     setEditGarmentPrompt('');
     setEditPromptOverrideEnabled(false);
+    setEditSortOrder(1);
   };
 
   const doSave = async () => {
     if (!editing) return;
+    const currentRank = items.findIndex((i) => i.id === editing.id) + 1;
     await onSave(sub.id, editing.id, {
       workflowTemplateId: editWorkflow || null,
       // Toggle off means "inherit" — save null regardless of what's in the
@@ -2255,6 +2274,10 @@ function PoseConfigsPanel({
       // This modal only edits workflow/prompt — preserve whatever active override
       // (if any) is already set via the card's Switch, rather than clearing it.
       isActive: editing.config?.isActive ?? null,
+      // Only send a move when the admin actually changed it — otherwise omit so
+      // an unrelated workflow/prompt edit never materializes a position for
+      // every pose in this garment type's list as a side effect.
+      sortOrder: editSortOrder !== currentRank ? editSortOrder : undefined,
     });
     closeEdit();
   };
@@ -2601,6 +2624,23 @@ function PoseConfigsPanel({
           onSave={() => void doSave()}
           saveLabel="Save"
         >
+          <div className="field">
+            <label>
+              Sort order{' '}
+              <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
+                (1 shows first; picking a taken position pushes the rest down)
+              </span>
+            </label>
+            <input
+              className="input"
+              type="number"
+              step={1}
+              min={1}
+              value={editSortOrder}
+              disabled={savingId === editing.id}
+              onChange={(e) => setEditSortOrder(Number(e.target.value))}
+            />
+          </div>
           <div className="field">
             <label>Workflow override</label>
             <SearchableSelect

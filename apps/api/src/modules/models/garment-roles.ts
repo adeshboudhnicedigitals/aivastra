@@ -6,10 +6,12 @@ export function poseGarmentRoles(w: {
   upperNodeIds?: string[] | null;
   lowerNodeId?: string | null;
   shoeNodeId?: string | null;
+  accessoryNodeId?: string | null;
 }) {
   return {
     hasUpper: (w.upperNodeIds?.length ?? 0) > 0,
     hasLower: w.lowerNodeId != null,
     hasShoes: w.shoeNodeId != null,
+    hasAccessory: w.accessoryNodeId != null,
   };
 }

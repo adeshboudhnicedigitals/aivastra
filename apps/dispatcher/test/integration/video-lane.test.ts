@@ -59,6 +59,7 @@ describe('video lane (jobs:video)', () => {
 
   function cfg() {
     return {
+      comfyRedis: redis,
       db: env.db,
       redis,
       pub,

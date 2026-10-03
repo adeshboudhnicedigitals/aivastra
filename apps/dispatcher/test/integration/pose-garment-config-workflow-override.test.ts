@@ -173,7 +173,16 @@ describe('dispatcher — pose_garment_configs workflow override (non-snapshot st
   async function runAndGetDispatchPayload(jobId: string, userId: string, msgId: string) {
     const log = createLogger('test');
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',

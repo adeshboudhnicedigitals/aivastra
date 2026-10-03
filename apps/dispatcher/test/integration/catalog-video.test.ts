@@ -99,7 +99,16 @@ describe('catalog video job (PixVerse)', () => {
     });
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -148,7 +157,16 @@ describe('catalog video job (PixVerse)', () => {
 
     // MAX_ATTEMPTS is 2 - run twice so the second attempt terminates instead of retrying.
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -156,7 +174,16 @@ describe('catalog video job (PixVerse)', () => {
     );
     await env.db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -182,7 +209,16 @@ describe('catalog video job (PixVerse)', () => {
     process.env.PIXVERSE_API_KEY = '';
     try {
       await processJob(
-        { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+        {
+          comfyRedis: redis,
+          db: env.db,
+          redis,
+          pub,
+          storage: env.storage,
+          s3: env.s3,
+          r2Bucket: env.r2Bucket,
+          log,
+        },
         jobId,
         userId,
         'jobs:video',
@@ -238,7 +274,16 @@ describe('catalog video job (PixVerse)', () => {
     });
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
