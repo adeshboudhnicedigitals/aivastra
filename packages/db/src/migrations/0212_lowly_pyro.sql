@@ -1,0 +1,1 @@
+ALTER TABLE "pose_garment_configs" ADD COLUMN "sort_order" integer;

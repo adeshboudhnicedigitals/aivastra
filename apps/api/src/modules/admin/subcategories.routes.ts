@@ -399,6 +399,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .select({
           id: schema.modelPoseAssets.id,
           globalIsActive: schema.modelPoseAssets.isActive,
+          globalSortOrder: schema.modelPoseAssets.sortOrder,
           label: schema.modelPoseAssets.label,
           displayName: schema.modelPoseAssets.displayName,
           thumbnailKey: schema.modelPoseAssets.thumbnailKey,
@@ -415,8 +416,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             // this panel is standalone poses for "Create your own look" only.
             eq(schema.modelPoseAssets.scope, 'general'),
           ),
-        )
-        .orderBy(asc(schema.modelPoseAssets.sortOrder), asc(schema.modelPoseAssets.label));
+        );
 
       const poseIds = poses.map((p) => p.id);
       const configs =
@@ -434,9 +434,20 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
 
       const configMap = new Map(configs.map((c) => [c.poseAssetId, c]));
 
+      // Effective order for this garment type: a per-type sortOrder override wins when
+      // set, otherwise fall back to the pose's global order — same
+      // cfg-overrides-global formula as isActive above, just for position instead of
+      // visibility.
+      const ordered = [...poses].sort((a, b) => {
+        const ea = configMap.get(a.id)?.sortOrder ?? a.globalSortOrder;
+        const eb = configMap.get(b.id)?.sortOrder ?? b.globalSortOrder;
+        if (ea !== eb) return ea - eb;
+        return a.label.localeCompare(b.label);
+      });
+
       return {
         items: await Promise.all(
-          poses.map(async (p) => {
+          ordered.map(async (p) => {
             const cfg = configMap.get(p.id) ?? null;
             // Effective active state for this garment type: the per-type override
             // wins when set, otherwise fall back to the pose asset's global flag.
@@ -451,6 +462,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
                     promptGarmentPhase: cfg.promptGarmentPhase,
                     promptFacePhase: cfg.promptFacePhase,
                     isActive: cfg.isActive,
+                    sortOrder: cfg.sortOrder,
                   }
                 : null,
             };
@@ -473,30 +485,174 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           promptGarmentPhase: z.string().nullable(),
           promptFacePhase: z.string().nullable(),
           isActive: z.boolean().nullable(),
+          // Omitted/undefined = "don't touch position". Present as a number = move this
+          // pose to that 1-based position within this garment type's list, same
+          // push-the-rest-down semantics as garment type sortOrder below.
+          sortOrder: z.number().int().nullable().optional(),
         }),
       },
     },
     async (req) => {
       const { id, poseAssetId } = req.params as { id: string; poseAssetId: string };
-      const { workflowTemplateId, promptGarmentPhase, promptFacePhase, isActive } = req.body as {
-        workflowTemplateId: string | null;
-        promptGarmentPhase: string | null;
-        promptFacePhase: string | null;
-        isActive: boolean | null;
-      };
+      const { workflowTemplateId, promptGarmentPhase, promptFacePhase, isActive, sortOrder } =
+        req.body as {
+          workflowTemplateId: string | null;
+          promptGarmentPhase: string | null;
+          promptFacePhase: string | null;
+          isActive: boolean | null;
+          sortOrder?: number | null;
+        };
+      const requestedSortOrder = typeof sortOrder === 'number' ? sortOrder : undefined;
+
+      if (requestedSortOrder !== undefined) {
+        await app.db.transaction(async (tx) => {
+          const [sub] = await tx
+            .select({ genderSlug: schema.garmentSubcategories.genderSlug })
+            .from(schema.garmentSubcategories)
+            .where(eq(schema.garmentSubcategories.id, id));
+          if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+
+          const poses = await tx
+            .select({
+              id: schema.modelPoseAssets.id,
+              globalSortOrder: schema.modelPoseAssets.sortOrder,
+              label: schema.modelPoseAssets.label,
+            })
+            .from(schema.modelPoseAssets)
+            .where(
+              and(
+                eq(schema.modelPoseAssets.genderSlug, sub.genderSlug ?? ''),
+                isNull(schema.modelPoseAssets.deletedAt),
+                eq(schema.modelPoseAssets.scope, 'general'),
+              ),
+            );
+          if (!poses.some((p) => p.id === poseAssetId)) {
+            throw new AppError('NOT_FOUND', 404, 'pose not found for this garment type');
+          }
+
+          const poseIds = poses.map((p) => p.id);
+          const existingConfigs = await tx
+            .select({
+              poseAssetId: schema.poseGarmentConfigs.poseAssetId,
+              sortOrder: schema.poseGarmentConfigs.sortOrder,
+            })
+            .from(schema.poseGarmentConfigs)
+            .where(
+              and(
+                inArray(schema.poseGarmentConfigs.poseAssetId, poseIds),
+                eq(schema.poseGarmentConfigs.subcategoryId, id),
+              ),
+            );
+          const existingSortMap = new Map(existingConfigs.map((c) => [c.poseAssetId, c.sortOrder]));
+
+          // Snapshot today's effective order (override, else global) into dense 1..N
+          // positions, materializing a real row for every pose in scope. Idempotent —
+          // if every pose already has a dense override, this recomputes the same values.
+          const ordered = [...poses].sort((a, b) => {
+            const ea = existingSortMap.get(a.id) ?? a.globalSortOrder;
+            const eb = existingSortMap.get(b.id) ?? b.globalSortOrder;
+            if (ea !== eb) return ea - eb;
+            return a.label.localeCompare(b.label);
+          });
+
+          await tx
+            .insert(schema.poseGarmentConfigs)
+            .values(
+              ordered.map((p, idx) => ({
+                poseAssetId: p.id,
+                subcategoryId: id,
+                sortOrder: idx + 1,
+              })),
+            )
+            .onConflictDoUpdate({
+              target: [
+                schema.poseGarmentConfigs.poseAssetId,
+                schema.poseGarmentConfigs.subcategoryId,
+              ],
+              set: { sortOrder: sql`excluded.sort_order` },
+            });
+
+          const currentPosition = ordered.findIndex((p) => p.id === poseAssetId) + 1;
+
+          if (requestedSortOrder !== currentPosition) {
+            if (requestedSortOrder > currentPosition) {
+              // Moving later: close the gap left behind by decrementing everything
+              // between the old spot (exclusive) and the new one.
+              await tx
+                .update(schema.poseGarmentConfigs)
+                .set({ sortOrder: sql`${schema.poseGarmentConfigs.sortOrder} - 1` })
+                .where(
+                  and(
+                    eq(schema.poseGarmentConfigs.subcategoryId, id),
+                    ne(schema.poseGarmentConfigs.poseAssetId, poseAssetId),
+                    gt(schema.poseGarmentConfigs.sortOrder, currentPosition),
+                    lte(schema.poseGarmentConfigs.sortOrder, requestedSortOrder),
+                  ),
+                );
+            } else {
+              // Moving earlier: open a gap by incrementing everything from the new
+              // spot up to (exclusive) the old one.
+              await tx
+                .update(schema.poseGarmentConfigs)
+                .set({ sortOrder: sql`${schema.poseGarmentConfigs.sortOrder} + 1` })
+                .where(
+                  and(
+                    eq(schema.poseGarmentConfigs.subcategoryId, id),
+                    ne(schema.poseGarmentConfigs.poseAssetId, poseAssetId),
+                    gte(schema.poseGarmentConfigs.sortOrder, requestedSortOrder),
+                    lt(schema.poseGarmentConfigs.sortOrder, currentPosition),
+                  ),
+                );
+            }
+          }
+
+          await tx
+            .update(schema.poseGarmentConfigs)
+            .set({
+              workflowTemplateId: workflowTemplateId ?? null,
+              promptGarmentPhase: promptGarmentPhase ?? null,
+              promptFacePhase: promptFacePhase ?? null,
+              isActive,
+              sortOrder: requestedSortOrder,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(schema.poseGarmentConfigs.poseAssetId, poseAssetId),
+                eq(schema.poseGarmentConfigs.subcategoryId, id),
+              ),
+            );
+        });
+
+        return { ok: true, action: 'upserted' };
+      }
 
       const hasOverride =
         workflowTemplateId || promptGarmentPhase || promptFacePhase || isActive !== null;
       if (!hasOverride) {
-        await app.db
-          .delete(schema.poseGarmentConfigs)
+        const [existing] = await app.db
+          .select({ sortOrder: schema.poseGarmentConfigs.sortOrder })
+          .from(schema.poseGarmentConfigs)
           .where(
             and(
               eq(schema.poseGarmentConfigs.poseAssetId, poseAssetId),
               eq(schema.poseGarmentConfigs.subcategoryId, id),
             ),
           );
-        return { ok: true, action: 'deleted' };
+        // A materialized position (see above) must survive clearing every other
+        // override — otherwise this pose would silently fall out of its ordered
+        // spot back to the unordered default the next time the list is touched.
+        if (existing?.sortOrder == null) {
+          await app.db
+            .delete(schema.poseGarmentConfigs)
+            .where(
+              and(
+                eq(schema.poseGarmentConfigs.poseAssetId, poseAssetId),
+                eq(schema.poseGarmentConfigs.subcategoryId, id),
+              ),
+            );
+          return { ok: true, action: 'deleted' };
+        }
       }
 
       await app.db
