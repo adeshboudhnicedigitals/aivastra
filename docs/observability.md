@@ -128,6 +128,12 @@ through the built-in `prometheus.exporter.unix`; the prod Alloy mounts `/proc`, 
 read-only for that and labels it `box="backend"`. Staging leaves `ALLOY_HOST_BOX` unset, so it
 pushes nothing. Check with `up{job="node"}`. Series use `instance=<box>`, never the address.
 
+**Series budget.** Grafana Cloud free tier allows 15,000 active series and each `node_exporter` exposes
+~2,300, so all node series go through a keep-list (`prometheus.relabel "node_keep"` in `alloy.alloy`)
+that holds only the metrics the dashboard and alerts use. Before adding a panel or alert on another
+`node_*` metric, add its name to that list or it never reaches Grafana. Check usage in Grafana Cloud
+under **Administration → Usage** or with `count({__name__=~".+"})`.
+
 ## Alerts
 
 Create these in Grafana Cloud (**Alerting → Alert rules**), wired to an email/Slack contact point:
