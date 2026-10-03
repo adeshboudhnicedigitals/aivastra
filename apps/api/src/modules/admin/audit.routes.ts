@@ -1,7 +1,9 @@
 import { schema } from '@aivastra/db';
-import { and, count, desc, eq, gte, ilike, inArray, lte, ne } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ilike, inArray, lte, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { AppError } from '../../lib/errors.js';
+import { executeAuditRevert, isAuditActionRevertible } from './audit-revert.js';
 import { requirePermission } from './guard.js';
 
 // resourceId is stored as plain text (workers.id is text, users/workflow_templates
@@ -166,10 +168,47 @@ export async function adminAuditRoutes(app: FastifyInstance) {
         .offset((page - 1) * pageSize);
 
       const resourceLabels = await resolveResourceLabels(app, rows);
-      const items = rows.map((row) => ({
-        ...row,
-        resourceLabel: row.resourceId ? (resourceLabels.get(row.resourceId) ?? null) : null,
-      }));
+
+      // Look up any logs on this page that have already been reverted
+      const rowIds = rows.map((r) => r.id);
+      const revertedLogMap = new Map<string, { revertedAt: string; revertedBy?: string }>();
+      if (rowIds.length > 0) {
+        const reverts = await app.db
+          .select({
+            revertedLogId: sql<string>`${schema.auditLogs.after}->>'revertedLogId'`,
+            createdAt: schema.auditLogs.createdAt,
+            actorUserId: schema.auditLogs.actorUserId,
+          })
+          .from(schema.auditLogs)
+          .where(
+            and(
+              eq(schema.auditLogs.action, 'audit.revert'),
+              inArray(sql`${schema.auditLogs.after}->>'revertedLogId'`, rowIds),
+            ),
+          );
+        for (const r of reverts) {
+          if (r.revertedLogId) {
+            revertedLogMap.set(r.revertedLogId, {
+              revertedAt: r.createdAt.toISOString(),
+              revertedBy: r.actorUserId,
+            });
+          }
+        }
+      }
+
+      const items = rows.map((row) => {
+        const check = isAuditActionRevertible(row);
+        const revertInfo = revertedLogMap.get(row.id);
+        return {
+          ...row,
+          resourceLabel: row.resourceId ? (resourceLabels.get(row.resourceId) ?? null) : null,
+          isRevertible: check.revertible,
+          revertReason: check.reason ?? null,
+          revertSummary: check.summary ?? null,
+          isReverted: Boolean(revertInfo),
+          revertedAt: revertInfo?.revertedAt ?? null,
+        };
+      });
 
       return {
         page,
@@ -177,6 +216,27 @@ export async function adminAuditRoutes(app: FastifyInstance) {
         total: Number(total),
         items,
       };
+    },
+  );
+
+  app.post(
+    '/admin/audit-logs/:id/revert',
+    {
+      preHandler: GUARD,
+      schema: { params: z.object({ id: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [targetLog] = await app.db
+        .select()
+        .from(schema.auditLogs)
+        .where(eq(schema.auditLogs.id, id));
+
+      if (!targetLog) {
+        throw new AppError('NOT_FOUND', 404, 'Audit log entry not found');
+      }
+
+      return await executeAuditRevert(app, targetLog, req);
     },
   );
 }
