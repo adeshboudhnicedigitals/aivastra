@@ -1478,6 +1478,13 @@
       "when": 1790852497422,
       "tag": "0211_seed_accessory_catalog_type",
       "breakpoints": true
+    },
+    {
+      "idx": 212,
+      "version": "7",
+      "when": 1790945026005,
+      "tag": "0212_lowly_pyro",
+      "breakpoints": true
     }
   ]
 }

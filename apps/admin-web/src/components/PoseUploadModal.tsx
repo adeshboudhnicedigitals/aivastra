@@ -91,6 +91,7 @@ export function PoseUploadModal({
   const [promptGarmentPhase, setPromptGarmentPhase] = useState('');
   const [promptsOpen, setPromptsOpen] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
+  const [workflowQuery, setWorkflowQuery] = useState('');
 
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -252,54 +253,94 @@ export function PoseUploadModal({
               Loading workflows…
             </div>
           ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                gap: 12,
-              }}
-            >
-              {workflows.map((wf) => (
-                <button
-                  key={wf.id}
-                  type="button"
-                  onClick={() => {
-                    setWorkflowTemplateId(wf.id);
-                    setPromptGarmentPhase(wf.defaultGarmentPhasePrompt);
-                    setStep(2);
-                  }}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 10,
-                    padding: '16px',
-                    background:
-                      workflowTemplateId === wf.id ? 'var(--accent-soft)' : 'var(--surface-2)',
-                    border: `1.5px solid ${workflowTemplateId === wf.id ? 'var(--accent)' : 'var(--border)'}`,
-                    borderRadius: 'var(--r-lg)',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    transition: 'border-color 120ms, background 120ms',
-                  }}
-                >
-                  <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink-1)' }}>
-                    {wf.label}
+            <>
+              <input
+                className="input"
+                placeholder="Search workflows…"
+                value={workflowQuery}
+                onChange={(e) => setWorkflowQuery(e.target.value)}
+                aria-label="Search workflows"
+              />
+              {(() => {
+                const filteredWorkflows = workflowQuery
+                  ? workflows.filter((wf) =>
+                      wf.label.toLowerCase().includes(workflowQuery.toLowerCase()),
+                    )
+                  : workflows;
+                if (filteredWorkflows.length === 0) {
+                  return (
+                    <div
+                      style={{
+                        textAlign: 'center',
+                        color: 'var(--muted)',
+                        fontSize: 13,
+                        padding: '40px 0',
+                      }}
+                    >
+                      No workflows match “{workflowQuery}”.
+                    </div>
+                  );
+                }
+                return (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                      gap: 12,
+                    }}
+                  >
+                    {filteredWorkflows.map((wf) => (
+                      <button
+                        key={wf.id}
+                        type="button"
+                        onClick={() => {
+                          setWorkflowTemplateId(wf.id);
+                          setPromptGarmentPhase(wf.defaultGarmentPhasePrompt);
+                          setStep(2);
+                        }}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 10,
+                          padding: '16px',
+                          background:
+                            workflowTemplateId === wf.id
+                              ? 'var(--accent-soft)'
+                              : 'var(--surface-2)',
+                          border: `1.5px solid ${workflowTemplateId === wf.id ? 'var(--accent)' : 'var(--border)'}`,
+                          borderRadius: 'var(--r-lg)',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          transition: 'border-color 120ms, background 120ms',
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink-1)' }}>
+                          {wf.label}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                            ✓ Upper garment
+                          </span>
+                          {wf.lowerNodeId && (
+                            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                              ✓ Lower garment
+                            </span>
+                          )}
+                          {wf.shoeNodeId && (
+                            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>✓ Shoes</span>
+                          )}
+                          {wf.sizeNodeIds.length > 0 && (
+                            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                              ✓ Aspect ratio
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>✓ Upper garment</span>
-                    {wf.lowerNodeId && (
-                      <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>✓ Lower garment</span>
-                    )}
-                    {wf.shoeNodeId && (
-                      <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>✓ Shoes</span>
-                    )}
-                    {wf.sizeNodeIds.length > 0 && (
-                      <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>✓ Aspect ratio</span>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
+                );
+              })()}
+            </>
           )}
         </div>
       )}
