@@ -56,7 +56,12 @@ export const merchants = pgTable('merchants', {
   //                    and merchant spend draws from that same user_credits
   //                    balance, so watch for accounts burning through it via
   //                    GPU abuse.
-  signupSource: text('signup_source', { enum: ['admin', 'android_google'] })
+  // 'wordpress'      -- self-serve signup from the WordPress plugin's embedded
+  //                    connect form via POST /v1/merchant/wordpress-login or
+  //                    /v1/merchant/wordpress-connect (ensureMerchantForUser in
+  //                    wordpress-connect.routes.ts). Same no-separate-credit-grant
+  //                    reasoning as android_google.
+  signupSource: text('signup_source', { enum: ['admin', 'android_google', 'wordpress'] })
     .notNull()
     .default('admin'),
   // Login credentials live on `users` — a merchant IS a user with a merchants
