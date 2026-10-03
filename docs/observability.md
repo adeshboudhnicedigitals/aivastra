@@ -117,6 +117,13 @@ gets. Add a box once its exporter is up and its firewall allows the VPS egress I
 box side lives in the aivastra-gpu ops repo, then recreate Alloy (`docker compose up -d alloy`).
 Check with `up{job="gpu"}`.
 
+**Host metrics (CPU, RAM, disk, network).** The dashboard also has a Host section. GPU boxes run
+`node_exporter` (Ubuntu package `prometheus-node-exporter`, port 9100), scraped as `job="node"`
+from `ALLOY_NODE_TARGETS` (same JSON format as above, port 9100). The backend VPS reports itself
+through the built-in `prometheus.exporter.unix`; the prod Alloy mounts `/proc`, `/sys` and `/`
+read-only for that and labels it `box="backend"`. Staging leaves `ALLOY_HOST_BOX` unset, so it
+pushes nothing. Check with `up{job="node"}`. Series use `instance=<box>`, never the address.
+
 ## Alerts
 
 Create these in Grafana Cloud (**Alerting → Alert rules**), wired to an email/Slack contact point:
@@ -129,6 +136,9 @@ Create these in Grafana Cloud (**Alerting → Alert rules**), wired to an email/
 | API 5xx rate high | `sum(rate(http_request_duration_seconds_count{status=~"5.."}[5m])) > 0.5` |
 | API p95 latency high | `histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 2` |
 | E2E latency high | `histogram_quantile(0.95, sum by (le) (rate(job_e2e_duration_seconds_bucket[10m]))) > 120` |
+| Root disk almost full | `max by (box) (1 - node_filesystem_avail_bytes{job="node",mountpoint="/",fstype!~"tmpfs\|overlay\|squashfs"} / node_filesystem_size_bytes{job="node",mountpoint="/",fstype!~"tmpfs\|overlay\|squashfs"}) > 0.9` for 10m |
+| Host memory pressure | `max by (box) (1 - node_memory_MemAvailable_bytes{job="node"} / node_memory_MemTotal_bytes{job="node"}) > 0.9` for 10m |
+| GPU/host exporter down | `up{job=~"gpu\|node"} == 0` for 5m |
 
 ### ComfyUI execution-start timeout (Stage 1 with approved exhaustion cleanup)
 
