@@ -72,7 +72,103 @@ Net: the account, credit, and job-execution machinery needs **no changes**.
 
 ## 4. What's new
 
-### 4.1 Connection flow: paste two API keys, not OAuth
+### 4.1 Connection flow: "Log in with Ai Vastra" (OAuth-style), paste-key kept as a fallback
+
+**Originally shipped as paste-key only for v1** (see history below), then
+superseded: the admin now gets a primary **"Log in with Ai Vastra"** button
+that mints and links both keys automatically, with the original paste-key form
+kept as a collapsed **"Advanced: connect with API keys instead"** fallback —
+unchanged, same two fields, same `handle_connect()` logic.
+
+This is a reversed OAuth authorization-code flow: the WordPress site is the
+"client," `app.aivastra.com` is the "authorization server." It reuses two
+already-shipped mechanisms rather than inventing new ones:
+
+- the Google-login state+redirect+one-time-Redis-code shape
+  (`apps/api/src/modules/auth/google.routes.ts`), mirrored here as
+  `wordpress:connect:{code}` (`EX 120`, `redis.getdel` on redemption,
+  never embedded in a URL);
+- the existing full+widget key-minting shape (`merchant/api-keys.routes.ts`),
+  still gated exclusively behind `requireMerchant`'s session JWT — a leaked
+  key still can never mint another.
+
+Flow: wp-admin → `admin_post_aivastra_tryon_connect_start` stores a `state`
+transient and redirects to `app.aivastra.com/connect/wordpress?state=…` →
+admin logs in or signs up there (the existing `next=`-redirect login/register
+pages, unchanged) → consent screen → `POST /v1/merchant/wordpress-connect`
+mints both keys, returns a one-time `code` → full-page redirect back to
+`admin_post_aivastra_tryon_connect_callback` with `state`+`code` → the plugin
+verifies `state` against its transient, calls
+`Aivastra_Connection_Service::exchange_connect_code()` →
+`POST /v1/wordpress/connect/exchange` redeems the code once → stores via the
+same, unchanged `set_widget_key_and_snapshot()` the paste-key path already
+used.
+
+**Why reopen a decision this doc already made:** the paste-key-for-v1 call
+below was explicitly conditional — "revisit a Connect-button flow only if
+onboarding friction shows up in support tickets." This was reopened directly
+by product decision rather than support data, but once the OAuth-style surface
+was being built anyway, the cost side of the original comparison (real net-new
+backend surface, open-redirect hardening, a hosted consent screen) no longer
+weighed against doing it — it had to be built regardless, and the user cost
+column (one click, no copy/paste, no separate account-creation detour) is
+strictly better. Paste-key stays, not as the primary path, but because some
+admins may prefer not to use their aivastra login from inside wp-admin at all.
+
+**2026-10-02 update — embedded email/password supersedes the redirect as the
+primary path, the redirect becomes the Google-only sub-path.** Product wanted
+the browser round trip to `app.aivastra.com` gone entirely for the common case
+("exactly like Shopify" — the merchant never leaves wp-admin). Full
+server-to-server auth was already achievable for email+password (PHP
+`wp_remote_post` straight to the Fastify API with a Bearer token; every
+`require*` auth decorator in this codebase reads only the `Authorization`
+header, never cookies), so that became the new primary form: a plain
+email+password form inside wp-admin posts via `admin-ajax.php`
+(`Aivastra_Connect_Ajax` → `Aivastra_Connection_Service::login_or_register()`)
+to a new, public, rate-limited (5/min) **`POST /v1/merchant/wordpress-login`**
+(`apps/api/src/modules/merchant/wordpress-login.routes.ts`), which logs an
+existing verified account in and mints its key pair in one request, or
+registers a brand-new one (reusing `/v1/auth/register`'s own
+verification-email mechanism rather than skipping verification — an
+unverified email still can never mint a working key) and returns `202
+{status:'verification_required'}` instead. Either way: one AJAX call, zero
+redirects.
+
+Google sign-in keeps one unavoidable hop through `app.aivastra.com`: Google
+requires an exact-match *registered* redirect URI
+(`GOOGLE_CALLBACK_URL`, fixed to `api.aivastra.com`) and will never redirect
+straight into a WordPress site's `admin-post.php`. What changed is skipping our
+own branded `/login` form on the way there — `handle_connect_start()` now
+redirects to `{API_BASE}/v1/auth/google/init?next=<encoded /connect/wordpress
+consent path>&src=wordpress_plugin` instead of the consent page directly;
+`next` round-trips as an opaque query value through the whole Google flow
+(`apps/catalogues-web/src/app/api/auth/google/callback/route.ts` resolves it as
+a path relative to the web app's own origin, never a full URL) and lands the
+browser on the same, already-built `/connect/wordpress` consent page as
+before. `handle_connect_callback()` is unchanged — it was already agnostic to
+how the browser arrived.
+
+The real pre-existing gap this surfaced: a `merchants` row was only ever
+created by the admin panel or the Android app's device-authed onboarding —
+nothing self-serve could create one. A brand-new Google signup landing on
+`/connect/wordpress` would previously dead-end on "contact support." Both
+entry points now share `ensureMerchantForUser()`
+(`apps/api/src/modules/merchant/wordpress-shared.ts`): finds the caller's
+merchant row, or self-serve-creates one (`signupSource: 'wordpress'`, now a
+valid value in the `merchants.signup_source` CHECK constraint — migration
+`0209`) given a phone number, the one field with no reasonable fallback.
+`POST /v1/merchant/wordpress-connect` swapped its `preHandler` from
+`requireMerchant` to `requireUser` so the handler itself can run that
+self-serve path instead of 403ing before it gets the chance; the
+`/connect/wordpress` page's merchant-gate message was split into two —
+"inactive" (contact support, unchanged) vs. "no row yet" (an inline phone
+field calling the same extended endpoint).
+
+The collapsed "Advanced: connect with API keys instead" paste-key form is
+untouched, still the fallback of last resort.
+
+<details>
+<summary>Original v1 design (superseded above, kept for history)</summary>
 
 Merchant logs into their aivastra merchant account and generates two keys
 under **Settings → API Keys**:
@@ -94,6 +190,8 @@ the browser can read. The plugin never mints keys itself.
 if onboarding friction shows up in support tickets — building OAuth machinery
 speculatively is exactly the kind of premature abstraction this repo's own
 conventions warn against.
+
+</details>
 
 ### 4.2 The one real gap: a storefront-safe key scope
 
@@ -268,9 +366,16 @@ shows this matters.
 
 - `aivastra-tryon.php` — bootstrap, activation/deactivation hooks. No external
   calls on activation; connection happens explicitly in settings.
-- `admin/settings-page.php` — native WP Settings API page: two paste fields —
-  the full API key and the widget-scoped key (both generated by the merchant
-  in the merchant portal, not by the plugin — see §4.2), held server-side
+- `admin/settings-page.php` — native WP Settings API page. Primary connect
+  action is **"Log in with Ai Vastra"** (§4.1) — two `admin_post` handlers,
+  `handle_connect_start()`/`handle_connect_callback()`, plus
+  `Aivastra_Connection_Service::exchange_connect_code()` — which mints and
+  links both keys with no manual copy/paste. The original two-paste-field form
+  (full API key + widget-scoped key, both generated by the merchant in the
+  merchant portal, not by the plugin — see §4.2) is kept, unchanged, behind a
+  collapsed "Advanced: connect with API keys instead" `<details>`, reachable
+  from both the not-yet-connected card and the connected dashboard's "Update
+  connection keys" accordion. Either path stores the same way, server-side
   only; accent color, button copy, per-category workflow mapping (§4.3a,
   supersedes the earlier "per-product-category enable toggle" placeholder —
   the real need turned out to be *routing*, not an on/off switch).

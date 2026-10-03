@@ -102,6 +102,38 @@ Import `infra/observability/dashboards/aivastra-overview.json` in Grafana
 jobs by outcome, job duration p50/p95, E2E job latency p50/p95, workers healthy, HTTP request rate,
 HTTP p95 latency, ComfyUI round-trip p50/p95.
 
+### GPU boxes
+
+Import `infra/observability/dashboards/aivastra-gpus.json` the same way. Panels: exporters up,
+utilization, VRAM, temperature, power draw, throttling, SM clock, ECC/row-remap errors and a GPU
+inventory table, with a `box` variable to pick boxes.
+
+The data comes from `nvidia_gpu_exporter` (port 9835) on each GPU box, scraped by the **prod**
+Alloy (`prometheus.scrape "gpus"` in `alloy.alloy`) and labelled `job="gpu"`, `box="gpuN"`. The
+targets come from `ALLOY_GPU_TARGETS` in `.env.production` on the VPS (git-ignored, so box
+addresses stay out of this public repo), a JSON array such as
+`[{"__address__":"<host>:9835","box":"gpu1"}]`; unset means no scraping, which is what staging
+gets. Add a box once its exporter is up and its firewall allows the VPS egress IP on 9835; the
+box side lives in the aivastra-gpu ops repo, then recreate Alloy (`docker compose up -d alloy`).
+Check with `up{job="gpu"}`.
+
+**The dashboard JSON is not read from the repo.** Grafana keeps its own copy, so after editing
+`aivastra-gpus.json` it must be re-imported (**Dashboards → New → Import**, same uid) for the change
+to show.
+
+**Host metrics (CPU, RAM, disk, network).** The dashboard also has a Host section. GPU boxes run
+`node_exporter` (Ubuntu package `prometheus-node-exporter`, port 9100), scraped as `job="node"`
+from `ALLOY_NODE_TARGETS` (same JSON format as above, port 9100). The backend VPS reports itself
+through the built-in `prometheus.exporter.unix`; the prod Alloy mounts `/proc`, `/sys` and `/`
+read-only for that and labels it `box="backend"`. Staging leaves `ALLOY_HOST_BOX` unset, so it
+pushes nothing. Check with `up{job="node"}`. Series use `instance=<box>`, never the address.
+
+**Series budget.** Grafana Cloud free tier allows 15,000 active series and each `node_exporter` exposes
+~2,300, so all node series go through a keep-list (`prometheus.relabel "node_keep"` in `alloy.alloy`)
+that holds only the metrics the dashboard and alerts use. Before adding a panel or alert on another
+`node_*` metric, add its name to that list or it never reaches Grafana. Check usage in Grafana Cloud
+under **Administration → Usage** or with `count({__name__=~".+"})`.
+
 ## Alerts
 
 Create these in Grafana Cloud (**Alerting → Alert rules**), wired to an email/Slack contact point:
@@ -114,6 +146,9 @@ Create these in Grafana Cloud (**Alerting → Alert rules**), wired to an email/
 | API 5xx rate high | `sum(rate(http_request_duration_seconds_count{status=~"5.."}[5m])) > 0.5` |
 | API p95 latency high | `histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 2` |
 | E2E latency high | `histogram_quantile(0.95, sum by (le) (rate(job_e2e_duration_seconds_bucket[10m]))) > 120` |
+| Root disk almost full | `max by (box) (1 - node_filesystem_avail_bytes{job="node",mountpoint="/",fstype!~"tmpfs\|overlay\|squashfs"} / node_filesystem_size_bytes{job="node",mountpoint="/",fstype!~"tmpfs\|overlay\|squashfs"}) > 0.9` for 10m |
+| Host memory pressure | `max by (box) (1 - node_memory_MemAvailable_bytes{job="node"} / node_memory_MemTotal_bytes{job="node"}) > 0.9` for 10m |
+| GPU/host exporter down | `up{job=~"gpu\|node"} == 0` for 5m |
 
 ### ComfyUI execution-start timeout (Stage 1 with approved exhaustion cleanup)
 

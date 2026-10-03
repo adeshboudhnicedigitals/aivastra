@@ -106,6 +106,142 @@ prometheus.scrape "aivastra" {
   forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
 }
 
+// ── GPU boxes: scrape nvidia_gpu_exporter on each ComfyUI box ─────────────────
+//
+// Exporter runs on port 9835 on each box (see the aivastra-gpu ops repo). The target
+// list is a JSON array in ALLOY_GPU_TARGETS (set in .env.production on the VPS, never
+// committed, so box addresses stay out of git), e.g.
+//   ALLOY_GPU_TARGETS='[{"__address__":"<host>:9835","box":"gpu1"}]'
+// Unset or "[]" means no GPU scraping, which is what staging gets: prod and staging
+// share this file and the same VPS egress IP, so only prod should push these series.
+// Add a box only once its exporter is running and its firewall allows the VPS.
+// Set `instance` to the box name so the box address never reaches Grafana Cloud.
+discovery.relabel "gpus" {
+  targets = encoding.from_json(coalesce(sys.env("ALLOY_GPU_TARGETS"), "[]"))
+
+  rule {
+    source_labels = ["box"]
+    target_label  = "instance"
+  }
+}
+
+prometheus.scrape "gpus" {
+  targets         = discovery.relabel.gpus.output
+  job_name        = "gpu"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+// ── Host metrics (CPU, RAM, disk, network) ────────────────────────────────────
+//
+// GPU boxes: node_exporter (apt package prometheus-node-exporter) on port 9100, same
+// pull model, secrets handling and prod-only behaviour as the GPU exporter above.
+// ALLOY_NODE_TARGETS='[{"__address__":"<host>:9100","box":"gpu1"}]' in .env.production.
+// Grafana Cloud free tier caps active series (15,000). node_exporter exposes ~2,300 series
+// per box and the dashboard/alerts read about ten metric names, so 7 boxes plus the backend
+// blew the cap (HTTP 429, series rejected). Keep only what is used, and thin the three
+// metrics with per-core / per-device labels the same way the dashboard queries do.
+// A new panel or alert on another node_* metric must add its name to the first rule.
+// `up` is the scrape's own series and arrives through this receiver too.
+prometheus.relabel "node_keep" {
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+
+  rule {
+    source_labels = ["__name__"]
+    regex         = "up|node_uname_info|node_load1|node_cpu_seconds_total|node_memory_MemAvailable_bytes|node_memory_MemTotal_bytes|node_filesystem_avail_bytes|node_filesystem_size_bytes|node_network_receive_bytes_total|node_network_transmit_bytes_total|node_disk_io_time_seconds_total"
+    action        = "keep"
+  }
+
+  // CPU: the dashboard only uses mode="idle".
+  rule {
+    source_labels = ["__name__", "mode"]
+    regex         = "node_cpu_seconds_total;(user|system|nice|iowait|irq|softirq|steal|guest|guest_nice)"
+    action        = "drop"
+  }
+
+  // Filesystems: pseudo filesystems add series and are never alerted on.
+  rule {
+    source_labels = ["__name__", "fstype"]
+    regex         = "node_filesystem_.*;(tmpfs|overlay|squashfs|devtmpfs|ramfs|efivarfs|fuse.*|nsfs|proc|sysfs|cgroup.*)"
+    action        = "drop"
+  }
+
+  // Network: same device filter as the dashboard (loopback, docker, veth, bridges).
+  rule {
+    source_labels = ["__name__", "device"]
+    regex         = "node_network_.*;(lo|docker.*|veth.*|br-.*)"
+    action        = "drop"
+  }
+
+  // Disk busy: loop and ram devices.
+  rule {
+    source_labels = ["__name__", "device"]
+    regex         = "node_disk_io_time_seconds_total;(loop.*|ram.*)"
+    action        = "drop"
+  }
+}
+
+discovery.relabel "gpu_hosts" {
+  targets = encoding.from_json(coalesce(sys.env("ALLOY_NODE_TARGETS"), "[]"))
+
+  rule {
+    source_labels = ["box"]
+    target_label  = "instance"
+  }
+}
+
+prometheus.scrape "gpu_hosts" {
+  targets         = discovery.relabel.gpu_hosts.output
+  job_name        = "node"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.relabel.node_keep.receiver]
+}
+
+// The backend VPS itself, via the built-in unix exporter. Reading the host (not the
+// container) needs /proc, /sys and / mounted read-only, which only docker-compose.prod.yml
+// does, and it names the box with ALLOY_HOST_BOX. Staging shares this file and this VPS but
+// leaves ALLOY_HOST_BOX unset, so its series are dropped and nothing is pushed twice.
+prometheus.exporter.unix "vps" {
+  procfs_path = coalesce(sys.env("ALLOY_HOST_PROCFS"), "/proc")
+  sysfs_path  = coalesce(sys.env("ALLOY_HOST_SYSFS"), "/sys")
+  rootfs_path = coalesce(sys.env("ALLOY_HOST_ROOTFS"), "/")
+}
+
+discovery.relabel "vps" {
+  targets = prometheus.exporter.unix.vps.targets
+
+  rule {
+    target_label = "box"
+    replacement  = coalesce(sys.env("ALLOY_HOST_BOX"), "")
+  }
+
+  rule {
+    source_labels = ["box"]
+    regex         = ".+"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["box"]
+    target_label  = "instance"
+  }
+
+  // prometheus.exporter.unix targets carry job="integrations/unix", which overrides
+  // the scrape's job_name. The dashboard and alerts select job="node", so force it,
+  // otherwise the backend host series never match them.
+  rule {
+    target_label = "job"
+    replacement  = "node"
+  }
+}
+
+prometheus.scrape "vps" {
+  targets         = discovery.relabel.vps.output
+  job_name        = "node"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.relabel.node_keep.receiver]
+}
+
 prometheus.remote_write "grafana_cloud" {
   endpoint {
     url = sys.env("GRAFANA_CLOUD_PROM_URL")

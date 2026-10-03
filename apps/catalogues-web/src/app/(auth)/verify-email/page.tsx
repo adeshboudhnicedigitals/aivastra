@@ -13,9 +13,12 @@ export default function VerifyEmailPage(): React.ReactElement {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
 
+  const [pendingNext, setPendingNext] = useState('');
+
   useEffect(() => {
     const stored = sessionStorage.getItem('pending_verify_email') ?? '';
     setEmail(stored);
+    setPendingNext(sessionStorage.getItem('pending_next') ?? '');
   }, []);
 
   async function handleResend() {
@@ -141,7 +144,9 @@ export default function VerifyEmailPage(): React.ReactElement {
         </button>
         <button
           type="button"
-          onClick={() => router.push('/login')}
+          onClick={() =>
+            router.push(pendingNext ? `/login?next=${encodeURIComponent(pendingNext)}` : '/login')
+          }
           style={{
             width: '100%',
             height: 44,

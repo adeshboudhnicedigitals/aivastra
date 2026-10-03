@@ -290,6 +290,17 @@
   color: var(--aivastra-danger);
 }
 
+/* "Save categories" / "Save appearance"-style submit rows: the button plus
+   its .aivastra-refresh-confirm inline confirmation beside it, same idiom as
+   the credits refresh button above — reused here so "Categories saved."
+   stops being a WP admin notice that core's common.js pops up next to the
+   page's first heading, nowhere near the button that was clicked. */
+.aivastra-save-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 /* Immediately beside the credit count/label — not pushed to the row's far
    right (margin-left: auto, tried first) — the merchant wants it found
    "clearly and soon" right where they're already looking at the number.
@@ -309,6 +320,14 @@
 
 .aivastra-accordion {
   border-radius: var(--aivastra-radius-control);
+}
+
+/* Separates the closed "Advanced" trigger from the solid "Continue with
+   Google" button directly above it — both are full-width, same border-
+   radius, same ~38px height, so with no gap between them they read as one
+   fused two-part control instead of two distinct actions. */
+.aivastra-connect-advanced {
+  margin-top: 18px;
 }
 
 .aivastra-accordion[open] {
@@ -1050,50 +1069,6 @@ a.aivastra-dashboard-stat {
   color: var(--aivastra-danger);
 }
 
-/* Connect card / connect form (shared with the "Update connection keys"
-   reveal, and — via render_onboarding_connect() — the whole of step 1 of
-   the setup wizard, where this heading is the first thing a merchant reads.
-   22px/700, bigger than the 19px/700 every other .aivastra-card-heading
-   uses (not that class itself — this card predates it and has its own icon
-   layout) — explicit font-weight for the same reason .aivastra-card-heading
-   needs one: wp-admin's own ambient h2 styling is 600, not 700, and with no
-   override here this read as barely bolder than the description line right
-   under it. */
-.aivastra-connect-heading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.3;
-  margin: 0 0 10px;
-  color: var(--aivastra-text-main);
-}
-
-.aivastra-connect-description {
-  color: var(--aivastra-text-muted);
-  font-size: 13.5px;
-  margin: 0 0 24px;
-}
-
-/* Points a fresh marketplace install (no account yet) or a merchant who's
-   forgotten where keys live at the web app. Shown above the connect form in
-   both places it renders — first-time connect and "Update connection keys". */
-.aivastra-onboarding-banner {
-  background: var(--aivastra-accent-soft);
-  border: 1px solid var(--aivastra-accent-border);
-  border-radius: var(--aivastra-radius-control);
-  padding: 12px 14px;
-  margin-bottom: 20px;
-}
-
-.aivastra-onboarding-banner-text {
-  margin: 0 0 10px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--aivastra-text-main);
-}
-
 .aivastra-onboarding-links {
   display: flex;
   flex-wrap: wrap;
@@ -1134,6 +1109,112 @@ a.aivastra-dashboard-stat {
   color: var(--aivastra-text-muted);
   font-size: 12.5px;
   line-height: 1.5;
+}
+
+/* Inline status for the embedded email/password connect form
+   (admin/assets/connect.js) — same display-toggle approach as
+   .aivastra-refresh-confirm, so it takes no space until there's something to
+   say. 'info' covers both "check your email" and "one more field needed",
+   neither of which is an error. */
+.aivastra-connect-message {
+  display: none;
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 8px 12px;
+  border-radius: var(--aivastra-radius-control);
+}
+
+.aivastra-connect-message.is-visible {
+  display: block;
+}
+
+.aivastra-connect-message.is-info {
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-text-main);
+}
+
+.aivastra-connect-message.is-error {
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--aivastra-danger);
+}
+
+/* "Log in / Sign up" and "Continue with Google", each its own full-width
+   row — stacked underneath Email/Password rather than side by side, so all
+   four rows (2 inputs, 2 buttons) share one width and the same 10px rhythm
+   .aivastra-form already uses between its own fields. Each button still
+   belongs to its own <form> (via the button's form="" attribute, not DOM
+   nesting), so this is purely a layout wrapper, not a form itself. */
+.aivastra-connect-actions-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.aivastra-connect-actions-row .aivastra-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+/* Narrower, centred column for just render_onboarding_connect()'s email/
+   password + action-button rows — not the wider 760px heading above it or
+   render_connect_form()'s other caller (the "Update connection keys" reveal,
+   already narrow inside its own card): two short fields filling the full
+   wizard width read as oversized. Also where this form's inputs/buttons get
+   taller than the plugin's shared .aivastra-input/.aivastra-btn defaults —
+   scoped to this column (not those base rules) so every other form on the
+   page (paste-key fallback, category search, widget customization, …) keeps
+   its normal size. The extra specificity on the input rule (one more class
+   than .wp-core-ui input.aivastra-input) is what makes it win regardless of
+   source order. */
+/* 32px top margin — the shared .aivastra-onboarding-heading above only
+   carries its own 24px bottom margin (step 2's categories heading uses the
+   same class and reads fine at that), which left this form crowding the
+   heading text once step 1 lost its description line. Added here, not on
+   the shared heading class, so step 2 isn't pushed down too. */
+.aivastra-connect-column {
+  max-width: 440px;
+  margin: 32px auto 0;
+}
+
+/* Same explicit line-height on both, not just matching padding — wp-admin's
+   own forms.css sets a line-height on text inputs that .aivastra-btn (a
+   flex-centred <button>, unaffected by line-height) never inherits, so equal
+   padding alone still rendered the input a few px shorter than the buttons
+   beside it. Pinning both to the same value is what actually makes the four
+   rows the same height.
+   .wp-core-ui leads this selector, not .aivastra-connect-column — .wp-core-ui
+   is on <body>, an ANCESTOR of .aivastra-connect-column, never a descendant
+   of it, so `.aivastra-connect-column .wp-core-ui …` (column first) can never
+   match anything and silently fell through to the plugin's small shared
+   default, which is why the inputs stayed short while the buttons (no
+   .wp-core-ui requirement to get backwards) picked up the taller size. */
+.wp-core-ui .aivastra-connect-column input.aivastra-input {
+  padding: 13px 16px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.aivastra-connect-column .aivastra-btn {
+  padding: 13px 16px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* More breathing room between Email, Password and the two buttons than the
+   plugin's shared 10px .aivastra-form/.aivastra-connect-actions-row gap —
+   scoped here for the same reason the taller input/button sizing above is:
+   this is the only full-width, four-row stack of its kind, and the other
+   .aivastra-form (the paste-key fallback) and .aivastra-connect-actions-row
+   caller (the "Update connection keys" reveal, already compact inside its
+   own card) both read fine at the tighter default. */
+.aivastra-connect-column .aivastra-form {
+  gap: 22px;
+}
+
+.aivastra-connect-column .aivastra-connect-actions-row {
+  gap: 22px;
+  margin-top: 22px;
 }
 
 /* Every card's own section heading (Connection has none — see the comment
@@ -1183,11 +1264,6 @@ a.aivastra-dashboard-stat {
 .aivastra-plans-page-heading .aivastra-heading-icon {
   width: 36px;
   height: 36px;
-}
-
-.aivastra-connect-heading .aivastra-heading-icon {
-  width: 32px;
-  height: 32px;
 }
 
 .aivastra-card-description {
@@ -2111,6 +2187,17 @@ a.aivastra-dashboard-stat {
   min-width: 0;
 }
 
+/* Groups Support with "Advanced: connect with API keys instead" (step 1
+   only — render_onboarding_topbar()'s $showAdvanced) as one right-hand unit,
+   so .aivastra-topbar's justify-content: space-between still only has two
+   flex children to split, same as when Support stood there alone. */
+.aivastra-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
 .aivastra-topbar-back {
   display: inline-flex;
   align-items: center;
@@ -2221,16 +2308,64 @@ a.aivastra-dashboard-stat {
   background: var(--aivastra-surface-subtle);
 }
 
+/* "Advanced: connect with API keys instead", docked in the onboarding
+   topbar for step 1 only (render_onboarding_topbar()'s $showAdvanced). Same
+   element, same .aivastra-accordion/.aivastra-accordion-body classes the
+   "Update connection keys" reveal uses inline elsewhere on this page — these
+   rules just override that inline-expanding layout into a floating popover
+   like .aivastra-topbar-support right next to it, rather than growing the
+   topbar taller when opened. */
+.aivastra-topbar-advanced {
+  position: relative;
+  flex: none;
+  margin-top: 0;
+}
+
+.aivastra-topbar-advanced > summary {
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
+.aivastra-topbar-advanced[open] {
+  flex-basis: auto;
+  border: none;
+  border-radius: var(--aivastra-radius-control);
+  overflow: visible;
+}
+
+.aivastra-topbar-advanced[open] > summary {
+  border: 1px solid var(--aivastra-accent-border);
+  border-radius: var(--aivastra-radius-control);
+  background: var(--aivastra-accent-soft);
+  color: var(--aivastra-accent);
+}
+
+.aivastra-topbar-advanced .aivastra-accordion-body {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  width: 380px;
+  max-width: calc(100vw - 40px);
+  border: 1px solid var(--aivastra-border);
+  border-radius: var(--aivastra-radius-control);
+  background: var(--aivastra-surface);
+  box-shadow: var(--aivastra-shadow-card);
+}
+
 /* Numbered progress row, styled after the Shopify app's OnboardingSteps —
    filled circle and connecting line up through the current step, outlined
    circle and grey line for steps not reached yet (Aivastra_Settings_Page::
-   render_progress_steps(), reading ONBOARDING_STEPS). */
+   render_progress_steps(), reading ONBOARDING_STEPS). 72px below (was 28px,
+   then 48px) — the step row and the page heading right under it
+   (.aivastra-onboarding-heading, both onboarding steps) still read as
+   crowding together at 48px. */
 .aivastra-progress-steps {
   display: flex;
   justify-content: center;
   align-items: flex-start;
   gap: 0;
-  margin: 0 0 28px;
+  margin: 0 0 72px;
   padding: 0;
   list-style: none;
 }
@@ -2293,17 +2428,13 @@ a.aivastra-dashboard-stat {
   font-weight: 700;
 }
 
-.aivastra-onboarding-body .aivastra-card {
-  margin-bottom: 0;
-}
-
 /* Step 2's page-level heading (render_onboarding_categories()) — the exact
    text and size of the Shopify app's own step 2 heading (OnboardingLayout.tsx:
-   fontSize 30, weight 700, centred), sitting above the reused Categories
-   card rather than inside it (that card's own "Categories" heading stays
-   short for its other job, the always-there dashboard tab). Centred to the
-   same column width as the card below it (.aivastra-onboarding-body's
-   max-width, via this shared class). */
+   fontSize 30, weight 700, centred), sitting above the flat category grid
+   below it (render_category_mapping($settings, false, false, false) — no
+   boxed card there any more, same bare-background treatment as every other
+   onboarding step). Centred to the same column width as that grid
+   (.aivastra-onboarding-body's max-width, via this shared class). */
 .aivastra-onboarding-heading {
   max-width: 760px;
   margin: 0 auto 24px;

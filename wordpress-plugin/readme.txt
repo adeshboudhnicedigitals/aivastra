@@ -44,13 +44,21 @@ using it, product images and shopper-submitted photos are sent to these services
 processing.
 
 * **Ai Vastra** (https://app.aivastra.com) — receives the product image and the shopper's
-  uploaded photo to generate the virtual try-on result, and receives account/billing
-  requests when a store purchases credits from inside wp-admin.
+  uploaded photo to generate the virtual try-on result, receives account/billing requests
+  when a store purchases credits from inside wp-admin, and receives anonymous try-on
+  interaction events (button shown/clicked, upload started, result viewed, added to cart,
+  shared — plus device type and a randomly-generated, non-personal browser identifier) used
+  solely to power the per-product analytics shown inside wp-admin. No event fires until the
+  shopper interacts with the try-on button; nothing is sent on page load.
   Terms of Service: https://app.aivastra.com/terms
   Privacy Policy: https://app.aivastra.com/privacy
-  NOTE: both pages are drafts (apps/catalogues-web/src/app/terms and .../privacy) pending
-  legal review and sign-off — do not submit to wp.org until they are reviewed, finalized,
-  and actually deployed at these URLs.
+  NOTE: both pages (apps/catalogues-web/src/app/terms and .../privacy) are now grounded in
+  Ai Vastra's own published policies at aivastra.com/terms and aivastra.com/privacy-policy,
+  not placeholder text — but a handful of items remain open pending a final legal pass
+  before wp.org submission: governing-law jurisdiction/city, a named Grievance Officer
+  (required under India's IT Rules), deletion-request turnaround time, and whether unused
+  credits expire. None of these are unique to this draft — Ai Vastra's own live policies
+  don't resolve them either. Do not submit to wp.org until legal confirms them.
 * **Razorpay** (https://razorpay.com) — processes the one-time payment when a store buys a
   credit pack from the plugin's settings page. Card/payment details are handled entirely by
   Razorpay's own checkout; this plugin never sees or stores payment credentials.

@@ -29,6 +29,8 @@ require_once AIVASTRA_TRYON_DIR . 'includes/class-cart-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-checkout-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-support-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-refresh-ajax.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-connect-ajax.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-category-map-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'admin/class-settings-page.php';
 require_once AIVASTRA_TRYON_DIR . 'public/class-widget-loader.php';
 
@@ -94,6 +96,8 @@ add_action('plugins_loaded', function (): void {
     Aivastra_Checkout_Ajax::init();
     Aivastra_Support_Ajax::init();
     Aivastra_Refresh_Ajax::init();
+    Aivastra_Connect_Ajax::init();
+    Aivastra_Category_Map_Ajax::init();
     Aivastra_Product_Toggle::init();
 });
 

@@ -231,6 +231,12 @@ services:
       - /etc/alloy/config.alloy
     environment:
       ALLOY_CONTAINER_REGEX: /aivastra-prod-.*
+      ALLOY_GPU_TARGETS: ${ALLOY_GPU_TARGETS:-[]}
+      ALLOY_NODE_TARGETS: ${ALLOY_NODE_TARGETS:-[]}
+      ALLOY_HOST_BOX: backend
+      ALLOY_HOST_PROCFS: /host/proc
+      ALLOY_HOST_SYSFS: /host/sys
+      ALLOY_HOST_ROOTFS: /host/root
       GRAFANA_CLOUD_LOKI_URL: ${GRAFANA_CLOUD_LOKI_URL}
       GRAFANA_CLOUD_LOKI_USER: ${GRAFANA_CLOUD_LOKI_USER}
       GRAFANA_CLOUD_PROM_URL: ${GRAFANA_CLOUD_PROM_URL}
@@ -239,6 +245,10 @@ services:
     volumes:
       - ./observability/alloy.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Read-only host views for the backend VPS host metrics (prometheus.exporter.unix).
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
       - alloydata:/var/lib/alloy/data
     depends_on:
       - api

@@ -95,6 +95,7 @@ function RegisterFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const src = searchParams.get('src') ?? undefined;
+  const nextPath = searchParams.get('next') ?? undefined;
   const [error, setError] = useState('');
   const [freeCredits, setFreeCredits] = useState(100);
 
@@ -134,10 +135,16 @@ function RegisterFormInner() {
     }
     if (body.requiresEmailVerification) {
       sessionStorage.setItem('pending_verify_email', data.email);
+      // Same-tab-only handoff, same caveat as pending_verify_email above: a
+      // verification link opened in a new tab/device won't see this, but the
+      // common case (closing the "check your inbox" tab and returning to the
+      // WordPress/connect tab, or verifying then coming back here) does.
+      if (nextPath) sessionStorage.setItem('pending_next', nextPath);
+      else sessionStorage.removeItem('pending_next');
       router.push('/verify-email');
       return;
     }
-    router.push('/studio');
+    router.push(nextPath ?? '/studio');
     router.refresh();
   }
 
@@ -193,7 +200,7 @@ function RegisterFormInner() {
             </div>
           </div>
 
-          <GoogleBtn label="Sign Up with Google" src={src} />
+          <GoogleBtn label="Sign Up with Google" src={src} next={nextPath} />
           <Divider label="Or Create Account With Email" />
 
           <form
@@ -311,7 +318,7 @@ function RegisterFormInner() {
           <p style={{ textAlign: 'center', fontSize: 12, color: C.light, margin: 0 }}>
             Already have an account?{' '}
             <Link
-              href="/login"
+              href={nextPath ? `/login?next=${encodeURIComponent(nextPath)}` : '/login'}
               style={{ fontWeight: 700, fontSize: 12, color: C.pink, textDecoration: 'none' }}
             >
               Sign In
