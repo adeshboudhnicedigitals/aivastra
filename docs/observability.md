@@ -117,6 +117,10 @@ gets. Add a box once its exporter is up and its firewall allows the VPS egress I
 box side lives in the aivastra-gpu ops repo, then recreate Alloy (`docker compose up -d alloy`).
 Check with `up{job="gpu"}`.
 
+**The dashboard JSON is not read from the repo.** Grafana keeps its own copy, so after editing
+`aivastra-gpus.json` it must be re-imported (**Dashboards → New → Import**, same uid) for the change
+to show.
+
 **Host metrics (CPU, RAM, disk, network).** The dashboard also has a Host section. GPU boxes run
 `node_exporter` (Ubuntu package `prometheus-node-exporter`, port 9100), scraped as `job="node"`
 from `ALLOY_NODE_TARGETS` (same JSON format as above, port 9100). The backend VPS reports itself

@@ -355,7 +355,11 @@ function LoginFormInner() {
           <p style={{ textAlign: 'center', fontSize: 12, color: C.light, margin: 0 }}>
             Don&apos;t have an account?{' '}
             <Link
-              href="/register"
+              href={
+                nextPath !== '/studio'
+                  ? `/register?next=${encodeURIComponent(nextPath)}`
+                  : '/register'
+              }
               style={{ fontWeight: 700, fontSize: 12, color: C.pink, textDecoration: 'none' }}
             >
               Sign Up

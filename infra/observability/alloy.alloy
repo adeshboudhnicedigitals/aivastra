@@ -181,6 +181,14 @@ discovery.relabel "vps" {
     source_labels = ["box"]
     target_label  = "instance"
   }
+
+  // prometheus.exporter.unix targets carry job="integrations/unix", which overrides
+  // the scrape's job_name. The dashboard and alerts select job="node", so force it,
+  // otherwise the backend host series never match them.
+  rule {
+    target_label = "job"
+    replacement  = "node"
+  }
 }
 
 prometheus.scrape "vps" {

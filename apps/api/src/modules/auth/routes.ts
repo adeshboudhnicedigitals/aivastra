@@ -174,7 +174,7 @@ export async function rotateTokenFamily(
     } as const;
   });
 }
-function makeToken(): string {
+export function makeToken(): string {
   return randomBytes(32).toString('hex');
 }
 
@@ -275,7 +275,7 @@ async function issueDeviceSession(
 // constraint and CreateUserBody's regex) so they can never contain '@' -- that
 // guarantee is what makes this single OR-lookup unambiguous: a value typed at
 // login can match at most one of the two columns, never both/either-of-two-rows.
-async function findUserByIdentifier(app: FastifyInstance, identifier: string) {
+export async function findUserByIdentifier(app: FastifyInstance, identifier: string) {
   const [user] = await app.db
     .select()
     .from(schema.users)

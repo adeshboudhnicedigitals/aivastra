@@ -2,6 +2,13 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-03 — GPU / host metrics dashboard: two defects found while it showed no data
+
+- **Done:** `alloy.alloy` `discovery.relabel "vps"` now forces `job="node"`. `prometheus.exporter.unix` targets carry `job="integrations/unix"`, which overrides the scrape `job_name`, so the backend host series never matched the dashboard/alert selectors (`job="node"`). Verified on the live scrape target (job `node`, health up); not yet seen in Grafana.
+- **Done:** the dashboard `box` variable is back to `label_values(nvidia_smi_gpu_info{job="gpu"}, box)`. The `label_values(up{job=~"gpu|node"}, box)` form from #459 resolved empty in Grafana Cloud, so every `box=~"$box"` panel showed no data; reverting fixed all panels (confirmed after re-importing the JSON). The root cause of why the `up` query returned nothing is **not established**.
+- **Failed-Not-Done:** with the revert, the backend VPS (`box="backend"`, `job="node"`) does not appear in the dropdown, so its node panels are excluded by `box=~"$box"`. A replacement query (e.g. based on `{__name__=~"nvidia_smi_gpu_info|node_uname_info", box!=""}`) was not verified in Grafana Explore, so it was not shipped.
+- **Ops notes:** the dashboard JSON is not read from the repo; re-import it after editing. The prod Alloy container predated #459, so it had no node/host settings or mounts and had to be recreated: `docker compose --env-file .env.production -f infra/docker-compose.prod.yml up -d --force-recreate --no-deps alloy`. Omitting `--env-file` empties `ALLOY_GPU_TARGETS` and the Grafana Cloud credentials (the Makefile `PROD_COMPOSE` passes it). Harmless after a restart: Loki "timestamp too old" 400s and a udev error from the host collector.
+
 ## 2026-10-02 — Admin catalogue cancellation reaches the GPU (Stage 1)
 
 - **Done:** admin PREPROCESSING/GENERATING catalogue cancel sets the existing 600s Redis signal and returns pending without a refund or DB status change. Admin UI waits for dispatcher status updates. Queued and non-catalogue behavior retained.

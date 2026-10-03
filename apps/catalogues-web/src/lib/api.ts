@@ -209,3 +209,18 @@ export const api = {
     });
   },
 };
+
+// "not a merchant account" / "merchant account inactive" — thrown by requireMerchant
+// (apps/api/src/plugins/portal-auth.ts) when the logged-in user has no merchants row.
+// Shared so every caller of a requireMerchant-gated route (developers/KeysPanel.tsx,
+// the WordPress connect page) shows the same gate message instead of drifting.
+export function isMerchantGateError(err: unknown): boolean {
+  return err instanceof Error && /merchant account/i.test(err.message);
+}
+
+// Narrower than isMerchantGateError: true only for "no merchants row yet" (self-
+// serve creatable via ensureMerchantForUser), false for "merchant account
+// inactive" (a deactivated row — self-serve must not silently reactivate it).
+export function isMerchantMissingError(err: unknown): boolean {
+  return err instanceof Error && /not a merchant account/i.test(err.message);
+}
