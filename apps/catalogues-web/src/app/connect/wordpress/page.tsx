@@ -28,9 +28,11 @@ function Field({
   required?: boolean;
   readOnly?: boolean;
 } & React.InputHTMLAttributes<HTMLInputElement>) {
+  const inputId = inputProps.id ?? inputProps.name ?? label.replace(/\s+/g, '-').toLowerCase();
   return (
     <div style={{ marginBottom: 16, textAlign: 'left' }}>
       <label
+        htmlFor={inputId}
         style={{
           display: 'block',
           fontSize: 13,
@@ -44,6 +46,7 @@ function Field({
       </label>
       <input
         {...inputProps}
+        id={inputId}
         readOnly={readOnly}
         style={{
           width: '100%',
