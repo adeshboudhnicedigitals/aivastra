@@ -106,6 +106,10 @@ export const CreateTryOnJobInputsBase = z.object({
   lowerGarmentBackKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
   thirdGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
   shoeCatalogId: z.string().uuid().optional(),
+  // Selected accessory catalog items — at most one per category, zero or
+  // more categories, never mandatory. Capped generously; the studio wizard
+  // never offers anywhere near this many categories today.
+  accessoryCatalogIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
 function refineLooksXor<T extends { backgroundId?: string; poseIds?: string[]; looks?: unknown }>(

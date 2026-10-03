@@ -150,6 +150,7 @@ describe('dispatcher retry + credit refund', () => {
     const { jobId, userId } = await seedJob();
     const log = createLogger('test');
     const cfg = {
+      comfyRedis: redis,
       db: env.db,
       redis,
       pub,
@@ -160,7 +161,7 @@ describe('dispatcher retry + credit refund', () => {
     };
 
     // First attempt — should re-enqueue (attempts=1, status back to QUEUED)
-    await processJob(cfg, jobId, userId, 'jobs:normal', 'msg-1');
+    await processJob(cfg, jobId, userId, 'jobs:normal', '1-1');
     const [after1] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(after1?.status).toBe('QUEUED');
     expect(after1?.attempts).toBe(1);
@@ -169,7 +170,7 @@ describe('dispatcher retry + credit refund', () => {
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
 
     // Second attempt — should mark FAILED and refund
-    await processJob(cfg, jobId, userId, 'jobs:normal', 'msg-2');
+    await processJob(cfg, jobId, userId, 'jobs:normal', '2-1');
     const [after2] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(after2?.status).toBe('FAILED');
     expect(after2?.attempts).toBe(2);

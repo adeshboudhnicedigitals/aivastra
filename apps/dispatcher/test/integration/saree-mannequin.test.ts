@@ -8,6 +8,7 @@ import { processJob } from '../../src/job/processor.js';
 import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { assertQueueExhaustion } from '../helpers/queue-exhaustion.js';
 
 const WORKER_ID = 'test-worker-mannequin';
 
@@ -19,8 +20,8 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
 
   beforeAll(async () => {
     env = await setupTestEnv();
-    redis = new Redis('redis://127.0.0.1:6379');
-    pub = new Redis('redis://127.0.0.1:6379');
+    redis = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
+    pub = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
     comfy = await startComfyMock();
 
     await registerWorkers(redis, [
@@ -38,6 +39,7 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
   });
 
   beforeEach(async () => {
+    comfy.resetPrompts();
     comfy.setOptions({});
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
@@ -118,7 +120,16 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -203,7 +214,16 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -315,7 +335,16 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
 
     const log = createLogger('test');
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       job.id,
       user.id,
       'jobs:normal',
@@ -393,7 +422,16 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
 
     const log = createLogger('test');
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       job.id,
       user.id,
       'jobs:normal',
@@ -503,7 +541,16 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
     const { jobId, userId } = await seedTwoInputMannequinJob();
     const log = createLogger('test');
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -514,5 +561,66 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
     const prompt = comfy.lastPrompt();
     expect(prompt?.prompt['2']?.inputs?.image).toContain('mannequin_garment_');
     expect(prompt?.prompt['3']?.inputs?.image).toContain('mannequin_pallu_');
+  });
+  it('queue_cleanup_failed terminates and refunds without attempts, output handling or requeue', async () => {
+    const { jobId, userId } = await seedMannequinJob();
+    if (!jobId || !userId) throw new Error('missing fixture IDs');
+    await assertQueueExhaustion(
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log: createLogger('test'),
+      },
+      comfy,
+      WORKER_ID,
+      jobId,
+      userId,
+    );
+  });
+  it('queue_cleanup_failed terminates standalone saree without output handling or requeue', async () => {
+    const { jobId, userId } = await seedMannequinJob();
+    const [inputs] = await env.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    if (!inputs?.garmentTypeId) throw new Error('missing garment fixture');
+    const [garment] = await env.db
+      .select()
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, inputs.garmentTypeId));
+    await env.db
+      .update(schema.jobInputs)
+      .set({
+        faceId: null,
+        params: {
+          kind: 'saree',
+          modelKey: 'face/f.jpg',
+          workflowTemplateId: garment.mannequinWorkflowTemplateId,
+        },
+      })
+      .where(eq(schema.jobInputs.jobId, jobId));
+    await env.db.insert(schema.userCredits).values({ userId, balance: 5 });
+    await env.db.update(schema.jobs).set({ creditsCharged: 1 }).where(eq(schema.jobs.id, jobId));
+    await assertQueueExhaustion(
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log: createLogger('test'),
+      },
+      comfy,
+      WORKER_ID,
+      jobId,
+      userId,
+    );
   });
 });

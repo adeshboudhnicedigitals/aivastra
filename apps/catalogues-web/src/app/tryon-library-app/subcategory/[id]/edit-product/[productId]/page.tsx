@@ -119,7 +119,6 @@ export default function EditProductScreen() {
         initialData={product}
         supportsTwoInputMannequin={subcategory?.supportsTwoInputMannequin ?? false}
         supportsTwoInputDirectTryon={subcategory?.supportsTwoInputDirectTryon ?? false}
-        requiresMannequinStep={subcategory?.requiresMannequinStep ?? false}
         onSaved={handleSaved}
         onCancel={goBackToProducts}
       />

@@ -4,7 +4,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { grantShopifyEmailBonus, storeBalance } from './purchase.js';
+import { shopifyGraphQL } from './service.js';
 import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
+import { getValidAccessToken } from './token.js';
 
 // Onboarding's contact step. Name and email are required; phone is optional and
 // a blank one is stored as null so "no phone" has one shape. Digits and the usual
@@ -31,17 +33,119 @@ const SaveContactBody = z.object({
 const TRYON_BLOCK_HANDLE = 'tryon-button';
 
 /**
+ * Pure parse: does the live theme's `config/settings_data.json` (verbatim
+ * Admin API content) contain our app embed block, switched on?
+ *
+ * Shopify sometimes prefixes this file with a `/* ... *\/` comment block
+ * that would otherwise break JSON.parse — stripped first. Block `type`
+ * strings look like `shopify://apps/{app_identifier}/blocks/{handle}/{uid}`,
+ * and matching is deliberately scoped to the `/blocks/{handle}/` segment only,
+ * never the app identifier — direct probing against a real store found
+ * `app.env.SHOPIFY_API_KEY` (the client_id), the Admin API's own `app.handle`
+ * query, and the literal identifier Shopify baked into that store's live
+ * block type were three different strings. None of them can be trusted to
+ * compute a matching prefix, so this only verifies the block handle — which
+ * this extension names and fully controls — is present; a collision with
+ * another app's identically-named block isn't worth guarding against.
+ * A block with no `disabled` key is enabled by Shopify's own convention —
+ * only an explicit `disabled: true` turns it off.
+ *
+ * Never throws — every malformed shape, including a non-object root, a leading
+ * comment this strip misses, or null/non-object block entries, returns false.
+ */
+export function findThemeEmbedEnabled(content: string): boolean {
+  try {
+    const stripped = content.replace(/^\s*\/\*[\s\S]*?\*\//, '');
+    const parsed: unknown = JSON.parse(stripped);
+    const blocks =
+      (parsed as { current?: { blocks?: Record<string, unknown> } } | null)?.current?.blocks ?? {};
+    const blockPattern = new RegExp(`^shopify://apps/[^/]+/blocks/${TRYON_BLOCK_HANDLE}/`);
+    return Object.values(blocks).some((block) => {
+      if (typeof block !== 'object' || block === null) return false;
+      const typed = block as { type?: unknown; disabled?: unknown };
+      return (
+        typeof typed.type === 'string' && blockPattern.test(typed.type) && typed.disabled !== true
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+const MAIN_THEME_SETTINGS_QUERY = `
+  query MainThemeSettingsData($filenames: [String!]!) {
+    themes(first: 1, roles: [MAIN]) {
+      nodes {
+        files(filenames: $filenames) {
+          nodes {
+            filename
+            body {
+              ... on OnlineStoreThemeFileBodyText {
+                content
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+interface MainThemeSettingsData {
+  themes: {
+    nodes: Array<{
+      files: {
+        nodes: Array<{ filename: string; body: { content?: string } | null }>;
+      };
+    }>;
+  };
+}
+
+/**
+ * Live Admin API check for whether the app embed is switched on in the
+ * merchant's published theme — an on-demand alternative to waiting for a
+ * shopper to actually load a storefront page (see markThemeEmbedSeen below).
+ * Needs `read_themes`. A store that has not yet seen Shopify's one-time
+ * "additional permissions" prompt gets ACCESS_DENIED back from Shopify as a
+ * normal GraphQL error (HTTP 200, not 401/403), so this never risks tripping
+ * shopifyAdminFetch's SHOPIFY_REAUTH_REQUIRED mapping — every failure mode
+ * here, scope included, is just logged and reported as "not detected".
+ */
+export async function checkThemeEmbedLive(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+): Promise<boolean> {
+  try {
+    const accessToken = await getValidAccessToken(app, store);
+    const data = await shopifyGraphQL<MainThemeSettingsData>(
+      store.shopDomain,
+      accessToken,
+      MAIN_THEME_SETTINGS_QUERY,
+      { filenames: ['config/settings_data.json'] },
+    );
+    const content = data.themes.nodes[0]?.files.nodes.find(
+      (f) => f.filename === 'config/settings_data.json',
+    )?.body?.content;
+    if (!content) return false;
+    return findThemeEmbedEnabled(content);
+  } catch (err) {
+    app.log.warn({ err, storeId: store.id }, 'theme embed live-check failed');
+    return false;
+  }
+}
+
+/**
  * Deep link into the merchant's live theme editor, opened on the App embeds
  * panel with our embed switched on (the merchant still has to press Save).
  *
- * Deliberately builds a URL instead of asking the Admin API for the theme ID.
- * The obvious implementation — GET /themes.json?role=main — needs the
- * `read_themes` scope, which this app does not request (see `scopes` in
- * apps/shopify-extension/shopify.app.toml). Shopify answers that call with a
- * 403, `shopifyAdminFetch` turns every 403 into SHOPIFY_REAUTH_REQUIRED, and
- * the SPA then bounces the merchant through OAuth — which re-grants the same
- * scope set and 403s again on the next click. An unbreakable loop on the one
- * button new merchants are told to press first.
+ * Deliberately builds a URL instead of asking the Admin API for the theme ID,
+ * even though the app now holds `read_themes` (added for checkThemeEmbedLive
+ * below) — a REST `GET /themes.json?role=main` lookup here would still 403
+ * for any store that has not yet seen Shopify's one-time scope-upgrade
+ * prompt, and `shopifyAdminFetch` turns every 403 into SHOPIFY_REAUTH_REQUIRED,
+ * bouncing the merchant through a pointless reauth on the one button new
+ * merchants are told to press first. `themes/current` sidesteps the whole
+ * question for every store, re-consented or not.
  *
  * `themes/current` resolves the published theme server-side, so no theme ID is
  * needed. `activateAppId` is `{client_id}/{embed handle}` and `context=apps`
@@ -224,6 +328,27 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
       // silently activates nothing, which looks like the extension is broken.
       if (!app.env.SHOPIFY_API_KEY) throw new AppError('CONFIG', 500, 'SHOPIFY_API_KEY missing');
       return { url: buildThemeEditorDeepLink(store.shopDomain, app.env.SHOPIFY_API_KEY) };
+    },
+  );
+
+  // On-demand alternative to waiting for a shopper's storefront visit — the
+  // "Refresh status" button on the onboarding theme page calls this before
+  // re-reading /v1/shopify/me, so a merchant never has to leave the admin.
+  // Deliberately its own route, not folded into /v1/shopify/me: that route is
+  // hit on every SPA navigation, and a live Shopify call has no place there.
+  app.post(
+    '/v1/shopify/onboarding/check-theme-embed',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      if (store.settings?.themeEmbedConfirmed) return { themeEmbedConfirmed: true };
+      const confirmed = await checkThemeEmbedLive(app, store);
+      if (confirmed) {
+        await markThemeEmbedSeen(app, store).catch((err) =>
+          app.log.warn({ err, storeId: store.id }, 'could not persist app embed as seen'),
+        );
+      }
+      return { themeEmbedConfirmed: confirmed };
     },
   );
 }

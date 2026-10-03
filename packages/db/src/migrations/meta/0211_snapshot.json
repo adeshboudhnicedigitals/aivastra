@@ -1,6 +1,6 @@
 {
-  "id": "e7666684-6eaf-4926-a0bc-12b5c7a8c506",
-  "prevId": "b73bf931-6818-4a7f-b84a-701e4c2cfccb",
+  "id": "3510201f-ae4b-4be0-b12f-6b7842ec311b",
+  "prevId": "2d87b0ea-54fc-4574-a2ec-880638849c73",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2758,6 +2758,13 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "accessory_catalog_ids": {
+          "name": "accessory_catalog_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "ARRAY[]::uuid[]"
         }
       },
       "indexes": {},
@@ -6055,6 +6062,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "accessory_node_id": {
+          "name": "accessory_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -6300,6 +6313,13 @@
           "notNull": true,
           "default": "'regular'"
         },
+        "garment_view": {
+          "name": "garment_view",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'front'"
+        },
         "tryon_person_node_id": {
           "name": "tryon_person_node_id",
           "type": "text",
@@ -6351,6 +6371,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "accessory_node_id": {
+          "name": "accessory_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},

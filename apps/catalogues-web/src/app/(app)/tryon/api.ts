@@ -1,4 +1,5 @@
 import type { MerchantCatalogGenerateStatus, MerchantCatalogItem } from '@aivastra/types';
+import type { JobStatusEvent } from '@/components/job-stream-provider';
 import { api } from '@/lib/api';
 
 const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
@@ -28,24 +29,52 @@ export async function presignAndUpload(
 
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
 
-/** Polls a single Path B generate job until it reaches a terminal status. */
-export async function pollGenerateJob(
+type JobStreamSubscribe = (fn: (evt: JobStatusEvent) => void) => () => void;
+
+/**
+ * Waits for a single Path B generate job to reach a terminal status over the
+ * app-wide job SSE stream (same channel Studio uses) — no client-side timeout, so a
+ * job queued behind others is never abandoned client-side. One status GET runs
+ * right after subscribing to cover a job that finished before the subscription
+ * was live, since SSE has no replay.
+ *
+ * onStatus (optional): fired for every status this job passes through, terminal
+ * or not — QUEUED/PREPROCESSING/GENERATING/UPLOADING are the same dispatcher
+ * transitions every job type goes through (apps/dispatcher/src/job/processor.ts),
+ * so a caller can drive the same progress-ring UI catalogs/[id]/page.tsx uses,
+ * not just know when the job is done.
+ */
+export function waitForGenerateJob(
   jobId: string,
-  opts: { intervalMs?: number; timeoutMs?: number } = {},
-): Promise<MerchantCatalogGenerateStatus> {
-  const intervalMs = opts.intervalMs ?? 2500;
-  const timeoutMs = opts.timeoutMs ?? 180_000;
-  const startedAt = Date.now();
-  for (;;) {
-    const status = await api.get<MerchantCatalogGenerateStatus>(
-      `/v1/merchant/catalog/generate/${jobId}`,
-    );
-    if (TERMINAL_STATUSES.has(status.status)) return status;
-    if (Date.now() - startedAt > timeoutMs) {
-      throw new Error('Timed out waiting for the catalogue image to generate.');
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
+  subscribe: JobStreamSubscribe,
+  onStatus?: (status: string) => void,
+): Promise<Pick<MerchantCatalogGenerateStatus, 'status' | 'errorCode'>> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (status: string, errorCode: string | null | undefined) => {
+      if (settled) return;
+      settled = true;
+      unsubscribe();
+      resolve({ status, errorCode: errorCode ?? null });
+    };
+    const unsubscribe = subscribe((evt) => {
+      if (evt.jobId !== jobId) return;
+      onStatus?.(evt.status);
+      if (TERMINAL_STATUSES.has(evt.status)) finish(evt.status, evt.errorCode);
+    });
+    api
+      .get<MerchantCatalogGenerateStatus>(`/v1/merchant/catalog/generate/${jobId}`)
+      .then((st) => {
+        onStatus?.(st.status);
+        if (TERMINAL_STATUSES.has(st.status)) finish(st.status, st.errorCode);
+      })
+      .catch((err) => {
+        if (settled) return;
+        settled = true;
+        unsubscribe();
+        reject(err);
+      });
+  });
 }
 
 /** Copies a completed job's output into a merchant_catalog_items row (Path A import, also used to finalize Path B generates). */

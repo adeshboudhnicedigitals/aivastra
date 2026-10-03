@@ -8,26 +8,34 @@ if (!defined('ABSPATH')) {
 /**
  * Maps a WooCommerce product's category (term ID) to an aivastra dev-API
  * category slug, so the storefront widget can pick the right try-on workflow
- * per product instead of the single hardcoded 'general' slug. Pure functions
- * only — no wp_options access here, that's Aivastra_Connection_Settings's job
- * (see its class comment: it's the ONLY class that touches the options row).
+ * per product. Pure functions only — no wp_options access here, that's
+ * Aivastra_Connection_Settings's job (see its class comment: it's the ONLY
+ * class that touches the options row).
  */
 class Aivastra_Category_Mapping
 {
-    public const DEFAULT_SLUG = 'general';
-
     /**
+     * Used to fall back to a hardcoded 'general' slug for an unmapped
+     * product. That isn't a real category on a live account (confirmed
+     * against a connected merchant — their active dev-API slugs are
+     * upper/lower/suits/dress/saree/dress-with-duppatta, no 'general'), so
+     * sending it made create-job.ts's category lookup fail BAD_CATEGORY —
+     * the shopper only found out after uploading a photo. Returning null
+     * instead lets class-widget-loader.php hide the button entirely for a
+     * product with no explicit mapping.
+     *
      * @param int[] $productCategoryTermIds The product's WooCommerce product_cat term IDs.
      * @param array<int, string> $map term_id => aivastra category slug.
+     * @return string|null The mapped slug, or null if none of the product's categories are mapped.
      */
-    public static function resolve(array $productCategoryTermIds, array $map): string
+    public static function resolve(array $productCategoryTermIds, array $map): ?string
     {
         foreach ($productCategoryTermIds as $termId) {
             if (isset($map[$termId]) && $map[$termId] !== '') {
                 return $map[$termId];
             }
         }
-        return self::DEFAULT_SLUG;
+        return null;
     }
 
     /**

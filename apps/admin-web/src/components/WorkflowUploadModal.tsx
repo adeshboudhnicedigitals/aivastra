@@ -5,6 +5,11 @@ import { EditDrawer } from './EditDrawer';
 import { Icon } from './Icons';
 import { SearchableSelect } from './SearchableSelect';
 
+// Matches ProposeWorkflowChangeRequestBody's min(80) in packages/types/src/admin.ts —
+// keep both a substantive length so a SUPER_ADMIN reviewing the queue has enough
+// context to judge the proposal without opening the diff.
+export const MIN_PROPOSAL_NOTE_LENGTH = 80;
+
 interface ParsedNode {
   id: string;
   class_type: string;
@@ -20,6 +25,7 @@ interface DetectedMappings {
   lowerNodeId?: string;
   shoeNodeId?: string;
   thirdNodeId?: string;
+  accessoryNodeId?: string;
   sizeNodeIds: string[];
   positivePromptNode?: string;
   negativePromptNode?: string;
@@ -129,6 +135,8 @@ export function WorkflowUploadModal({
   activeWorkflows = [],
   onProposed,
 }: Props) {
+  // 'new' adds a standalone workflow; 'replace' supersedes an existing active one.
+  const [proposalKind, setProposalKind] = useState<'new' | 'replace'>('new');
   const [targetWorkflowId, setTargetWorkflowId] = useState('');
   const [previousLimitations, setPreviousLimitations] = useState('');
   const [proposeReason, setProposeReason] = useState('');
@@ -153,6 +161,7 @@ export function WorkflowUploadModal({
   const [shoeNodeId, setShoeNodeId] = useState('');
   const [garmentView, setGarmentView] = useState<'front' | 'back'>('front');
   const [thirdNodeId, setThirdNodeId] = useState('');
+  const [accessoryNodeId, setAccessoryNodeId] = useState('');
   const [sizeNodeIds, setSizeNodeIds] = useState<string[]>([]);
   const [positivePromptNode, setPositivePromptNode] = useState('');
   const [negativePromptNode, setNegativePromptNode] = useState('');
@@ -305,6 +314,7 @@ export function WorkflowUploadModal({
       setLowerNodeId(d.lowerNodeId ?? '');
       setShoeNodeId(d.shoeNodeId ?? '');
       setThirdNodeId(d.thirdNodeId ?? '');
+      setAccessoryNodeId(d.accessoryNodeId ?? '');
       setSizeNodeIds(d.sizeNodeIds ?? []);
       setPositivePromptNode(d.positivePromptNode ?? '');
       setNegativePromptNode(d.negativePromptNode ?? '');
@@ -454,6 +464,7 @@ export function WorkflowUploadModal({
           lowerNodeId: lowerNodeId || undefined,
           shoeNodeId: shoeNodeId || undefined,
           thirdNodeId: thirdNodeId || undefined,
+          accessoryNodeId: accessoryNodeId || undefined,
           sizeNodeIds: sizeNodeIds.filter(Boolean),
           ...(latentSizeNodeIds.length === 2 ? { latentSizeNodeIds } : {}),
           ...(outputSizeNodeIds.length === 2 ? { outputSizeNodeIds } : {}),
@@ -473,9 +484,10 @@ export function WorkflowUploadModal({
           method: 'POST',
           body: JSON.stringify({
             changeType: 'create',
-            targetWorkflowId,
+            ...(proposalKind === 'replace'
+              ? { targetWorkflowId, previousLimitations: previousLimitations.trim() }
+              : {}),
             reason: proposeReason.trim(),
-            previousLimitations: previousLimitations.trim(),
             proposedFields: payload,
           }),
         });
@@ -574,7 +586,9 @@ export function WorkflowUploadModal({
               positivePromptNode &&
               (!faceNodeId || negativePromptNode) &&
               (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId)) &&
-    (!proposeMode || (targetWorkflowId && previousLimitations.trim() && proposeReason.trim()));
+    (!proposeMode ||
+      (proposeReason.trim() &&
+        (proposalKind === 'new' || (targetWorkflowId && previousLimitations.trim()))));
 
   return (
     <EditDrawer
@@ -687,34 +701,66 @@ export function WorkflowUploadModal({
           <>
             <div className="field">
               <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'block' }}>
-                Which existing workflow does this replace?{' '}
-                <span style={{ color: 'var(--danger)' }}>*</span>
+                What are you proposing?
               </label>
-              <SearchableSelect
-                options={activeWorkflows.map((w) => ({ id: w.id, label: w.label }))}
-                value={targetWorkflowId}
-                onChange={setTargetWorkflowId}
-                disabled={saving}
-                emptyLabel="— select workflow to replace —"
-                placeholder="— search workflow —"
-              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className={`btn sm ${proposalKind === 'new' ? 'primary' : 'ghost'}`}
+                  disabled={saving}
+                  onClick={() => setProposalKind('new')}
+                >
+                  Add new workflow
+                </button>
+                <button
+                  type="button"
+                  className={`btn sm ${proposalKind === 'replace' ? 'primary' : 'ghost'}`}
+                  disabled={saving}
+                  onClick={() => setProposalKind('replace')}
+                >
+                  Replace existing workflow
+                </button>
+              </div>
             </div>
+            {proposalKind === 'replace' && (
+              <>
+                <div className="field">
+                  <label
+                    style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, display: 'block' }}
+                  >
+                    Which existing workflow does this replace?{' '}
+                    <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <SearchableSelect
+                    options={activeWorkflows.map((w) => ({ id: w.id, label: w.label }))}
+                    value={targetWorkflowId}
+                    onChange={setTargetWorkflowId}
+                    disabled={saving}
+                    emptyLabel="— select workflow to replace —"
+                    placeholder="— search workflow —"
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    What does the current workflow lack?{' '}
+                    <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={previousLimitations}
+                    disabled={saving}
+                    onChange={(e) => setPreviousLimitations(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
             <div className="field">
               <label>
-                What does the current workflow lack?{' '}
+                {proposalKind === 'new'
+                  ? 'Why is this workflow needed?'
+                  : "What's updated in this workflow?"}{' '}
                 <span style={{ color: 'var(--danger)' }}>*</span>
-              </label>
-              <textarea
-                className="input"
-                rows={3}
-                value={previousLimitations}
-                disabled={saving}
-                onChange={(e) => setPreviousLimitations(e.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label>
-                What's updated in this workflow? <span style={{ color: 'var(--danger)' }}>*</span>
               </label>
               <textarea
                 className="input"
@@ -1266,6 +1312,14 @@ export function WorkflowUploadModal({
                 onChange={setThirdNodeId}
                 disabled={saving}
                 hint='Title convention: "third_garment"'
+              />
+              <NodeSelect
+                label="Accessory node (optional)"
+                nodes={nodes.image}
+                value={accessoryNodeId}
+                onChange={setAccessoryNodeId}
+                disabled={saving}
+                hint='Title convention: "accessory". Only patched when the user selects at least one accessory; left untouched otherwise.'
               />
             </div>
 

@@ -3,11 +3,14 @@ import { createLogger } from '@aivastra/logger';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as progress from '../../src/comfyui/progress.js';
 import { processJob } from '../../src/job/processor.js';
+import * as registry from '../../src/worker/registry.js';
 import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { assertQueueExhaustion } from '../helpers/queue-exhaustion.js';
 
 const WORKER_ID = 'test-worker-happy';
 
@@ -19,8 +22,8 @@ describe('dispatcher happy path', () => {
 
   beforeAll(async () => {
     env = await setupTestEnv();
-    redis = new Redis('redis://127.0.0.1:6379');
-    pub = new Redis('redis://127.0.0.1:6379');
+    redis = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
+    pub = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
     comfy = await startComfyMock();
 
     await registerWorkers(redis, [{ id: WORKER_ID, url: comfy.url, apiKey: 'test-key' }]);
@@ -36,6 +39,7 @@ describe('dispatcher happy path', () => {
   });
 
   beforeEach(async () => {
+    comfy.resetPrompts();
     comfy.setOptions({});
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
@@ -155,6 +159,7 @@ describe('dispatcher happy path', () => {
 
     await processJob(
       {
+        comfyRedis: redis,
         db: env.db,
         redis,
         pub,
@@ -166,7 +171,7 @@ describe('dispatcher happy path', () => {
       jobId,
       userId,
       'jobs:normal',
-      'mock-msg-id',
+      '1-1',
     );
 
     const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
@@ -189,5 +194,275 @@ describe('dispatcher happy path', () => {
     const { getWorkers } = await import('../../src/worker/registry.js');
     const workers = await getWorkers(redis);
     expect(workers.get(WORKER_ID)?.status).toBe('IDLE');
+  });
+  it('execution timeout remains an ordinary failure: consumes an attempt and requeues without refund', async () => {
+    const { jobId, userId } = await seedJob();
+    if (!jobId || !userId) throw new Error('missing fixture IDs');
+    const completion = vi
+      .spyOn(progress, 'waitForCompletion')
+      .mockRejectedValue(
+        new Error(`ComfyUI history polling timeout after 300000ms for prompt mock`),
+      );
+    try {
+      await processJob(
+        {
+          comfyRedis: redis,
+          db: env.db,
+          redis,
+          pub,
+          storage: env.storage,
+          s3: env.s3,
+          r2Bucket: env.r2Bucket,
+          log: createLogger('test'),
+        },
+        jobId,
+        userId,
+        'jobs:normal',
+        '2-1',
+      );
+      const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+      expect(job?.status).toBe('QUEUED');
+      expect(job?.attempts).toBe(1);
+      const [credits] = await env.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, userId));
+      expect(credits?.balance).toBe(5);
+      expect(
+        await env.db.select().from(schema.jobOutputs).where(eq(schema.jobOutputs.jobId, jobId)),
+      ).toEqual([]);
+    } finally {
+      completion.mockRestore();
+    }
+  });
+
+  it('holds the worker through terminal publication failure and releases it once', async () => {
+    const { jobId, userId } = await seedJob();
+    const completion = vi
+      .spyOn(progress, 'waitForCompletion')
+      .mockResolvedValue({ status: 'queue_cleanup_failed' });
+    const release = vi.spyOn(registry, 'releaseWorker');
+    const originalPublish = pub.publish.bind(pub);
+    const publication = vi.spyOn(pub, 'publish');
+    let failed = false;
+    publication.mockImplementation(async (...args) => {
+      if (!failed && String(args[1]).includes('FAILED')) {
+        failed = true;
+        expect((await registry.getWorkers(redis)).get(WORKER_ID)?.status).toBe('BUSY');
+        expect(release).not.toHaveBeenCalled();
+        throw new Error('injected terminal publication failure');
+      }
+      return originalPublish(...args);
+    });
+    try {
+      await processJob(
+        {
+          comfyRedis: redis,
+          db: env.db,
+          redis,
+          pub,
+          storage: env.storage,
+          s3: env.s3,
+          r2Bucket: env.r2Bucket,
+          log: createLogger('test'),
+        },
+        jobId,
+        userId,
+        'jobs:normal',
+        '4-1',
+      );
+      expect(failed).toBe(true);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect((await registry.getWorkers(redis)).get(WORKER_ID)?.status).toBe('IDLE');
+    } finally {
+      completion.mockRestore();
+      release.mockRestore();
+      publication.mockRestore();
+    }
+  });
+
+  it('queue_cleanup_failed terminates and refunds without attempts, output handling or requeue', async () => {
+    const { jobId, userId } = await seedJob();
+    if (!jobId || !userId) throw new Error('missing fixture IDs');
+    await assertQueueExhaustion(
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log: createLogger('test'),
+      },
+      comfy,
+      WORKER_ID,
+      jobId,
+      userId,
+    );
+  });
+  it.each([
+    false,
+    true,
+  ])('admin signal cancels a running catalogue prompt with one refund (prior admin refund=%s)', async (priorRefund) => {
+    const { jobId, userId } = await seedJob();
+    if (!jobId || !userId) throw new Error('missing fixture IDs');
+    await env.db.update(schema.jobs).set({ source: 'catalog' }).where(eq(schema.jobs.id, jobId));
+    const { capabilitiesKey, comfyVersionKey } = await import('@aivastra/types');
+    const capKey = capabilitiesKey(WORKER_ID);
+    await redis.set(
+      capKey,
+      JSON.stringify({
+        queuePromptIdentityValidated: true,
+        queueDeleteValidated: true,
+        promptScopedInterruptValidated: true,
+        validatedComfyVersion: '0.37.0',
+        validatedAt: '2026-10-02',
+        validationReference: 'local-test',
+      }),
+    );
+    await redis.setex(comfyVersionKey(WORKER_ID), 60, '0.37.0');
+    const deletesBefore = comfy.deleteCalls().length;
+    const interruptsBefore = comfy.interruptCalls().length;
+    let signalled = false;
+    comfy.setOptions({
+      completionDelayMs: 100_000,
+      onRequest: async (method, path) => {
+        if (!signalled && method === 'POST' && path === '/prompt') {
+          signalled = true;
+          const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+          expect(job.status).toBe('GENERATING');
+          if (priorRefund) {
+            await env.db
+              .insert(schema.creditLedger)
+              .values({ userId, jobId, delta: 1, reason: 'REFUND_ADMIN_CANCEL' });
+            await env.db
+              .update(schema.userCredits)
+              .set({ balance: 6 })
+              .where(eq(schema.userCredits.userId, userId));
+          }
+          await redis.set(`job:cancel:${jobId}`, '1', 'EX', 600);
+        }
+      },
+    });
+    const publication = vi.spyOn(pub, 'publish');
+    try {
+      await processJob(
+        {
+          db: env.db,
+          redis,
+          comfyRedis: redis,
+          pub,
+          storage: env.storage,
+          s3: env.s3,
+          r2Bucket: env.r2Bucket,
+          log: createLogger('test'),
+        },
+        jobId,
+        userId,
+        'jobs:normal',
+        '5-1',
+      );
+      const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+      expect(job.status).toBe('CANCELLED');
+      expect(
+        await env.db.select().from(schema.jobOutputs).where(eq(schema.jobOutputs.jobId, jobId)),
+      ).toEqual([]);
+      const refunds = await env.db
+        .select()
+        .from(schema.creditLedger)
+        .where(eq(schema.creditLedger.jobId, jobId));
+      expect(refunds).toHaveLength(1);
+      expect(refunds[0].reason).toBe(priorRefund ? 'REFUND_ADMIN_CANCEL' : 'JOB_CANCEL_REFUND');
+      const [credits] = await env.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, userId));
+      expect(credits.balance).toBe(6);
+      expect(comfy.deleteCalls().slice(deletesBefore)).toEqual([[comfy.lastPromptId()]]);
+      expect(comfy.interruptCalls().slice(interruptsBefore)).toEqual([comfy.lastPromptId()]);
+      expect(publication.mock.calls.some((call) => String(call[1]).includes('COMPLETED'))).toBe(
+        false,
+      );
+    } finally {
+      publication.mockRestore();
+      await redis.del(capKey, comfyVersionKey(WORKER_ID), `job:cancel:${jobId}`);
+    }
+  });
+
+  it('completion after a DB cancel stays cancelled, writes no outputs and still ACKs', async () => {
+    const { jobId, userId } = await seedJob();
+    let cancelled = false;
+    comfy.setOptions({
+      onRequest: async (_method, path) => {
+        if (path === '/view' && !cancelled) {
+          cancelled = true;
+          await env.db
+            .update(schema.jobs)
+            .set({ status: 'CANCELLED', errorCode: 'ADMIN_CANCEL' })
+            .where(eq(schema.jobs.id, jobId));
+        }
+      },
+    });
+    const publication = vi.spyOn(pub, 'publish');
+    const ack = vi.spyOn(redis, 'xack');
+    try {
+      await processJob(
+        {
+          db: env.db,
+          redis,
+          comfyRedis: redis,
+          pub,
+          storage: env.storage,
+          s3: env.s3,
+          r2Bucket: env.r2Bucket,
+          log: createLogger('test'),
+        },
+        jobId,
+        userId,
+        'jobs:normal',
+        '6-1',
+      );
+      expect(cancelled).toBe(true);
+      const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+      expect(job.status).toBe('CANCELLED');
+      expect(job.errorCode).toBe('ADMIN_CANCEL');
+      expect(
+        await env.db.select().from(schema.jobOutputs).where(eq(schema.jobOutputs.jobId, jobId)),
+      ).toEqual([]);
+      expect(publication.mock.calls.some((call) => String(call[1]).includes('COMPLETED'))).toBe(
+        false,
+      );
+      expect(ack).toHaveBeenCalledWith('jobs:normal', 'dispatcher-cg', '6-1');
+    } finally {
+      publication.mockRestore();
+      ack.mockRestore();
+    }
+  });
+
+  it('a cancel flag arriving after completion cannot refund or change the completed job', async () => {
+    const { jobId, userId } = await seedJob();
+    const cfg = {
+      db: env.db,
+      redis,
+      comfyRedis: redis,
+      pub,
+      storage: env.storage,
+      s3: env.s3,
+      r2Bucket: env.r2Bucket,
+      log: createLogger('test'),
+    };
+    await processJob(cfg, jobId, userId, 'jobs:normal', '7-1');
+    await redis.set(`job:cancel:${jobId}`, '1', 'EX', 600);
+    try {
+      await processJob(cfg, jobId, userId, 'jobs:normal', '7-2');
+      const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+      expect(job.status).toBe('COMPLETED');
+      expect(
+        await env.db.select().from(schema.creditLedger).where(eq(schema.creditLedger.jobId, jobId)),
+      ).toEqual([]);
+    } finally {
+      await redis.del(`job:cancel:${jobId}`);
+    }
   });
 });

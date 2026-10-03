@@ -106,6 +106,22 @@ prometheus.scrape "aivastra" {
   forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
 }
 
+// ── GPU boxes: scrape nvidia_gpu_exporter on each ComfyUI box ─────────────────
+//
+// Exporter runs on port 9835 on each box (see the aivastra-gpu ops repo). The target
+// list is a JSON array in ALLOY_GPU_TARGETS (set in .env.production on the VPS, never
+// committed, so box addresses stay out of git), e.g.
+//   ALLOY_GPU_TARGETS='[{"__address__":"<host>:9835","box":"gpu1"}]'
+// Unset or "[]" means no GPU scraping, which is what staging gets: prod and staging
+// share this file and the same VPS egress IP, so only prod should push these series.
+// Add a box only once its exporter is running and its firewall allows the VPS.
+prometheus.scrape "gpus" {
+  targets         = encoding.from_json(coalesce(sys.env("ALLOY_GPU_TARGETS"), "[]"))
+  job_name        = "gpu"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
 prometheus.remote_write "grafana_cloud" {
   endpoint {
     url = sys.env("GRAFANA_CLOUD_PROM_URL")

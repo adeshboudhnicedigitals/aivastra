@@ -38,7 +38,8 @@ export function CatalogTab() {
     toast,
   } = useAssetsContext();
 
-  const typeSlug = activeTab === 'shoe' ? 'shoe' : 'lower';
+  const typeSlug =
+    activeTab === 'shoe' ? 'shoe' : activeTab === 'accessory' ? 'accessory' : 'lower';
 
   const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -291,7 +292,8 @@ export function CatalogTab() {
     else setCatalogItems([]);
   }, [viewKey]);
 
-  const tabLabel = activeTab === 'shoe' ? 'Shoes' : 'Lower garments';
+  const tabLabel =
+    activeTab === 'shoe' ? 'Shoes' : activeTab === 'accessory' ? 'Accessories' : 'Lower garments';
   const pageTitle = lowerCatView.kind === 'category' ? lowerCatView.cat.label : tabLabel;
 
   return (
@@ -336,7 +338,9 @@ export function CatalogTab() {
                 setModalParams({ modal: 'add-category', editId: null });
               }}
             >
-              <Icon.Add /> Add {activeTab === 'lower' ? 'lower' : 'shoe'} category
+              <Icon.Add /> Add{' '}
+              {activeTab === 'lower' ? 'lower' : activeTab === 'shoe' ? 'shoe' : 'accessory'}{' '}
+              category
             </button>
           )}
           {lowerCatView.kind === 'category' && (
@@ -376,7 +380,8 @@ export function CatalogTab() {
               (c) => genderFilter === 'all' || c.genderSlug === genderFilter,
             ).length === 0 && (
               <p style={{ color: 'var(--muted)', fontSize: 13, gridColumn: '1/-1' }}>
-                No categories yet. Click &ldquo;Add {activeTab === 'lower' ? 'lower' : 'shoe'}{' '}
+                No categories yet. Click &ldquo;Add{' '}
+                {activeTab === 'lower' ? 'lower' : activeTab === 'shoe' ? 'shoe' : 'accessory'}{' '}
                 category&rdquo; to create one.
               </p>
             )}
@@ -905,7 +910,7 @@ export function CatalogTab() {
             setCatImageFile(null);
             closeModal();
           }}
-          title={`Add ${activeTab === 'lower' ? 'lower garment' : 'shoe'} category`}
+          title={`Add ${activeTab === 'lower' ? 'lower garment' : activeTab === 'shoe' ? 'shoe' : 'accessory'} category`}
           width="min(420px, calc(100vw - 40px))"
           saving={catSaving}
           onSave={async () => {

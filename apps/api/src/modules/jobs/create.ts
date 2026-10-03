@@ -163,6 +163,7 @@ export interface TryonPlanLook {
   lowerCatalogId: string | null;
   lowerGarmentKey: string | null;
   shoeCatalogId: string | null;
+  accessoryCatalogIds: string[];
   workflowTemplateId: string | null;
   promptGarmentPhase: string | null;
   promptFacePhase: string | null;
@@ -259,7 +260,10 @@ export async function resolveTryonPlan(
     lowerGarmentBackKey,
     thirdGarmentKey,
     shoeCatalogId,
+    accessoryCatalogIds: rawAccessoryCatalogIds,
   } = body.inputs;
+  // Literal duplicate ids collapse to one selection before validation/persistence.
+  const accessoryCatalogIds = [...new Set(rawAccessoryCatalogIds ?? [])];
   const upperGarmentBackKey = body.inputs.upperGarmentBackKey;
   const aspectRatio: string = body.aspectRatio;
   const platform: string | undefined = body.platform;
@@ -585,6 +589,45 @@ export async function resolveTryonPlan(
     if (lowerCatalogId && !lowerCatalogCached) opts.cache.catalogItems.set(lowerCatalogId, true);
     if (shoeCatalogId && !shoeCatalogCached) opts.cache.catalogItems.set(shoeCatalogId, true);
     if (garmentTypeId && !garmentTypeCached) opts.cache.garmentTypes.set(garmentTypeId, true);
+  }
+
+  // Accessories are validated but never made mandatory — no per-pose workflow
+  // node check here, unlike lower/shoe below. The dispatcher decides at
+  // dispatch time whether the resolved pose's workflow actually has an
+  // accessoryNodeId to patch; a selection that doesn't apply there is simply
+  // not a node-mapping collision anyone needs to catch earlier.
+  if (accessoryCatalogIds.length > 0) {
+    const accessoryRows = await app.db
+      .select({ id: schema.catalogItems.id, categoryId: schema.catalogItems.categoryId })
+      .from(schema.catalogItems)
+      .where(
+        and(
+          inArray(schema.catalogItems.id, accessoryCatalogIds),
+          eq(schema.catalogItems.type, 'accessory'),
+          eq(schema.catalogItems.isActive, true),
+        ),
+      );
+    const foundIds = new Set(accessoryRows.map((r) => r.id));
+    const missingIds = accessoryCatalogIds.filter((id) => !foundIds.has(id));
+    if (missingIds.length > 0) {
+      throw new AppError('BAD_CATALOG', 400, 'accessory catalog item not found or inactive');
+    }
+    const seenCategories = new Set<number>();
+    for (const row of accessoryRows) {
+      // An uncategorised accessory can't be ordered or de-duplicated by
+      // category, and the dispatcher inner-joins on category — reject it here.
+      if (row.categoryId == null) {
+        throw new AppError('BAD_CATALOG', 400, 'accessory catalog item has no category');
+      }
+      if (seenCategories.has(row.categoryId)) {
+        throw new AppError(
+          'VALIDATION',
+          400,
+          'only one accessory item per category may be selected',
+        );
+      }
+      seenCategories.add(row.categoryId);
+    }
   }
 
   // Validate that workflow-required inputs are present for every selected pose.
@@ -955,6 +998,7 @@ export async function resolveTryonPlan(
       lowerCatalogId: effectiveLowerCatalogId,
       lowerGarmentKey: effectiveLowerGarmentKey,
       shoeCatalogId: effectiveShoeCatalogId,
+      accessoryCatalogIds,
       workflowTemplateId: pw?.workflowTemplateId ?? null,
       promptGarmentPhase: pw?.promptGarmentPhase ?? null,
       promptFacePhase: pw?.promptFacePhase ?? null,
@@ -1175,6 +1219,7 @@ export async function createJob(
         lowerGarmentKey: look.lowerGarmentKey,
         thirdGarmentKey: thirdGarmentKey ?? null,
         shoeCatalogId: look.shoeCatalogId,
+        accessoryCatalogIds: look.accessoryCatalogIds,
         userHint: promptGuard(body.userHint),
         params: look.params,
       });

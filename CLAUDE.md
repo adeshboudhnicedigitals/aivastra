@@ -260,8 +260,10 @@ every 15s and sets `worker:health:{id}` with a 30s TTL — expired means unhealt
 means no routing.
 
 Job input model: 1 user-uploaded garment + `faceId` + `backgroundId` + `poseId`
-(all admin-curated) + optional `lowerCatalogId` / `shoeCatalogId`. Every ID must
-resolve to an active row before credits are deducted.
+(all admin-curated) + optional `lowerCatalogId` / `shoeCatalogId` / `accessoryCatalogIds`. Every ID must
+resolve to an active row before credits are deducted. Accessories are never mandatory; the
+dispatcher stacks the selected items vertically by category `sortOrder` into one image and uploads
+it to the template's `accessoryNodeId`.
 
 Most job-creation paths snapshot `workflowTemplateId` into `job_inputs.params` so later admin
 inspection shows what actually ran. Merchant-catalog jobs and bare saree-mannequin step-1 jobs
@@ -466,7 +468,7 @@ catalogs, `params` JSONB), `job_outputs`, `job_events`.
 `model_pose_assets`, `pose_garment_configs`, `garment_subcategories`,
 `workflow_templates` (ComfyUI JSON + node-ID mappings, `workflowType`).
 
-**Catalog (user-selectable)** — `catalog_types` (`lower`, `shoe`),
+**Catalog (user-selectable)** — `catalog_types` (`lower`, `shoe`, `accessory`),
 `catalog_categories`, `catalog_items`, `catalog_item_subcategories`.
 
 **Merchant & widget** — `merchants` (one per user; no balance of its own —
@@ -483,10 +485,10 @@ never read by a credit, limit, or authorization decision; swept at 400 days).
 | Module | What it is | Tables |
 |---|---|---|
 | **models** (`/v1/models/*`) | admin-curated face/pose/background inputs to ComfyUI | `model_faces`, `model_backgrounds`, `model_poses`, `garment_subcategories`, `workflow_templates` |
-| **catalog** (`/v1/catalog/*`) | user-selectable lower garments and shoes | `catalog_types`, `catalog_categories`, `catalog_items` |
+| **catalog** (`/v1/catalog/*`) | user-selectable lower garments, shoes and accessories | `catalog_types`, `catalog_categories`, `catalog_items` |
 
 Each `model_poses` row has an optional `workflowTemplateId`; the template stores
-the ComfyUI node IDs (`lowerNodeId`, `shoeNodeId`, `sizeNodeId`, …) the dispatcher
+the ComfyUI node IDs (`lowerNodeId`, `shoeNodeId`, `accessoryNodeId`, `sizeNodeId`, …) the dispatcher
 patches at runtime, and the pose's `hasLower`/`hasShoes` flags derive from whether
 those node IDs are non-null. A new pose must be linked to a template — the
 template determines which inputs that pose supports.
@@ -569,8 +571,8 @@ hangs on streaming responses.
 
 - Credit deduct + job insert are one Postgres transaction. Refund on terminal
   failure is transactional too.
-- Catalog ID → R2 key resolution happens in api before enqueue. The dispatcher
-  trusts the resolved keys on the `job_inputs` row.
+- Catalog IDs (lower, shoe, accessory) are validated in api before credits are deducted, but
+  the dispatcher resolves their R2 keys live from `catalog_items` at dispatch time.
 - ComfyUI workflow templates live in `workflow_templates.jsonContent`. Never
   inline-mutate — always `structuredClone` then patch.
 - Postgres and Redis bind to `127.0.0.1` only, never `0.0.0.0`.

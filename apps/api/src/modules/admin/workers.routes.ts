@@ -1,16 +1,79 @@
 import { schema } from '@aivastra/db';
-import { WORKER_POOL, workerPoolSchema } from '@aivastra/types';
+import {
+  capabilitiesKey,
+  capabilityMutationError,
+  comfyVersionKey,
+  WORKER_POOL,
+  workerCapabilitiesSchema,
+  workerPoolSchema,
+} from '@aivastra/types';
 import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
+import { readWorkerCapabilities, requireCapabilityDrain } from './worker-capabilities.js';
 
 const REGISTRY_KEY = 'worker:registry';
 
 function healthKey(id: string) {
   return `worker:health:${id}`;
+}
+
+// Per-worker routing flags, written here and read by the dispatcher's selectWorker.
+// Kept outside worker:registry (the dispatcher rebuilds those entries on boot). Missing
+// = queue gating off. Keep in sync with routingConfigKey in apps/dispatcher/src/worker/registry.ts.
+function routingConfigKey(id: string) {
+  return `worker:routing-config:${id}`;
+}
+
+async function readQueueGate(redis: FastifyInstance['redis'], id: string): Promise<boolean> {
+  const raw = await redis.get(routingConfigKey(id));
+  if (!raw) return false;
+  try {
+    return (JSON.parse(raw) as { queueGateEnabled?: unknown }).queueGateEnabled === true;
+  } catch {
+    return false;
+  }
+}
+
+// Display snapshot written by the dispatcher health monitor (worker/queue-sampler.ts).
+interface QueueSnapshot {
+  queueRemaining: number | null;
+  running: number | null;
+  pending: number | null;
+  probedAt: number;
+  error?: string;
+}
+
+async function readQueueSnapshot(
+  redis: FastifyInstance['redis'],
+  id: string,
+): Promise<QueueSnapshot | null> {
+  const raw = await redis.get(`worker:queue:${id}`);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as QueueSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the dispatcher can actually route to this worker right now, so "healthy but never
+ * gets traffic" is explainable. Advisory: routing probes live, this reads the 15s snapshot.
+ */
+function routingState(args: {
+  healthy: boolean;
+  status: string;
+  gateOn: boolean;
+  queue: QueueSnapshot | null;
+}): 'unavailable' | 'ungated' | 'externally_busy' | 'ok' {
+  if (!args.healthy || args.status === 'DRAINING') return 'unavailable';
+  if (!args.gateOn) return 'ungated';
+  if (!args.queue || args.queue.queueRemaining === null) return 'unavailable';
+  return args.status === 'IDLE' && args.queue.queueRemaining > 0 ? 'externally_busy' : 'ok';
 }
 
 function maskApiKey(key: string): string {
@@ -52,6 +115,11 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
         const raw = await app.redis.hget(REGISTRY_KEY, w.id);
         const registry = raw ? (JSON.parse(raw) as { status?: string; lastSeen?: number }) : {};
         const healthy = (await app.redis.get(healthKey(w.id))) === '1';
+        const queueGateEnabled = await readQueueGate(app.redis, w.id);
+        const queue = await readQueueSnapshot(app.redis, w.id);
+        const capabilities = await readWorkerCapabilities(app, w.id);
+        const capabilityGateDrift =
+          capabilities.status === 'configured' && queueGateEnabled !== true;
         return {
           id: w.id,
           label: w.label,
@@ -61,6 +129,22 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           allowedJobTypes: w.allowedJobTypes ?? [],
           status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
           healthy,
+          queueGateEnabled,
+          capabilities,
+          comfyVersion: await app.redis.get(comfyVersionKey(w.id)),
+          capabilityWarning:
+            capabilities.status === 'unreadable'
+              ? 'Capabilities unreadable — drain before repair'
+              : capabilityGateDrift
+                ? 'Validated worker has no queue gate protection'
+                : null,
+          queue,
+          routing: routingState({
+            healthy,
+            status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
+            gateOn: queueGateEnabled,
+            queue,
+          }),
           lastSeen: registry.lastSeen ?? null,
           createdAt: w.createdAt,
           updatedAt: w.updatedAt,
@@ -72,6 +156,47 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
 
   app.get('/admin/workers/job-types', { preHandler: requirePermission('workers.read') }, async () =>
     Object.values(WORKER_POOL),
+  );
+
+  /** Probe a worker URL + API key without saving anything.
+   *  Uses the same GET /system_stats check the dispatcher's health monitor uses.
+   *  No DB write, no audit log — safe to call repeatedly from the Add/Edit form. */
+  app.post(
+    '/admin/workers/test-connection',
+    {
+      preHandler: requirePermission('workers.read'),
+      schema: {
+        body: z.object({
+          url: z.string().url(),
+          apiKey: z.string().min(1),
+        }),
+      },
+    },
+    async (req, reply) => {
+      const { url, apiKey } = req.body as { url: string; apiKey: string };
+      const probeUrl = `${url.replace(/\/$/, '')}/system_stats`;
+      const start = Date.now();
+      try {
+        const res = await fetch(probeUrl, {
+          headers: { 'X-Api-Key': apiKey },
+          signal: AbortSignal.timeout(8_000),
+        });
+        const latencyMs = Date.now() - start;
+        if (res.ok) {
+          return reply.send({ ok: true, latencyMs });
+        }
+        return reply.send({ ok: false, error: `HTTP ${res.status}`, latencyMs });
+      } catch (err: unknown) {
+        const latencyMs = Date.now() - start;
+        const message =
+          err instanceof Error
+            ? err.name === 'TimeoutError'
+              ? 'Connection timed out'
+              : err.message
+            : 'Connection failed';
+        return reply.send({ ok: false, error: message, latencyMs });
+      }
+    },
   );
 
   app.post(
@@ -190,6 +315,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
       };
 
       const nextId = body.id ?? id;
+      if (nextId !== id) await requireCapabilityDrain(app, id);
 
       const { updated, existing } = await app.db.transaction(async (tx) => {
         const [existingRow] = await tx
@@ -254,6 +380,19 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
         if (healthy !== null) {
           await app.redis.set(healthKey(nextId), healthy);
           await app.redis.del(healthKey(id));
+        }
+
+        const capabilities = await app.redis.get(capabilitiesKey(id));
+        if (capabilities !== null) {
+          await app.redis.set(capabilitiesKey(nextId), capabilities);
+          await app.redis.del(capabilitiesKey(id));
+        }
+        // Version belongs to the probed identity; the monitor rebuilds it after rename.
+        await app.redis.del(comfyVersionKey(id));
+        const gate = await app.redis.get(routingConfigKey(id));
+        if (gate !== null) {
+          await app.redis.set(routingConfigKey(nextId), gate);
+          await app.redis.del(routingConfigKey(id));
         }
       }
 
@@ -356,8 +495,115 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
 
       await app.redis.hdel(REGISTRY_KEY, id);
       await app.redis.del(healthKey(id));
+      await app.redis.del(routingConfigKey(id));
+      await app.redis.del(capabilitiesKey(id));
+      await app.redis.del(comfyVersionKey(id));
 
       return reply.code(204).send();
+    },
+  );
+
+  app.get(
+    '/admin/workers/:id/capabilities',
+    {
+      preHandler: requirePermission('workers.read'),
+      schema: { params: z.object({ id: z.string() }) },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [worker] = await app.db
+        .select({ id: schema.workers.id })
+        .from(schema.workers)
+        .where(eq(schema.workers.id, id));
+      if (!worker) throw new AppError('NOT_FOUND', 404, 'Worker not found');
+      return {
+        ...(await readWorkerCapabilities(app, id)),
+        comfyVersion: await app.redis.get(comfyVersionKey(id)),
+      };
+    },
+  );
+
+  // Full replacement makes partial revocation explicit. Audit precedes the Redis write,
+  // as for queue-gate; the cross-store commit window remains the existing limitation.
+  for (const method of ['PUT', 'DELETE'] as const) {
+    app.route({
+      method,
+      url: '/admin/workers/:id/capabilities',
+      preHandler: requirePermission('workers.write'),
+      schema: {
+        params: z.object({ id: z.string() }),
+        ...(method === 'PUT' ? { body: workerCapabilitiesSchema } : {}),
+      },
+      handler: async (req, reply) => {
+        const { id } = req.params as { id: string };
+        const [worker] = await app.db
+          .select({ id: schema.workers.id })
+          .from(schema.workers)
+          .where(eq(schema.workers.id, id));
+        if (!worker) throw new AppError('NOT_FOUND', 404, 'Worker not found');
+        const before = await readWorkerCapabilities(app, id, true);
+        const next = method === 'PUT' ? workerCapabilitiesSchema.parse(req.body) : null;
+        const raw = await app.redis.hget(REGISTRY_KEY, id);
+        const draining =
+          raw !== null && (JSON.parse(raw) as { status?: unknown }).status === 'DRAINING';
+        const error = capabilityMutationError(
+          before,
+          next,
+          draining,
+          await readQueueGate(app.redis, id),
+        );
+        if (error) throw new AppError('WORKER_CAPABILITIES_PROTECTED', 409, error);
+        await app.db.transaction(async (tx) => {
+          await recordAudit(tx, {
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'worker.capabilities',
+            resourceType: 'worker',
+            resourceId: id,
+            before: { state: before },
+            after: { capabilities: next },
+            request: req,
+          });
+          if (next === null) await app.redis.del(capabilitiesKey(id));
+          else await app.redis.set(capabilitiesKey(id), JSON.stringify(next));
+        });
+        return method === 'DELETE' ? reply.code(204).send() : { ok: true, capabilities: next };
+      },
+    });
+  }
+
+  // Toggles the dispatcher's ComfyUI queue gate for one worker. Live: the dispatcher
+  // reads the flag on every claim, so no restart. Audit first, Redis write last, so a
+  // failed write rolls the audit back (same fail-closed shape as the other mutations).
+  app.put(
+    '/admin/workers/:id/queue-gate',
+    {
+      preHandler: requirePermission('workers.write'),
+      schema: {
+        params: z.object({ id: z.string() }),
+        body: z.object({ enabled: z.boolean() }),
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const { enabled } = req.body as { enabled: boolean };
+      const [row] = await app.db.select().from(schema.workers).where(eq(schema.workers.id, id));
+      if (!row) return reply.code(404).send({ ok: false });
+
+      if (enabled === false) await requireCapabilityDrain(app, id);
+      const before = await readQueueGate(app.redis, id);
+      await app.db.transaction(async (tx) => {
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'worker.queue_gate',
+          resourceType: 'worker',
+          resourceId: id,
+          before: { queueGateEnabled: before },
+          after: { queueGateEnabled: enabled },
+          request: req,
+        });
+        await app.redis.set(routingConfigKey(id), JSON.stringify({ queueGateEnabled: enabled }));
+      });
+      return { ok: true, queueGateEnabled: enabled };
     },
   );
 

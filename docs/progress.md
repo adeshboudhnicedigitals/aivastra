@@ -2,6 +2,229 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-02 — Admin catalogue cancellation reaches the GPU (Stage 1)
+
+- **Done:** admin PREPROCESSING/GENERATING catalogue cancel sets the existing 600s Redis signal and returns pending without a refund or DB status change. Admin UI waits for dispatcher status updates. Queued and non-catalogue behavior retained.
+- **Done:** dispatcher/admin refund paths serialize on the job row and recognize all three terminal refund reasons. CANCELLED cannot be overwritten by intermediate/completion transitions; output metadata and completion transition are atomic. All eight completion paths ACK rejected completions and suppress success delivery, including widget SSE/webhooks. FAILED → QUEUED remains supported.
+- **Validation:** dispatcher units 157 passed; full dispatcher integration 120 passed, followed by the expanded widget file (5 passed). API units 752 passed; relevant API integrations 21 passed. API/dispatcher/admin typechecks passed. Lint exited 0 with 751 warnings and 12 infos. Exact commands/output and resolved initial failures: [report](superpowers/reports/2026-10-02-admin-cancel-stage1.md).
+- **Failed-Not-Done:** no production access, commits, push, deployment, schema changes, browser verification or Stage 2 cancellation wiring. Widget/merchant GPU execution still continues after admin cancellation. Existing admin-cancel audit gap intentionally unchanged.
+- **Open Questions / accepted risks:** private uploaded objects can remain when cancellation wins before completion is recorded. The local-only audit file was absent; user supplied the graceful-abort rationale and authorized proceeding without restoring it.
+
+## 2026-10-02 — Accessory images (optional studio add-on)
+
+- **Done:** optional accessory images across db / types / dispatcher / api / admin-web / catalogues-web. Studio wizard only; free add-on (no extra credits). Selected accessories (`accessoryCatalogIds`) are stacked vertically by category `sortOrder` into one image that the dispatcher uploads to the template's `accessoryNodeId`. `GET /v1/catalog/accessory` filters items by garment-type mapping (`catalog_item_subcategories`) when `garmentTypeId` is given.
+- **Open / notes:**
+  - Migrations `0210_classy_dorian_gray` and `0211_seed_accessory_catalog_type` need `db:migrate:prod` through CI/CD. When merging with `dev`, re-chain 0210's snapshot `prevId` onto dev's `0209_worried_lethal_legion` and regenerate snapshots so they include 0209's Shopify columns.
+  - Accessory items need `gender_slug` set or the studio step never appears; items must be mapped to garment types (per-item checklist) to appear.
+  - Templates need `accessoryNodeId` mapped manually in the workflow editor (no title auto-detection).
+  - Studio multi-pose Amazon path and template-look mode were typechecked but not browser-verified.
+  - No GPU worker was available, so dispatch-to-ComfyUI was covered only by the dispatcher integration test.
+- **Known follow-ups:** duplicate `CatalogTypeSlug` in `packages/types/src/catalog.ts` still lists only lower/shoe (dead schema); stale comment in `packages/db/src/schema/catalog.ts`; no admin-job-detail display of `accessoryCatalogIds`; catalog delete doesn't clear accessory ids from `job_inputs`; `createBatch` never carries accessories.
+## 2026-10-02 — Redis isolation lifecycle verified and committed in authorized batches
+
+- **Done:** user authorized committing on the current branch. Code/tests committed as `217c6fc6`; report/progress form the documentation batch. No push or deployment.
+- **Done:** centralized `makeComfyRedis` factory with an error handler, offline queue disabled, one request retry and 5s command timeout. Startup awaits connection readiness; shutdown disconnects. Added a real offline-read rejection regression using the same factory. Atomic selector/worker-release code unchanged; retry fixture assertions unchanged.
+- **Validation:** latest units 141 passed; targeted isolation/retry integrations 5 passed; dispatcher typecheck, lint and whitespace checks pass. Initial reconnect-teardown timing failure corrected and rerun. Full integration suite was not repeated after the lifecycle follow-up; earlier 108-pass/one-invalid-fixture-failure result is retained in the report. Exact latest output: `docs/superpowers/reports/2026-10-02-comfyui-redis-isolation.md`.
+- **Not done:** production access, deployment, post-deploy timing/alert verification, worker capability changes, push. w7 remains the only configured worker per user direction; no external configuration was touched. Unrelated untracked root rev 4.4.8 spec excluded.
+
+## 2026-10-02 — Dispatcher capability/config Redis reads isolated from BLOCK (class A)
+
+- **Done:** dedicated `comfyRedis = redis.duplicate()` in startup, required in completion/processor/mannequin context, used by all eight wait sites for capability/config/version/gate reads and live cancel/cleanup authorization. The health monitor uses the same non-blocking connection, including version publication and drift checks. Shutdown disconnects it. Consumer BLOCK durations and selector gate logic unchanged.
+- **Validation:** local Docker services healthy. Dispatcher units 141 passed. Full integrations: 108 passed, one pre-existing invalid-XACK-ID retry fixture failure. Corrected fixture plus the parked-main-connection regression rerun: 4 passed; the full suite was not rerun afterward. Feature reads/drift, monitor completion and cancel authorization assert <200ms while main has a server-confirmed 2s XREADGROUP BLOCK. Correct capabilities/version produce no mismatch/failure. Typecheck and whitespace check pass; lint exits 0 with 751 warnings and 12 infos. Actual output: `docs/superpowers/reports/2026-10-02-comfyui-redis-isolation.md`.
+- **Not done:** no production access or latency measurement, deployment, API tests, quarantine, staging/commits/pushes. Existing untracked root rev 4.4.8 spec left untouched. Initial sandbox socket, group-prefix fixture, typecheck and formatting failures are recorded in the report with the successful reruns.
+
+## 2026-10-01 — ComfyUI changes prepared for authorized commit
+
+- **Done:** user authorized committing the complete change in one commit, without pushing. Moved the unchanged rev 4.4.9 specification to `docs/superpowers/specs/2026-09-30-comfyui-timeout-from-execution-start-design-rev4.4.9.md`; SHA-256 remains `ca30211627405593bf05ba41af601b0c1208f88c15bac9fd2265227df46e2199`. Earlier root-location notes below describe the state before this move.
+- **Validation:** prior verified suites remain recorded below; no partial-commit isolation checks are applicable to this single complete commit. Documentation/comment-only follow-up passed whitespace validation. Branch policy requires any future PR to target `dev`.
+- **Open Questions:** unresolved cancellation quarantine remains proposed, not implemented. No production access or push.
+
+## 2026-10-01 — Cancellation review: unresolved running prompt containment
+
+- **Done:** reviewed cancellation confirmation and worker release. Added a comment documenting that bounded Redis release attempts can complete late; ownership tokens would be needed to eliminate the reclaim race. No behavior changes, commits, pushes or production access.
+- **Open Questions (medium):** when scoped interrupt authorization is revoked, cancellation can exhaust its confirmation bound and release a worker whose prompt is still running. The job is cancelled/refunded while GPU work continues. SAFE_SCOPED cancellation does not require the queue gate, so that gate cannot be assumed to protect this path. Should unresolved cancellation place the worker in a persistent unavailable state until reconciliation confirms the prompt has cleared? This applies to unreadable state and failed interruption as well as weakened authorization.
+- **Tradeoff — retain bounded release:** developers retain simpler lifecycle handling and avoid stuck-worker recovery; users retain routing capacity but may queue behind cancelled work and consume GPU capacity without a billable job.
+- **Tradeoff — persistent quarantine (recommended):** developers need an atomic marker that release/selection honor, restart-safe reconciliation, observability and manual recovery. Users lose that worker's capacity while state is uncertain, but subsequent dispatch cannot queue behind the unresolved prompt. Clearing must preserve admin DRAINING and independently require successful queue/history reconciliation; read failures must retain quarantine. No destructive call becomes authorized by quarantine.
+- **Open Questions (low):** verify the two-absence-read cancellation confirmation assumption against the authoritative ComfyUI behavior in `aivastra-gpu`; mock tests do not establish transition visibility. LEGACY unscoped cancellation still assumes single-job ownership.
+- **Review correction:** the two `JobCancelledError` rethrows in cancellation confirmation are necessary: `finish()` throws that error inside both try blocks on confirmation. Removing the guards would swallow successful cancellation and continue polling.
+- **Validation:** `git diff --check` passed. No new test suite run for documentation/comment-only changes. Quarantine is a proposal, not implemented; the immutable timeout spec's release behavior remains in effect for cancellation.
+
+## 2026-10-01 — ComfyUI review fixes and approved exhaustion cleanup (working tree)
+
+- **Done:** fixed double release in all seven processor lifecycles with a single finally; admin display no longer emits drift/unreadable alerts; health probes run concurrently with bounded drift diagnostics and overlap prevention.
+- **Done / scope clarification:** user approved expanding exhaustion handling and adding cleanup. History now wins before exhaustion, followed by bounded reconciliation/scoped deletion with live authorization and absence confirmation. A 30s default cleanup bound validates grace plus two polls. Confirmed absence still terminates/refunds; capacity requeue remains absent. Spec unchanged.
+- **Validation:** dispatcher units 141 passed; API units 750 passed; eight dispatcher integration files 35 passed, including injected terminal-publication failure; API worker/audit integrations 22 passed. Dispatcher/API typechecks and whitespace check passed. Final lint passes with 751 warnings and 12 infos. Local PostgreSQL/Redis/MinIO verified healthy. Actual output and residual risks: `docs/superpowers/reports/2026-10-01-comfyui-timeout-stage1.md`.
+- **Not done / residual:** full Stage 2 capacity-requeue delivery, durable orphan sweeping/quarantine, ordinary history timeout fix, BUSY rename fix, queue-gate changes, production access/enablement, commits/pushes. Revocation/unreachable workers can prevent cleanup; existing gate remains required. Earlier Stage 1 no-I/O exhaustion notes below are superseded by this explicit review authorization.
+
+## 2026-10-01 — ComfyUI timeout from execution start, Stage 1 (working tree)
+
+- **Done:** implemented on `feat/comfy-timeout-execution-start` off `dev`, no commits or pushes. Root rev 4.4.9 spec SHA-256 verified as `ca30211627405593bf05ba41af601b0c1208f88c15bac9fd2265227df46e2199`; spec unchanged. Report: `docs/superpowers/reports/2026-10-01-comfyui-timeout-stage1.md`.
+- **Done:** PRE_START/RUNNING/LEGACY_FALLBACK waiter, history-first queue observation, execution deadline from first observed running, full mid-flight fallback allowance, Stage 1 immediate queue-budget exhaustion (`queue_cleanup_failed`, no further ComfyUI I/O/delete/requeue), typed handling at all eight callers, mannequin `cleanup_failed` translation, terminal refunds and bounded atomic worker release preserving DRAINING.
+- **Done:** capability keys and three-outcome parsing, fresh version guards including draining-worker monitoring, independently live-authorized scoped cancellation, conservative/legacy ratchet, bounded confirmation and authorization, audited capability routes and mutation protections, gate-drift warning in Workers, metrics and documented Grafana alert conditions. No queue-gate implementation changes.
+- **Validation:** dispatcher unit suite 134 tests passed; API unit suite 749 passed; API worker/audit integrations 22 passed; dispatcher caller integrations 33 passed, followed by happy-path/timeout-policy integrations 3 passed (includes the newly added attempt-consumption check). Dispatcher/API/admin typechecks passed. `pnpm lint` exits successfully with 751 warnings and 12 infos; `git diff --check` passed. Local compose services already healthy; startup's private MinIO pull failed with `unauthorized`, so tests used those existing local services. Dispatcher integration fixtures now prefix worker/stream Redis keys, preserving the two existing local dev worker entries.
+- **Failed / Not done:** initial sandbox socket failures, a stale Redis routing fixture, an incomplete billing fixture, and a test run that loaded a mock while it was being edited were resolved and rerun; actual outputs and failure details are linked in the report. No Stage 2 cleanup/delete/reconcile/capacity-requeue code, no history-resilience fix, no BUSY-rename fix, no production access/enablement/worker compatibility validation/Grafana provisioning. The spec is now at `docs/superpowers/specs/2026-09-30-comfyui-timeout-from-execution-start-design-rev4.4.9.md` (relocated unchanged before committing).
+- **Clarification applied:** Stage 1 enablement requires only a valid positive `maxQueueWaitMs`, plus configured identity/delete capabilities, version match and the queue gate. Cleanup budget/constraint deferred to Stage 2. Safe scoped cancel requires all three capabilities and version match, independent of gate/budgets. Engineering defaults retained. Redis-read-to-HTTP revocation window and orphaned pending work after queue exhaustion remain accepted residual risks.
+
+## 2026-09-30 — Queue-aware worker routing (Projects A, B, C-observability)
+
+Spec: `docs/superpowers/specs/2026-09-30-queue-aware-worker-routing-design.md` (not committed to the repo — pasted into the session). PRs #436 → #437 → #438, stacked, merged into `dev` in that order.
+
+- **Problem:** the dispatcher decides a GPU worker is free from its own Redis bookkeeping, so it can send a production job to a worker where a developer is running a workflow straight in ComfyUI. The job queues behind it, can hit the timeout, and burns one of `MAX_ATTEMPTS = 2`.
+- **Done:**
+  1. **A (#436):** `runMannequinPhase` returns `{status:'no_worker'}` instead of throwing `MANNEQUIN_NO_WORKER`; `processJob` requeues or terminates with `NO_WORKER` (past `MAX_QUEUE_WAIT_MS`) without consuming `attempts`. The phase also skips the GPU run when `outputs/{jobId}/mannequin-intermediate.png` already exists.
+  2. **B (#437):** `selectWorker` live-probes ComfyUI `GET /prompt` after the atomic claim for workers with the queue gate on; keeps the worker only when `exec_info.queue_remaining === 0`, fail-closed, max 4 probes, rejected workers released via an atomic `BUSY→IDLE` Lua script and excluded for the rest of the selection. Flag is `worker:routing-config:{id}` (missing = off), toggled by `PUT /admin/workers/:id/queue-gate` (audited) and the Workers page menu.
+  3. **C, observability slice (#438):** health monitor writes a display-only `worker:queue:{id}` snapshot (60s TTL) from `/queue`; the admin workers list returns `queue` + `routing` (`ok|ungated|externally_busy|unavailable`); metrics `comfy_worker_queue_remaining`, `comfy_worker_external_busy`, `comfy_worker_queue_probes_total`, `comfy_worker_queue_probe_duration_seconds`, `dispatcher_no_worker_requeues_total`, `dispatcher_worker_external_busy_rejections_total`, `dispatcher_worker_release_failures_total`.
+- **State outside the repo / rollout (NOT done — every gate ships OFF):**
+  - Before enabling a worker: with **its own** key, `GET /system_stats`, `/prompt`, `/queue` must all return 200 with the expected shapes (verified only on w7, idle, on 2026-09-30). Fail-closed gating makes any worker whose proxy differs permanently unclaimable.
+  - Browser-visibility test not run: start a workflow in a worker's ComfyUI UI, confirm `queue_remaining > 0`, confirm production jobs skip it.
+  - The w7 API key was pasted into a session transcript during testing — rotate it.
+  - The flag lives only in Redis: if prod Redis does not persist across restarts, gating silently turns off. Verify prod Redis persistence.
+- **Failed / Not done:** queue-wait and probe-failure alerts (thresholds TBD by Ops/Product; the latter needs the worker-incident-alerting incident model); `dispatcher_job_queue_wait_seconds` (no single observation point across the 8 claim sites); queue-anchor normalization (`queuedAt ?? createdAt` everywhere — product-visible, ship separately); head-of-line-blocking investigation of the 10s in-consumer requeue sleep.
+- **Open questions:** Redis-only flag vs durable desired state; alert thresholds; whether the other workers' nginx auth rules match w7.
+- **Known limits:** the probe runs while the worker is marked BUSY, so a concurrent selector can briefly see it as unavailable and requeue; admin drain/undrain/sync still read-modify-write the whole registry entry and can clobber a concurrent release; a dev can still submit between the probe and our `POST /prompt`; `externally_busy` compares a ≤15s-old sample with current status (advisory).
+
+## 2026-09-30 — Activity Logs: UX redesign, popover filters, humanized diffs & table hierarchy
+
+- **Goal:** Redesign `apps/admin-web/src/pages/AuditLogsPage.tsx` and standardize terminology across the admin app (`apps/admin-web/src/components/Sidebar.tsx`), addressing layout shifts, giant unreadable raw-ID diff blocks, and unrefined filtering.
+- **Changes Done:**
+  1. **Standardized terminology & header polish:** Renamed "Team Activity" to "Activity Logs" in the sidebar, breadcrumb, and page header. Shortened lede to `N logged events · Actions performed through the admin panel.` with an info tooltip explaining that direct database access is excluded.
+  2. **Filter bar redesign & consolidation:**
+     - Positioned the search bar on the far-left (`.filter-search-box`) with search icon and clear button for instant Record ID lookup.
+     - Searchable dropdowns for Activity and Category.
+     - Date preset popover (`Date: All time ▾`) with `Today`, `7d`, `30d`, and Custom range.
+     - Consolidated secondary filters behind `More filters ▾` (with active dot indicator) to avoid layout clutter.
+     - Dynamic active filter chips row with 1-click dismiss (`✕`) for Record ID, Team Member, Activity, Category, and Date.
+  3. **Visual action indicators & hierarchy in "What Happened":**
+     - Added subtle colored status dots (🟢 Created, 🔵 Updated, 🟠 Changed/Approved, 🔴 Deleted, ⚪ Default) to visually scan action categories.
+     - Cleanly separated the bold action sentence from the secondary Record ID (monospace, 11px, with click-to-copy button).
+  4. **Humanized Expanded Details & Event-Specific Archetypes:**
+     - Moved details from a detached panel below the entire table to an **expandable inline child row directly beneath the corresponding log row** (`<tr className="expanded-detail-row"><td colSpan={4}>...</td></tr>`), connected by an unbroken accent left border.
+     - **4-Column Event Metadata Summary Strip:** Displays Target Entity (with copyable ID), Team Member (with role badge), Exact + Relative Timestamp (`Sep 30, 2026, 11:42 AM · 24m ago`), and Event Identifier.
+     - **Tightened Vertical Footprint (~20% height reduction):** Reduced card padding from 18px/22px to 12px/18px, table cell padding to 6px/10px, and outer row container padding to 4px/16px/10px/16px so adjacent rows remain in view.
+     - **Simplified Header:** Streamlined header to `[🟢 CAT] Event Details`, removing the duplicated "What happened" title and the redundant `Close` button (the row already has `Hide details ↑`).
+     - **Neutral Consequence Card:** Shifted consequence cards from strong green/red tints to a neutral surface (`var(--surface)` / `var(--border)`), preserving semantic colors solely for the status icon and text.
+     - **Admin Wording & Singularization:** Used human resource wording (`${count} ${noun} created/removed`) and dynamic singular/plural buttons (`Copy ID` vs `Copy all N IDs`, `View ID ▾` vs `View all N IDs ▾`).
+     - **URL & Long Value Truncation:** Truncated long URLs (showing host + trimmed path) with an external link launcher (`<Icon.ExternalLink />`) and 1-click copy button, and truncated long unbroken IDs/hashes (>36 chars).
+     - **Structured Property Changes Table:** Key-value diffs render as clean `Property | Previous value | New value` tables, filtering out noisy DB timestamps (`created_at`, `updated_at`, internal IDs).
+     - **Technical Audit & Network Context:** Clean footer strip with IP (copyable), Request ID (copyable), and human-parsed client badge (e.g. `Chrome · Linux`, with full UA tooltip).
+  5. **Pagination & discovery polish:** Updated table footer to standard `Showing 1–25 of 3,066` with `‹ Previous` and `Next ›`. Upgraded action triggers to `View details →` and `Hide details ↑`.
+  6. Verified clean build with `tsc -b` and Biome format/lint.
+
+## 2026-09-30 — Recycle Bin: Visual polish, contextual selection toolbar & sorting refinements
+
+- **Goal:** Elevate `apps/admin-web/src/pages/RecycleBinPage.tsx` from functional to a premium, intentional UI with refined tabs, contextual selection mode toolbar, sortable deleted dates with relative timestamps, enhanced thumbnails, and clear row hover/selected states.
+- **Changes Done:**
+  1. **Page header hierarchy:** Made header more compact with clean lede: *"Manage deleted assets and restore or permanently remove them."*, removing low-level storage implementation jargon.
+  2. **Refined asset switcher tabs:** Transformed tab buttons into an application switcher with secondary pill counters (`Faces [961]`, `Backgrounds [163]`, `Pose assets [182]`) and clear active indicator.
+  3. **Table header hierarchy:** Reduced uppercase header visual weight, gave primary dominance to the `ASSET` column (42%), with quieter `GENDER` and `DELETED` columns.
+  4. **Interactive sorting on Deleted:** Added togglable sorting (`Deleted ↓` newest first, `Deleted ↑` oldest first) across all three tabs, resetting pagination smoothly.
+  5. **Deleted date hierarchy:** Rendered formatted date (e.g. `Jun 19, 2026`) as primary text, accompanied by human-friendly relative age (e.g. `3mo ago`, `2d ago`, `yesterday`) as subtle subtext.
+  6. **Enhanced asset thumbnails:** Upgraded in-table thumbnails with larger, comfortable dimensions (Faces: 64×64px, Backgrounds: 88×58px, Pose assets: 52×76px), rounded corners (8px), soft shadow, and clickable `cursor: zoom-in`.
+  7. **Interactive 3-state row styling:**
+     - Normal: clean table surface.
+     - Hover: subtle interactive background (`var(--surface-2)`).
+     - Selected: persistent tinted highlight (`rgba(var(--primary-rgb), 0.05)`) with an indigo accent indicator (`3px solid var(--accent)`).
+  8. **Contextual selection mode toolbar:**
+     - Page selection mode: elevated floating surface with count, "Select all N", and clear actions.
+     - "All selected" mode: transitions to an accented state with `<Icon.Check />` badge and `All N assets selected (across all pages)`.
+  9. **Beautiful empty state:** Replaced plain card with a clean, friendly empty state featuring ♻ icon, clear title, concise copy, and a `[ ↻ Refresh ]` button.
+  10. **Targeted confirmation verification previews & lightbox:**
+     - Enlarged in-table thumbnails to 64px for fast, confident visual recognition without squinting.
+     - Clicking any thumbnail opens an instant high-resolution lightbox modal showing the full uncropped asset (`r2Url`).
+     - Upgraded single-item permanent delete dialog with an enlarged preview card (72×72px for faces, 96×68px for backgrounds, 52×76px for poses), prominent name, metadata badges (gender, continent, shot type), and full ID.
+     - Upgraded bulk delete dialog with a 4-sample thumbnail preview strip + `+N more` counter.
+  11. Verified clean `tsc -b` and `biome check` with 0 errors and 0 warnings.
+
+
+
+
+
+## 2026-09-30 — Recycle Bin: UX redesign, bulk selection toolbar & destructive action clarity
+
+- **Goal:** Redesign `apps/admin-web/src/pages/RecycleBinPage.tsx` from a generic soft-delete CRUD table into a deliberate, polished recycle bin workflow with explicit destructive actions and a modern bulk selection model.
+- **Changes Done:**
+  1. **Destructive action clarity:** Renamed ambiguous row-action `Delete` to `Permanently delete` in danger styling.
+  2. **Confirmation modal with explicit R2 warning:** Redesigned permanent delete confirmation dialog to display an explicit warning: *"Permanently delete N assets? This will permanently remove the selected assets and their files from R2 storage. This cannot be undone."* For single asset deletions, displays the asset thumbnail, label/displayName, and truncated ID.
+  3. **Table header selection & indeterminate state:** Replaced plain-text "Select page" with a standard table header checkbox (`☐`), supporting checked, unchecked, and indeterminate states via ref.
+  4. **Floating/docked bulk selection toolbar:** When assets are selected, a distinct surface toolbar appears above the table displaying:
+     - Count of selected items (`N faces/backgrounds/pose assets selected`).
+     - "Select all N [assets]" cross-page button when the current page is selected and total items exceed page size.
+     - "Clear selection" action.
+     - "Restore (N)" and "Permanently delete (N)" actions.
+  5. **Explicit Refresh button:** Replaced detached plain-text button with `[ ↻ Refresh ]` icon button matching the page header pattern.
+  6. **Table column tightening:** Sized columns with fixed bounds (checkbox 44px, gender 130px, deleted date 140px, actions 230px right-aligned) to eliminate empty whitespace stretching.
+  7. **Thumbnail sizing & aspect ratio optimization:**
+     - Faces: 40×40px square (border-radius: 6px).
+     - Backgrounds: 52×38px landscape (border-radius: 4px).
+     - Pose assets: 34×48px vertical portrait (border-radius: 4px).
+  8. **Pose Assets table cleanup:** Removed predominantly empty standalone `Variant` column; displayed `poseVariant` as an inline pill next to asset title when present, alongside `shotType` and label subtext.
+  9. **Contextual metadata display:** Added secondary context to cryptic names (e.g. continent for faces, white background / scope / tags for backgrounds, display name and shot type for poses).
+  10. **Tab-specific empty states:** Replaced generic empty text with centered cards featuring an icon, friendly title, and explanatory copy.
+  11. **Final interaction safety pass:**
+     - Header checkbox uses callback ref so indeterminate `-` state correctly binds across tab switches and page navigation.
+     - Fully explicit scope transition: `50 pose assets selected on this page · Select all 182 pose assets` -> `182 pose assets selected (all pages) · Clear selection`.
+     - Confirmation modal displays exact count in button: `Permanently delete 50`.
+     - Error handling re-syncs table state upon partial delete failure.
+     - Table column layout redistributed (`38% / 18% / 20% / actions`) to bring metadata closer to the asset and eliminate dead whitespace.
+  12. Verified clean `tsc -b` and `biome check` with 0 errors and 0 warnings.
+
+
+## 2026-09-30 — Credit Analysis: Section spacing and filter row alignment fixes
+
+- **Goal:** Correct uneven vertical rhythm, mismatched control heights, and accidental wrapping in `apps/admin-web/src/pages/CreditAnalysisPage.tsx`.
+- **Changes Done:**
+  1. **Fixed section vertical spacing rhythm:** Unified `.page-head` and the summary strip into a coherent header block with `16px` gap. Removed artificial `marginBottom: 20` and `marginBottom: 18` that previously doubled the parent `.content` gap into an awkward 44px dead space.
+  2. **Typographic baseline alignment:** Aligned summary strip metric numbers and labels on their typographic baseline (`alignItems: 'baseline'`, `gap: 6`), with balanced `32px` separation between metric pairs.
+  3. **Pixel-perfect filter heights (36px uniform):** Matched the segmented DayRange pill container (`height: 36px`, `boxSizing: border-box`, `padding: 2px`, `borderRadius: var(--r)`) and buttons (`height: 100%`) with `.filter-search-box` and `.filter-select`.
+  4. **Single-row filter layout & desktop-only flex fix:** Found root cause of the two-row wrap: `.desktop-only` in `tokens.css` had `display: block !important;`, which overrode `display: flex` when combined directly on the same element (`className="desktop-only filter-row"`), forcing flex items to render in normal block flow (Search on row 1, pills + select on row 2). Separated `.desktop-only` wrapper from `.filter-row` so `display: flex; flex-wrap: nowrap;` takes full effect, locking all 3 controls onto a single line.
+  5. Verified clean `tsc --noEmit` and `biome check` with 0 errors and 0 warnings.
+
+## 2026-09-29 — Credit Analysis: UX redesign & user detail drawer
+
+- **Goal:** Transform `apps/admin-web/src/pages/CreditAnalysisPage.tsx` from a simple ranking report into an actionable analysis tool with summary metrics, clear credit terminology, unified filter bar, and a slide-over user detail drawer.
+- **Changes Done:**
+  1. **Top summary metrics strip:** Compact insight strip showing `Credits spent · Jobs completed · Avg. credits/job · Active users` across the selected window and filter.
+  2. **Backend summary aggregates:** Added `summary: { totalSpent, totalJobs, avgCostPerJob, totalUsers }` to `GET /admin/credit-analysis/users` in `apps/api/src/modules/admin/credit-analysis.routes.ts`.
+  3. **Unified filter bar:** Single `.filter-row` integrating search box (with clear button), segmented DayRange pill group (`7d`, `30d`, `90d`, `All time` with distinct active state), and source select dropdown.
+  4. **Clear terminology:** Renamed table columns to eliminate financial ambiguity:
+     - `SPENT` → `CREDITS SPENT`
+     - `BALANCE` → `CREDIT BALANCE`
+     - `AVG/JOB` → `AVG. CREDITS/JOB`
+  5. **User list hierarchy:** User name styled dominant (`font-weight: 600`, `color: var(--ink)`), email clearly subordinate (`0.78rem`, `var(--muted)`), with green Shopify badge.
+  6. **Slide-over User Details Drawer:** Clicking a user opens a right-side drawer with 2x2 key metrics, daily spend bar chart, top products (if Shopify), recent credit ledger activity with source filter, and a direct "View user profile →" navigation button to the Users page.
+  7. **Drawer analytical polish:**
+     - Chart shows selected date range: `Daily credit spend · Last 30 days` (or `7 days`, `90 days`, `All time`).
+     - Recharts custom tooltip shows formatted date (`Sep 3, 2026`) and formatted credits (`Credits spent: 2,750`).
+     - Activity feed humanized from raw database codes: e.g. `JOB_DISPATCH` → `Catalogue job` / `Job dispatch · 6:29 PM · Sep 3`.
+     - Removed circular bullet icon from activity items that resembled toggles/radios.
+     - Activity feed expands vertically to eliminate unused space at the bottom of the drawer.
+     - Cleaned plan tier and Shopify badges in drawer header.
+  8. **Mobile cards updated:** Aligned metrics terminology with desktop table.
+  9. **Drawer render loop fix:** Resolved infinite re-fetch flickering when opening user drawer caused by unstable `closeDetail` / `toast` references in the `useEffect` dependency array.
+  10. **Interaction sanity pass:** Added text truncation (`ellipsis`) for long names and emails in both table and drawer; hardened Recharts Tooltip with `zIndex: 100` to prevent clipping; confirmed empty states, date range syncing (`7d`/`30d`/`90d`/`all`), and non-job ledger entries (refunds, adjustments).
+  11. **View user profile navigation fix:** Updated button to navigate directly to `/users?user=${detail.id}` with search state, and updated `UsersPage.tsx` to read `location.state` search/filter fallback so clicking the button smoothly opens that user's full management drawer and filters the background list.
+  12. Verified clean `tsc --noEmit` and `biome check` across both `@aivastra/admin` and `@aivastra/api`, and passed all 8 integration tests (`admin-credit-analysis.test.ts`).
+
+## 2026-09-29 — Workers page: full UX redesign
+
+- **Goal:** Modernise `apps/admin-web/src/pages/WorkersPage.tsx` per detailed product brief.
+- **Changes Done:**
+  1. Summary strip: compact `Total · Healthy · Offline · Draining` counters.
+  2. Search + filter bar: search (ID, label, URL, job type) + Status + Job type dropdowns.
+  3. Worker column: ID dominant, display name (monospace) beneath.
+  4. Combined Status + Health → single `● Primary / detail` cell. Removed two separate columns.
+  5. URL + API key removed from the table; drawer-only.
+  6. Compact job-type summary (`All`, `Catalogue`, `Saree +3`) — no coloured pills in table.
+  7. Labelled enable toggle: `Enabled` / `Disabled` text next to Switch.
+  8. `⋯` RowMenu replaces 3 unlabelled icon buttons (Edit, Drain/Undrain, Enable/Disable, Delete).
+  9. Right-side EditDrawer for both Add and Edit — replaced the centred modal.
+  10. "Label" → "Display name" in the form.
+  11. Job types: explicit `All job types` / `Selected job types` radio — replaces "leave unchecked to accept all".
+  12. API key reveal (Eye/EyeOff) in drawer; hidden by default.
+  13. Empty state with icon, description, and Add worker CTA.
+  14. Mobile cards updated: StatusDot, unified state label, labelled toggle.
+  15. `tsc --noEmit` and `biome check` both clean.
+
 ## 2026-09-28 — WordPress demo store: Product card border fixed to match reference image
 
 - **Goal:** Product card border was an animated gradient (`::before` pseudo-element, purple → magenta). Reference image shows plain `1px solid #000` matching the live `shopify.aivastra.com` style.

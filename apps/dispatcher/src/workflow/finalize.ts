@@ -13,7 +13,7 @@
  * Step 2 of 7 — pure refactor, no watermarking behavior yet.
  * Watermarking will be wired in at step 4 behind ENABLE_WATERMARKING env var.
  */
-import { type DB, schema } from '@aivastra/db';
+import type { DB } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { keys } from '@aivastra/storage';
 import type { ImageCompressionJobConfig } from '@aivastra/types';
@@ -84,6 +84,7 @@ export interface FinalizeOutputOpts {
 export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
   resultKey: string;
   thumbnailKey: string | undefined;
+  completed: boolean;
 }> {
   const { imageBytes, jobId, userId, db, pub, s3, r2Bucket, jobLog } = opts;
   const finalizeStartedAt = Date.now();
@@ -167,39 +168,17 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
     thumbnailKey = undefined;
   }
 
-  // Write job_outputs with asset_kind and watermark_version.
-  // asset_kind reflects what actually ran — currently always ORIGINAL.
+  // Output metadata and completion are committed together after the cancellation guard.
   const assetKind = watermarkApplied ? 'WATERMARKED' : 'ORIGINAL';
-  await db
-    .insert(schema.jobOutputs)
-    .values({
-      jobId,
-      resultKey,
-      thumbnailKey: thumbnailKey ?? null,
-      assetKind,
-      watermarkVersion: watermarkVersion !== null ? watermarkVersion : undefined,
-    })
-    .onConflictDoUpdate({
-      target: schema.jobOutputs.jobId,
-      set: {
-        resultKey,
-        thumbnailKey: thumbnailKey ?? null,
-        assetKind,
-        watermarkVersion: watermarkVersion !== null ? watermarkVersion : null,
-      },
-    });
-
-  // Transition to COMPLETED — resultKey/thumbnailKey are included for SSE payload.
-  // skipOutputInsert=true because we already upserted job_outputs above with assetKind/watermarkVersion.
-  await transitionJob(
+  const completed = await transitionJob(
     db,
     pub,
     jobId,
     userId,
     'COMPLETED',
-    { resultKey, thumbnailKey, skipOutputInsert: true, shopifyStoreId: opts.shopifyStoreId },
+    { resultKey, thumbnailKey, assetKind, watermarkVersion, shopifyStoreId: opts.shopifyStoreId },
     jobLog,
   );
 
-  return { resultKey, thumbnailKey };
+  return { resultKey, thumbnailKey, completed };
 }

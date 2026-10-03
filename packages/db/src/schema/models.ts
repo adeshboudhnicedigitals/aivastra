@@ -200,6 +200,11 @@ export const workflowTemplates = pgTable('workflow_templates', {
   lowerNodeId: text('lower_node_id'), // nullable — some workflows have no lower garment
   shoeNodeId: text('shoe_node_id'), // nullable — some workflows have no shoe garment
   thirdNodeId: text('third_node_id'), // nullable — a 3rd, generically-named uploaded garment role
+  // Optional single node for a stacked accessory composite (see
+  // apps/dispatcher/src/workflow/accessory-stack.ts). Unlike lowerNodeId/
+  // shoeNodeId/thirdNodeId, a mapped accessoryNodeId is never mandatory — a
+  // job with no accessories selected simply leaves this node untouched.
+  accessoryNodeId: text('accessory_node_id'),
   sizeNodeId: text('size_node_id'), // kept for backward compat — use sizeNodeIds
   sizeNodeIds: text('size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`), // all nodes controlling output dimensions
 
@@ -305,6 +310,7 @@ export const workflowTemplateArchives = pgTable(
     lowerNodeId: text('lower_node_id'),
     shoeNodeId: text('shoe_node_id'),
     thirdNodeId: text('third_node_id'),
+    accessoryNodeId: text('accessory_node_id'),
     sizeNodeId: text('size_node_id'),
     sizeNodeIds: text('size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`),
     latentSizeNodeIds: text('latent_size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`),

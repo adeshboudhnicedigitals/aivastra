@@ -85,6 +85,80 @@ class Aivastra_Connection_Service
     }
 
     /**
+     * The "Current balance" card's two calculated lines: how many try-ons
+     * the current credit balance covers, and roughly how many days that
+     * lasts at the merchant's own recent pace.
+     *
+     * tryOnsRemaining comes straight from GET /v1/dev/me (full scope) —
+     * connect() already calls this endpoint to verify a new full key, but
+     * discards this field; every other call in this class uses the
+     * widget-scoped key, which this endpoint doesn't accept.
+     * daysRemaining is this plugin's own arithmetic, not an API field: it
+     * divides tryOnsRemaining by the merchant's average daily try-ons over
+     * GET /v1/dev/analytics's window (same call render_dashboard() makes
+     * for the Try-On Activity chart — pass its `daily` rows in via
+     * $dailyRows to skip a second fetch; omit it, as
+     * Aivastra_Refresh_Ajax does, to have this method fetch its own). Null
+     * when there's no usage yet to average (a fresh install, or the
+     * analytics call itself failing) — that's still a usable balance
+     * summary, just without a day estimate.
+     *
+     * @param ?array<int, array{day:string,tryOns:int}> $dailyRows
+     * @return array{ok: bool, tryOnsRemaining?: int, daysRemaining?: ?int, error?: string}
+     */
+    public function get_balance_summary(?array $dailyRows = null): array
+    {
+        $fullKey = $this->settings->get_full_key();
+        if ($fullKey === null) {
+            return ['ok' => false, 'error' => 'not_connected'];
+        }
+
+        $meResponse = wp_remote_get($this->apiBase . '/v1/dev/me', [
+            'headers' => ['Authorization' => 'Bearer ' . $fullKey],
+            'timeout' => 15,
+        ]);
+        if (is_wp_error($meResponse)) {
+            return ['ok' => false, 'error' => 'Could not reach the aivastra API.'];
+        }
+        if (wp_remote_retrieve_response_code($meResponse) !== 200) {
+            return ['ok' => false, 'error' => 'The full API key was rejected.'];
+        }
+        $meBody = json_decode(wp_remote_retrieve_body($meResponse), true);
+        if (!is_array($meBody) || !isset($meBody['tryOnsRemaining'])) {
+            return ['ok' => false, 'error' => 'Unexpected response from the aivastra API.'];
+        }
+        $tryOnsRemaining = (int) $meBody['tryOnsRemaining'];
+
+        if ($dailyRows === null) {
+            $analyticsResponse = wp_remote_get($this->apiBase . '/v1/dev/analytics', [
+                'headers' => ['Authorization' => 'Bearer ' . $fullKey],
+                'timeout' => 15,
+            ]);
+            $dailyRows = [];
+            if (!is_wp_error($analyticsResponse) && wp_remote_retrieve_response_code($analyticsResponse) === 200) {
+                $analyticsBody = json_decode(wp_remote_retrieve_body($analyticsResponse), true);
+                $dailyRows = is_array($analyticsBody) && is_array($analyticsBody['daily'] ?? null)
+                    ? $analyticsBody['daily']
+                    : [];
+            }
+        }
+
+        $daysRemaining = null;
+        if (!empty($dailyRows)) {
+            $total = 0;
+            foreach ($dailyRows as $d) {
+                $total += (int) ($d['tryOns'] ?? 0);
+            }
+            $avgPerDay = $total / count($dailyRows);
+            if ($avgPerDay > 0) {
+                $daysRemaining = (int) round($tryOnsRemaining / $avgPerDay);
+            }
+        }
+
+        return ['ok' => true, 'tryOnsRemaining' => $tryOnsRemaining, 'daysRemaining' => $daysRemaining];
+    }
+
+    /**
      * Lists the merchant's active aivastra dev-API categories, for the category
      * mapping screen (§ category mapping) — GET /v1/dev/categories accepts a
      * widget-scoped key (apps/api/src/modules/dev/routes.ts), so no full key is

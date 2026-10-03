@@ -37,6 +37,7 @@ describe('recoverPendingJobs — store-billed jobs carry no userId field', () =>
     pub = new Redis('redis://127.0.0.1:6379');
     comfy = await startComfyMock();
     cfg = {
+      comfyRedis: redis,
       db: env.db,
       redis,
       pub,

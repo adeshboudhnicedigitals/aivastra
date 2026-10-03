@@ -95,7 +95,7 @@ const CoercedPositiveInt = z.union([
   z.number().int().positive(),
   z.string().regex(/^\d+$/).transform(Number),
 ]);
-const CatalogTypeSlug = z.enum(['lower', 'shoe']);
+const CatalogTypeSlug = z.enum(['lower', 'shoe', 'accessory']);
 
 export const PresignCatalogItemBody = z.object({
   typeSlug: CatalogTypeSlug,
@@ -436,6 +436,7 @@ export const CreateWorkflowBody = z
     lowerNodeId: z.string().min(1).optional(),
     shoeNodeId: z.string().min(1).optional(),
     thirdNodeId: z.string().min(1).optional(),
+    accessoryNodeId: z.string().min(1).optional(),
     sizeNodeIds: z.array(z.string().min(1)).optional(),
     // Dual-size-group templates (build_model_main v2+) — server-computed from node
     // titles at parse time, not manually edited via the admin form.
@@ -589,6 +590,7 @@ export const UpdateWorkflowBody = z.object({
   lowerNodeId: z.string().min(1).nullable().optional(),
   shoeNodeId: z.string().min(1).nullable().optional(),
   thirdNodeId: z.string().min(1).nullable().optional(),
+  accessoryNodeId: z.string().min(1).nullable().optional(),
   sizeNodeId: z.string().min(1).nullable().optional(),
   sizeNodeIds: z.array(z.string().min(1)).optional(),
   latentSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
@@ -693,13 +695,34 @@ export const ReassignWorkflowBody = z.object({
 // can still write workflow_templates directly. See
 // apps/api/src/modules/admin/workflow-change-requests.routes.ts.
 
-export const ProposeWorkflowChangeRequestBody = z.object({
-  changeType: z.enum(['create', 'update']),
-  targetWorkflowId: z.string().uuid(),
-  reason: z.string().min(1).max(2000),
-  previousLimitations: z.string().min(1).max(2000),
-  proposedFields: z.record(z.any()),
-});
+// targetWorkflowId is optional only for a 'create': omitted means "add a brand-new
+// workflow" (nothing is replaced/deactivated); present means "replace this one".
+// An 'update' always needs its target. previousLimitations only makes sense
+// against a workflow being replaced, so it is required exactly when a target is.
+export const ProposeWorkflowChangeRequestBody = z
+  .object({
+    changeType: z.enum(['create', 'update']),
+    targetWorkflowId: z.string().uuid().optional(),
+    reason: z.string().min(1).max(2000),
+    previousLimitations: z.string().max(2000).optional(),
+    proposedFields: z.record(z.any()),
+  })
+  .superRefine((b, ctx) => {
+    if (b.changeType === 'update' && !b.targetWorkflowId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['targetWorkflowId'],
+        message: 'targetWorkflowId is required for an update',
+      });
+    }
+    if (b.targetWorkflowId && !b.previousLimitations?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['previousLimitations'],
+        message: 'previousLimitations is required when replacing a workflow',
+      });
+    }
+  });
 
 export const ApproveWorkflowChangeRequestBody = z.object({
   reviewNote: z.string().max(2000).optional(),

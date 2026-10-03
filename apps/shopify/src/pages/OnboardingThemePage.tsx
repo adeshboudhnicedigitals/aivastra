@@ -60,6 +60,11 @@ export default function OnboardingThemePage({
   // The embed is switched on in another tab and detected the first time the
   // widget loads on a live product page, so there is nothing to click here —
   // just look again on a timer and whenever the merchant comes back to this tab.
+  // Deliberately calls onRefresh (cheap, DB-only) rather than the Admin-API-
+  // backed check-theme-embed endpoint above — polling Shopify's Admin API
+  // automatically every 5s for every merchant with this tab open would burn
+  // API rate-limit budget for no benefit; that check is reserved for the
+  // explicit, human-paced "Refresh status" click.
   useEffect(() => {
     if (themeEmbedDone) return;
     const refresh = () => {
@@ -80,6 +85,12 @@ export default function OnboardingThemePage({
     setChecking(true);
     setError(null);
     try {
+      // Best-effort: the Admin API check is an accelerator, not a prerequisite.
+      // If it fails for any reason, onRefresh still surfaces whatever the
+      // storefront-ping path already recorded — this call must never block it.
+      await apiFetch('/v1/shopify/onboarding/check-theme-embed', { method: 'POST' }).catch(
+        () => {},
+      );
       await onRefresh();
       setCheckedNotFound(true);
     } catch (err) {
@@ -219,14 +230,14 @@ export default function OnboardingThemePage({
                     </div>
                     <BlockStack gap="200">
                       <Text as="p" tone="subdued">
-                        If Save is greyed out, it's already enabled. Then open any product page on
-                        your store and press Refresh status — we'll detect the button and unlock
-                        Finish Setup.
+                        If Save is greyed out, it's already enabled. Press Refresh status and we'll
+                        detect it automatically.
                       </Text>
                       {checkedNotFound && (
                         <Text as="p" tone="caution">
-                          Not detected yet. Make sure the embed is saved, then load a product page
-                          on your live store (not the theme editor preview) and refresh again.
+                          Not detected yet. Make sure the embed is saved, then try Refresh status
+                          again in a moment — or open any product page on your live store (not the
+                          theme editor preview), which also confirms it automatically.
                         </Text>
                       )}
                     </BlockStack>

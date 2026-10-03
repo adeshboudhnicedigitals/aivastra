@@ -10,6 +10,7 @@ import { processJob } from '../../src/job/processor.js';
 import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { assertQueueExhaustion } from '../helpers/queue-exhaustion.js';
 
 const WORKER_ID = 'test-worker-regenerate';
 const PERSON_NODE_ID = '151';
@@ -26,8 +27,8 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
 
   beforeAll(async () => {
     env = await setupTestEnv();
-    redis = new Redis('redis://127.0.0.1:6379');
-    pub = new Redis('redis://127.0.0.1:6379');
+    redis = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
+    pub = new Redis('redis://127.0.0.1:6379', { keyPrefix: `comfy-stage1:${WORKER_ID}:` });
     comfy = await startComfyMock();
 
     await registerWorkers(redis, [{ id: WORKER_ID, url: comfy.url, apiKey: 'test-key' }]);
@@ -49,6 +50,7 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
   });
 
   beforeEach(async () => {
+    comfy.resetPrompts();
     comfy.setOptions({ outputBytes: realOutputBytes });
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
@@ -127,7 +129,16 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -154,7 +165,16 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -178,7 +198,16 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
     const log = createLogger('test');
 
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       jobId,
       userId,
       'jobs:normal',
@@ -188,5 +217,25 @@ describe('regenerate job (source=regenerate) — single-image edit, result uploa
     const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(job?.status).toBe('FAILED');
     expect(job?.errorCode).toBe('REGEN_NODES_NOT_CONFIGURED');
+  });
+  it('queue_cleanup_failed terminates and refunds without attempts, output handling or requeue', async () => {
+    const { jobId, userId } = await seedRegenerateJob();
+    if (!jobId || !userId) throw new Error('missing fixture IDs');
+    await assertQueueExhaustion(
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log: createLogger('test'),
+      },
+      comfy,
+      WORKER_ID,
+      jobId,
+      userId,
+    );
   });
 });

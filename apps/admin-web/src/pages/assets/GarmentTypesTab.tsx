@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
 import { BulkImportPosesModal } from '../../components/BulkImportPosesModal';
 import { EditDrawer } from '../../components/EditDrawer';
@@ -112,6 +112,7 @@ export function GarmentTypesTab() {
     setWorkflows,
     catalogItems,
     loading,
+    setPreviewUrl,
     toast,
   } = useAssetsContext();
 
@@ -483,7 +484,12 @@ export function GarmentTypesTab() {
               borderTop: '1px solid var(--border)',
             }}
           >
-            <GarmentTemplateMappingPanel sub={subView.sub} workflows={workflows} toast={toast} />
+            <GarmentTemplateMappingPanel
+              sub={subView.sub}
+              workflows={workflows}
+              toast={toast}
+              setPreviewUrl={setPreviewUrl}
+            />
           </div>
 
           <div
@@ -530,6 +536,7 @@ export function GarmentTypesTab() {
             savingDefaultPose={savingDefaultPose}
             garmentTypeOptions={otherGarmentTypeOptions}
             toast={toast}
+            setPreviewUrl={setPreviewUrl}
           />
         </>
       )}
@@ -1321,15 +1328,42 @@ interface GarmentTemplateMappingPanelProps {
   sub: GarmentType;
   workflows: WorkflowOption[];
   toast: (opts: { kind?: 'error'; title: string; body?: string }) => void;
+  setPreviewUrl: (url: string | null) => void;
 }
 
-function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateMappingPanelProps) {
+function GarmentTemplateMappingPanel({
+  sub,
+  workflows,
+  toast,
+  setPreviewUrl,
+}: GarmentTemplateMappingPanelProps) {
   const [items, setItems] = useState<TemplateGarmentTypeMapping[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
   const [batchSaving, setBatchSaving] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<TemplateGarmentTypeMapping | null>(null);
+
+  // Single click selects, double click previews — same 250ms disambiguation
+  // used by PoseAssetsTab/BackgroundsTab, needed because the card itself is
+  // the selection click target (not just the checkbox).
+  const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleCardClick(id: string) {
+    if (singleClickTimerRef.current) {
+      clearTimeout(singleClickTimerRef.current);
+      singleClickTimerRef.current = null;
+      return;
+    }
+    singleClickTimerRef.current = setTimeout(() => {
+      singleClickTimerRef.current = null;
+      toggleTemplateSelection(id);
+    }, 250);
+  }
+
+  function handleCardDoubleClick(thumbnailUrl: string | null) {
+    if (thumbnailUrl) setPreviewUrl(thumbnailUrl);
+  }
 
   const load = useCallback(async () => {
     setSelectedTemplateIds([]);
@@ -1504,7 +1538,10 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
               key={item.id}
               className="card"
               onClick={() => {
-                if (!batchSaving) toggleTemplateSelection(item.id);
+                if (!batchSaving) handleCardClick(item.id);
+              }}
+              onDoubleClick={() => {
+                if (!batchSaving) handleCardDoubleClick(item.thumbnailUrl);
               }}
               style={{
                 padding: 0,
@@ -1992,6 +2029,7 @@ interface PoseConfigsPanelProps {
   savingDefaultPose: boolean;
   garmentTypeOptions: { id: string; label: string }[];
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+  setPreviewUrl: (url: string | null) => void;
 }
 
 function PoseConfigsPanel({
@@ -2006,6 +2044,7 @@ function PoseConfigsPanel({
   savingDefaultPose,
   garmentTypeOptions,
   toast,
+  setPreviewUrl,
 }: PoseConfigsPanelProps) {
   const [editing, setEditing] = useState<PoseGarmentConfig | null>(null);
   const [editWorkflow, setEditWorkflow] = useState('');
@@ -2057,6 +2096,26 @@ function PoseConfigsPanel({
 
   const selectAll = () => setSelectedIds(filteredItems.map((i) => i.id));
   const clearSelection = () => setSelectedIds([]);
+
+  // Single click selects, double click previews — same 250ms disambiguation
+  // used by PoseAssetsTab/BackgroundsTab.
+  const imageClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleImageClick(id: string) {
+    if (imageClickTimerRef.current) {
+      clearTimeout(imageClickTimerRef.current);
+      imageClickTimerRef.current = null;
+      return;
+    }
+    imageClickTimerRef.current = setTimeout(() => {
+      imageClickTimerRef.current = null;
+      toggleSelect(id);
+    }, 250);
+  }
+
+  function handleImageDoubleClick(thumbnailUrl: string) {
+    if (thumbnailUrl) setPreviewUrl(thumbnailUrl);
+  }
 
   const applyBulkWorkflow = async () => {
     if (!bulkWorkflow || selectedIds.length === 0) return;
@@ -2438,13 +2497,23 @@ function PoseConfigsPanel({
                   alignItems: 'center',
                   aspectRatio: '3/4',
                   position: 'relative',
+                  cursor: 'pointer',
                 }}
+                onClick={() => handleImageClick(item.id)}
+                onDoubleClick={() => handleImageDoubleClick(item.thumbnailUrl)}
               >
-                <AssetThumb thumbnailUrl={item.thumbnailUrl} label={item.label} w={160} h={210} />
+                <AssetThumb
+                  thumbnailUrl={item.thumbnailUrl}
+                  label={item.label}
+                  cursor="pointer"
+                  w={160}
+                  h={210}
+                />
                 <input
                   type="checkbox"
                   checked={selectedIds.includes(item.id)}
                   onChange={() => toggleSelect(item.id)}
+                  onClick={(e) => e.stopPropagation()}
                   style={{
                     position: 'absolute',
                     top: 6,

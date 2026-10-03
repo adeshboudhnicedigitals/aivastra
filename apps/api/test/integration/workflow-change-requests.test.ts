@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
@@ -128,8 +128,10 @@ describe('workflow change requests - propose/approve', () => {
       payload: {
         changeType: 'create',
         targetWorkflowId: oldWorkflowId,
-        reason: 'New graph fixes draping',
-        previousLimitations: 'Old graph mishandled loose fabric',
+        reason:
+          'New graph fixes draping — the sampler now respects fabric weight so loose garments no longer clip through the mannequin during generation.',
+        previousLimitations:
+          'Old graph mishandled loose fabric: any garment with drape or flow would clip through the mannequin body in a large share of generations.',
         proposedFields: {
           slug: `mapping_replacement_${Date.now()}`,
           label: 'Mapping replacement',
@@ -216,6 +218,72 @@ describe('workflow change requests - propose/approve', () => {
     expect(replacedByRes.json().replacedBy.resultingWorkflowId).toBe(newWorkflowId);
   });
 
+  it('a "create" proposal without a target adds a standalone workflow and deactivates nothing', async () => {
+    const [activeBefore] = await app.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.isActive, true));
+
+    const proposedFields = {
+      slug: `standalone_${Date.now()}`,
+      label: 'Standalone add',
+      jsonContent,
+      workflowType: 'regular',
+      poseNodeId: 'pose_node',
+      lowerNodeId: 'lower_node',
+      garmentPhasePromptNode: 'positive_node',
+    };
+
+    // A replace-style proposal still needs previousLimitations.
+    const bad = await app.inject({
+      method: 'POST',
+      url: '/admin/workflow-change-requests',
+      headers: moderatorHeaders,
+      payload: {
+        changeType: 'create',
+        targetWorkflowId: '00000000-0000-4000-8000-000000000000',
+        reason: 'x',
+        proposedFields,
+      },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    // An update can never omit its target.
+    const badUpdate = await app.inject({
+      method: 'POST',
+      url: '/admin/workflow-change-requests',
+      headers: moderatorHeaders,
+      payload: { changeType: 'update', reason: 'x', proposedFields: { label: 'y' } },
+    });
+    expect(badUpdate.statusCode).toBe(400);
+
+    const proposeRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflow-change-requests',
+      headers: moderatorHeaders,
+      payload: { changeType: 'create', reason: 'Brand-new capability', proposedFields },
+    });
+    expect(proposeRes.statusCode).toBe(200);
+    expect(proposeRes.json().targetWorkflowId).toBeNull();
+
+    const approveRes = await app.inject({
+      method: 'POST',
+      url: `/admin/workflow-change-requests/${proposeRes.json().id}/approve`,
+      headers: superHeaders,
+      payload: {},
+    });
+    expect(approveRes.statusCode).toBe(200);
+    const created = approveRes.json();
+    expect(created.status).toBe('approved');
+    expect(created.mappingsSummary).toBeUndefined();
+
+    const [activeAfter] = await app.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.isActive, true));
+    expect(activeAfter.n).toBe(activeBefore.n + 1);
+  });
+
   it('rejecting a proposal requires a review note and leaves the target workflow untouched', async () => {
     const createRes = await app.inject({
       method: 'POST',
@@ -240,8 +308,10 @@ describe('workflow change requests - propose/approve', () => {
       payload: {
         changeType: 'update',
         targetWorkflowId,
-        reason: 'Tweak label',
-        previousLimitations: 'Label is unclear',
+        reason:
+          'Renaming this workflow to something more descriptive so admins can tell it apart from similar templates in the list view.',
+        previousLimitations:
+          'The current label is a generic placeholder left over from when the workflow was first uploaded and never renamed since.',
         proposedFields: { label: 'Renamed label' },
       },
     });

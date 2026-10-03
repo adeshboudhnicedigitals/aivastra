@@ -1,6 +1,8 @@
+import type { Logger } from '@aivastra/logger';
+import { workerReleaseFailuresTotal } from '@aivastra/observability';
 import type { Redis } from 'ioredis';
-import { describe, expect, it } from 'vitest';
-import { REGISTRY_KEY, setWorkerStatus, type WorkerEntry } from './registry.js';
+import { describe, expect, it, vi } from 'vitest';
+import { REGISTRY_KEY, releaseWorker, setWorkerStatus, type WorkerEntry } from './registry.js';
 
 function makeFakeRedis(initial: Record<string, WorkerEntry>) {
   const store = new Map(Object.entries(initial).map(([id, entry]) => [id, JSON.stringify(entry)]));
@@ -53,5 +55,41 @@ describe('setWorkerStatus', () => {
     await setWorkerStatus(redis as unknown as Redis, 'w1', 'IDLE');
 
     expect(redis._entry('w1').status).toBe('IDLE');
+  });
+});
+
+describe('bounded atomic worker release', () => {
+  it('retries a transient Redis failure without replacing the whole registry entry', async () => {
+    const evalCommand = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('transient failure'))
+      .mockResolvedValue(1);
+    const log = { error: vi.fn() } as unknown as Logger;
+    await releaseWorker({ eval: evalCommand } as unknown as Redis, 'w', log);
+    expect(evalCommand).toHaveBeenCalledTimes(2);
+    expect(evalCommand).toHaveBeenCalledWith(
+      expect.stringContaining("val.status ~= 'BUSY'"),
+      1,
+      REGISTRY_KEY,
+      'w',
+      expect.any(String),
+    );
+    expect(log.error).not.toHaveBeenCalled();
+  });
+  it('two hung attempts are bounded and counted; terminal/refund policy can continue', async () => {
+    vi.useFakeTimers();
+    try {
+      const before = (await workerReleaseFailuresTotal.get()).values[0]?.value ?? 0;
+      const evalCommand = vi.fn(() => new Promise(() => {}));
+      const log = { error: vi.fn() } as unknown as Logger;
+      const release = releaseWorker({ eval: evalCommand } as unknown as Redis, 'w', log);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await release;
+      expect(evalCommand).toHaveBeenCalledTimes(2);
+      expect(log.error).toHaveBeenCalledOnce();
+      expect((await workerReleaseFailuresTotal.get()).values[0]?.value).toBe(before + 1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

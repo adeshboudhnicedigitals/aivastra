@@ -99,6 +99,54 @@ export const workersHealthy = new Gauge({
   registers: [register],
 });
 
+export const comfyWorkerQueueRemaining = new Gauge({
+  name: 'comfy_worker_queue_remaining',
+  help: "Running + pending prompts in a worker's ComfyUI /queue at the last health-monitor sample (includes our own job)",
+  labelNames: ['worker_id'] as const,
+  registers: [register],
+});
+
+export const comfyWorkerExternalBusy = new Gauge({
+  name: 'comfy_worker_external_busy',
+  help: 'Worker is IDLE in our registry but its ComfyUI queue is non-empty (work submitted outside the dispatcher): 1/0',
+  labelNames: ['worker_id'] as const,
+  registers: [register],
+});
+
+export const comfyWorkerQueueProbesTotal = new Counter({
+  name: 'comfy_worker_queue_probes_total',
+  help: 'ComfyUI /queue probes by the health monitor',
+  labelNames: ['result'] as const, // ok | error
+  registers: [register],
+});
+
+export const comfyWorkerQueueProbeDuration = new Histogram({
+  name: 'comfy_worker_queue_probe_duration_seconds',
+  help: 'Duration of the health monitor /queue probe',
+  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 3],
+  registers: [register],
+});
+
+export const noWorkerRequeuesTotal = new Counter({
+  name: 'dispatcher_no_worker_requeues_total',
+  help: 'Jobs re-enqueued because no eligible worker was free (capacity, not failure — attempts untouched)',
+  labelNames: ['job_type'] as const, // mirrors jobs.source (JOB_SOURCE)
+  registers: [register],
+});
+
+export const workerExternalBusyRejectionsTotal = new Counter({
+  name: 'dispatcher_worker_external_busy_rejections_total',
+  help: 'Workers skipped at claim time because ComfyUI itself reported a non-empty queue, or the queue probe failed (fail-closed)',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
+export const workerReleaseFailuresTotal = new Counter({
+  name: 'dispatcher_worker_release_failures_total',
+  help: 'Count of failed attempts to release a claimed-but-unused worker back to IDLE (lost capacity until restart)',
+  registers: [register],
+});
+
 // ── Chatbot metrics ──────────────────────────────────────────────────────────
 
 export const chatbotMessagesTotal = new Counter({
@@ -143,3 +191,65 @@ export function metricsText(): Promise<string> {
 }
 
 export const metricsContentType = register.contentType;
+
+export const comfyPromptQueueWait = new Histogram({
+  name: 'comfy_prompt_queue_wait_seconds',
+  help: 'Submission to first observed execution',
+  labelNames: ['workerId'] as const,
+  buckets: [1, 3, 10, 30, 60, 180, 300, 600, 900],
+  registers: [register],
+});
+export const comfyQueueCleanupFailed = new Counter({
+  name: 'comfy_queue_cleanup_failed_total',
+  help: 'Queue budget exhausted with an orphaned prompt',
+  labelNames: ['workerId'] as const,
+  registers: [register],
+});
+export const comfyLegacyFallback = new Counter({
+  name: 'comfy_legacy_fallback_total',
+  help: 'Submission based timeout mode entries',
+  labelNames: ['workerId', 'entry'] as const,
+  registers: [register],
+});
+export const comfyCapabilityUnreadable = new Counter({
+  name: 'comfy_capability_read_unreadable_total',
+  help: 'Capability state unavailable or malformed',
+  labelNames: ['workerId', 'context'] as const,
+  registers: [register],
+});
+export const comfyVersionMismatch = new Counter({
+  name: 'comfy_version_guard_mismatches_total',
+  help: 'Validated worker version missing or different',
+  labelNames: ['workerId'] as const,
+  registers: [register],
+});
+export const comfyGateDrift = new Counter({
+  name: 'comfy_capability_gate_drift_total',
+  help: 'Configured worker without queue gate protection',
+  labelNames: ['workerId'] as const,
+  registers: [register],
+});
+export const comfyConfigLoss = new Counter({
+  name: 'comfy_cancel_config_loss_total',
+  help: 'Cancellation ratchet prevents legacy after configuration loss',
+  labelNames: ['workerId'] as const,
+  registers: [register],
+});
+export const comfyDestructiveSkipped = new Counter({
+  name: 'comfy_destructive_calls_skipped_total',
+  help: 'Destructive call denied by live authorization',
+  labelNames: ['workerId', 'operation'] as const,
+  registers: [register],
+});
+export const comfyCancelTotal = new Counter({
+  name: 'comfy_cancels_total',
+  help: 'Cancellation modes and confirmation outcomes',
+  labelNames: ['workerId', 'mode', 'outcome'] as const,
+  registers: [register],
+});
+export const comfyDeleteFailures = new Counter({
+  name: 'comfy_delete_failures_total',
+  help: 'Scoped cancellation delete failures',
+  labelNames: ['workerId'] as const,
+  registers: [register],
+});

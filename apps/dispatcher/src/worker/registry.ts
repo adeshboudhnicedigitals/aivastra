@@ -1,5 +1,8 @@
+import type { Logger } from '@aivastra/logger';
+import { workerReleaseFailuresTotal } from '@aivastra/observability';
 import type { WorkerPool } from '@aivastra/types';
 import type { Redis } from 'ioredis';
+import { boundedRead } from './bounded-read.js';
 
 export type WorkerStatus = 'IDLE' | 'BUSY' | 'DRAINING';
 
@@ -15,6 +18,47 @@ export const REGISTRY_KEY = 'worker:registry';
 
 export function healthKey(workerId: string) {
   return `worker:health:${workerId}`;
+}
+
+// Per-worker routing flags live OUTSIDE worker:registry on purpose: registerWorkers
+// rebuilds every registry entry on dispatcher boot and would wipe a flag stored there.
+// Missing key = queue gating off, so unmigrated workers keep today's semantics.
+export function routingConfigKey(workerId: string) {
+  return `worker:routing-config:${workerId}`;
+}
+
+// Display-only snapshot of a worker's ComfyUI /queue, written by the health monitor with a
+// short TTL. The api can't reach ComfyUI, so this is how the admin Workers view sees it.
+// Routing NEVER reads this — it probes live after the claim (see selector.ts).
+export function queueSnapshotKey(workerId: string) {
+  return `worker:queue:${workerId}`;
+}
+
+export async function isQueueGateEnabled(redis: Redis, workerId: string): Promise<boolean> {
+  const raw = await redis.get(routingConfigKey(workerId));
+  if (!raw) return false;
+  try {
+    return (JSON.parse(raw) as { queueGateEnabled?: unknown }).queueGateEnabled === true;
+  } catch {
+    return false;
+  }
+}
+
+// Atomic BUSY → IDLE. Unlike setWorkerStatus (read-all / write-one, not atomic) this
+// never touches a DRAINING entry and never resurrects a worker the admin removed.
+const RELEASE_IF_BUSY_LUA = `
+local raw = redis.call('HGET', KEYS[1], ARGV[1])
+if not raw then return 0 end
+local ok, val = pcall(cjson.decode, raw)
+if not ok or val.status ~= 'BUSY' then return 0 end
+val.status = 'IDLE'
+val.lastSeen = tonumber(ARGV[2])
+redis.call('HSET', KEYS[1], ARGV[1], cjson.encode(val))
+return 1
+`;
+
+export async function releaseWorkerIfBusy(redis: Redis, workerId: string): Promise<void> {
+  await redis.eval(RELEASE_IF_BUSY_LUA, 1, REGISTRY_KEY, workerId, String(Date.now()));
 }
 
 export async function getWorkers(redis: Redis): Promise<Map<string, WorkerEntry>> {
@@ -78,4 +122,21 @@ export async function registerWorkers(
 export async function deregisterWorker(redis: Redis, workerId: string): Promise<void> {
   await redis.hdel(REGISTRY_KEY, workerId);
   await redis.del(healthKey(workerId));
+}
+
+/** Release has its own finite retry, independent of an exhausted cancel deadline. */
+export async function releaseWorker(redis: Redis, workerId: string, log: Logger): Promise<void> {
+  // Bounding the wait does not cancel Redis's command. A late attempt can release
+  // a newly claimed BUSY worker; preventing that requires an ownership token.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await boundedRead(() => releaseWorkerIfBusy(redis, workerId), 5_000);
+      return;
+    } catch (err) {
+      if (attempt === 1) {
+        workerReleaseFailuresTotal.inc();
+        log.error({ workerId, err }, 'worker release failed after bounded retry');
+      }
+    }
+  }
 }

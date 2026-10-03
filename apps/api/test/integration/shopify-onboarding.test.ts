@@ -2,7 +2,10 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
-import { buildThemeEditorDeepLink } from '../../src/modules/shopify/onboarding.routes.js';
+import {
+  buildThemeEditorDeepLink,
+  findThemeEmbedEnabled,
+} from '../../src/modules/shopify/onboarding.routes.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
 import { signSessionToken } from '../helpers/shopify-session.js';
@@ -49,17 +52,328 @@ describe('buildThemeEditorDeepLink', () => {
     );
   });
 
-  it('never needs a theme ID — that lookup requires the read_themes scope we do not hold', () => {
+  it('never needs a theme ID — avoids a REST lookup that would 403 pre-consent', () => {
     const url = buildThemeEditorDeepLink('o.myshopify.com', 'abc123');
     expect(url).toContain('/themes/current/');
     expect(url).not.toMatch(/\/themes\/\d+\//);
   });
 });
 
+describe('findThemeEmbedEnabled', () => {
+  // Stands in for whatever identifier Shopify puts in this path segment —
+  // deliberately arbitrary, since the function no longer validates it (see
+  // the "matches regardless of app identifier" test below for why).
+  const APP_IDENTIFIER = 'abc123';
+
+  function settingsJson(blocks: Record<string, { type: string; disabled?: boolean }>): string {
+    return JSON.stringify({ current: { blocks } });
+  }
+
+  it('is true when the block type matches our handle and disabled is absent', () => {
+    const content = settingsJson({
+      'block-1': { type: `shopify://apps/${APP_IDENTIFIER}/blocks/tryon-button/uuid-1` },
+    });
+    expect(findThemeEmbedEnabled(content)).toBe(true);
+  });
+
+  it('is true when disabled is explicitly false', () => {
+    const content = settingsJson({
+      'block-1': {
+        type: `shopify://apps/${APP_IDENTIFIER}/blocks/tryon-button/uuid-1`,
+        disabled: false,
+      },
+    });
+    expect(findThemeEmbedEnabled(content)).toBe(true);
+  });
+
+  it('is false when disabled is true', () => {
+    const content = settingsJson({
+      'block-1': {
+        type: `shopify://apps/${APP_IDENTIFIER}/blocks/tryon-button/uuid-1`,
+        disabled: true,
+      },
+    });
+    expect(findThemeEmbedEnabled(content)).toBe(false);
+  });
+
+  it('is false when no block matches our handle', () => {
+    const content = settingsJson({
+      'block-1': { type: `shopify://apps/${APP_IDENTIFIER}/blocks/some-other-embed/uuid-1` },
+    });
+    expect(findThemeEmbedEnabled(content)).toBe(false);
+  });
+
+  it('matches regardless of the app identifier in the type string', () => {
+    // Deliberate: probing a real store found that app.env.SHOPIFY_API_KEY,
+    // the Admin API's own `app.handle`, and the literal identifier Shopify
+    // put in a live block's type were three different strings for the same
+    // app. None can be trusted to compute a matching prefix, so this only
+    // checks the block handle, which this extension names and controls.
+    const content = settingsJson({
+      'block-1': { type: 'shopify://apps/some-other-identifier/blocks/tryon-button/uuid-1' },
+    });
+    expect(findThemeEmbedEnabled(content)).toBe(true);
+  });
+
+  it('strips a leading /* ... */ comment block before parsing', () => {
+    const json = settingsJson({
+      'block-1': { type: `shopify://apps/${APP_IDENTIFIER}/blocks/tryon-button/uuid-1` },
+    });
+    const content = `/* some editor-added comment\nspanning lines */\n${json}`;
+    expect(findThemeEmbedEnabled(content)).toBe(true);
+  });
+
+  it('is false (not a throw) on unparseable content', () => {
+    expect(findThemeEmbedEnabled('not json at all')).toBe(false);
+  });
+
+  it('is false (not a throw) when parsed is null', () => {
+    expect(findThemeEmbedEnabled('null')).toBe(false);
+  });
+
+  it('is false (not a throw) when a block entry is null', () => {
+    expect(findThemeEmbedEnabled('{"current":{"blocks":{"b1":null}}}')).toBe(false);
+  });
+});
+
+describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
+  let confirmedStoreId: string;
+  let confirmedToken: string;
+  let freshStoreId: string;
+  let freshToken: string;
+  let disabledStoreId: string;
+  let disabledToken: string;
+  let scopeDeniedStoreId: string;
+  let scopeDeniedToken: string;
+
+  function themeFilesResponse(content: string): Response {
+    return new Response(
+      JSON.stringify({
+        data: {
+          themes: {
+            nodes: [
+              {
+                files: {
+                  nodes: [{ filename: 'config/settings_data.json', body: { content } }],
+                },
+              },
+            ],
+          },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
+  function accessDeniedResponse(): Response {
+    return new Response(
+      JSON.stringify({
+        errors: [
+          {
+            message: 'Access denied for themes field. Required access: `read_themes` access scope.',
+            extensions: { code: 'ACCESS_DENIED' },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
+  function settingsJson(disabled?: boolean): string {
+    return JSON.stringify({
+      current: {
+        blocks: {
+          'block-1': {
+            type: `shopify://apps/${API_KEY}/blocks/tryon-button/uuid-1`,
+            ...(disabled === undefined ? {} : { disabled }),
+          },
+        },
+      },
+    });
+  }
+
+  beforeAll(async () => {
+    const confirmed = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 7701,
+        shopDomain: 'confirmed.myshopify.com',
+        myshopifyDomain: 'confirmed.myshopify.com',
+        name: 'Confirmed',
+        email: 'confirmed@o.com',
+      },
+      'tok',
+      'read_products',
+    );
+    confirmedStoreId = confirmed.id;
+    confirmedToken = signSessionToken('confirmed.myshopify.com', API_SECRET, API_KEY);
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: { themeEmbedConfirmed: true, themeBlockConfirmed: true } })
+      .where(eq(schema.shopifyStores.id, confirmedStoreId));
+
+    const fresh = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 7702,
+        shopDomain: 'fresh.myshopify.com',
+        myshopifyDomain: 'fresh.myshopify.com',
+        name: 'Fresh',
+        email: 'fresh@o.com',
+      },
+      'tok',
+      'read_products,write_products,read_themes',
+    );
+    freshStoreId = fresh.id;
+    freshToken = signSessionToken('fresh.myshopify.com', API_SECRET, API_KEY);
+
+    const disabled = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 7703,
+        shopDomain: 'disabled.myshopify.com',
+        myshopifyDomain: 'disabled.myshopify.com',
+        name: 'Disabled',
+        email: 'disabled@o.com',
+      },
+      'tok',
+      'read_products,write_products,read_themes',
+    );
+    disabledStoreId = disabled.id;
+    disabledToken = signSessionToken('disabled.myshopify.com', API_SECRET, API_KEY);
+
+    const scopeDenied = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 7704,
+        shopDomain: 'scopedenied.myshopify.com',
+        myshopifyDomain: 'scopedenied.myshopify.com',
+        name: 'ScopeDenied',
+        email: 'scopedenied@o.com',
+      },
+      'tok',
+      'read_products',
+    );
+    scopeDeniedStoreId = scopeDenied.id;
+    scopeDeniedToken = signSessionToken('scopedenied.myshopify.com', API_SECRET, API_KEY);
+  });
+
+  it('returns true immediately for an already-confirmed store, with no Shopify call', async () => {
+    // No fetch stub installed — an accidental live call fails outright here.
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/onboarding/check-theme-embed',
+      headers: { authorization: `Bearer ${confirmedToken}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ themeEmbedConfirmed: true });
+  });
+
+  it('confirms and persists when the Admin API shows the block enabled', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async (url: string) => {
+      if (String(url).includes('/graphql.json')) return themeFilesResponse(settingsJson());
+      throw new Error(`unexpected fetch to ${url}`);
+    }) as typeof fetch;
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/shopify/onboarding/check-theme-embed',
+        headers: { authorization: `Bearer ${freshToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ themeEmbedConfirmed: true });
+
+      const [row] = await app.db
+        .select({ settings: schema.shopifyStores.settings })
+        .from(schema.shopifyStores)
+        .where(eq(schema.shopifyStores.id, freshStoreId));
+      expect(row.settings.themeEmbedConfirmed).toBe(true);
+      expect(row.settings.themeBlockConfirmed).toBe(true);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('reports false and writes nothing when the block is disabled', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async (url: string) => {
+      if (String(url).includes('/graphql.json')) return themeFilesResponse(settingsJson(true));
+      throw new Error(`unexpected fetch to ${url}`);
+    }) as typeof fetch;
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/shopify/onboarding/check-theme-embed',
+        headers: { authorization: `Bearer ${disabledToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ themeEmbedConfirmed: false });
+
+      const [row] = await app.db
+        .select({ settings: schema.shopifyStores.settings })
+        .from(schema.shopifyStores)
+        .where(eq(schema.shopifyStores.id, disabledStoreId));
+      expect(row.settings.themeEmbedConfirmed ?? false).toBe(false);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('degrades to false, not a 500, when the store has not re-consented to read_themes', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async (url: string) => {
+      if (String(url).includes('/graphql.json')) return accessDeniedResponse();
+      throw new Error(`unexpected fetch to ${url}`);
+    }) as typeof fetch;
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/shopify/onboarding/check-theme-embed',
+        headers: { authorization: `Bearer ${scopeDeniedToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ themeEmbedConfirmed: false });
+
+      const [row] = await app.db
+        .select({ settings: schema.shopifyStores.settings })
+        .from(schema.shopifyStores)
+        .where(eq(schema.shopifyStores.id, scopeDeniedStoreId));
+      expect(row.settings.themeEmbedConfirmed ?? false).toBe(false);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('degrades to false when the store has no main theme', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async (url: string) => {
+      if (String(url).includes('/graphql.json')) {
+        return new Response(JSON.stringify({ data: { themes: { nodes: [] } } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected fetch to ${url}`);
+    }) as typeof fetch;
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/shopify/onboarding/check-theme-embed',
+        headers: { authorization: `Bearer ${scopeDeniedToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ themeEmbedConfirmed: false });
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
 describe('GET /v1/shopify/onboarding/theme-editor-url', () => {
   it('returns the deep link without calling the Shopify Admin API', async () => {
-    // A real fetch here would 403 for want of read_themes; the route is pure, so
-    // this passes with no network stub in place at all.
+    // Route is pure string-building — no fetch stub needed; an accidental
+    // live call would fail outright in this sandboxed test environment.
     const res = await app.inject({
       method: 'GET',
       url: '/v1/shopify/onboarding/theme-editor-url',

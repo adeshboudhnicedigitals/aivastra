@@ -20,6 +20,7 @@ interface DetectedMappings {
   lowerNodeId?: string;
   shoeNodeId?: string;
   thirdNodeId?: string;
+  accessoryNodeId?: string;
   sizeNodeIds: string[];
   positivePromptNode?: string;
   negativePromptNode?: string;
@@ -101,6 +102,7 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
   const [lowerNodeId, setLowerNodeId] = useState('');
   const [shoeNodeId, setShoeNodeId] = useState('');
   const [thirdNodeId, setThirdNodeId] = useState('');
+  const [accessoryNodeId, setAccessoryNodeId] = useState('');
   const [sizeNodeIds, setSizeNodeIds] = useState<string[]>([]);
   const [latentSizeNodeIds, setLatentSizeNodeIds] = useState<string[]>([]);
   const [outputSizeNodeIds, setOutputSizeNodeIds] = useState<string[]>([]);
@@ -225,6 +227,7 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
       setLowerNodeId(d.lowerNodeId ?? '');
       setShoeNodeId(d.shoeNodeId ?? '');
       setThirdNodeId(d.thirdNodeId ?? '');
+      setAccessoryNodeId(d.accessoryNodeId ?? '');
       setSizeNodeIds(d.sizeNodeIds ?? []);
       setPositivePromptNode(d.positivePromptNode ?? '');
       setNegativePromptNode(d.negativePromptNode ?? '');
@@ -365,6 +368,7 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
           lowerNodeId: lowerNodeId || undefined,
           shoeNodeId: shoeNodeId || undefined,
           thirdNodeId: thirdNodeId || undefined,
+          accessoryNodeId: accessoryNodeId || undefined,
           sizeNodeIds: sizeNodeIds.filter(Boolean),
           ...(latentSizeNodeIds.length === 2 ? { latentSizeNodeIds } : {}),
           ...(outputSizeNodeIds.length === 2 ? { outputSizeNodeIds } : {}),
@@ -722,6 +726,13 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
                   value={thirdNodeId}
                   onChange={setThirdNodeId}
                   hint="LoadImage node receiving third garment image (optional)"
+                />
+                <NodeSelect
+                  label="Accessory node (optional)"
+                  nodes={nodes.image}
+                  value={accessoryNodeId}
+                  onChange={setAccessoryNodeId}
+                  hint='Title convention: "accessory". Only patched when the user selects at least one accessory; left untouched otherwise.'
                 />
                 <NodeSelect
                   label="Positive Prompt Node"

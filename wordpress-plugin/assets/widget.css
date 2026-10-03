@@ -7,7 +7,16 @@
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --aivastra-primary: #0f172a;
   --aivastra-primary-hover: #1e293b;
-  --aivastra-accent: #6366f1;
+  /* Popup-only accent (badge icon, spinner, dropzone hover, inline links) —
+     was indigo, the field that set it (Settings -> Aivastra Try-On -> Try-on
+     button -> "Accent color") is now hidden at the merchant's request, so
+     this default is the only value any store will ever show. Black to match
+     the button's own default (Aivastra_Widget_Loader's inline style falls
+     back to nothing, i.e. this file's own .aivastra-tryon-button background
+     below, which is #0f172a — near-black navy, not literal #000 — chosen
+     there for a softer look than pure black; matched here for the same
+     reason rather than using #000 literally). */
+  --aivastra-accent: #0f172a;
   --aivastra-surface: #ffffff;
   --aivastra-surface-subtle: #f8fafc;
   --aivastra-surface-muted: #f1f5f9;
@@ -77,6 +86,19 @@
   display: inline-flex;
   color: #fbbf24;
   flex-shrink: 0;
+}
+
+/* A merchant-chosen button color/gradient (Settings -> Aivastra Try-On ->
+   Try-on button) is rendered as an inline `style="background:...!important"`
+   directly on the button, not a class/rule here — see
+   Aivastra_Widget_Loader::render()'s doc comment for why. The hover state
+   for that case is a brightness filter rather than a second background
+   value: the inline style already wins over .aivastra-tryon-button:hover
+   below (inline always outranks an external rule), and unlike a computed
+   hover color, a filter needs no color math and works identically for a
+   solid buttonColor and a multi-stop buttonGradient. */
+.aivastra-tryon-button[data-aivastra-custom-bg]:hover {
+  filter: brightness(0.92);
 }
 
 /* Bottom-right floating panel, not a full-screen modal — matches the Shopify

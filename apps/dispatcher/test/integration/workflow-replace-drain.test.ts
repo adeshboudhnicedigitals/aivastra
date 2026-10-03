@@ -192,7 +192,16 @@ describe('dispatcher — workflow replace and drain integration', () => {
 
     // 5. Process Job 1 (stamped v1) -> should resolve archive v1
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       job1.id,
       user.id,
       'jobs:normal',
@@ -221,7 +230,16 @@ describe('dispatcher — workflow replace and drain integration', () => {
     // 6. Process Job 1B (last v1 job) -> should complete and delete archive row
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       job1B.id,
       user.id,
       'jobs:normal',
@@ -248,7 +266,16 @@ describe('dispatcher — workflow replace and drain integration', () => {
     // 7. Process Job 2 (stamped v2) -> should resolve live v2
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
     await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      {
+        comfyRedis: redis,
+        db: env.db,
+        redis,
+        pub,
+        storage: env.storage,
+        s3: env.s3,
+        r2Bucket: env.r2Bucket,
+        log,
+      },
       job2.id,
       user.id,
       'jobs:normal',
