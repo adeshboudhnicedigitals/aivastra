@@ -137,6 +137,50 @@ prometheus.scrape "gpus" {
 // GPU boxes: node_exporter (apt package prometheus-node-exporter) on port 9100, same
 // pull model, secrets handling and prod-only behaviour as the GPU exporter above.
 // ALLOY_NODE_TARGETS='[{"__address__":"<host>:9100","box":"gpu1"}]' in .env.production.
+// Grafana Cloud free tier caps active series (15,000). node_exporter exposes ~2,300 series
+// per box and the dashboard/alerts read about ten metric names, so 7 boxes plus the backend
+// blew the cap (HTTP 429, series rejected). Keep only what is used, and thin the three
+// metrics with per-core / per-device labels the same way the dashboard queries do.
+// A new panel or alert on another node_* metric must add its name to the first rule.
+// `up` is the scrape's own series and arrives through this receiver too.
+prometheus.relabel "node_keep" {
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+
+  rule {
+    source_labels = ["__name__"]
+    regex         = "up|node_uname_info|node_load1|node_cpu_seconds_total|node_memory_MemAvailable_bytes|node_memory_MemTotal_bytes|node_filesystem_avail_bytes|node_filesystem_size_bytes|node_network_receive_bytes_total|node_network_transmit_bytes_total|node_disk_io_time_seconds_total"
+    action        = "keep"
+  }
+
+  // CPU: the dashboard only uses mode="idle".
+  rule {
+    source_labels = ["__name__", "mode"]
+    regex         = "node_cpu_seconds_total;(user|system|nice|iowait|irq|softirq|steal|guest|guest_nice)"
+    action        = "drop"
+  }
+
+  // Filesystems: pseudo filesystems add series and are never alerted on.
+  rule {
+    source_labels = ["__name__", "fstype"]
+    regex         = "node_filesystem_.*;(tmpfs|overlay|squashfs|devtmpfs|ramfs|efivarfs|fuse.*|nsfs|proc|sysfs|cgroup.*)"
+    action        = "drop"
+  }
+
+  // Network: same device filter as the dashboard (loopback, docker, veth, bridges).
+  rule {
+    source_labels = ["__name__", "device"]
+    regex         = "node_network_.*;(lo|docker.*|veth.*|br-.*)"
+    action        = "drop"
+  }
+
+  // Disk busy: loop and ram devices.
+  rule {
+    source_labels = ["__name__", "device"]
+    regex         = "node_disk_io_time_seconds_total;(loop.*|ram.*)"
+    action        = "drop"
+  }
+}
+
 discovery.relabel "gpu_hosts" {
   targets = encoding.from_json(coalesce(sys.env("ALLOY_NODE_TARGETS"), "[]"))
 
@@ -150,7 +194,7 @@ prometheus.scrape "gpu_hosts" {
   targets         = discovery.relabel.gpu_hosts.output
   job_name        = "node"
   scrape_interval = "30s"
-  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  forward_to      = [prometheus.relabel.node_keep.receiver]
 }
 
 // The backend VPS itself, via the built-in unix exporter. Reading the host (not the
@@ -195,7 +239,7 @@ prometheus.scrape "vps" {
   targets         = discovery.relabel.vps.output
   job_name        = "node"
   scrape_interval = "30s"
-  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+  forward_to      = [prometheus.relabel.node_keep.receiver]
 }
 
 prometheus.remote_write "grafana_cloud" {
