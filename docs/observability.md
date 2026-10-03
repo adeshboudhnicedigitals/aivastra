@@ -102,6 +102,21 @@ Import `infra/observability/dashboards/aivastra-overview.json` in Grafana
 jobs by outcome, job duration p50/p95, E2E job latency p50/p95, workers healthy, HTTP request rate,
 HTTP p95 latency, ComfyUI round-trip p50/p95.
 
+### GPU boxes
+
+Import `infra/observability/dashboards/aivastra-gpus.json` the same way. Panels: exporters up,
+utilization, VRAM, temperature, power draw, throttling, SM clock, ECC/row-remap errors and a GPU
+inventory table, with a `box` variable to pick boxes.
+
+The data comes from `nvidia_gpu_exporter` (port 9835) on each GPU box, scraped by the **prod**
+Alloy (`prometheus.scrape "gpus"` in `alloy.alloy`) and labelled `job="gpu"`, `box="gpuN"`. The
+targets come from `ALLOY_GPU_TARGETS` in `.env.production` on the VPS (git-ignored, so box
+addresses stay out of this public repo), a JSON array such as
+`[{"__address__":"<host>:9835","box":"gpu1"}]`; unset means no scraping, which is what staging
+gets. Add a box once its exporter is up and its firewall allows the VPS egress IP on 9835; the
+box side lives in the aivastra-gpu ops repo, then recreate Alloy (`docker compose up -d alloy`).
+Check with `up{job="gpu"}`.
+
 ## Alerts
 
 Create these in Grafana Cloud (**Alerting → Alert rules**), wired to an email/Slack contact point:
