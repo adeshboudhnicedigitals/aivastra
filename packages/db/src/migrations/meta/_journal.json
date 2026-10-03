@@ -1464,6 +1464,13 @@
       "when": 1790601485418,
       "tag": "0208_backfill_shoe_subcategories",
       "breakpoints": true
+    },
+    {
+      "idx": 209,
+      "version": "7",
+      "when": 1790945026005,
+      "tag": "0209_lowly_pyro",
+      "breakpoints": true
     }
   ]
 }

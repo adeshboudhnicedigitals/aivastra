@@ -420,6 +420,10 @@ export const poseGarmentConfigs = pgTable(
     // it for this garment type only — it can only narrow (hide a globally-active pose
     // for one type), never widen a globally-inactive pose back into visibility.
     isActive: boolean('is_active'),
+    // Null = not explicitly positioned for this garment type; falls back to the pose's
+    // global model_pose_assets.sort_order. Set once any pose in this garment type's list
+    // is reordered — see the materialize-then-shift logic in subcategories.routes.ts.
+    sortOrder: integer('sort_order'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
