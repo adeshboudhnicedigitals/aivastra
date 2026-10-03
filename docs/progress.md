@@ -2,6 +2,12 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-03 — GPU metrics scraping live for gpu1
+
+- **Done:** `ALLOY_GPU_TARGETS` set in `.env.production` (gpu1 only; address not in git). Prod Alloy recreated (`up -d --no-deps alloy`); `prometheus.scrape.gpus` target reports `health=up`, remote_write `samples_failed_total` 0. All 18 `nvidia_smi_*` names in `aivastra-gpus.json` exist on the exporter, so no panel query needed changing.
+- **Failed-Not-Done:** series arrival in Grafana Cloud not confirmed from the VPS: the push key is write-only (query returns 401). Check `up{job="gpu",box="gpu1"}` in Grafana.
+- **Open Questions:** only gpu1 is wired; other boxes need exporter + firewall for this VPS first. Malformed `ALLOY_GPU_TARGETS` crash-loops Alloy (see `docs/observability.md`).
+
 ## 2026-10-02 — Admin catalogue cancellation reaches the GPU (Stage 1)
 
 - **Done:** admin PREPROCESSING/GENERATING catalogue cancel sets the existing 600s Redis signal and returns pending without a refund or DB status change. Admin UI waits for dispatcher status updates. Queued and non-catalogue behavior retained.

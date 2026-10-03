@@ -117,6 +117,13 @@ gets. Add a box once its exporter is up and its firewall allows the VPS egress I
 box side lives in the aivastra-gpu ops repo, then recreate Alloy (`docker compose up -d alloy`).
 Check with `up{job="gpu"}`.
 
+`ALLOY_GPU_TARGETS` must be valid JSON. `alloy validate` only checks syntax and returns 0 even for
+garbage, but at runtime a malformed value fails `encoding.from_json` on the initial load, Alloy
+exits, and `restart: unless-stopped` crash-loops it, taking logs and app metrics down with it.
+Validate the value (`python3 -c 'import json,sys; json.loads(sys.argv[1])' "$VALUE"`) before
+recreating. The Alloy UI is not published; reach it on the container's network address, port 12345.
+Note the `instance` label carries the box address into Grafana Cloud.
+
 ## Alerts
 
 Create these in Grafana Cloud (**Alerting → Alert rules**), wired to an email/Slack contact point:
