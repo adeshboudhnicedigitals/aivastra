@@ -1,4 +1,4 @@
-import { createLogger } from '@aivastra/logger';
+import { createLogger, type Logger } from '@aivastra/logger';
 import {
   perfProbeBackoff,
   perfSelectionMode,
@@ -188,24 +188,33 @@ export interface ClaimedWorker {
 const MAX_QUEUE_PROBES = 4;
 const QUEUE_PROBE_TIMEOUT_MS = 2_000;
 
+type SkipReason = 'queue_not_empty' | 'unreadable';
+type QueueProbeResult =
+  | { available: true }
+  | { available: false; reason: SkipReason; queueRemaining?: number };
+
 /** Fail closed: anything other than a numeric `queue_remaining === 0` is "not available". */
-async function isComfyQueueEmpty(url: string, apiKey: string): Promise<boolean> {
+async function isComfyQueueEmpty(url: string, apiKey: string): Promise<QueueProbeResult> {
   try {
     const res = await fetch(`${url.replace(/\/$/, '')}/prompt`, {
       headers: { 'X-Api-Key': apiKey },
       signal: AbortSignal.timeout(QUEUE_PROBE_TIMEOUT_MS),
     });
-    if (!res.ok) return false;
+    if (!res.ok) return { available: false, reason: 'unreadable' };
     const body = (await res.json()) as { exec_info?: { queue_remaining?: unknown } };
-    return body?.exec_info?.queue_remaining === 0;
+    const remaining = body?.exec_info?.queue_remaining;
+    if (remaining === 0) return { available: true };
+    return typeof remaining === 'number'
+      ? { available: false, reason: 'queue_not_empty', queueRemaining: remaining }
+      : { available: false, reason: 'unreadable' };
   } catch {
-    return false;
+    return { available: false, reason: 'unreadable' };
   }
 }
 
 // A worker stuck BUSY is lost capacity until a dispatcher restart, so retry once and
 // make a persistent failure loud.
-async function releaseUnused(redis: Redis, workerId: string): Promise<void> {
+async function releaseUnused(redis: Redis, workerId: string, selectorLog: Logger): Promise<void> {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       await releaseWorkerIfBusy(redis, workerId);
@@ -213,7 +222,10 @@ async function releaseUnused(redis: Redis, workerId: string): Promise<void> {
     } catch (err) {
       if (attempt === 2) {
         workerReleaseFailuresTotal.inc();
-        log.error({ err, workerId }, 'failed to release unused worker — stuck BUSY until restart');
+        selectorLog.error(
+          { err, workerId },
+          'failed to release unused worker — stuck BUSY until restart',
+        );
       }
     }
   }
@@ -223,9 +235,19 @@ export async function selectWorker(
   redis: Redis,
   jobType: WorkerPool,
   performanceKey?: string,
+  ctx?: { jobId?: string; log?: Logger },
 ): Promise<ClaimedWorker | null> {
   const healthPrefix = healthKey(''); // "worker:health:"
+  const selectorLog = ctx?.log ?? log;
   const excluded: string[] = [];
+  const reasons: SkipReason[] = [];
+  const noWorker = () => {
+    selectorLog.info(
+      { pool: jobType, jobId: ctx?.jobId, skippedWorkers: excluded, reasons },
+      'no eligible worker after probes',
+    );
+    return null;
+  };
   // Per-worker probe gate: the live probe runs AFTER the atomic claim, never off a cached
   // value, so two dispatcher jobs still can't take one worker and the queue read isn't stale.
   for (let probes = 0; probes < MAX_QUEUE_PROBES; probes++) {
@@ -242,7 +264,7 @@ export async function selectWorker(
       ...excluded,
     )) as [string, string, string, string, string, string, SelectionMode, string] | false | null;
 
-    if (!result) return null;
+    if (!result) return noWorker();
     const [
       id,
       url,
@@ -270,26 +292,44 @@ export async function selectWorker(
         : {}),
     };
 
+    let probe: QueueProbeResult;
+    let probeMs: number;
     try {
       if (!(await isQueueGateEnabled(redis, id))) return claimed;
-      if (await isComfyQueueEmpty(url, apiKey)) return claimed;
+      const probeStartedAt = Date.now();
+      probe = await isComfyQueueEmpty(url, apiKey);
+      probeMs = Date.now() - probeStartedAt;
+      if (probe.available) return claimed;
     } catch (err) {
-      await releaseUnused(redis, id);
+      await releaseUnused(redis, id, selectorLog);
       throw err;
     }
 
     workerExternalBusyRejectionsTotal.inc({ reason: 'queue_not_empty_or_unreadable' });
-    log.info({ workerId: id }, 'worker busy or unreadable in ComfyUI — skipping');
+    selectorLog.info(
+      {
+        workerId: id,
+        jobId: ctx?.jobId,
+        pool: jobType,
+        attempt: probes + 1,
+        reason: probe.reason,
+        ...(probe.queueRemaining !== undefined ? { queueRemaining: probe.queueRemaining } : {}),
+        probeMs,
+        selectionMode,
+      },
+      'worker busy or unreadable in ComfyUI — skipping',
+    );
+    reasons.push(probe.reason);
     excluded.push(id);
-    await releaseUnused(redis, id);
+    await releaseUnused(redis, id, selectorLog);
     if (selectionMode === 'active') {
       try {
         await redis.set(`worker:probe-backoff:${id}`, '1', 'PX', Number(backoffMs));
         perfProbeBackoff.inc({ pool: jobType });
       } catch (err) {
-        log.warn({ err, workerId: id }, 'performance probe backoff dropped');
+        selectorLog.warn({ err, workerId: id }, 'performance probe backoff dropped');
       }
     }
   }
-  return null;
+  return noWorker();
 }
