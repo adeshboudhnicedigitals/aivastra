@@ -210,36 +210,31 @@ function GarmentTypesSection({
     setSavingId(garmentTypeId);
     setItems((prev) => prev.map((g) => (g.id === garmentTypeId ? { ...g, isActive: next } : g)));
     try {
-      if (next) {
-        await apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseAssetId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            workflowTemplateId: item.config?.workflowTemplateId ?? null,
-            promptGarmentPhase: item.config?.promptGarmentPhase ?? null,
-            promptFacePhase: item.config?.promptFacePhase ?? null,
-            isActive: true,
-          }),
-        });
-      } else {
-        await apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseAssetId}`, {
-          method: 'DELETE',
-        });
-      }
+      // Preserve any existing workflow/prompt override for this pose+garment-type
+      // pair — this toggle only changes visibility, same as the Garment Types
+      // tab's "Setup Poses" panel Switch (togglePoseActive in GarmentTypesTab.tsx).
+      await apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseAssetId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          workflowTemplateId: item.config?.workflowTemplateId ?? null,
+          promptGarmentPhase: item.config?.promptGarmentPhase ?? null,
+          promptFacePhase: item.config?.promptFacePhase ?? null,
+          isActive: next,
+        }),
+      });
       setItems((prev) =>
         prev.map((g) =>
           g.id === garmentTypeId
             ? {
                 ...g,
-                config: next
-                  ? {
-                      ...(g.config ?? {
-                        workflowTemplateId: null,
-                        promptGarmentPhase: null,
-                        promptFacePhase: null,
-                      }),
-                      isActive: true,
-                    }
-                  : null,
+                config: {
+                  ...(g.config ?? {
+                    workflowTemplateId: null,
+                    promptGarmentPhase: null,
+                    promptFacePhase: null,
+                  }),
+                  isActive: next,
+                },
               }
             : g,
         ),

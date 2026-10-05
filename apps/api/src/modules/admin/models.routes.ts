@@ -817,8 +817,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         rows.map(async (r) => {
           const totalGarmentTypeCount = r.genderSlug ? (totalByGender.get(r.genderSlug) ?? 0) : 0;
           const overrides = overridesByPose.get(r.id);
-          // A pose is visible only on garment types where it was explicitly mapped (isActive === true)
-          const visibleGarmentTypeCount = r.isActive ? (overrides?.shownCount ?? 0) : 0;
+          // A pose shows on every garment type of its gender by default — an
+          // override only ever narrows (hides) or restates (shows) one type.
+          const visibleGarmentTypeCount = r.isActive
+            ? totalGarmentTypeCount - (overrides?.hiddenCount ?? 0)
+            : (overrides?.shownCount ?? 0);
           return {
             ...r,
             thumbnailUrl: r.thumbnailKey

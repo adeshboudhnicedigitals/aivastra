@@ -1,7 +1,6 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { signAccess } from '../../src/modules/auth/service.js';
 import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
@@ -66,61 +65,5 @@ describe('garment-type third-upload fields', () => {
       .where(eq(schema.garmentSubcategories.id, gt.id));
     expect(row?.requiresThirdUpload).toBe(true);
     expect(row?.thirdUploadLabel).toBe('Upload Dupatta');
-  });
-
-  it('PATCH persists allowsFourthUpload + fourthUploadLabel and the studio endpoint serves them', async () => {
-    const headers = await adminAuthHeader(app);
-    const slug = `fourth-upload-${Date.now()}`;
-    const [gt] = await app.db
-      .insert(schema.garmentSubcategories)
-      .values({ genderSlug: 'women', slug, label: 'Fourth Upload Test' })
-      .returning();
-
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/admin/assets/garment-types/${gt.id}`,
-      headers,
-      payload: {
-        requiresThirdUpload: true,
-        thirdUploadLabel: 'Pallu',
-        allowsFourthUpload: true,
-        fourthUploadLabel: 'Blouse (optional)',
-      },
-    });
-    expect(res.statusCode).toBe(200);
-
-    const [row] = await app.db
-      .select()
-      .from(schema.garmentSubcategories)
-      .where(eq(schema.garmentSubcategories.id, gt.id));
-    expect(row?.allowsFourthUpload).toBe(true);
-    expect(row?.fourthUploadLabel).toBe('Blouse (optional)');
-
-    // The studio wizard reads this exact endpoint — a field missing here means no box.
-    const [user] = await app.db
-      .insert(schema.users)
-      .values({ email: `fourth-${Date.now()}@x.com`, emailVerified: true, tier: 'free' })
-      .returning();
-    const token = await signAccess(
-      new TextEncoder().encode(app.env.JWT_SECRET),
-      user.id,
-      { kind: 'access' },
-      app.env.JWT_EXPIRY,
-    );
-    const list = await app.inject({
-      method: 'GET',
-      url: '/v1/models/garment-types?gender=women',
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(list.statusCode).toBe(200);
-    const served = (list.json().items as Array<Record<string, unknown>>).find(
-      (i) => i.id === gt.id,
-    );
-    expect(served).toMatchObject({
-      requiresThirdUpload: true,
-      thirdUploadLabel: 'Pallu',
-      allowsFourthUpload: true,
-      fourthUploadLabel: 'Blouse (optional)',
-    });
   });
 });

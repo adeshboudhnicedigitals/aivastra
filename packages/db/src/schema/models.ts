@@ -136,11 +136,6 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   lowerUploadLabel: text('lower_upload_label'),
   requiresThirdUpload: boolean('requires_third_upload').notNull().default(false),
   thirdUploadLabel: text('third_upload_label'),
-  // Optional 4th upload (saree blouse). Unlike requiresThirdUpload this is never
-  // mandatory: the studio offers the box, and the dispatcher prunes the template's
-  // fourthNodeId subgraph out of the workflow when the user leaves it empty.
-  allowsFourthUpload: boolean('allows_fourth_upload').notNull().default(false),
-  fourthUploadLabel: text('fourth_upload_label'),
   defaultLowerCatalogId: uuid('default_lower_catalog_id').references(() => catalogItems.id, {
     onDelete: 'set null',
   }),
@@ -205,9 +200,6 @@ export const workflowTemplates = pgTable('workflow_templates', {
   lowerNodeId: text('lower_node_id'), // nullable — some workflows have no lower garment
   shoeNodeId: text('shoe_node_id'), // nullable — some workflows have no shoe garment
   thirdNodeId: text('third_node_id'), // nullable — a 3rd, generically-named uploaded garment role
-  // nullable — a 4th, OPTIONAL uploaded garment role (saree blouse). Unlike lower/shoe/
-  // third, an unsupplied fourth image prunes this node's subgraph instead of failing.
-  fourthNodeId: text('fourth_node_id'),
   // Optional single node for a stacked accessory composite (see
   // apps/dispatcher/src/workflow/accessory-stack.ts). Unlike lowerNodeId/
   // shoeNodeId/thirdNodeId, a mapped accessoryNodeId is never mandatory — a
@@ -318,7 +310,6 @@ export const workflowTemplateArchives = pgTable(
     lowerNodeId: text('lower_node_id'),
     shoeNodeId: text('shoe_node_id'),
     thirdNodeId: text('third_node_id'),
-    fourthNodeId: text('fourth_node_id'),
     accessoryNodeId: text('accessory_node_id'),
     sizeNodeId: text('size_node_id'),
     sizeNodeIds: text('size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`),

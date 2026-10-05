@@ -115,8 +115,6 @@ export const jobInputs = pgTable('job_inputs', {
   lowerCatalogId: uuid('lower_catalog_id').references(() => catalogItems.id),
   lowerGarmentKey: text('lower_garment_key'),
   thirdGarmentKey: text('third_garment_key'),
-  // Optional saree blouse upload — see garmentSubcategories.allowsFourthUpload.
-  fourthGarmentKey: text('fourth_garment_key'),
   shoeCatalogId: uuid('shoe_catalog_id').references(() => catalogItems.id),
   // Selected accessory catalog items (at most one per category, zero or more
   // categories) — never mandatory, unlike lower/shoe. The dispatcher resolves

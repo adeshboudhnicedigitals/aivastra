@@ -25,7 +25,6 @@ interface DetectedMappings {
   lowerNodeId?: string;
   shoeNodeId?: string;
   thirdNodeId?: string;
-  fourthNodeId?: string;
   accessoryNodeId?: string;
   sizeNodeIds: string[];
   positivePromptNode?: string;
@@ -162,7 +161,6 @@ export function WorkflowUploadModal({
   const [shoeNodeId, setShoeNodeId] = useState('');
   const [garmentView, setGarmentView] = useState<'front' | 'back'>('front');
   const [thirdNodeId, setThirdNodeId] = useState('');
-  const [fourthNodeId, setFourthNodeId] = useState('');
   const [accessoryNodeId, setAccessoryNodeId] = useState('');
   const [sizeNodeIds, setSizeNodeIds] = useState<string[]>([]);
   const [positivePromptNode, setPositivePromptNode] = useState('');
@@ -316,7 +314,6 @@ export function WorkflowUploadModal({
       setLowerNodeId(d.lowerNodeId ?? '');
       setShoeNodeId(d.shoeNodeId ?? '');
       setThirdNodeId(d.thirdNodeId ?? '');
-      setFourthNodeId(d.fourthNodeId ?? '');
       setAccessoryNodeId(d.accessoryNodeId ?? '');
       setSizeNodeIds(d.sizeNodeIds ?? []);
       setPositivePromptNode(d.positivePromptNode ?? '');
@@ -467,7 +464,6 @@ export function WorkflowUploadModal({
           lowerNodeId: lowerNodeId || undefined,
           shoeNodeId: shoeNodeId || undefined,
           thirdNodeId: thirdNodeId || undefined,
-          fourthNodeId: fourthNodeId || undefined,
           accessoryNodeId: accessoryNodeId || undefined,
           sizeNodeIds: sizeNodeIds.filter(Boolean),
           ...(latentSizeNodeIds.length === 2 ? { latentSizeNodeIds } : {}),
@@ -1315,15 +1311,7 @@ export function WorkflowUploadModal({
                 value={thirdNodeId}
                 onChange={setThirdNodeId}
                 disabled={saving}
-                hint='Title convention: "third_garment" or "pallu"'
-              />
-              <NodeSelect
-                label="Fourth garment node — blouse (optional)"
-                nodes={nodes.image}
-                value={fourthNodeId}
-                onChange={setFourthNodeId}
-                disabled={saving}
-                hint='Title convention: "blouse" or "fourth_garment". Optional at job time — see the note below.'
+                hint='Title convention: "third_garment"'
               />
               <NodeSelect
                 label="Accessory node (optional)"
@@ -1430,10 +1418,6 @@ export function WorkflowUploadModal({
                       parsed.allImageNodes.find((n) => n.id === parsed.detected.shoeNodeId),
                     parsed.detected.thirdNodeId &&
                       parsed.allImageNodes.find((n) => n.id === parsed.detected.thirdNodeId),
-                    (parsed.detected as DetectedMappings).fourthNodeId &&
-                      parsed.allImageNodes.find(
-                        (n) => n.id === (parsed.detected as DetectedMappings).fourthNodeId,
-                      ),
                     parsed.detected.positivePromptNode &&
                       parsed.allPromptNodes.find(
                         (n) => n.id === parsed.detected.positivePromptNode,
@@ -1448,44 +1432,6 @@ export function WorkflowUploadModal({
                 </div>
               </div>
             )}
-
-            {/* How the optional fourth (blouse) node behaves — shown on every parse so the
-                convention is discoverable before anyone has to ask. */}
-            <div
-              style={{
-                background: 'var(--surface-2, rgba(127,127,127,0.08))',
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                padding: '10px 12px',
-                fontSize: 12,
-                lineHeight: 1.5,
-              }}
-            >
-              <strong>Optional blouse (fourth) image</strong>
-              <div style={{ color: 'var(--muted)', marginTop: 4 }}>
-                Title the blouse <span className="mono">LoadImage</span> node{' '}
-                <span className="mono">blouse</span> (or{' '}
-                <span className="mono">fourth_garment</span>) and it maps here automatically. When
-                the user uploads a blouse, it is patched into that node. When they don't, the node
-                is removed from the graph along with the nodes that only exist to serve it (its
-                config-preparer step, size calculation and preview), so the workflow runs on body +
-                pallu alone.
-              </div>
-              <div style={{ color: 'var(--muted)', marginTop: 6 }}>
-                Add <span className="mono">[blouse]</span> to the end of any prompt line that only
-                makes sense with a blouse image, e.g.{' '}
-                <span className="mono">use exact image6 fabric as blouse. [blouse]</span>. The line
-                is dropped when there is no blouse, and the tag is stripped when there is one. Then
-                turn on <em>Optional extra upload</em> on the garment type so the studio offers the
-                upload box.
-              </div>
-              <div style={{ color: 'var(--muted)', marginTop: 6 }}>
-                Keep the blouse as the <strong>last</strong> reference image (image6 here) so the
-                other image numbers don't shift when it is removed. If the blouse feeds the sampler
-                or the saved output directly, a job without a blouse fails at dispatch instead of
-                rendering a broken image.
-              </div>
-            </div>
           </>
         )}
 

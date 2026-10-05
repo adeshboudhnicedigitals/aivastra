@@ -151,39 +151,6 @@ describe('old/wrong titles — must fail detection, forcing admin to fix the wor
     expect(detectMappings(wf).detected.lowerNodeId).toBe('100');
   });
 
-  it('"blouse" and "fourth_garment" are detected as the optional fourth node', () => {
-    expect(detectMappings({ '100': loadImageNode('blouse') }).detected.fourthNodeId).toBe('100');
-    expect(detectMappings({ '7': loadImageNode('Fourth Garment') }).detected.fourthNodeId).toBe(
-      '7',
-    );
-  });
-
-  it('saree titles: "body" maps to upper, "pallu"/"palu"/"third_garment" to third', () => {
-    expect(detectMappings({ '31': loadImageNode('body') }).detected.upperNodeIds).toEqual(['31']);
-    for (const title of ['pallu', 'Palu', 'third_garment']) {
-      expect(detectMappings({ '15': loadImageNode(title) }).detected.thirdNodeId).toBe('15');
-    }
-  });
-
-  it('a saree workflow detects every role at once: face, pose, bg, body, pallu, blouse', () => {
-    const { detected } = detectMappings({
-      '1062': loadImageNode('face'),
-      '1050': loadImageNode('pose'),
-      '1060': loadImageNode('background'),
-      '31': loadImageNode('body'),
-      '1015': loadImageNode('pallu'),
-      '1073': loadImageNode('blouse'),
-    });
-    expect(detected).toMatchObject({
-      faceNodeId: '1062',
-      poseNodeId: '1050',
-      bgNodeId: '1060',
-      upperNodeIds: ['31'],
-      thirdNodeId: '1015',
-      fourthNodeId: '1073',
-    });
-  });
-
   it('completely arbitrary title is not detected as any role', () => {
     const wf = { '100': loadImageNode('My Custom Funky Node') };
     const { detected } = detectMappings(wf);
