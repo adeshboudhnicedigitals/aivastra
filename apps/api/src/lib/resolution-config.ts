@@ -37,7 +37,7 @@ export const DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG: { creditCost: number } = {
 };
 
 export const DEFAULT_PIXVERSE_VIDEO_PRICING: PixverseVideoPricingConfig = {
-  perSecondRate: 0,
+  perSecondRate: { '360p': 0, '540p': 0, '720p': 0, '1080p': 0 },
   qualityBase: {
     '360p': PIXVERSE_VIDEO_COST,
     '540p': PIXVERSE_VIDEO_COST,
@@ -149,17 +149,36 @@ export async function getPixverseVideoPricingConfig(
   try {
     const raw = await app.redis.get(CONFIG_KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    const stored = cfg.pixverseVideoPricing as Partial<PixverseVideoPricingConfig> | undefined;
-    return {
-      perSecondRate:
-        typeof stored?.perSecondRate === 'number'
-          ? stored.perSecondRate
-          : DEFAULT_PIXVERSE_VIDEO_PRICING.perSecondRate,
-      qualityBase: { ...DEFAULT_PIXVERSE_VIDEO_PRICING.qualityBase, ...stored?.qualityBase },
-    };
+    return resolvePixverseVideoPricing(cfg.pixverseVideoPricing);
   } catch {
     return DEFAULT_PIXVERSE_VIDEO_PRICING;
   }
+}
+
+/**
+ * Normalises a stored (or PATCHed) `pixverseVideoPricing` value into a
+ * complete config. `perSecondRate` used to be one number shared by every
+ * tier; a config saved before the per-quality change still has that shape in
+ * Redis, so a bare number is expanded to every tier — existing prices don't
+ * move on deploy. Shared with GET /admin/config so the admin screen shows
+ * exactly what the cost resolver charges.
+ */
+export function resolvePixverseVideoPricing(stored: unknown): PixverseVideoPricingConfig {
+  const s = (stored ?? {}) as {
+    perSecondRate?: unknown;
+    qualityBase?: Partial<Record<PixverseQuality, number>>;
+  };
+  const defaults = DEFAULT_PIXVERSE_VIDEO_PRICING;
+  const perSecondRate = { ...defaults.perSecondRate };
+  for (const tier of Object.keys(perSecondRate) as PixverseQuality[]) {
+    const legacy = typeof s.perSecondRate === 'number' ? s.perSecondRate : undefined;
+    const perTier = (s.perSecondRate as Partial<Record<PixverseQuality, unknown>> | undefined)?.[
+      tier
+    ];
+    const value = typeof perTier === 'number' ? perTier : legacy;
+    if (typeof value === 'number') perSecondRate[tier] = value;
+  }
+  return { perSecondRate, qualityBase: { ...defaults.qualityBase, ...s.qualityBase } };
 }
 
 export async function getPixverseVideoCreditCost(
