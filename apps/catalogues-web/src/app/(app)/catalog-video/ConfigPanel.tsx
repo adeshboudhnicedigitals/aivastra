@@ -9,7 +9,7 @@ import {
   type PixverseVideoPricingConfig,
 } from '@aivastra/types';
 import { useQuery } from '@tanstack/react-query';
-import { X } from 'lucide-react';
+import { Minus, Plus, X } from 'lucide-react';
 import { useState } from 'react';
 
 import { C } from '@/components/tokens';
@@ -40,7 +40,6 @@ type Choice = {
   duration: number;
   quality: PixverseQuality;
   presetTitle: string;
-  prompt: string;
   creditCost: number;
 };
 
@@ -71,6 +70,21 @@ const CARD_STYLE: React.CSSProperties = {
 // `source` or on picking a preset first) so the user can browse and adjust
 // everything up front — Generate itself still requires a source and a preset.
 const DEFAULT_DURATION = 8;
+
+const clampDuration = (value: number) =>
+  Math.round(Math.min(PIXVERSE_DURATION_MAX, Math.max(PIXVERSE_DURATION_MIN, value)));
+
+const stepperBtnStyle = (disabled: boolean) => ({
+  width: 38,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  border: 'none',
+  background: 'transparent',
+  color: disabled ? C.mid : C.text,
+  opacity: disabled ? 0.4 : 1,
+  cursor: disabled ? 'not-allowed' : 'pointer',
+});
 const DEFAULT_QUALITY: PixverseQuality = '720p';
 
 export function ConfigPanel({
@@ -86,6 +100,7 @@ export function ConfigPanel({
 }): React.ReactElement {
   const [sampleVideoId, setSampleVideoId] = useState<string | null>(null);
   const [duration, setDuration] = useState<number>(DEFAULT_DURATION);
+  const [durationDraft, setDurationDraft] = useState<string | null>(null);
   const [quality, setQuality] = useState<PixverseQuality>(DEFAULT_QUALITY);
   const [presetPickerOpen, setPresetPickerOpen] = useState(false);
 
@@ -139,7 +154,6 @@ export function ConfigPanel({
       duration,
       quality,
       presetTitle: selectedSample.title,
-      prompt: selectedSample.prompt,
       creditCost: cost ?? selectedSample.creditCost,
     });
   }
@@ -295,29 +309,62 @@ export function ConfigPanel({
             <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
               Duration (seconds)
             </label>
-            <input
-              type="number"
-              step={1}
-              min={PIXVERSE_DURATION_MIN}
-              max={PIXVERSE_DURATION_MAX}
-              value={duration}
-              onChange={(event) =>
-                setDuration(
-                  Math.round(
-                    Math.min(
-                      PIXVERSE_DURATION_MAX,
-                      Math.max(PIXVERSE_DURATION_MIN, Number(event.target.value)),
-                    ),
-                  ),
-                )
-              }
+            <div
               style={{
-                padding: '8px 12px',
-                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'stretch',
+                height: 40,
                 border: `1px solid ${C.border2}`,
-                fontSize: 14,
+                borderRadius: 8,
+                background: C.field,
+                overflow: 'hidden',
               }}
-            />
+            >
+              <button
+                type="button"
+                aria-label="Decrease duration"
+                disabled={duration <= PIXVERSE_DURATION_MIN}
+                onClick={() => setDuration((d) => clampDuration(d - 1))}
+                style={stepperBtnStyle(duration <= PIXVERSE_DURATION_MIN)}
+              >
+                <Minus size={14} />
+              </button>
+              {/* Draft string while focused so the field can be cleared and retyped;
+                  the clamped value is committed on blur. */}
+              <input
+                type="text"
+                inputMode="numeric"
+                aria-label="Duration in seconds"
+                value={durationDraft ?? String(duration)}
+                onFocus={(event) => event.target.select()}
+                onChange={(event) => {
+                  const digits = event.target.value.replace(/\D/g, '').slice(0, 2);
+                  setDurationDraft(digits);
+                  if (digits) setDuration(clampDuration(Number(digits)));
+                }}
+                onBlur={() => setDurationDraft(null)}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  border: 'none',
+                  outline: 'none',
+                  background: 'transparent',
+                  color: C.text,
+                  textAlign: 'center',
+                  fontSize: 14,
+                  fontWeight: 600,
+                }}
+              />
+              <button
+                type="button"
+                aria-label="Increase duration"
+                disabled={duration >= PIXVERSE_DURATION_MAX}
+                onClick={() => setDuration((d) => clampDuration(d + 1))}
+                style={stepperBtnStyle(duration >= PIXVERSE_DURATION_MAX)}
+              >
+                <Plus size={14} />
+              </button>
+            </div>
           </div>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
             <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Quality</label>

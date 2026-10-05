@@ -19,7 +19,7 @@ export default function JobCostsTab({ toast }: Props) {
   const [tryonCreditCost, setTryonCreditCost] = useState(5);
   const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
   const [pixverseVideoPricing, setPixverseVideoPricing] = useState<PixverseVideoPricingConfig>({
-    perSecondRate: 0,
+    perSecondRate: { '360p': 0, '540p': 0, '720p': 0, '1080p': 0 },
     qualityBase: { '360p': 150, '540p': 150, '720p': 150, '1080p': 150 },
   });
   const [loading, setLoading] = useState(true);
@@ -272,45 +272,11 @@ export default function JobCostsTab({ toast }: Props) {
                 Catalog Video Pricing (PixVerse)
               </div>
               <div className="setting-desc" style={{ marginBottom: 12 }}>
-                Credit cost per catalog-video generation = quality base + duration (seconds) ×
-                per-second rate. Applies per sample-video template's own duration/quality.
+                Credit cost per catalog-video generation = quality base + duration (seconds) × that
+                quality's per-second rate. Applies per sample-video template's own duration/quality.
+                Set a base of 1 and rely on the rate for near-pure per-second pricing.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: '10px 12px',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--r)',
-                    background: 'var(--surface-2)',
-                  }}
-                >
-                  <span className="setting-lbl">Per-second rate</span>
-                  <div
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
-                  >
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      max={100}
-                      style={{ width: 80, textAlign: 'right' }}
-                      value={pixverseVideoPricing.perSecondRate}
-                      disabled={saving}
-                      onChange={(e) =>
-                        setPixverseVideoPricing((prev) => ({
-                          ...prev,
-                          perSecondRate: Number(e.target.value),
-                        }))
-                      }
-                    />
-                    <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                      credits / second
-                    </span>
-                  </div>
-                </div>
                 {PIXVERSE_QUALITIES.map((tier) => (
                   <div
                     key={tier}
@@ -346,7 +312,29 @@ export default function JobCostsTab({ toast }: Props) {
                         }
                       />
                       <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        base credits
+                        base credits +
+                      </span>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.1}
+                        style={{ width: 80, textAlign: 'right' }}
+                        value={pixverseVideoPricing.perSecondRate[tier]}
+                        disabled={saving}
+                        onChange={(e) =>
+                          setPixverseVideoPricing((prev) => ({
+                            ...prev,
+                            perSecondRate: {
+                              ...prev.perSecondRate,
+                              [tier]: Number(e.target.value),
+                            },
+                          }))
+                        }
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        credits / second
                       </span>
                     </div>
                   </div>
