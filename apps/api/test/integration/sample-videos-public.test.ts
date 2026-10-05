@@ -82,7 +82,7 @@ describe('GET /v1/models/sample-videos', () => {
       CONFIG_KEY,
       JSON.stringify({
         pixverseVideoPricing: {
-          perSecondRate: 5,
+          perSecondRate: { '360p': 1, '540p': 2, '720p': 5, '1080p': 6 },
           qualityBase: { '360p': 10, '540p': 20, '720p': 30, '1080p': 50 },
         },
       }),
@@ -105,11 +105,11 @@ describe('GET /v1/models/sample-videos', () => {
     }>;
     expect(items.map((i) => i.id)).toEqual([active2.id, active1.id]);
     // active1: duration 8, quality '720p' -> 30 + 8*5 = 70
-    // active2: duration 15, quality '1080p' -> 50 + 15*5 = 125
+    // active2: duration 15, quality '1080p' -> 50 + 15*6 = 140
     // Distinct, exactly-computed values per item — this is what actually
     // proves creditCost is driven by each row's own duration/quality rather
     // than a shared or hoisted value.
-    expect(items[0].creditCost).toBe(125);
+    expect(items[0].creditCost).toBe(140);
     expect(items[1].creditCost).toBe(70);
     // Motion Studio pre-fills its duration/quality controls from these when
     // a preset is picked — each item must expose its own admin-set values,
@@ -129,6 +129,7 @@ describe('GET /v1/models/sample-videos', () => {
       CONFIG_KEY,
       JSON.stringify({
         pixverseVideoPricing: {
+          // A legacy single-number rate must come back expanded per tier.
           perSecondRate: 3,
           // Only 720p overridden — 360p/540p/1080p must fall back to the
           // default qualityBase (150) rather than come back undefined.
@@ -144,7 +145,7 @@ describe('GET /v1/models/sample-videos', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.pixverseVideoPricing).toEqual({
-      perSecondRate: 3,
+      perSecondRate: { '360p': 3, '540p': 3, '720p': 3, '1080p': 3 },
       qualityBase: { '360p': 150, '540p': 150, '720p': 40, '1080p': 150 },
     });
   });

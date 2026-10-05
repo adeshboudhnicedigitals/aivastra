@@ -61,7 +61,7 @@ describe('admin config', () => {
     const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
     expect(getRes.statusCode).toBe(200);
     expect(getRes.json().pixverseVideoPricing).toEqual({
-      perSecondRate: 0,
+      perSecondRate: { '360p': 0, '540p': 0, '720p': 0, '1080p': 0 },
       qualityBase: { '360p': 150, '540p': 150, '720p': 150, '1080p': 150 },
     });
 
@@ -70,7 +70,10 @@ describe('admin config', () => {
       url: '/admin/config',
       headers: { ...adminAuth, 'content-type': 'application/json' },
       payload: JSON.stringify({
-        pixverseVideoPricing: { perSecondRate: 5, qualityBase: { '720p': 35 } },
+        pixverseVideoPricing: {
+          perSecondRate: { '720p': 5, '1080p': 8 },
+          qualityBase: { '720p': 35 },
+        },
       }),
     });
     expect(patchRes.statusCode).toBe(200);
@@ -83,9 +86,28 @@ describe('admin config', () => {
     // uploadLimits/seller partial-override tests above and below.
     const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
     expect(getRes2.json().pixverseVideoPricing).toEqual({
-      perSecondRate: 5,
+      perSecondRate: { '360p': 0, '540p': 0, '720p': 5, '1080p': 8 },
       qualityBase: { '360p': 150, '540p': 150, '720p': 35, '1080p': 150 },
     });
+  });
+
+  it('a legacy single-number perSecondRate is expanded to every quality tier', async () => {
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ pixverseVideoPricing: { perSecondRate: 5, qualityBase: {} } }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes.json().pixverseVideoPricing.perSecondRate).toEqual({
+      '360p': 5,
+      '540p': 5,
+      '720p': 5,
+      '1080p': 5,
+    });
+    expect(await getPixverseVideoCreditCost(app, 8, '1080p')).toBe(150 + 8 * 5);
   });
 
   it('regression: getPixverseVideoCreditCost returns a real number (not NaN) for a quality tier omitted from a partial qualityBase PATCH', async () => {
@@ -97,7 +119,7 @@ describe('admin config', () => {
       url: '/admin/config',
       headers: { ...adminAuth, 'content-type': 'application/json' },
       payload: JSON.stringify({
-        pixverseVideoPricing: { perSecondRate: 5, qualityBase: { '720p': 35 } },
+        pixverseVideoPricing: { perSecondRate: { '360p': 5 }, qualityBase: { '720p': 35 } },
       }),
     });
     expect(patchRes.statusCode).toBe(200);

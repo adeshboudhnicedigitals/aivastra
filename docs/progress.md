@@ -57,6 +57,19 @@
     - Added "My Uploads" filter pill and included user's custom backgrounds inside the "View All" backgrounds modal so all uploaded backgrounds remain accessible.
 - **Validation:** Integration tests updated and passing in `catalogue-template-subcategories-admin.test.ts` (9/9 passed, including multi-sort test); `models-poses-garment-roles.test.ts` (4/4 passed); whole workspace typecheck passed; `admin-web` and `@aivastra/web` built/typechecked cleanly (`tsc --noEmit`); Biome check passed with 0 errors.
 
+## 2026-10-05 — Performance routing parity fixture follows Redis hash order
+
+- **Done:** corrected the OFF/OBSERVE integration fixture that blocked promotion PR #476. The cursor is derived from actual Redis hash order so round-robin deliberately selects a worker other than scored preference A. Three insertion orders verify identical OFF/OBSERVE claims, a different hypothetical preference, and A remaining IDLE. No routing implementation changed.
+- **Validation:** focused performance-routing, selector-skip-log-context and selector-queue-gate integration suites: 3 files passed, 39 tests passed (589ms). Dispatcher `tsc --noEmit` passed. `pnpm lint` passed: 1212 files checked, 754 warnings, 13 infos, no errors. `git diff --check` passed. First integration attempt was blocked by sandbox localhost EPERM; authorized rerun passed. An attempted Prettier check failed because Prettier is not installed; repository Biome lint passed instead.
+- **Open / not done:** changes remain uncommitted; promotion CI has not been rerun and main has not been promoted or deployed. Full dispatcher integration and unit suites were not rerun for this test-only change. Unrelated untracked files untouched.
+
+## 2026-10-05 — Selector skip logs carry job context
+
+- **Done:** logging-only work on `fix/selector-skip-log-context` from refreshed `dev` (`ae13e002`). All eight selectors receive existing job ID/logger. Skip logs retain their message and add pool, attempt, reason, readable queue count, probe duration and effective mode. Null returns log ordered skipped IDs/reasons. Module logger remains the fallback; release/backoff diagnostics use the provided logger.
+- **Validation:** 10 new units and 41 focused selector/performance/queue-gate integrations passed; captured payloads contain no API-key or URL values. Lua and claimed-worker construction verified byte-for-byte unchanged. Workspace/dispatcher typechecks passed; lint passed with 754 warnings and 13 infos. Initial full units: 197 passed, one stale three-argument source assertion failed; user-approved context-regex update resolved it, and rerun passed all 198 tests. Full integration: 170 passed in 36 files (325.94s); exact output in the [report](superpowers/reports/2026-10-05-selector-skip-log-context.md).
+- **Done / approved exception:** updated only that caller regex to require context at all eight sites, leaving behavioral tests untouched. Existing worker-claimed logs have no selector skip-count channel; optional successful-claim enrichment omitted to preserve return/interface behavior and avoid duplicates.
+- **Failed-Not-Done:** no commit, push, PR, deployment, production data/worker/config calls, manual mode changes, metrics-label/routing/scoring/backoff changes, or API test rerun. Review patch/report prepared for delivery only to VPS `/tmp/`; full integration and units are green; the initial source-guard failure and authorized correction are reported.
+
 ## 2026-10-03 — Admin Activity Log Revert feature
 
 - **Done:** Added "Revert" functionality to Admin Activity Logs (`/admin/audit-logs`).

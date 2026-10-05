@@ -348,7 +348,7 @@ describe('POST /v1/jobs/catalog-video', () => {
       'config:system',
       JSON.stringify({
         pixverseVideoPricing: {
-          perSecondRate: 5,
+          perSecondRate: { '360p': 1, '540p': 5, '720p': 7, '1080p': 9 },
           qualityBase: { '360p': 10, '540p': 20, '720p': 30, '1080p': 50 },
         },
       }),
@@ -367,7 +367,7 @@ describe('POST /v1/jobs/catalog-video', () => {
       expect(res.statusCode).toBe(201);
       const { jobId } = res.json();
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-      // 20 (540p base) + 10s * 5/s = 70
+      // 20 (540p base) + 10s * 5/s (540p rate) = 70
       expect(job.creditsCharged).toBe(70);
     } finally {
       await app.redis.del('config:system');
@@ -405,7 +405,7 @@ describe('POST /v1/jobs/catalog-video', () => {
       'config:system',
       JSON.stringify({
         pixverseVideoPricing: {
-          perSecondRate: 5,
+          perSecondRate: { '360p': 1, '540p': 5, '720p': 7, '1080p': 9 },
           qualityBase: { '360p': 10, '540p': 20, '720p': 30, '1080p': 50 },
         },
       }),
@@ -423,7 +423,7 @@ describe('POST /v1/jobs/catalog-video', () => {
       expect(res.statusCode).toBe(201);
       const { jobId } = res.json();
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-      // 20 (540p base) + 10s * 5/s = 70
+      // 20 (540p base) + 10s * 5/s (540p rate) = 70
       expect(job.creditsCharged).toBe(70);
     } finally {
       await app.redis.del('config:system');

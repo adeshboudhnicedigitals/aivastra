@@ -171,8 +171,21 @@ export const SystemConfigBody = z.object({
     .optional(),
   pixverseVideoPricing: z
     .object({
-      // Credits per second of video, added on top of the quality base below.
-      perSecondRate: z.number().min(0).max(100),
+      // Credits per second of video at each quality tier, added on top of that
+      // tier's base below. A bare number is the legacy single-rate shape —
+      // still accepted so an admin bundle from before the per-quality change
+      // can save; resolvePixverseVideoPricing() expands it to every tier.
+      perSecondRate: z.union([
+        z.number().min(0).max(100),
+        z
+          .object({
+            '360p': z.number().min(0).max(100),
+            '540p': z.number().min(0).max(100),
+            '720p': z.number().min(0).max(100),
+            '1080p': z.number().min(0).max(100),
+          })
+          .partial(),
+      ]),
       qualityBase: z
         .object({
           '360p': z.number().int().positive().max(1_000),
