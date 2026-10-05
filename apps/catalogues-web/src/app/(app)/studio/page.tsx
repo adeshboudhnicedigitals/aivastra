@@ -25,6 +25,7 @@ import { extractYoutubeId } from '@/lib/youtube';
 import { AccessoryStep } from './accessory-step';
 import { BatchMode } from './batch/batch-mode';
 import { type GenerationJob, GenerationPanel } from './generation-panel';
+import { OptionalUploadBox } from './optional-upload-box';
 import { PreviewPanel } from './preview-panel';
 import { SelectGridModal } from './select-modal';
 import { GenderCard, SectionHead, SelCard, sectionCardStyle } from './shared-cards';
@@ -46,6 +47,9 @@ interface GarmentType {
   requiresMannequinStep?: boolean;
   requiresThirdUpload?: boolean;
   thirdUploadLabel?: string | null;
+  // Optional 4th upload (saree blouse) — never blocks Generate, see OptionalUploadBox.
+  allowsFourthUpload?: boolean;
+  fourthUploadLabel?: string | null;
   mannequinTwoInputWorkflowTemplateId?: string | null;
 }
 interface FaceItem {
@@ -619,6 +623,10 @@ export default function StudioPage(): React.ReactElement {
   }, [thirdGarmentPreviewUrl]);
   const [thirdGarmentKey, setThirdGarmentKey] = useState('');
   const [isUploadingThird, setIsUploadingThird] = useState(false);
+  const [fourthGarmentFile, setFourthGarmentFile] = useState<File | null>(null);
+  const [fourthGarmentKey, setFourthGarmentKey] = useState('');
+  const [isUploadingFourth, setIsUploadingFourth] = useState(false);
+  const fourthUploadAbortRef = useRef<AbortController | null>(null);
   const [palluGarmentFile, setPalluGarmentFile] = useState<File | null>(null);
   const palluGarmentPreviewUrl = useMemo(
     () => (palluGarmentFile ? URL.createObjectURL(palluGarmentFile) : ''),
@@ -654,6 +662,7 @@ export default function StudioPage(): React.ReactElement {
       uploadAbortRef.current?.abort();
       lowerUploadAbortRef.current?.abort();
       thirdUploadAbortRef.current?.abort();
+      fourthUploadAbortRef.current?.abort();
       palluUploadAbortRef.current?.abort();
       upperBackUploadAbortRef.current?.abort();
       lowerBackUploadAbortRef.current?.abort();
@@ -1475,6 +1484,43 @@ export default function StudioPage(): React.ReactElement {
     }
   }
 
+  async function handleFourthGarmentUpload(file: File) {
+    if (isUploadingFourth) return;
+    if (file.size > 20 * 1024 * 1024) {
+      showToast('File exceeds 20 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      showToast('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    setFourthGarmentFile(file);
+    setIsUploadingFourth(true);
+    const fourthAbort = new AbortController();
+    fourthUploadAbortRef.current = fourthAbort;
+    try {
+      const { uploadUrl, r2Key } = await api.post<{
+        uploadUrl: string;
+        r2Key: string;
+        expiresIn: number;
+      }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, () => {}, fourthAbort.signal);
+      setFourthGarmentKey(r2Key);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      const msg = (e as Error).message ?? '';
+      showToast(
+        msg.includes('403')
+          ? 'Upload session expired. Please re-select your image and try again.'
+          : `Optional garment upload failed: ${msg}`,
+      );
+      setFourthGarmentFile(null);
+      setFourthGarmentKey('');
+    } finally {
+      setIsUploadingFourth(false);
+    }
+  }
+
   async function handlePalluGarmentUpload(file: File) {
     if (isUploadingPallu) return;
     if (file.size > 20 * 1024 * 1024) {
@@ -1625,6 +1671,7 @@ export default function StudioPage(): React.ReactElement {
         shoeCatalogId: effectiveShoesId,
         accessoryCatalogIds: effectiveAccessoryIds,
         thirdGarmentKey: thirdGarmentKey || undefined,
+        fourthGarmentKey: allowsFourthUpload ? fourthGarmentKey || undefined : undefined,
       };
       const step2Inputs =
         catalogueTemplateId === 'custom'
@@ -1749,6 +1796,7 @@ export default function StudioPage(): React.ReactElement {
           shoeCatalogId: effectiveShoesId,
           accessoryCatalogIds: effectiveAccessoryIds,
           thirdGarmentKey: thirdGarmentKey || undefined,
+          fourthGarmentKey: allowsFourthUpload ? fourthGarmentKey || undefined : undefined,
         },
         aspectRatio: aspect,
         resolution,
@@ -1792,6 +1840,7 @@ export default function StudioPage(): React.ReactElement {
             shoeCatalogId: effectiveShoesId,
             accessoryCatalogIds: effectiveAccessoryIds,
             thirdGarmentKey: thirdGarmentKey || undefined,
+            fourthGarmentKey: allowsFourthUpload ? fourthGarmentKey || undefined : undefined,
           },
           aspectRatio: aspect,
           resolution,
@@ -1834,7 +1883,12 @@ export default function StudioPage(): React.ReactElement {
     !!selectedGarmentType?.requiresMannequinStep &&
     !!selectedGarmentType?.mannequinTwoInputWorkflowTemplateId;
   const sareeTwoInputActive = sareeTwoInputCapable && sareeUploadMode === 'two_input';
-  const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload || sareeTwoInputActive;
+  // The blouse belongs to the one-step workflow; the two-step saree path (mannequin) has
+  // no fourth node, so the box is never offered there.
+  const allowsFourthUpload =
+    !!selectedGarmentType?.allowsFourthUpload && !selectedGarmentType.requiresMannequinStep;
+  const hasMultipleUploadBoxes =
+    requiresLowerUpload || requiresThirdUpload || sareeTwoInputActive || allowsFourthUpload;
 
   const creditCost = resolution
     ? (resolutionConfig[resolution]?.creditCost ?? RESOLUTION_COSTS[resolution]) * selectedCount
@@ -1856,6 +1910,7 @@ export default function StudioPage(): React.ReactElement {
     !isUploadingUpperBack &&
     !isUploadingLowerBack &&
     !isUploadingThird &&
+    !isUploadingFourth &&
     !isUploadingPallu &&
     !isSubmitting &&
     !generationInProgress;
@@ -1867,6 +1922,7 @@ export default function StudioPage(): React.ReactElement {
         isUploadingUpperBack ||
         isUploadingLowerBack ||
         isUploadingThird ||
+        isUploadingFourth ||
         isUploadingPallu
       ? 'Waiting for upload to finish…'
       : !garmentKey
@@ -3344,6 +3400,24 @@ export default function StudioPage(): React.ReactElement {
                             }}
                           />
                         </label>
+                      )}
+
+                      {allowsFourthUpload && (
+                        <OptionalUploadBox
+                          label={
+                            selectedGarmentType?.fourthUploadLabel ?? 'Upload Blouse (optional)'
+                          }
+                          file={fourthGarmentFile}
+                          uploaded={!!fourthGarmentKey}
+                          uploading={isUploadingFourth}
+                          onSelect={handleFourthGarmentUpload}
+                          onClear={() => {
+                            fourthUploadAbortRef.current?.abort();
+                            setFourthGarmentFile(null);
+                            setFourthGarmentKey('');
+                            setIsUploadingFourth(false);
+                          }}
+                        />
                       )}
                     </div>
 

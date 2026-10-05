@@ -375,6 +375,122 @@ describe('accessories', () => {
   });
 });
 
+// ── Fourth garment (optional saree blouse) ────────────────────────────────
+
+describe('fourth garment (blouse)', () => {
+  // Mirrors the one-step saree workflow: the blouse LoadImage feeds (a) a config preparer
+  // spliced into the configs chain, (b) a size-calculation chain that only the preparer
+  // reads, and (c) a PreviewImage output node.
+  function makeBlouseWorkflow() {
+    return {
+      ...makeWorkflow(),
+      '1073': {
+        inputs: { image: 'placeholder_blouse.png' },
+        class_type: 'LoadImage',
+        _meta: { title: 'blouse' },
+      },
+      '1105': { inputs: { image: ['1073', 0] }, class_type: 'GetImageSize' },
+      '1109': { inputs: { boolean: ['1105', 0] }, class_type: 'easy ifElse' },
+      '1078': { inputs: { images: ['1073', 0] }, class_type: 'PreviewImage' },
+      '1061': { inputs: { configs: ['1059', 0] }, class_type: 'QwenEditConfigPreparer' },
+      '1072': {
+        inputs: { image: ['1073', 0], configs: ['1061', 0], ref_longest_edge: ['1109', 0] },
+        class_type: 'QwenEditConfigPreparer',
+      },
+      '1033': {
+        inputs: {
+          prompt: 'drape the saree.\nuse exact image6 fabric as blouse. [blouse]\nkeep the pose.',
+          instruction: '[blouse] where blouse appears use image6',
+          configs: ['1072', 0],
+        },
+        class_type: 'TextEncodeQwenImageEditPlusCustom',
+      },
+    };
+  }
+  const blouseTemplate = () =>
+    makeTemplate({ fourthNodeId: '1073', garmentPhasePromptNode: '1033' });
+
+  it('patches the blouse node and keeps the graph intact when a blouse was provided', () => {
+    const wf = makeBlouseWorkflow();
+    applyWorkflowPatch(wf, blouseTemplate(), { ...BASE_INPUTS, fourthGarmentFile: 'blouse_x.png' });
+    expect(wf['1073']?.inputs.image).toBe('blouse_x.png');
+    expect(wf['1033']?.inputs.configs).toEqual(['1072', 0]);
+    expect(wf['1105']).toBeDefined();
+    expect(wf['1078']).toBeDefined();
+  });
+
+  it('strips the [blouse] tag but keeps the line when a blouse was provided', () => {
+    const wf = makeBlouseWorkflow();
+    applyWorkflowPatch(wf, blouseTemplate(), { ...BASE_INPUTS, fourthGarmentFile: 'blouse_x.png' });
+    expect(wf['1033']?.inputs.prompt).toBe(
+      'drape the saree.\nuse exact image6 fabric as blouse.\nkeep the pose.',
+    );
+    expect(wf['1033']?.inputs.instruction).toBe('where blouse appears use image6');
+  });
+
+  it('prunes the blouse node, its side chain and preview, and rewires configs, when none was provided', () => {
+    const wf = makeBlouseWorkflow();
+    applyWorkflowPatch(wf, blouseTemplate(), BASE_INPUTS);
+    for (const id of ['1073', '1072', '1105', '1109', '1078']) expect(wf[id]).toBeUndefined();
+    expect(wf['1033']?.inputs.configs).toEqual(['1061', 0]);
+    // Unrelated nodes survive.
+    expect(wf['1061']).toBeDefined();
+    expect(wf['1340']).toBeDefined();
+  });
+
+  it('drops [blouse]-tagged prompt lines when none was provided', () => {
+    const wf = makeBlouseWorkflow();
+    applyWorkflowPatch(wf, blouseTemplate(), BASE_INPUTS);
+    expect(wf['1033']?.inputs.prompt).toBe('drape the saree.\nkeep the pose.');
+    expect(wf['1033']?.inputs.instruction).toBe('');
+  });
+
+  it('applies the same tag handling to a pose-supplied prompt override', () => {
+    const wf = makeBlouseWorkflow();
+    applyWorkflowPatch(wf, blouseTemplate(), {
+      ...BASE_INPUTS,
+      promptGarmentPhase: 'pose prompt\nuse image6 as blouse [blouse]',
+    });
+    expect(wf['1033']?.inputs.prompt).toBe('pose prompt');
+  });
+
+  it('fails closed when the blouse is wired into the real generation path', () => {
+    // Blouse → size chain → sampler-ish node → SaveImage: pruning would delete the output.
+    const wf = makeBlouseWorkflow();
+    Object.assign(wf, {
+      '1200': { inputs: { value: ['1109', 0] }, class_type: 'KSampler' },
+      '1300': { inputs: { images: ['1200', 0] }, class_type: 'SaveImage' },
+    });
+    expect(() => applyWorkflowPatch(wf, blouseTemplate(), BASE_INPUTS)).toThrow(
+      /is an output that depends on the optional fourth garment/,
+    );
+  });
+
+  it('warns when a blouse is provided but the template maps no fourthNodeId', () => {
+    const wf = makeBlouseWorkflow();
+    const warn = vi.fn();
+    applyWorkflowPatch(
+      wf,
+      makeTemplate({ fourthNodeId: null }),
+      { ...BASE_INPUTS, fourthGarmentFile: 'blouse_x.png' },
+      { warn },
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no fourth_node_id'));
+    expect(wf['1073']?.inputs.image).toBe('placeholder_blouse.png');
+  });
+
+  it('leaves a template without fourthNodeId completely untouched, tags included', () => {
+    const wf = makeBlouseWorkflow();
+    applyWorkflowPatch(
+      wf,
+      makeTemplate({ fourthNodeId: null, garmentPhasePromptNode: '1033' }),
+      BASE_INPUTS,
+    );
+    expect(wf['1073']).toBeDefined();
+    expect(String(wf['1033']?.inputs.prompt)).toContain('[blouse]');
+  });
+});
+
 // ── Prompts ───────────────────────────────────────────────────────────────
 
 describe('prompts', () => {
