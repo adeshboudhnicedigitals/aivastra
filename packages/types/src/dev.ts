@@ -229,6 +229,14 @@ export const DevMeResponse = z.object({
   companyName: z.string(),
   credits: z.number().int(),
   tryOnsRemaining: z.number().int(),
+  // True while this merchant's user has a currently-active row in
+  // `unlimited_plans` (apps/api/src/modules/credits/unlimited-plan.ts) — a
+  // date-ranged plan where try-ons aren't metered against `credits` at all.
+  // Callers (the WordPress plugin's balance card) show this instead of the
+  // numeric credits/tryOnsRemaining fields when true; `credits` and
+  // `tryOnsRemaining` above are still whatever the underlying balance happens
+  // to be and are not meaningful on their own in that case.
+  unlimited: z.boolean(),
 });
 
 // Deliberately available to both 'full' and 'widget' scoped keys (unlike
@@ -240,6 +248,8 @@ export const DevBalanceResponse = z.object({
   // not a hardcoded divisor — callers must not re-derive this from `credits`
   // themselves, since that would drift the moment an admin retunes the cost.
   tryOnsRemaining: z.number().int(),
+  // Same meaning as DevMeResponse's own `unlimited` field above.
+  unlimited: z.boolean(),
 });
 
 // The WordPress plugin's live-chat button exchanges this for a chatbot
@@ -560,9 +570,24 @@ export const DevAnalyticsProduct = z.object({
 });
 export type DevAnalyticsProduct = z.infer<typeof DevAnalyticsProduct>;
 
+export const DevAnalyticsFunnel = z.object({
+  /** Advisory: distinct client_id in merchant_widget_events, type = button_click. */
+  buttonClick: z.number().int(),
+  /** Advisory: distinct client_id, type = upload. */
+  upload: z.number().int(),
+  /** Real: same count as cards.tryOns — there is no shopper-identity join to narrow it to distinct shoppers. */
+  tryOn: z.number().int(),
+  /** Advisory: distinct client_id, type = result_view. */
+  resultView: z.number().int(),
+  /** Advisory: distinct client_id, type = add_to_cart. */
+  addToCart: z.number().int(),
+});
+export type DevAnalyticsFunnel = z.infer<typeof DevAnalyticsFunnel>;
+
 export const DevAnalyticsResponse = z.object({
   cards: DevAnalyticsCards,
   daily: z.array(z.object({ day: z.string(), tryOns: z.number().int() })),
   products: z.array(DevAnalyticsProduct),
+  funnel: DevAnalyticsFunnel,
 });
 export type DevAnalyticsResponse = z.infer<typeof DevAnalyticsResponse>;

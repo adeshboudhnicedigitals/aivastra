@@ -40,8 +40,9 @@ class Aivastra_Connection_Service
         $body = json_decode(wp_remote_retrieve_body($response), true);
         $companyName = is_array($body) ? ($body['companyName'] ?? '') : '';
         $credits = is_array($body) ? (int) ($body['credits'] ?? 0) : 0;
+        $unlimited = is_array($body) && !empty($body['unlimited']);
 
-        $this->settings->set_widget_key_and_snapshot($widgetKey, $fullKey, $companyName, $credits, current_time('mysql'));
+        $this->settings->set_widget_key_and_snapshot($widgetKey, $fullKey, $companyName, $credits, current_time('mysql'), $unlimited);
 
         return ['ok' => true];
     }
@@ -224,8 +225,9 @@ class Aivastra_Connection_Service
 
         $body = json_decode(wp_remote_retrieve_body($response), true);
         $credits = is_array($body) ? (int) ($body['credits'] ?? 0) : 0;
+        $unlimited = is_array($body) && !empty($body['unlimited']);
 
-        $this->settings->update_credits($credits, current_time('mysql'));
+        $this->settings->update_credits($credits, current_time('mysql'), $unlimited);
 
         return ['ok' => true];
     }
@@ -249,8 +251,14 @@ class Aivastra_Connection_Service
      * analytics call itself failing) — that's still a usable balance
      * summary, just without a day estimate.
      *
+     * `unlimited` is GET /v1/dev/me's own field, passed straight through —
+     * true while the merchant's Ai Vastra user has a currently-active
+     * unlimited plan, in which case tryOnsRemaining/daysRemaining above are
+     * still computed but aren't meaningful on their own: render_connection_section()
+     * shows "Unlimited" instead of either when this is true.
+     *
      * @param ?array<int, array{day:string,tryOns:int}> $dailyRows
-     * @return array{ok: bool, tryOnsRemaining?: int, daysRemaining?: ?int, error?: string}
+     * @return array{ok: bool, tryOnsRemaining?: int, daysRemaining?: ?int, unlimited?: bool, error?: string}
      */
     public function get_balance_summary(?array $dailyRows = null): array
     {
@@ -274,6 +282,7 @@ class Aivastra_Connection_Service
             return ['ok' => false, 'error' => 'Unexpected response from the aivastra API.'];
         }
         $tryOnsRemaining = (int) $meBody['tryOnsRemaining'];
+        $unlimited = !empty($meBody['unlimited']);
 
         if ($dailyRows === null) {
             $analyticsResponse = wp_remote_get($this->apiBase . '/v1/dev/analytics', [
@@ -301,7 +310,12 @@ class Aivastra_Connection_Service
             }
         }
 
-        return ['ok' => true, 'tryOnsRemaining' => $tryOnsRemaining, 'daysRemaining' => $daysRemaining];
+        return [
+            'ok' => true,
+            'tryOnsRemaining' => $tryOnsRemaining,
+            'daysRemaining' => $daysRemaining,
+            'unlimited' => $unlimited,
+        ];
     }
 
     /**
@@ -466,7 +480,7 @@ class Aivastra_Connection_Service
      * calls — see the comment on that route in
      * apps/api/src/modules/dev/routes.ts.
      *
-     * @return array{ok: bool, cards?: array{tryOns:int,uniqueShoppers:int,addedToCart:int,addToCartRate:float}, daily?: array<int, array{day:string,tryOns:int}>, products?: array<int, array{productId:int,tryOns:int,uniqueShoppers:int,addedToCart:int,addToCartRate:float}>, error?: string}
+     * @return array{ok: bool, cards?: array{tryOns:int,uniqueShoppers:int,addedToCart:int,addToCartRate:float}, daily?: array<int, array{day:string,tryOns:int}>, products?: array<int, array{productId:int,tryOns:int,uniqueShoppers:int,addedToCart:int,addToCartRate:float}>, funnel?: array{buttonClick:int,upload:int,tryOn:int,resultView:int,addToCart:int}|null, error?: string}
      */
     public function get_analytics(): array
     {
@@ -499,6 +513,9 @@ class Aivastra_Connection_Service
             'cards' => $body['cards'],
             'daily' => is_array($body['daily']) ? $body['daily'] : [],
             'products' => is_array($body['products']) ? $body['products'] : [],
+            // Older API deployments return the core analytics without a funnel.
+            // Keep those metrics usable; missing funnel data is not zero activity.
+            'funnel' => is_array($body['funnel'] ?? null) ? $body['funnel'] : null,
         ];
     }
 

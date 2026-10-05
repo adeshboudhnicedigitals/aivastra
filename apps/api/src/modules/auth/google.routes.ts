@@ -5,9 +5,41 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { sendWelcomeEmail } from '../../lib/mailer.js';
+import {
+  connectWordpressForUser,
+  isTrustedWordpressCallback,
+  mintWordpressConnectCode,
+} from '../merchant/wordpress-shared.js';
 import { resolveCampaignId } from './campaign.js';
 import { resolveFreeCredits, upsertGoogleUser } from './google-upsert.js';
 import { createSessionTokens } from './tokens.js';
+
+/**
+ * `next` for the WordPress "Continue with Google" path is the plugin's own
+ * /connect/wordpress?state=&site_url=&site_name=&redirect_uri= consent-page
+ * URL (handle_connect_start() in wordpress-plugin/admin/class-settings-page.php)
+ * — kept in that exact shape even though the callback below skips ever
+ * navigating to it, so a connect attempt that can't be completed
+ * server-to-server (see the catch below) still falls back to the real page
+ * unchanged. Parsed with the WHATWG URL parser (not hand-split) so percent-
+ * encoding matches exactly what that PHP page's own `searchParams.get(...)`
+ * reads once a browser does land there.
+ */
+function parseWordpressConnectNext(
+  next: string,
+): { state: string; siteUrl: string; siteName: string; redirectUri: string } | null {
+  try {
+    const url = new URL(next, 'http://internal.invalid');
+    if (url.pathname !== '/connect/wordpress') return null;
+    const state = url.searchParams.get('state');
+    const siteUrl = url.searchParams.get('site_url');
+    const redirectUri = url.searchParams.get('redirect_uri');
+    if (!state || !siteUrl || !redirectUri) return null;
+    return { state, siteUrl, siteName: url.searchParams.get('site_name') ?? '', redirectUri };
+  } catch {
+    return null;
+  }
+}
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -154,6 +186,43 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         await sendWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, googleUser.email);
       } catch (err) {
         app.log.error({ err }, 'Failed to send welcome email');
+      }
+    }
+
+    // WordPress "Continue with Google" skip-path: complete the connect
+    // server-to-server and land straight back on wp-admin, instead of
+    // routing the browser through app.aivastra.com/connect/wordpress's own
+    // consent page first (wordpress-plugin/admin/class-settings-page.php's
+    // handle_connect_start() doc comment explains why that page used to be
+    // unavoidable — it no longer is, for this path). No WP-side change
+    // needed: ensureMerchantForUser (wordpress-shared.ts) already treats
+    // phone as optional, so this can finish a brand-new merchant's first
+    // connection too, not just a returning one.
+    if (src === 'wordpress_plugin' && next) {
+      const parsed = parseWordpressConnectNext(next);
+      if (parsed && isTrustedWordpressCallback(parsed.redirectUri, parsed.siteUrl)) {
+        try {
+          const payload = await app.db.transaction((tx) =>
+            connectWordpressForUser(tx, userId, {
+              siteUrl: parsed.siteUrl,
+              siteName: parsed.siteName || undefined,
+            }),
+          );
+          const code = await mintWordpressConnectCode(app.redis, payload);
+          const wpRedirectUrl = new URL(parsed.redirectUri);
+          wpRedirectUrl.searchParams.set('state', parsed.state);
+          wpRedirectUrl.searchParams.set('code', code);
+          return reply.redirect(wpRedirectUrl.toString(), 302);
+        } catch (err) {
+          // Merchant exists but deactivated, or some other connect-time
+          // failure — fall through to the normal OTP/consent-page flow below
+          // so the merchant still sees that page's own explanatory screen
+          // (e.g. "Merchant account inactive") instead of a dead end here.
+          app.log.warn(
+            { err },
+            'wordpress google connect skip-path failed, falling back to consent page',
+          );
+        }
       }
     }
 

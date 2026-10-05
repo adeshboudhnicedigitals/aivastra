@@ -2,6 +2,21 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-05 — WordPress result popup centering and sizing
+
+- **Done:** centered the height-constrained result wrapper itself, fixing unequal left/right space. Set an explicit responsive 480px desktop popup width (previously shrink-to-fit with a 440px maximum), enlarged the result height allowance from 38dvh to min(46dvh, 480px), and kept the popup within viewport margins. Mobile uses 12px outer margins and 20px inner padding; short screens retain internal scrolling. Widget CSS uses modification-time cache versioning.
+- **Validation:** Playwright rendered the actual `renderModal`/`renderCompleted` functions with fixture history and a local result image at 1440×1000, 1024×768, 390×712, 320×568, and 844×390. Every result reported zero image/actions center offset, viewport fit, and no horizontal overflow; only short landscape required internal scrolling. Mobile screenshot inspected. Loader PHP syntax and `git diff --check` pass.
+- **Failed-Not-Done:** no live generation, purchase/cart/share interaction checks, production deployment, commit, or push. Existing unrelated edits preserved.
+- **Open Questions:** none.
+
+## 2026-10-05 — WordPress analytics compatibility and admin layout cleanup
+
+- **Done:** confirmed the configured API returns HTTP 200 with `cards`, `daily`, and `products`, but no `funnel`. The plugin's new required-funnel check rejected that valid response. Made funnel data optional and omit its chart when unavailable; core analytics now render successfully against the configured API. No fabricated zero funnel metrics.
+- **Done:** removed Dashboard's Credits left purchase button; increased connected-page heading top spacing; left-aligned routing dropdown options and right-aligned its renamed Save button. Centered Billing plan cards with more heading separation. Added consistent Customize/Support page headings, grouped popup settings, cleaner contact cards, mobile routing sizing, and stylesheet modification-time cache versioning. Preserved existing work in progress.
+- **Validation:** PHP suite passes: 88 tests, 145 assertions, including a missing-funnel regression. Live read-only analytics render check reports `analytics_ok=true`, `error_visible=false`, `stats_visible=true`. Playwright checked locally rendered Customize/Support/Billing/Manage markup with WordPress CSS and enhanced selects at 1280px and 390px; final checks show no horizontal overflow and routing option alignment is left. Desktop/mobile screenshots inspected. `git diff --check` passes.
+- **Failed-Not-Done:** initial Docker/Chromium sandbox permission failures resolved by approved escalation. Enhanced mobile routing initially overflowed; corrected both control sizing and hidden-native-select CSS specificity and reran successfully. Browser checks used rendered page fragments, not a complete authenticated wp-admin navigation or save/purchase/chat flow. No production data/schema writes, deployment, commit, or push.
+- **Open Questions:** funnel remains absent from the configured API until its backend changes are deployed; existing analytics remain usable independently.
+
 ## 2026-10-02 — Admin catalogue cancellation reaches the GPU (Stage 1)
 
 - **Done:** admin PREPROCESSING/GENERATING catalogue cancel sets the existing 600s Redis signal and returns pending without a refund or DB status change. Admin UI waits for dispatcher status updates. Queued and non-catalogue behavior retained.

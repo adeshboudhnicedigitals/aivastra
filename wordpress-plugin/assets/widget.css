@@ -114,6 +114,7 @@
 .aivastra-tryon-modal {
   position: fixed;
   inset: auto 24px 24px auto;
+  width: min(480px, calc(100vw - 48px));
   z-index: 999999;
   display: flex;
   align-items: flex-end;
@@ -131,6 +132,7 @@
 @media (max-width: 480px) {
   .aivastra-tryon-modal {
     inset: auto 12px 12px 12px;
+    width: auto;
   }
 }
 
@@ -140,9 +142,9 @@
   background: #ffffff;
   border-radius: var(--aivastra-radius-modal, 20px);
   padding: 24px;
-  max-width: 440px;
+  max-width: 480px;
   width: 100%;
-  max-height: 94dvh;
+  max-height: calc(100dvh - 48px);
   box-sizing: border-box;
   box-shadow: var(--aivastra-shadow-modal);
   border: 1px solid rgba(0, 0, 0, 0.06);
@@ -155,6 +157,13 @@
   scrollbar-color: #cbd5e1 transparent;
   animation: aivastraScaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   -webkit-font-smoothing: antialiased;
+}
+
+@media (max-width: 480px) {
+  .aivastra-tryon-modal-content {
+    padding: 20px;
+    max-height: calc(100dvh - 24px);
+  }
 }
 
 .aivastra-tryon-modal-content * {
@@ -174,34 +183,33 @@
   border-radius: 999px;
 }
 
-/* Header & Close Button */
+/* Header — a plain flex row (title/subtitle left, history+close grouped
+   right), matching apps/shopify-extension's own .aivastra-tryon__header
+   (header-main / header-actions). No eyebrow badge pill — that reference
+   header has no such label at all, and this widget's old one ("Try-On
+   Status"/"Ready"/"AI Fitting Room") was pure repetition of what the title
+   right below it already said. Replaces the old absolutely-positioned
+   close/history buttons + their padding-right: 80px reservation on this
+   element, which stayed 80px wide even on the (most common) screens that
+   only ever show the close button, leaving 48px of dead space to its left
+   that read as a padding bug next to the title. */
 .aivastra-modal-header {
-  position: relative;
-  /* Clears both the close button and the history button when it's shown
-     (right: 60px, 32px wide) — a few px wider than strictly needed when
-     history is hidden, which is a harmless, simpler tradeoff than toggling
-     this per-step. */
-  padding-right: 80px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 18px;
 }
 
-.aivastra-modal-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #f1f5f9;
-  color: #475569;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  margin-bottom: 6px;
+.aivastra-modal-header-main {
+  min-width: 0;
 }
 
-.aivastra-modal-badge svg {
-  color: var(--aivastra-accent);
+.aivastra-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .aivastra-modal-title {
@@ -221,9 +229,7 @@
 }
 
 .aivastra-modal-close {
-  position: absolute;
-  top: 16px;
-  right: 16px;
+  position: relative;
   width: 32px;
   height: 32px;
   border: 1px solid #e2e8f0;
@@ -235,7 +241,6 @@
   justify-content: center;
   cursor: pointer;
   padding: 0;
-  z-index: 10;
   transition: all 0.15s ease;
 }
 
@@ -250,13 +255,13 @@
   transform: scale(0.95);
 }
 
-/* Sits just left of the close button, same size/shape — a persistent way
-   back into History from any step, matching the Shopify widget's header
-   history button. */
+/* Same size/shape as the close button beside it — a persistent way back
+   into History from any step, matching the Shopify widget's header history
+   button. position: relative so .aivastra-history-badge below still
+   positions itself against this button, now that it's a flex item instead
+   of an absolutely-positioned one. */
 .aivastra-modal-history-btn {
-  position: absolute;
-  top: 16px;
-  right: 60px;
+  position: relative;
   width: 32px;
   height: 32px;
   border: 1px solid #e2e8f0;
@@ -268,7 +273,6 @@
   justify-content: center;
   cursor: pointer;
   padding: 0;
-  z-index: 10;
   transition: all 0.15s ease;
 }
 
@@ -556,15 +560,12 @@
   background: #f8fafc;
   border: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.06);
-  margin-top: 4px;
-  /* Overridden inline by fitToAspectRatio() once the image loads, so a
-     portrait result isn't letterboxed inside a flat landscape box. Capped
-     lower than it used to be (was 60dvh): Add to Cart/Download/Share/Try
-     Another Photo below it are a taller stack now than when 60dvh was
-     chosen, and left unchanged it pushed the whole panel past the modal's
-     own max-height, forcing an internal scroll to reach the buttons. */
+  /* The height cap can make a portrait box narrower than the actions.
+     Center the box itself, not only the image inside it. */
+  margin: 4px auto 0;
+  max-width: 100%;
   aspect-ratio: 3 / 4;
-  max-height: 38dvh;
+  max-height: min(46dvh, 480px);
 }
 
 .aivastra-result-image {
@@ -603,28 +604,6 @@
 
 .aivastra-result-expand:hover {
   background: rgba(15, 23, 42, 0.9);
-}
-
-.aivastra-result-tag {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.78);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.aivastra-result-tag svg {
-  color: #fbbf24;
 }
 
 /* Button Group Stack */

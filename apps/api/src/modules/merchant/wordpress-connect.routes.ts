@@ -1,23 +1,16 @@
-import { randomUUID } from 'node:crypto';
-import { schema } from '@aivastra/db';
 import {
   WordpressConnectBodyWithPhone,
   WordpressConnectExchangeBody,
   type WordpressConnectExchangeResponse,
 } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { ensureMerchantForUser, mintWordpressKeyPair } from './wordpress-shared.js';
-
-const REDIS_PREFIX = 'wordpress:connect:';
-// Long enough to survive the aivastra.com consent-page redirect back to
-// wp-admin (a same-browser, same-request round trip — no external IdP in the
-// middle, unlike Google's 60s OTP which has to survive Google's own
-// consent/2FA screens), short enough that a code left in a WP site's access
-// log or browser history is worthless within minutes.
-const CODE_TTL_SECONDS = 120;
+import {
+  connectWordpressForUser,
+  mintWordpressConnectCode,
+  WORDPRESS_CONNECT_CODE_PREFIX,
+} from './wordpress-shared.js';
 
 /**
  * "Connect with Ai Vastra" account-link flow (docs/wordpress-plugin-design.md
@@ -44,40 +37,10 @@ export async function wordpressConnectRoutes(app: FastifyInstance) {
         typeof WordpressConnectBodyWithPhone
       >;
 
-      const { fullKey, widgetKey, companyName, credits } = await app.db.transaction(async (tx) => {
-        const { merchantId } = await ensureMerchantForUser(tx, req.userId, {
-          companyName: siteName,
-          phone,
-        });
-
-        const [row] = await tx
-          .select({
-            companyName: schema.merchants.companyName,
-            credits: schema.userCredits.balance,
-          })
-          .from(schema.merchants)
-          .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
-          .where(eq(schema.merchants.id, merchantId))
-          .limit(1);
-        if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
-
-        const { fullKey, widgetKey } = await mintWordpressKeyPair(
-          tx,
-          merchantId,
-          siteUrl,
-          siteName,
-        );
-        return { fullKey, widgetKey, companyName: row.companyName, credits: row.credits ?? 0 };
-      });
-
-      const payload: WordpressConnectExchangeResponse = {
-        fullKey,
-        widgetKey,
-        companyName,
-        credits,
-      };
-      const code = randomUUID();
-      await app.redis.set(REDIS_PREFIX + code, JSON.stringify(payload), 'EX', CODE_TTL_SECONDS);
+      const payload: WordpressConnectExchangeResponse = await app.db.transaction((tx) =>
+        connectWordpressForUser(tx, req.userId, { siteUrl, siteName, phone }),
+      );
+      const code = await mintWordpressConnectCode(app.redis, payload);
       return { code };
     },
   );
@@ -94,7 +57,7 @@ export async function wordpressConnectRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { code } = req.body as z.infer<typeof WordpressConnectExchangeBody>;
-      const raw = await app.redis.getdel(REDIS_PREFIX + code);
+      const raw = await app.redis.getdel(WORDPRESS_CONNECT_CODE_PREFIX + code);
       if (!raw) throw new AppError('INVALID_CODE', 400, 'invalid or expired code');
       return JSON.parse(raw) as WordpressConnectExchangeResponse;
     },

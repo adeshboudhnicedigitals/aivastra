@@ -32,13 +32,19 @@ import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { assertWidgetKeyRateLimit } from '../../lib/widget-key-rate-limit.js';
 import { signAccess } from '../auth/service.js';
+import { getActiveUnlimitedPlan } from '../credits/unlimited-plan.js';
 import {
   createRazorpayOrder,
   GST_RATE,
   grantMerchantCredits,
   verifyRazorpaySignature,
 } from '../merchant/razorpay.js';
-import { devAnalyticsCards, devAnalyticsDaily, devAnalyticsProducts } from './analytics.js';
+import {
+  devAnalyticsCards,
+  devAnalyticsDaily,
+  devAnalyticsFunnel,
+  devAnalyticsProducts,
+} from './analytics.js';
 import { createDevTryonJob } from './create-job.js';
 import { createDevSareeMannequinJob } from './create-saree-mannequin-job.js';
 import { sniffImageMime } from './image-sniff.js';
@@ -110,6 +116,7 @@ export async function devRoutes(app: FastifyInstance) {
       const [row] = await app.db
         .select({
           merchantId: schema.merchants.id,
+          userId: schema.merchants.userId,
           companyName: schema.merchants.companyName,
           credits: schema.userCredits.balance,
         })
@@ -120,11 +127,13 @@ export async function devRoutes(app: FastifyInstance) {
       if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
       const credits = row.credits ?? 0;
       const tryonCost = await getTryonCreditCost(app);
+      const unlimitedPlan = await getActiveUnlimitedPlan(app.db, row.userId);
       return {
         merchantId: row.merchantId,
         companyName: row.companyName,
         credits,
         tryOnsRemaining: Math.floor(credits / tryonCost),
+        unlimited: unlimitedPlan !== null,
       };
     },
   );
@@ -154,7 +163,7 @@ export async function devRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const [row] = await app.db
-        .select({ credits: schema.userCredits.balance })
+        .select({ userId: schema.merchants.userId, credits: schema.userCredits.balance })
         .from(schema.merchants)
         .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
         .where(eq(schema.merchants.id, req.merchantId as string))
@@ -162,7 +171,12 @@ export async function devRoutes(app: FastifyInstance) {
       if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
       const credits = row.credits ?? 0;
       const tryonCost = await getTryonCreditCost(app);
-      return { credits, tryOnsRemaining: Math.floor(credits / tryonCost) };
+      const unlimitedPlan = await getActiveUnlimitedPlan(app.db, row.userId);
+      return {
+        credits,
+        tryOnsRemaining: Math.floor(credits / tryonCost),
+        unlimited: unlimitedPlan !== null,
+      };
     },
   );
 
@@ -875,10 +889,10 @@ export async function devRoutes(app: FastifyInstance) {
         tags: ['wp-internal'],
         summary: 'Get widget analytics for the last 30 days',
         description:
-          '`cards.tryOns` and `daily` are real (drawn from the jobs table, which a ' +
-          'caller cannot forge). Every other field is advisory, client-reported data ' +
-          'from POST /v1/dev/widget-event, since the dev-API try-on route carries no ' +
-          'product id or shopper identity to join against.',
+          '`cards.tryOns`, `daily`, and `funnel.tryOn` are real (drawn from the jobs ' +
+          'table, which a caller cannot forge). Every other field is advisory, ' +
+          'client-reported data from POST /v1/dev/widget-event, since the dev-API ' +
+          'try-on route carries no product id or shopper identity to join against.',
         response: { 200: DevAnalyticsResponse, 401: DevErrorResponse, 429: DevErrorResponse },
       },
     },
@@ -899,8 +913,9 @@ export async function devRoutes(app: FastifyInstance) {
         devAnalyticsDaily(app.db, merchantId, dailyRange),
         devAnalyticsProducts(app.db, merchantId, cardsRange),
       ]);
+      const funnel = await devAnalyticsFunnel(app.db, merchantId, cardsRange, cards.tryOns);
 
-      return { cards, daily, products };
+      return { cards, daily, products, funnel };
     },
   );
 }
