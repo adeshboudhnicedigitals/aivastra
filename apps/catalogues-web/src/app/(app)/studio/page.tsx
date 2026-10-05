@@ -779,6 +779,23 @@ export default function StudioPage(): React.ReactElement {
     enabled: !!gender,
   });
   const selectedGarmentType = garmentTypes?.items.find((g) => g.id === garmentTypeId);
+  // Saree and Saree-on-mannequin don't support batch mode yet (the batch endpoint has no
+  // mannequin step), so they're hidden from batch's garment picker for now. Matches the
+  // mannequin flag plus any saree slug/label, since plain Saree isn't flagged separately.
+  const batchGarmentItems = useMemo(
+    () =>
+      garmentTypes?.items.filter(
+        (g) => !g.requiresMannequinStep && !/saree/i.test(g.slug) && !/saree/i.test(g.label),
+      ),
+    [garmentTypes],
+  );
+  // Entering batch with a saree type selected (picked in single mode) would leave an
+  // unsupported type active with no visible card — fall back to the first eligible one.
+  useEffect(() => {
+    if (mode !== 'batch' || !batchGarmentItems || !selectedGarmentType) return;
+    if (batchGarmentItems.some((g) => g.id === garmentTypeId)) return;
+    setGarmentTypeId(batchGarmentItems[0]?.id ?? '');
+  }, [mode, batchGarmentItems, selectedGarmentType, garmentTypeId]);
   const didAutoGarment = useRef('');
   useEffect(() => {
     if (garmentTypes?.items?.length && !garmentTypeId && didAutoGarment.current !== gender) {
@@ -2260,8 +2277,8 @@ export default function StudioPage(): React.ReactElement {
               subtitle="Select the garment category"
               stepNumber={2}
               right={
-                garmentTypes &&
-                garmentTypes.items.length > batchGarmentVisibleCount && (
+                batchGarmentItems &&
+                batchGarmentItems.length > batchGarmentVisibleCount && (
                   <button
                     type="button"
                     onClick={() => setBatchGarmentModalOpen(true)}
@@ -2292,7 +2309,7 @@ export default function StudioPage(): React.ReactElement {
                 )
               }
             />
-            {!garmentTypes ? (
+            {!batchGarmentItems ? (
               <div
                 style={{
                   display: 'flex',
@@ -2307,7 +2324,7 @@ export default function StudioPage(): React.ReactElement {
             ) : (
               <div className="studio-5col-grid">
                 {(() => {
-                  const all = garmentTypes.items;
+                  const all = batchGarmentItems ?? [];
                   const inFirstN = all
                     .slice(0, batchGarmentVisibleCount)
                     .some((s) => s.id === garmentTypeId);
@@ -5289,12 +5306,12 @@ export default function StudioPage(): React.ReactElement {
         />
       )}
 
-      {batchGarmentModalOpen && garmentTypes && (
+      {batchGarmentModalOpen && batchGarmentItems && (
         <SelectGridModal
           title="Select Your Garment Type"
           aspect={1}
           columns={5}
-          items={garmentTypes.items.map((s) => ({
+          items={batchGarmentItems.map((s) => ({
             id: s.id,
             label: s.label,
             thumbnailUrl:
