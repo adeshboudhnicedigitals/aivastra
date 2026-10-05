@@ -108,76 +108,148 @@ function UploadBox({
 
 function PickerTile({
   selected,
+  isMapped,
+  isBulkSelected,
+  onToggleBulk,
+  onToggleMapped,
   label,
   onClick,
   children,
 }: {
   selected: boolean;
+  isMapped?: boolean;
+  isBulkSelected?: boolean;
+  onToggleBulk?: () => void;
+  onToggleMapped?: () => void;
   label: string;
   onClick: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
+    <div
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: 5,
-        background: 'none',
-        border: 'none',
-        padding: 0,
-        cursor: 'pointer',
-        textAlign: 'left',
+        gap: 4,
+        position: 'relative',
+        minWidth: 0,
       }}
     >
-      <div
+      <button
+        type="button"
+        onClick={onClick}
+        title={label}
         style={{
-          position: 'relative',
-          borderRadius: 8,
-          overflow: 'hidden',
-          outline: selected ? '2px solid var(--accent)' : '1px solid var(--border)',
-          outlineOffset: selected ? -2 : -1,
-          boxShadow: selected ? '0 0 0 3px var(--accent-soft)' : undefined,
-          transition: 'outline-color 100ms ease, box-shadow 100ms ease',
+          display: 'flex',
+          flexDirection: 'column',
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          textAlign: 'left',
+          opacity: isMapped !== false ? 1 : 0.45,
+          transition: 'opacity 150ms ease',
         }}
       >
-        {children}
-        {selected && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 4,
-              right: 4,
-              width: 18,
-              height: 18,
-              borderRadius: '50%',
-              background: 'var(--accent)',
-              color: 'oklch(0.16 0.04 55)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Icon.Check />
-          </div>
-        )}
-      </div>
-      <span
-        style={{
-          fontSize: 11,
-          color: selected ? 'var(--ink)' : 'var(--muted)',
-          fontWeight: selected ? 500 : 400,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {label}
-      </span>
-    </button>
+        <div
+          style={{
+            position: 'relative',
+            borderRadius: 8,
+            overflow: 'hidden',
+            outline: selected ? '2px solid var(--accent)' : '1px solid var(--border)',
+            outlineOffset: selected ? -2 : -1,
+            boxShadow: selected ? '0 0 0 3px var(--accent-soft)' : undefined,
+            transition: 'outline-color 100ms ease, box-shadow 100ms ease',
+          }}
+        >
+          {children}
+          {onToggleBulk && (
+            <input
+              type="checkbox"
+              checked={isBulkSelected}
+              onChange={onToggleBulk}
+              onClick={(e) => e.stopPropagation()}
+              title="Select for bulk action"
+              style={{
+                position: 'absolute',
+                top: 4,
+                left: 4,
+                zIndex: 2,
+                cursor: 'pointer',
+                accentColor: 'var(--accent)',
+              }}
+            />
+          )}
+          {selected && (
+            <div
+              title="Default item"
+              style={{
+                position: 'absolute',
+                top: 4,
+                right: 4,
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                background: 'var(--accent)',
+                color: 'oklch(0.16 0.04 55)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 2,
+              }}
+            >
+              <Icon.Check />
+            </div>
+          )}
+        </div>
+        <span
+          style={{
+            fontSize: 11,
+            color: selected ? 'var(--ink)' : 'var(--muted)',
+            fontWeight: selected ? 500 : 400,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            marginTop: 4,
+            display: 'block',
+            maxWidth: 88,
+          }}
+        >
+          {label}
+        </span>
+      </button>
+
+      {onToggleMapped && (
+        <button
+          type="button"
+          className={`btn xs ${isMapped !== false ? 'ghost' : ''}`}
+          style={{
+            padding: '2px 4px',
+            fontSize: 10,
+            lineHeight: 1,
+            color: isMapped !== false ? 'var(--muted)' : undefined,
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 3,
+          }}
+          title={isMapped !== false ? 'Unmap from this garment type' : 'Map to this garment type'}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleMapped();
+          }}
+        >
+          {isMapped !== false ? (
+            <>
+              <Icon.Trash /> Unmap
+            </>
+          ) : (
+            'Map'
+          )}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -188,6 +260,9 @@ function ItemPicker({
   categories,
   selectedId,
   onSelect,
+  mappedIds,
+  onToggleMapped,
+  onBulkSetMapped,
 }: {
   type: 'lower' | 'shoe';
   gender: string;
@@ -195,34 +270,44 @@ function ItemPicker({
   categories: CatalogCategory[];
   selectedId: string;
   onSelect: (id: string) => void;
+  mappedIds: Set<string>;
+  onToggleMapped: (id: string) => void;
+  onBulkSetMapped: (ids: string[], mapped: boolean) => void;
 }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'mapped' | 'unmapped'>('all');
+  const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
 
   const scoped = useMemo(
-    () =>
-      items.filter(
-        (c) => c.type === type && c.isActive && (!c.genderSlug || c.genderSlug === gender),
-      ),
+    () => items.filter((c) => c.type === type && c.isActive && c.genderSlug === gender),
     [items, type, gender],
   );
   const relevantCategories = useMemo(
     () =>
       categories
-        .filter(
-          (c) => c.typeSlug === type && c.isActive && (!c.genderSlug || c.genderSlug === gender),
-        )
+        .filter((c) => c.typeSlug === type && c.isActive && c.genderSlug === gender)
         .sort((a, b) => a.sortOrder - b.sortOrder),
     [categories, type, gender],
   );
+
+  const mappedCount = useMemo(
+    () => scoped.filter((c) => mappedIds.has(c.id)).length,
+    [scoped, mappedIds],
+  );
+  const unmappedCount = scoped.length - mappedCount;
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return scoped.filter(
-      (c) =>
-        (categoryFilter === 'all' || c.categoryId === categoryFilter) &&
-        (!q || c.label.toLowerCase().includes(q)),
-    );
-  }, [scoped, categoryFilter, search]);
+    return scoped.filter((c) => {
+      const isMapped = mappedIds.has(c.id);
+      const matchesCategory = categoryFilter === 'all' || c.categoryId === categoryFilter;
+      const matchesSearch = !q || c.label.toLowerCase().includes(q);
+      const matchesStatus =
+        statusFilter === 'all' ? true : statusFilter === 'mapped' ? isMapped : !isMapped;
+      return matchesCategory && matchesSearch && matchesStatus;
+    });
+  }, [scoped, categoryFilter, search, statusFilter, mappedIds]);
 
   const selectedItem = scoped.find((c) => c.id === selectedId);
 
@@ -231,30 +316,62 @@ function ItemPicker({
       <div
         style={{
           display: 'flex',
-          alignItems: 'center',
+          flexDirection: 'column',
           gap: 8,
           padding: '10px 16px',
           borderBottom: '1px solid var(--border)',
-          flexWrap: 'wrap',
         }}
       >
-        <div className="search" style={{ width: 180 }}>
-          <Icon.Search />
-          <input
-            placeholder="Search items…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div className="search" style={{ width: 180 }}>
+            <Icon.Search />
+            <input
+              placeholder="Search items…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 2 }}>Show:</span>
+            <button
+              type="button"
+              className={`badge ${statusFilter === 'all' ? 'accent' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+              onClick={() => setStatusFilter('all')}
+            >
+              All ({scoped.length})
+            </button>
+            <button
+              type="button"
+              className={`badge ${statusFilter === 'mapped' ? 'accent' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+              onClick={() => setStatusFilter('mapped')}
+            >
+              Mapped ({mappedCount})
+            </button>
+            <button
+              type="button"
+              className={`badge ${statusFilter === 'unmapped' ? 'accent' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+              onClick={() => setStatusFilter('unmapped')}
+            >
+              Unmapped ({unmappedCount})
+            </button>
+          </div>
+          <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--muted)' }}>
+            {selectedItem ? `Default: ${selectedItem.label}` : 'No default selected'}
+          </span>
         </div>
+
         {relevantCategories.length > 0 && (
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
             <button
               type="button"
               className={`badge ${categoryFilter === 'all' ? 'accent' : ''}`}
               style={{ cursor: 'pointer', border: 'none' }}
               onClick={() => setCategoryFilter('all')}
             >
-              All
+              All Categories
             </button>
             {relevantCategories.map((c) => (
               <button
@@ -269,10 +386,69 @@ function ItemPicker({
             ))}
           </div>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--muted)' }}>
-          {selectedItem ? `Selected: ${selectedItem.label}` : 'None selected'}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 16px',
+          background: 'var(--surface-2)',
+          borderBottom: '1px solid var(--border)',
+          fontSize: 12,
+        }}
+      >
+        <button
+          type="button"
+          className="btn xs ghost"
+          onClick={() => {
+            const visibleIds = filtered.map((c) => c.id);
+            const allSelected =
+              visibleIds.length > 0 && visibleIds.every((id) => selectedBulkIds.includes(id));
+            setSelectedBulkIds(
+              allSelected
+                ? selectedBulkIds.filter((id) => !visibleIds.includes(id))
+                : Array.from(new Set([...selectedBulkIds, ...visibleIds])),
+            );
+          }}
+        >
+          {filtered.length > 0 && filtered.every((c) => selectedBulkIds.includes(c.id))
+            ? 'Deselect visible'
+            : 'Select all visible'}
+        </button>
+        {selectedBulkIds.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="btn xs danger"
+              onClick={() => {
+                onBulkSetMapped(selectedBulkIds, false);
+                setSelectedBulkIds([]);
+              }}
+            >
+              <Icon.Trash /> Unmap selected ({selectedBulkIds.length})
+            </button>
+            <button
+              type="button"
+              className="btn xs"
+              onClick={() => {
+                onBulkSetMapped(selectedBulkIds, true);
+                setSelectedBulkIds([]);
+              }}
+            >
+              Map selected ({selectedBulkIds.length})
+            </button>
+            <button type="button" className="btn xs ghost" onClick={() => setSelectedBulkIds([])}>
+              Clear
+            </button>
+          </>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>
+          {filtered.length} visible
         </span>
       </div>
+
       <div
         style={{
           display: 'grid',
@@ -300,16 +476,34 @@ function ItemPicker({
             —
           </div>
         </PickerTile>
-        {filtered.map((c) => (
-          <PickerTile
-            key={c.id}
-            selected={selectedId === c.id}
-            label={c.label}
-            onClick={() => onSelect(c.id === selectedId ? '' : c.id)}
-          >
-            <AssetThumb thumbnailUrl={c.thumbnailUrl} label={c.label} w={88} h={88} />
-          </PickerTile>
-        ))}
+        {filtered.map((c) => {
+          const isItemMapped = mappedIds.has(c.id);
+          return (
+            <PickerTile
+              key={c.id}
+              selected={selectedId === c.id}
+              isMapped={isItemMapped}
+              isBulkSelected={selectedBulkIds.includes(c.id)}
+              onToggleBulk={() => {
+                setSelectedBulkIds((prev) =>
+                  prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id],
+                );
+              }}
+              onToggleMapped={() => onToggleMapped(c.id)}
+              label={c.label}
+              onClick={() => {
+                if (!isItemMapped) {
+                  onToggleMapped(c.id);
+                  onSelect(c.id);
+                } else {
+                  onSelect(c.id === selectedId ? '' : c.id);
+                }
+              }}
+            >
+              <AssetThumb thumbnailUrl={c.thumbnailUrl} label={c.label} w={88} h={88} />
+            </PickerTile>
+          );
+        })}
         {filtered.length === 0 && (
           <div
             style={{
@@ -346,6 +540,10 @@ export function EditGarmentTypeModal({
     garmentType.requiresThirdUpload ?? false,
   );
   const [thirdUploadLabel, setThirdUploadLabel] = useState(garmentType.thirdUploadLabel ?? '');
+  const [allowsFourthUpload, setAllowsFourthUpload] = useState(
+    garmentType.allowsFourthUpload ?? false,
+  );
+  const [fourthUploadLabel, setFourthUploadLabel] = useState(garmentType.fourthUploadLabel ?? '');
   const [defaultLowerId, setDefaultLowerId] = useState(garmentType.defaultLowerCatalogId ?? '');
   const [defaultShoeId, setDefaultShoeId] = useState(garmentType.defaultShoeCatalogId ?? '');
   const [tryonCategoryId, setTryonCategoryId] = useState(garmentType.tryonCategoryId ?? '');
@@ -374,6 +572,137 @@ export function EditGarmentTypeModal({
   const [tutorialVideoUrl, setTutorialVideoUrl] = useState(garmentType.tutorialVideoUrl ?? '');
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<CatalogCategory[]>([]);
+
+  const allLowers = useMemo(
+    () =>
+      catalogItems.filter(
+        (c) => c.type === 'lower' && c.isActive && c.genderSlug === garmentType.genderSlug,
+      ),
+    [catalogItems, garmentType.genderSlug],
+  );
+
+  const allShoes = useMemo(
+    () =>
+      catalogItems.filter(
+        (c) => c.type === 'shoe' && c.isActive && c.genderSlug === garmentType.genderSlug,
+      ),
+    [catalogItems, garmentType.genderSlug],
+  );
+
+  const [mappedLowerIds, setMappedLowerIds] = useState<Set<string>>(() => {
+    const explicitlyMapped = allLowers.filter((c) =>
+      (c.subcategoryIds ?? []).includes(garmentType.id),
+    );
+    return new Set(
+      explicitlyMapped.length > 0 ? explicitlyMapped.map((c) => c.id) : allLowers.map((c) => c.id),
+    );
+  });
+  const [initialMappedLowerIds, setInitialMappedLowerIds] = useState<Set<string>>(mappedLowerIds);
+
+  const [mappedShoeIds, setMappedShoeIds] = useState<Set<string>>(() => {
+    const explicitlyMapped = allShoes.filter((c) =>
+      (c.subcategoryIds ?? []).includes(garmentType.id),
+    );
+    return new Set(
+      explicitlyMapped.length > 0 ? explicitlyMapped.map((c) => c.id) : allShoes.map((c) => c.id),
+    );
+  });
+  const [initialMappedShoeIds, setInitialMappedShoeIds] = useState<Set<string>>(mappedShoeIds);
+
+  useEffect(() => {
+    apiFetch<{
+      mappedLowerIds: string[];
+      hasExplicitLowerMappings: boolean;
+      mappedShoeIds: string[];
+      hasExplicitShoeMappings: boolean;
+    }>(`/admin/assets/garment-types/${garmentType.id}/catalog-mappings`)
+      .then((res) => {
+        const lowerSet = res.hasExplicitLowerMappings
+          ? new Set(res.mappedLowerIds)
+          : new Set(allLowers.map((c) => c.id));
+        setMappedLowerIds(lowerSet);
+        setInitialMappedLowerIds(new Set(lowerSet));
+
+        const shoeSet = res.hasExplicitShoeMappings
+          ? new Set(res.mappedShoeIds)
+          : new Set(allShoes.map((c) => c.id));
+        setMappedShoeIds(shoeSet);
+        setInitialMappedShoeIds(new Set(shoeSet));
+      })
+      .catch(() => {});
+  }, [garmentType.id, allLowers, allShoes]);
+
+  const toggleMappedLower = (id: string) => {
+    setMappedLowerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+        if (defaultLowerId === id) setDefaultLowerId('');
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const bulkSetMappedLower = (ids: string[], mapped: boolean) => {
+    setMappedLowerIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (mapped) {
+          next.add(id);
+        } else {
+          next.delete(id);
+          if (defaultLowerId === id) setDefaultLowerId('');
+        }
+      }
+      return next;
+    });
+  };
+
+  const toggleMappedShoe = (id: string) => {
+    setMappedShoeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+        if (defaultShoeId === id) setDefaultShoeId('');
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const bulkSetMappedShoe = (ids: string[], mapped: boolean) => {
+    setMappedShoeIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (mapped) {
+          next.add(id);
+        } else {
+          next.delete(id);
+          if (defaultShoeId === id) setDefaultShoeId('');
+        }
+      }
+      return next;
+    });
+  };
+
+  const lowerMappingDirty = useMemo(() => {
+    if (initialMappedLowerIds.size !== mappedLowerIds.size) return true;
+    for (const id of mappedLowerIds) {
+      if (!initialMappedLowerIds.has(id)) return true;
+    }
+    return false;
+  }, [initialMappedLowerIds, mappedLowerIds]);
+
+  const shoeMappingDirty = useMemo(() => {
+    if (initialMappedShoeIds.size !== mappedShoeIds.size) return true;
+    for (const id of mappedShoeIds) {
+      if (!initialMappedShoeIds.has(id)) return true;
+    }
+    return false;
+  }, [initialMappedShoeIds, mappedShoeIds]);
 
   useEffect(() => {
     apiFetch<CatalogCategory[]>('/admin/catalog/categories')
@@ -408,6 +737,8 @@ export function EditGarmentTypeModal({
     lowerUploadLabel !== (garmentType.lowerUploadLabel ?? '') ||
     requiresThirdUpload !== (garmentType.requiresThirdUpload ?? false) ||
     thirdUploadLabel !== (garmentType.thirdUploadLabel ?? '') ||
+    allowsFourthUpload !== (garmentType.allowsFourthUpload ?? false) ||
+    fourthUploadLabel !== (garmentType.fourthUploadLabel ?? '') ||
     defaultLowerId !== (garmentType.defaultLowerCatalogId ?? '') ||
     defaultShoeId !== (garmentType.defaultShoeCatalogId ?? '') ||
     tryonCategoryId !== (garmentType.tryonCategoryId ?? '') ||
@@ -417,7 +748,9 @@ export function EditGarmentTypeModal({
     mannequinTwoInputWorkflowTemplateId !==
       (garmentType.mannequinTwoInputWorkflowTemplateId ?? '') ||
     twoInputTryonWorkflowTemplateId !== (garmentType.twoInputTryonWorkflowTemplateId ?? '') ||
-    tutorialVideoUrl !== (garmentType.tutorialVideoUrl ?? '');
+    tutorialVideoUrl !== (garmentType.tutorialVideoUrl ?? '') ||
+    lowerMappingDirty ||
+    shoeMappingDirty;
 
   const save = async () => {
     setSaving(true);
@@ -486,6 +819,12 @@ export function EditGarmentTypeModal({
       if (thirdUploadLabel !== (garmentType.thirdUploadLabel ?? '')) {
         patchBody.thirdUploadLabel = thirdUploadLabel.trim() || null;
       }
+      if (allowsFourthUpload !== (garmentType.allowsFourthUpload ?? false)) {
+        patchBody.allowsFourthUpload = allowsFourthUpload;
+      }
+      if (fourthUploadLabel !== (garmentType.fourthUploadLabel ?? '')) {
+        patchBody.fourthUploadLabel = fourthUploadLabel.trim() || null;
+      }
       if (defaultLowerId !== (garmentType.defaultLowerCatalogId ?? '')) {
         patchBody.defaultLowerCatalogId = defaultLowerId || null;
       }
@@ -515,6 +854,12 @@ export function EditGarmentTypeModal({
       }
       if (tutorialVideoUrl !== (garmentType.tutorialVideoUrl ?? '')) {
         patchBody.tutorialVideoUrl = tutorialVideoUrl.trim() || null;
+      }
+      if (lowerMappingDirty) {
+        patchBody.mappedLowerCatalogItemIds = Array.from(mappedLowerIds);
+      }
+      if (shoeMappingDirty) {
+        patchBody.mappedShoeCatalogItemIds = Array.from(mappedShoeIds);
       }
 
       if (Object.keys(patchBody).length > 0) {
@@ -660,6 +1005,36 @@ export function EditGarmentTypeModal({
                   </span>
                 </div>
               )}
+              <div className="setting-row" style={{ padding: 0, border: 0 }}>
+                <div>
+                  <div className="setting-lbl">Optional extra upload (e.g. Blouse)</div>
+                  <div className="setting-desc">
+                    Studio offers an optional fourth image. Without it the job runs on the other
+                    uploads alone. Needs a workflow with a blouse node mapped.
+                  </div>
+                </div>
+                <Switch
+                  checked={allowsFourthUpload}
+                  onChange={setAllowsFourthUpload}
+                  disabled={saving}
+                />
+              </div>
+              {allowsFourthUpload && (
+                <div className="field">
+                  <label>Optional Upload Field Label</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. Blouse (optional)"
+                    value={fourthUploadLabel}
+                    disabled={saving}
+                    onChange={(e) => setFourthUploadLabel(e.target.value)}
+                  />
+                  <span className="hint">
+                    Shown in studio as the title of the optional upload box. Map the matching node
+                    on the workflow (title it "blouse") — see the note in the workflow upload panel.
+                  </span>
+                </div>
+              )}
               <div className="field">
                 <label>Tryon Category</label>
                 <SearchableSelect
@@ -771,7 +1146,7 @@ export function EditGarmentTypeModal({
           ),
         },
         {
-          title: 'Default Lower Garment',
+          title: `Default Lower Garment${allLowers.length - mappedLowerIds.size > 0 ? ` (${allLowers.length - mappedLowerIds.size} unmapped)` : ''}`,
           flush: true,
           children: (
             <ItemPicker
@@ -781,11 +1156,14 @@ export function EditGarmentTypeModal({
               categories={categories}
               selectedId={defaultLowerId}
               onSelect={setDefaultLowerId}
+              mappedIds={mappedLowerIds}
+              onToggleMapped={toggleMappedLower}
+              onBulkSetMapped={bulkSetMappedLower}
             />
           ),
         },
         {
-          title: 'Default Shoe',
+          title: `Default Shoe${allShoes.length - mappedShoeIds.size > 0 ? ` (${allShoes.length - mappedShoeIds.size} unmapped)` : ''}`,
           flush: true,
           children: (
             <ItemPicker
@@ -795,6 +1173,9 @@ export function EditGarmentTypeModal({
               categories={categories}
               selectedId={defaultShoeId}
               onSelect={setDefaultShoeId}
+              mappedIds={mappedShoeIds}
+              onToggleMapped={toggleMappedShoe}
+              onBulkSetMapped={bulkSetMappedShoe}
             />
           ),
         },

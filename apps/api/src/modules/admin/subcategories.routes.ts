@@ -8,7 +8,7 @@ import {
   PresignGarmentTypeInstructionBody,
   PresignGarmentTypeTryonLibraryInstructionBody,
 } from '@aivastra/types';
-import { and, asc, eq, gt, gte, ilike, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, ilike, inArray, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -161,33 +161,6 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             tryonCategoryId: tryonCategoryId ?? null,
           })
           .returning();
-        // A new garment type must start with zero poses mapped, not "every pose of
-        // this gender" (the default you'd get from pose_garment_configs' opt-out
-        // semantics — see the schema comment on isActive). Seed an explicit hidden
-        // override per existing general-scope pose of this gender so the admin has
-        // to deliberately map poses in afterward, via the same PATCH endpoints used
-        // for any other visibility toggle. isActive: false only ever narrows
-        // visibility, so this can't widen anything and is safe under the same
-        // `cfg?.isActive ?? pose.globalIsActive` formula every read path uses.
-        const genderPoses = await tx
-          .select({ id: schema.modelPoseAssets.id })
-          .from(schema.modelPoseAssets)
-          .where(
-            and(
-              isNull(schema.modelPoseAssets.deletedAt),
-              eq(schema.modelPoseAssets.scope, 'general'),
-              eq(schema.modelPoseAssets.genderSlug, genderSlug),
-            ),
-          );
-        if (genderPoses.length > 0) {
-          await tx.insert(schema.poseGarmentConfigs).values(
-            genderPoses.map((p) => ({
-              poseAssetId: p.id,
-              subcategoryId: inserted.id,
-              isActive: false,
-            })),
-          );
-        }
         await recordAudit(tx, {
           // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
           actor: { userId: req.userId, role: req.adminRole! },
@@ -262,6 +235,91 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         }
       }
 
+      const mappedLowerCatalogItemIds = body.mappedLowerCatalogItemIds as string[] | undefined;
+      const mappedShoeCatalogItemIds = body.mappedShoeCatalogItemIds as string[] | undefined;
+      const {
+        mappedLowerCatalogItemIds: _lower,
+        mappedShoeCatalogItemIds: _shoe,
+        ...garmentFields
+      } = body;
+
+      const applyCatalogMappings = async (
+        tx: Parameters<Parameters<typeof app.db.transaction>[0]>[0],
+        effectiveFields: Record<string, unknown>,
+      ) => {
+        if (mappedLowerCatalogItemIds !== undefined) {
+          const lowerItemRows = await tx
+            .select({ id: schema.catalogItems.id })
+            .from(schema.catalogItems)
+            .where(eq(schema.catalogItems.type, 'lower'));
+          const lowerItemIds = lowerItemRows.map((r) => r.id);
+          if (lowerItemIds.length > 0) {
+            await tx
+              .delete(schema.catalogItemSubcategories)
+              .where(
+                and(
+                  eq(schema.catalogItemSubcategories.subcategoryId, id),
+                  inArray(schema.catalogItemSubcategories.catalogItemId, lowerItemIds),
+                ),
+              );
+          }
+          if (mappedLowerCatalogItemIds.length > 0) {
+            await tx
+              .insert(schema.catalogItemSubcategories)
+              .values(
+                mappedLowerCatalogItemIds.map((catalogItemId) => ({
+                  catalogItemId,
+                  subcategoryId: id,
+                })),
+              )
+              .onConflictDoNothing();
+          }
+          const defaultLower =
+            effectiveFields.defaultLowerCatalogId !== undefined
+              ? effectiveFields.defaultLowerCatalogId
+              : before.defaultLowerCatalogId;
+          if (defaultLower && !mappedLowerCatalogItemIds.includes(defaultLower as string)) {
+            effectiveFields.defaultLowerCatalogId = null;
+          }
+        }
+
+        if (mappedShoeCatalogItemIds !== undefined) {
+          const shoeItemRows = await tx
+            .select({ id: schema.catalogItems.id })
+            .from(schema.catalogItems)
+            .where(eq(schema.catalogItems.type, 'shoe'));
+          const shoeItemIds = shoeItemRows.map((r) => r.id);
+          if (shoeItemIds.length > 0) {
+            await tx
+              .delete(schema.catalogItemSubcategories)
+              .where(
+                and(
+                  eq(schema.catalogItemSubcategories.subcategoryId, id),
+                  inArray(schema.catalogItemSubcategories.catalogItemId, shoeItemIds),
+                ),
+              );
+          }
+          if (mappedShoeCatalogItemIds.length > 0) {
+            await tx
+              .insert(schema.catalogItemSubcategories)
+              .values(
+                mappedShoeCatalogItemIds.map((catalogItemId) => ({
+                  catalogItemId,
+                  subcategoryId: id,
+                })),
+              )
+              .onConflictDoNothing();
+          }
+          const defaultShoe =
+            effectiveFields.defaultShoeCatalogId !== undefined
+              ? effectiveFields.defaultShoeCatalogId
+              : before.defaultShoeCatalogId;
+          if (defaultShoe && !mappedShoeCatalogItemIds.includes(defaultShoe as string)) {
+            effectiveFields.defaultShoeCatalogId = null;
+          }
+        }
+      };
+
       // genderSlug isn't patchable, so a sortOrder move never has to cross
       // gender boundaries - the shifted range is always within one gender's list.
       const requestedSortOrder = typeof body.sortOrder === 'number' ? body.sortOrder : null;
@@ -299,9 +357,11 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
                   ),
                 );
             }
+            const updateFields = { ...garmentFields };
+            await applyCatalogMappings(tx, updateFields);
             await tx
               .update(schema.garmentSubcategories)
-              .set({ ...body, updatedAt: new Date() })
+              .set({ ...updateFields, updatedAt: new Date() })
               .where(eq(schema.garmentSubcategories.id, id));
             await recordAudit(tx, {
               // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
@@ -310,7 +370,12 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
               resourceType: 'garment_type',
               resourceId: id,
               before,
-              after: { ...before, ...body },
+              after: {
+                ...before,
+                ...updateFields,
+                mappedLowerCatalogItemIds,
+                mappedShoeCatalogItemIds,
+              },
               request: req,
             });
           });
@@ -323,9 +388,11 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       }
 
       await app.db.transaction(async (tx) => {
+        const updateFields = { ...garmentFields };
+        await applyCatalogMappings(tx, updateFields);
         const [updated] = await tx
           .update(schema.garmentSubcategories)
-          .set({ ...body, updatedAt: new Date() })
+          .set({ ...updateFields, updatedAt: new Date() })
           .where(eq(schema.garmentSubcategories.id, id))
           .returning({ id: schema.garmentSubcategories.id });
         if (!updated) throw new AppError('NOT_FOUND', 404, 'garment type not found');
@@ -336,7 +403,12 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           resourceType: 'garment_type',
           resourceId: id,
           before,
-          after: { ...before, ...body },
+          after: {
+            ...before,
+            ...updateFields,
+            mappedLowerCatalogItemIds,
+            mappedShoeCatalogItemIds,
+          },
           request: req,
         });
       });
@@ -445,13 +517,16 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         return a.label.localeCompare(b.label);
       });
 
+      // Under opt-in: only return poses explicitly mapped to this garment type
+      const mappedPoses = ordered.filter((p) => configMap.has(p.id));
+
       return {
         items: await Promise.all(
-          ordered.map(async (p) => {
-            const cfg = configMap.get(p.id) ?? null;
-            // Effective active state for this garment type: the per-type override
-            // wins when set, otherwise fall back to the pose asset's global flag.
-            const isActive = cfg?.isActive ?? p.globalIsActive;
+          mappedPoses.map(async (p) => {
+            const cfg = configMap.get(p.id);
+            // Effective active state for this garment type: a pose is only active
+            // for this garment type if explicitly mapped (isActive: true).
+            const isActive = cfg?.isActive === true;
             return {
               ...p,
               isActive,
@@ -469,6 +544,133 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           }),
         ),
       };
+    },
+  );
+
+  // PATCH /admin/assets/garment-types/:id/pose-configs/multi-sort
+  // Reorders multiple selected poses starting at startSortOrder, shifting remaining poses.
+  app.patch(
+    '/admin/assets/garment-types/:id/pose-configs/multi-sort',
+    {
+      preHandler: RW,
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        body: z.object({
+          poseAssetIds: z.array(z.string().uuid()).min(1),
+          startSortOrder: z.number().int().min(1),
+        }),
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { poseAssetIds, startSortOrder } = req.body as {
+        poseAssetIds: string[];
+        startSortOrder: number;
+      };
+
+      await app.db.transaction(async (tx) => {
+        const [sub] = await tx
+          .select({ genderSlug: schema.garmentSubcategories.genderSlug })
+          .from(schema.garmentSubcategories)
+          .where(eq(schema.garmentSubcategories.id, id));
+        if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+
+        const poses = await tx
+          .select({
+            id: schema.modelPoseAssets.id,
+            globalSortOrder: schema.modelPoseAssets.sortOrder,
+            label: schema.modelPoseAssets.label,
+          })
+          .from(schema.modelPoseAssets)
+          .where(
+            and(
+              eq(schema.modelPoseAssets.genderSlug, sub.genderSlug ?? ''),
+              isNull(schema.modelPoseAssets.deletedAt),
+              eq(schema.modelPoseAssets.scope, 'general'),
+            ),
+          );
+
+        const poseIds = poses.map((p) => p.id);
+        const configs =
+          poseIds.length > 0
+            ? await tx
+                .select()
+                .from(schema.poseGarmentConfigs)
+                .where(
+                  and(
+                    inArray(schema.poseGarmentConfigs.poseAssetId, poseIds),
+                    eq(schema.poseGarmentConfigs.subcategoryId, id),
+                  ),
+                )
+            : [];
+        const configMap = new Map(configs.map((c) => [c.poseAssetId, c]));
+
+        // In opt-in: only consider poses mapped to this garment type
+        const mappedPoses = poses.filter((p) => configMap.has(p.id));
+        if (mappedPoses.length === 0) return;
+
+        // Current effective order of mapped poses
+        const ordered = [...mappedPoses].sort((a, b) => {
+          const ea = configMap.get(a.id)?.sortOrder ?? a.globalSortOrder;
+          const eb = configMap.get(b.id)?.sortOrder ?? b.globalSortOrder;
+          if (ea !== eb) return ea - eb;
+          return a.label.localeCompare(b.label);
+        });
+
+        const selectedMap = new Map(ordered.map((p) => [p.id, p]));
+        const selected = poseAssetIds
+          .map((poseId) => selectedMap.get(poseId))
+          .filter((p): p is (typeof ordered)[0] => p !== undefined);
+
+        if (selected.length === 0) return;
+
+        const selectedSet = new Set(selected.map((p) => p.id));
+        const unselected = ordered.filter((p) => !selectedSet.has(p.id));
+
+        const clampedStart = Math.max(
+          1,
+          Math.min(startSortOrder, ordered.length - selected.length + 1),
+        );
+        const insertIdx = clampedStart - 1;
+
+        const before = unselected.slice(0, insertIdx);
+        const after = unselected.slice(insertIdx);
+        const newOrdered = [...before, ...selected, ...after];
+
+        for (let i = 0; i < newOrdered.length; i++) {
+          const p = newOrdered[i];
+          const newOrder = i + 1;
+          await tx
+            .insert(schema.poseGarmentConfigs)
+            .values({
+              poseAssetId: p.id,
+              subcategoryId: id,
+              sortOrder: newOrder,
+              updatedAt: new Date(),
+            })
+            .onConflictDoUpdate({
+              target: [
+                schema.poseGarmentConfigs.poseAssetId,
+                schema.poseGarmentConfigs.subcategoryId,
+              ],
+              set: {
+                sortOrder: newOrder,
+                updatedAt: new Date(),
+              },
+            });
+        }
+
+        await recordAudit(tx, {
+          // biome-ignore lint/style/noNonNullAssertion: set by guard.ts
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'garment_type.multi_sort_poses',
+          resourceType: 'garment_type',
+          resourceId: id,
+          after: { poseAssetIds: selected.map((s) => s.id), startSortOrder: clampedStart },
+        });
+      });
+
+      return { ok: true, action: 'reordered' };
     },
   );
 
@@ -545,10 +747,11 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             );
           const existingSortMap = new Map(existingConfigs.map((c) => [c.poseAssetId, c.sortOrder]));
 
-          // Snapshot today's effective order (override, else global) into dense 1..N
-          // positions, materializing a real row for every pose in scope. Idempotent —
-          // if every pose already has a dense override, this recomputes the same values.
-          const ordered = [...poses].sort((a, b) => {
+          // Snapshot today's effective order into dense 1..N positions for mapped poses only.
+          const mappedPoses = poses.filter(
+            (p) => existingSortMap.has(p.id) || p.id === poseAssetId,
+          );
+          const ordered = [...mappedPoses].sort((a, b) => {
             const ea = existingSortMap.get(a.id) ?? a.globalSortOrder;
             const eb = existingSortMap.get(b.id) ?? b.globalSortOrder;
             if (ea !== eb) return ea - eb;
@@ -681,6 +884,30 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
     },
   );
 
+  // DELETE /admin/assets/garment-types/:id/pose-configs/:poseAssetId
+  // Removes this pose's mapping and overrides from the garment type entirely.
+  app.delete(
+    '/admin/assets/garment-types/:id/pose-configs/:poseAssetId',
+    {
+      preHandler: RW,
+      schema: {
+        params: z.object({ id: z.string().uuid(), poseAssetId: z.string().uuid() }),
+      },
+    },
+    async (req) => {
+      const { id, poseAssetId } = req.params as { id: string; poseAssetId: string };
+      await app.db
+        .delete(schema.poseGarmentConfigs)
+        .where(
+          and(
+            eq(schema.poseGarmentConfigs.poseAssetId, poseAssetId),
+            eq(schema.poseGarmentConfigs.subcategoryId, id),
+          ),
+        );
+      return { ok: true, action: 'deleted' };
+    },
+  );
+
   // GET /admin/assets/pose-assets/:id/garment-configs
   // The mirror of the GET above, viewed from a pose asset: every garment type of
   // this pose's gender, with its override config for THIS pose (if any). Lets the
@@ -735,11 +962,9 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           const cfg = configMap.get(g.id) ?? null;
           return {
             ...g,
-            // Effective visibility mirrors the sibling GET: a per-type override wins
-            // when set, otherwise fall back to the pose's own global flag — every
-            // garment type of this gender shows the pose by default
-            // (pose_garment_configs is an opt-OUT override, not a whitelist).
-            isActive: cfg?.isActive ?? pose.globalIsActive,
+            // Effective visibility mirrors the sibling GET: a pose is only active
+            // for this garment type if explicitly mapped (isActive: true).
+            isActive: cfg?.isActive === true,
             config: cfg
               ? {
                   workflowTemplateId: cfg.workflowTemplateId,
@@ -883,6 +1108,143 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       }
 
       return { ok: true, mappingId: null };
+    },
+  );
+
+  // ── Per-garment-type catalog item mappings ──────────────────────────────────
+  app.get(
+    '/admin/assets/garment-types/:id/catalog-mappings',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [sub] = await app.db
+        .select({
+          id: schema.garmentSubcategories.id,
+          genderSlug: schema.garmentSubcategories.genderSlug,
+        })
+        .from(schema.garmentSubcategories)
+        .where(eq(schema.garmentSubcategories.id, id));
+      if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+
+      const mappings = await app.db
+        .select({
+          catalogItemId: schema.catalogItemSubcategories.catalogItemId,
+          type: schema.catalogItems.type,
+        })
+        .from(schema.catalogItemSubcategories)
+        .innerJoin(
+          schema.catalogItems,
+          eq(schema.catalogItemSubcategories.catalogItemId, schema.catalogItems.id),
+        )
+        .where(eq(schema.catalogItemSubcategories.subcategoryId, id));
+
+      const mappedLowerIds = mappings.filter((m) => m.type === 'lower').map((m) => m.catalogItemId);
+      const mappedShoeIds = mappings.filter((m) => m.type === 'shoe').map((m) => m.catalogItemId);
+
+      return {
+        mappedLowerIds,
+        hasExplicitLowerMappings: mappedLowerIds.length > 0,
+        mappedShoeIds,
+        hasExplicitShoeMappings: mappedShoeIds.length > 0,
+      };
+    },
+  );
+
+  app.put(
+    '/admin/assets/garment-types/:id/catalog-items/:catalogItemId',
+    {
+      preHandler: RW,
+      schema: {
+        params: z.object({ id: z.string().uuid(), catalogItemId: z.string().uuid() }),
+        body: z.object({ mapped: z.boolean() }),
+      },
+    },
+    async (req) => {
+      const { id, catalogItemId } = req.params as { id: string; catalogItemId: string };
+      const { mapped } = req.body as { mapped: boolean };
+
+      const [sub] = await app.db
+        .select()
+        .from(schema.garmentSubcategories)
+        .where(eq(schema.garmentSubcategories.id, id));
+      if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+
+      const [item] = await app.db
+        .select()
+        .from(schema.catalogItems)
+        .where(eq(schema.catalogItems.id, catalogItemId));
+      if (!item) throw new AppError('NOT_FOUND', 404, 'catalog item not found');
+
+      await app.db.transaction(async (tx) => {
+        if (mapped) {
+          await tx
+            .insert(schema.catalogItemSubcategories)
+            .values({ catalogItemId, subcategoryId: id })
+            .onConflictDoNothing();
+        } else {
+          const [hasExplicit] = await tx
+            .select({ one: schema.catalogItemSubcategories.catalogItemId })
+            .from(schema.catalogItemSubcategories)
+            .innerJoin(
+              schema.catalogItems,
+              eq(schema.catalogItemSubcategories.catalogItemId, schema.catalogItems.id),
+            )
+            .where(
+              and(
+                eq(schema.catalogItemSubcategories.subcategoryId, id),
+                eq(schema.catalogItems.type, item.type),
+              ),
+            )
+            .limit(1);
+
+          if (!hasExplicit) {
+            // Populate all other active items of this type & gender
+            const others = await tx
+              .select({ id: schema.catalogItems.id })
+              .from(schema.catalogItems)
+              .where(
+                and(
+                  eq(schema.catalogItems.type, item.type),
+                  eq(schema.catalogItems.isActive, true),
+                  or(
+                    eq(schema.catalogItems.genderSlug, sub.genderSlug),
+                    isNull(schema.catalogItems.genderSlug),
+                  ),
+                  ne(schema.catalogItems.id, catalogItemId),
+                ),
+              );
+            if (others.length > 0) {
+              await tx
+                .insert(schema.catalogItemSubcategories)
+                .values(others.map((o) => ({ catalogItemId: o.id, subcategoryId: id })))
+                .onConflictDoNothing();
+            }
+          } else {
+            await tx
+              .delete(schema.catalogItemSubcategories)
+              .where(
+                and(
+                  eq(schema.catalogItemSubcategories.subcategoryId, id),
+                  eq(schema.catalogItemSubcategories.catalogItemId, catalogItemId),
+                ),
+              );
+          }
+
+          if (item.type === 'lower' && sub.defaultLowerCatalogId === catalogItemId) {
+            await tx
+              .update(schema.garmentSubcategories)
+              .set({ defaultLowerCatalogId: null, updatedAt: new Date() })
+              .where(eq(schema.garmentSubcategories.id, id));
+          } else if (item.type === 'shoe' && sub.defaultShoeCatalogId === catalogItemId) {
+            await tx
+              .update(schema.garmentSubcategories)
+              .set({ defaultShoeCatalogId: null, updatedAt: new Date() })
+              .where(eq(schema.garmentSubcategories.id, id));
+          }
+        }
+      });
+
+      return { ok: true, mapped };
     },
   );
 

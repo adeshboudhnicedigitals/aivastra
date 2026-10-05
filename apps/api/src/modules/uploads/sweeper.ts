@@ -33,6 +33,7 @@ export async function runUploadSweepTick(
       upperGarmentKey: schema.jobInputs.upperGarmentKey,
       lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
       thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
+      fourthGarmentKey: schema.jobInputs.fourthGarmentKey,
     })
     .from(schema.jobInputs)
     .where(
@@ -40,10 +41,16 @@ export async function runUploadSweepTick(
         inArray(schema.jobInputs.upperGarmentKey, keys),
         inArray(schema.jobInputs.lowerGarmentKey, keys),
         inArray(schema.jobInputs.thirdGarmentKey, keys),
+        inArray(schema.jobInputs.fourthGarmentKey, keys),
       ),
     );
   const referencedKeys = new Set(
-    referenced.flatMap((r) => [r.upperGarmentKey, r.lowerGarmentKey, r.thirdGarmentKey]),
+    referenced.flatMap((r) => [
+      r.upperGarmentKey,
+      r.lowerGarmentKey,
+      r.thirdGarmentKey,
+      r.fourthGarmentKey,
+    ]),
   );
 
   let deleted = 0;
