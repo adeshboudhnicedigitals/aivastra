@@ -18,6 +18,7 @@
       "!docs/multi-app-ecosystem/design-reference",
       "!Logs-*.json",
       "!Two-page design frames",
+      "!apps/catalogue_android",
       "!apps/saree_catalogue_android",
       "!wordpress-plugin/includes/vendor"
     ]
