@@ -75,6 +75,8 @@ export interface GarmentType {
   lowerUploadLabel?: string | null;
   requiresThirdUpload?: boolean;
   thirdUploadLabel?: string | null;
+  allowsFourthUpload?: boolean;
+  fourthUploadLabel?: string | null;
   publicApiSlug?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -117,6 +119,7 @@ export interface WorkflowOption {
   lowerNodeId: string | null;
   shoeNodeId: string | null;
   thirdNodeId: string | null;
+  fourthNodeId: string | null;
   accessoryNodeId: string | null;
   sizeNodeIds: string[];
   // Dual-size-group templates (build_model_main v2+) — empty arrays mean "use sizeNodeIds above".
