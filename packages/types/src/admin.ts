@@ -449,6 +449,7 @@ export const CreateWorkflowBody = z
     lowerNodeId: z.string().min(1).optional(),
     shoeNodeId: z.string().min(1).optional(),
     thirdNodeId: z.string().min(1).optional(),
+    fourthNodeId: z.string().min(1).optional(),
     accessoryNodeId: z.string().min(1).optional(),
     sizeNodeIds: z.array(z.string().min(1)).optional(),
     // Dual-size-group templates (build_model_main v2+) — server-computed from node
@@ -603,6 +604,7 @@ export const UpdateWorkflowBody = z.object({
   lowerNodeId: z.string().min(1).nullable().optional(),
   shoeNodeId: z.string().min(1).nullable().optional(),
   thirdNodeId: z.string().min(1).nullable().optional(),
+  fourthNodeId: z.string().min(1).nullable().optional(),
   accessoryNodeId: z.string().min(1).nullable().optional(),
   sizeNodeId: z.string().min(1).nullable().optional(),
   sizeNodeIds: z.array(z.string().min(1)).optional(),
@@ -874,8 +876,12 @@ export const PatchGarmentTypeBody = z.object({
   lowerUploadLabel: z.string().max(80).nullable().optional(),
   requiresThirdUpload: z.boolean().optional(),
   thirdUploadLabel: z.string().max(80).nullable().optional(),
+  allowsFourthUpload: z.boolean().optional(),
+  fourthUploadLabel: z.string().max(80).nullable().optional(),
   defaultLowerCatalogId: z.string().uuid().nullable().optional(),
   defaultShoeCatalogId: z.string().uuid().nullable().optional(),
+  mappedLowerCatalogItemIds: z.array(z.string().uuid()).optional(),
+  mappedShoeCatalogItemIds: z.array(z.string().uuid()).optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
   // Distinct from instructionImageKey above — see the schema column comment
