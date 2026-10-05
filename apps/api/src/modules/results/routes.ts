@@ -276,6 +276,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
+          fourthGarmentKey: schema.jobInputs.fourthGarmentKey,
           poseThumbKey: schema.modelPoseAssets.thumbnailKey,
           poseFullKey: schema.modelPoseAssets.r2Key,
           // No admin pose asset (poseThumbKey) means this job's "pose" slot
@@ -352,12 +353,14 @@ export async function resultsRoutes(app: FastifyInstance) {
           upperGarmentKey: string | null;
           lowerGarmentKey: string | null;
           thirdGarmentKey: string | null;
+          fourthGarmentKey: string | null;
         },
       ) => {
         const slots: { key: string | null; label: string; slot: string }[] = [
           { key: r.upperGarmentKey, label: 'Upper', slot: 'garment-upper' },
           { key: r.lowerGarmentKey, label: 'Lower', slot: 'garment-lower' },
           { key: r.thirdGarmentKey, label: 'Third', slot: 'garment-third' },
+          { key: r.fourthGarmentKey, label: 'Fourth', slot: 'garment-fourth' },
         ];
         const present = slots.filter(
           (s): s is { key: string; label: string; slot: string } => s.key !== null,
@@ -432,7 +435,14 @@ export async function resultsRoutes(app: FastifyInstance) {
 
   const ThumbSlot = z.object({
     id: z.string().uuid(),
-    slot: z.enum(['garment-upper', 'garment-lower', 'garment-third', 'person', 'output']),
+    slot: z.enum([
+      'garment-upper',
+      'garment-lower',
+      'garment-third',
+      'garment-fourth',
+      'person',
+      'output',
+    ]),
   });
 
   // On-demand 256px JPEG thumbnail for /results grid cells whose source image
@@ -461,6 +471,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
+          fourthGarmentKey: schema.jobInputs.fourthGarmentKey,
           personOrSourceKey: sql<
             string | null
           >`COALESCE(${schema.jobs.customerPhotoKey}, ${schema.jobInputs.params}->>'personKey', ${schema.jobInputs.params}->>'sourceImageKey')`,
@@ -489,9 +500,11 @@ export async function resultsRoutes(app: FastifyInstance) {
             ? row.lowerGarmentKey
             : slot === 'garment-third'
               ? row.thirdGarmentKey
-              : slot === 'person'
-                ? row.personOrSourceKey
-                : row.outputKey;
+              : slot === 'garment-fourth'
+                ? row.fourthGarmentKey
+                : slot === 'person'
+                  ? row.personOrSourceKey
+                  : row.outputKey;
       if (!key) throw new AppError('NOT_FOUND', 404, 'no image for this slot');
 
       // sharp can't read video — catalog-video outputs (.mp4) fall through to
@@ -694,6 +707,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
+          fourthGarmentKey: schema.jobInputs.fourthGarmentKey,
           // Bundle is a QA download, not a grid cell — every admin-curated
           // asset below is selected by its full r2Key, never thumbnailKey.
           faceKey: schema.modelFaces.r2Key,
@@ -765,11 +779,13 @@ export async function resultsRoutes(app: FastifyInstance) {
         row.upperGarmentKey,
         row.lowerGarmentKey,
         row.thirdGarmentKey,
+        row.fourthGarmentKey,
       ].filter((k): k is string => !!k);
       if (uploadedGarmentKeys.length > 1) {
         await addKey('inputs', 'garment-upper', row.upperGarmentKey);
         await addKey('inputs', 'garment-lower', row.lowerGarmentKey);
         await addKey('inputs', 'garment-third', row.thirdGarmentKey);
+        await addKey('inputs', 'garment-fourth', row.fourthGarmentKey);
       } else {
         await addKey('inputs', 'garment', uploadedGarmentKeys[0] ?? null);
       }

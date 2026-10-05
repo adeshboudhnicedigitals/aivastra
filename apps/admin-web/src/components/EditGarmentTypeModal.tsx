@@ -346,6 +346,10 @@ export function EditGarmentTypeModal({
     garmentType.requiresThirdUpload ?? false,
   );
   const [thirdUploadLabel, setThirdUploadLabel] = useState(garmentType.thirdUploadLabel ?? '');
+  const [allowsFourthUpload, setAllowsFourthUpload] = useState(
+    garmentType.allowsFourthUpload ?? false,
+  );
+  const [fourthUploadLabel, setFourthUploadLabel] = useState(garmentType.fourthUploadLabel ?? '');
   const [defaultLowerId, setDefaultLowerId] = useState(garmentType.defaultLowerCatalogId ?? '');
   const [defaultShoeId, setDefaultShoeId] = useState(garmentType.defaultShoeCatalogId ?? '');
   const [tryonCategoryId, setTryonCategoryId] = useState(garmentType.tryonCategoryId ?? '');
@@ -408,6 +412,8 @@ export function EditGarmentTypeModal({
     lowerUploadLabel !== (garmentType.lowerUploadLabel ?? '') ||
     requiresThirdUpload !== (garmentType.requiresThirdUpload ?? false) ||
     thirdUploadLabel !== (garmentType.thirdUploadLabel ?? '') ||
+    allowsFourthUpload !== (garmentType.allowsFourthUpload ?? false) ||
+    fourthUploadLabel !== (garmentType.fourthUploadLabel ?? '') ||
     defaultLowerId !== (garmentType.defaultLowerCatalogId ?? '') ||
     defaultShoeId !== (garmentType.defaultShoeCatalogId ?? '') ||
     tryonCategoryId !== (garmentType.tryonCategoryId ?? '') ||
@@ -485,6 +491,12 @@ export function EditGarmentTypeModal({
       }
       if (thirdUploadLabel !== (garmentType.thirdUploadLabel ?? '')) {
         patchBody.thirdUploadLabel = thirdUploadLabel.trim() || null;
+      }
+      if (allowsFourthUpload !== (garmentType.allowsFourthUpload ?? false)) {
+        patchBody.allowsFourthUpload = allowsFourthUpload;
+      }
+      if (fourthUploadLabel !== (garmentType.fourthUploadLabel ?? '')) {
+        patchBody.fourthUploadLabel = fourthUploadLabel.trim() || null;
       }
       if (defaultLowerId !== (garmentType.defaultLowerCatalogId ?? '')) {
         patchBody.defaultLowerCatalogId = defaultLowerId || null;
@@ -657,6 +669,36 @@ export function EditGarmentTypeModal({
                   />
                   <span className="hint">
                     Shown in studio as the title of the third garment upload box.
+                  </span>
+                </div>
+              )}
+              <div className="setting-row" style={{ padding: 0, border: 0 }}>
+                <div>
+                  <div className="setting-lbl">Optional extra upload (e.g. Blouse)</div>
+                  <div className="setting-desc">
+                    Studio offers an optional fourth image. Without it the job runs on the other
+                    uploads alone. Needs a workflow with a blouse node mapped.
+                  </div>
+                </div>
+                <Switch
+                  checked={allowsFourthUpload}
+                  onChange={setAllowsFourthUpload}
+                  disabled={saving}
+                />
+              </div>
+              {allowsFourthUpload && (
+                <div className="field">
+                  <label>Optional Upload Field Label</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. Blouse (optional)"
+                    value={fourthUploadLabel}
+                    disabled={saving}
+                    onChange={(e) => setFourthUploadLabel(e.target.value)}
+                  />
+                  <span className="hint">
+                    Shown in studio as the title of the optional upload box. Map the matching node
+                    on the workflow (title it "blouse") — see the note in the workflow upload panel.
                   </span>
                 </div>
               )}

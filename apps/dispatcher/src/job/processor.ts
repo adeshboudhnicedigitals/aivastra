@@ -761,6 +761,7 @@ export async function processJob(
     if (lowerKey) baseTasks.push(uploadToComfy(lowerKey, 'lower'));
     if (shoeKey) baseTasks.push(uploadToComfy(shoeKey, 'shoe'));
     if (inputs.thirdGarmentKey) baseTasks.push(uploadToComfy(inputs.thirdGarmentKey, 'third'));
+    if (inputs.fourthGarmentKey) baseTasks.push(uploadToComfy(inputs.fourthGarmentKey, 'fourth'));
     if (accessoryBytes) {
       baseTasks.push(
         uploadImageToComfy(
@@ -784,6 +785,7 @@ export async function processJob(
     const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
     const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
     const thirdGarmentFile = inputs.thirdGarmentKey ? uploaded[idx++] : undefined;
+    const fourthGarmentFile = inputs.fourthGarmentKey ? uploaded[idx++] : undefined;
     const accessoryGarmentFile = accessoryBytes ? uploaded[idx++] : undefined;
     jobLog.info(
       {
@@ -794,6 +796,7 @@ export async function processJob(
         lowerGarmentFile,
         shoeGarmentFile,
         thirdGarmentFile,
+        fourthGarmentFile,
         accessoryGarmentFile,
       },
       'inputs uploaded',
@@ -817,6 +820,7 @@ export async function processJob(
         lowerGarmentFile,
         shoeGarmentFile,
         thirdGarmentFile,
+        fourthGarmentFile,
         accessoryGarmentFile,
         promptFacePhase: effectivePromptFacePhase ?? undefined,
         promptGarmentPhase: effectivePromptGarmentPhase ?? undefined,
@@ -855,6 +859,7 @@ export async function processJob(
           lowerGarmentFile,
           shoeGarmentFile,
           thirdGarmentFile,
+          fourthGarmentFile: fourthGarmentFile ?? null,
           accessoryGarmentFile: accessoryGarmentFile ?? null,
           promptFacePhase: effectivePromptFacePhase ?? null,
           promptGarmentPhase: effectivePromptGarmentPhase ?? null,
@@ -871,6 +876,7 @@ export async function processJob(
             lowerKey,
             shoeKey,
             thirdGarmentKey: inputs.thirdGarmentKey,
+            fourthGarmentKey: inputs.fourthGarmentKey,
             accessoryCatalogIds: accessoryCatalogIds.length > 0 ? accessoryCatalogIds : null,
           },
         },
