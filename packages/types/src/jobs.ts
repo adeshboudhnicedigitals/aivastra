@@ -171,8 +171,8 @@ export const PIXVERSE_QUALITIES = ['360p', '540p', '720p', '1080p'] as const;
 export type PixverseQuality = (typeof PIXVERSE_QUALITIES)[number];
 
 export interface PixverseVideoPricingConfig {
-  /** Credits charged per second of video, on top of the quality base. */
-  perSecondRate: number;
+  /** Credits charged per second of video at each quality tier, on top of that tier's base. */
+  perSecondRate: Record<PixverseQuality, number>;
   /** Base credit cost per quality tier, before the per-second addition. */
   qualityBase: Record<PixverseQuality, number>;
 }
@@ -198,9 +198,9 @@ export function computePixverseVideoCost(
   quality: PixverseQuality,
   config: PixverseVideoPricingConfig,
 ): number {
-  const raw = config.qualityBase[quality] + duration * config.perSecondRate;
-  // A malformed/incomplete config (e.g. qualityBase missing the requested
-  // tier) makes raw NaN — floor to 1 instead of letting NaN reach
+  const raw = config.qualityBase[quality] + duration * config.perSecondRate[quality];
+  // A malformed/incomplete config (e.g. qualityBase or perSecondRate missing
+  // the requested tier) makes raw NaN — floor to 1 instead of letting NaN reach
   // atomicDeduct on the money path.
   return Number.isFinite(raw) ? Math.max(1, Math.ceil(raw)) : 1;
 }

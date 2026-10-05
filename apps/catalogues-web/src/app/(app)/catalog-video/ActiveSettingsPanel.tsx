@@ -54,7 +54,7 @@ function Row({
 }
 
 // Right-hand slot alongside ActiveVideoPanel — a read-only recap of what was
-// submitted (input image, style, prompt, duration, quality) plus the two
+// submitted (input image, style, duration, quality) plus the two
 // actions that apply to the job as a whole (Download the finished file,
 // start over). Frozen at submit time by the caller (page.tsx), not derived
 // from the live SourcePanel/ConfigPanel state, so it keeps showing what this
@@ -63,7 +63,6 @@ export function ActiveSettingsPanel({
   jobId,
   source,
   presetTitle,
-  prompt,
   duration,
   quality,
   creditCost,
@@ -72,7 +71,6 @@ export function ActiveSettingsPanel({
   jobId: string;
   source: ImageSource;
   presetTitle: string;
-  prompt: string;
   duration: number;
   quality: PixverseQuality;
   creditCost: number;
@@ -105,7 +103,8 @@ export function ActiveSettingsPanel({
             </p>
             <div
               style={{
-                width: 150,
+                width: '100%',
+                maxWidth: 260,
                 aspectRatio: '3 / 4',
                 borderRadius: 8,
                 overflow: 'hidden',
@@ -127,33 +126,7 @@ export function ActiveSettingsPanel({
             </div>
           </div>
 
-          <div>
-            <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 600, color: C.text }}>
-              Prompt
-            </p>
-            <p
-              style={{
-                margin: 0,
-                maxHeight: 240,
-                overflowY: 'auto',
-                whiteSpace: 'pre-wrap',
-                fontFamily: 'var(--font-poppins), Poppins, sans-serif',
-                fontWeight: 500,
-                fontSize: 16,
-                lineHeight: '28px',
-                letterSpacing: 0,
-                color: '#D8DCF2',
-                background: '#151827',
-                border: '1px solid #2A2E42',
-                borderRadius: 8,
-                padding: 10,
-              }}
-            >
-              {prompt}
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <Row
               icon={
                 <svg
