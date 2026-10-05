@@ -1,6 +1,6 @@
 import type { MerchantCatalogGenerateStatus, MerchantCatalogItem } from '@aivastra/types';
-import { createSSEConnection, type SSEConnection } from '@/lib/sse';
-import { catalogAppApi as api, getCatalogAppToken, tryRefresh } from './catalog-app-api';
+import { ApiError } from '@/lib/errors';
+import { catalogAppApi as api, CatalogAppSessionExpiredError } from './catalog-app-api';
 
 const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 type AllowedContentType = (typeof ALLOWED_CONTENT_TYPES)[number];
@@ -29,55 +29,49 @@ export async function presignAndUpload(
 
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
 
+const GENERATE_POLL_INTERVAL_MS = 3_000;
+// Consecutive transient failures (network blip, 5xx) tolerated before giving up —
+// a phone on a flaky connection shouldn't lose a job that is still running server-side.
+const GENERATE_POLL_MAX_TRANSIENT_FAILURES = 5;
+
 /**
- * Waits for a single Path B generate job to reach a terminal status over the job SSE
- * stream (same channel Studio uses) — no client-side timeout, so a job queued behind
- * others is never abandoned client-side. This route keeps its own session isolated from
- * the main site's (see catalog-app-api.ts), so it opens its own short-lived connection
- * with this route's token instead of using the app-wide JobStreamProvider.
+ * Waits for a single Path B generate job to reach a terminal status by polling
+ * GET /v1/merchant/catalog/generate/:jobId — no client-side timeout, so a job queued
+ * behind others is never abandoned client-side.
  *
- * SSE has no replay, so the status is re-read every time the connection (re)connects —
- * that covers a job that finished before the stream was live and any event dropped
- * during a reconnect gap.
+ * Deliberately not the job SSE stream (/v1/jobs/stream) that Studio uses: that route is
+ * requireUser, which rejects this app's `catalog-app`-audience tokens by design (see
+ * plugins/auth.ts), so the stream could never connect here and the wait hung forever.
+ * The status route is requireMerchant, which this session is allowed to call.
  */
 export function waitForGenerateJob(
   jobId: string,
 ): Promise<Pick<MerchantCatalogGenerateStatus, 'status' | 'errorCode'>> {
   return new Promise((resolve, reject) => {
-    let settled = false;
-    let conn: SSEConnection | undefined;
-    const finish = (status: string, errorCode: string | null | undefined) => {
-      if (settled) return;
-      settled = true;
-      conn?.close();
-      resolve({ status, errorCode: errorCode ?? null });
-    };
-    const checkStatus = () => {
-      api
-        .get<MerchantCatalogGenerateStatus>(`/v1/merchant/catalog/generate/${jobId}`)
-        .then((st) => {
-          if (TERMINAL_STATUSES.has(st.status)) finish(st.status, st.errorCode);
-        })
-        .catch((err) => {
-          if (settled) return;
-          settled = true;
-          conn?.close();
-          reject(err);
-        });
-    };
-    conn = createSSEConnection<{ jobId: string; status: string; errorCode?: string }>(
-      '/v1/jobs/stream',
-      (e) => {
-        if (e.type === 'STATUS' && e.data.jobId === jobId && TERMINAL_STATUSES.has(e.data.status)) {
-          finish(e.data.status, e.data.errorCode);
+    let transientFailures = 0;
+    const poll = async () => {
+      try {
+        const st = await api.get<MerchantCatalogGenerateStatus>(
+          `/v1/merchant/catalog/generate/${jobId}`,
+        );
+        transientFailures = 0;
+        if (TERMINAL_STATUSES.has(st.status)) {
+          resolve({ status: st.status, errorCode: st.errorCode ?? null });
+          return;
         }
-      },
-      undefined,
-      (state) => {
-        if (state === 'connected') checkStatus();
-      },
-      { getToken: getCatalogAppToken, refresh: tryRefresh },
-    );
+      } catch (err) {
+        // Session expiry and 4xx (job not found / not ours) won't fix themselves.
+        const permanent =
+          err instanceof CatalogAppSessionExpiredError ||
+          (err instanceof ApiError && err.status >= 400 && err.status < 500);
+        if (permanent || ++transientFailures >= GENERATE_POLL_MAX_TRANSIENT_FAILURES) {
+          reject(err);
+          return;
+        }
+      }
+      setTimeout(poll, GENERATE_POLL_INTERVAL_MS);
+    };
+    void poll();
   });
 }
 
