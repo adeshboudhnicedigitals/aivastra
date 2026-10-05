@@ -259,7 +259,6 @@ export async function resolveTryonPlan(
     lowerGarmentKey,
     lowerGarmentBackKey,
     thirdGarmentKey,
-    fourthGarmentKey,
     shoeCatalogId,
     accessoryCatalogIds: rawAccessoryCatalogIds,
   } = body.inputs;
@@ -332,9 +331,6 @@ export async function resolveTryonPlan(
   // matching node, instead of silently stripping an upload no node can consume.
   let requiresLowerUpload = false;
   let requiresThirdUpload = false;
-  // Unlike the two above this upload is optional, so it is gated the other way round:
-  // the garment type has to opt in before a fourthGarmentKey is accepted at all.
-  let allowsFourthUpload = false;
   let sareeStep2: {
     workflowTemplateId: string | null;
     version: number | null;
@@ -350,7 +346,6 @@ export async function resolveTryonPlan(
         requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
         requiresLowerUpload: schema.garmentSubcategories.requiresLowerUpload,
         requiresThirdUpload: schema.garmentSubcategories.requiresThirdUpload,
-        allowsFourthUpload: schema.garmentSubcategories.allowsFourthUpload,
         sareeStep2WorkflowTemplateId: schema.garmentSubcategories.sareeStep2WorkflowTemplateId,
         sareeStep2UpperNodeIds: schema.workflowTemplates.upperNodeIds,
         sareeStep2LowerNodeId: schema.workflowTemplates.lowerNodeId,
@@ -368,7 +363,6 @@ export async function resolveTryonPlan(
     requiresMannequinStep = gtRow?.requiresMannequinStep ?? false;
     requiresLowerUpload = gtRow?.requiresLowerUpload ?? false;
     requiresThirdUpload = gtRow?.requiresThirdUpload ?? false;
-    allowsFourthUpload = gtRow?.allowsFourthUpload ?? false;
     if (requiresMannequinStep) {
       sareeStep2 = {
         workflowTemplateId: gtRow?.sareeStep2WorkflowTemplateId ?? null,
@@ -403,12 +397,6 @@ export async function resolveTryonPlan(
   }
   if (thirdGarmentKey) {
     await verifyGarmentKey(app, userId, thirdGarmentKey, opts.trustedGarmentKeys);
-  }
-  if (fourthGarmentKey) {
-    if (!allowsFourthUpload) {
-      throw new AppError('VALIDATION', 400, 'this garment type does not accept a fourth upload');
-    }
-    await verifyGarmentKey(app, userId, fourthGarmentKey, opts.trustedGarmentKeys);
   }
 
   // Normalize to a single per-look list. This only rejects "neither form present" —
@@ -668,7 +656,6 @@ export async function resolveTryonPlan(
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
             thirdNodeId: schema.workflowTemplates.thirdNodeId,
-            fourthNodeId: schema.workflowTemplates.fourthNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
             garmentView: schema.workflowTemplates.garmentView,
             version: schema.workflowTemplates.version,
@@ -744,7 +731,6 @@ export async function resolveTryonPlan(
             lowerNodeId: row.lowerNodeId,
             shoeNodeId: row.shoeNodeId,
             thirdNodeId: row.thirdNodeId,
-            fourthNodeId: row.fourthNodeId,
             sizeNodeIds: row.sizeNodeIds,
             garmentView: row.garmentView,
           };
@@ -764,7 +750,6 @@ export async function resolveTryonPlan(
       defaultLowerNodeId: defaultWorkflow.lowerNodeId,
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
       defaultThirdNodeId: defaultWorkflow.thirdNodeId,
-      defaultFourthNodeId: defaultWorkflow.fourthNodeId,
       defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
       defaultGarmentView: defaultWorkflow.garmentView,
       defaultPromptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
@@ -779,7 +764,6 @@ export async function resolveTryonPlan(
       overrideLowerNodeId: overrideWorkflow.lowerNodeId,
       overrideShoeNodeId: overrideWorkflow.shoeNodeId,
       overrideThirdNodeId: overrideWorkflow.thirdNodeId,
-      overrideFourthNodeId: overrideWorkflow.fourthNodeId,
       overrideSizeNodeIds: overrideWorkflow.sizeNodeIds,
       overrideGarmentView: overrideWorkflow.garmentView,
     })
@@ -853,9 +837,6 @@ export async function resolveTryonPlan(
         lowerNodeId: sareeStep2?.lowerNodeId ?? null,
         shoeNodeId: sareeStep2?.shoeNodeId ?? null,
         thirdNodeId: sareeStep2?.thirdNodeId ?? null,
-        // The two-step saree path has no blouse support; null makes the
-        // fourthGarmentKey check below reject it rather than silently drop it.
-        fourthNodeId: null,
         sizeNodeIds: sareeStep2?.sizeNodeIds ?? null,
         // Saree/mannequin is out of scope for back-view garments (a back-facing
         // mannequin is a different problem — the mannequin base image itself
@@ -890,8 +871,6 @@ export async function resolveTryonPlan(
         shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
         thirdNodeId:
           r.configWorkflowTemplateId != null ? r.overrideThirdNodeId : r.defaultThirdNodeId,
-        fourthNodeId:
-          r.configWorkflowTemplateId != null ? r.overrideFourthNodeId : r.defaultFourthNodeId,
         sizeNodeIds:
           r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
         garmentView:
@@ -978,17 +957,6 @@ export async function resolveTryonPlan(
         400,
         "garmentType requires a third garment upload, but this pose's workflow has no third " +
           'garment node configured — fix pose_garment_configs or workflow_templates.thirdNodeId',
-      );
-    }
-    // Checked up front, before credits are deducted: the dispatcher only warns on a
-    // blouse its template can't consume, so without this the user would be charged
-    // for an image that never reaches the output.
-    if (fourthGarmentKey && !pw.fourthNodeId) {
-      throw new AppError(
-        'VALIDATION',
-        400,
-        "a fourth garment was provided, but this pose's workflow has no fourth garment node " +
-          'configured — fix pose_garment_configs or workflow_templates.fourthNodeId',
       );
     }
   }
@@ -1159,7 +1127,6 @@ export async function createJob(
     lowerGarmentKey,
     lowerGarmentBackKey,
     thirdGarmentKey,
-    fourthGarmentKey,
   } = body.inputs;
 
   // mannequinJobId vs. upperGarmentKey is XOR'd by zod, but WHICH one is valid
@@ -1203,8 +1170,6 @@ export async function createJob(
     await verifyGarmentKey(app, userId, upperGarmentBackKey, opts?.trustedGarmentKeys);
   if (thirdGarmentKey)
     await verifyGarmentKey(app, userId, thirdGarmentKey, opts?.trustedGarmentKeys);
-  // The garment-type opt-in and node checks for the fourth key live in resolveTryonPlan,
-  // which also verifies ownership — it is persisted below only after that passes.
 
   const plan = await resolveTryonPlan(app, userId, body, {
     resolvedUpperGarmentKey: resolvedUpperGarmentKey ?? null,
@@ -1253,7 +1218,6 @@ export async function createJob(
         lowerCatalogId: look.lowerCatalogId,
         lowerGarmentKey: look.lowerGarmentKey,
         thirdGarmentKey: thirdGarmentKey ?? null,
-        fourthGarmentKey: fourthGarmentKey ?? null,
         shoeCatalogId: look.shoeCatalogId,
         accessoryCatalogIds: look.accessoryCatalogIds,
         userHint: promptGuard(body.userHint),

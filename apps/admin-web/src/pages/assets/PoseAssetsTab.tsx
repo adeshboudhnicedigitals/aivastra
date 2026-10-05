@@ -336,25 +336,17 @@ export function PoseAssetsTab() {
           // gender than this pose — skip rather than write a cross-gender row.
           const cfg = configs.find((c) => c.id === garmentTypeId);
           if (!cfg) continue;
-          if (makeVisible) {
-            patches.push(
-              apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseId}`, {
-                method: 'PATCH',
-                body: JSON.stringify({
-                  workflowTemplateId: cfg.config?.workflowTemplateId ?? null,
-                  promptGarmentPhase: cfg.config?.promptGarmentPhase ?? null,
-                  promptFacePhase: cfg.config?.promptFacePhase ?? null,
-                  isActive: true,
-                }),
+          patches.push(
+            apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                workflowTemplateId: cfg.config?.workflowTemplateId ?? null,
+                promptGarmentPhase: cfg.config?.promptGarmentPhase ?? null,
+                promptFacePhase: cfg.config?.promptFacePhase ?? null,
+                isActive: makeVisible,
               }),
-            );
-          } else {
-            patches.push(
-              apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseId}`, {
-                method: 'DELETE',
-              }),
-            );
-          }
+            }),
+          );
         }
       }
       await Promise.all(patches);
@@ -400,7 +392,13 @@ export function PoseAssetsTab() {
         for (const cfg of configs) {
           patches.push(
             apiFetch(`/admin/assets/garment-types/${cfg.id}/pose-configs/${poseId}`, {
-              method: 'DELETE',
+              method: 'PATCH',
+              body: JSON.stringify({
+                workflowTemplateId: cfg.config?.workflowTemplateId ?? null,
+                promptGarmentPhase: cfg.config?.promptGarmentPhase ?? null,
+                promptFacePhase: cfg.config?.promptFacePhase ?? null,
+                isActive: false,
+              }),
             }),
           );
         }
@@ -1130,7 +1128,7 @@ export function PoseAssetsTab() {
                 disabled={bulkGarmentSaving || bulkGarmentTypeIds.length === 0}
                 onClick={() => void doBulkGarmentMap(false)}
               >
-                {bulkGarmentSaving ? 'Saving…' : `Unmap from ${bulkGarmentTypeIds.length}`}
+                {bulkGarmentSaving ? 'Saving…' : `Hide from ${bulkGarmentTypeIds.length}`}
               </button>
               <button
                 className="btn"

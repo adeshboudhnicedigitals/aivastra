@@ -186,26 +186,6 @@ describe('catalog', () => {
     expect(res.statusCode).toBe(200);
     const serializedTree = JSON.stringify(res.json().tree);
     expect(serializedTree).toContain(mappedItem.label);
-    expect(serializedTree).not.toContain(unlinkedItem.label);
-
-    // When a garment type has NO explicit mappings, both items are returned as a fallback
-    const [unconfiguredGarmentType] = await app.db
-      .insert(schema.garmentSubcategories)
-      .values({
-        genderSlug: 'women',
-        slug: `catalog-unconfigured-${unique}`,
-        label: 'Unconfigured garment type',
-      })
-      .returning();
-
-    const resFallback = await app.inject({
-      method: 'GET',
-      url: `/v1/catalog/lower?gender=women&poseIds=${pose.id}&garmentTypeId=${unconfiguredGarmentType.id}`,
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(resFallback.statusCode).toBe(200);
-    const fallbackTree = JSON.stringify(resFallback.json().tree);
-    expect(fallbackTree).toContain(mappedItem.label);
-    expect(fallbackTree).toContain(unlinkedItem.label);
+    expect(serializedTree).toContain(unlinkedItem.label);
   });
 });

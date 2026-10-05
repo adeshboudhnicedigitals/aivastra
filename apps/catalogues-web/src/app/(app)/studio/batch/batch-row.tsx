@@ -538,9 +538,9 @@ export function BatchRow({
           multiSelect
           selectedIds={row.poseIds}
           continueLabel="Done"
+          hideLabels
           aspect={3 / 4}
           columns={6}
-          hideLabels
           onSelect={(id) =>
             onSetPoses(
               row.poseIds.includes(id) ? row.poseIds.filter((p) => p !== id) : [...row.poseIds, id],

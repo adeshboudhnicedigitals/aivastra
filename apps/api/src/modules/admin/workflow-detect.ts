@@ -3,9 +3,8 @@
 //
 // Detection strategy (two passes):
 //   Pass 1 — title matching (set _meta.title in ComfyUI):
-//     LoadImage titles: face, pose, background/bg, upper_garment[_N] (or body),
-//                       lower_garment, shoes/shoe, third_garment (or pallu/palu),
-//                       blouse/fourth_garment
+//     LoadImage titles: face, pose, background/bg, upper_garment[_N],
+//                       lower_garment, shoes/shoe
 //     TextEncode titles: positive_prompt, negative_prompt
 //     Latent titles: size, empty_latent_image (or auto-assigned by class_type)
 //     Dual-size-group titles (build_model_main v2+): max-width/max-height
@@ -38,8 +37,6 @@ export interface DetectedMappings {
   upperNodeIds: string[];
   lowerNodeId?: string;
   shoeNodeId?: string;
-  thirdNodeId?: string; // titles: third_garment, pallu/palu (saree pallu)
-  fourthNodeId?: string; // optional saree blouse — titles: blouse, fourth_garment
   sizeNodeIds: string[];
   positivePromptNode?: string;
   negativePromptNode?: string;
@@ -154,17 +151,12 @@ export function detectMappings(json: Record<string, unknown>): {
         detected.poseNodeId = nodeId;
       } else if (norm === 'background' || norm === 'bg') {
         detected.bgNodeId = nodeId;
-      } else if (norm === 'upper_garment' || /^upper_garment_\d+$/.test(norm) || norm === 'body') {
-        // "body" is the saree body panel's title in the saree catalogue workflows.
+      } else if (norm === 'upper_garment' || /^upper_garment_\d+$/.test(norm)) {
         detected.upperNodeIds.push(nodeId);
       } else if (norm === 'lower_garment') {
         detected.lowerNodeId = nodeId;
       } else if (norm === 'shoes' || norm === 'shoe') {
         detected.shoeNodeId = nodeId;
-      } else if (norm === 'third_garment' || norm === 'pallu' || norm === 'palu') {
-        detected.thirdNodeId = nodeId;
-      } else if (norm === 'blouse' || norm === 'fourth_garment') {
-        detected.fourthNodeId = nodeId;
       }
     } else if (category === 'prompt') {
       allPromptNodes.push({ id: nodeId, class_type: classType, title, category });

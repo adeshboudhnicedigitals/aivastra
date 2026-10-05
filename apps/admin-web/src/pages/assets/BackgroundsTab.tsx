@@ -155,18 +155,8 @@ export function BackgroundsTab() {
       ? (categories.find((c) => String(c.id) === editId) ?? null)
       : null;
   const [editCatLabel, setEditCatLabel] = useState('');
-  const [editCatSortOrder, setEditCatSortOrder] = useState(0);
   const [editCatImageFile, setEditCatImageFile] = useState<File | null>(null);
   const [editCatSaving, setEditCatSaving] = useState(false);
-
-  const editingCategoryId = editingCategory?.id ?? null;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-seed only on category id change
-  useEffect(() => {
-    if (!editingCategory) return;
-    setEditCatLabel(editingCategory.label);
-    setEditCatSortOrder(editingCategory.sortOrder);
-    setEditCatImageFile(null);
-  }, [editingCategoryId]);
 
   const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
     'confirm',
@@ -339,6 +329,28 @@ export function BackgroundsTab() {
       toast({
         kind: 'error',
         title: 'Failed to update background',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  };
+
+  const setAmazonWhiteBg = async (id: string) => {
+    const prev = backgrounds.find((b) => b.isWhiteBg);
+    setBackgrounds((prevBg) => prevBg.map((b) => ({ ...b, isWhiteBg: b.id === id })));
+    try {
+      await apiFetch(`/admin/assets/backgrounds/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isWhiteBg: true }),
+      });
+      const item = backgrounds.find((b) => b.id === id);
+      toast({ title: `${item?.label ?? 'Background'} set as Amazon white background` });
+    } catch (e) {
+      setBackgrounds((prevBg) =>
+        prevBg.map((b) => ({ ...b, isWhiteBg: prev != null && prev.id === b.id })),
+      );
+      toast({
+        kind: 'error',
+        title: 'Failed to set Amazon white background',
         body: apiErrorMessage(e, 'Please try again.'),
       });
     }
@@ -519,7 +531,6 @@ export function BackgroundsTab() {
         >
           {categories
             .filter((c) => genderFilter === 'all' || c.genderSlug === genderFilter)
-            .sort((a, b) => a.sortOrder - b.sortOrder)
             .map((cat) => (
               <div
                 key={cat.id}
@@ -570,7 +581,7 @@ export function BackgroundsTab() {
                   <span className="badge dot">{cat.genderSlug ?? 'all'}</span>
                 </div>
                 <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 10px' }}>
-                  slug: {cat.slug} · sort: {cat.sortOrder}
+                  slug: {cat.slug}
                 </p>
                 <div
                   style={{ display: 'flex', gap: 6, alignItems: 'center' }}
@@ -605,7 +616,6 @@ export function BackgroundsTab() {
                     style={{ marginLeft: 'auto' }}
                     onClick={() => {
                       setEditCatLabel(cat.label);
-                      setEditCatSortOrder(cat.sortOrder);
                       setModalParams({ modal: 'edit-category', editId: String(cat.id) });
                     }}
                   >
@@ -776,6 +786,20 @@ export function BackgroundsTab() {
                       style={{ position: 'absolute', top: 4, left: 4, accentColor: 'var(--pink)' }}
                       onClick={(e) => e.stopPropagation()}
                     />
+                    {bg.isWhiteBg && (
+                      <span
+                        className="badge"
+                        style={{
+                          position: 'absolute',
+                          top: 4,
+                          right: 4,
+                          background: 'var(--success)',
+                          color: '#fff',
+                        }}
+                      >
+                        &#9733; White BG
+                      </span>
+                    )}
                   </div>
                   <div style={{ marginTop: 6 }}>
                     <span className="semi" style={{ fontSize: 12, display: 'block' }}>
@@ -798,7 +822,21 @@ export function BackgroundsTab() {
                           bg.specialTag}
                       </span>
                     )}
-
+                    <button
+                      className={`btn sm ${bg.isWhiteBg ? 'primary' : 'ghost'}`}
+                      style={{ width: '100%', marginTop: 6 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAmazonWhiteBg(bg.id);
+                      }}
+                      title={
+                        bg.isWhiteBg
+                          ? 'Amazon white background (selected)'
+                          : 'Set as Amazon white background'
+                      }
+                    >
+                      {bg.isWhiteBg ? 'White BG' : 'Set White BG'}
+                    </button>
                     <div
                       style={{ display: 'flex', gap: 4, marginTop: 4, alignItems: 'center' }}
                       onClick={(e) => e.stopPropagation()}
@@ -1321,7 +1359,6 @@ export function BackgroundsTab() {
               }
               const patch: Record<string, unknown> = {
                 label: editCatLabel.trim(),
-                sortOrder: editCatSortOrder,
               };
               if (thumbnailKey !== undefined) patch.thumbnailKey = thumbnailKey;
               await apiFetch(`/admin/catalog/categories/${editingCategory.id}`, {
@@ -1333,20 +1370,17 @@ export function BackgroundsTab() {
                   ? URL.createObjectURL(editCatImageFile)
                   : editingCategory.thumbnailUrl;
               setCategories((prev) =>
-                prev
-                  .map((c) =>
-                    c.id === editingCategory.id
-                      ? {
-                          ...c,
-                          label: editCatLabel.trim(),
-                          sortOrder: editCatSortOrder,
-                          ...(thumbnailKey !== undefined
-                            ? { thumbnailKey, thumbnailUrl: newThumbUrl }
-                            : {}),
-                        }
-                      : c,
-                  )
-                  .sort((a, b) => a.sortOrder - b.sortOrder),
+                prev.map((c) =>
+                  c.id === editingCategory.id
+                    ? {
+                        ...c,
+                        label: editCatLabel.trim(),
+                        ...(thumbnailKey !== undefined
+                          ? { thumbnailKey, thumbnailUrl: newThumbUrl }
+                          : {}),
+                      }
+                    : c,
+                ),
               );
               // No manual bgView sync needed here — bgView is derived from
               // `categories` via useMemo, so the setCategories call above
@@ -1372,18 +1406,6 @@ export function BackgroundsTab() {
               value={editCatLabel}
               onChange={(e) => setEditCatLabel(e.target.value)}
               disabled={editCatSaving}
-            />
-          </div>
-          <div className="field">
-            <label>Sort order</label>
-            <input
-              className="input"
-              type="number"
-              min={0}
-              value={editCatSortOrder}
-              onChange={(e) => setEditCatSortOrder(Number(e.target.value))}
-              disabled={editCatSaving}
-              style={{ width: 100 }}
             />
           </div>
           <div className="field">
