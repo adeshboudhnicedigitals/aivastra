@@ -2324,16 +2324,18 @@ export default function StudioPage(): React.ReactElement {
                   const inFirstN = all
                     .slice(0, batchGarmentVisibleCount)
                     .some((s) => s.id === garmentTypeId);
-                  const visible =
-                    garmentTypeId && !inFirstN
-                      ? [
-                          // biome-ignore lint/style/noNonNullAssertion: inFirstN is false here, so the find returns a value
-                          all.find((s) => s.id === garmentTypeId)!,
-                          ...all
-                            .filter((s) => s.id !== garmentTypeId)
-                            .slice(0, batchGarmentVisibleCount - 1),
-                        ]
-                      : all.slice(0, batchGarmentVisibleCount);
+                  // The selection can be a type batch hides (e.g. Saree picked in single
+                  // mode) — it's absent from `all` until the effect above resets it, so
+                  // only pin it when it's actually there.
+                  const selected = inFirstN ? undefined : all.find((s) => s.id === garmentTypeId);
+                  const visible = selected
+                    ? [
+                        selected,
+                        ...all
+                          .filter((s) => s.id !== garmentTypeId)
+                          .slice(0, batchGarmentVisibleCount - 1),
+                      ]
+                    : all.slice(0, batchGarmentVisibleCount);
                   return visible.map((s) => {
                     const fallbackKey = Object.keys(OUTFIT_IMG).find(
                       (k) => s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
