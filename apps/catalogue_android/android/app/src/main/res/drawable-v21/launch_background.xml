@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same as drawable/launch_background.xml — kept as its own -v21 copy only
+     because that's the file the default Flutter template split out (it used
+     to differ, resolving ?android:colorBackground instead of a literal
+     color). Our branded splash background is fixed regardless of the
+     system's light/dark setting, so there's no longer a reason for the two
+     to diverge. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/black" />
+    <item>
+        <bitmap
+            android:gravity="fill"
+            android:src="@drawable/splash_screen_bg" />
+    </item>
+</layer-list>
