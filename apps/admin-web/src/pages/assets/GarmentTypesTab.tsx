@@ -2348,6 +2348,7 @@ function PoseConfigsPanel({
           </button>
           <button
             className="btn sm ghost"
+            disabled={!showUnmapped && items.length - mappedItems.length === 0}
             onClick={() => {
               setShowUnmapped((v) => !v);
               clearSelection();
@@ -2355,7 +2356,9 @@ function PoseConfigsPanel({
           >
             {showUnmapped
               ? 'Hide unmapped poses'
-              : `Assign poses (${items.length - mappedItems.length} unmapped)`}
+              : items.length - mappedItems.length > 0
+                ? `Assign poses (${items.length - mappedItems.length} unmapped)`
+                : 'All poses assigned'}
           </button>
           {selectedIds.length > 0 && (
             <>

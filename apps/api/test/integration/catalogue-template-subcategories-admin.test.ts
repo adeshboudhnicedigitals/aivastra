@@ -406,4 +406,82 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
     expect(items.find((p: { id: string }) => p.id === generalPose.id)).toBeTruthy();
     expect(items.find((p: { id: string }) => p.id === templatePose.id)).toBeUndefined();
   });
+
+  it('GET pose-configs only marks poses as active if explicitly mapped (isActive: true)', async () => {
+    const sfx = Date.now();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `whitelist-gt-${sfx}`, label: 'Shirt' })
+      .returning();
+    const [poseA] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: `Pose A ${sfx}`,
+        genderSlug: 'men',
+        r2Key: `pose-a-${sfx}.jpg`,
+        thumbnailKey: `pose-a-thumb-${sfx}.jpg`,
+        scope: 'general',
+      })
+      .returning();
+    const [poseB] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: `Pose B ${sfx}`,
+        genderSlug: 'men',
+        r2Key: `pose-b-${sfx}.jpg`,
+        thumbnailKey: `pose-b-thumb-${sfx}.jpg`,
+        scope: 'general',
+      })
+      .returning();
+
+    // Initially neither pose is explicitly mapped
+    const initialRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/pose-configs`,
+      headers,
+    });
+    expect(initialRes.statusCode).toBe(200);
+    const initialItems = initialRes.json().items;
+    const initialA = initialItems.find((p: { id: string }) => p.id === poseA.id);
+    const initialB = initialItems.find((p: { id: string }) => p.id === poseB.id);
+    expect(initialA?.isActive).toBe(false);
+    expect(initialB?.isActive).toBe(false);
+
+    // Map poseA to garmentType
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/garment-types/${garmentType.id}/pose-configs/${poseA.id}`,
+      headers,
+      payload: {
+        isActive: true,
+        workflowTemplateId: null,
+        promptGarmentPhase: null,
+        promptFacePhase: null,
+      },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    // Now poseA is active, poseB remains inactive
+    const afterRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/pose-configs`,
+      headers,
+    });
+    expect(afterRes.statusCode).toBe(200);
+    const afterItems = afterRes.json().items;
+    const afterA = afterItems.find((p: { id: string }) => p.id === poseA.id);
+    const afterB = afterItems.find((p: { id: string }) => p.id === poseB.id);
+    expect(afterA?.isActive).toBe(true);
+    expect(afterB?.isActive).toBe(false);
+
+    // GET /admin/assets/pose-assets/:id/garment-configs also reflects this
+    const poseGarmentRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/pose-assets/${poseA.id}/garment-configs`,
+      headers,
+    });
+    expect(poseGarmentRes.statusCode).toBe(200);
+    const gtItem = poseGarmentRes.json().items.find((g: { id: string }) => g.id === garmentType.id);
+    expect(gtItem?.isActive).toBe(true);
+  });
 });

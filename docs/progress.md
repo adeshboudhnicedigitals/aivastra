@@ -2,6 +2,14 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-05 — Opt-in pose garment type mapping
+
+- **Done:** Enforced opt-in / whitelist mapping for poses assigned to garment types (`/admin/assets/garment-types/:id/pose-configs`).
+  - Backend: Updated `GET /admin/assets/garment-types/:id/pose-configs` and `GET /admin/assets/pose-assets/:id/garment-configs` to evaluate `isActive = cfg?.isActive === true` instead of falling back to global active (`p.globalIsActive`). Poses are now only considered assigned to a garment type when explicitly mapped.
+  - Pose Assets: Updated `GET /admin/assets/pose-assets` so `visibleGarmentTypeCount` reflects the actual count of garment types where the pose is explicitly mapped (`isActive === true`), rather than assuming visibility across all garment types by default.
+  - Admin UI: In `GarmentTypesTab.tsx`, the pose panel now displays only explicitly assigned poses by default. Updated the assign toggle button to reflect accurate unmapped counts and disable cleanly when all poses are assigned.
+- **Validation:** Integration test added and passing in `catalogue-template-subcategories-admin.test.ts` (8/8 passed); `models-poses-garment-roles.test.ts` (4/4 passed); whole workspace typecheck passed; `admin-web` built cleanly; Biome check passed with 0 errors.
+
 ## 2026-10-03 — Admin Activity Log Revert feature
 
 - **Done:** Added "Revert" functionality to Admin Activity Logs (`/admin/audit-logs`).

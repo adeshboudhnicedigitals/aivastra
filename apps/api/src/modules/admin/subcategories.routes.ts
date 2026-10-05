@@ -449,9 +449,10 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         items: await Promise.all(
           ordered.map(async (p) => {
             const cfg = configMap.get(p.id) ?? null;
-            // Effective active state for this garment type: the per-type override
-            // wins when set, otherwise fall back to the pose asset's global flag.
-            const isActive = cfg?.isActive ?? p.globalIsActive;
+            // Effective active state for this garment type: a pose is only active
+            // for this garment type if explicitly mapped (isActive: true).
+            // Unmapped poses (no config row, or isActive != true) are inactive.
+            const isActive = cfg?.isActive === true;
             return {
               ...p,
               isActive,
@@ -735,11 +736,9 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           const cfg = configMap.get(g.id) ?? null;
           return {
             ...g,
-            // Effective visibility mirrors the sibling GET: a per-type override wins
-            // when set, otherwise fall back to the pose's own global flag — every
-            // garment type of this gender shows the pose by default
-            // (pose_garment_configs is an opt-OUT override, not a whitelist).
-            isActive: cfg?.isActive ?? pose.globalIsActive,
+            // Effective visibility mirrors the sibling GET: a pose is only active
+            // for this garment type if explicitly mapped (isActive: true).
+            isActive: cfg?.isActive === true,
             config: cfg
               ? {
                   workflowTemplateId: cfg.workflowTemplateId,
