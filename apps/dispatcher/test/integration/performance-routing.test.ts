@@ -139,16 +139,29 @@ describe('atomic performance ordering', () => {
     );
     expect((await claim())?.[0]).toBe('C');
   });
-  it('OFF and OBSERVE claim identically while preferred differs', async () => {
+  it.each([
+    ['A', 'B', 'C'],
+    ['C', 'B', 'A'],
+    ['B', 'A', 'C'],
+  ])('OFF and OBSERVE claim identically while preferred differs in order %s %s %s', async (a, b, c) => {
+    await workers([a, b, c]);
+    const fields = Object.keys(await redis.hgetall(registry));
+    const winnerIndex = fields.findIndex((id) => id !== 'A');
+    // Redis hash order is unspecified; make round-robin differ from the scored preference.
+    const initialCursor = (winnerIndex + fields.length - 1) % fields.length;
+    await redis.set(cursor, String(initialCursor));
     await redis.hset(`perf:score:${key}`, { A: 50, B: 300, C: 400 });
     await config('off');
     const off = await claim();
-    await workers();
+    expect(off?.[0]).toBe(fields[winnerIndex]);
+    await workers([a, b, c]);
+    await redis.set(cursor, String(initialCursor));
     await config('observe');
     await redis.set('worker:probe-backoff:B', '1', 'PX', 20_000);
     const observe = await claim();
     expect(observe?.[0]).toBe(off?.[0]);
     expect(observe?.[3]).toBe('A');
+    expect(observe?.[0]).not.toBe(observe?.[3]);
     expect(await redis.hget(registry, 'A')).toContain('IDLE');
   });
   it('optional candidate scanning cannot break a round-robin claim on later malformed registry data', async () => {

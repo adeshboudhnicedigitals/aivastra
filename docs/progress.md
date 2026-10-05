@@ -2,6 +2,12 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-05 — Performance routing parity fixture follows Redis hash order
+
+- **Done:** corrected the OFF/OBSERVE integration fixture that blocked promotion PR #476. The cursor is derived from actual Redis hash order so round-robin deliberately selects a worker other than scored preference A. Three insertion orders verify identical OFF/OBSERVE claims, a different hypothetical preference, and A remaining IDLE. No routing implementation changed.
+- **Validation:** focused performance-routing, selector-skip-log-context and selector-queue-gate integration suites: 3 files passed, 39 tests passed (589ms). Dispatcher `tsc --noEmit` passed. `pnpm lint` passed: 1212 files checked, 754 warnings, 13 infos, no errors. `git diff --check` passed. First integration attempt was blocked by sandbox localhost EPERM; authorized rerun passed. An attempted Prettier check failed because Prettier is not installed; repository Biome lint passed instead.
+- **Open / not done:** changes remain uncommitted; promotion CI has not been rerun and main has not been promoted or deployed. Full dispatcher integration and unit suites were not rerun for this test-only change. Unrelated untracked files untouched.
+
 ## 2026-10-05 — Selector skip logs carry job context
 
 - **Done:** logging-only work on `fix/selector-skip-log-context` from refreshed `dev` (`ae13e002`). All eight selectors receive existing job ID/logger. Skip logs retain their message and add pool, attempt, reason, readable queue count, probe duration and effective mode. Null returns log ordered skipped IDs/reasons. Module logger remains the fallback; release/backoff diagnostics use the provided logger.
