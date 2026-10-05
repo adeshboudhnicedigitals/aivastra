@@ -2,6 +2,13 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-05 — Selector skip logs carry job context
+
+- **Done:** logging-only work on `fix/selector-skip-log-context` from refreshed `dev` (`ae13e002`). All eight selectors receive existing job ID/logger. Skip logs retain their message and add pool, attempt, reason, readable queue count, probe duration and effective mode. Null returns log ordered skipped IDs/reasons. Module logger remains the fallback; release/backoff diagnostics use the provided logger.
+- **Validation:** 10 new units and 41 focused selector/performance/queue-gate integrations passed; captured payloads contain no API-key or URL values. Lua and claimed-worker construction verified byte-for-byte unchanged. Workspace/dispatcher typechecks passed; lint passed with 754 warnings and 13 infos. Initial full units: 197 passed, one stale three-argument source assertion failed; user-approved context-regex update resolved it, and rerun passed all 198 tests. Full integration: 170 passed in 36 files (325.94s); exact output in the [report](superpowers/reports/2026-10-05-selector-skip-log-context.md).
+- **Done / approved exception:** updated only that caller regex to require context at all eight sites, leaving behavioral tests untouched. Existing worker-claimed logs have no selector skip-count channel; optional successful-claim enrichment omitted to preserve return/interface behavior and avoid duplicates.
+- **Failed-Not-Done:** no commit, push, PR, deployment, production data/worker/config calls, manual mode changes, metrics-label/routing/scoring/backoff changes, or API test rerun. Review patch/report prepared for delivery only to VPS `/tmp/`; full integration and units are green; the initial source-guard failure and authorized correction are reported.
+
 ## 2026-10-03 — Admin Activity Log Revert feature
 
 - **Done:** Added "Revert" functionality to Admin Activity Logs (`/admin/audit-logs`).

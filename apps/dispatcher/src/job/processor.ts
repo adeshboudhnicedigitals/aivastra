@@ -644,7 +644,10 @@ export async function processJob(
   // 3. Claim a worker
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const performanceKey = tmplRoles ? getPerformanceKey(tmplRoles) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey);
+  const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey, {
+    jobId,
+    log: jobLog,
+  });
   if (!worker) {
     // Released held jobs (queuedAt set) can legitimately wait far longer than
     // MAX_QUEUE_WAIT_MS measured from createdAt would allow — createdAt is
@@ -1205,7 +1208,10 @@ async function processTryonDirectJob(
   }
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.TRYON, performanceKey);
+  const worker = await selectWorker(redis, WORKER_POOL.TRYON, performanceKey, {
+    jobId,
+    log: jobLog,
+  });
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle tryon worker — job exceeded max queue wait, terminating with refund');
@@ -1477,7 +1483,10 @@ async function processRegenerateJob(
 
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.TRYON, performanceKey);
+  const worker = await selectWorker(redis, WORKER_POOL.TRYON, performanceKey, {
+    jobId,
+    log: jobLog,
+  });
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
@@ -1866,7 +1875,10 @@ async function processSareeMannequinJob(
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
 
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey);
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey, {
+    jobId,
+    log: jobLog,
+  });
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — mannequin job exceeded max queue wait, terminating');
@@ -2149,7 +2161,10 @@ async function processSareeJob(
   // Saree jobs route to workers with 'saree' in their allowedJobTypes. Workers
   // self-declare this in the workers table (admin can edit from the Workers page).
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey);
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey, {
+    jobId,
+    log: jobLog,
+  });
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — job exceeded max queue wait, terminating with refund');
@@ -2544,7 +2559,10 @@ async function processWidgetJob(
   // main studio flow and Shopify jobs use, via selectWorker. See processShopifyJob for
   // the precedent this mirrors.
   const performanceKey = templateRow ? getPerformanceKey(templateRow) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.MERCHANT, performanceKey);
+  const worker = await selectWorker(redis, WORKER_POOL.MERCHANT, performanceKey, {
+    jobId,
+    log: jobLog,
+  });
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
@@ -2884,7 +2902,10 @@ async function processShopifyJob(
   // must configure at least one such worker (or one with an empty allowedJobTypes,
   // i.e. "accepts any") for these jobs to ever be picked up — see selectWorker.
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.SHOPIFY, performanceKey);
+  const worker = await selectWorker(redis, WORKER_POOL.SHOPIFY, performanceKey, {
+    jobId,
+    log: jobLog,
+  });
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(

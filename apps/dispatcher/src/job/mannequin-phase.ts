@@ -100,7 +100,10 @@ export async function runMannequinPhase(
     personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
   }
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey);
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey, {
+    jobId,
+    log: jobLog,
+  });
   if (!worker) return { status: 'no_worker' };
   const w = worker;
 
