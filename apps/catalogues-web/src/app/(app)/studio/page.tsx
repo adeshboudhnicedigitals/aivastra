@@ -698,7 +698,7 @@ export default function StudioPage(): React.ReactElement {
   const shoeVisibleCount = categoryVisibleCount;
   const [modelModalOpen, setModelModalOpen] = useState(false);
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
-  const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | ''>('');
+  const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | string>('');
   const [backgroundTagFilter, setBackgroundTagFilter] = useState<string>('');
   const [modelTagFilter, setModelTagFilter] = useState<string>('');
   const [modelContinentFilter, setModelContinentFilter] = useState<string>('');
@@ -1059,10 +1059,6 @@ export default function StudioPage(): React.ReactElement {
   }, [backgrounds]);
   // Curated backgrounds — shuffled on every load so the row doesn't go stale.
   const shuffledBackgrounds = useMemo(() => shuffle(backgrounds?.items ?? []), [backgrounds]);
-  // Uploaded ("My") backgrounds are also shuffled per load, but stay ahead of the
-  // curated group as a whole — newest-first only in the sense that the upload group
-  // itself leads the row; within that group the order is randomized each refresh.
-  const shuffledMyBackgrounds = useMemo(() => shuffle(myBackgrounds?.items ?? []), [myBackgrounds]);
   const faceTags = useMemo(() => {
     const set = new Set<string>();
     for (const f of faces?.items ?? []) for (const t of f.tags ?? []) set.add(t);
@@ -3440,7 +3436,6 @@ export default function StudioPage(): React.ReactElement {
                           selected={faceId === f.id}
                           onClick={() => handleFaceSelect(f.id)}
                           imageUrl={f.thumbnailUrl}
-                          label={f.label}
                           w="100%"
                           ratio={215.2 / 212.67}
                         />
@@ -3617,6 +3612,7 @@ export default function StudioPage(): React.ReactElement {
                               selected={selectedLookIds.includes(look.id)}
                               onClick={() => handleLookToggle(look.id)}
                               imageUrl={look.poseThumbnailUrl}
+                              label={look.poseLabel}
                               w="100%"
                               ratio={3 / 4}
                               imageObjectPosition="top center"
@@ -3673,6 +3669,7 @@ export default function StudioPage(): React.ReactElement {
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
+                        justifyContent: 'center',
                         cursor: 'pointer',
                         color: C.text,
                         textAlign: 'center',
@@ -3688,8 +3685,10 @@ export default function StudioPage(): React.ReactElement {
                           borderRadius: 10,
                           border: `1.5px dashed ${C.border}`,
                           display: 'flex',
+                          flexDirection: 'column',
                           alignItems: 'center',
                           justifyContent: 'center',
+                          gap: 8,
                           boxSizing: 'border-box',
                         }}
                       >
@@ -3707,87 +3706,88 @@ export default function StudioPage(): React.ReactElement {
                         >
                           <ImagePlusIcon size={18} />
                         </span>
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          padding: '8px 4px 6px',
-                          width: '100%',
-                        }}
-                      >
-                        Add background
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: C.text,
+                          }}
+                        >
+                          Add background
+                        </span>
                       </span>
                     </button>
-                    {shuffledMyBackgrounds.map((b) => (
-                      <div key={b.id} style={{ position: 'relative' }}>
-                        <SelCard
-                          selected={backgroundId === b.id}
-                          onClick={() => handleBackgroundSelect(b.id)}
-                          imageUrl={b.thumbnailUrl}
-                          label={b.label}
-                          w="100%"
-                          ratio={215.2 / 212.67}
-                        />
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteMyBackground(b.id);
-                          }}
-                          style={{
-                            position: 'absolute',
-                            top: 4,
-                            right: 4,
-                            width: 22,
-                            height: 22,
-                            borderRadius: '50%',
-                            border: 'none',
-                            background: 'rgba(0,0,0,0.55)',
-                            color: C.white,
-                            cursor: 'pointer',
-                            fontSize: 12,
-                            lineHeight: 1,
-                          }}
-                          aria-label={`Delete ${b.label}`}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                    {backgrounds &&
-                      !backgroundsError &&
-                      (() => {
-                        const frontIds = new Set(
-                          backgrounds.items.filter((b) => b.specialTag).map((b) => b.id),
-                        );
-                        const allItems = [...shuffledBackgrounds].sort(
-                          (a, b) => (frontIds.has(a.id) ? 0 : 1) - (frontIds.has(b.id) ? 0 : 1),
-                        );
-                        const rowCapacity = Math.max(
-                          0,
-                          backgroundVisibleCount - 1 - (myBackgrounds?.items.length ?? 0),
-                        );
-                        const firstN = allItems.slice(0, rowCapacity);
-                        const inFirstN = firstN.some((b) => b.id === backgroundId);
-                        const selected = allItems.find((b) => b.id === backgroundId);
-                        const visibleItems =
-                          selected && !inFirstN
-                            ? [selected, ...firstN].slice(0, rowCapacity)
-                            : firstN;
-                        return visibleItems.map((b) => (
+                    {(() => {
+                      const myItems = (myBackgrounds?.items ?? []).map((b) => ({
+                        id: b.id,
+                        thumbnailUrl: b.thumbnailUrl,
+                        isCustom: true,
+                        specialTag: null as 'featured' | 'trending' | 'popular' | null | undefined,
+                      }));
+                      const frontIds = new Set(
+                        backgrounds?.items?.filter((b) => b.specialTag).map((b) => b.id) ?? [],
+                      );
+                      const presetItems = (
+                        backgrounds && !backgroundsError
+                          ? [...shuffledBackgrounds].sort(
+                              (a, b) => (frontIds.has(a.id) ? 0 : 1) - (frontIds.has(b.id) ? 0 : 1),
+                            )
+                          : []
+                      ).map((b) => ({
+                        id: b.id,
+                        thumbnailUrl: b.thumbnailUrl,
+                        isCustom: false,
+                        specialTag: b.specialTag,
+                      }));
+                      const allBackgrounds = [...myItems, ...presetItems];
+                      const capacity = Math.max(1, backgroundVisibleCount - 1);
+                      const selectedBg = allBackgrounds.find((b) => b.id === backgroundId);
+                      const visibleBackgrounds = selectedBg
+                        ? [
+                            selectedBg,
+                            ...allBackgrounds.filter((b) => b.id !== backgroundId),
+                          ].slice(0, capacity)
+                        : allBackgrounds.slice(0, capacity);
+
+                      return visibleBackgrounds.map((b) => (
+                        <div key={b.id} style={{ position: 'relative' }}>
                           <SelCard
-                            key={b.id}
                             selected={backgroundId === b.id}
                             onClick={() => handleBackgroundSelect(b.id)}
                             imageUrl={b.thumbnailUrl}
-                            label={b.label}
                             w="100%"
                             ratio={215.2 / 212.67}
-                            badges={<TagBadge tag={b.specialTag} />}
+                            badges={b.specialTag ? <TagBadge tag={b.specialTag} /> : undefined}
                           />
-                        ));
-                      })()}
+                          {b.isCustom && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteMyBackground(b.id);
+                              }}
+                              style={{
+                                position: 'absolute',
+                                top: 4,
+                                right: 4,
+                                width: 22,
+                                height: 22,
+                                borderRadius: '50%',
+                                border: 'none',
+                                background: 'rgba(0,0,0,0.55)',
+                                color: C.white,
+                                cursor: 'pointer',
+                                fontSize: 12,
+                                lineHeight: 1,
+                              }}
+                              aria-label="Delete custom background"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ));
+                    })()}
                   </div>
                   {uploadModalOpen && (
                     // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
@@ -3961,19 +3961,31 @@ export default function StudioPage(): React.ReactElement {
                   ) : null}
                   {backgroundModalOpen &&
                     (() => {
+                      const myCustomItems = (myBackgrounds?.items ?? []).map((b) => ({
+                        id: b.id,
+                        label: b.label,
+                        thumbnailUrl: b.thumbnailUrl,
+                        previewUrl: b.thumbnailUrl,
+                        isWhiteBg: false,
+                        categoryId: null,
+                        tags: [] as string[],
+                        specialTag: null as 'featured' | 'trending' | 'popular' | null,
+                      }));
                       const byCategory =
-                        backgroundItemFilter === ''
-                          ? bgNodes.flatMap(flattenNode)
-                          : flattenNode(
-                              bgNodes.find((n) => n.id === backgroundItemFilter) ?? {
-                                id: 0,
-                                slug: '',
-                                label: '',
-                                thumbnailUrl: null,
-                                children: [],
-                                items: [],
-                              },
-                            );
+                        backgroundItemFilter === 'my_uploads'
+                          ? myCustomItems
+                          : backgroundItemFilter === ''
+                            ? [...myCustomItems, ...bgNodes.flatMap(flattenNode)]
+                            : flattenNode(
+                                bgNodes.find((n) => n.id === backgroundItemFilter) ?? {
+                                  id: 0,
+                                  slug: '',
+                                  label: '',
+                                  thumbnailUrl: null,
+                                  children: [],
+                                  items: [],
+                                },
+                              );
                       const filteredItems =
                         backgroundTagFilter === ''
                           ? byCategory
@@ -4059,6 +4071,15 @@ export default function StudioPage(): React.ReactElement {
                               >
                                 All
                               </button>
+                              {myBackgrounds?.items && myBackgrounds.items.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setBackgroundItemFilter('my_uploads')}
+                                  style={pill(backgroundItemFilter === 'my_uploads')}
+                                >
+                                  My Uploads
+                                </button>
+                              )}
                               {bgNodes.map((node) => (
                                 <button
                                   type="button"
@@ -4353,14 +4374,9 @@ export default function StudioPage(): React.ReactElement {
                             selected={poseIds.includes(p.id)}
                             onClick={() => handlePoseSelect(p.id)}
                             imageUrl={p.thumbnailUrl}
+                            label={p.label}
                             w="100%"
-                            // No label shown, but the image still fills the same total
-                            // card height other sections get from image + label row
-                            // (~28px) combined - so pose cards stay the same height as
-                            // the rest of the grid without leaving blank space below.
                             ratio={3 / 4}
-                            // Center-crop was cutting off heads/hair on portrait pose
-                            // shots - anchor the crop to the top instead.
                             imageObjectPosition="top"
                           />
                         ));
@@ -4373,7 +4389,6 @@ export default function StudioPage(): React.ReactElement {
                       items={poses.items}
                       selectedIds={poseIds}
                       multiSelect
-                      hideLabels
                       aspect={3 / 4}
                       columns={5}
                       onSelect={(id) => handlePoseSelect(id)}
@@ -5636,10 +5651,10 @@ export default function StudioPage(): React.ReactElement {
                 />
                 <div>
                   <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
-                    {whiteBg.label}
+                    White background
                   </span>
                   <span style={{ fontSize: 11, color: C.light, display: 'block', marginTop: 2 }}>
-                    White background will replace original
+                    Replaces original background
                   </span>
                 </div>
               </div>

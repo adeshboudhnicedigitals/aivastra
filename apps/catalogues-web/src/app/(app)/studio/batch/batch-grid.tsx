@@ -129,7 +129,6 @@ function ApplyAllToolbar({
           multiSelect
           selectedIds={selectedPoseIds}
           continueLabel="Apply to all rows"
-          hideLabels
           aspect={3 / 4}
           columns={6}
           onSelect={(id) =>

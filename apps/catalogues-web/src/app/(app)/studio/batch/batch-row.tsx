@@ -538,7 +538,6 @@ export function BatchRow({
           multiSelect
           selectedIds={row.poseIds}
           continueLabel="Done"
-          hideLabels
           aspect={3 / 4}
           columns={6}
           onSelect={(id) =>

@@ -984,6 +984,7 @@ export function EmbedStudioWizard() {
                   selected={poseIds.includes(p.id)}
                   onClick={() => togglePose(p.id)}
                   imageUrl={p.thumbnailUrl}
+                  label={p.label}
                   w={100}
                   h={130}
                 />
@@ -1153,7 +1154,6 @@ export function EmbedStudioWizard() {
           items={poses}
           selectedIds={poseIds}
           multiSelect
-          hideLabels
           continueLabel="Use {count} pose(s)"
           onSelect={togglePose}
           onClose={() => setPoseModalOpen(false)}
