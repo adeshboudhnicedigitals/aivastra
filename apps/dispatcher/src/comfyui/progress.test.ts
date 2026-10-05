@@ -32,7 +32,7 @@ const response = (body: unknown, ok = true) => ({
   text: async () => 'mock error',
 });
 
-function wait(timeoutMs = 300_000) {
+function wait(timeoutMs = 300_000, totalNodeCount = 0) {
   return waitForCompletion(
     'http://local.test',
     'test-key',
@@ -43,6 +43,7 @@ function wait(timeoutMs = 300_000) {
     log,
     cancel,
     { comfyRedis: { get } as unknown as Redis, workerId: 'w' },
+    totalNodeCount,
   );
 }
 async function settle<T>(promise: Promise<T>, advanceMs = 1_000_000) {
@@ -598,8 +599,18 @@ describe('typed caller enforcement', () => {
       const source = readFileSync(new URL(`../job/${file}.ts`, import.meta.url), 'utf8');
       expect(source).not.toMatch(/^\s*await waitForCompletion\(/m);
       const sites =
-        source.match(/const completion = await waitForCompletion\([\s\S]*?fetchHistory\(/g) ?? [];
-      expect(sites.length).toBeGreaterThan(0);
+        source.match(
+          /const completion = await (?:waitForCompletion|observeCompletion)\([\s\S]*?fetchHistory\(/g,
+        ) ?? [];
+      expect(sites).toHaveLength(file === 'processor' ? 7 : 1);
+      expect(source.match(/settlePerformanceSample\(w, 'success'\)/g)).toHaveLength(
+        file === 'processor' ? 7 : 1,
+      );
+      expect(
+        source.match(
+          /selectWorker\(redis, WORKER_POOL\.\w+, performanceKey, \{\s*jobId,\s*log: jobLog,?\s*\}\)/g,
+        ),
+      ).toHaveLength(file === 'processor' ? 7 : 1);
       for (const site of sites)
         expect(site).toMatch(
           file === 'processor'
@@ -607,5 +618,62 @@ describe('typed caller enforcement', () => {
             : /switch \(completion.status\)[\s\S]*?cleanup_failed[\s\S]*?assertNever/,
         );
     }
+  });
+});
+
+describe('completion timing at every return point', () => {
+  const timed = {
+    ours: {
+      outputs: { '1': {} },
+      status: {
+        messages: [
+          ['execution_start', { timestamp: 1000 }],
+          ['execution_cached', { nodes: ['1'] }],
+          ['execution_success', { timestamp: 4000 }],
+        ],
+      },
+    },
+  };
+  it.each(['normal', 'reconcile', 'final'] as const)('%s returns worker timing', async (point) => {
+    enable();
+    let reads = 0;
+    if (point !== 'normal') {
+      store.set(
+        COMFY_TIMEOUT_CONFIG_KEY,
+        JSON.stringify({ maxQueueWaitMs: 1, queueStateUnknownGraceMs: 1 }),
+      );
+      queue = () => 'absent';
+    }
+    history = () =>
+      ++reads >= (point === 'normal' ? 1 : point === 'reconcile' ? 2 : 4) ? timed : {};
+    const result = await settle(wait(300_000, 5));
+    expect(result.error).toBeUndefined();
+    expect(reads).toBe(point === 'normal' ? 1 : point === 'reconcile' ? 2 : 4);
+    expect(calls.filter((call) => call.path === '/queue')).toHaveLength(point === 'final' ? 2 : 0);
+    expect(result.value).toEqual({
+      status: 'completed',
+      executionTiming: {
+        executionStartMs: 1000,
+        executionSuccessMs: 4000,
+        cachedNodeCount: 1,
+        totalNodeCount: 5,
+      },
+    });
+  });
+  it.each(['normal', 'reconcile', 'final'] as const)('%s omits missing timing', async (point) => {
+    enable();
+    let reads = 0;
+    if (point !== 'normal') {
+      store.set(
+        COMFY_TIMEOUT_CONFIG_KEY,
+        JSON.stringify({ maxQueueWaitMs: 1, queueStateUnknownGraceMs: 1 }),
+      );
+      queue = () => 'absent';
+    }
+    history = () =>
+      ++reads >= (point === 'normal' ? 1 : point === 'reconcile' ? 2 : 4) ? outputs : {};
+    expect((await settle(wait())).value).toEqual({ status: 'completed' });
+    expect(reads).toBe(point === 'normal' ? 1 : point === 'reconcile' ? 2 : 4);
+    expect(calls.filter((call) => call.path === '/queue')).toHaveLength(point === 'final' ? 2 : 0);
   });
 });

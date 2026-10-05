@@ -12,12 +12,12 @@ import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-o
 import type { FastifyInstance } from 'fastify';
 import {
   DEFAULT_MERCHANT_CATALOG_RESOLUTION,
-  DEFAULT_PIXVERSE_VIDEO_PRICING,
   DEFAULT_RESOLUTION_CONFIG,
   DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG,
   DEFAULT_SELLER_CONFIG,
   DEFAULT_SHOPIFY_TRIAL_CONFIG,
   DEFAULT_TRYON_CONFIG,
+  resolvePixverseVideoPricing,
 } from '../../lib/resolution-config.js';
 import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
 import { CREDIT_PACKS } from '../shopify/packs.js';
@@ -88,14 +88,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     // qualityBase is a Zod `.partial()` on PATCH, so a stored config can be
     // missing tiers — merge per-key (not `??`) so GET stays consistent with
     // what getPixverseVideoCreditCost() actually resolves for a missing tier.
-    cfg.pixverseVideoPricing = {
-      perSecondRate:
-        cfg.pixverseVideoPricing?.perSecondRate ?? DEFAULT_PIXVERSE_VIDEO_PRICING.perSecondRate,
-      qualityBase: {
-        ...DEFAULT_PIXVERSE_VIDEO_PRICING.qualityBase,
-        ...cfg.pixverseVideoPricing?.qualityBase,
-      },
-    };
+    cfg.pixverseVideoPricing = resolvePixverseVideoPricing(cfg.pixverseVideoPricing);
     cfg.shopify = {
       trialCredits: cfg.shopify?.trialCredits ?? DEFAULT_SHOPIFY_TRIAL_CONFIG.trialCredits,
       packCredits: Object.fromEntries(

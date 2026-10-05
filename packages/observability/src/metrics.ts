@@ -253,3 +253,27 @@ export const comfyDeleteFailures = new Counter({
   labelNames: ['workerId'] as const,
   registers: [register],
 });
+
+export const perfSamples = new Counter({
+  name: 'dispatcher_perf_samples_total',
+  help: 'Performance samples accepted or skipped',
+  labelNames: ['outcome', 'reason'] as const,
+  registers: [register],
+});
+export const perfCachedSkips = new Counter({
+  name: 'dispatcher_perf_cached_skips_total',
+  help: 'Cached performance samples excluded from EWMA',
+  registers: [register],
+});
+export const perfProbeBackoff = new Counter({
+  name: 'dispatcher_perf_probe_backoff_total',
+  help: 'ACTIVE probe backoff events',
+  labelNames: ['pool'] as const,
+  registers: [register],
+});
+export const perfSelectionMode = new Counter({
+  name: 'dispatcher_perf_selections_total',
+  help: 'Worker claims by routing mode',
+  labelNames: ['mode', 'pool'] as const,
+  registers: [register],
+});

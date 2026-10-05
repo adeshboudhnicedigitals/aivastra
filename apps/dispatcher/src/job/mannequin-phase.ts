@@ -15,6 +15,12 @@ import {
   uploadImageToComfy,
 } from '../comfyui/client.js';
 import { assertNever, waitForCompletion } from '../comfyui/progress.js';
+import {
+  logSelection,
+  observeCompletion,
+  settlePerformanceSample,
+} from '../perf/observe-completion.js';
+import { performanceKey as getPerformanceKey } from '../perf/performance-key.js';
 import { releaseWorker } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 
@@ -67,6 +73,8 @@ export async function runMannequinPhase(
 
   const [template] = await db
     .select({
+      id: schema.workflowTemplates.id,
+      updatedAt: schema.workflowTemplates.updatedAt,
       jsonContent: schema.workflowTemplates.jsonContent,
       tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
       tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
@@ -91,7 +99,11 @@ export async function runMannequinPhase(
     if (!faceRow) throw new Error('MANNEQUIN_NO_FACE_IMAGE');
     personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
   }
-  const worker = await selectWorker(redis, WORKER_POOL.SAREE);
+  const performanceKey = template ? getPerformanceKey(template) : undefined;
+  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey, {
+    jobId,
+    log: jobLog,
+  });
   if (!worker) return { status: 'no_worker' };
   const w = worker;
 
@@ -143,20 +155,31 @@ export async function runMannequinPhase(
         prompt: workflow,
       },
     });
-    const completion = await waitForCompletion(
-      w.url,
-      w.apiKey,
-      clientUuid,
-      promptId,
-      300_000,
-      (update) => jobLog.debug(update, 'comfyui progress'),
-      {
-        info: jobLog.info.bind(jobLog),
-        debug: jobLog.debug.bind(jobLog),
-        error: jobLog.error.bind(jobLog),
-      },
-      undefined,
-      { comfyRedis: cfg.comfyRedis, workerId: w.id },
+    logSelection(cfg.comfyRedis, w, WORKER_POOL.SAREE, performanceKey ?? '', jobLog);
+    const completion = await observeCompletion(
+      cfg.comfyRedis,
+      w,
+      WORKER_POOL.SAREE,
+      performanceKey ?? '',
+      workflow,
+      jobLog,
+      (totalNodeCount) =>
+        waitForCompletion(
+          w.url,
+          w.apiKey,
+          clientUuid,
+          promptId,
+          300_000,
+          (update) => jobLog.debug(update, 'comfyui progress'),
+          {
+            info: jobLog.info.bind(jobLog),
+            debug: jobLog.debug.bind(jobLog),
+            error: jobLog.error.bind(jobLog),
+          },
+          undefined,
+          { comfyRedis: cfg.comfyRedis, workerId: w.id },
+          totalNodeCount,
+        ),
     );
     switch (completion.status) {
       case 'completed':
@@ -188,8 +211,12 @@ export async function runMannequinPhase(
         ContentType: 'image/png',
       }),
     );
+    settlePerformanceSample(w, 'success');
     jobLog.info({ intermediateKey }, 'mannequin phase complete');
     return { status: 'completed', key: intermediateKey };
+  } catch (err) {
+    settlePerformanceSample(w, 'workflow_failure');
+    throw err;
   } finally {
     await releaseWorker(redis, w.id, jobLog);
   }

@@ -322,8 +322,11 @@ export async function patchWorkflow(
   db: DB,
   log?: PatchLog,
   snapshotVersion?: number | null,
+  resolvedTemplate?: typeof schema.workflowTemplates.$inferSelect,
 ): Promise<PatchedWorkflow> {
-  const tmpl = await loadWorkflow(db, inputs.workflowTemplateId, snapshotVersion);
+  // Reuse the dispatch snapshot so an edit during uploads cannot contaminate its performance key.
+  const tmpl =
+    resolvedTemplate ?? (await loadWorkflow(db, inputs.workflowTemplateId, snapshotVersion));
   const workflow = structuredClone(tmpl.jsonContent) as Workflow;
   const prompt = applyWorkflowPatch(workflow, tmpl, inputs, log);
   return { prompt, resultNodeId: tmpl.resultNodeId };

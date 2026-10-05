@@ -9,18 +9,19 @@ import {
 
 describe('computePixverseVideoCost', () => {
   const config: PixverseVideoPricingConfig = {
-    perSecondRate: 10,
+    perSecondRate: { '360p': 2, '540p': 4, '720p': 10, '1080p': 20 },
     qualityBase: { '360p': 20, '540p': 40, '720p': 60, '1080p': 100 },
   };
 
-  it('adds quality base to duration * per-second rate', () => {
+  it("adds quality base to duration * that quality's per-second rate", () => {
     expect(computePixverseVideoCost(5, '720p', config)).toBe(60 + 5 * 10);
-    expect(computePixverseVideoCost(15, '1080p', config)).toBe(100 + 15 * 10);
+    expect(computePixverseVideoCost(15, '1080p', config)).toBe(100 + 15 * 20);
+    expect(computePixverseVideoCost(5, '360p', config)).toBe(20 + 5 * 2);
   });
 
   it('rounds fractional totals up', () => {
     const fractional: PixverseVideoPricingConfig = {
-      perSecondRate: 0.5,
+      perSecondRate: { '360p': 0.5, '540p': 0.5, '720p': 0.5, '1080p': 0.5 },
       qualityBase: { '360p': 1, '540p': 1, '720p': 1, '1080p': 1 },
     };
     // 1 + 3 * 0.5 = 2.5 -> 3
@@ -29,20 +30,20 @@ describe('computePixverseVideoCost', () => {
 
   it('floors the result at 1 credit even if the formula computes to 0 or less', () => {
     const zeroed: PixverseVideoPricingConfig = {
-      perSecondRate: 0,
+      perSecondRate: { '360p': 0, '540p': 0, '720p': 0, '1080p': 0 },
       qualityBase: { '360p': 0, '540p': 0, '720p': 0, '1080p': 0 },
     };
     expect(computePixverseVideoCost(1, '360p', zeroed)).toBe(1);
   });
 
   it('duration=1 and duration=15 (API boundary values) both compute correctly', () => {
-    expect(computePixverseVideoCost(1, '540p', config)).toBe(40 + 1 * 10);
-    expect(computePixverseVideoCost(15, '540p', config)).toBe(40 + 15 * 10);
+    expect(computePixverseVideoCost(1, '540p', config)).toBe(40 + 1 * 4);
+    expect(computePixverseVideoCost(15, '540p', config)).toBe(40 + 15 * 4);
   });
 
   it('falls back to 1 credit instead of NaN when qualityBase is missing the requested tier', () => {
     const malformed: PixverseVideoPricingConfig = {
-      perSecondRate: 0,
+      perSecondRate: { '360p': 0, '540p': 0, '720p': 0, '1080p': 0 },
       qualityBase: {} as PixverseVideoPricingConfig['qualityBase'],
     };
     expect(computePixverseVideoCost(8, '720p', malformed)).toBe(1);

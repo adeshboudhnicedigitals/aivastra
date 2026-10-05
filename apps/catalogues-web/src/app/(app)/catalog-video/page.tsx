@@ -24,7 +24,6 @@ interface ActiveSubmission {
   jobId: string;
   source: ImageSource;
   presetTitle: string;
-  prompt: string;
   duration: number;
   quality: PixverseQuality;
   creditCost: number;
@@ -109,7 +108,6 @@ export default function CatalogVideoPage(): React.ReactElement {
     duration: number;
     quality: PixverseQuality;
     presetTitle: string;
-    prompt: string;
     creditCost: number;
   }) {
     if (!source || submitting) return;
@@ -137,7 +135,6 @@ export default function CatalogVideoPage(): React.ReactElement {
         jobId,
         source,
         presetTitle: choice.presetTitle,
-        prompt: choice.prompt,
         duration: choice.duration,
         quality: choice.quality,
         creditCost: choice.creditCost,
@@ -243,7 +240,6 @@ export default function CatalogVideoPage(): React.ReactElement {
                 jobId={activeSubmission.jobId}
                 source={activeSubmission.source}
                 presetTitle={activeSubmission.presetTitle}
-                prompt={activeSubmission.prompt}
                 duration={activeSubmission.duration}
                 quality={activeSubmission.quality}
                 creditCost={activeSubmission.creditCost}

@@ -18,6 +18,13 @@ export function AssetThumb({
   cursor?: string;
 }) {
   const [broken, setBroken] = useState(false);
+  const [prevUrl, setPrevUrl] = useState(thumbnailUrl);
+
+  if (prevUrl !== thumbnailUrl) {
+    setPrevUrl(thumbnailUrl);
+    setBroken(false);
+  }
+
   const src = thumbnailUrl && !broken ? thumbnailUrl : null;
   if (src) {
     const img = (
