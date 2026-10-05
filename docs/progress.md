@@ -24,6 +24,10 @@
     - Added "Sort order" number input to the "Edit category" drawer in `BackgroundsTab.tsx` and `CatalogTab.tsx`, persisting `sortOrder` via `PATCH /admin/catalog/categories/:id`.
     - Category cards on the backgrounds page now sort by `sortOrder` ascending and display their sort number (`slug: <slug> · sort: <sortOrder>`).
     - Removed the "Set White BG" / "White BG" button, thumbnail badge, and handler from background cards on `/admin/assets` (Backgrounds tab).
+  - Studio & Embed Pose Names Removal (`apps/catalogues-web`):
+    - Removed labels/names from poses and looks across the Studio page strip, template looks, Amazon listing main pose selector, and embed wizard.
+    - Added `hideLabels` prop to `SelectGridModal` for Choose Poses in Studio, Batch mode (`batch-row`, `batch-grid`), and embed wizard.
+    - Enhanced `SelCard` fixed height handling when `label` is omitted to fill entire card height without gaps.
   - Validation:
     - Integration tests in `test/integration/catalog.test.ts` (2/2) and `test/integration/catalogue-template-subcategories-admin.test.ts` (10/10) pass.
     - `@aivastra/types` built cleanly, `@aivastra/api` typecheck passed, `@aivastra/admin` `tsc -b` passed with 0 errors. Biome checks passed with 0 errors.

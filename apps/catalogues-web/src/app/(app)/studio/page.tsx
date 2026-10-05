@@ -3629,7 +3629,6 @@ export default function StudioPage(): React.ReactElement {
                               selected={selectedLookIds.includes(look.id)}
                               onClick={() => handleLookToggle(look.id)}
                               imageUrl={look.poseThumbnailUrl}
-                              label={look.poseLabel}
                               w="100%"
                               ratio={3 / 4}
                               imageObjectPosition="top center"
@@ -4391,7 +4390,6 @@ export default function StudioPage(): React.ReactElement {
                             selected={poseIds.includes(p.id)}
                             onClick={() => handlePoseSelect(p.id)}
                             imageUrl={p.thumbnailUrl}
-                            label={p.label}
                             w="100%"
                             ratio={3 / 4}
                             imageObjectPosition="top"
@@ -4408,6 +4406,7 @@ export default function StudioPage(): React.ReactElement {
                       multiSelect
                       aspect={3 / 4}
                       columns={5}
+                      hideLabels
                       onSelect={(id) => handlePoseSelect(id)}
                       onClose={() => setPoseModalOpen(false)}
                       continueLabel="Continue with {count} poses"
@@ -5694,7 +5693,6 @@ export default function StudioPage(): React.ReactElement {
                   selected={amazonMainPoseId === p.id}
                   onClick={() => setAmazonMainPoseId(p.id)}
                   imageUrl={p.thumbnailUrl}
-                  label={p.label}
                   w={152.57}
                   h={200}
                 />

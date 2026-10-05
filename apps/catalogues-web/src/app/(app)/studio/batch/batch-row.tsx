@@ -540,6 +540,7 @@ export function BatchRow({
           continueLabel="Done"
           aspect={3 / 4}
           columns={6}
+          hideLabels
           onSelect={(id) =>
             onSetPoses(
               row.poseIds.includes(id) ? row.poseIds.filter((p) => p !== id) : [...row.poseIds, id],

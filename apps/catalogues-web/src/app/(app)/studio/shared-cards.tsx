@@ -202,7 +202,7 @@ export function SelCard({
             width: '100%',
             aspectRatio: fluid && !fillHeight ? ratio : undefined,
             flex: fillHeight ? 1 : undefined,
-            height: fluid ? undefined : h - 30,
+            height: fluid ? undefined : !label || fillHeight ? h : h - 30,
             borderRadius: fillHeight || !label ? 10 : '10px 10px 0 0',
             overflow: 'hidden',
             position: 'relative',

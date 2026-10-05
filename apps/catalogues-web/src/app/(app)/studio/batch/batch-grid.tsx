@@ -131,6 +131,7 @@ function ApplyAllToolbar({
           continueLabel="Apply to all rows"
           aspect={3 / 4}
           columns={6}
+          hideLabels
           onSelect={(id) =>
             setSelectedPoseIds((prev) =>
               prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
