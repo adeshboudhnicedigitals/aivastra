@@ -2,6 +2,65 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-05 — Garment Type Lower & Footwear unmapping
+
+- **Done:** Implemented lower garment and footwear unmapping per garment type:
+  - Database schema: Reused existing `catalog_item_subcategories` join table without schema or migration changes.
+  - Types (`packages/types/src/admin.ts`): Added `mappedLowerCatalogItemIds` and `mappedShoeCatalogItemIds` to `PatchGarmentTypeBody`.
+  - Backend API (`apps/api/src/modules/admin/subcategories.routes.ts`):
+    - Added `GET /admin/assets/garment-types/:id/catalog-mappings`: returns `mappedLowerIds`, `hasExplicitLowerMappings`, `mappedShoeIds`, `hasExplicitShoeMappings`.
+    - Added `PUT /admin/assets/garment-types/:id/catalog-items/:catalogItemId`: enables single-item map/unmap toggle. When unmapping an item for a garment type that had no prior explicit mappings, auto-initializes the mapping set with all active same-gender items of that type minus the unmapped item.
+    - Updated `PATCH /admin/assets/garment-types/:id`: processes bulk `mappedLowerCatalogItemIds` and `mappedShoeCatalogItemIds`, syncs `catalog_item_subcategories` inside a transaction, auto-clears `defaultLowerCatalogId` or `defaultShoeCatalogId` if the current default was unmapped, and audits the update.
+  - Catalog Resolution (`apps/api/src/modules/catalog/routes.ts`):
+    - Updated `GET /v1/catalog/:type`: when `garmentTypeId` is provided and explicit mappings exist in `catalog_item_subcategories`, filters lower/shoe items to only those mapped (or the configured default). If no mappings are configured for that garment type, keeps all active same-gender items available (backward-compatible).
+  - Admin UI (`apps/admin-web/src/components/EditGarmentTypeModal.tsx` & `GarmentTypesTab.tsx`):
+    - Upgraded the "Default Lower Garment" and "Default Shoe" picker sections in the Edit Garment Type drawer:
+      - Item cards have individual Unmap/Map toggle buttons and dim unmapped items (45% opacity).
+      - Status filter pills (`All`, `Mapped (N)`, `Unmapped (N)`) allow filtering by mapping state alongside category filter pills.
+      - Multi-select bulk action toolbar provides "Select all visible", "Unmap selected (N)", "Map selected (N)", and "Clear".
+      - Section headers indicate count of unmapped items (e.g. `Default Lower Garment (3 unmapped)`).
+      - Refreshes catalog items in `GarmentTypesTab.tsx` on modal save so `subcategoryIds` stay up-to-date across all admin tabs.
+  - Admin UI Category Sorting & Backgrounds:
+    - Added "Sort order" number input to the "Edit category" drawer in `BackgroundsTab.tsx` and `CatalogTab.tsx`, persisting `sortOrder` via `PATCH /admin/catalog/categories/:id`.
+    - Category cards on the backgrounds page now sort by `sortOrder` ascending and display their sort number (`slug: <slug> · sort: <sortOrder>`).
+    - Removed the "Set White BG" / "White BG" button, thumbnail badge, and handler from background cards on `/admin/assets` (Backgrounds tab).
+  - Studio & Embed Pose Names Removal (`apps/catalogues-web`):
+    - Removed labels/names from poses and looks across the Studio page strip, template looks, Amazon listing main pose selector, and embed wizard.
+    - Added `hideLabels` prop to `SelectGridModal` for Choose Poses in Studio, Batch mode (`batch-row`, `batch-grid`), and embed wizard.
+    - Enhanced `SelCard` fixed height handling when `label` is omitted to fill entire card height without gaps.
+  - Validation:
+    - Integration tests in `test/integration/catalog.test.ts` (2/2) and `test/integration/catalogue-template-subcategories-admin.test.ts` (10/10) pass.
+    - `@aivastra/types` built cleanly, `@aivastra/api` typecheck passed, `@aivastra/admin` `tsc -b` passed with 0 errors. Biome checks passed with 0 errors.
+
+## 2026-10-05 — Opt-in pose garment type mapping (Option A) & Multi-Sort
+
+- **Done:** Implemented Option A for Garment Types pose management (`/admin/assets/garment-types`) and Multi-Sort:
+  - Backend:
+    - Updated `GET /admin/assets/garment-types/:id/pose-configs` to only return poses that are explicitly mapped/assigned to that garment type (`configMap.has(p.id)`), returning 0 poses if unmapped rather than dumping the whole gender pose catalog.
+    - Added `DELETE /admin/assets/garment-types/:id/pose-configs/:poseAssetId` endpoint to completely unmap/remove a pose configuration from a garment type.
+    - Added `PATCH /admin/assets/garment-types/:id/pose-configs/multi-sort` endpoint to reorder multiple selected poses to a target start position in dense 1..N order in a single transaction, leaving unselected poses shifted around them.
+    - Fixed single-pose sortOrder reindexing in `PATCH /admin/assets/garment-types/:id/pose-configs/:poseAssetId` to only reindex mapped poses, eliminating accidental materialization of unmapped poses.
+    - Removed legacy opt-out seed in `POST /admin/assets/garment-types` which previously pre-seeded all gender poses with `isActive: false`.
+    - Cleaned up test inactive configurations in local development database.
+  - Admin UI (`GarmentTypesTab.tsx`):
+    - Removed confusing "Assign poses (X unmapped)" / "Hide unmapped poses" toggle button.
+    - Custom look poses list now shows ONLY poses assigned to the garment type.
+    - Active poses display with Switch ON (100% opacity); disabled/toggled-off poses remain on this page with Switch OFF (dimmed at 55% opacity) so admins can easily re-enable them at any time.
+    - "Remove from [Garment]" calls `DELETE` to completely remove the mapping for that pose.
+    - Added "Bulk remove" action button.
+    - Added Multi-Sort feature: when 1 or more poses are selected, an `Order #` input and "Multi sort" button appear on the bulk toolbar, placing selected poses consecutively starting from the given position.
+    - Fixed stale pose flash and navigation lifecycle bug when clicking into garment types repeatedly (`setPoseConfigs([])` and `setConfigsLoading(true)` on garment selection).
+    - Clean empty state when no poses are assigned yet, guiding the user to the Pose Assets tab.
+  - Catalogues Web UI (`apps/catalogues-web`):
+    - Removed names/labels from Model Face selection cards on the Studio page (`apps/catalogues-web/src/app/(app)/studio/page.tsx`).
+    - Removed names/labels from Background selection cards (both user uploads and preset backgrounds) on the Studio page.
+    - Updated "Add background" button layout to center the icon and label inside the square tile so its height matches the label-less background cards.
+    - Replaced hardcoded background name in Amazon listing pose picker modal with generic description.
+    - Updated `SelCard` (`shared-cards.tsx`) to apply clean 10px rounded corners on all 4 borders when `label` is omitted.
+    - Fixed Backgrounds selection strip: unified custom uploads and preset backgrounds into a single bounded row (`capacity = backgroundVisibleCount - 1`). When any background is selected (custom, preset, or picked from "View All"), it always comes to the front (top position right next to "Add background") instead of getting blocked or pushed out by custom uploads.
+    - Added "My Uploads" filter pill and included user's custom backgrounds inside the "View All" backgrounds modal so all uploaded backgrounds remain accessible.
+- **Validation:** Integration tests updated and passing in `catalogue-template-subcategories-admin.test.ts` (9/9 passed, including multi-sort test); `models-poses-garment-roles.test.ts` (4/4 passed); whole workspace typecheck passed; `admin-web` and `@aivastra/web` built/typechecked cleanly (`tsc --noEmit`); Biome check passed with 0 errors.
+
 ## 2026-10-05 — Performance routing parity fixture follows Redis hash order
 
 - **Done:** corrected the OFF/OBSERVE integration fixture that blocked promotion PR #476. The cursor is derived from actual Redis hash order so round-robin deliberately selects a worker other than scored preference A. Three insertion orders verify identical OFF/OBSERVE claims, a different hypothetical preference, and A remaining IDLE. No routing implementation changed.

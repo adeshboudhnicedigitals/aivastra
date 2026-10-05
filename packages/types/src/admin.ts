@@ -880,6 +880,8 @@ export const PatchGarmentTypeBody = z.object({
   fourthUploadLabel: z.string().max(80).nullable().optional(),
   defaultLowerCatalogId: z.string().uuid().nullable().optional(),
   defaultShoeCatalogId: z.string().uuid().nullable().optional(),
+  mappedLowerCatalogItemIds: z.array(z.string().uuid()).optional(),
+  mappedShoeCatalogItemIds: z.array(z.string().uuid()).optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
   // Distinct from instructionImageKey above — see the schema column comment

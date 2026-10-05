@@ -113,6 +113,7 @@ export function CatalogTab() {
       ? (catalogCategories.find((c) => String(c.id) === editId) ?? null)
       : null;
   const [editCatLabel, setEditCatLabel] = useState('');
+  const [editCatSortOrder, setEditCatSortOrder] = useState(0);
   const [editCatImageFile, setEditCatImageFile] = useState<File | null>(null);
   const [editCatSaving, setEditCatSaving] = useState(false);
   const editingCatalogItem: CatalogItem | null =
@@ -170,6 +171,7 @@ export function CatalogTab() {
   useEffect(() => {
     if (!editingCategory) return;
     setEditCatLabel(editingCategory.label);
+    setEditCatSortOrder(editingCategory.sortOrder);
     setEditCatImageFile(null);
   }, [editingCategoryId]);
 
@@ -1104,7 +1106,10 @@ export function CatalogTab() {
                 });
                 thumbnailKey = presign.thumbnailKey;
               }
-              const patch: Record<string, unknown> = { label: editCatLabel.trim() };
+              const patch: Record<string, unknown> = {
+                label: editCatLabel.trim(),
+                sortOrder: editCatSortOrder,
+              };
               if (thumbnailKey !== undefined) patch.thumbnailKey = thumbnailKey;
               await apiFetch(`/admin/catalog/categories/${editingCategory.id}`, {
                 method: 'PATCH',
@@ -1115,17 +1120,20 @@ export function CatalogTab() {
                   ? URL.createObjectURL(editCatImageFile)
                   : editingCategory.thumbnailUrl;
               setCatalogCategories((prev) =>
-                prev.map((c) =>
-                  c.id === editingCategory.id
-                    ? {
-                        ...c,
-                        label: editCatLabel.trim(),
-                        ...(thumbnailKey !== undefined
-                          ? { thumbnailKey, thumbnailUrl: newThumbUrl }
-                          : {}),
-                      }
-                    : c,
-                ),
+                prev
+                  .map((c) =>
+                    c.id === editingCategory.id
+                      ? {
+                          ...c,
+                          label: editCatLabel.trim(),
+                          sortOrder: editCatSortOrder,
+                          ...(thumbnailKey !== undefined
+                            ? { thumbnailKey, thumbnailUrl: newThumbUrl }
+                            : {}),
+                        }
+                      : c,
+                  )
+                  .sort((a, b) => a.sortOrder - b.sortOrder),
               );
               // No manual lowerCatView sync needed — it's derived from
               // `catalogCategories` via useMemo, so the setCatalogCategories
@@ -1153,6 +1161,18 @@ export function CatalogTab() {
               value={editCatLabel}
               onChange={(e) => setEditCatLabel(e.target.value)}
               disabled={editCatSaving}
+            />
+          </div>
+          <div className="field">
+            <label>Sort order</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              value={editCatSortOrder}
+              onChange={(e) => setEditCatSortOrder(Number(e.target.value))}
+              disabled={editCatSaving}
+              style={{ width: 100 }}
             />
           </div>
           <div className="field">
