@@ -466,6 +466,24 @@ export const catalogItemSubcategories = pgTable(
   }),
 );
 
+// Many-to-many: which garment subcategories a model face is scoped to. No rows for a
+// subcategory = opt-out (every active face of that gender is shown) — see the
+// hasExplicitFaceMappings check in modules/models/routes.ts GET /v1/models/faces.
+export const modelFaceSubcategories = pgTable(
+  'model_face_subcategories',
+  {
+    faceId: uuid('face_id')
+      .notNull()
+      .references(() => modelFaces.id, { onDelete: 'cascade' }),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.faceId, table.subcategoryId] }),
+  }),
+);
+
 export const catalogueTemplates = pgTable('catalogue_templates', {
   id: uuid('id').primaryKey().defaultRandom(),
   genderSlug: text('gender_slug').notNull(), // 'men' | 'women' | 'boys' | 'girls'

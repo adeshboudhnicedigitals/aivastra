@@ -109,13 +109,17 @@ export function BatchMode({
     applyPosesToAllRows,
   } = useBatchState();
 
-  // /v1/models/faces only accepts `gender` (see apps/api/src/modules/models/routes.ts) —
-  // it has no garmentTypeId param, and its response is `{ items: [...] }`, matching
-  // the query the existing single-mode wizard (studio/page.tsx) already makes.
+  // /v1/models/faces narrows by garmentTypeId the same way lower/shoe catalog
+  // items do: no explicit face mapping for the type = every active face of this
+  // gender stays visible; once one exists, only mapped faces are returned.
   const faces = useQuery({
-    queryKey: ['batch-faces', gender],
+    queryKey: ['batch-faces', gender, garmentTypeId],
     queryFn: async () =>
-      (await api.get<{ items: PickerItem[] }>(`/v1/models/faces?gender=${gender}`)).items,
+      (
+        await api.get<{ items: PickerItem[] }>(
+          `/v1/models/faces?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}`,
+        )
+      ).items,
     enabled: !!gender,
   });
   // /v1/models/backgrounds has no faceId param either — it filters by `gender`,

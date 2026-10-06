@@ -127,8 +127,11 @@ export function EmbedStudioWizard() {
   } | null>(null);
 
   const { data: facesData } = useQuery<{ items: FaceItem[] }>({
-    queryKey: ['embed-faces', gender],
-    queryFn: () => api.get(`/v1/models/faces?gender=${gender}`),
+    queryKey: ['embed-faces', gender, garmentTypeId],
+    queryFn: () =>
+      api.get(
+        `/v1/models/faces?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}`,
+      ),
   });
   const faces = facesData?.items ?? [];
   // Mirrors the real Studio page's auto-select behavior (studio/page.tsx) so a
