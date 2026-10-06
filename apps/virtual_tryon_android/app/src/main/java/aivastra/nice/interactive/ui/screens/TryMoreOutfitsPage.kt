@@ -89,10 +89,12 @@ import aivastra.nice.interactive.data.models.GarmentSubcategory
 import aivastra.nice.interactive.data.repository.CatalogRepository
 import aivastra.nice.interactive.data.repository.CatalogResult
 import aivastra.nice.interactive.ui.components.ExitSessionDialog
+import aivastra.nice.interactive.ui.components.OutfitSearchField
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
+import aivastra.nice.interactive.viewmodels.matchingSearch
 import kotlinx.coroutines.launch
 
 @Composable
@@ -125,7 +127,17 @@ fun TryMoreOutfitsPage(
     var subcategories by remember { mutableStateOf<List<GarmentSubcategory>>(emptyList()) }
     var selectedSubcategory by remember { mutableStateOf<GarmentSubcategory?>(null) }
     var allProducts by remember { mutableStateOf<List<CatalogProduct>>(emptyList()) }
-    var displayProducts by remember { mutableStateOf<List<CatalogProduct>>(emptyList()) }
+    var searchQuery by remember { mutableStateOf("") }
+    // The dropdown has no "All" entry, so the subcategory is parked here while a
+    // search widens the list to the whole category, and put back when it's cleared.
+    var subcategoryBeforeSearch by remember { mutableStateOf<GarmentSubcategory?>(null) }
+    // Derived, not stored: filter once per input change rather than on every read.
+    val displayProducts = remember(allProducts, selectedSubcategory, searchQuery) {
+        val inSubcategory = selectedSubcategory?.let { sub ->
+            allProducts.filter { it.subcategoryId == sub.id }
+        } ?: allProducts
+        inSubcategory.matchingSearch(searchQuery)
+    }
     var selectedProduct by remember { mutableStateOf(initialProduct) }
     var userHasChangedProduct by remember { mutableStateOf(false) }
 
@@ -175,14 +187,14 @@ fun TryMoreOutfitsPage(
                 }
 
                 selectedSubcategory = matchedSubcategory
-                displayProducts = if (matchedSubcategory != null) {
+                val initialProducts = if (matchedSubcategory != null) {
                     allProducts.filter { it.subcategoryId == matchedSubcategory.id }
                 } else {
                     allProducts
                 }
 
-                if (selectedProduct == null || displayProducts.none { it.id == selectedProduct?.id }) {
-                    selectedProduct = displayProducts.firstOrNull()
+                if (selectedProduct == null || initialProducts.none { it.id == selectedProduct?.id }) {
+                    selectedProduct = initialProducts.firstOrNull()
                 }
 
                 isLoading = false
@@ -432,7 +444,8 @@ fun TryMoreOutfitsPage(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = selectedSubcategory?.name ?: "Western",
+                                        text = selectedSubcategory?.name
+                                            ?: if (searchQuery.isNotBlank()) "All" else "Western",
                                         color = Color.White,
                                         fontSize = if (isMobile) ssp(R.dimen._11ssp) else ssp(R.dimen._13ssp),
                                         fontWeight = FontWeight.Bold,
@@ -475,7 +488,6 @@ fun TryMoreOutfitsPage(
                                             contentPadding = PaddingValues(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._8sdp)),
                                             onClick = {
                                                 selectedSubcategory = sub
-                                                displayProducts = allProducts.filter { it.subcategoryId == sub.id }
                                                 isDropdownExpanded = false
                                             }
                                         )
@@ -485,8 +497,43 @@ fun TryMoreOutfitsPage(
 
                             Spacer(Modifier.height(sdp(R.dimen._8sdp)))
 
+                            OutfitSearchField(
+                                query = searchQuery,
+                                onQueryChange = { query ->
+                                    if (searchQuery.isBlank() && query.isNotBlank()) {
+                                        subcategoryBeforeSearch = selectedSubcategory
+                                        selectedSubcategory = null
+                                    } else if (query.isBlank() && selectedSubcategory == null) {
+                                        selectedSubcategory = subcategoryBeforeSearch
+                                    }
+                                    searchQuery = query
+                                    scope.launch { listState.scrollToItem(0) }
+                                },
+                                placeholder = "Search",
+                                shape = RoundedCornerShape(sdp(R.dimen._8sdp)),
+                                containerColor = Color(0xFF24180D),
+                                idleBorderColor = Color(0xFF6B471C),
+                                contentPadding = PaddingValues(
+                                    horizontal = sdp(R.dimen._8sdp),
+                                    vertical = sdp(R.dimen._9sdp)
+                                )
+                            )
+
+                            Spacer(Modifier.height(sdp(R.dimen._8sdp)))
+
                             // Outfit Thumbnail Cards List
                             Box(modifier = Modifier.weight(1f)) {
+                                if (displayProducts.isEmpty() && searchQuery.isNotBlank()) {
+                                    Text(
+                                        text = "No outfits match",
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        fontSize = ssp(R.dimen._11ssp),
+                                        fontFamily = PoppinsFamily,
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .padding(top = sdp(R.dimen._12sdp))
+                                    )
+                                }
                                 LazyColumn(
                                     state = listState,
                                     modifier = Modifier.fillMaxSize(),
