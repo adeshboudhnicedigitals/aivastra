@@ -1,8 +1,104 @@
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
+import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
 import type { DbOrTx } from '../auth/campaign.js';
 import { generateApiKey } from '../dev/keys.js';
+
+/** Shared with wordpress-connect.routes.ts's /v1/wordpress/connect/exchange
+ * and google.routes.ts's WordPress-skip-path in /v1/auth/google/callback —
+ * both mint a code under this same prefix/TTL so handle_connect_callback()'s
+ * exchange_connect_code() (wordpress-plugin/includes/class-connection-service.php)
+ * needs no changes to tell them apart. */
+export const WORDPRESS_CONNECT_CODE_PREFIX = 'wordpress:connect:';
+// Long enough to survive the aivastra.com consent-page redirect back to
+// wp-admin (a same-browser, same-request round trip — no external IdP in the
+// middle, unlike Google's 60s OTP which has to survive Google's own
+// consent/2FA screens), short enough that a code left in a WP site's access
+// log or browser history is worthless within minutes.
+export const WORDPRESS_CONNECT_CODE_TTL_SECONDS = 120;
+
+export interface WordpressConnectPayload {
+  fullKey: string;
+  widgetKey: string;
+  companyName: string;
+  credits: number;
+}
+
+/** Stores the one-time code both WordPress-connect paths hand back to the
+ * browser instead of the minted keys themselves. */
+export async function mintWordpressConnectCode(
+  redis: Redis,
+  payload: WordpressConnectPayload,
+): Promise<string> {
+  const code = randomUUID();
+  await redis.set(
+    WORDPRESS_CONNECT_CODE_PREFIX + code,
+    JSON.stringify(payload),
+    'EX',
+    WORDPRESS_CONNECT_CODE_TTL_SECONDS,
+  );
+  return code;
+}
+
+/** The full "resolve-or-create this user's merchant row, then mint a
+ * site-scoped key pair" transaction both WordPress-connect paths need —
+ * wordpress-connect.routes.ts's browser-mediated flow and google.routes.ts's
+ * no-consent-page skip-path call this with the same shape so a future change
+ * to either (e.g. what companyName/credits a caller sees) can't drift between
+ * them. Throws whatever ensureMerchantForUser throws (notably FORBIDDEN when
+ * an existing merchant has been deactivated) — callers decide how to surface
+ * that themselves. */
+export async function connectWordpressForUser(
+  tx: DbOrTx,
+  userId: string,
+  opts: { siteUrl: string; siteName?: string; phone?: string },
+): Promise<WordpressConnectPayload> {
+  const { merchantId } = await ensureMerchantForUser(tx, userId, {
+    companyName: opts.siteName,
+    phone: opts.phone,
+  });
+
+  const [row] = await tx
+    .select({
+      companyName: schema.merchants.companyName,
+      credits: schema.userCredits.balance,
+    })
+    .from(schema.merchants)
+    .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+    .where(eq(schema.merchants.id, merchantId))
+    .limit(1);
+  if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+
+  const { fullKey, widgetKey } = await mintWordpressKeyPair(
+    tx,
+    merchantId,
+    opts.siteUrl,
+    opts.siteName,
+  );
+
+  return { fullKey, widgetKey, companyName: row.companyName, credits: row.credits ?? 0 };
+}
+
+/** Same open-redirect guard apps/catalogues-web's own /connect/wordpress page
+ * applies client-side (isTrustedCallback() in that page's own source) before
+ * ever sending the browser back to a WordPress site — re-checked here because
+ * google.routes.ts's skip-path (see /v1/auth/google/callback) redirects
+ * straight to $redirectUri itself with no confirmation page in between, so
+ * nothing else stands between attacker-controlled query params and a
+ * reply.redirect() call. */
+export function isTrustedWordpressCallback(redirectUri: string, siteUrl: string): boolean {
+  try {
+    const cb = new URL(redirectUri);
+    const site = new URL(siteUrl);
+    if (cb.protocol !== 'http:' && cb.protocol !== 'https:') return false;
+    if (cb.origin !== site.origin) return false;
+    return cb.pathname.endsWith('/wp-admin/admin-post.php');
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Mints the full+widget key pair a WordPress site needs, scoped to its origin

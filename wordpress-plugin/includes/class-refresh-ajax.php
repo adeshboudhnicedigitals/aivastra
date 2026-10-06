@@ -58,6 +58,11 @@ class Aivastra_Refresh_Ajax
             'creditsAsOf' => $settings->get_credits_as_of(),
             'tryOnsRemaining' => $balanceSummary['ok'] ? $balanceSummary['tryOnsRemaining'] : null,
             'daysRemaining' => $balanceSummary['ok'] ? $balanceSummary['daysRemaining'] : null,
+            // Falls back to the persisted flag refresh() just wrote (same
+            // settings->get_unlimited() fallback render_connection_section()
+            // uses) if this second, independent get_balance_summary() round
+            // trip fails — the credit refresh itself still succeeded either way.
+            'unlimited' => $balanceSummary['ok'] ? $balanceSummary['unlimited'] : $settings->get_unlimited(),
         ]);
     }
 }

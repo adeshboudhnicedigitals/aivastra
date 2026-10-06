@@ -1,12 +1,13 @@
 /**
- * "Save categories" (admin/class-settings-page.php's render_category_mapping())
+ * "Save" (admin/class-settings-page.php's render_category_routing_table())
  * — AJAX against Aivastra_Category_Map_Ajax so the page shows a small inline
  * confirmation next to the Save button, instead of a full page reload landing
  * on a WP admin notice banner core relocates to right after the page's first
  * heading. Same idiom as admin/assets/refresh-balance.js. The one exception
  * is a save that completes onboarding step 2 — the handler says so via
- * `redirectUrl`, and this still navigates there (the dashboard itself is the
- * confirmation in that case, same as every other onboarding transition).
+ * `redirectUrl`, and this still navigates there (landing on step 3, button
+ * customization, is its own confirmation, same as every other onboarding
+ * transition).
  */
 (() => {
   if (typeof aivastraSaveCategories === 'undefined') {

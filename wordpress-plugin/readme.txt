@@ -1,5 +1,5 @@
 === Ai Vastra Try-On ===
-Contributors: TODO_WPORG_USERNAME
+Contributors: aivastra
 Tags: woocommerce, virtual try-on, ai, fashion, product page
 Requires at least: 6.5
 Tested up to: 7.1
@@ -52,13 +52,6 @@ processing.
   shopper interacts with the try-on button; nothing is sent on page load.
   Terms of Service: https://app.aivastra.com/terms
   Privacy Policy: https://app.aivastra.com/privacy
-  NOTE: both pages (apps/catalogues-web/src/app/terms and .../privacy) are now grounded in
-  Ai Vastra's own published policies at aivastra.com/terms and aivastra.com/privacy-policy,
-  not placeholder text — but a handful of items remain open pending a final legal pass
-  before wp.org submission: governing-law jurisdiction/city, a named Grievance Officer
-  (required under India's IT Rules), deletion-request turnaround time, and whether unused
-  credits expire. None of these are unique to this draft — Ai Vastra's own live policies
-  don't resolve them either. Do not submit to wp.org until legal confirms them.
 * **Razorpay** (https://razorpay.com) — processes the one-time payment when a store buys a
   credit pack from the plugin's settings page. Card/payment details are handled entirely by
   Razorpay's own checkout; this plugin never sees or stores payment credentials.

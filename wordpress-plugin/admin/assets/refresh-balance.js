@@ -67,6 +67,16 @@
         if (!json.success) {
           throw new Error((json.data && json.data.message) || 'Could not refresh your balance.');
         }
+        // Mirrors render_connection_section()'s own "Unlimited" branch
+        // exactly, so a refresh reads the same as the page's first load.
+        if (json.data.unlimited) {
+          numberEl.textContent = 'Unlimited';
+          metaEl.textContent =
+            "You're on an unlimited plan — try-ons aren't metered against a credit balance.";
+          showConfirm('Refreshed', false);
+          return;
+        }
+
         var credits = json.data.credits;
         if (typeof credits === 'number') {
           numberEl.textContent = credits.toLocaleString();
