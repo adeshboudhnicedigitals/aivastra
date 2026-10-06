@@ -536,4 +536,218 @@ describe('google oauth', () => {
       await observer.end();
     }
   }, 15_000);
+
+  // "Continue with Google" skip-path (apps/api/src/modules/auth/google.routes.ts,
+  // parseWordpressConnectNext()/connectWordpressForUser()) — a WordPress
+  // merchant completing Google sign-in should never be routed through
+  // apps/catalogues-web's own /connect/wordpress consent page; the callback
+  // itself mints the WordPress key pair and redirects straight back to
+  // wp-admin's own admin-post.php callback.
+  describe('WordPress "Continue with Google" skip-path', () => {
+    function mockGoogleFetch(sub: string, email: string, name: string) {
+      return async (url: string | URL | Request): Promise<Response> => {
+        const urlStr = url.toString();
+        if (urlStr.includes('oauth2.googleapis.com/token')) {
+          return new Response(JSON.stringify({ access_token: `mock-token-${sub}` }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (urlStr.includes('googleapis.com/oauth2/v3/userinfo')) {
+          return new Response(JSON.stringify({ sub, email, name }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        throw new Error(`Unexpected fetch to: ${urlStr}`);
+      };
+    }
+
+    function wordpressCookies(opts: {
+      state: string;
+      wpState: string;
+      siteUrl: string;
+      redirectUri: string;
+      siteName?: string;
+    }) {
+      const consentPath =
+        '/connect/wordpress' +
+        `?state=${encodeURIComponent(opts.wpState)}` +
+        `&site_url=${encodeURIComponent(opts.siteUrl)}` +
+        `&site_name=${encodeURIComponent(opts.siteName ?? '')}` +
+        `&redirect_uri=${encodeURIComponent(opts.redirectUri)}`;
+      return (
+        `google_state=${opts.state}; ` +
+        `google_next=${encodeURIComponent(consentPath)}; ` +
+        `google_src=${encodeURIComponent('wordpress_plugin')}`
+      );
+    }
+
+    it('completes the connect server-to-server and redirects straight to wp-admin, never to app.aivastra.com', async () => {
+      const state = 'wp-skip-state-success';
+      const wpState = 'wp-csrf-token-success';
+      const siteUrl = 'http://wp-skip-success.example.com/';
+      const redirectUri =
+        'http://wp-skip-success.example.com/wp-admin/admin-post.php?action=aivastra_tryon_connect_callback';
+
+      vi.spyOn(global, 'fetch').mockImplementation(
+        mockGoogleFetch(
+          'google-sub-wp-skip-success',
+          'wp-skip-success@example.com',
+          'WP Skip Success',
+        ) as typeof fetch,
+      );
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/auth/google/callback?code=wp_skip_code_success&state=${state}`,
+        headers: {
+          cookie: wordpressCookies({
+            state,
+            wpState,
+            siteUrl,
+            redirectUri,
+            siteName: 'WP Skip Shop',
+          }),
+        },
+      });
+
+      expect(res.statusCode).toBe(302);
+      const location = res.headers.location as string;
+      // Never the app.aivastra.com (WEB_URL) consent-page hop.
+      expect(location).not.toContain('localhost:3000');
+      expect(
+        location.startsWith('http://wp-skip-success.example.com/wp-admin/admin-post.php'),
+      ).toBe(true);
+
+      const loc = new URL(location);
+      expect(loc.searchParams.get('state')).toBe(wpState);
+      const code = loc.searchParams.get('code');
+      expect(code).toBeTruthy();
+
+      const exchangeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/wordpress/connect/exchange',
+        payload: { code },
+      });
+      expect(exchangeRes.statusCode).toBe(200);
+      const payload = exchangeRes.json<{
+        fullKey: string;
+        widgetKey: string;
+        companyName: string;
+        credits: number;
+      }>();
+      expect(payload.fullKey).toMatch(/^sk_live_[A-Za-z0-9_-]{43}$/);
+      expect(payload.widgetKey).toMatch(/^sk_live_[A-Za-z0-9_-]{43}$/);
+      expect(payload.companyName).toBe('WP Skip Shop');
+
+      const [merchant] = await app.db
+        .select({
+          companyName: dbSchema.merchants.companyName,
+          signupSource: dbSchema.merchants.signupSource,
+        })
+        .from(dbSchema.merchants)
+        .innerJoin(dbSchema.users, eq(dbSchema.users.id, dbSchema.merchants.userId))
+        .where(eq(dbSchema.users.email, 'wp-skip-success@example.com'));
+      expect(merchant?.signupSource).toBe('wordpress');
+    });
+
+    it("falls back to the consent-page flow when redirect_uri does not share site_url's origin", async () => {
+      const state = 'wp-skip-state-untrusted';
+      const wpState = 'wp-csrf-token-untrusted';
+      const siteUrl = 'http://wp-skip-untrusted.example.com/';
+      // Different origin than siteUrl — isTrustedWordpressCallback() must reject this.
+      const redirectUri =
+        'http://evil.example.com/wp-admin/admin-post.php?action=aivastra_tryon_connect_callback';
+
+      vi.spyOn(global, 'fetch').mockImplementation(
+        mockGoogleFetch(
+          'google-sub-wp-skip-untrusted',
+          'wp-skip-untrusted@example.com',
+          'WP Skip Untrusted',
+        ) as typeof fetch,
+      );
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/auth/google/callback?code=wp_skip_code_untrusted&state=${state}`,
+        headers: { cookie: wordpressCookies({ state, wpState, siteUrl, redirectUri }) },
+      });
+
+      expect(res.statusCode).toBe(302);
+      const location = res.headers.location as string;
+      // Falls back to the normal web-app OTP handoff — the browser's very
+      // next hop is app.aivastra.com, never evil.example.com directly. The
+      // untrusted redirect_uri still rides along inertly inside `next`'s own
+      // query value, for that consent page's own isTrustedCallback() check
+      // to reject in turn.
+      expect(location).toContain('http://localhost:3000/api/auth/google/callback?code=');
+      expect(new URL(location).host).toBe('localhost:3000');
+    });
+
+    it('falls back to the consent-page flow when the matched merchant is deactivated', async () => {
+      const siteUrl = 'http://wp-skip-inactive.example.com/';
+      const redirectUri =
+        'http://wp-skip-inactive.example.com/wp-admin/admin-post.php?action=aivastra_tryon_connect_callback';
+      const email = 'wp-skip-inactive@example.com';
+
+      // First pass: let the skip-path create the merchant normally.
+      const state1 = 'wp-skip-state-inactive-1';
+      vi.spyOn(global, 'fetch').mockImplementation(
+        mockGoogleFetch('google-sub-wp-skip-inactive', email, 'WP Skip Inactive') as typeof fetch,
+      );
+      const first = await app.inject({
+        method: 'GET',
+        url: `/v1/auth/google/callback?code=wp_skip_code_inactive_1&state=${state1}`,
+        headers: {
+          cookie: wordpressCookies({
+            state: state1,
+            wpState: 'wp-csrf-token-inactive-1',
+            siteUrl,
+            redirectUri,
+          }),
+        },
+      });
+      expect(first.statusCode).toBe(302);
+      expect(
+        (first.headers.location as string).startsWith('http://wp-skip-inactive.example.com'),
+      ).toBe(true);
+
+      // Deactivate the merchant that was just created.
+      const [user] = await app.db
+        .select({ id: dbSchema.users.id })
+        .from(dbSchema.users)
+        .where(eq(dbSchema.users.email, email));
+      if (!user) throw new Error('user not found');
+      await app.db
+        .update(dbSchema.merchants)
+        .set({ isActive: false })
+        .where(eq(dbSchema.merchants.userId, user.id));
+
+      // Second pass: same Google account, merchant now inactive — the
+      // skip-path's connectWordpressForUser() throws FORBIDDEN, which must
+      // be caught and fall back to the normal OTP/consent-page redirect
+      // rather than surfacing as a 500.
+      const state2 = 'wp-skip-state-inactive-2';
+      vi.spyOn(global, 'fetch').mockImplementation(
+        mockGoogleFetch('google-sub-wp-skip-inactive', email, 'WP Skip Inactive') as typeof fetch,
+      );
+      const second = await app.inject({
+        method: 'GET',
+        url: `/v1/auth/google/callback?code=wp_skip_code_inactive_2&state=${state2}`,
+        headers: {
+          cookie: wordpressCookies({
+            state: state2,
+            wpState: 'wp-csrf-token-inactive-2',
+            siteUrl,
+            redirectUri,
+          }),
+        },
+      });
+      expect(second.statusCode).toBe(302);
+      expect(second.headers.location as string).toContain(
+        'http://localhost:3000/api/auth/google/callback?code=',
+      );
+    });
+  });
 });

@@ -38,7 +38,7 @@ final class ConnectionServiceTest extends TestCase
         $settings = Mockery::mock(Aivastra_Connection_Settings::class);
         $settings->shouldReceive('set_widget_key_and_snapshot')
             ->once()
-            ->with('sk_live_widget', 'sk_live_full', 'Acme Co', 500, '2026-08-26 00:00:00');
+            ->with('sk_live_widget', 'sk_live_full', 'Acme Co', 500, '2026-08-26 00:00:00', false);
 
         $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
         $result = $service->connect('sk_live_full', 'sk_live_widget');
@@ -97,7 +97,7 @@ final class ConnectionServiceTest extends TestCase
 
         $settings->shouldReceive('update_credits')
             ->once()
-            ->with(750, '2026-08-27 00:00:00');
+            ->with(750, '2026-08-27 00:00:00', false);
         $settings->shouldNotReceive('set_widget_key_and_snapshot');
 
         $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
@@ -359,7 +359,7 @@ final class ConnectionServiceTest extends TestCase
         $this->assertSame('not_connected', $result['error']);
     }
 
-    public function test_get_analytics_returns_cards_daily_and_products_using_the_stored_full_key(): void
+    public function test_get_analytics_returns_cards_daily_products_and_funnel_using_the_stored_full_key(): void
     {
         $settings = Mockery::mock(Aivastra_Connection_Settings::class);
         $settings->shouldReceive('get_full_key')->once()->andReturn('sk_live_full');
@@ -379,6 +379,7 @@ final class ConnectionServiceTest extends TestCase
                 'cards' => ['tryOns' => 12, 'uniqueShoppers' => 5, 'addedToCart' => 3, 'addToCartRate' => 0.25],
                 'daily' => [['day' => '2026-08-30', 'tryOns' => 2]],
                 'products' => [['productId' => 7, 'tryOns' => 4, 'uniqueShoppers' => 3, 'addedToCart' => 1, 'addToCartRate' => 0.25]],
+                'funnel' => ['buttonClick' => 9, 'upload' => 7, 'tryOn' => 12, 'resultView' => 6, 'addToCart' => 3],
             ]));
 
         $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
@@ -388,6 +389,31 @@ final class ConnectionServiceTest extends TestCase
         $this->assertSame(12, $result['cards']['tryOns']);
         $this->assertSame([['day' => '2026-08-30', 'tryOns' => 2]], $result['daily']);
         $this->assertSame(7, $result['products'][0]['productId']);
+        $this->assertSame(9, $result['funnel']['buttonClick']);
+    }
+
+    public function test_get_analytics_accepts_an_api_response_without_the_optional_funnel(): void
+    {
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_full_key')->once()->andReturn('sk_live_full');
+        $body = [
+            'cards' => ['tryOns' => 12, 'uniqueShoppers' => 5, 'addedToCart' => 3, 'addToCartRate' => 0.25],
+            'daily' => [['day' => '2026-08-30', 'tryOns' => 2]],
+            'products' => [],
+        ];
+        Functions\expect('wp_remote_get')->once()->andReturn(['response' => ['code' => 200]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(200);
+        Functions\expect('wp_remote_retrieve_body')->once()->andReturn(json_encode($body));
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->get_analytics();
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame($body['cards'], $result['cards']);
+        $this->assertSame($body['daily'], $result['daily']);
+        $this->assertSame([], $result['products']);
+        $this->assertNull($result['funnel']);
     }
 
     public function test_get_analytics_returns_not_ok_on_network_error(): void

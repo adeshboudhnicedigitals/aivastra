@@ -484,18 +484,27 @@
     return null;
   }
 
+  // Header is a plain flex row — title/subtitle on the left, history+close
+  // grouped on the right — matching the Shopify theme extension's own
+  // .aivastra-tryon__header (header-main / header-actions). No eyebrow badge
+  // pill: apps/shopify-extension's reference header has no such label at
+  // all ("Try-On Status"/"Ready"/"AI Fitting Room" were this widget's own
+  // invention), and no absolutely-positioned close/history buttons either —
+  // that positioning used to force .aivastra-modal-header to reserve 80px of
+  // right padding for two buttons even on every screen that only ever shows
+  // one, leaving dead space beside the title.
   function renderModal(options) {
-    const {
-      badge = 'AI Try-On',
-      title = '',
-      subtitle = '',
-      bodyHtml = '',
-      hideHistoryButton = false,
-    } = options;
+    const { title = '', subtitle = '', bodyHtml = '', hideHistoryButton = false } = options;
     const historyCount = getHistory().length;
     const showHistoryButton = historyCount > 0 && !hideHistoryButton;
     modal.innerHTML =
       '<div class="aivastra-tryon-modal-content" role="dialog" aria-modal="true">' +
+      '<div class="aivastra-modal-header">' +
+      '<div class="aivastra-modal-header-main">' +
+      (title ? `<h3 class="aivastra-modal-title">${title}</h3>` : '') +
+      (subtitle ? `<p class="aivastra-modal-subtitle">${subtitle}</p>` : '') +
+      '</div>' +
+      '<div class="aivastra-modal-header-actions">' +
       (showHistoryButton
         ? '<button type="button" class="aivastra-modal-history-btn" data-action="history" aria-label="View try-on history">' +
           ICONS.history +
@@ -505,12 +514,7 @@
       '<button type="button" class="aivastra-modal-close" data-close aria-label="Close modal">' +
       ICONS.close +
       '</button>' +
-      '<div class="aivastra-modal-header">' +
-      (badge
-        ? `<div class="aivastra-modal-badge">${ICONS.sparkle}<span>${badge}</span></div>`
-        : '') +
-      (title ? `<h3 class="aivastra-modal-title">${title}</h3>` : '') +
-      (subtitle ? `<p class="aivastra-modal-subtitle">${subtitle}</p>` : '') +
+      '</div>' +
       '</div>' +
       bodyHtml +
       '</div>';
@@ -529,7 +533,6 @@
   // for the friendly, code-specific messages computed in startTryOn/pollJob.
   function renderUnavailable(message) {
     renderModal({
-      badge: 'Try-On Status',
       title: 'Temporarily Unavailable',
       subtitle: 'We encountered an issue creating your try-on.',
       bodyHtml:
@@ -564,16 +567,10 @@
     const shareLabel = customization.shareLabel ? escapeHtml(customization.shareLabel) : 'Share';
 
     renderModal({
-      badge: 'Ready',
       title: 'Your Try-On is Ready',
-      subtitle: 'Photorealistic AI preview on your model',
       bodyHtml:
         '<div class="aivastra-result-wrapper">' +
         `<img class="aivastra-result-image" src="${imageUrl}" alt="Try-on result">` +
-        '<div class="aivastra-result-tag">' +
-        ICONS.sparkle +
-        '<span>AI Generated</span>' +
-        '</div>' +
         '<button type="button" class="aivastra-result-expand" data-action="expand" aria-label="View full size">' +
         ICONS.expand +
         '</button>' +
@@ -619,7 +616,6 @@
       const entries = resolved.filter(Boolean);
       currentHistoryEntries = entries;
       renderModal({
-        badge: 'AI Fitting Room',
         title: `History (${entries.length})`,
         subtitle: 'Your previous try-on results on this device.',
         hideHistoryButton: true,
@@ -706,9 +702,7 @@
   function startTryOn(personDataUrl) {
     lastPersonPhotoUrl = personDataUrl;
     renderModal({
-      badge: 'AI Fitting Room',
       title: 'Creating Your Look',
-      subtitle: 'Fitting the garment precisely onto your photo…',
       hideHistoryButton: true,
       bodyHtml:
         '<div class="aivastra-loading-photo" id="aivastra-loading-photo">' +
@@ -777,7 +771,6 @@
       : 'Generate Try-On';
 
     renderModal({
-      badge: 'AI Fitting Room',
       title: customization.heading ? escapeHtml(customization.heading) : 'Virtual Try-On',
       subtitle: customization.subheading
         ? escapeHtml(customization.subheading)

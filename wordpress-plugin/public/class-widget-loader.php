@@ -84,7 +84,7 @@ class Aivastra_Widget_Loader
             return;
         }
 
-        wp_enqueue_style('aivastra-tryon-widget', AIVASTRA_TRYON_URL . 'assets/widget.css', [], AIVASTRA_TRYON_VERSION);
+        wp_enqueue_style('aivastra-tryon-widget', AIVASTRA_TRYON_URL . 'assets/widget.css', [], AIVASTRA_TRYON_VERSION . '.' . filemtime(AIVASTRA_TRYON_DIR . 'assets/widget.css'));
         wp_enqueue_script('aivastra-tryon-widget-logic', AIVASTRA_TRYON_URL . 'assets/widget-logic.js', [], AIVASTRA_TRYON_VERSION, true);
         wp_enqueue_script('aivastra-tryon-widget', AIVASTRA_TRYON_URL . 'assets/widget.js', ['aivastra-tryon-widget-logic'], AIVASTRA_TRYON_VERSION, true);
         wp_localize_script('aivastra-tryon-widget', 'AivastraTryOn', array_merge($config, [

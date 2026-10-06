@@ -6,7 +6,7 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * "Save categories" (render_category_mapping(), admin/assets/save-categories.js)
+ * "Save" (render_category_routing_table(), admin/assets/save-categories.js)
  * used to be a full form POST to admin-post.php, landing the merchant back on
  * the page with a dismissible "Categories saved." WP admin notice — core's
  * own common.js relocates every such notice to right after the page's first
@@ -15,8 +15,9 @@ if (!defined('ABSPATH')) {
  * admin-only pattern as class-refresh-ajax.php. The one case that still
  * needs a real navigation — this save completing onboarding step 2 — is
  * signalled back via `redirectUrl` rather than handled with a redirect here;
- * the browser landing on the dashboard is its own confirmation, same as
- * every other onboarding transition on this page.
+ * the browser landing on step 3 (button customization,
+ * render_onboarding_button()) is its own confirmation, same as every other
+ * onboarding transition on this page.
  */
 class Aivastra_Category_Map_Ajax
 {
@@ -45,10 +46,10 @@ class Aivastra_Category_Map_Ajax
         $widgetKey = $settings->get_widget_key();
         // Captured before set_category_map()/update_option() below — the
         // only signal distinguishing "this save completes onboarding step 2"
-        // (tell the browser to move on to the dashboard) from "this save
-        // came from the regular Categories page, reached long after
-        // onboarding" (stay put, just confirm inline).
-        $wasOnboarding = get_option(Aivastra_Settings_Page::ONBOARDING_DONE_OPTION_KEY) !== '1';
+        // (tell the browser to move on to step 3, button customization) from
+        // "this save came from the regular Categories page, reached long
+        // after onboarding" (stay put, just confirm inline).
+        $wasOnboarding = get_option(Aivastra_Settings_Page::CATEGORIES_DONE_OPTION_KEY) !== '1';
 
         if ($widgetKey === null) {
             wp_send_json_error(['message' => 'Connect your account before setting up categories.']);
@@ -71,7 +72,7 @@ class Aivastra_Category_Map_Ajax
             $validSlugs
         );
         $settings->set_category_map($clean);
-        update_option(Aivastra_Settings_Page::ONBOARDING_DONE_OPTION_KEY, '1', false);
+        update_option(Aivastra_Settings_Page::CATEGORIES_DONE_OPTION_KEY, '1', false);
 
         wp_send_json_success([
             'redirectUrl' => $wasOnboarding ? admin_url('admin.php?page=aivastra-tryon') : null,

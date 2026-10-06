@@ -69,6 +69,22 @@ class Aivastra_Connection_Settings
     }
 
     /**
+     * True once a connect/refresh/payment round trip has told this plugin
+     * the merchant's Ai Vastra user has a currently-active unlimited plan
+     * (DevMeResponse/DevBalanceResponse's own `unlimited` field,
+     * packages/types/src/dev.ts) — a date-ranged plan where try-ons aren't
+     * metered against the credit balance at all. render_connection_section()
+     * shows "Unlimited" instead of the numeric credits/try-ons-remaining
+     * fields when this is true; get_credits() is still whatever the
+     * underlying balance happens to be and isn't meaningful on its own in
+     * that case. Defaults false for any row saved before this field existed.
+     */
+    public function get_unlimited(): bool
+    {
+        return (bool) ($this->all()['unlimited'] ?? false);
+    }
+
+    /**
      * Merged with Aivastra_Widget_Customization::defaults() so a field never
      * present in an older saved row (or never saved at all) still resolves to
      * a usable value instead of null-vs-missing ambiguity.
@@ -102,7 +118,8 @@ class Aivastra_Connection_Settings
         string $fullKey,
         string $companyName,
         int $credits,
-        string $creditsAsOf
+        string $creditsAsOf,
+        bool $unlimited = false
     ): void {
         update_option(self::OPTION_KEY, [
             'widget_key' => $widgetKey,
@@ -110,6 +127,7 @@ class Aivastra_Connection_Settings
             'company_name' => $companyName,
             'credits' => $credits,
             'credits_as_of' => $creditsAsOf,
+            'unlimited' => $unlimited,
         ]);
     }
 
@@ -118,12 +136,20 @@ class Aivastra_Connection_Settings
      * leaves widget_key, company_name, and category_map untouched. Used by
      * the "Refresh balance" action, which reads GET /v1/dev/balance with the
      * already-stored widget key and so never needs to re-verify identity.
+     *
+     * $unlimited: null (the default) leaves the stored flag untouched — used
+     * by callers (verify_payment()) whose own API response doesn't carry an
+     * `unlimited` field, so a payment can't accidentally flip it back off. A
+     * caller that does have a fresh value (refresh()) passes it explicitly.
      */
-    public function update_credits(int $credits, string $creditsAsOf): void
+    public function update_credits(int $credits, string $creditsAsOf, ?bool $unlimited = null): void
     {
         $all = $this->all();
         $all['credits'] = $credits;
         $all['credits_as_of'] = $creditsAsOf;
+        if ($unlimited !== null) {
+            $all['unlimited'] = $unlimited;
+        }
         update_option(self::OPTION_KEY, $all);
     }
 

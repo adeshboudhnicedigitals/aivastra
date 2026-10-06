@@ -109,6 +109,55 @@ export async function devAnalyticsDaily(
   return days.map((day) => ({ day, tryOns: counts.get(day) ?? 0 }));
 }
 
+export interface DevAnalyticsFunnel {
+  buttonClick: number;
+  upload: number;
+  tryOn: number;
+  resultView: number;
+  addToCart: number;
+}
+
+/**
+ * Mirrors apps/api/src/modules/shopify/analytics.ts's analyticsFunnel(), minus
+ * its `unattributed` field: that counts jobs with no shopifyShopperId, a join
+ * only possible because Shopify stamps one on every job. The WordPress
+ * dev-API's jobs carry no shopper identity at all (see devAnalyticsCards's own
+ * comment), so `tryOn` is accepted as an already-computed count rather than
+ * re-queried here — same real number as cards.tryOns, not a distinct-shopper
+ * count like Shopify's equivalent step.
+ */
+export async function devAnalyticsFunnel(
+  db: DB,
+  merchantId: string,
+  range: DevAnalyticsRange,
+  tryOns: number,
+): Promise<DevAnalyticsFunnel> {
+  const ev = schema.merchantWidgetEvents;
+  const [steps] = await db
+    .select({
+      buttonClick: int(
+        sql`count(distinct ${ev.clientId}) filter (where ${ev.type} = 'button_click')`,
+      ),
+      upload: int(sql`count(distinct ${ev.clientId}) filter (where ${ev.type} = 'upload')`),
+      resultView: int(
+        sql`count(distinct ${ev.clientId}) filter (where ${ev.type} = 'result_view')`,
+      ),
+      addToCart: int(sql`count(distinct ${ev.clientId}) filter (where ${ev.type} = 'add_to_cart')`),
+    })
+    .from(ev)
+    .where(
+      and(eq(ev.merchantId, merchantId), gte(ev.createdAt, range.from), lt(ev.createdAt, range.to)),
+    );
+
+  return {
+    buttonClick: steps.buttonClick,
+    upload: steps.upload,
+    tryOn: tryOns,
+    resultView: steps.resultView,
+    addToCart: steps.addToCart,
+  };
+}
+
 export interface DevAnalyticsProduct {
   productId: number;
   tryOns: number;
