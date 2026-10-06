@@ -61,4 +61,69 @@ describe('GET /v1/models/faces', () => {
     const found = items.find((i) => i.label === 'Tagged Face');
     expect(found?.tags).toEqual(['warm tone', 'closeup']);
   });
+
+  it('opt-in-once-explicit: no mapping row shows every active face, one mapping row narrows to just that face', async () => {
+    const sfx = Date.now() + 1;
+    const [faceA] = await app.db
+      .insert(schema.modelFaces)
+      .values({
+        gender: 'women',
+        label: `Mapping Face A ${sfx}`,
+        r2Key: `test/face-a-${sfx}.jpg`,
+        thumbnailKey: `test/face-a-thumb-${sfx}.jpg`,
+      })
+      .returning();
+    const [faceB] = await app.db
+      .insert(schema.modelFaces)
+      .values({
+        gender: 'women',
+        label: `Mapping Face B ${sfx}`,
+        r2Key: `test/face-b-${sfx}.jpg`,
+        thumbnailKey: `test/face-b-thumb-${sfx}.jpg`,
+      })
+      .returning();
+    if (!faceA || !faceB) throw new Error('faces not created');
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'women', slug: `face-optin-gt-${sfx}`, label: 'Face opt-in' })
+      .returning();
+    if (!garmentType) throw new Error('garment type not created');
+
+    const accessToken = await loginToken(`face-optin-${sfx}@x.com`);
+    const auth = { authorization: `Bearer ${accessToken}` };
+
+    // No explicit mapping yet -> opt-out, every active face of the gender shows.
+    const beforeRes = await app.inject({
+      method: 'GET',
+      url: `/v1/models/faces?gender=women&garmentTypeId=${garmentType.id}`,
+      headers: auth,
+    });
+    const beforeIds = (beforeRes.json().items as { id: string }[]).map((i) => i.id);
+    expect(beforeIds).toContain(faceA.id);
+    expect(beforeIds).toContain(faceB.id);
+
+    // Explicitly map only faceA -> narrows to just that face for this garment type.
+    await app.db
+      .insert(schema.modelFaceSubcategories)
+      .values({ faceId: faceA.id, subcategoryId: garmentType.id });
+
+    const afterRes = await app.inject({
+      method: 'GET',
+      url: `/v1/models/faces?gender=women&garmentTypeId=${garmentType.id}`,
+      headers: auth,
+    });
+    const afterIds = (afterRes.json().items as { id: string }[]).map((i) => i.id);
+    expect(afterIds).toContain(faceA.id);
+    expect(afterIds).not.toContain(faceB.id);
+
+    // Without a garmentTypeId, opt-in doesn't apply -> both faces still show.
+    const noTypeRes = await app.inject({
+      method: 'GET',
+      url: '/v1/models/faces?gender=women',
+      headers: auth,
+    });
+    const noTypeIds = (noTypeRes.json().items as { id: string }[]).map((i) => i.id);
+    expect(noTypeIds).toContain(faceA.id);
+    expect(noTypeIds).toContain(faceB.id);
+  });
 });

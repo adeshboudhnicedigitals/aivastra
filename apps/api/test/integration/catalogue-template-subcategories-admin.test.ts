@@ -583,6 +583,89 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
     expect(afterGetRes.json().items).toHaveLength(0);
   });
 
+  it('GET face-mappings starts empty, PATCH mappedFaceIds replaces the set, empty array clears it', async () => {
+    const sfx = Date.now();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'women', slug: `face-map-gt-${sfx}`, label: 'Dress' })
+      .returning();
+    const [faceA] = await app.db
+      .insert(schema.modelFaces)
+      .values({
+        gender: 'women',
+        label: `Admin Face A ${sfx}`,
+        r2Key: `admin-face-a-${sfx}.jpg`,
+        thumbnailKey: `admin-face-a-thumb-${sfx}.jpg`,
+      })
+      .returning();
+    const [faceB] = await app.db
+      .insert(schema.modelFaces)
+      .values({
+        gender: 'women',
+        label: `Admin Face B ${sfx}`,
+        r2Key: `admin-face-b-${sfx}.jpg`,
+        thumbnailKey: `admin-face-b-thumb-${sfx}.jpg`,
+      })
+      .returning();
+    if (!garmentType || !faceA || !faceB) throw new Error('fixtures not created');
+
+    const initialRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/face-mappings`,
+      headers,
+    });
+    expect(initialRes.statusCode).toBe(200);
+    expect(initialRes.json()).toEqual({ mappedFaceIds: [], hasExplicitFaceMappings: false });
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/garment-types/${garmentType.id}`,
+      headers,
+      payload: { mappedFaceIds: [faceA.id, faceB.id] },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const afterMapRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/face-mappings`,
+      headers,
+    });
+    const afterMap = afterMapRes.json();
+    expect(afterMap.hasExplicitFaceMappings).toBe(true);
+    expect(new Set(afterMap.mappedFaceIds)).toEqual(new Set([faceA.id, faceB.id]));
+
+    // Replace the set down to just faceA.
+    await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/garment-types/${garmentType.id}`,
+      headers,
+      payload: { mappedFaceIds: [faceA.id] },
+    });
+    const afterReplaceRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/face-mappings`,
+      headers,
+    });
+    expect(afterReplaceRes.json()).toEqual({
+      mappedFaceIds: [faceA.id],
+      hasExplicitFaceMappings: true,
+    });
+
+    // Clearing to an empty array drops every row, reverting to the unmapped state.
+    await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/garment-types/${garmentType.id}`,
+      headers,
+      payload: { mappedFaceIds: [] },
+    });
+    const afterClearRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/face-mappings`,
+      headers,
+    });
+    expect(afterClearRes.json()).toEqual({ mappedFaceIds: [], hasExplicitFaceMappings: false });
+  });
+
   it('multi-sorts mapped poses by moving selected poses to a target start position', async () => {
     const [garmentType] = await app.db
       .insert(schema.garmentSubcategories)
