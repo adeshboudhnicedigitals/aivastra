@@ -527,6 +527,62 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
     expect(gtItem?.isActive).toBe(false);
   });
 
+  it('clearing all overrides fully unmaps a pose even if it was manually reordered', async () => {
+    const sfx = Date.now();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `clear-override-gt-${sfx}`, label: 'Shirt' })
+      .returning();
+    const [poseA] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: `Clear override pose ${sfx}`,
+        genderSlug: 'men',
+        r2Key: `clear-override-${sfx}.jpg`,
+        thumbnailKey: `clear-override-thumb-${sfx}.jpg`,
+        scope: 'general',
+      })
+      .returning();
+
+    // Map it and give it a materialized sortOrder via the reorder path.
+    const sortRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/garment-types/${garmentType.id}/pose-configs/${poseA.id}`,
+      headers,
+      payload: {
+        isActive: true,
+        workflowTemplateId: null,
+        promptGarmentPhase: null,
+        promptFacePhase: null,
+        sortOrder: 1,
+      },
+    });
+    expect(sortRes.statusCode).toBe(200);
+
+    // "Clear override" — all override fields null, no sortOrder key — must fully
+    // unmap the pose, not leave a zombie row alive just to keep its position.
+    const clearRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/garment-types/${garmentType.id}/pose-configs/${poseA.id}`,
+      headers,
+      payload: {
+        isActive: null,
+        workflowTemplateId: null,
+        promptGarmentPhase: null,
+        promptFacePhase: null,
+      },
+    });
+    expect(clearRes.statusCode).toBe(200);
+    expect(clearRes.json().action).toBe('deleted');
+
+    const afterGetRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/pose-configs`,
+      headers,
+    });
+    expect(afterGetRes.json().items).toHaveLength(0);
+  });
+
   it('multi-sorts mapped poses by moving selected poses to a target start position', async () => {
     const [garmentType] = await app.db
       .insert(schema.garmentSubcategories)

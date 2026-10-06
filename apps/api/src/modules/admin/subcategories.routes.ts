@@ -851,29 +851,21 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       const hasOverride =
         workflowTemplateId || promptGarmentPhase || promptFacePhase || isActive !== null;
       if (!hasOverride) {
-        const [existing] = await app.db
-          .select({ sortOrder: schema.poseGarmentConfigs.sortOrder })
-          .from(schema.poseGarmentConfigs)
+        // Clearing every override is a full unmap under the opt-in rule (a config
+        // row's mere existence is what opts a pose in for this garment type) — so
+        // delete the row even if it carries a materialized sortOrder, rather than
+        // leaving a zombie row alive to preserve position. A pose that's no longer
+        // mapped has no position worth preserving; keeping the row here used to
+        // silently re-opt it back in once the opt-in rule reached this endpoint.
+        await app.db
+          .delete(schema.poseGarmentConfigs)
           .where(
             and(
               eq(schema.poseGarmentConfigs.poseAssetId, poseAssetId),
               eq(schema.poseGarmentConfigs.subcategoryId, id),
             ),
           );
-        // A materialized position (see above) must survive clearing every other
-        // override — otherwise this pose would silently fall out of its ordered
-        // spot back to the unordered default the next time the list is touched.
-        if (existing?.sortOrder == null) {
-          await app.db
-            .delete(schema.poseGarmentConfigs)
-            .where(
-              and(
-                eq(schema.poseGarmentConfigs.poseAssetId, poseAssetId),
-                eq(schema.poseGarmentConfigs.subcategoryId, id),
-              ),
-            );
-          return { ok: true, action: 'deleted' };
-        }
+        return { ok: true, action: 'deleted' };
       }
 
       await app.db
