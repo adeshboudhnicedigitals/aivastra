@@ -808,8 +808,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const overridesByPose = new Map<string, { shownCount: number; hiddenCount: number }>();
       for (const row of overrideCounts) {
         const entry = overridesByPose.get(row.poseAssetId) ?? { shownCount: 0, hiddenCount: 0 };
-        if (row.isActive === true) entry.shownCount += row.count;
-        else if (row.isActive === false) entry.hiddenCount += row.count;
+        // A config row is the opt-in signal; isActive on it only narrows (null = still
+        // shown, inheriting the pose's global flag — e.g. a workflow-only override row
+        // — false = explicitly hidden for that type).
+        if (row.isActive === false) entry.hiddenCount += row.count;
+        else entry.shownCount += row.count;
         overridesByPose.set(row.poseAssetId, entry);
       }
 
@@ -817,7 +820,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         rows.map(async (r) => {
           const totalGarmentTypeCount = r.genderSlug ? (totalByGender.get(r.genderSlug) ?? 0) : 0;
           const overrides = overridesByPose.get(r.id);
-          // A pose is visible only on garment types where it was explicitly mapped (isActive === true)
+          // A pose is visible only on garment types where it's explicitly mapped (a
+          // config row exists for it, per the opt-in pose mapping rule).
           const visibleGarmentTypeCount = r.isActive ? (overrides?.shownCount ?? 0) : 0;
           return {
             ...r,

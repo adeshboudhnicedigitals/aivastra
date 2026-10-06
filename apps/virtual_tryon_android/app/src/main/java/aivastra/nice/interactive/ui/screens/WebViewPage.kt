@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
@@ -213,10 +214,15 @@ fun WebViewPage(
 
     val statusBarH: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
 
+    // imePadding shrinks the WebView above the keyboard so the page scrolls the
+    // focused field into view itself. Without it (and with the activity left in
+    // the default pan mode) the system shifted the whole window instead, and
+    // re-shifted it on every keystroke — fields low on a form visibly blinked.
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
+            .imePadding()
     ) {
         Spacer(Modifier.height(statusBarH))
 

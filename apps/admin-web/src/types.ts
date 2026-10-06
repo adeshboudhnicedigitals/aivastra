@@ -214,7 +214,7 @@ export interface CatalogCategory {
 export interface CatalogItem {
   id: string;
   categoryId: number | null;
-  type: 'lower' | 'shoe';
+  type: 'lower' | 'shoe' | 'accessory';
   genderSlug: string | null;
   label: string;
   thumbnailKey: string;

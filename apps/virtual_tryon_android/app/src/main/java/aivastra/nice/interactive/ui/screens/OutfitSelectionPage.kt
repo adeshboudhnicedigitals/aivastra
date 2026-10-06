@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -24,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -56,11 +59,15 @@ import aivastra.nice.interactive.R
 import aivastra.nice.interactive.data.models.CatalogProduct
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
 import aivastra.nice.interactive.ui.components.OutfitCard
+import aivastra.nice.interactive.ui.components.ClearFocusOnDrag
+import aivastra.nice.interactive.ui.components.OutfitSearchField
+import aivastra.nice.interactive.ui.components.clearFocusOnTap
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
 import aivastra.nice.interactive.viewmodels.OutfitSelectionViewModel
+import aivastra.nice.interactive.viewmodels.matchingSearch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,11 +92,21 @@ fun OutfitSelectionPage(
         (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) +
             sdp(R.dimen._10sdp)
     val hasLoadedProducts = uiState.products.isNotEmpty()
+    val searchQuery = viewModel.searchQuery
+    // Filter once per input change, not on every recomposition or read.
+    val visibleProducts = remember(uiState.products, uiState.selectedSubcategoryId, searchQuery) {
+        uiState.visibleProducts.matchingSearch(searchQuery)
+    }
+
+    val focusManager = LocalFocusManager.current
+    val gridState = rememberLazyGridState()
+    ClearFocusOnDrag(gridState.interactionSource)
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF080808))
+            .clearFocusOnTap(focusManager)
     ) {
         Image(
             painter = painterResource(R.drawable.new_app_bg),
@@ -98,7 +115,9 @@ fun OutfitSelectionPage(
             modifier = Modifier.fillMaxSize()
         )
 
-        Column(modifier = Modifier.fillMaxSize()) {
+        // imePadding keeps the last rows of results above the keyboard; the
+        // background image above stays full-bleed.
+        Column(modifier = Modifier.fillMaxSize().imePadding()) {
             Spacer(Modifier.height(statusBarH + sdp(R.dimen._10sdp)))
             Row(
                 modifier = Modifier
@@ -157,6 +176,18 @@ fun OutfitSelectionPage(
                     fontSize = ssp(R.dimen._12ssp),
                     fontWeight = FontWeight.Medium,
                     fontFamily = PoppinsFamily
+                )
+            }
+
+            if (hasLoadedProducts) {
+                OutfitSearchField(
+                    query = searchQuery,
+                    onQueryChange = viewModel::onSearchQueryChange,
+                    modifier = Modifier.padding(
+                        start = sdp(R.dimen._22sdp),
+                        top = sdp(R.dimen._14sdp),
+                        end = sdp(R.dimen._18sdp)
+                    )
                 )
             }
 
@@ -255,7 +286,13 @@ fun OutfitSelectionPage(
                                 onAction = viewModel::retry
                             )
 
-                            uiState.visibleProducts.isEmpty() -> CatalogMessage(
+                            visibleProducts.isEmpty() && searchQuery.isNotBlank() -> CatalogMessage(
+                                message = "No outfits match \"${searchQuery.trim()}\".",
+                                actionLabel = "Clear Search",
+                                onAction = { viewModel.onSearchQueryChange("") }
+                            )
+
+                            visibleProducts.isEmpty() -> CatalogMessage(
                                 message = "No outfits available in this category.",
                                 actionLabel = "Refresh Catalog",
                                 onAction = viewModel::retry,
@@ -264,6 +301,7 @@ fun OutfitSelectionPage(
                             )
 
                             else -> LazyVerticalGrid(
+                                state = gridState,
                                 columns = GridCells.Fixed(3),
                                 contentPadding = PaddingValues(
                                     horizontal = sdp(R.dimen._20sdp),
@@ -273,7 +311,7 @@ fun OutfitSelectionPage(
                                 verticalArrangement = Arrangement.spacedBy(sdp(R.dimen._14sdp)),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                items(uiState.visibleProducts, key = { it.id }) { product ->
+                                items(visibleProducts, key = { it.id }) { product ->
                                     OutfitCard(
                                         thumbnailUrl = product.mannequinResultUrl
                                             ?: product.thumbnailUrl
@@ -281,7 +319,7 @@ fun OutfitSelectionPage(
                                         contentDescription = product.label ?: "Outfit",
                                         accent = Color(0xFF9E7656),
                                         onClick = {
-                                            onOutfitSelected(product, uiState.visibleProducts)
+                                            onOutfitSelected(product, visibleProducts)
                                         }
                                     )
                                 }
