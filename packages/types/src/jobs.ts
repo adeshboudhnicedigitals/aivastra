@@ -105,6 +105,9 @@ export const CreateTryOnJobInputsBase = z.object({
   // accept lowerCatalogId for the lower role — see resolveTryonPlan.
   lowerGarmentBackKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
   thirdGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
+  // Optional saree blouse upload — only accepted for garment types with
+  // allowsFourthUpload whose resolved workflow maps a fourthNodeId.
+  fourthGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
   shoeCatalogId: z.string().uuid().optional(),
   // Selected accessory catalog items — at most one per category, zero or
   // more categories, never mandatory. Capped generously; the studio wizard

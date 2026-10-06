@@ -20,6 +20,7 @@ interface DetectedMappings {
   lowerNodeId?: string;
   shoeNodeId?: string;
   thirdNodeId?: string;
+  fourthNodeId?: string;
   accessoryNodeId?: string;
   sizeNodeIds: string[];
   positivePromptNode?: string;
@@ -102,6 +103,7 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
   const [lowerNodeId, setLowerNodeId] = useState('');
   const [shoeNodeId, setShoeNodeId] = useState('');
   const [thirdNodeId, setThirdNodeId] = useState('');
+  const [fourthNodeId, setFourthNodeId] = useState('');
   const [accessoryNodeId, setAccessoryNodeId] = useState('');
   const [sizeNodeIds, setSizeNodeIds] = useState<string[]>([]);
   const [latentSizeNodeIds, setLatentSizeNodeIds] = useState<string[]>([]);
@@ -227,6 +229,7 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
       setLowerNodeId(d.lowerNodeId ?? '');
       setShoeNodeId(d.shoeNodeId ?? '');
       setThirdNodeId(d.thirdNodeId ?? '');
+      setFourthNodeId(d.fourthNodeId ?? '');
       setAccessoryNodeId(d.accessoryNodeId ?? '');
       setSizeNodeIds(d.sizeNodeIds ?? []);
       setPositivePromptNode(d.positivePromptNode ?? '');
@@ -368,6 +371,7 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
           lowerNodeId: lowerNodeId || undefined,
           shoeNodeId: shoeNodeId || undefined,
           thirdNodeId: thirdNodeId || undefined,
+          fourthNodeId: fourthNodeId || undefined,
           accessoryNodeId: accessoryNodeId || undefined,
           sizeNodeIds: sizeNodeIds.filter(Boolean),
           ...(latentSizeNodeIds.length === 2 ? { latentSizeNodeIds } : {}),
@@ -726,6 +730,13 @@ export function ReplaceWorkflowModal({ workflow, onReplaced, onClose, toast }: P
                   value={thirdNodeId}
                   onChange={setThirdNodeId}
                   hint="LoadImage node receiving third garment image (optional)"
+                />
+                <NodeSelect
+                  label="Fourth Garment Node — blouse (optional)"
+                  nodes={nodes.image}
+                  value={fourthNodeId}
+                  onChange={setFourthNodeId}
+                  hint='Title convention: "blouse" or "fourth_garment". Removed from the graph, with the nodes that only serve it, when the user supplies no blouse. Tag blouse-only prompt lines with [blouse].'
                 />
                 <NodeSelect
                   label="Accessory node (optional)"

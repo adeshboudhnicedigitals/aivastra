@@ -50,6 +50,7 @@ export async function resolveWorkflowTemplateVersion(
     lowerNodeId: archived.lowerNodeId,
     shoeNodeId: archived.shoeNodeId,
     thirdNodeId: archived.thirdNodeId,
+    fourthNodeId: archived.fourthNodeId,
     accessoryNodeId: archived.accessoryNodeId,
     sizeNodeId: archived.sizeNodeId,
     sizeNodeIds: archived.sizeNodeIds,

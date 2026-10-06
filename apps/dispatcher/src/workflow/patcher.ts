@@ -74,6 +74,101 @@ function bypassOptionalImageNode(workflow: Workflow, imageNodeId: string, role: 
 }
 
 /**
+ * Removes an optional image node AND everything that exists only to serve it — for
+ * images (the saree blouse) whose node also feeds side branches such as a size
+ * calculation chain or a PreviewImage, which `bypassOptionalImageNode` deliberately
+ * refuses (it is the strict path accessories depend on).
+ *
+ * Direct consumers that carry a `configs` link are pass-throughs, bypassed exactly as
+ * above. Every other consumer, and whatever transitively hangs off it, is deleted — but
+ * only while that subgraph ends in a PreviewImage. Reaching any other terminal (a
+ * SaveImage, say) means the graph was authored so the optional image is load-bearing,
+ * and dropping it would submit a broken prompt, so this throws instead.
+ */
+function pruneOptionalImageNode(workflow: Workflow, imageNodeId: string, role: string): void {
+  requireNode(workflow, imageNodeId, role);
+
+  const readersOf = (id: string): string[] =>
+    Object.entries(workflow)
+      .filter(
+        ([readerId, node]) =>
+          readerId !== id && Object.values(node.inputs).some((v) => isLink(v) && v[0] === id),
+      )
+      .map(([readerId]) => readerId);
+
+  const direct = readersOf(imageNodeId);
+  const passThroughs = direct.filter((id) => isLink(workflow[id]?.inputs.configs));
+
+  // Dependents: non-pass-through direct readers plus their transitive readers. The walk
+  // never expands through a pass-through — its output is rewired below, so nothing
+  // downstream of it depends on the image any more.
+  const dependents = new Set<string>(direct.filter((id) => !passThroughs.includes(id)));
+  const queue = [...dependents];
+  while (queue.length > 0) {
+    const current = queue.pop() as string;
+    for (const reader of readersOf(current)) {
+      if (passThroughs.includes(reader) || dependents.has(reader)) continue;
+      dependents.add(reader);
+      queue.push(reader);
+    }
+  }
+
+  // The walk above is transitive, so a blouse wired into the real generation path would
+  // sweep up the sampler, decoder and SaveImage with it. The only terminal a side branch
+  // may legitimately end in is a preview; any other terminal means the blouse is
+  // load-bearing, and deleting it would submit a broken graph.
+  for (const id of dependents) {
+    const node = workflow[id];
+    if (readersOf(id).length === 0 && node?.class_type !== 'PreviewImage') {
+      throw new Error(
+        `Workflow node "${id}" (${node?.class_type}) is an output that depends on the optional ` +
+          `${role} node "${imageNodeId}" — cannot drop the ${role} when none is selected`,
+      );
+    }
+  }
+
+  const doomed = new Set<string>([imageNodeId, ...passThroughs, ...dependents]);
+
+  for (const passId of passThroughs) {
+    const upstream = workflow[passId]?.inputs.configs as [string, number];
+    if (dependents.has(upstream[0])) {
+      throw new Error(
+        `Workflow node "${passId}" bypasses to "${upstream[0]}", which is itself dropped with the ` +
+          `optional ${role} node "${imageNodeId}"`,
+      );
+    }
+    for (const node of Object.values(workflow)) {
+      for (const [key, value] of Object.entries(node.inputs)) {
+        if (isLink(value) && value[0] === passId) node.inputs[key] = upstream;
+      }
+    }
+  }
+  for (const id of doomed) delete workflow[id];
+}
+
+/**
+ * Prompt lines an author marks `[blouse]` only make sense when the blouse image is in the
+ * graph: they are dropped when it is absent, and the marker is stripped when present.
+ * Scans every string input rather than just the garment prompt node, because a pose's
+ * prompt override replaces that node's text and would otherwise skip the tag handling.
+ */
+const OPTIONAL_LINE_TAG = /\[blouse\]/i;
+function resolveOptionalLineTags(workflow: Workflow, present: boolean): void {
+  for (const node of Object.values(workflow)) {
+    for (const [key, value] of Object.entries(node.inputs)) {
+      if (typeof value !== 'string' || !OPTIONAL_LINE_TAG.test(value)) continue;
+      node.inputs[key] = value
+        .split('\n')
+        .flatMap((line) => {
+          if (!OPTIONAL_LINE_TAG.test(line)) return [line];
+          return present ? [line.replace(/\s*\[blouse\]\s*/gi, ' ').trim()] : [];
+        })
+        .join('\n');
+    }
+  }
+}
+
+/**
  * A template's latentMaxPx/outputMaxPx is a ceiling, not a target — it only ever
  * shrinks the resolved dims (proportionally, preserving aspect ratio), never grows
  * them. A cap below the current value is a deliberate per-template override of the
@@ -107,6 +202,9 @@ export interface WorkflowInputs {
   lowerGarmentFile?: string;
   shoeGarmentFile?: string;
   thirdGarmentFile?: string;
+  /** Optional saree blouse. Absent on a template that maps fourthNodeId prunes that
+   *  node's subgraph from the workflow instead of failing. */
+  fourthGarmentFile?: string;
   /** Pre-stacked composite of every selected accessory image (see
    *  stackAccessoryImages) — a single file regardless of how many accessory
    *  categories were selected. */
@@ -201,6 +299,20 @@ export function applyWorkflowPatch(
     );
   }
 
+  // The fourth image (saree blouse) is never mandatory either — see the prune helper.
+  if (tmpl.fourthNodeId) {
+    if (inputs.fourthGarmentFile) {
+      requireNode(workflow, tmpl.fourthNodeId, 'fourth garment').inputs.image =
+        inputs.fourthGarmentFile;
+    } else {
+      pruneOptionalImageNode(workflow, tmpl.fourthNodeId, 'fourth garment');
+    }
+  } else if (inputs.fourthGarmentFile) {
+    log?.warn(
+      `patchWorkflow: fourth garment provided but workflow "${tmpl.slug}" has no fourth_node_id — skipping`,
+    );
+  }
+
   // Accessories are never mandatory, unlike lower/shoe/third above: a mapped
   // accessoryNodeId with nothing selected is bypassed out of the graph, because the
   // template ships a placeholder image that would otherwise reach the model.
@@ -225,6 +337,9 @@ export function applyWorkflowPatch(
     promptNode.inputs.prompt = inputs.promptGarmentPhase;
   }
   // Negative prompt (facePhasePromptNode) is never overridden — hardcoded per workflow.
+
+  // After the override above, so a pose-supplied prompt gets the same [blouse] handling.
+  if (tmpl.fourthNodeId) resolveOptionalLineTags(workflow, Boolean(inputs.fourthGarmentFile));
 
   // Resolve output dimensions: custom pixel dims take precedence over the
   // ASPECT_DIMENSIONS enum lookup. Custom dims come from the user's explicit
