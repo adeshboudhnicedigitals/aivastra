@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -24,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -56,7 +59,9 @@ import aivastra.nice.interactive.R
 import aivastra.nice.interactive.data.models.CatalogProduct
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
 import aivastra.nice.interactive.ui.components.OutfitCard
+import aivastra.nice.interactive.ui.components.ClearFocusOnDrag
 import aivastra.nice.interactive.ui.components.OutfitSearchField
+import aivastra.nice.interactive.ui.components.clearFocusOnTap
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
@@ -93,10 +98,15 @@ fun OutfitSelectionPage(
         uiState.visibleProducts.matchingSearch(searchQuery)
     }
 
+    val focusManager = LocalFocusManager.current
+    val gridState = rememberLazyGridState()
+    ClearFocusOnDrag(gridState.interactionSource)
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF080808))
+            .clearFocusOnTap(focusManager)
     ) {
         Image(
             painter = painterResource(R.drawable.new_app_bg),
@@ -105,7 +115,9 @@ fun OutfitSelectionPage(
             modifier = Modifier.fillMaxSize()
         )
 
-        Column(modifier = Modifier.fillMaxSize()) {
+        // imePadding keeps the last rows of results above the keyboard; the
+        // background image above stays full-bleed.
+        Column(modifier = Modifier.fillMaxSize().imePadding()) {
             Spacer(Modifier.height(statusBarH + sdp(R.dimen._10sdp)))
             Row(
                 modifier = Modifier
@@ -289,6 +301,7 @@ fun OutfitSelectionPage(
                             )
 
                             else -> LazyVerticalGrid(
+                                state = gridState,
                                 columns = GridCells.Fixed(3),
                                 contentPadding = PaddingValues(
                                     horizontal = sdp(R.dimen._20sdp),
