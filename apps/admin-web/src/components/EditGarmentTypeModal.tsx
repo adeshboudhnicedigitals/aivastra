@@ -5,6 +5,7 @@ import type {
   CatalogCategory,
   CatalogItem,
   GarmentType,
+  ModelFace,
   TryonCategory,
   WorkflowOption,
 } from '../types';
@@ -18,6 +19,7 @@ import { Switch } from './Switch';
 interface Props {
   garmentType: GarmentType;
   catalogItems: CatalogItem[];
+  faces: ModelFace[];
   tryonCategories: TryonCategory[];
   workflows: WorkflowOption[];
   onSaved: (patch: Record<string, unknown>) => void;
@@ -163,7 +165,7 @@ function PickerTile({
           }}
         >
           {children}
-          {onToggleBulk && (
+          {onToggleBulk && !selected && (
             <input
               type="checkbox"
               checked={isBulkSelected}
@@ -522,9 +524,243 @@ function ItemPicker({
   );
 }
 
+function FacePicker({
+  gender,
+  faces,
+  mappedIds,
+  onToggleMapped,
+  onBulkSetMapped,
+}: {
+  gender: string;
+  faces: ModelFace[];
+  mappedIds: Set<string>;
+  onToggleMapped: (id: string) => void;
+  onBulkSetMapped: (ids: string[], mapped: boolean) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [continentFilter, setContinentFilter] = useState<string | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'mapped' | 'unmapped'>('all');
+  const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
+
+  const scoped = useMemo(
+    () => faces.filter((f) => f.isActive && f.gender === gender),
+    [faces, gender],
+  );
+  const continents = useMemo(
+    () =>
+      Array.from(new Set(scoped.map((f) => f.continent || 'global'))).sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    [scoped],
+  );
+
+  const mappedCount = useMemo(
+    () => scoped.filter((f) => mappedIds.has(f.id)).length,
+    [scoped, mappedIds],
+  );
+  const unmappedCount = scoped.length - mappedCount;
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return scoped.filter((f) => {
+      const isMapped = mappedIds.has(f.id);
+      const matchesContinent =
+        continentFilter === 'all' || (f.continent || 'global') === continentFilter;
+      const matchesSearch = !q || f.label.toLowerCase().includes(q);
+      const matchesStatus =
+        statusFilter === 'all' ? true : statusFilter === 'mapped' ? isMapped : !isMapped;
+      return matchesContinent && matchesSearch && matchesStatus;
+    });
+  }, [scoped, continentFilter, search, statusFilter, mappedIds]);
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          padding: '10px 16px',
+          borderBottom: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div className="search" style={{ width: 180 }}>
+            <Icon.Search />
+            <input
+              placeholder="Search faces…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 2 }}>Show:</span>
+            <button
+              type="button"
+              className={`badge ${statusFilter === 'all' ? 'accent' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+              onClick={() => setStatusFilter('all')}
+            >
+              All ({scoped.length})
+            </button>
+            <button
+              type="button"
+              className={`badge ${statusFilter === 'mapped' ? 'accent' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+              onClick={() => setStatusFilter('mapped')}
+            >
+              Mapped ({mappedCount})
+            </button>
+            <button
+              type="button"
+              className={`badge ${statusFilter === 'unmapped' ? 'accent' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+              onClick={() => setStatusFilter('unmapped')}
+            >
+              Unmapped ({unmappedCount})
+            </button>
+          </div>
+        </div>
+
+        {continents.length > 1 && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              type="button"
+              className={`badge ${continentFilter === 'all' ? 'accent' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+              onClick={() => setContinentFilter('all')}
+            >
+              All Continents
+            </button>
+            {continents.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`badge ${continentFilter === c ? 'accent' : ''}`}
+                style={{ cursor: 'pointer', border: 'none' }}
+                onClick={() => setContinentFilter(c)}
+              >
+                {c === 'global' ? 'Global' : c}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 16px',
+          background: 'var(--surface-2)',
+          borderBottom: '1px solid var(--border)',
+          fontSize: 12,
+        }}
+      >
+        <button
+          type="button"
+          className="btn xs ghost"
+          onClick={() => {
+            const visibleIds = filtered.map((f) => f.id);
+            const allSelected =
+              visibleIds.length > 0 && visibleIds.every((id) => selectedBulkIds.includes(id));
+            setSelectedBulkIds(
+              allSelected
+                ? selectedBulkIds.filter((id) => !visibleIds.includes(id))
+                : Array.from(new Set([...selectedBulkIds, ...visibleIds])),
+            );
+          }}
+        >
+          {filtered.length > 0 && filtered.every((f) => selectedBulkIds.includes(f.id))
+            ? 'Deselect visible'
+            : 'Select all visible'}
+        </button>
+        {selectedBulkIds.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="btn xs danger"
+              onClick={() => {
+                onBulkSetMapped(selectedBulkIds, false);
+                setSelectedBulkIds([]);
+              }}
+            >
+              <Icon.Trash /> Unmap selected ({selectedBulkIds.length})
+            </button>
+            <button
+              type="button"
+              className="btn xs"
+              onClick={() => {
+                onBulkSetMapped(selectedBulkIds, true);
+                setSelectedBulkIds([]);
+              }}
+            >
+              Map selected ({selectedBulkIds.length})
+            </button>
+            <button type="button" className="btn xs ghost" onClick={() => setSelectedBulkIds([])}>
+              Clear
+            </button>
+          </>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>
+          {filtered.length} visible
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))',
+          gap: 10,
+          padding: 16,
+          maxHeight: 300,
+          overflowY: 'auto',
+        }}
+      >
+        {filtered.map((f) => {
+          const isFaceMapped = mappedIds.has(f.id);
+          return (
+            <PickerTile
+              key={f.id}
+              selected={false}
+              isMapped={isFaceMapped}
+              isBulkSelected={selectedBulkIds.includes(f.id)}
+              onToggleBulk={() => {
+                setSelectedBulkIds((prev) =>
+                  prev.includes(f.id) ? prev.filter((id) => id !== f.id) : [...prev, f.id],
+                );
+              }}
+              onToggleMapped={() => onToggleMapped(f.id)}
+              label={f.label}
+              onClick={() => onToggleMapped(f.id)}
+            >
+              <AssetThumb thumbnailUrl={f.thumbnailUrl} label={f.label} w={88} h={88} />
+            </PickerTile>
+          );
+        })}
+        {filtered.length === 0 && (
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              padding: '20px 0',
+              textAlign: 'center',
+              color: 'var(--muted)',
+              fontSize: 13,
+            }}
+          >
+            No faces match.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function EditGarmentTypeModal({
   garmentType,
   catalogItems,
+  faces,
   tryonCategories,
   workflows,
   onSaved,
@@ -609,7 +845,27 @@ export function EditGarmentTypeModal({
   });
   const [initialMappedShoeIds, setInitialMappedShoeIds] = useState<Set<string>>(mappedShoeIds);
 
+  const allFaces = useMemo(
+    () => faces.filter((f) => f.isActive && f.gender === garmentType.genderSlug),
+    [faces, garmentType.genderSlug],
+  );
+  // Faces (unlike catalog items) don't carry their own subcategoryIds in this
+  // component's props, so there's no instant guess available here — this starts
+  // empty and gets its real value from the face-mappings fetch below, same as
+  // mappedLower/ShoeIds would if allLowers/allShoes had no subcategoryIds either.
+  const [mappedFaceIds, setMappedFaceIds] = useState<Set<string>>(new Set());
+  const [initialMappedFaceIds, setInitialMappedFaceIds] = useState<Set<string>>(new Set());
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: initialMapped{Lower,Shoe,Face}Ids are read once to snapshot the pre-fetch baseline, not reacted to — listing them would loop this effect forever
   useEffect(() => {
+    // Snapshot the pre-fetch baseline so a toggle made by the admin while this
+    // request is in flight isn't silently discarded when the authoritative
+    // mapping data lands — replay it on top of the real baseline instead of
+    // overwriting mappedLower/Shoe/FaceIds outright.
+    const guessedInitialLower = initialMappedLowerIds;
+    const guessedInitialShoe = initialMappedShoeIds;
+    const guessedInitialFace = initialMappedFaceIds;
+
     apiFetch<{
       mappedLowerIds: string[];
       hasExplicitLowerMappings: boolean;
@@ -620,17 +876,56 @@ export function EditGarmentTypeModal({
         const lowerSet = res.hasExplicitLowerMappings
           ? new Set(res.mappedLowerIds)
           : new Set(allLowers.map((c) => c.id));
-        setMappedLowerIds(lowerSet);
+        setMappedLowerIds((prevMapped) => {
+          const next = new Set(lowerSet);
+          for (const id of prevMapped) {
+            if (!guessedInitialLower.has(id)) next.add(id);
+          }
+          for (const id of guessedInitialLower) {
+            if (!prevMapped.has(id)) next.delete(id);
+          }
+          return next;
+        });
         setInitialMappedLowerIds(new Set(lowerSet));
 
         const shoeSet = res.hasExplicitShoeMappings
           ? new Set(res.mappedShoeIds)
           : new Set(allShoes.map((c) => c.id));
-        setMappedShoeIds(shoeSet);
+        setMappedShoeIds((prevMapped) => {
+          const next = new Set(shoeSet);
+          for (const id of prevMapped) {
+            if (!guessedInitialShoe.has(id)) next.add(id);
+          }
+          for (const id of guessedInitialShoe) {
+            if (!prevMapped.has(id)) next.delete(id);
+          }
+          return next;
+        });
         setInitialMappedShoeIds(new Set(shoeSet));
       })
       .catch(() => {});
-  }, [garmentType.id, allLowers, allShoes]);
+
+    apiFetch<{ mappedFaceIds: string[]; hasExplicitFaceMappings: boolean }>(
+      `/admin/assets/garment-types/${garmentType.id}/face-mappings`,
+    )
+      .then((res) => {
+        const faceSet = res.hasExplicitFaceMappings
+          ? new Set(res.mappedFaceIds)
+          : new Set(allFaces.map((f) => f.id));
+        setMappedFaceIds((prevMapped) => {
+          const next = new Set(faceSet);
+          for (const id of prevMapped) {
+            if (!guessedInitialFace.has(id)) next.add(id);
+          }
+          for (const id of guessedInitialFace) {
+            if (!prevMapped.has(id)) next.delete(id);
+          }
+          return next;
+        });
+        setInitialMappedFaceIds(new Set(faceSet));
+      })
+      .catch(() => {});
+  }, [garmentType.id, allLowers, allShoes, allFaces]);
 
   const toggleMappedLower = (id: string) => {
     setMappedLowerIds((prev) => {
@@ -688,6 +983,32 @@ export function EditGarmentTypeModal({
     });
   };
 
+  const toggleMappedFace = (id: string) => {
+    setMappedFaceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const bulkSetMappedFace = (ids: string[], mapped: boolean) => {
+    setMappedFaceIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (mapped) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
+      }
+      return next;
+    });
+  };
+
   const lowerMappingDirty = useMemo(() => {
     if (initialMappedLowerIds.size !== mappedLowerIds.size) return true;
     for (const id of mappedLowerIds) {
@@ -703,6 +1024,14 @@ export function EditGarmentTypeModal({
     }
     return false;
   }, [initialMappedShoeIds, mappedShoeIds]);
+
+  const faceMappingDirty = useMemo(() => {
+    if (initialMappedFaceIds.size !== mappedFaceIds.size) return true;
+    for (const id of mappedFaceIds) {
+      if (!initialMappedFaceIds.has(id)) return true;
+    }
+    return false;
+  }, [initialMappedFaceIds, mappedFaceIds]);
 
   useEffect(() => {
     apiFetch<CatalogCategory[]>('/admin/catalog/categories')
@@ -750,7 +1079,8 @@ export function EditGarmentTypeModal({
     twoInputTryonWorkflowTemplateId !== (garmentType.twoInputTryonWorkflowTemplateId ?? '') ||
     tutorialVideoUrl !== (garmentType.tutorialVideoUrl ?? '') ||
     lowerMappingDirty ||
-    shoeMappingDirty;
+    shoeMappingDirty ||
+    faceMappingDirty;
 
   const save = async () => {
     setSaving(true);
@@ -860,6 +1190,9 @@ export function EditGarmentTypeModal({
       }
       if (shoeMappingDirty) {
         patchBody.mappedShoeCatalogItemIds = Array.from(mappedShoeIds);
+      }
+      if (faceMappingDirty) {
+        patchBody.mappedFaceIds = Array.from(mappedFaceIds);
       }
 
       if (Object.keys(patchBody).length > 0) {
@@ -1176,6 +1509,19 @@ export function EditGarmentTypeModal({
               mappedIds={mappedShoeIds}
               onToggleMapped={toggleMappedShoe}
               onBulkSetMapped={bulkSetMappedShoe}
+            />
+          ),
+        },
+        {
+          title: `Faces${allFaces.length - mappedFaceIds.size > 0 ? ` (${allFaces.length - mappedFaceIds.size} unmapped)` : ''}`,
+          flush: true,
+          children: (
+            <FacePicker
+              gender={garmentType.genderSlug}
+              faces={faces}
+              mappedIds={mappedFaceIds}
+              onToggleMapped={toggleMappedFace}
+              onBulkSetMapped={bulkSetMappedFace}
             />
           ),
         },

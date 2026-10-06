@@ -198,6 +198,13 @@ describe('GET /v1/dev/analytics', () => {
         uniqueShoppers: number;
         addedToCart: number;
       }[];
+      funnel: {
+        buttonClick: number;
+        upload: number;
+        tryOn: number;
+        resultView: number;
+        addToCart: number;
+      };
     };
     expect(body.cards.uniqueShoppers).toBe(2);
     expect(body.cards.addedToCart).toBe(1);
@@ -205,5 +212,16 @@ describe('GET /v1/dev/analytics', () => {
     const byProduct = new Map(body.products.map((p) => [p.productId, p]));
     expect(byProduct.get(7)).toMatchObject({ tryOns: 2, uniqueShoppers: 2, addedToCart: 1 });
     expect(byProduct.get(9)).toMatchObject({ tryOns: 1, uniqueShoppers: 1, addedToCart: 0 });
+
+    // No jobs seeded for this merchant in this test — funnel.tryOn tracks the
+    // real jobs-table count (same as cards.tryOns), not a distinct-shopper
+    // count derived from the advisory events below it.
+    expect(body.funnel).toEqual({
+      buttonClick: 1,
+      upload: 0,
+      tryOn: 0,
+      resultView: 2,
+      addToCart: 1,
+    });
   });
 });
