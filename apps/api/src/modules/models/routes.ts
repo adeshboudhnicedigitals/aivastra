@@ -131,13 +131,14 @@ export async function modelsRoutes(app: FastifyInstance) {
       schema: {
         querystring: z.object({
           gender: z.enum(['men', 'women', 'boys', 'girls']),
+          garmentTypeId: z.string().uuid().optional(),
         }),
       },
     },
     async (req) => {
-      const { gender } = req.query as { gender: string };
+      const { gender, garmentTypeId } = req.query as { gender: string; garmentTypeId?: string };
 
-      const items = await app.db
+      let items = await app.db
         .select({
           id: schema.modelFaces.id,
           gender: schema.modelFaces.gender,
@@ -155,6 +156,21 @@ export async function modelsRoutes(app: FastifyInstance) {
           ),
         )
         .orderBy(asc(schema.modelFaces.sortOrder), asc(schema.modelFaces.label));
+
+      // No mapping row for this garment type at all = opt-out (every active face of
+      // this gender stays visible). Once any explicit mapping exists for the type,
+      // only mapped faces are shown — same opt-in-once-explicit pattern as lower/shoe
+      // catalog items (see hasExplicitLowerMappings in admin/subcategories.routes.ts).
+      if (garmentTypeId && items.length > 0) {
+        const mapped = await app.db
+          .select({ faceId: schema.modelFaceSubcategories.faceId })
+          .from(schema.modelFaceSubcategories)
+          .where(eq(schema.modelFaceSubcategories.subcategoryId, garmentTypeId));
+        if (mapped.length > 0) {
+          const mappedIds = new Set(mapped.map((m) => m.faceId));
+          items = items.filter((i) => mappedIds.has(i.id));
+        }
+      }
 
       return {
         items: await Promise.all(
@@ -335,8 +351,13 @@ export async function modelsRoutes(app: FastifyInstance) {
         .orderBy(asc(schema.modelPoseAssets.sortOrder), asc(schema.modelPoseAssets.label));
 
       // If garmentTypeId given, overlay per-type workflow overrides for hasLower/hasShoes,
-      // and per-type active overrides (a pose can be hidden for one garment type without
-      // touching its global isActive flag or its visibility under other garment types).
+      // and apply strict opt-in visibility: a pose shows for a garment type only when a
+      // pose_garment_configs row exists for it. isActive on that row is a *narrowing*
+      // override (null = inherit, i.e. still visible — e.g. a workflow-only override
+      // row — false = explicitly hidden), not the opt-in signal itself; the row's mere
+      // existence is. Mirrors the admin's own "assigned poses" reporting, enforced there
+      // in the 2026-10-05 opt-in pose mapping change but never carried over to this
+      // public endpoint until now (see docs/progress.md).
       let configMap = new Map<
         string,
         {
@@ -348,7 +369,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           garmentView: string;
         }
       >();
-      let inactiveForType = new Set<string>();
+      let activeForType: Set<string> | null = null;
       if (garmentTypeId && items.length > 0) {
         const poseIds = items.map((i) => i.id);
         const configs = await app.db
@@ -392,15 +413,15 @@ export async function modelsRoutes(app: FastifyInstance) {
               },
             ]),
         );
-        inactiveForType = new Set(
-          configs.filter((c) => c.isActive === false).map((c) => c.poseAssetId),
+        activeForType = new Set(
+          configs.filter((c) => c.isActive !== false).map((c) => c.poseAssetId),
         );
       }
 
       return {
         items: await Promise.all(
           items
-            .filter((i) => !inactiveForType.has(i.id))
+            .filter((i) => activeForType === null || activeForType.has(i.id))
             .map(async (i) => {
               const cfg = configMap.get(i.id);
               const upperNodeIds = cfg !== undefined ? cfg.upperNodeIds : i.upperNodeIds;
