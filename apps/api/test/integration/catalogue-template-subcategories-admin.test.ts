@@ -870,4 +870,114 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
     expect(afterUnmapRes.json().mappedLowerIds).not.toContain(lower1.id);
     expect(afterUnmapRes.json().mappedLowerIds).toContain(lower2.id);
   });
+
+  it('accessories are strictly opt-in: GET/PATCH/PUT never backfill siblings on unmap', async () => {
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'women', slug: `sc-acc-${Date.now()}`, label: 'Saree Test' })
+      .returning();
+
+    const [acc1, acc2] = await app.db
+      .insert(schema.catalogItems)
+      .values([
+        {
+          type: 'accessory',
+          genderSlug: 'women',
+          label: `Accessory 1 ${Date.now()}`,
+          r2Key: 'a1.jpg',
+          thumbnailKey: 'a1-thumb.jpg',
+          isActive: true,
+        },
+        {
+          type: 'accessory',
+          genderSlug: 'women',
+          label: `Accessory 2 ${Date.now()}`,
+          r2Key: 'a2.jpg',
+          thumbnailKey: 'a2-thumb.jpg',
+          isActive: true,
+        },
+      ])
+      .returning();
+
+    // 1. No explicit mappings yet — strict opt-in means empty, not "all".
+    const initRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/catalog-mappings`,
+      headers,
+    });
+    expect(initRes.statusCode).toBe(200);
+    expect(initRes.json().mappedAccessoryIds).toEqual([]);
+    expect(initRes.json().hasExplicitAccessoryMappings).toBe(false);
+
+    // 2. PATCH mappedAccessoryCatalogItemIds = [acc1.id]
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/garment-types/${garmentType.id}`,
+      headers,
+      payload: { mappedAccessoryCatalogItemIds: [acc1.id] },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const afterPatchRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/catalog-mappings`,
+      headers,
+    });
+    expect(afterPatchRes.json().mappedAccessoryIds).toEqual([acc1.id]);
+    expect(afterPatchRes.json().hasExplicitAccessoryMappings).toBe(true);
+
+    // 3. PUT map acc2 as well
+    const putMapRes = await app.inject({
+      method: 'PUT',
+      url: `/admin/assets/garment-types/${garmentType.id}/catalog-items/${acc2.id}`,
+      headers,
+      payload: { mapped: true },
+    });
+    expect(putMapRes.statusCode).toBe(200);
+
+    const afterPutMapRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/catalog-mappings`,
+      headers,
+    });
+    expect(afterPutMapRes.json().mappedAccessoryIds).toContain(acc1.id);
+    expect(afterPutMapRes.json().mappedAccessoryIds).toContain(acc2.id);
+
+    // 4. PUT unmap acc1 — unlike lower/shoe, this must NOT backfill acc2 (it's
+    // already explicitly mapped from step 3, so this just checks acc1 alone
+    // drops out without any sibling being added).
+    const putUnmapRes = await app.inject({
+      method: 'PUT',
+      url: `/admin/assets/garment-types/${garmentType.id}/catalog-items/${acc1.id}`,
+      headers,
+      payload: { mapped: false },
+    });
+    expect(putUnmapRes.statusCode).toBe(200);
+
+    const afterUnmapRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/catalog-mappings`,
+      headers,
+    });
+    expect(afterUnmapRes.json().mappedAccessoryIds).toEqual([acc2.id]);
+
+    // 5. PUT unmap acc2 too — now nothing is mapped. A strict-opt-in read must
+    // report hasExplicitAccessoryMappings: false (empty), never fall back to
+    // "all accessories" the way lower/shoe would.
+    const putUnmapRes2 = await app.inject({
+      method: 'PUT',
+      url: `/admin/assets/garment-types/${garmentType.id}/catalog-items/${acc2.id}`,
+      headers,
+      payload: { mapped: false },
+    });
+    expect(putUnmapRes2.statusCode).toBe(200);
+
+    const afterUnmapAllRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/catalog-mappings`,
+      headers,
+    });
+    expect(afterUnmapAllRes.json().mappedAccessoryIds).toEqual([]);
+    expect(afterUnmapAllRes.json().hasExplicitAccessoryMappings).toBe(false);
+  });
 });

@@ -56,11 +56,13 @@ import aivastra.nice.interactive.R
 import aivastra.nice.interactive.data.models.CatalogProduct
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
 import aivastra.nice.interactive.ui.components.OutfitCard
+import aivastra.nice.interactive.ui.components.OutfitSearchField
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
 import aivastra.nice.interactive.viewmodels.OutfitSelectionViewModel
+import aivastra.nice.interactive.viewmodels.matchingSearch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +87,11 @@ fun OutfitSelectionPage(
         (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) +
             sdp(R.dimen._10sdp)
     val hasLoadedProducts = uiState.products.isNotEmpty()
+    val searchQuery = viewModel.searchQuery
+    // Filter once per input change, not on every recomposition or read.
+    val visibleProducts = remember(uiState.products, uiState.selectedSubcategoryId, searchQuery) {
+        uiState.visibleProducts.matchingSearch(searchQuery)
+    }
 
     Box(
         modifier = modifier
@@ -157,6 +164,18 @@ fun OutfitSelectionPage(
                     fontSize = ssp(R.dimen._12ssp),
                     fontWeight = FontWeight.Medium,
                     fontFamily = PoppinsFamily
+                )
+            }
+
+            if (hasLoadedProducts) {
+                OutfitSearchField(
+                    query = searchQuery,
+                    onQueryChange = viewModel::onSearchQueryChange,
+                    modifier = Modifier.padding(
+                        start = sdp(R.dimen._22sdp),
+                        top = sdp(R.dimen._14sdp),
+                        end = sdp(R.dimen._18sdp)
+                    )
                 )
             }
 
@@ -255,7 +274,13 @@ fun OutfitSelectionPage(
                                 onAction = viewModel::retry
                             )
 
-                            uiState.visibleProducts.isEmpty() -> CatalogMessage(
+                            visibleProducts.isEmpty() && searchQuery.isNotBlank() -> CatalogMessage(
+                                message = "No outfits match \"${searchQuery.trim()}\".",
+                                actionLabel = "Clear Search",
+                                onAction = { viewModel.onSearchQueryChange("") }
+                            )
+
+                            visibleProducts.isEmpty() -> CatalogMessage(
                                 message = "No outfits available in this category.",
                                 actionLabel = "Refresh Catalog",
                                 onAction = viewModel::retry,
@@ -273,7 +298,7 @@ fun OutfitSelectionPage(
                                 verticalArrangement = Arrangement.spacedBy(sdp(R.dimen._14sdp)),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                items(uiState.visibleProducts, key = { it.id }) { product ->
+                                items(visibleProducts, key = { it.id }) { product ->
                                     OutfitCard(
                                         thumbnailUrl = product.mannequinResultUrl
                                             ?: product.thumbnailUrl
@@ -281,7 +306,7 @@ fun OutfitSelectionPage(
                                         contentDescription = product.label ?: "Outfit",
                                         accent = Color(0xFF9E7656),
                                         onClick = {
-                                            onOutfitSelected(product, uiState.visibleProducts)
+                                            onOutfitSelected(product, visibleProducts)
                                         }
                                     )
                                 }

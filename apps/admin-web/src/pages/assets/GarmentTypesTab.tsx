@@ -213,8 +213,18 @@ export function GarmentTypesTab() {
       ? (garmentTypes.find((g) => g.id === editId) ?? null)
       : null;
   const openEditModal = useCallback(
-    (sub: GarmentType) => setModalParams({ modal: 'edit-garment-type', editId: sub.id }),
-    [setModalParams],
+    (sub: GarmentType) => {
+      setModalParams({ modal: 'edit-garment-type', editId: sub.id });
+      // catalogItems is fetched once on AssetsProvider mount; CatalogTab's own
+      // mapping edits (via "garment types this item applies to") write straight to
+      // the API without updating this shared copy, so it can be stale by the time
+      // this modal reads mapped lower/shoe/accessory ids from it. Refetch on open
+      // rather than relying on the next onSaved refresh.
+      apiFetch<CatalogItem[]>('/admin/catalog/items')
+        .then(setCatalogItems)
+        .catch(() => {});
+    },
+    [setModalParams, setCatalogItems],
   );
   useCrumb(
     2,

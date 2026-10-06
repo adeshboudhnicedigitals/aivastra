@@ -1,5 +1,8 @@
 package aivastra.nice.interactive.viewmodels
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import aivastra.nice.interactive.data.models.CatalogProduct
@@ -30,6 +33,16 @@ data class OutfitSelectionUiState(
         } ?: products
 }
 
+/** Same rule as the server's `search` param: substring of label or SKU, case-insensitive. */
+fun List<CatalogProduct>.matchingSearch(query: String): List<CatalogProduct> {
+    val term = query.trim()
+    if (term.isEmpty()) return this
+    return filter {
+        it.label?.contains(term, ignoreCase = true) == true ||
+            it.sku?.contains(term, ignoreCase = true) == true
+    }
+}
+
 class OutfitSelectionViewModel(
     private val repository: CatalogRepository = CatalogRepository()
 ) : ViewModel() {
@@ -37,6 +50,22 @@ class OutfitSelectionViewModel(
     val uiState: StateFlow<OutfitSelectionUiState> = _uiState.asStateFlow()
 
     private var catalogJob: Job? = null
+
+    // Compose state rather than a field on the StateFlow: a TextField bound to a
+    // collected flow gets its value back a dispatch late, which drops characters
+    // and jumps the cursor on fast typing.
+    var searchQuery by mutableStateOf("")
+        private set
+
+    fun onSearchQueryChange(query: String) {
+        // Starting a search widens the scope to the whole category, so a name or
+        // SKU is found even when it sits under a chip other than the selected one.
+        // Chips stay tappable afterwards to narrow the results.
+        if (searchQuery.isBlank() && query.isNotBlank()) {
+            _uiState.update { it.copy(selectedSubcategoryId = null) }
+        }
+        searchQuery = query
+    }
 
     fun loadCatalog(category: String, forceReload: Boolean = false) {
         val normalizedCategory = category.trim().lowercase()
@@ -50,6 +79,8 @@ class OutfitSelectionViewModel(
         }
 
         catalogJob?.cancel()
+
+        if (currentState.category != normalizedCategory) searchQuery = ""
 
         val hasExistingContent =
             currentState.category == normalizedCategory && currentState.products.isNotEmpty()
@@ -91,7 +122,10 @@ class OutfitSelectionViewModel(
                 } else {
                     when (result) {
                         is CatalogResult.Success -> _uiState.update { state ->
-                            val selectedSubcategoryId = resolveSelectedSubcategoryId(
+                            // A refresh mid-search must not snap "All" back to the
+                            // first chip and silently narrow the results.
+                            val keepAll = searchQuery.isNotBlank() && state.selectedSubcategoryId == null
+                            val selectedSubcategoryId = if (keepAll) null else resolveSelectedSubcategoryId(
                                 subcategories = result.data.subcategories,
                                 products = result.data.products,
                                 preferredId = state.selectedSubcategoryId
