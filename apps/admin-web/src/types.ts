@@ -537,6 +537,10 @@ export interface FabricGarmentType {
   thumbnailUrl: string | null;
   prompt: string;
   negativePrompt: string | null;
+  // Links this preset to a Studio garment type (garment_subcategories) so the
+  // Fabric to Garment page can continue into Studio's face/background/pose
+  // flow once this preset's job completes. null = not linked yet.
+  garmentTypeId: string | null;
   sortOrder: number;
   isActive: boolean;
   createdAt: string;

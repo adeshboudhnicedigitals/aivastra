@@ -1017,6 +1017,11 @@ export const CreateFabricGarmentTypeBody = z.object({
   thumbnailKey: z.string().optional(),
   prompt: z.string().min(1).max(4000),
   negativePrompt: z.string().max(4000).optional(),
+  // Links this preset to a Studio garment type (garment_subcategories) so the
+  // Fabric to Garment page can follow on into Studio's own face/background/
+  // pose flow once the preset's job completes. Optional: an unlinked preset
+  // still works for generation alone.
+  garmentTypeId: z.string().uuid().nullable().optional(),
   sortOrder: z.number().int().optional(),
   isActive: z.boolean().optional(),
 });
@@ -1026,6 +1031,7 @@ export const PatchFabricGarmentTypeBody = z.object({
   thumbnailKey: z.string().nullable().optional(),
   prompt: z.string().min(1).max(4000).optional(),
   negativePrompt: z.string().max(4000).nullable().optional(),
+  garmentTypeId: z.string().uuid().nullable().optional(),
   sortOrder: z.number().int().optional(),
   isActive: z.boolean().optional(),
 });

@@ -2,10 +2,12 @@
 
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { type GenerationJob, GenerationPanel } from '@/app/(app)/studio/generation-panel';
 import { CheckIcon, SpinnerIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { ZoomableImage } from '@/components/ZoomableImage';
+import type { PipelineStage } from './use-fabric-to-shoot';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 const BENEFITS = ['Studio quality output', 'Multiple model options', 'Ready for ecommerce'];
@@ -82,28 +84,40 @@ function Chevron() {
   );
 }
 
-// Right-hand panel: an empty-state before anything has been submitted
-// (identical to studio's PreviewPanel), then the in-flight "AI Processing"
-// 3-column block (input → steps/progress → output) while a job is live,
-// matching studio's GenerationPanel Block 1 — collapsed to a single job
-// instead of a multi-pose batch, since fabric-to-garment only ever runs one
-// job at a time.
-export function FabricToGarmentPreviewPanel({
+// Right-hand panel, reflecting whichever stage of the single-button pipeline
+// is live: an empty-state before anything has been submitted (identical to
+// studio's PreviewPanel), the in-flight "AI Processing" 3-column block
+// (input → steps/progress → output) while the fabric->garment job is live
+// (matching studio's GenerationPanel Block 1, collapsed to a single job), a
+// brief transitional card while the result is claimed, then either a
+// standalone "Garment Ready" result (preset not linked to a Studio garment
+// type — the pipeline stops here) or a hand-off to Studio's own
+// GenerationPanel for the tryon job's progress/result.
+export function FabricToShootPreviewPanel({
   garmentPreviewUrl,
   jobStatus,
   resultUrl,
-  generating,
+  pipelineRunning,
+  pipelineStage,
+  hasGarmentType,
+  pipelineError,
   onGenerateAnother,
+  activeGeneration,
 }: {
   garmentPreviewUrl: string | null;
   jobStatus: string | null;
   resultUrl: string | null;
-  generating: boolean;
+  pipelineRunning: boolean;
+  pipelineStage: PipelineStage;
+  hasGarmentType: boolean;
+  pipelineError: string | null;
   onGenerateAnother: () => void;
+  activeGeneration: { catalogueId: string; jobs: GenerationJob[] } | null;
 }): React.ReactElement {
   const status = jobStatus ?? 'QUEUED';
   const completed = status === 'COMPLETED';
   const failed = status === 'FAILED' || status === 'CANCELLED';
+  const generating = pipelineStage === 'garment';
   const allSettled = !generating && (completed || failed);
   const { progress, stepIndex, stepLabel } = getStepInfo(status);
 
@@ -123,7 +137,7 @@ export function FabricToGarmentPreviewPanel({
     setTimeout(() => setZoomUrl(null), 300);
   };
 
-  const hasStarted = jobStatus !== null || resultUrl !== null;
+  const hasStarted = pipelineStage !== null || activeGeneration !== null || jobStatus !== null;
 
   if (!hasStarted) {
     return (
@@ -256,11 +270,90 @@ export function FabricToGarmentPreviewPanel({
     );
   }
 
-  // Once the job completes, the generated image replaces the AI Processing
-  // block entirely rather than sitting inside its "Preview Output" column —
-  // clicking it opens the same ZoomableImage lightbox studio's own
-  // GenerationPanel uses for completed result tiles.
-  if (completed && resultUrl) {
+  // The pipeline stopped (any stage) without reaching a generation to show —
+  // surfaced once, ahead of the in-progress branches below.
+  if (pipelineError && !pipelineRunning && !activeGeneration) {
+    return (
+      <div
+        style={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: 16,
+          padding: 24,
+          textAlign: 'center',
+        }}
+      >
+        <div
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: '50%',
+            background: 'rgba(239, 68, 68, 0.12)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <XIcon size={22} color="#EF4444" />
+        </div>
+        <p style={{ margin: 0, fontSize: 14, color: C.text, maxWidth: 320 }}>{pipelineError}</p>
+        <GradBtn onClick={onGenerateAnother}>
+          <RefreshCw size={14} />
+          Try again
+        </GradBtn>
+      </div>
+    );
+  }
+
+  // Once the Studio-style steps (face/background/pose/...) have been
+  // submitted, this panel hands off to Studio's own GenerationPanel for the
+  // real try-on job's progress/result — same component Studio's page and
+  // the embed wizard use, imported as-is.
+  if (activeGeneration) {
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          <GenerationPanel
+            catalogueId={activeGeneration.catalogueId}
+            jobs={activeGeneration.jobs}
+            garmentPreviewUrl={resultUrl ?? undefined}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Garment stage finished and the result was claimed — the pipeline is
+  // about to (or already did) kick off the tryon job. A brief transitional
+  // beat between the two stages rather than a dead-looking screen.
+  if (hasGarmentType && pipelineStage === 'claiming') {
+    return (
+      <div
+        style={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: 12,
+        }}
+      >
+        <SpinnerIcon size={24} />
+        <p style={{ margin: 0, fontSize: 14, color: C.text }}>Starting your photoshoot…</p>
+      </div>
+    );
+  }
+
+  // Once the garment job completes, the generated image replaces the AI
+  // Processing block entirely rather than sitting inside its "Preview
+  // Output" column — clicking it opens the same ZoomableImage lightbox
+  // studio's own GenerationPanel uses for completed result tiles. Only the
+  // final state when the preset isn't linked to a Studio garment type — a
+  // linked preset continues straight into the photoshoot stage above.
+  if (!hasGarmentType && completed && resultUrl) {
     return (
       <>
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>

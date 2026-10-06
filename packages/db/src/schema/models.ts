@@ -207,6 +207,15 @@ export const fabricGarmentTypes = pgTable(
     thumbnailKey: text('thumbnail_key'),
     prompt: text('prompt').notNull(),
     negativePrompt: text('negative_prompt'), // null = keep the workflow's baked-in default
+    // Links a preset to Studio's garment-type concept so the Fabric to Garment
+    // page can continue straight into Studio's own face/background/pose
+    // (and gated lower/shoes/accessory) flow once this preset's job
+    // completes — see apps/catalogues-web/.../fabric-to-garment/. Nullable:
+    // an unlinked preset still works for generation alone, it just can't
+    // feed into that follow-on flow yet.
+    garmentTypeId: uuid('garment_type_id').references(() => garmentSubcategories.id, {
+      onDelete: 'set null',
+    }),
     sortOrder: integer('sort_order').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
 import { EditDrawer } from '../../components/EditDrawer';
 import { Icon } from '../../components/Icons';
+import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
 import { useCrumb } from '../../context/BreadcrumbContext';
 import { useCloseOverlay } from '../../hooks/use-close-overlay';
@@ -58,6 +59,7 @@ function PresetModal({
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }) {
+  const { garmentTypes } = useAssetsContext();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [label, setLabel] = useState(existing?.label ?? '');
   const [slug, setSlug] = useState(existing?.slug ?? '');
@@ -66,6 +68,7 @@ function PresetModal({
   );
   const [prompt, setPrompt] = useState(existing?.prompt ?? '');
   const [negativePrompt, setNegativePrompt] = useState(existing?.negativePrompt ?? '');
+  const [garmentTypeId, setGarmentTypeId] = useState(existing?.garmentTypeId ?? null);
   const [sortOrder, setSortOrder] = useState(existing?.sortOrder ?? 0);
   const [isActive, setIsActive] = useState(existing?.isActive ?? true);
   const [file, setFile] = useState<File | null>(null);
@@ -78,6 +81,17 @@ function PresetModal({
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+
+  // Studio's garment types are gender-scoped too (men/women/boys/girls) — only
+  // offer ones matching this preset's own men/women gender, so the link can't
+  // point at a mismatched audience.
+  const garmentTypeOptions = useMemo(
+    () =>
+      garmentTypes
+        .filter((g) => !genderSlug || g.genderSlug === genderSlug)
+        .map((g) => ({ id: g.id, label: g.label })),
+    [garmentTypes, genderSlug],
+  );
 
   const save = async () => {
     if (!label.trim() || !slug.trim() || !prompt.trim() || !genderSlug) return;
@@ -99,6 +113,7 @@ function PresetModal({
         thumbnailKey,
         prompt: prompt.trim(),
         negativePrompt: negativePrompt.trim() || null,
+        garmentTypeId,
         sortOrder,
         isActive,
       };
@@ -169,7 +184,13 @@ function PresetModal({
               type="button"
               className={`btn sm ${genderSlug === g.k ? 'primary' : 'ghost'}`}
               disabled={saving}
-              onClick={() => setGenderSlug(g.k)}
+              onClick={() => {
+                setGenderSlug(g.k);
+                const stillMatches = garmentTypes.some(
+                  (gt) => gt.id === garmentTypeId && gt.genderSlug === g.k,
+                );
+                if (!stillMatches) setGarmentTypeId(null);
+              }}
             >
               {g.l}
             </button>
@@ -180,6 +201,22 @@ function PresetModal({
           with its own prompt.
         </span>
       </div>
+
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+        Studio garment type (optional)
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+          Links this preset to Studio's garment type so the Fabric to Garment page can continue
+          straight into Studio's face/background/pose flow once this preset's job completes. Leave
+          unset if this preset should only generate the garment image on its own.
+        </span>
+        <SearchableSelect
+          options={garmentTypeOptions}
+          value={garmentTypeId ?? ''}
+          onChange={(id) => setGarmentTypeId(id || null)}
+          emptyLabel="Not linked"
+          placeholder={genderSlug ? 'Select a garment type…' : 'Pick a gender first'}
+        />
+      </label>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         {previewUrl ? (

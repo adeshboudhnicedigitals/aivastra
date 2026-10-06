@@ -1,4 +1,6 @@
 import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
+import { JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service.js';
@@ -426,6 +428,99 @@ describe('Fabric to Garment', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().error.code).toBe('CONFIG');
+    });
+  });
+
+  describe('POST /v1/jobs/fabric-to-garment/:id/claim-garment', () => {
+    async function seedJob(userId: string, overrides: Partial<typeof schema.jobs.$inferInsert>) {
+      const [job] = await app.db
+        .insert(schema.jobs)
+        .values({ userId, status: 'COMPLETED', source: JOB_SOURCE.FABRIC_TO_GARMENT, ...overrides })
+        .returning();
+      return job;
+    }
+
+    it('rejects a job owned by another user', async () => {
+      const { userId: ownerId } = await registerUser(`claim-owner-${Date.now()}@x.com`);
+      const { token: callerToken } = await registerUser(`claim-other-${Date.now()}@x.com`);
+      const job = await seedJob(ownerId, {});
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/fabric-to-garment/${job.id}/claim-garment`,
+        headers: { authorization: `Bearer ${callerToken}` },
+      });
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('rejects a job that is not a fabric-to-garment job', async () => {
+      const { token, userId } = await registerUser(`claim-wrongsrc-${Date.now()}@x.com`);
+      const job = await seedJob(userId, { source: JOB_SOURCE.TRYON });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/fabric-to-garment/${job.id}/claim-garment`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('VALIDATION');
+    });
+
+    it('rejects a job that has not completed yet', async () => {
+      const { token, userId } = await registerUser(`claim-notdone-${Date.now()}@x.com`);
+      const job = await seedJob(userId, { status: 'GENERATING' });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/fabric-to-garment/${job.id}/claim-garment`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('VALIDATION');
+    });
+
+    it('copies the result to a fresh inputs/ key and binds it to the caller', async () => {
+      const { token, userId } = await registerUser(`claim-happy-${Date.now()}@x.com`);
+      const job = await seedJob(userId, {});
+      // The real object a dispatcher would have written — the claim endpoint
+      // reads this for real (not mocked) and copies it, so it must exist.
+      await app.storage.putObject(
+        keys.output(job.id),
+        Buffer.from('fake-result-bytes'),
+        'image/png',
+      );
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/fabric-to-garment/${job.id}/claim-garment`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      const { garmentKey } = res.json();
+      // Same inputs/<uuid>/garment.jpg shape INPUT_GARMENT_KEY (jobs.ts) requires
+      // of upperGarmentKey — not the job's own outputs/ key, which would fail
+      // that regex before any ownership check ran.
+      expect(garmentKey).toMatch(/^inputs\/[0-9a-f-]{36}\/garment\.jpg$/);
+
+      // This is exactly the binding assertOwnsUploadKey reads — proves the
+      // claimed key now passes the same check a fresh /v1/uploads/presign
+      // key would, without any change to that check itself.
+      const owner = await app.redis.get(`upload:owner:${garmentKey}`);
+      expect(owner).toBe(userId);
+      // headObject is mocked in this file's beforeEach, so confirm the real
+      // copy with getObject instead (not mocked — real MinIO).
+      const copied = await app.storage.getObject(garmentKey);
+      expect(copied.toString()).toBe('fake-result-bytes');
+
+      // Safe to call again — produces a second, independent copy/key rather
+      // than erroring (not idempotent on the key itself, only on side effects).
+      const again = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/fabric-to-garment/${job.id}/claim-garment`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(again.statusCode).toBe(200);
+      expect(again.json().garmentKey).not.toBe(garmentKey);
     });
   });
 });

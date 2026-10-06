@@ -86,6 +86,7 @@ export async function adminFabricGarmentTypesRoutes(app: FastifyInstance) {
             thumbnailKey: body.thumbnailKey ?? null,
             prompt: body.prompt,
             negativePrompt: body.negativePrompt ?? null,
+            garmentTypeId: body.garmentTypeId ?? null,
             sortOrder: body.sortOrder ?? 0,
             isActive: body.isActive ?? true,
           })

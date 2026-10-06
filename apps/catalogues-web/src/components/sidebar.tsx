@@ -38,13 +38,6 @@ const NAV: {
     catalogVideoOnly: true,
   },
   {
-    id: 'fabric-to-garment',
-    href: '/fabric-to-garment',
-    label: 'Fabric to Garment',
-    icon: 'shirt',
-    badge: 'New',
-  },
-  {
     id: 'catalogues',
     href: '/catalogs',
     label: 'My Creations',
@@ -62,6 +55,12 @@ const NAV: {
     label: 'Try-On',
     icon: 'package',
     merchantOnly: true,
+  },
+  {
+    id: 'fabric-to-shoot',
+    href: '/fabric-to-shoot',
+    label: 'Fabric to Shoot',
+    icon: 'shirt',
   },
   {
     id: 'developers',
@@ -151,7 +150,7 @@ export function Sidebar({
       });
     } else if (id === 'saree') {
       qc.prefetchQuery({ queryKey: ['saree-config'], queryFn: () => api.get('/v1/saree/config') });
-    } else if (id === 'fabric-to-garment') {
+    } else if (id === 'fabric-to-shoot') {
       qc.prefetchQuery({
         queryKey: ['fabric-garment-types'],
         queryFn: () => api.get('/v1/fabric-garment-types'),
@@ -179,7 +178,7 @@ export function Sidebar({
           'saree',
           'catalogues',
           'catalog-video',
-          'fabric-to-garment',
+          'fabric-to-shoot',
           'assets',
         ].includes(item.id),
       ),

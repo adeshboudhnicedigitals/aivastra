@@ -24,6 +24,7 @@ import { sendReportReceivedEmail } from '../../lib/mailer.js';
 import { getFabricToGarmentCreditCost, getTryonCreditCost } from '../../lib/resolution-config.js';
 import { reopenResolvedTicket, setSubjectFromFirstMessage } from '../../lib/tickets.js';
 import { getSareeSettings } from '../saree/settings.js';
+import { claimFabricToGarmentResult } from './claimFabricToGarmentResult.js';
 import {
   createCatalogVideoJob,
   createJob,
@@ -313,10 +314,24 @@ export async function jobsRoutes(app: FastifyInstance) {
         genderSlug: r.genderSlug,
         label: r.label,
         thumbnailUrl: r.thumbnailKey ? app.storage.publicUrl(r.thumbnailKey) : null,
+        garmentTypeId: r.garmentTypeId,
       })),
       creditsCost,
     };
   });
+
+  // POST /v1/jobs/fabric-to-garment/:id/claim-garment — lets the caller use a
+  // completed fabric-to-garment job's generated image as a normal tryon job's
+  // upperGarmentKey. See claimFabricToGarmentResult.ts for why this exists
+  // instead of a new createJob bypass branch.
+  app.post(
+    '/v1/jobs/fabric-to-garment/:id/claim-garment',
+    { preHandler: app.requireUser, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      return claimFabricToGarmentResult(app, req.userId, id);
+    },
+  );
 
   // GET /v1/saree/config — exposed to the user page; tells the client whether the
   // admin has configured saree try-on (model image + active workflow).
