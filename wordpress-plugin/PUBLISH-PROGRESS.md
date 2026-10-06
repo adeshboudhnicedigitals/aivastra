@@ -6,20 +6,27 @@ The dated log underneath is append-only — newest entry on top — for context
 on *why* something changed, same convention as the main repo's
 `docs/progress.md`.
 
-**Last updated:** 2026-10-02
+**Last updated:** 2026-10-06
 
 ## Status checklist
 
-- [~] **1. Terms/Privacy finalized** — PARTIAL. Draft banners removed; both
-      pages are now grounded in Ai Vastra's own published policies
-      (aivastra.com/terms, aivastra.com/privacy-policy) instead of
-      placeholder text. Still genuinely open, pending a real legal pass:
-      governing-law jurisdiction/city, a named Grievance Officer, a
-      deletion-request turnaround time, and credit-expiry policy — none of
-      which the live aivastra.com policies resolve either.
-- [ ] **2. wordpress.org account created**
-- [ ] **3. `readme.txt` Contributors field filled** — blocked on #2
-- [ ] **4. Submission assets produced** (3 screenshots, icon, banner)
+- [~] **1. Terms/Privacy finalized** — PARTIAL, **deliberately deferred past
+      submission** (business decision, 2026-10-06 — see log). Draft banners
+      removed; both pages are grounded in Ai Vastra's own published policies
+      (aivastra.com/terms, aivastra.com/privacy-policy) instead of placeholder
+      text. Four items remain open pending a real legal pass: governing-law
+      jurisdiction/city, a named Grievance Officer, a deletion-request
+      turnaround time, and credit-expiry policy — none of which the live
+      aivastra.com policies resolve either. These pages are **not** part of
+      the plugin's release cycle — they're deployed separately on
+      app.aivastra.com and can be fixed same-day, independent of any plugin
+      version, whenever legal input lands.
+- [x] **2. wordpress.org account created** — `aivastra` (aivastra2025@gmail.com).
+      Confirm the exact login username matches before relying on it in
+      readme.txt — the screenshot only confirmed the display name.
+- [x] **3. `readme.txt` Contributors field filled** — `Contributors: aivastra`.
+- [ ] **4. Submission assets produced** (3 screenshots, icon, banner) — the
+      one remaining concrete blocker. User is producing these next.
 - [x] **5. AJAX handlers self-audited** (nonce + capability checks) — DONE,
       see log. Also ran a full 18-point detailed-plugin-guidelines audit;
       one real gap found and fixed (readme didn't disclose widget-event
@@ -33,15 +40,48 @@ on *why* something changed, same convention as the main repo's
 
 ## Current blocker
 
-**Step 1 — four specific legal items**, not a full rewrite anymore: a named
-Grievance Officer, governing-law jurisdiction/city, a deletion-request
-turnaround time, and credit-expiry policy. Everything else about Terms/
-Privacy is now grounded in Ai Vastra's real published policies. Steps 2–6
-have no dependency on these four items and can proceed in parallel; actual
-submission (step 7) still waits on them being resolved, since `readme.txt`
-shouldn't reference pages with open legal brackets.
+**Step 4 — submission assets** (icon, banner, 3 screenshots) is now the only
+concrete blocker to step 7. The four legal items from step 1 remain open but
+are no longer gating submission — see the 2026-10-06 log entry.
 
 ## Dated log
+
+### 2026-10-06 — Decision: submit without waiting for legal; readme leak fixed
+
+User decided to submit for wp.org review now rather than wait on the four
+open legal items (step 1), planning to update the live Terms/Privacy pages
+once legal input lands — correctly noting those pages redeploy independently
+of the plugin's own version/release cycle, so there's no actual coupling to
+a "next plugin update."
+
+Confirmed this is not a wp.org *review* blocker: the detailed-plugin-guidelines
+page requires external data use to be disclosed in the readme (already true,
+verbatim per-service), not that linked Terms/Privacy pages be legally
+complete. Re-verified directly that the four `[LEGAL TO CONFIRM]` brackets
+are still live in `apps/catalogues-web/src/app/terms/page.tsx` (governing
+law + jurisdiction city, credit-expiry) and `.../privacy/page.tsx` (deletion
+turnaround, Grievance Officer) — genuinely unresolved, not a stale note.
+
+**Found and fixed a real bug while re-checking `readme.txt`:** its Third
+Party Services section contained an internal note-to-self — "...Do not
+submit to wp.org until legal confirms them." — as literal body text. Since
+`readme.txt`'s Description/Third-Party-Services content **is** what renders
+as the public wp.org plugin page, this would have shipped an internal
+engineering caveat to every visitor. Removed the whole aside; the Ai Vastra
+bullet now just states the service, what it receives, and links to Terms/
+Privacy, same shape as the Razorpay and Support Chat bullets below it.
+Rebuilt `dist/wordpress-plugin/aivastra-tryon-wporg-0.5.13.zip` with the fix.
+
+Also confirmed while re-auditing: account `aivastra` created (step 2),
+`readme.txt` Contributors field filled (step 3), no other leftover
+TODO/FIXME/placeholder text anywhere else in the plugin tree. Could not
+re-run PHPUnit in this environment (no `php` binary available) — last
+verified pass stands from the referenced 2026-09-09 run.
+
+**Next action:** user produces icon/banner/screenshots (step 4), then
+uploads the rebuilt wp.org zip at wordpress.org/plugins/developers/add
+(step 7). Legal items remain open-but-deferred; fix the two live pages
+whenever that input lands — no plugin rebuild required for that fix.
 
 ### 2026-10-02 (later) — Embedded email/password connect: no redirect for the common case
 
