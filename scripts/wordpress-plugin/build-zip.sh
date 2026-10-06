@@ -62,6 +62,19 @@ COMMON_EXCLUDES=(
   --exclude "/vendor"
   --exclude "/phpunit.xml.dist"
   --exclude ".DS_Store"
+  # The wp.org listing's icon/banner/screenshots -- these go in the SVN
+  # /assets folder (sibling to /trunk), never inside the plugin's own
+  # installable zip.
+  --exclude "/wporg-assets"
+  # wp.org's automated plugin-check scanner hard-fails on any hidden file in
+  # the zip (flagged ".gitignore ERROR: hidden_files") and warns on stray
+  # root-level markdown files other than readme.txt (flagged PUBLISH-PLAN.md /
+  # PUBLISH-PROGRESS.md as "unexpected_markdown_file") -- confirmed directly
+  # against a real wp.org submission rejection. .gitignore and these two
+  # internal process-tracking docs are dev-only, never meant to ship.
+  --exclude "/.gitignore"
+  --exclude "/PUBLISH-PLAN.md"
+  --exclude "/PUBLISH-PROGRESS.md"
 )
 
 build_variant() {

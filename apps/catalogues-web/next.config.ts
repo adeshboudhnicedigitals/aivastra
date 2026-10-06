@@ -39,6 +39,11 @@ const nextConfig: NextConfig = {
       // Exact match only — /assets/:path* would shadow the public/assets static
       // folder, since next.config redirects run before filesystem/public files.
       { source: `${base}/assets`, destination: `${base}/my-products`, permanent: true },
+      {
+        source: `${base}/fabric-to-garment`,
+        destination: `${base}/fabric-to-shoot`,
+        permanent: true,
+      },
     ];
   },
   webpack: (config) => {

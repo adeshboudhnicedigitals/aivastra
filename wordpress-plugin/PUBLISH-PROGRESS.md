@@ -25,14 +25,17 @@ on *why* something changed, same convention as the main repo's
       Confirm the exact login username matches before relying on it in
       readme.txt — the screenshot only confirmed the display name.
 - [x] **3. `readme.txt` Contributors field filled** — `Contributors: aivastra`.
-- [ ] **4. Submission assets produced** (3 screenshots, icon, banner) — the
-      one remaining concrete blocker. User is producing these next.
+- [x] **4. Submission assets produced** (3 screenshots, icon, banner) — DONE,
+      see log. Staged at `wordpress-plugin/wporg-assets/`, correctly sized
+      and renamed to wp.org's required filenames.
 - [x] **5. AJAX handlers self-audited** (nonce + capability checks) — DONE,
       see log. Also ran a full 18-point detailed-plugin-guidelines audit;
       one real gap found and fixed (readme didn't disclose widget-event
       telemetry).
-- [ ] **6. wp.org zip built** (`make wordpress-plugin-zip`)
-- [ ] **7. Submitted to wp.org for review**
+- [x] **6. wp.org zip built** (`make wordpress-plugin-zip`) — DONE, see log.
+- [x] **7. Submitted to wp.org for review** — automated scan passed on the
+      rebuilt zip; status "Awaiting Review" as of 2026-10-06. **Action
+      needed before approval: fix the auto-assigned slug** — see log.
 - [ ] **8. Reviewer feedback resolved**
 - [ ] **9. SVN checked out, trunk/assets populated**
 - [ ] **10. First release committed to SVN**
@@ -40,11 +43,100 @@ on *why* something changed, same convention as the main repo's
 
 ## Current blocker
 
-**Step 4 — submission assets** (icon, banner, 3 screenshots) is now the only
-concrete blocker to step 7. The four legal items from step 1 remain open but
-are no longer gating submission — see the 2026-10-06 log entry.
+**[YOU], urgent, time-limited:** wp.org auto-assigned the slug
+`ai-vastra-try-on` on submission — every reference in this repo (`readme.txt`,
+`aivastra-tryon.php`, `scripts/wordpress-plugin/build-zip.sh`'s `SLUG` var,
+`PUBLISH-PLAN.md`'s SVN commands) uses `aivastra-tryon` instead. The
+submission page explicitly states the slug **cannot be changed once
+approved**. Go back to the submission page and change the slug to
+`aivastra-tryon` before a reviewer picks this up. Everything else is done;
+this is the only open item. All of steps 2-6 are done. The four legal items
+from step 1 remain open but are no longer gating submission (business
+decision, 2026-10-06). Next action is purely [YOU]: upload the zip at
+wordpress.org/plugins/developers/add and fill in the submission form (see the
+2026-10-06 (later) log entry below for the exact field values).
 
 ## Dated log
+
+### 2026-10-06 (final) — Resubmitted, scan passed, awaiting review — slug mismatch flagged
+
+Rebuilt zip re-uploaded; automated scan now **Pass**. Status: "Awaiting
+Review," submitted under account `aivastra2025@gmail.com`. ~100 plugins ahead
+in the queue per wp.org's own page at submission time.
+
+**Flagged to user, not yet resolved:** wp.org auto-assigned the slug
+`ai-vastra-try-on` (hyphenating the display name "Ai Vastra Try-On" word by
+word) — a mismatch against `aivastra-tryon`, which is used everywhere in this
+repo (confirmed via grep: `readme.txt`, `aivastra-tryon.php`,
+`build-zip.sh`'s `SLUG` var, `PUBLISH-PLAN.md`'s SVN checkout/commit
+commands — `ai-vastra-try-on` appears nowhere in the repo). The submission
+page states the slug is permanent once approved, so this must be corrected
+via the page's own "change" link before review completes, or every
+downstream reference (SVN URL, live plugin-directory URL, zip folder name)
+would be permanently wrong. User needs to act on this directly on wp.org;
+nothing in-repo needs to change either way since `aivastra-tryon` is already
+used consistently throughout.
+
+**Next action:** user changes the slug on the submission page, then waits
+for the review email.
+
+### 2026-10-06 (latest) — First submission rejected by automated scan; fixed
+
+User's first upload attempt at wordpress.org/plugins/developers/add bounced
+off wp.org's automated plugin-check scanner (not a manual reviewer yet):
+
+```
+.gitignore ERROR: hidden_files — Hidden files are not permitted.
+PUBLISH-PROGRESS.md WARNING: unexpected_markdown_file
+PUBLISH-PLAN.md WARNING: unexpected_markdown_file
+```
+
+Both real, both caused by `scripts/wordpress-plugin/build-zip.sh`'s exclude
+list never having accounted for these three repo-root files — they were
+never relevant until the zip was actually scanned by wp.org's tooling.
+Checked the full source tree for any other hidden files first (`find . -name
+".*"`): only `.gitignore` itself at plugin root; `.phpunit.result.cache` is
+already correctly stripped via the existing `.gitignore`-based rsync filter.
+
+**Fixed:** added `--exclude "/.gitignore"`, `--exclude "/PUBLISH-PLAN.md"`,
+`--exclude "/PUBLISH-PROGRESS.md"` to `COMMON_EXCLUDES`. Rebuilt and verified
+directly against the zip listing: zero hidden files, zero stray `.md` files,
+43 files total (down from the previous 54 — the difference is exactly the 3
+newly-excluded files plus the 8 `wporg-assets/*` entries excluded by the
+prior fix earlier today, confirmed by re-checking the byte counts).
+
+**Next action:** user re-uploads the rebuilt
+`dist/wordpress-plugin/aivastra-tryon-wporg-0.5.13.zip`.
+
+### 2026-10-06 (later) — Submission assets staged, zip rebuilt, ready to submit
+
+User supplied `pluginassets.zip` (3 screenshots at 1280×720, icon at
+128×128/256×256, banner at 772×250/1544×500 — all correctly sized against
+wp.org's spec, verified directly with `file` on each extracted PNG). Unzipped,
+renamed to wp.org's exact required filenames, and staged at
+`wordpress-plugin/wporg-assets/` (`icon-128x128.png`, `icon-256x256.png`,
+`screenshot-1.png`/`-2`/`-3`, `banner-772x250.png`, `banner-1544x500.png`),
+then deleted the source zip. This folder is a **staging area only** — per
+`PUBLISH-PLAN.md` step 4/9, these never ship inside the plugin's own zip; they
+get copied into the SVN `/assets` folder (sibling to `/trunk`) after approval.
+
+**Caught and fixed a real bug while verifying:** `make wordpress-plugin-zip`
+initially packaged the new `wporg-assets/` folder *into* the plugin zip
+(confirmed by listing the zip's contents) because
+`scripts/wordpress-plugin/build-zip.sh`'s exclude list had no entry for it.
+Added `--exclude "/wporg-assets"` to `COMMON_EXCLUDES` (same pattern as the
+existing `/local-wp`, `/tests`, `/vendor` exclusions) and rebuilt — reverified
+the zip listing has zero `wporg-assets`/`vendor`/`local-wp`/`tests`/
+`composer`/`update-checker`/`phpunit`/`.DS_Store` entries. 54 files in the
+final `aivastra-tryon-wporg-0.5.13.zip`.
+
+Re-verified `readme.txt` directly: `Contributors: aivastra` filled, no
+leftover `TODO`/placeholder text anywhere in the header or body.
+
+**Result:** `dist/wordpress-plugin/aivastra-tryon-wporg-0.5.13.zip` is the
+file to upload at wordpress.org/plugins/developers/add. Steps 4-6 are done;
+step 7 (actual submission) is a [YOU]-only action — needs the human's wp.org
+login.
 
 ### 2026-10-06 — Decision: submit without waiting for legal; readme leak fixed
 

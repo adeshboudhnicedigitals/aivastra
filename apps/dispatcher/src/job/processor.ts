@@ -300,6 +300,30 @@ export async function processJob(
     return;
   }
 
+  // Fabric-to-Garment jobs: single-image edit, no face/background/pose.
+  // kind === 'fabric_to_garment' in jobInputs.params — see
+  // apps/api/src/modules/jobs/createFabricToGarment.ts.
+  if (
+    !inputs.faceId &&
+    !inputs.backgroundId &&
+    !inputs.poseId &&
+    rawParams.kind === 'fabric_to_garment'
+  ) {
+    await processFabricToGarmentJob(
+      cfg,
+      job,
+      inputs,
+      rawParams,
+      userId,
+      stream,
+      messageId,
+      jobLog,
+      startedAt,
+      retryCount,
+    );
+    return;
+  }
+
   // Saree mannequin (step-1) jobs: kind === 'saree_mannequin' in jobInputs.params.
   // Draped-mannequin generation, run once per flat-saree job regardless of pose
   // count; 0 credits; never surfaced to the user (see createSareeMannequinJob).
@@ -1674,6 +1698,305 @@ async function processRegenerateJob(
   } catch (err) {
     settlePerformanceSample(w, err instanceof JobCancelledError ? 'cancelled' : 'workflow_failure');
     jobLog.error({ err }, 'regenerate job processing error');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  } finally {
+    await releaseWorker(redis, w.id, jobLog);
+  }
+}
+
+// ── Fabric-to-Garment job processor ────────────────────────────────────────
+
+type FabricToGarmentJob = {
+  id: string;
+  creditsCharged: number;
+  attempts: number;
+  createdAt: Date;
+  watermark: boolean;
+  source: string | null;
+};
+
+// Stitches an uploaded fabric photo into the shape of the garment-type preset
+// the user picked. Same single-image-in/out shape as processRegenerateJob,
+// but UNLIKE regenerate this DOES patch the positive (and optionally
+// negative) prompt node — with the prompt text createFabricToGarment.ts
+// snapshotted onto job_inputs.params at creation time, not re-resolved here.
+// poseNodeId is reused as the input-image node; garmentPhasePromptNode is
+// reused as the positive prompt node; facePhasePromptNode is reused as the
+// OPTIONAL negative prompt node — see workflows.routes.ts's
+// 'fabric_to_garment' branch for how those mappings are set at upload time.
+async function processFabricToGarmentJob(
+  cfg: ProcessorConfig,
+  job: FabricToGarmentJob,
+  inputs: typeof schema.jobInputs.$inferSelect,
+  params: Record<string, unknown>,
+  userId: string,
+  stream: string,
+  messageId: string,
+  jobLog: Logger,
+  startedAt: number,
+  retryCount: number,
+): Promise<void> {
+  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const jobId = job.id;
+
+  const productKey = inputs.upperGarmentKey;
+  const workflowTemplateId = params.workflowTemplateId as string | undefined;
+  const prompt = typeof params.prompt === 'string' ? params.prompt.trim() : '';
+  const negativePrompt =
+    typeof params.negativePrompt === 'string' ? params.negativePrompt.trim() : '';
+
+  if (!workflowTemplateId) {
+    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
+    return;
+  }
+  if (!productKey) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MISSING_SOURCE_IMAGE',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+  if (!prompt) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'FABRIC_PROMPT_MISSING',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const snapshotVersion =
+    typeof params.dispatchTemplateVersion === 'number' ? params.dispatchTemplateVersion : null;
+  const template = await resolveWorkflowTemplateVersion(db, workflowTemplateId, snapshotVersion);
+  if (!template) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'WORKFLOW_NOT_FOUND',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const inputNodeId = template.poseNodeId;
+  const promptNodeId = template.garmentPhasePromptNode;
+  const negNodeId = template.facePhasePromptNode;
+
+  if (!inputNodeId || !promptNodeId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'FABRIC_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
+  const performanceKey = getPerformanceKey(template);
+  const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey, {
+    jobId,
+    log: jobLog,
+  });
+  if (!worker) {
+    if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
+      jobLog.warn(
+        'no idle catalogue worker — fabric-to-garment job exceeded max queue wait, terminating with refund',
+      );
+      await terminateJob(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'NO_WORKER',
+        job.creditsCharged,
+        jobLog,
+        startedAt,
+        job.source,
+      );
+    } else {
+      jobLog.warn('no idle worker — re-enqueuing fabric-to-garment job with backoff');
+      await requeueForNoWorker({
+        db,
+        redis,
+        jobId,
+        stream,
+        messageId,
+        retryCount,
+        extraFields: ['userId', userId],
+        jobLog,
+        startedAt,
+        jobType: job.source,
+      });
+    }
+    return;
+  }
+  const w = worker;
+  jobLog.info({ workerId: w.id }, 'worker claimed for fabric_to_garment');
+
+  try {
+    async function r2Download(key: string): Promise<Uint8Array> {
+      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
+      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
+      return res.Body.transformToByteArray();
+    }
+
+    async function uploadToComfy(key: string, prefix: string): Promise<string> {
+      const bytes = await r2Download(key);
+      const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
+      const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+    }
+
+    jobLog.info('uploading fabric photo to ComfyUI');
+    const productFile = await uploadToComfy(productKey, 'fabric_input');
+
+    const workflow = structuredClone(template.jsonContent) as Record<
+      string,
+      { inputs?: Record<string, unknown> }
+    >;
+    if (workflow[inputNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[inputNodeId].inputs!.image = productFile;
+    }
+    if (workflow[promptNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[promptNodeId].inputs!.prompt = prompt;
+    }
+    if (negativePrompt && negNodeId && workflow[negNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[negNodeId].inputs!.prompt = negativePrompt;
+    }
+
+    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
+    const clientUuid = randomUUID();
+    const comfyStartedAt = Date.now();
+    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    jobLog.info({ promptId }, 'fabric-to-garment prompt submitted');
+
+    await db.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'COMFY_DISPATCH',
+      payload: {
+        promptId,
+        workerId: w.id,
+        workerUrl: w.url,
+        workflowTemplateId,
+        inputs: { productKey, productFile, prompt, negativePrompt: negativePrompt || null },
+      },
+    });
+
+    logSelection(cfg.comfyRedis, w, WORKER_POOL.CATALOGUE, performanceKey ?? '', jobLog);
+    const completion = await observeCompletion(
+      cfg.comfyRedis,
+      w,
+      WORKER_POOL.CATALOGUE,
+      performanceKey ?? '',
+      workflow,
+      jobLog,
+      (totalNodeCount) =>
+        waitForCompletion(
+          w.url,
+          w.apiKey,
+          clientUuid,
+          promptId,
+          300_000,
+          (update) => jobLog.debug(update, 'comfyui progress'),
+          {
+            info: jobLog.info.bind(jobLog),
+            debug: jobLog.debug.bind(jobLog),
+            error: jobLog.error.bind(jobLog),
+            warn: jobLog.warn.bind(jobLog),
+          },
+          async () => (await cfg.comfyRedis.exists(`job:cancel:${jobId}`)) === 1,
+          { comfyRedis: cfg.comfyRedis, workerId: w.id },
+          totalNodeCount,
+        ),
+    );
+    if (
+      await handleCompletionResult(completion, async () => {
+        await terminateJob(
+          cfg,
+          jobId,
+          userId,
+          stream,
+          messageId,
+          'QUEUE_CLEANUP_FAILED',
+          job.creditsCharged,
+          jobLog,
+          startedAt,
+          job.source,
+        );
+      })
+    )
+      return;
+    await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
+
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    const outputImages = await fetchHistory(
+      w.url,
+      w.apiKey,
+      promptId,
+      jobLog,
+      template.resultNodeId ?? undefined,
+    );
+    const [firstImage] = outputImages;
+    if (!firstImage) throw new Error('ComfyUI returned no output images for fabric-to-garment job');
+
+    const imageBytes = await downloadOutputImage(
+      w.url,
+      w.apiKey,
+      firstImage.filename,
+      firstImage.subfolder,
+    );
+
+    const compression = await getImageCompressionConfig(redis, job.source);
+    const { completed } = await finalizeOutput({
+      imageBytes,
+      jobId,
+      userId,
+      jobWatermark: job.watermark,
+      compression,
+      db,
+      pub,
+      s3,
+      r2Bucket,
+      jobLog,
+    });
+    if (!completed) {
+      settlePerformanceSample(w, 'cancelled');
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
+    settlePerformanceSample(w, 'success');
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    recordJobOutcome('success', startedAt, job.source);
+    jobLog.info('fabric-to-garment job completed');
+  } catch (err) {
+    settlePerformanceSample(w, err instanceof JobCancelledError ? 'cancelled' : 'workflow_failure');
+    jobLog.error({ err }, 'fabric-to-garment job processing error');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
   } finally {

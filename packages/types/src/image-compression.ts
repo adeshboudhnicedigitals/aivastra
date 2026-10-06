@@ -33,14 +33,18 @@ export type ImageCompressionConfig = Partial<Record<JobSource, ImageCompressionJ
 // merchantId — see apps/api/src/modules/dev/create-job.ts); merchant_tryon
 // instead routes through processWidgetJob's merchant/kiosk branch (its own
 // separate sharp call in apps/dispatcher/src/job/processor.ts, since a
-// merchantId-bearing job never reaches processJob's routing at all). Every
-// other job source is currently uncompressed PNG.
+// merchantId-bearing job never reaches processJob's routing at all).
+// extension_tryon builds the exact same job_inputs shape as wordpress_tryon
+// (see apps/api/src/modules/extension/create-job.ts) so it routes through the
+// same processTryonDirectJob path. Every other job source is currently
+// uncompressed PNG.
 const COMPRESSED_BY_DEFAULT: JobSource[] = [
   JOB_SOURCE.TRYON,
   JOB_SOURCE.API_TRYON,
   JOB_SOURCE.MERCHANT_TRYON,
   JOB_SOURCE.WORDPRESS_TRYON,
   JOB_SOURCE.REGENERATE,
+  JOB_SOURCE.EXTENSION_TRYON,
 ];
 
 export const DEFAULT_IMAGE_COMPRESSION_CONFIG: Record<

@@ -205,9 +205,9 @@ describe('selector logging context', () => {
     expect(jobLog.info).not.toHaveBeenCalled();
     expect(moduleLog.info).not.toHaveBeenCalled();
   });
-  it('all eight callers pass their existing job logger and id', () => {
+  it('all nine callers pass their existing job logger and id', () => {
     for (const [path, expected] of [
-      ['../job/processor.ts', 7],
+      ['../job/processor.ts', 8],
       ['../job/mannequin-phase.ts', 1],
     ] as const) {
       const source = readFileSync(new URL(path, import.meta.url), 'utf8');

@@ -6,6 +6,7 @@ import { AssetsProvider, useAssetsContext } from './assets/AssetsContext';
 import { BackgroundsTab } from './assets/BackgroundsTab';
 import { CatalogTab } from './assets/CatalogTab';
 import { CatalogueTemplatesTab } from './assets/CatalogueTemplatesTab';
+import { FabricGarmentTypesTab } from './assets/FabricGarmentTypesTab';
 import { FacesTab } from './assets/FacesTab';
 import { GarmentTypesTab } from './assets/GarmentTypesTab';
 import { PoseAssetsTab } from './assets/PoseAssetsTab';
@@ -26,6 +27,7 @@ const TABS = [
   { k: 'accessory' as const, l: 'Accessories' },
   { k: 'catalogue-templates' as const, l: 'Templates' },
   { k: 'saree-styles' as const, l: 'Saree Styles' },
+  { k: 'fabric-garment-types' as const, l: 'Fabric Garment Types' },
 ];
 
 function AssetsShell() {
@@ -185,6 +187,7 @@ function AssetsShell() {
       )}
       {activeTab === 'catalogue-templates' && <CatalogueTemplatesTab />}
       {activeTab === 'saree-styles' && <SareeStylesTab />}
+      {activeTab === 'fabric-garment-types' && <FabricGarmentTypesTab />}
 
       {previewUrl && <ImageLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />}
     </>

@@ -616,6 +616,7 @@ export default function WorkflowsPage({ toast }: Props) {
                   { id: 'saree_step1', label: 'Saree Step 1' },
                   { id: 'saree_step1_two_input', label: 'Saree Step 1 (2-input)' },
                   { id: 'regeneration', label: 'Regeneration' },
+                  { id: 'fabric_to_garment', label: 'Fabric to Garment' },
                 ]}
                 value={typeFilter}
                 emptyLabel="All Types"
