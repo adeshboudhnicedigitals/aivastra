@@ -93,7 +93,8 @@ export interface WorkflowOption {
     | 'saree_step1'
     | 'saree_step1_two_input'
     | 'two_stage'
-    | 'regeneration';
+    | 'regeneration'
+    | 'fabric_to_garment';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;
@@ -523,4 +524,21 @@ export interface TryonCategory {
   createdAt: string;
   updatedAt: string;
   samples: TryonSample[];
+}
+
+export interface FabricGarmentType {
+  id: string;
+  slug: string;
+  // null only for legacy rows created before gender scoping was added — treated
+  // as "show for every gender" until an admin edits the row to set one.
+  genderSlug: 'men' | 'women' | null;
+  label: string;
+  thumbnailKey: string | null;
+  thumbnailUrl: string | null;
+  prompt: string;
+  negativePrompt: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }

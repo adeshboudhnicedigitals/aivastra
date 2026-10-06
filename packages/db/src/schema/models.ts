@@ -190,6 +190,33 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Fabric-to-Garment feature — admin-curated garment-type presets (Shirt, Kurti,
+// Anarkali, etc). Each preset carries the text prompt (and optional negative
+// prompt override) injected into the shared 'fabric_to_garment' workflow
+// template's garmentPhasePromptNode / facePhasePromptNode at dispatch time —
+// see apps/dispatcher/src/job/processor.ts::processFabricToGarmentJob.
+export const fabricGarmentTypes = pgTable(
+  'fabric_garment_types',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    slug: text('slug').notNull(),
+    // 'men' | 'women' only (not the system-wide men/women/boys/girls GenderSlug) —
+    // validated at the zod layer, not a DB enum.
+    genderSlug: text('gender_slug'),
+    label: text('label').notNull(),
+    thumbnailKey: text('thumbnail_key'),
+    prompt: text('prompt').notNull(),
+    negativePrompt: text('negative_prompt'), // null = keep the workflow's baked-in default
+    sortOrder: integer('sort_order').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqSlugGender: unique().on(table.slug, table.genderSlug),
+  }),
+);
+
 // Workflow templates — defined BEFORE modelPoses because modelPoses has a FK to this table
 export const workflowTemplates = pgTable('workflow_templates', {
   id: uuid('id').primaryKey().defaultRandom(),

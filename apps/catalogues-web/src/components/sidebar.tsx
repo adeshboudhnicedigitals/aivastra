@@ -1,6 +1,6 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart3, KeyRound, MonitorPlay, Package, Phone, Store } from 'lucide-react';
+import { BarChart3, KeyRound, MonitorPlay, Package, Phone, Shirt, Store } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -36,6 +36,13 @@ const NAV: {
     label: 'Motion Studio',
     icon: `${BASE}/assets/catalog-video-icon.svg`,
     catalogVideoOnly: true,
+  },
+  {
+    id: 'fabric-to-garment',
+    href: '/fabric-to-garment',
+    label: 'Fabric to Garment',
+    icon: 'shirt',
+    badge: 'New',
   },
   {
     id: 'catalogues',
@@ -144,6 +151,11 @@ export function Sidebar({
       });
     } else if (id === 'saree') {
       qc.prefetchQuery({ queryKey: ['saree-config'], queryFn: () => api.get('/v1/saree/config') });
+    } else if (id === 'fabric-to-garment') {
+      qc.prefetchQuery({
+        queryKey: ['fabric-garment-types'],
+        queryFn: () => api.get('/v1/fabric-garment-types'),
+      });
     }
   }
 
@@ -161,7 +173,15 @@ export function Sidebar({
     {
       title: 'CREATE',
       items: visibleNav.filter((item) =>
-        ['studio', 'tryon', 'saree', 'catalogues', 'catalog-video', 'assets'].includes(item.id),
+        [
+          'studio',
+          'tryon',
+          'saree',
+          'catalogues',
+          'catalog-video',
+          'fabric-to-garment',
+          'assets',
+        ].includes(item.id),
       ),
     },
     {
@@ -300,6 +320,8 @@ export function Sidebar({
                           <KeyRound size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
                         ) : item.icon === 'store' ? (
                           <Store size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
+                        ) : item.icon === 'shirt' ? (
+                          <Shirt size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
                         ) : item.icon === 'bar-chart' ? (
                           <BarChart3
                             size={16}

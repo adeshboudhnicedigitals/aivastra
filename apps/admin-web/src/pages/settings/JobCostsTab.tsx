@@ -18,6 +18,7 @@ export default function JobCostsTab({ toast }: Props) {
   });
   const [tryonCreditCost, setTryonCreditCost] = useState(5);
   const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
+  const [fabricToGarmentCreditCost, setFabricToGarmentCreditCost] = useState(8);
   const [pixverseVideoPricing, setPixverseVideoPricing] = useState<PixverseVideoPricingConfig>({
     perSecondRate: { '360p': 0, '540p': 0, '720p': 0, '1080p': 0 },
     qualityBase: { '360p': 150, '540p': 150, '720p': 150, '1080p': 150 },
@@ -30,12 +31,14 @@ export default function JobCostsTab({ toast }: Props) {
       resolutions?: Record<string, { enabled: boolean; creditCost: number; longEdgePx: number }>;
       tryon?: { creditCost: number };
       sareeMannequinDev?: { creditCost: number };
+      fabricToGarment?: { creditCost: number };
       pixverseVideoPricing?: PixverseVideoPricingConfig;
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.resolutions) setResolutions(cfg.resolutions);
         if (cfg.tryon) setTryonCreditCost(cfg.tryon.creditCost);
         if (cfg.sareeMannequinDev) setSareeMannequinDevCreditCost(cfg.sareeMannequinDev.creditCost);
+        if (cfg.fabricToGarment) setFabricToGarmentCreditCost(cfg.fabricToGarment.creditCost);
         if (cfg.pixverseVideoPricing) setPixverseVideoPricing(cfg.pixverseVideoPricing);
       })
       .catch((e) =>
@@ -69,6 +72,7 @@ export default function JobCostsTab({ toast }: Props) {
           resolutions,
           tryon: { creditCost: tryonCreditCost },
           sareeMannequinDev: { creditCost: sareeMannequinDevCreditCost },
+          fabricToGarment: { creditCost: fabricToGarmentCreditCost },
           pixverseVideoPricing,
         }),
       });
@@ -259,6 +263,44 @@ export default function JobCostsTab({ toast }: Props) {
                     value={sareeMannequinDevCreditCost}
                     disabled={saving}
                     onChange={(e) => setSareeMannequinDevCreditCost(Number(e.target.value))}
+                  />
+                  <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                    credits / job
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 24, marginBottom: 8 }}>
+              <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                Fabric to Garment
+              </div>
+              <div className="setting-desc" style={{ marginBottom: 12 }}>
+                Credit cost per fabric-to-garment generation (stitches an uploaded fabric photo into
+                a garment-type preset's shape).
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 12px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--r)',
+                  background: 'var(--surface-2)',
+                }}
+              >
+                <span className="setting-lbl">Fabric to Garment</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={1000}
+                    style={{ width: 80, textAlign: 'right' }}
+                    value={fabricToGarmentCreditCost}
+                    disabled={saving}
+                    onChange={(e) => setFabricToGarmentCreditCost(Number(e.target.value))}
                   />
                   <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                     credits / job

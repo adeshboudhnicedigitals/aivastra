@@ -292,6 +292,11 @@ export const CreateSareeMannequinJobRequest = z.object({
   }),
 });
 
+export const CreateFabricToGarmentJobRequest = z.object({
+  productImageKey: z.string().regex(INPUT_GARMENT_KEY),
+  fabricGarmentTypeId: z.string().uuid(),
+});
+
 export const PresignUploadBody = z.object({
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
   contentLength: z

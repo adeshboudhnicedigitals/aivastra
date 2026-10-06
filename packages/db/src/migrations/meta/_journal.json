@@ -1506,6 +1506,13 @@
       "when": 1791198848302,
       "tag": "0215_milky_wraith",
       "breakpoints": true
+    },
+    {
+      "idx": 216,
+      "version": "7",
+      "when": 1791295406852,
+      "tag": "0216_fancy_gabe_jones",
+      "breakpoints": true
     }
   ]
 }

@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { verifyPassword } from '../auth/service.js';
 import { recordAudit } from './audit.js';
+import { detectFabricMappings } from './fabric-detect.js';
 import { requireAnyPermission, requirePermission } from './guard.js';
 import { detectTryonMappings } from './tryon-detect.js';
 import { detectTryonTwoInputMappings } from './tryon-two-input-detect.js';
@@ -433,6 +434,79 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       defaultGarmentPhasePrompt,
       defaultStage1PositivePrompt,
       defaultStage1NegativePrompt,
+      tryonPersonNodeId: null,
+      tryonGarmentNodeId: null,
+      tryonGarmentNodeId2: null,
+      tryonOutputNodeId: null,
+      samSegmentationPromptNode,
+      defaultSamSegmentationPrompt,
+    };
+  }
+
+  if (workflowType === 'fabric_to_garment') {
+    // Single-image-in/out, no face/bg/pose roles. poseNodeId is reused as the
+    // input-image node; garmentPhasePromptNode is reused as the positive prompt
+    // node (overwritten per-job with the picked fabric_garment_types preset's
+    // prompt); facePhasePromptNode is reused as the OPTIONAL negative prompt
+    // node. See apps/dispatcher/src/job/processor.ts::processFabricToGarmentJob.
+    const { detected: autoDetected } = detectFabricMappings(body.jsonContent);
+    const inputNodeId = body.poseNodeId ?? autoDetected.inputNodeId ?? '';
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by superRefine
+    const posNode = body.garmentPhasePromptNode!;
+    const negNode = body.facePhasePromptNode ?? autoDetected.negativePromptNode ?? null;
+    const resultNodeId = body.resultNodeId ?? autoDetected.resultNodeId ?? null;
+
+    if (!inputNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect input-image node — set poseNodeId manually',
+      );
+
+    validateNodeExists(body.jsonContent, inputNodeId, 'input image');
+    validateNodeType(body.jsonContent, inputNodeId, 'image', 'input image');
+    validateNodeExists(body.jsonContent, posNode, 'positive prompt');
+    validateNodeType(body.jsonContent, posNode, 'prompt', 'positive prompt');
+    if (negNode) {
+      validateNodeExists(body.jsonContent, negNode, 'negative prompt');
+      validateNodeType(body.jsonContent, negNode, 'prompt', 'negative prompt');
+    }
+
+    const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
+      body.jsonContent,
+      negNode,
+      posNode,
+    );
+
+    return {
+      slug: body.slug,
+      label: body.label,
+      jsonContent: body.jsonContent,
+      workflowType,
+      faceNodeId: null,
+      poseNodeId: inputNodeId,
+      bgNodeId: null,
+      upperNodeIds: [],
+      lowerNodeId: null,
+      shoeNodeId: null,
+      garmentView: 'front',
+      thirdNodeId: null,
+      fourthNodeId: null,
+      accessoryNodeId: null,
+      sizeNodeIds: [],
+      latentSizeNodeIds: [],
+      latentMaxPx: 4096,
+      outputSizeNodeIds: [],
+      outputMaxPx: 4096,
+      resultNodeId,
+      facePhasePromptNode: negNode,
+      garmentPhasePromptNode: posNode,
+      defaultFacePhasePrompt,
+      defaultGarmentPhasePrompt,
+      stage1PositivePromptNode: null,
+      stage1NegativePromptNode: null,
+      defaultStage1PositivePrompt: '',
+      defaultStage1NegativePrompt: '',
       tryonPersonNodeId: null,
       tryonGarmentNodeId: null,
       tryonGarmentNodeId2: null,
@@ -1392,6 +1466,11 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         const { detected, allImageNodes, allPromptNodes } =
           detectTryonTwoInputMappings(jsonContent);
         return { detected, allImageNodes, allPromptNodes };
+      }
+      if (parseWorkflowType === 'fabric_to_garment') {
+        const { detected, allImageNodes, allSaveImageNodes, allPromptNodes } =
+          detectFabricMappings(jsonContent);
+        return { detected, allImageNodes, allSaveImageNodes, allPromptNodes };
       }
       if (parseWorkflowType === 'two_stage') {
         const { detected, allImageNodes, allPromptNodes } = detectTwoStageMappings(jsonContent);

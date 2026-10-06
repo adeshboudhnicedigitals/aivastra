@@ -169,6 +169,11 @@ export const SystemConfigBody = z.object({
       creditCost: z.number().int().positive().max(1_000),
     })
     .optional(),
+  fabricToGarment: z
+    .object({
+      creditCost: z.number().int().positive().max(1_000),
+    })
+    .optional(),
   pixverseVideoPricing: z
     .object({
       // Credits per second of video at each quality tier, added on top of that
@@ -433,6 +438,7 @@ export const CreateWorkflowBody = z
         'saree_step1_two_input',
         'two_stage',
         'regeneration',
+        'fabric_to_garment',
       ])
       .default('regular'),
     // Only meaningful for workflowType='regular' — see garmentView on the
@@ -537,6 +543,28 @@ export const CreateWorkflowBody = z
       }
       return;
     }
+    if (val.workflowType === 'fabric_to_garment') {
+      // Single-image-in/out, no face/bg/pose roles. poseNodeId is reused as the
+      // input-image node; garmentPhasePromptNode is reused as the positive prompt
+      // node (overwritten per-job with the picked fabric_garment_types preset's
+      // prompt); facePhasePromptNode is reused as the OPTIONAL negative prompt
+      // node. See apps/dispatcher/src/job/processor.ts::processFabricToGarmentJob.
+      if (!val.poseNodeId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['poseNodeId'],
+          message: 'poseNodeId (input image node) is required for fabric_to_garment workflows',
+        });
+      }
+      if (!val.garmentPhasePromptNode) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['garmentPhasePromptNode'],
+          message: 'garmentPhasePromptNode is required for fabric_to_garment workflows',
+        });
+      }
+      return;
+    }
     if (!val.poseNodeId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -579,7 +607,15 @@ export const ReplaceWorkflowBody = z.intersection(
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
   workflowType: z
-    .enum(['regular', 'tryon', 'saree_step1', 'saree_step1_two_input', 'two_stage', 'regeneration'])
+    .enum([
+      'regular',
+      'tryon',
+      'saree_step1',
+      'saree_step1_two_input',
+      'two_stage',
+      'regeneration',
+      'fabric_to_garment',
+    ])
     .optional(),
 });
 
@@ -957,3 +993,40 @@ export const AdminHeldJobsReleaseResponse = z.object({
   remaining: z.number().int(),
 });
 export type AdminHeldJobsReleaseResponse = z.infer<typeof AdminHeldJobsReleaseResponse>;
+
+// ── Fabric-to-Garment garment-type presets ────────────────────────────────
+// Admin-curated presets (Shirt, Kurti, Anarkali, …) — each carries the
+// prompt text injected into the shared 'fabric_to_garment' workflow
+// template's garmentPhasePromptNode (and optionally facePhasePromptNode) at
+// dispatch time. See apps/dispatcher/src/job/processor.ts::processFabricToGarmentJob.
+
+// Separate from the system-wide GenderSlug (men/women/boys/girls) — fabric-to-garment
+// presets are deliberately scoped to just these two.
+export const FabricGarmentGenderEnum = z.enum(['men', 'women']);
+
+export const CreateFabricGarmentTypeBody = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens'),
+  genderSlug: FabricGarmentGenderEnum,
+  label: z.string().min(1).max(120),
+  thumbnailKey: z.string().optional(),
+  prompt: z.string().min(1).max(4000),
+  negativePrompt: z.string().max(4000).optional(),
+  sortOrder: z.number().int().optional(),
+  isActive: z.boolean().optional(),
+});
+export const PatchFabricGarmentTypeBody = z.object({
+  genderSlug: FabricGarmentGenderEnum.optional(),
+  label: z.string().min(1).max(120).optional(),
+  thumbnailKey: z.string().nullable().optional(),
+  prompt: z.string().min(1).max(4000).optional(),
+  negativePrompt: z.string().max(4000).nullable().optional(),
+  sortOrder: z.number().int().optional(),
+  isActive: z.boolean().optional(),
+});
+export const PresignFabricGarmentTypeThumbnailBody = z.object({
+  contentType: AssetContentType,
+});
