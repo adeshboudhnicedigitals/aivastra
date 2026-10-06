@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, eq, exists, inArray, isNotNull } from 'drizzle-orm';
+import { and, eq, exists, inArray, isNotNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -156,11 +156,11 @@ export async function catalogRoutes(app: FastifyInstance) {
 
         if (!hasSupportingPose && mappedSupporting.length === 0) return { type, tree: [] };
 
-        // Garment type determines the pose workflow, while the Studio picker must
-        // offer every active lower garment or shoe for the selected gender. Its
-        // configured default is selected client-side, but does not narrow the
-        // available alternatives. Accessories are the exception: they are only
-        // offered when mapped to the selected garment type (catalog_item_subcategories).
+        // Garment type determines the pose workflow. When a garment type has
+        // explicit lower/shoe mappings configured via catalog_item_subcategories,
+        // Studio picker narrows to those mapped items (plus the configured default).
+        // If unconfigured, it offers every active lower garment or shoe for the selected gender.
+        // Accessories are always strictly opt-in via catalog_item_subcategories.
         const conditions = [
           eq(schema.catalogItems.isActive, true),
           eq(schema.catalogItems.type, type),
@@ -180,6 +180,52 @@ export async function catalogRoutes(app: FastifyInstance) {
                 ),
             ),
           );
+        } else if ((type === 'lower' || type === 'shoe') && garmentTypeId) {
+          const [hasExplicitMappings] = await app.db
+            .select({ one: schema.catalogItemSubcategories.catalogItemId })
+            .from(schema.catalogItemSubcategories)
+            .innerJoin(
+              schema.catalogItems,
+              eq(schema.catalogItemSubcategories.catalogItemId, schema.catalogItems.id),
+            )
+            .where(
+              and(
+                eq(schema.catalogItemSubcategories.subcategoryId, garmentTypeId),
+                eq(schema.catalogItems.type, type),
+              ),
+            )
+            .limit(1);
+
+          if (hasExplicitMappings) {
+            const [gt] = await app.db
+              .select({
+                defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
+                defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
+              })
+              .from(schema.garmentSubcategories)
+              .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+            const defaultId =
+              type === 'lower' ? gt?.defaultLowerCatalogId : gt?.defaultShoeCatalogId;
+
+            const isMapped = exists(
+              app.db
+                .select({ one: schema.catalogItemSubcategories.catalogItemId })
+                .from(schema.catalogItemSubcategories)
+                .where(
+                  and(
+                    eq(schema.catalogItemSubcategories.catalogItemId, schema.catalogItems.id),
+                    eq(schema.catalogItemSubcategories.subcategoryId, garmentTypeId),
+                  ),
+                ),
+            );
+
+            const mappedCondition = defaultId
+              ? or(isMapped, eq(schema.catalogItems.id, defaultId))
+              : isMapped;
+            if (mappedCondition) {
+              conditions.push(mappedCondition);
+            }
+          }
         }
 
         const items = await app.db

@@ -2,6 +2,65 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-05 — Garment Type Lower & Footwear unmapping
+
+- **Done:** Implemented lower garment and footwear unmapping per garment type:
+  - Database schema: Reused existing `catalog_item_subcategories` join table without schema or migration changes.
+  - Types (`packages/types/src/admin.ts`): Added `mappedLowerCatalogItemIds` and `mappedShoeCatalogItemIds` to `PatchGarmentTypeBody`.
+  - Backend API (`apps/api/src/modules/admin/subcategories.routes.ts`):
+    - Added `GET /admin/assets/garment-types/:id/catalog-mappings`: returns `mappedLowerIds`, `hasExplicitLowerMappings`, `mappedShoeIds`, `hasExplicitShoeMappings`.
+    - Added `PUT /admin/assets/garment-types/:id/catalog-items/:catalogItemId`: enables single-item map/unmap toggle. When unmapping an item for a garment type that had no prior explicit mappings, auto-initializes the mapping set with all active same-gender items of that type minus the unmapped item.
+    - Updated `PATCH /admin/assets/garment-types/:id`: processes bulk `mappedLowerCatalogItemIds` and `mappedShoeCatalogItemIds`, syncs `catalog_item_subcategories` inside a transaction, auto-clears `defaultLowerCatalogId` or `defaultShoeCatalogId` if the current default was unmapped, and audits the update.
+  - Catalog Resolution (`apps/api/src/modules/catalog/routes.ts`):
+    - Updated `GET /v1/catalog/:type`: when `garmentTypeId` is provided and explicit mappings exist in `catalog_item_subcategories`, filters lower/shoe items to only those mapped (or the configured default). If no mappings are configured for that garment type, keeps all active same-gender items available (backward-compatible).
+  - Admin UI (`apps/admin-web/src/components/EditGarmentTypeModal.tsx` & `GarmentTypesTab.tsx`):
+    - Upgraded the "Default Lower Garment" and "Default Shoe" picker sections in the Edit Garment Type drawer:
+      - Item cards have individual Unmap/Map toggle buttons and dim unmapped items (45% opacity).
+      - Status filter pills (`All`, `Mapped (N)`, `Unmapped (N)`) allow filtering by mapping state alongside category filter pills.
+      - Multi-select bulk action toolbar provides "Select all visible", "Unmap selected (N)", "Map selected (N)", and "Clear".
+      - Section headers indicate count of unmapped items (e.g. `Default Lower Garment (3 unmapped)`).
+      - Refreshes catalog items in `GarmentTypesTab.tsx` on modal save so `subcategoryIds` stay up-to-date across all admin tabs.
+  - Admin UI Category Sorting & Backgrounds:
+    - Added "Sort order" number input to the "Edit category" drawer in `BackgroundsTab.tsx` and `CatalogTab.tsx`, persisting `sortOrder` via `PATCH /admin/catalog/categories/:id`.
+    - Category cards on the backgrounds page now sort by `sortOrder` ascending and display their sort number (`slug: <slug> · sort: <sortOrder>`).
+    - Removed the "Set White BG" / "White BG" button, thumbnail badge, and handler from background cards on `/admin/assets` (Backgrounds tab).
+  - Studio & Embed Pose Names Removal (`apps/catalogues-web`):
+    - Removed labels/names from poses and looks across the Studio page strip, template looks, Amazon listing main pose selector, and embed wizard.
+    - Added `hideLabels` prop to `SelectGridModal` for Choose Poses in Studio, Batch mode (`batch-row`, `batch-grid`), and embed wizard.
+    - Enhanced `SelCard` fixed height handling when `label` is omitted to fill entire card height without gaps.
+  - Validation:
+    - Integration tests in `test/integration/catalog.test.ts` (2/2) and `test/integration/catalogue-template-subcategories-admin.test.ts` (10/10) pass.
+    - `@aivastra/types` built cleanly, `@aivastra/api` typecheck passed, `@aivastra/admin` `tsc -b` passed with 0 errors. Biome checks passed with 0 errors.
+
+## 2026-10-05 — Opt-in pose garment type mapping (Option A) & Multi-Sort
+
+- **Done:** Implemented Option A for Garment Types pose management (`/admin/assets/garment-types`) and Multi-Sort:
+  - Backend:
+    - Updated `GET /admin/assets/garment-types/:id/pose-configs` to only return poses that are explicitly mapped/assigned to that garment type (`configMap.has(p.id)`), returning 0 poses if unmapped rather than dumping the whole gender pose catalog.
+    - Added `DELETE /admin/assets/garment-types/:id/pose-configs/:poseAssetId` endpoint to completely unmap/remove a pose configuration from a garment type.
+    - Added `PATCH /admin/assets/garment-types/:id/pose-configs/multi-sort` endpoint to reorder multiple selected poses to a target start position in dense 1..N order in a single transaction, leaving unselected poses shifted around them.
+    - Fixed single-pose sortOrder reindexing in `PATCH /admin/assets/garment-types/:id/pose-configs/:poseAssetId` to only reindex mapped poses, eliminating accidental materialization of unmapped poses.
+    - Removed legacy opt-out seed in `POST /admin/assets/garment-types` which previously pre-seeded all gender poses with `isActive: false`.
+    - Cleaned up test inactive configurations in local development database.
+  - Admin UI (`GarmentTypesTab.tsx`):
+    - Removed confusing "Assign poses (X unmapped)" / "Hide unmapped poses" toggle button.
+    - Custom look poses list now shows ONLY poses assigned to the garment type.
+    - Active poses display with Switch ON (100% opacity); disabled/toggled-off poses remain on this page with Switch OFF (dimmed at 55% opacity) so admins can easily re-enable them at any time.
+    - "Remove from [Garment]" calls `DELETE` to completely remove the mapping for that pose.
+    - Added "Bulk remove" action button.
+    - Added Multi-Sort feature: when 1 or more poses are selected, an `Order #` input and "Multi sort" button appear on the bulk toolbar, placing selected poses consecutively starting from the given position.
+    - Fixed stale pose flash and navigation lifecycle bug when clicking into garment types repeatedly (`setPoseConfigs([])` and `setConfigsLoading(true)` on garment selection).
+    - Clean empty state when no poses are assigned yet, guiding the user to the Pose Assets tab.
+  - Catalogues Web UI (`apps/catalogues-web`):
+    - Removed names/labels from Model Face selection cards on the Studio page (`apps/catalogues-web/src/app/(app)/studio/page.tsx`).
+    - Removed names/labels from Background selection cards (both user uploads and preset backgrounds) on the Studio page.
+    - Updated "Add background" button layout to center the icon and label inside the square tile so its height matches the label-less background cards.
+    - Replaced hardcoded background name in Amazon listing pose picker modal with generic description.
+    - Updated `SelCard` (`shared-cards.tsx`) to apply clean 10px rounded corners on all 4 borders when `label` is omitted.
+    - Fixed Backgrounds selection strip: unified custom uploads and preset backgrounds into a single bounded row (`capacity = backgroundVisibleCount - 1`). When any background is selected (custom, preset, or picked from "View All"), it always comes to the front (top position right next to "Add background") instead of getting blocked or pushed out by custom uploads.
+    - Added "My Uploads" filter pill and included user's custom backgrounds inside the "View All" backgrounds modal so all uploaded backgrounds remain accessible.
+- **Validation:** Integration tests updated and passing in `catalogue-template-subcategories-admin.test.ts` (9/9 passed, including multi-sort test); `models-poses-garment-roles.test.ts` (4/4 passed); whole workspace typecheck passed; `admin-web` and `@aivastra/web` built/typechecked cleanly (`tsc --noEmit`); Biome check passed with 0 errors.
+
 ## 2026-10-05 — Performance routing parity fixture follows Redis hash order
 
 - **Done:** corrected the OFF/OBSERVE integration fixture that blocked promotion PR #476. The cursor is derived from actual Redis hash order so round-robin deliberately selects a worker other than scored preference A. Three insertion orders verify identical OFF/OBSERVE claims, a different hypothetical preference, and A remaining IDLE. No routing implementation changed.
@@ -14,6 +73,24 @@
 - **Validation:** 10 new units and 41 focused selector/performance/queue-gate integrations passed; captured payloads contain no API-key or URL values. Lua and claimed-worker construction verified byte-for-byte unchanged. Workspace/dispatcher typechecks passed; lint passed with 754 warnings and 13 infos. Initial full units: 197 passed, one stale three-argument source assertion failed; user-approved context-regex update resolved it, and rerun passed all 198 tests. Full integration: 170 passed in 36 files (325.94s); exact output in the [report](superpowers/reports/2026-10-05-selector-skip-log-context.md).
 - **Done / approved exception:** updated only that caller regex to require context at all eight sites, leaving behavioral tests untouched. Existing worker-claimed logs have no selector skip-count channel; optional successful-claim enrichment omitted to preserve return/interface behavior and avoid duplicates.
 - **Failed-Not-Done:** no commit, push, PR, deployment, production data/worker/config calls, manual mode changes, metrics-label/routing/scoring/backoff changes, or API test rerun. Review patch/report prepared for delivery only to VPS `/tmp/`; full integration and units are green; the initial source-guard failure and authorized correction are reported.
+
+## 2026-10-05 — Saree: optional blouse (fourth) image on the one-step workflow
+
+- **Done:** one-step saree workflow accepts body + pallu (required, as before) plus an OPTIONAL blouse. Old two-input path is untouched.
+  - Schema (migration `0215`, additive, uncommitted): `workflow_templates.fourth_node_id` (+ archive table), `job_inputs.fourth_garment_key`, `garment_subcategories.allows_fourth_upload` / `fourth_upload_label`.
+  - Dispatcher (`workflow/patcher.ts`): blouse present → patched into `fourthNodeId`. Absent → `pruneOptionalImageNode` removes the node, its config-preparer pass-through (rewired to its `configs` upstream) and every side branch that exists only for it (size chain, PreviewImage). Separate from `bypassOptionalImageNode` on purpose — accessories keep that strict contract. Refuses (job fails) if the blouse reaches any terminal other than a PreviewImage, rather than submitting a broken graph.
+  - Prompt lines tagged `[blouse]` are dropped when there is no blouse; the tag is stripped when there is one. Applied after the pose prompt override, to every string input, only for templates that map `fourthNodeId`.
+  - API (`jobs/create.ts`): `fourthGarmentKey` is rejected before credits are deducted if the garment type has not opted in, or if any resolved pose workflow has no `fourthNodeId`. The two-step saree-mannequin path never accepts it. Upload sweeper, results grid/thumb/zip and `/v1/models` garment-types know the new key.
+  - Admin: "Fourth garment node — blouse" on workflow upload/replace with an explanatory note in the parse panel; "Optional extra upload" switch + label on the garment type editor.
+  - Parser: the saree catalogue workflow goes through the **regular** parser (`detectMappings` in `admin/workflow-detect.ts`), not the saree/tryon detectors (`saree-detect`, `tryon-detect`, `tryon-two-input-detect`), which only know person/body/pallu and no pose/background/size. Run against the real sample, the regular parser was missing the body and the pallu (and has never detected a third node at all). Now `body` → upper, `pallu`/`palu`/`third_garment` → third, `blouse`/`fourth_garment` → fourth.
+  - Web studio: optional `OptionalUploadBox`, shown only when the garment type opts in and has no mannequin step; never blocks Generate.
+- **Validation (on `feat/saree-optional-blouse`, off `dev`):** dispatcher units 206 passed (patcher incl. 8 new); API units 771 passed; integration (new `fourth-garment-job` 4 + saree-mannequin-job, admin-workflows, results-multi-garment, garment-type-third-upload, upload) 94 passed across 8 files. Typecheck clean for api, dispatcher, admin-web (`tsc -b`) and catalogues-web. Biome: 0 errors; 4 pre-existing warnings in files touched, none on new lines. The real sample workflow (`sareeblouseposecatalouge011026…json`): the regular parser now detects all of face/pose/background/body/pallu/blouse/positive/negative; through the patcher with and without a blouse it goes 79 → 71 nodes when absent, `1033.configs` rewired to `1061`, no dangling links.
+- **Process note:** this work was first built on `feat/motion-studio-ui-and-pixverse-pricing` and in the wrong parser; it was moved to a fresh branch off `dev` and the parser corrected. The old branch is untouched.
+- **Out-of-repo state / must do before this works end to end:**
+  1. Upload the finished one-step workflow as type **regular** with the `LoadImage` titles `body`, `pallu`, `blouse` (plus face/pose/background) so they auto-map, or map them by hand. The sample has no size nodes (its `ResolutionSelector` is not a recognised size class), so aspect ratio / output size would not be patched until those are mapped. Keep the blouse as the LAST reference image so other image numbers do not shift when it is removed.
+  2. In that workflow's `TextEncodeQwenImageEditPlusCustom` prompt, append `[blouse]` to the line `use exact image6 fabric as blouse.` — the sample is untagged, so today it would still tell the model to use image6 when there is no blouse.
+  3. On the saree garment type: set the third upload (pallu) as required, switch on "Optional extra upload", set its label.
+- **Failed-Not-Done / Open:** not committed or pushed. The studio and admin UI were typechecked but not exercised in a browser. Shopify, the public dev API and kiosk do not offer the blouse (web studio only, by decision). A blouse sent to a pose whose workflow has no `fourthNodeId` is rejected, so a garment type whose poses mix templates with and without the node will reject blouse jobs for the whole selection.
 
 ## 2026-10-03 — Admin Activity Log Revert feature
 

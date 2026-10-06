@@ -14,4 +14,6 @@ useDefault = true
     # as "added" whenever its surrounding block is edited (e.g. wrapped in a
     # transaction) even though the line itself is unchanged.
     '''body\.bgComfyR2Key''',
+    # Not a secret — test fixture object keys in catalogue-template-subcategories-admin.test.ts
+    '''l[12]-thumb\.jpg''',
   ]

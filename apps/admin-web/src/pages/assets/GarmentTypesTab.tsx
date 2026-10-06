@@ -13,6 +13,7 @@ import { useUrlState, useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type {
+  CatalogItem,
   GarmentType,
   GenderSlug,
   MappedTemplateLook,
@@ -111,6 +112,7 @@ export function GarmentTypesTab() {
     workflows,
     setWorkflows,
     catalogItems,
+    setCatalogItems,
     loading,
     setPreviewUrl,
     toast,
@@ -273,8 +275,11 @@ export function GarmentTypesTab() {
 
   useEffect(() => {
     if (activeConfigsId === null) {
+      setPoseConfigs([]);
       void loadGarmentTypes();
     } else {
+      setPoseConfigs([]);
+      setConfigsLoading(true);
       void loadPoseConfigs(activeConfigsId);
     }
     refetchWorkflows();
@@ -409,6 +414,47 @@ export function GarmentTypesTab() {
     }
   };
 
+  const removePoseFromGarmentType = async (garmentTypeId: string, poseAssetId: string) => {
+    const prevConfigs = [...poseConfigs];
+    setPoseConfigs((prev) => prev.filter((p) => p.id !== poseAssetId));
+    try {
+      await apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseAssetId}`, {
+        method: 'DELETE',
+      });
+      toast({ title: 'Pose removed from garment type' });
+    } catch (e) {
+      setPoseConfigs(prevConfigs);
+      toast({
+        kind: 'error',
+        title: 'Failed to remove pose',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  };
+
+  const multiSortPoses = async (
+    garmentTypeId: string,
+    poseAssetIds: string[],
+    startSortOrder: number,
+  ) => {
+    try {
+      await apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/multi-sort`, {
+        method: 'PATCH',
+        body: JSON.stringify({ poseAssetIds, startSortOrder }),
+      });
+      await loadPoseConfigs(garmentTypeId);
+      toast({
+        title: `${poseAssetIds.length} pose${poseAssetIds.length !== 1 ? 's' : ''} reordered`,
+      });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to reorder poses',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  };
+
   const doDelete = async () => {
     if (!confirmDelete) return;
     const { id, label } = confirmDelete;
@@ -532,6 +578,8 @@ export function GarmentTypesTab() {
             onToggleActive={(poseAssetId, isActive) =>
               togglePoseActive(subView.sub.id, poseAssetId, isActive)
             }
+            onRemovePose={(poseAssetId) => removePoseFromGarmentType(subView.sub.id, poseAssetId)}
+            onMultiSort={multiSortPoses}
             onSaveDefaultPose={saveDefaultPose}
             savingDefaultPose={savingDefaultPose}
             garmentTypeOptions={otherGarmentTypeOptions}
@@ -1183,6 +1231,10 @@ export function GarmentTypesTab() {
             // A sortOrder change shifts other rows of this gender server-side -
             // refetch instead of patching just the edited row.
             void loadGarmentTypes();
+            // Refresh catalog items so subcategoryIds on lowers/shoes stay up-to-date across tabs
+            apiFetch<CatalogItem[]>('/admin/catalog/items')
+              .then(setCatalogItems)
+              .catch(() => {});
           }}
           onClose={closeModal}
           toast={toast}
@@ -2025,6 +2077,12 @@ interface PoseConfigsPanelProps {
     },
   ) => Promise<void>;
   onToggleActive: (poseAssetId: string, isActive: boolean) => Promise<void>;
+  onRemovePose: (poseAssetId: string) => Promise<void>;
+  onMultiSort: (
+    garmentTypeId: string,
+    poseAssetIds: string[],
+    startSortOrder: number,
+  ) => Promise<void>;
   onSaveDefaultPose: (garmentTypeId: string, poseAssetId: string | null) => Promise<void>;
   savingDefaultPose: boolean;
   garmentTypeOptions: { id: string; label: string }[];
@@ -2040,6 +2098,8 @@ function PoseConfigsPanel({
   workflows,
   onSave,
   onToggleActive,
+  onRemovePose,
+  onMultiSort,
   onSaveDefaultPose,
   savingDefaultPose,
   garmentTypeOptions,
@@ -2059,37 +2119,30 @@ function PoseConfigsPanel({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkWorkflow, setBulkWorkflow] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [multiSortOrder, setMultiSortOrder] = useState<number | ''>(1);
+  const [multiSortSaving, setMultiSortSaving] = useState(false);
   const [mapTargetId, setMapTargetId] = useState('');
   const [mapSaving, setMapSaving] = useState(false);
   // '' = all workflows, 'none' = poses with no workflow assigned (override or default), else a workflow id
   const [workflowFilter, setWorkflowFilter] = useState('');
-  // A garment type must start with zero poses mapped (see subcategories.routes.ts's
-  // create-time seed), so this panel defaults to showing only poses actually mapped
-  // here — every unmapped pose is still a `pose_garment_configs` row underneath
-  // (isActive: false), but surfacing all of them by default made a brand-new garment
-  // type look pre-populated with every pose in the system, just switched off. "Assign
-  // poses" reveals the full opt-out list so the admin can flip specific ones on.
-  const [showUnmapped, setShowUnmapped] = useState(false);
 
-  const mappedItems = useMemo(() => items.filter((i) => i.isActive), [items]);
-  const baseItems = showUnmapped ? items : mappedItems;
-
+  // Under opt-in: items returned from API are ONLY poses assigned to this garment type
   const filteredItems = useMemo(() => {
-    if (!workflowFilter) return baseItems;
-    if (workflowFilter === 'none') return baseItems.filter((i) => !effectiveWorkflowId(i));
-    return baseItems.filter((i) => effectiveWorkflowId(i) === workflowFilter);
-  }, [baseItems, workflowFilter]);
+    if (!workflowFilter) return items;
+    if (workflowFilter === 'none') return items.filter((i) => !effectiveWorkflowId(i));
+    return items.filter((i) => effectiveWorkflowId(i) === workflowFilter);
+  }, [items, workflowFilter]);
 
   // Only offer workflows actually in use on this page's poses, not every workflow in the system.
   const usedWorkflowIds = useMemo(
-    () => [...new Set(baseItems.map(effectiveWorkflowId).filter((id): id is string => !!id))],
-    [baseItems],
+    () => [...new Set(items.map(effectiveWorkflowId).filter((id): id is string => !!id))],
+    [items],
   );
   const usedWorkflowOptions = useMemo(
     () => usedWorkflowIds.map((id) => workflows.find((w) => w.id === id)).filter((w) => !!w),
     [usedWorkflowIds, workflows],
   );
-  const hasUnassignedPose = baseItems.some((i) => !effectiveWorkflowId(i));
+  const hasUnassignedPose = items.some((i) => !effectiveWorkflowId(i));
 
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -2157,6 +2210,17 @@ function PoseConfigsPanel({
     }
   };
 
+  const applyBulkRemove = async () => {
+    if (selectedIds.length === 0) return;
+    setBulkSaving(true);
+    try {
+      await Promise.all(selectedIds.map((id) => onRemovePose(id)));
+      clearSelection();
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
   const applyBulkClearOverride = async () => {
     if (selectedIds.length === 0) return;
     setBulkSaving(true);
@@ -2175,6 +2239,17 @@ function PoseConfigsPanel({
       setBulkWorkflow('');
     } finally {
       setBulkSaving(false);
+    }
+  };
+
+  const applyMultiSort = async () => {
+    if (selectedIds.length === 0 || multiSortOrder === '' || multiSortOrder < 1) return;
+    setMultiSortSaving(true);
+    try {
+      await onMultiSort(sub.id, selectedIds, Number(multiSortOrder));
+      clearSelection();
+    } finally {
+      setMultiSortSaving(false);
     }
   };
 
@@ -2291,18 +2366,13 @@ function PoseConfigsPanel({
   if (items.length === 0) {
     return (
       <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
-        No active poses for {sub.genderSlug}.
-      </div>
-    );
-  }
-
-  if (mappedItems.length === 0 && !showUnmapped) {
-    return (
-      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
-        <p style={{ margin: '0 0 12px' }}>No poses mapped to {sub.label} yet.</p>
-        <button className="btn sm" onClick={() => setShowUnmapped(true)}>
-          Assign poses
-        </button>
+        <p style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 500 }}>
+          No poses assigned to {sub.label} yet.
+        </p>
+        <p style={{ margin: 0, fontSize: 13 }}>
+          Go to the <strong>Pose Assets</strong> tab and use <strong>Map to garment types</strong>{' '}
+          to assign poses here.
+        </p>
       </div>
     );
   }
@@ -2346,17 +2416,6 @@ function PoseConfigsPanel({
               ? 'Deselect all'
               : 'Select all'}
           </button>
-          <button
-            className="btn sm ghost"
-            onClick={() => {
-              setShowUnmapped((v) => !v);
-              clearSelection();
-            }}
-          >
-            {showUnmapped
-              ? 'Hide unmapped poses'
-              : `Assign poses (${items.length - mappedItems.length} unmapped)`}
-          </button>
           {selectedIds.length > 0 && (
             <>
               <span style={{ fontSize: 12, color: 'var(--muted)' }}>
@@ -2393,12 +2452,50 @@ function PoseConfigsPanel({
                 {bulkSaving ? 'Enabling…' : 'Bulk enable'}
               </button>
               <button
+                className="btn sm danger"
+                disabled={bulkSaving}
+                onClick={() => void applyBulkRemove()}
+              >
+                {bulkSaving ? 'Removing…' : 'Bulk remove'}
+              </button>
+              <button
                 className="btn sm ghost"
                 disabled={bulkSaving}
                 onClick={() => void applyBulkClearOverride()}
               >
                 {bulkSaving ? 'Clearing…' : 'Clear override'}
               </button>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  borderLeft: '1px solid var(--border)',
+                  paddingLeft: 8,
+                }}
+              >
+                <input
+                  type="number"
+                  min={1}
+                  max={items.length}
+                  value={multiSortOrder}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setMultiSortOrder(val === '' ? '' : Math.max(1, Number(val)));
+                  }}
+                  placeholder="Order #"
+                  title="Starting sort order position (1-based)"
+                  disabled={bulkSaving || multiSortSaving}
+                  style={{ width: 68, height: 30, fontSize: 12, padding: '3px 8px' }}
+                />
+                <button
+                  className="btn sm ghost"
+                  disabled={multiSortOrder === '' || bulkSaving || multiSortSaving}
+                  onClick={() => void applyMultiSort()}
+                >
+                  {multiSortSaving ? 'Sorting…' : 'Multi sort'}
+                </button>
+              </div>
               {garmentTypeOptions.length > 0 && (
                 <>
                   <SearchableSelect
@@ -2419,7 +2516,11 @@ function PoseConfigsPanel({
                   </button>
                 </>
               )}
-              <button className="btn sm ghost" onClick={clearSelection} disabled={bulkSaving}>
+              <button
+                className="btn sm ghost"
+                onClick={clearSelection}
+                disabled={bulkSaving || multiSortSaving}
+              >
                 Clear
               </button>
             </>
@@ -2595,19 +2696,13 @@ function PoseConfigsPanel({
                     <Icon.Edit /> Set workflow
                   </button>
                 </div>
-                {item.isActive && (
-                  <button
-                    className="btn danger"
-                    style={{ width: '100%', marginTop: 4, fontSize: 11, padding: '3px 0' }}
-                    // Scoped to this garment type only — writes the pose_garment_configs
-                    // override (isActive: false), never touches the pose asset itself.
-                    // Deleting a pose asset globally is a Pose Assets tab action, kept off
-                    // this card entirely so nothing here can reach outside {sub.label}.
-                    onClick={() => void onToggleActive(item.id, false)}
-                  >
-                    <Icon.Trash /> Remove from {sub.label}
-                  </button>
-                )}
+                <button
+                  className="btn danger"
+                  style={{ width: '100%', marginTop: 4, fontSize: 11, padding: '3px 0' }}
+                  onClick={() => void onRemovePose(item.id)}
+                >
+                  <Icon.Trash /> Remove from {sub.label}
+                </button>
               </div>
             </div>
           );
