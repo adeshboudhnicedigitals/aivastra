@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown natively by the OS from process start until Flutter's first frame
+     paints (LaunchTheme's windowBackground, set in styles.xml). Uses the same
+     splash_screen_bg.png as SplashPage (lib/views/splash_page.dart) so there
+     is no visible white flash / seam between the native pre-Flutter screen
+     and the Dart one that replaces it. Kept in sync manually — this is a
+     native Android resource copy, not read from the Flutter asset bundle. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/black" />
+    <item>
+        <bitmap
+            android:gravity="fill"
+            android:src="@drawable/splash_screen_bg" />
+    </item>
+</layer-list>
