@@ -18,6 +18,10 @@ export const keys = {
   merchantLogo: (merchantId: string) => `merchant-logo/${merchantId}/logo.jpg`,
   merchantLoadingVideo: (merchantId: string) => `merchant-loading-video/${merchantId}/video.mp4`,
   devUpload: (merchantId: string, id: string, ext: string) => `dev/${merchantId}/${id}.${ext}`,
+  // Chrome extension try-on uploads — keyed by the shopper's own user id, not
+  // a merchant (no API key is involved on this path, see
+  // apps/api/src/modules/extension/routes.ts).
+  extensionUpload: (userId: string, id: string, ext: string) => `extension/${userId}/${id}.${ext}`,
   catalogItem: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.jpg`,
   catalogThumb: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.thumb.jpg`,
   catalogCategoryThumb: (typeSlug: string, id: string) => `catalog/${typeSlug}/cat-${id}.thumb.jpg`,
@@ -56,6 +60,7 @@ export const keys = {
   sareeStyle: (id: string) => `saree-styles/${id}.jpg`,
   sampleVideo: (id: string) => `sample-videos/${id}.mp4`,
   sampleVideoThumb: (id: string) => `sample-videos/${id}.thumb.gif`,
+  fabricGarmentTypeThumb: (id: string) => `fabric-garment-types/${id}.thumb.jpg`,
   // Single global admin-uploaded video (e.g. app intro/promo clip served to the
   // Android app via GET /v1/config/app-video). Fixed key — a new upload replaces
   // the previous one in place; cache-busting is via the ?v= query param, not the key.

@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Ai Vastra — Virtual Try-On",
+  "short_name": "Ai Vastra Try-On",
+  "version": "0.1.0",
+  "description": "See how a garment looks on you, on any clothing product page.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Ai Vastra Try-On",
+    "default_popup": "popup/index.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/index.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["storage"],
+  "host_permissions": ["<all_urls>"],
+  "web_accessible_resources": [
+    {
+      "resources": ["content/widget.css"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

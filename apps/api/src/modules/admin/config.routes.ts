@@ -11,6 +11,7 @@ import {
 import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
+  DEFAULT_FABRIC_TO_GARMENT_CONFIG,
   DEFAULT_MERCHANT_CATALOG_RESOLUTION,
   DEFAULT_RESOLUTION_CONFIG,
   DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG,
@@ -64,6 +65,16 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     return { resolutions: fillResolutionDefaults(cfg.resolutions) };
   });
 
+  // Public — used by the Fabric to Garment page to show the credit cost
+  // before the user clicks.
+  app.get('/v1/config/fabric-to-garment', async () => {
+    const raw = await app.redis.get(KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    return {
+      creditCost: cfg.fabricToGarment?.creditCost ?? DEFAULT_FABRIC_TO_GARMENT_CONFIG.creditCost,
+    };
+  });
+
   // Public — used by the login/register pages so the advertised signup bonus
   // never drifts from what PATCH /v1/me actually grants (both read the same
   // credit_plans row).
@@ -85,6 +96,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     cfg.maxQueueDepth = cfg.maxQueueDepth ?? DEFAULT_MAX_QUEUE_DEPTH;
     cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
     cfg.sareeMannequinDev = cfg.sareeMannequinDev ?? DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG;
+    cfg.fabricToGarment = cfg.fabricToGarment ?? DEFAULT_FABRIC_TO_GARMENT_CONFIG;
     // qualityBase is a Zod `.partial()` on PATCH, so a stored config can be
     // missing tiers — merge per-key (not `??`) so GET stays consistent with
     // what getPixverseVideoCreditCost() actually resolves for a missing tier.

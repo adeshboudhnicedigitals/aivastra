@@ -3,6 +3,7 @@ import { keys } from '@aivastra/storage';
 import {
   CreateBatchJobRequest,
   CreateCatalogVideoJobRequest,
+  CreateFabricToGarmentJobRequest,
   CreateSareeJobRequest,
   CreateSareeMannequinJobRequest,
   CreateSimpleTryonRequest,
@@ -20,9 +21,10 @@ import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { withIdempotency } from '../../lib/idempotency.js';
 import { sendReportReceivedEmail } from '../../lib/mailer.js';
-import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { getFabricToGarmentCreditCost, getTryonCreditCost } from '../../lib/resolution-config.js';
 import { reopenResolvedTicket, setSubjectFromFirstMessage } from '../../lib/tickets.js';
 import { getSareeSettings } from '../saree/settings.js';
+import { claimFabricToGarmentResult } from './claimFabricToGarmentResult.js';
 import {
   createCatalogVideoJob,
   createJob,
@@ -30,6 +32,7 @@ import {
   updateLastUsedPosePreset,
 } from './create.js';
 import { createBatchJobs } from './createBatch.js';
+import { createFabricToGarmentJob } from './createFabricToGarment.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
 import { getRegenerateReasons, regenerateJob } from './regenerate.js';
@@ -256,6 +259,77 @@ export async function jobsRoutes(app: FastifyInstance) {
       );
       reply.code(201);
       return result;
+    },
+  );
+
+  // POST /v1/jobs/fabric-to-garment — stitches an uploaded fabric photo into
+  // the shape of the picked garment-type preset.
+  app.post(
+    '/v1/jobs/fabric-to-garment',
+    { preHandler: app.requireUser, schema: { body: CreateFabricToGarmentJobRequest } },
+    async (req, reply) => {
+      const result = await withIdempotency(
+        app,
+        'jobs',
+        req.userId,
+        req.headers['idempotency-key'] as string | undefined,
+        () =>
+          createFabricToGarmentJob(
+            app,
+            req.userId,
+            req.body as z.infer<typeof CreateFabricToGarmentJobRequest>,
+          ),
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  // GET /v1/fabric-garment-types?gender=men|women — active garment-type
+  // presets for the Fabric to Garment picker. Rows with no genderSlug set
+  // are included regardless of the requested gender.
+  app.get('/v1/fabric-garment-types', { preHandler: app.requireUser }, async (req) => {
+    const { gender } = req.query as { gender?: string };
+    const genderCondition =
+      gender === 'men' || gender === 'women'
+        ? or(
+            eq(schema.fabricGarmentTypes.genderSlug, gender),
+            isNull(schema.fabricGarmentTypes.genderSlug),
+          )
+        : undefined;
+    const rows = await app.db
+      .select()
+      .from(schema.fabricGarmentTypes)
+      .where(
+        genderCondition
+          ? and(eq(schema.fabricGarmentTypes.isActive, true), genderCondition)
+          : eq(schema.fabricGarmentTypes.isActive, true),
+      )
+      .orderBy(asc(schema.fabricGarmentTypes.sortOrder), asc(schema.fabricGarmentTypes.label));
+    const creditsCost = await getFabricToGarmentCreditCost(app);
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        slug: r.slug,
+        genderSlug: r.genderSlug,
+        label: r.label,
+        thumbnailUrl: r.thumbnailKey ? app.storage.publicUrl(r.thumbnailKey) : null,
+        garmentTypeId: r.garmentTypeId,
+      })),
+      creditsCost,
+    };
+  });
+
+  // POST /v1/jobs/fabric-to-garment/:id/claim-garment — lets the caller use a
+  // completed fabric-to-garment job's generated image as a normal tryon job's
+  // upperGarmentKey. See claimFabricToGarmentResult.ts for why this exists
+  // instead of a new createJob bypass branch.
+  app.post(
+    '/v1/jobs/fabric-to-garment/:id/claim-garment',
+    { preHandler: app.requireUser, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      return claimFabricToGarmentResult(app, req.userId, id);
     },
   );
 
@@ -512,6 +586,10 @@ export async function jobsRoutes(app: FastifyInstance) {
                 JOB_SOURCE.MERCHANT_CATALOG,
                 JOB_SOURCE.MERCHANT_CATALOG_SAREE_MANNEQUIN,
                 JOB_SOURCE.SHOPIFY,
+                // Chrome-extension try-ons: same reasoning as WORDPRESS_TRYON above —
+                // a shopper's own-account extension click isn't the Studio's curated
+                // catalog gallery, even though it bills the same userId/user_credits.
+                JOB_SOURCE.EXTENSION_TRYON,
               ]),
             ),
             ...(batchId ? [eq(schema.jobs.batchId, batchId)] : []),

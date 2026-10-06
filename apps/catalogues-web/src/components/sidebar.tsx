@@ -1,6 +1,6 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart3, KeyRound, MonitorPlay, Package, Phone, Store } from 'lucide-react';
+import { BarChart3, KeyRound, MonitorPlay, Package, Phone, Shirt, Store } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -55,6 +55,12 @@ const NAV: {
     label: 'Try-On',
     icon: 'package',
     merchantOnly: true,
+  },
+  {
+    id: 'fabric-to-shoot',
+    href: '/fabric-to-shoot',
+    label: 'Fabric to Shoot',
+    icon: 'shirt',
   },
   {
     id: 'developers',
@@ -144,6 +150,11 @@ export function Sidebar({
       });
     } else if (id === 'saree') {
       qc.prefetchQuery({ queryKey: ['saree-config'], queryFn: () => api.get('/v1/saree/config') });
+    } else if (id === 'fabric-to-shoot') {
+      qc.prefetchQuery({
+        queryKey: ['fabric-garment-types'],
+        queryFn: () => api.get('/v1/fabric-garment-types'),
+      });
     }
   }
 
@@ -161,7 +172,15 @@ export function Sidebar({
     {
       title: 'CREATE',
       items: visibleNav.filter((item) =>
-        ['studio', 'tryon', 'saree', 'catalogues', 'catalog-video', 'assets'].includes(item.id),
+        [
+          'studio',
+          'tryon',
+          'saree',
+          'catalogues',
+          'catalog-video',
+          'fabric-to-shoot',
+          'assets',
+        ].includes(item.id),
       ),
     },
     {
@@ -300,6 +319,8 @@ export function Sidebar({
                           <KeyRound size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
                         ) : item.icon === 'store' ? (
                           <Store size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
+                        ) : item.icon === 'shirt' ? (
+                          <Shirt size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
                         ) : item.icon === 'bar-chart' ? (
                           <BarChart3
                             size={16}

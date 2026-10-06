@@ -3,6 +3,9 @@ package aivastra.nice.interactive.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -22,9 +25,12 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
@@ -36,6 +42,28 @@ import aivastra.nice.interactive.R
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
 import aivastra.nice.interactive.utils.ssp
+
+/** Tapping empty space around the search box dismisses the keyboard. */
+fun Modifier.clearFocusOnTap(focusManager: FocusManager): Modifier =
+    pointerInput(focusManager) {
+        detectTapGestures(onTap = { focusManager.clearFocus() })
+    }
+
+/**
+ * Dismisses the keyboard when the user starts dragging a results list. Keyed on
+ * drag interactions rather than `isScrollInProgress`, which is also true for
+ * programmatic scrolls (e.g. jumping to the top on each keystroke) and would
+ * drop focus mid-typing.
+ */
+@Composable
+fun ClearFocusOnDrag(interactionSource: InteractionSource) {
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(interactionSource, focusManager) {
+        interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) focusManager.clearFocus()
+        }
+    }
+}
 
 /**
  * Search box for the outfit lists. Purely a text input — callers filter their own

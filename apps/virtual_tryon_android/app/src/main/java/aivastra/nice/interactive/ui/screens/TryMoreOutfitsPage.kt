@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -75,6 +76,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -88,7 +90,9 @@ import aivastra.nice.interactive.data.models.CatalogProduct
 import aivastra.nice.interactive.data.models.GarmentSubcategory
 import aivastra.nice.interactive.data.repository.CatalogRepository
 import aivastra.nice.interactive.data.repository.CatalogResult
+import aivastra.nice.interactive.ui.components.ClearFocusOnDrag
 import aivastra.nice.interactive.ui.components.ExitSessionDialog
+import aivastra.nice.interactive.ui.components.clearFocusOnTap
 import aivastra.nice.interactive.ui.components.OutfitSearchField
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
@@ -172,6 +176,8 @@ fun TryMoreOutfitsPage(
     val repository = remember { CatalogRepository() }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    ClearFocusOnDrag(listState.interactionSource)
 
     LaunchedEffect(initialCategory) {
         isLoading = true
@@ -213,6 +219,9 @@ fun TryMoreOutfitsPage(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF090807))
+            .clearFocusOnTap(focusManager)
+            // Lifts the list and the bottom action bar above the keyboard.
+            .imePadding()
             .padding(
                 start = sdp(R.dimen._18sdp),
                 end = sdp(R.dimen._18sdp),
