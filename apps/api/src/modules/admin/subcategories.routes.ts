@@ -237,10 +237,14 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
 
       const mappedLowerCatalogItemIds = body.mappedLowerCatalogItemIds as string[] | undefined;
       const mappedShoeCatalogItemIds = body.mappedShoeCatalogItemIds as string[] | undefined;
+      const mappedAccessoryCatalogItemIds = body.mappedAccessoryCatalogItemIds as
+        | string[]
+        | undefined;
       const mappedFaceIds = body.mappedFaceIds as string[] | undefined;
       const {
         mappedLowerCatalogItemIds: _lower,
         mappedShoeCatalogItemIds: _shoe,
+        mappedAccessoryCatalogItemIds: _accessory,
         mappedFaceIds: _faces,
         ...garmentFields
       } = body;
@@ -321,6 +325,38 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           }
         }
 
+        if (mappedAccessoryCatalogItemIds !== undefined) {
+          // Accessories have no single "default" catalog item (a job's
+          // accessoryCatalogIds is a list, not one pick), so unlike lower/shoe
+          // above there's no default-clearing step here.
+          const accessoryItemRows = await tx
+            .select({ id: schema.catalogItems.id })
+            .from(schema.catalogItems)
+            .where(eq(schema.catalogItems.type, 'accessory'));
+          const accessoryItemIds = accessoryItemRows.map((r) => r.id);
+          if (accessoryItemIds.length > 0) {
+            await tx
+              .delete(schema.catalogItemSubcategories)
+              .where(
+                and(
+                  eq(schema.catalogItemSubcategories.subcategoryId, id),
+                  inArray(schema.catalogItemSubcategories.catalogItemId, accessoryItemIds),
+                ),
+              );
+          }
+          if (mappedAccessoryCatalogItemIds.length > 0) {
+            await tx
+              .insert(schema.catalogItemSubcategories)
+              .values(
+                mappedAccessoryCatalogItemIds.map((catalogItemId) => ({
+                  catalogItemId,
+                  subcategoryId: id,
+                })),
+              )
+              .onConflictDoNothing();
+          }
+        }
+
         if (mappedFaceIds !== undefined) {
           await tx
             .delete(schema.modelFaceSubcategories)
@@ -389,6 +425,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
                 ...updateFields,
                 mappedLowerCatalogItemIds,
                 mappedShoeCatalogItemIds,
+                mappedAccessoryCatalogItemIds,
                 mappedFaceIds,
               },
               request: req,
@@ -423,6 +460,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             ...updateFields,
             mappedLowerCatalogItemIds,
             mappedShoeCatalogItemIds,
+            mappedAccessoryCatalogItemIds,
             mappedFaceIds,
           },
           request: req,
@@ -1152,12 +1190,17 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
 
       const mappedLowerIds = mappings.filter((m) => m.type === 'lower').map((m) => m.catalogItemId);
       const mappedShoeIds = mappings.filter((m) => m.type === 'shoe').map((m) => m.catalogItemId);
+      const mappedAccessoryIds = mappings
+        .filter((m) => m.type === 'accessory')
+        .map((m) => m.catalogItemId);
 
       return {
         mappedLowerIds,
         hasExplicitLowerMappings: mappedLowerIds.length > 0,
         mappedShoeIds,
         hasExplicitShoeMappings: mappedShoeIds.length > 0,
+        mappedAccessoryIds,
+        hasExplicitAccessoryMappings: mappedAccessoryIds.length > 0,
       };
     },
   );
@@ -1193,6 +1236,19 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             .insert(schema.catalogItemSubcategories)
             .values({ catalogItemId, subcategoryId: id })
             .onConflictDoNothing();
+        } else if (item.type === 'accessory') {
+          // Accessories are strictly opt-in (no "no mappings = show everything"
+          // fallback, unlike lower/shoe below) — so unmapping one never needs to
+          // backfill its siblings to preserve a prior "show all" state. Just
+          // remove the explicit row.
+          await tx
+            .delete(schema.catalogItemSubcategories)
+            .where(
+              and(
+                eq(schema.catalogItemSubcategories.subcategoryId, id),
+                eq(schema.catalogItemSubcategories.catalogItemId, catalogItemId),
+              ),
+            );
         } else {
           const [hasExplicit] = await tx
             .select({ one: schema.catalogItemSubcategories.catalogItemId })

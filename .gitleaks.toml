@@ -15,5 +15,5 @@ useDefault = true
     # transaction) even though the line itself is unchanged.
     '''body\.bgComfyR2Key''',
     # Not a secret — test fixture object keys in catalogue-template-subcategories-admin.test.ts
-    '''l[12]-thumb\.jpg''',
+    '''[al][12]-thumb\.jpg''',
   ]
