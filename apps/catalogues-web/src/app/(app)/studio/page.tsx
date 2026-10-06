@@ -830,8 +830,11 @@ export default function StudioPage(): React.ReactElement {
     isError: facesError,
     refetch: refetchFaces,
   } = useQuery<{ items: FaceItem[] }>({
-    queryKey: ['faces', gender],
-    queryFn: () => api.get(`/v1/models/faces?gender=${gender}`),
+    queryKey: ['faces', gender, garmentTypeId],
+    queryFn: () =>
+      api.get(
+        `/v1/models/faces?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}`,
+      ),
     enabled: !!gender,
     staleTime: 60_000,
     refetchOnWindowFocus: true,

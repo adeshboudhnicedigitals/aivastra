@@ -113,6 +113,7 @@ export function GarmentTypesTab() {
     setWorkflows,
     catalogItems,
     setCatalogItems,
+    faces,
     loading,
     setPreviewUrl,
     toast,
@@ -1225,6 +1226,7 @@ export function GarmentTypesTab() {
         <EditGarmentTypeModal
           garmentType={editingSubcat}
           catalogItems={catalogItems}
+          faces={faces}
           tryonCategories={tryonCategories}
           workflows={workflows}
           onSaved={() => {

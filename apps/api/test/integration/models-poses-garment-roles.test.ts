@@ -171,4 +171,43 @@ describe('GET /v1/models/poses — garment roles', () => {
     );
     expect(item).toMatchObject({ hasUpper: false, hasLower: true });
   });
+
+  it('strict opt-in: a pose with no config row for the garment type is hidden, an explicit isActive:false row hides it too, and isActive:true/null rows show it', async () => {
+    const sfx = Date.now() + 3;
+    const wf = await workflow(`roles-optin-${sfx}`, ['1'], null);
+    const unmapped = await pose(`roles-optin-unmapped-${sfx}`, wf.id);
+    const explicitlyHidden = await pose(`roles-optin-hidden-${sfx}`, wf.id);
+    const explicitlyShown = await pose(`roles-optin-shown-${sfx}`, wf.id);
+    const nullActive = await pose(`roles-optin-null-${sfx}`, wf.id);
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'boys', slug: `roles-optin-gt-${sfx}`, label: 'Opt-in' })
+      .returning();
+    if (!garmentType) throw new Error('garment type not created');
+    await app.db.insert(schema.poseGarmentConfigs).values([
+      { poseAssetId: explicitlyHidden.id, subcategoryId: garmentType.id, isActive: false },
+      { poseAssetId: explicitlyShown.id, subcategoryId: garmentType.id, isActive: true },
+      { poseAssetId: nullActive.id, subcategoryId: garmentType.id, workflowTemplateId: wf.id },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/models/poses?gender=boys&garmentTypeId=${garmentType.id}`,
+      headers: { authorization: `Bearer ${await token(`roles-optin-${sfx}@x.com`)}` },
+    });
+    const ids = (res.json().items as { id: string }[]).map((i) => i.id);
+    expect(ids).not.toContain(unmapped.id);
+    expect(ids).not.toContain(explicitlyHidden.id);
+    expect(ids).toContain(explicitlyShown.id);
+    expect(ids).toContain(nullActive.id);
+
+    // Without a garmentTypeId, opt-in doesn't apply — every active pose of the gender shows.
+    const resNoType = await app.inject({
+      method: 'GET',
+      url: '/v1/models/poses?gender=boys',
+      headers: { authorization: `Bearer ${await token(`roles-optin-notype-${sfx}@x.com`)}` },
+    });
+    const idsNoType = (resNoType.json().items as { id: string }[]).map((i) => i.id);
+    expect(idsNoType).toContain(unmapped.id);
+  });
 });

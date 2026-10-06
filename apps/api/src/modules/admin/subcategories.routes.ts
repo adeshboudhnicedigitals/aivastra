@@ -237,9 +237,11 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
 
       const mappedLowerCatalogItemIds = body.mappedLowerCatalogItemIds as string[] | undefined;
       const mappedShoeCatalogItemIds = body.mappedShoeCatalogItemIds as string[] | undefined;
+      const mappedFaceIds = body.mappedFaceIds as string[] | undefined;
       const {
         mappedLowerCatalogItemIds: _lower,
         mappedShoeCatalogItemIds: _shoe,
+        mappedFaceIds: _faces,
         ...garmentFields
       } = body;
 
@@ -318,6 +320,18 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             effectiveFields.defaultShoeCatalogId = null;
           }
         }
+
+        if (mappedFaceIds !== undefined) {
+          await tx
+            .delete(schema.modelFaceSubcategories)
+            .where(eq(schema.modelFaceSubcategories.subcategoryId, id));
+          if (mappedFaceIds.length > 0) {
+            await tx
+              .insert(schema.modelFaceSubcategories)
+              .values(mappedFaceIds.map((faceId) => ({ faceId, subcategoryId: id })))
+              .onConflictDoNothing();
+          }
+        }
       };
 
       // genderSlug isn't patchable, so a sortOrder move never has to cross
@@ -375,6 +389,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
                 ...updateFields,
                 mappedLowerCatalogItemIds,
                 mappedShoeCatalogItemIds,
+                mappedFaceIds,
               },
               request: req,
             });
@@ -408,6 +423,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             ...updateFields,
             mappedLowerCatalogItemIds,
             mappedShoeCatalogItemIds,
+            mappedFaceIds,
           },
           request: req,
         });
@@ -524,9 +540,11 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         items: await Promise.all(
           mappedPoses.map(async (p) => {
             const cfg = configMap.get(p.id);
-            // Effective active state for this garment type: a pose is only active
-            // for this garment type if explicitly mapped (isActive: true).
-            const isActive = cfg?.isActive === true;
+            // isActive here is a narrowing display flag, not the opt-in signal — this
+            // pose already passed the opt-in filter above (a config row exists for it).
+            // null on that row means "inherit global", i.e. still active; only an
+            // explicit false disables it for this garment type.
+            const isActive = cfg?.isActive !== false;
             return {
               ...p,
               isActive,
@@ -833,29 +851,21 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       const hasOverride =
         workflowTemplateId || promptGarmentPhase || promptFacePhase || isActive !== null;
       if (!hasOverride) {
-        const [existing] = await app.db
-          .select({ sortOrder: schema.poseGarmentConfigs.sortOrder })
-          .from(schema.poseGarmentConfigs)
+        // Clearing every override is a full unmap under the opt-in rule (a config
+        // row's mere existence is what opts a pose in for this garment type) — so
+        // delete the row even if it carries a materialized sortOrder, rather than
+        // leaving a zombie row alive to preserve position. A pose that's no longer
+        // mapped has no position worth preserving; keeping the row here used to
+        // silently re-opt it back in once the opt-in rule reached this endpoint.
+        await app.db
+          .delete(schema.poseGarmentConfigs)
           .where(
             and(
               eq(schema.poseGarmentConfigs.poseAssetId, poseAssetId),
               eq(schema.poseGarmentConfigs.subcategoryId, id),
             ),
           );
-        // A materialized position (see above) must survive clearing every other
-        // override — otherwise this pose would silently fall out of its ordered
-        // spot back to the unordered default the next time the list is touched.
-        if (existing?.sortOrder == null) {
-          await app.db
-            .delete(schema.poseGarmentConfigs)
-            .where(
-              and(
-                eq(schema.poseGarmentConfigs.poseAssetId, poseAssetId),
-                eq(schema.poseGarmentConfigs.subcategoryId, id),
-              ),
-            );
-          return { ok: true, action: 'deleted' };
-        }
+        return { ok: true, action: 'deleted' };
       }
 
       await app.db
@@ -962,9 +972,11 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           const cfg = configMap.get(g.id) ?? null;
           return {
             ...g,
-            // Effective visibility mirrors the sibling GET: a pose is only active
-            // for this garment type if explicitly mapped (isActive: true).
-            isActive: cfg?.isActive === true,
+            // Effective visibility mirrors the sibling GET: a pose is mapped (opted
+            // in) for this garment type only if a config row exists, and within that
+            // row null means "inherit global" (still active) — only an explicit
+            // false disables it.
+            isActive: cfg != null && cfg.isActive !== false,
             config: cfg
               ? {
                   workflowTemplateId: cfg.workflowTemplateId,
@@ -1240,6 +1252,107 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
               .update(schema.garmentSubcategories)
               .set({ defaultShoeCatalogId: null, updatedAt: new Date() })
               .where(eq(schema.garmentSubcategories.id, id));
+          }
+        }
+      });
+
+      return { ok: true, mapped };
+    },
+  );
+
+  // ── Per-garment-type model face mappings ────────────────────────────────────
+  app.get(
+    '/admin/assets/garment-types/:id/face-mappings',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [sub] = await app.db
+        .select({ id: schema.garmentSubcategories.id })
+        .from(schema.garmentSubcategories)
+        .where(eq(schema.garmentSubcategories.id, id));
+      if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+
+      const mappings = await app.db
+        .select({ faceId: schema.modelFaceSubcategories.faceId })
+        .from(schema.modelFaceSubcategories)
+        .where(eq(schema.modelFaceSubcategories.subcategoryId, id));
+
+      const mappedFaceIds = mappings.map((m) => m.faceId);
+
+      return {
+        mappedFaceIds,
+        hasExplicitFaceMappings: mappedFaceIds.length > 0,
+      };
+    },
+  );
+
+  app.put(
+    '/admin/assets/garment-types/:id/faces/:faceId',
+    {
+      preHandler: RW,
+      schema: {
+        params: z.object({ id: z.string().uuid(), faceId: z.string().uuid() }),
+        body: z.object({ mapped: z.boolean() }),
+      },
+    },
+    async (req) => {
+      const { id, faceId } = req.params as { id: string; faceId: string };
+      const { mapped } = req.body as { mapped: boolean };
+
+      const [sub] = await app.db
+        .select()
+        .from(schema.garmentSubcategories)
+        .where(eq(schema.garmentSubcategories.id, id));
+      if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+
+      const [face] = await app.db
+        .select()
+        .from(schema.modelFaces)
+        .where(eq(schema.modelFaces.id, faceId));
+      if (!face) throw new AppError('NOT_FOUND', 404, 'face not found');
+
+      await app.db.transaction(async (tx) => {
+        if (mapped) {
+          await tx
+            .insert(schema.modelFaceSubcategories)
+            .values({ faceId, subcategoryId: id })
+            .onConflictDoNothing();
+        } else {
+          const [hasExplicit] = await tx
+            .select({ one: schema.modelFaceSubcategories.faceId })
+            .from(schema.modelFaceSubcategories)
+            .where(eq(schema.modelFaceSubcategories.subcategoryId, id))
+            .limit(1);
+
+          if (!hasExplicit) {
+            // Populate all other active faces of this gender so unmapping this one
+            // narrows the set instead of silently falling back to "show everyone".
+            const others = await tx
+              .select({ id: schema.modelFaces.id })
+              .from(schema.modelFaces)
+              .where(
+                and(
+                  eq(schema.modelFaces.gender, sub.genderSlug),
+                  eq(schema.modelFaces.isActive, true),
+                  isNull(schema.modelFaces.deletedAt),
+                  ne(schema.modelFaces.id, faceId),
+                ),
+              );
+            if (others.length > 0) {
+              await tx
+                .insert(schema.modelFaceSubcategories)
+                .values(others.map((o) => ({ faceId: o.id, subcategoryId: id })))
+                .onConflictDoNothing();
+            }
+          } else {
+            await tx
+              .delete(schema.modelFaceSubcategories)
+              .where(
+                and(
+                  eq(schema.modelFaceSubcategories.subcategoryId, id),
+                  eq(schema.modelFaceSubcategories.faceId, faceId),
+                ),
+              );
           }
         }
       });
