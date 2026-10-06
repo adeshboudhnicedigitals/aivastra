@@ -124,7 +124,8 @@ async function garmentShapeJpeg(
   fillHex: string,
   label: string,
 ): Promise<Buffer> {
-  const shape = kind === 'lower' ? pantsShapeSvg(width, height, fillHex) : shoeShapeSvg(width, height, fillHex);
+  const shape =
+    kind === 'lower' ? pantsShapeSvg(width, height, fillHex) : shoeShapeSvg(width, height, fillHex);
   const fontSize = Math.round(width / 16);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
     <rect width="100%" height="100%" fill="#f1f1f4"/>
@@ -178,7 +179,9 @@ async function seedItems(
     console.error(`  ${type}/${gender}: category slug "${categorySlug}" not found, skipping`);
     return;
   }
-  console.log(`  ${type}/${gender}: writing ${labels.length} demo item shapes under "${categorySlug}"...`);
+  console.log(
+    `  ${type}/${gender}: writing ${labels.length} demo item shapes under "${categorySlug}"...`,
+  );
   for (const [i, label] of labels.entries()) {
     const existing = existingByLabel.get(label);
     const id = existing?.id ?? randomUUID();

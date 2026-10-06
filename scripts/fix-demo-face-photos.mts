@@ -81,11 +81,18 @@ async function main() {
     .toBuffer();
 
   const placeholders = await db
-    .select({ id: schema.modelFaces.id, label: schema.modelFaces.label, r2Key: schema.modelFaces.r2Key, thumbnailKey: schema.modelFaces.thumbnailKey })
+    .select({
+      id: schema.modelFaces.id,
+      label: schema.modelFaces.label,
+      r2Key: schema.modelFaces.r2Key,
+      thumbnailKey: schema.modelFaces.thumbnailKey,
+    })
     .from(schema.modelFaces)
     .where(ne(schema.modelFaces.id, REAL_PHOTO_FACE_ID));
 
-  console.log(`Overwriting ${placeholders.length} placeholder face image(s) with the real photo...`);
+  console.log(
+    `Overwriting ${placeholders.length} placeholder face image(s) with the real photo...`,
+  );
   for (const p of placeholders) {
     await storage.putObject(p.r2Key, resized, 'image/jpeg');
     await storage.putObject(p.thumbnailKey, resized, 'image/jpeg');
