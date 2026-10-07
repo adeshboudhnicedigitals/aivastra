@@ -54,10 +54,17 @@ interface Catalogue {
 // them side by side sorted by createdAt, rather than as two separate lists.
 type FeedItem = { kind: 'image'; data: Catalogue } | { kind: 'video'; data: CatalogVideoItem };
 
+type TypeFilter = 'all' | 'catalogs' | 'videos';
+const TYPE_FILTER_OPTIONS: { value: TypeFilter; label: string }[] = [
+  { value: 'all', label: 'All Types' },
+  { value: 'catalogs', label: 'Catalogs' },
+  { value: 'videos', label: 'Motion Videos' },
+];
+
 // ─── constants (outside component — stable references) ────────────────────────
 
 const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED'];
-const GENDERS = ['All Segments', 'Women', 'Men', 'Boy', 'Girl'];
+const GENDERS = ['All Genders', 'Women', 'Men', 'Boy', 'Girl'];
 const GENDER_MAP: Record<string, string> = {
   Women: 'women',
   Men: 'men',
@@ -196,12 +203,14 @@ function dateLabel(filter: string, from: string, to: string): string {
 function CataloguesPageInner(): React.ReactElement {
   // filter state
   const [search, setSearch] = useState('');
-  const [genderFilter, setGenderFilter] = useState('All Segments');
+  const [genderFilter, setGenderFilter] = useState('All Genders');
   const [showGenderDropdown, setShowGenderDropdown] = useState(false);
   const [platformFilter, setPlatformFilter] = useState('All Platforms');
   const [showPlatformDropdown, setShowPlatformDropdown] = useState(false);
   const [garmentTypeFilter, setGarmentTypeFilter] = useState('All Garment Types');
   const [showGarmentTypeDropdown, setShowGarmentTypeDropdown] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [dateFilter, setDateFilter] = useState('Date');
   const [showDateDropdown, setShowDateDropdown] = useState(false);
   const [dateSubPanel, setDateSubPanel] = useState<'presets' | 'custom'>('presets');
@@ -229,6 +238,7 @@ function CataloguesPageInner(): React.ReactElement {
   } | null>(null);
 
   // refs
+  const typeRef = useRef<HTMLDivElement>(null);
   const genderRef = useRef<HTMLDivElement>(null);
   const platformRef = useRef<HTMLDivElement>(null);
   const garmentTypeRef = useRef<HTMLDivElement>(null);
@@ -456,7 +466,7 @@ function CataloguesPageInner(): React.ReactElement {
     return catalogueSource.filter((c) => {
       if (!c.catalogueId.toLowerCase().includes(search.toLowerCase())) return false;
 
-      if (genderFilter !== 'All Segments') {
+      if (genderFilter !== 'All Genders') {
         const expected = GENDER_MAP[genderFilter];
         if (c.genderSlug !== expected) return false;
       }
@@ -502,12 +512,16 @@ function CataloguesPageInner(): React.ReactElement {
   // createdAt (newest first), then grouped by day. groupByDate relies on the
   // input already being sorted so date groups themselves come out newest first.
   const feedItems = useMemo<FeedItem[]>(() => {
-    const images: FeedItem[] = filtered.map((data) => ({ kind: 'image', data }));
-    const videos: FeedItem[] = filteredVideoItems.map((data) => ({ kind: 'video', data }));
+    // typeFilter only gates what the feed shows — `filtered` stays intact so
+    // bulk select/download keeps operating on catalogues regardless of it.
+    const images: FeedItem[] =
+      typeFilter === 'videos' ? [] : filtered.map((data) => ({ kind: 'image', data }));
+    const videos: FeedItem[] =
+      typeFilter === 'catalogs' ? [] : filteredVideoItems.map((data) => ({ kind: 'video', data }));
     return [...images, ...videos].sort(
       (a, b) => new Date(b.data.createdAt).getTime() - new Date(a.data.createdAt).getTime(),
     );
-  }, [filtered, filteredVideoItems]);
+  }, [filtered, filteredVideoItems, typeFilter]);
 
   const groups = groupByDate(feedItems, (item) => item.data.createdAt);
   const playingVideo = filteredVideoItems.find((v) => v.id === playingVideoId) ?? null;
@@ -522,6 +536,8 @@ function CataloguesPageInner(): React.ReactElement {
   // click-outside to close dropdowns
   useEffect(() => {
     const handler = (e: MouseEvent) => {
+      if (typeRef.current && !typeRef.current.contains(e.target as Node))
+        setShowTypeDropdown(false);
       if (genderRef.current && !genderRef.current.contains(e.target as Node))
         setShowGenderDropdown(false);
       if (platformRef.current && !platformRef.current.contains(e.target as Node))
@@ -1101,6 +1117,68 @@ function CataloguesPageInner(): React.ReactElement {
               </div>
             ) : (
               <div className="catalogues-filter-group">
+                {/* type filter — only for accounts that have Motion Studio videos */}
+                {catalogVideoEnabled && (
+                  <div className="cat-filter-wrapper" ref={typeRef}>
+                    <button
+                      type="button"
+                      className="cat-filter-btn"
+                      onClick={() => setShowTypeDropdown(!showTypeDropdown)}
+                      style={{ width: 162 }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <ImagesIcon size={16} />
+                        {TYPE_FILTER_OPTIONS.find((o) => o.value === typeFilter)?.label}
+                      </span>
+                      <span style={{ display: 'flex' }}>
+                        <ChevronDown size={16} />
+                      </span>
+                    </button>
+                    {showTypeDropdown && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: 44,
+                          left: 0,
+                          width: 162,
+                          background: C.bg,
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 8,
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                          zIndex: 30,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {TYPE_FILTER_OPTIONS.map((o) => (
+                          <button
+                            key={o.value}
+                            type="button"
+                            onClick={() => {
+                              setTypeFilter(o.value);
+                              setShowTypeDropdown(false);
+                            }}
+                            style={{
+                              width: '100%',
+                              textAlign: 'left',
+                              padding: '10px 12px',
+                              fontSize: 13,
+                              fontWeight: 500,
+                              color: typeFilter === o.value ? C.pink : C.mid,
+                              cursor: 'pointer',
+                              background:
+                                typeFilter === o.value ? 'rgba(245,92,122,0.06)' : 'transparent',
+                              border: 'none',
+                              fontFamily: 'inherit',
+                            }}
+                          >
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* gender filter */}
                 <div className="cat-filter-wrapper" ref={genderRef}>
                   <button
@@ -1612,9 +1690,10 @@ function CataloguesPageInner(): React.ReactElement {
           {!isLoading && !batchPending && feedItems.length === 0 && (
             <div style={{ textAlign: 'center', padding: '64px 24px', color: C.mid }}>
               {dateFilter !== 'Date' ||
-              genderFilter !== 'All Segments' ||
+              genderFilter !== 'All Genders' ||
               platformFilter !== 'All Platforms' ||
               garmentTypeFilter !== 'All Garment Types' ||
+              typeFilter !== 'all' ||
               search ? (
                 <>
                   <p style={{ fontWeight: 700, fontSize: 18, color: C.text, marginBottom: 8 }}>
