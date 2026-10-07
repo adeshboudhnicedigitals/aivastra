@@ -169,7 +169,12 @@ jobs:
             echo "::warning::VTA_FIREBASE_TESTER_GROUPS is not set — release uploaded, no testers notified."
           fi
 
-          npx --yes firebase-tools@latest appdistribution:distribute "$APK" "${ARGS[@]}"
+          # The CLI prints a tokenised direct-download link for the binary. This
+          # repo is public, so its Actions logs are too — drop that line.
+          # pipefail keeps a CLI failure from being masked by grep's exit code.
+          set -o pipefail
+          npx --yes firebase-tools@latest appdistribution:distribute "$APK" "${ARGS[@]}" \
+            | grep -v "app-binary-downloads"
 
       - name: Remove signing material
         if: always()
