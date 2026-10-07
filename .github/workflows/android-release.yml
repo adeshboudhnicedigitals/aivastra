@@ -1,0 +1,89 @@
+name: Android Release (virtual_tryon_android)
+
+# Builds the signed release APK + AAB for apps/virtual_tryon_android and
+# publishes them as a run artifact. Nothing is uploaded to Play or Firebase.
+#
+# Triggers:
+#   - tag push `vta-v*` — works from any branch, because GitHub reads this file
+#     from the tagged commit.
+#   - workflow_dispatch — only available once this file is on the default
+#     branch (main).
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'vta-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/virtual_tryon_android
+    steps:
+      - uses: actions/checkout@v4
+
+      # AGP 9.x requires JDK 17+ to run Gradle, independent of the app's
+      # Java 11 source/target compatibility.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # keystore.properties, the keystore and google-services.json are all
+      # gitignored, so they are rebuilt from secrets on every run. Values go
+      # through env rather than being interpolated into the script, so they
+      # never appear in the rendered command.
+      - name: Restore signing + Firebase config
+        env:
+          KEYSTORE_B64: ${{ secrets.VTA_KEYSTORE_BASE64 }}
+          GOOGLE_SERVICES_B64: ${{ secrets.VTA_GOOGLE_SERVICES_JSON_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.VTA_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.VTA_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.VTA_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > release.jks
+          echo "$GOOGLE_SERVICES_B64" | base64 -d > app/google-services.json
+          {
+            echo "storeFile=release.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+          # app/build.gradle.kts silently skips signing when keystore.properties
+          # is missing, which would give a green run with an unsigned build.
+          test -s release.jks
+          test -s keystore.properties
+          test -s app/google-services.json
+
+      - name: Build release APK + AAB
+        run: ./gradlew assembleRelease bundleRelease --no-daemon
+
+      - name: Verify APK is signed
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: virtual-tryon-release
+          path: |
+            apps/virtual_tryon_android/app/build/outputs/apk/release/*.apk
+            apps/virtual_tryon_android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f release.jks keystore.properties app/google-services.json
