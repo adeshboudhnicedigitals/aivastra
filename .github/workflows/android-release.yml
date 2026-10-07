@@ -3,8 +3,9 @@ name: Android (virtual_tryon_android)
 # check — Android lint + unit tests. Runs on every trigger below.
 # build — signed release APK + AAB, published as a run artifact. Runs only on
 #         a tag or a manual run, and only after `check` passes. On a tag the
-#         APK is also sent to Firebase App Distribution. Nothing is uploaded
-#         to Play.
+#         APK is also sent to Firebase App Distribution.
+# publish-play — tags only. Waits for approval on the `play-store`
+#         environment, then uploads this run's AAB to Google Play.
 #
 # Triggers:
 #   - pull_request touching the app — `check` only.
@@ -181,3 +182,40 @@ jobs:
         run: |
           rm -f release.jks keystore.properties app/google-services.json
           rm -f "$RUNNER_TEMP/firebase-sa.json"
+
+  # Play upload is gated by the `play-store` environment: the run pauses here
+  # until one of its required reviewers approves, which is meant to happen
+  # only after the Firebase build above has been tested. It uploads the AAB
+  # built by `build` in this same run — never a rebuild — so what reaches Play
+  # is the bundle built from the exact commit the testers' APK came from.
+  #
+  # The environment MUST exist with required reviewers before this job runs:
+  # GitHub auto-creates a missing environment with no protection, and the
+  # upload would then go straight through unapproved.
+  #
+  # The artifact is kept 14 days, so approval has to land within that window.
+  publish-play:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/vta-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: play-store
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: virtual-tryon-release
+          path: dist
+
+      # Third-party action handling the Play credential, so it is pinned to a
+      # commit SHA (v1.1.5) rather than a movable tag.
+      # VTA_PLAY_TRACK is a repo variable; unset means the internal testing
+      # track, which never reaches the public without a manual promotion in
+      # Play Console.
+      - name: Upload AAB to Google Play
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.VTA_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: aivastra.nice.interactive
+          releaseFiles: dist/bundle/release/*.aab
+          track: ${{ vars.VTA_PLAY_TRACK || 'internal' }}
+          status: completed
