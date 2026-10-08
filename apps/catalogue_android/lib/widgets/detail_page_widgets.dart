@@ -1545,11 +1545,18 @@ class LabeledDropdownRow extends StatelessWidget {
     required this.value,
     required this.onTap,
     this.bordered = false,
+    this.dense = false,
     this.tint,
     this.iconBoxSize,
     this.trailingIcon = Icons.chevron_right_rounded,
     this.image,
   });
+
+  /// Tighter padding, gaps, chevron and type sizes, for two of these sharing
+  /// one row on a phone ("Catalogue For" + "Garment Type") — at the default
+  /// sizes a half-width box has too little room left for its text. The label
+  /// scales down rather than wrapping, and the value may take two lines.
+  final bool dense;
 
   final IconData icon;
   final String label;
@@ -1585,7 +1592,9 @@ class LabeledDropdownRow extends StatelessWidget {
       onTap: onTap,
       borderRadius: bordered ? radius : null,
       child: Padding(
-        padding: EdgeInsets.all(AppDimens.sdp(context, '_14sdp')),
+        padding: EdgeInsets.all(
+          AppDimens.sdp(context, dense ? '_8sdp' : '_14sdp'),
+        ),
         child: Row(
           children: [
             Container(
@@ -1618,25 +1627,41 @@ class LabeledDropdownRow extends StatelessWidget {
                       child: image,
                     ),
             ),
-            SizedBox(width: AppDimens.sdp(context, '_12sdp')),
+            SizedBox(width: AppDimens.sdp(context, dense ? '_6sdp' : '_12sdp')),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    label,
-                    style: AppTextStyles.regular.copyWith(
-                      color: AppColors.textSecondary,
-                      fontSize: AppDimens.ssp(context, '_11ssp'),
+                  // scaleDown only shrinks a label that doesn't fit, so it
+                  // stays whole on the narrowest phones instead of cropping.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      style: AppTextStyles.regular.copyWith(
+                        color: AppColors.textSecondary,
+                        fontSize: AppDimens.ssp(
+                          context,
+                          dense ? '_10ssp' : '_11ssp',
+                        ),
+                      ),
                     ),
                   ),
                   SizedBox(height: AppDimens.sdp(context, '_2sdp')),
                   Text(
                     value,
+                    maxLines: dense ? 2 : 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.semiBold.copyWith(
                       color: Colors.white,
-                      fontSize: AppDimens.ssp(context, '_13ssp'),
+                      fontSize: AppDimens.ssp(
+                        context,
+                        dense ? '_12ssp' : '_13ssp',
+                      ),
+                      height: dense ? 1.15 : null,
                     ),
                   ),
                 ],
@@ -1645,7 +1670,7 @@ class LabeledDropdownRow extends StatelessWidget {
             Icon(
               trailingIcon,
               color: AppColors.textSecondary,
-              size: AppDimens.sdp(context, '_20sdp'),
+              size: AppDimens.sdp(context, dense ? '_16sdp' : '_20sdp'),
             ),
           ],
         ),
@@ -1791,6 +1816,7 @@ class SelectableThumbnailTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.caption,
+    this.captionMaxLines = 1,
     this.size,
     this.width,
     this.height,
@@ -1800,11 +1826,20 @@ class SelectableThumbnailTile extends StatelessWidget {
     this.showCheck = true,
   });
 
+  /// Line height multiplier of a multi-line caption — shared with
+  /// [_ThumbnailPickerGrid], which sizes its cells from it.
+  static const captionLineHeight = 1.3;
+
   final IconData icon;
   final Color tint;
   final bool selected;
   final VoidCallback onTap;
   final String? caption;
+
+  /// 1 in the compact rows, whose fixed height only fits one line. The
+  /// "More"/picker sheets pass 2 so a long name ("Full Sleeve Shirt") shows
+  /// in full instead of ending in "…".
+  final int captionMaxLines;
 
   /// Whether a selected tile also gets the pink check badge. Off for strips
   /// where the pink border alone marks the selection (result-page thumbnails).
@@ -1941,11 +1976,12 @@ class SelectableThumbnailTile extends StatelessWidget {
               child: Text(
                 caption!,
                 textAlign: TextAlign.center,
-                maxLines: 1,
+                maxLines: captionMaxLines,
                 overflow: TextOverflow.ellipsis,
                 style: AppTextStyles.medium.copyWith(
                   color: Colors.white,
                   fontSize: AppDimens.ssp(context, '_10ssp'),
+                  height: captionMaxLines > 1 ? captionLineHeight : null,
                 ),
               ),
             ),
@@ -2011,6 +2047,40 @@ class CircleIconButton extends StatelessWidget {
   }
 }
 
+/// Clips a horizontally scrolling thumbnail row to its own bounds plus a
+/// small overhang, so tiles scroll away inside the surrounding card instead
+/// of sliding across its padding and border, while a tile's corner badge
+/// (the selected check, a custom background's delete button — both sit 4sdp
+/// outside the tile) still isn't cut off. The scroll view inside keeps
+/// `Clip.none`; this is the only clip. The overhang must stay smaller than
+/// the card's padding ([BorderedCard] uses 16sdp).
+class ThumbnailRowClip extends StatelessWidget {
+  const ThumbnailRowClip({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRect(
+      clipper: _OverhangClipper(AppDimens.sdp(context, '_6sdp')),
+      child: child,
+    );
+  }
+}
+
+class _OverhangClipper extends CustomClipper<Rect> {
+  const _OverhangClipper(this.overhang);
+
+  final double overhang;
+
+  @override
+  Rect getClip(Size size) => (Offset.zero & size).inflate(overhang);
+
+  @override
+  bool shouldReclip(_OverhangClipper oldClipper) =>
+      oldClipper.overhang != overhang;
+}
+
 /// Lays out exactly [itemCount] tiles in one non-scrolling row, each
 /// getting an equal share of the available width and a height derived
 /// from [aspectRatio] (width / height) — e.g. the Model and Pose picker
@@ -2073,11 +2143,14 @@ class ThumbnailTileRow extends StatelessWidget {
           // Below the floor width, items no longer all fit on screen at a
           // usable size — scroll instead of continuing to squeeze them.
           child: fitWidth < minTileWidth
-              ? SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  // Don't clip the selected tile's check badge.
-                  clipBehavior: Clip.none,
-                  child: row,
+              ? ThumbnailRowClip(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    // Don't clip the selected tile's check badge —
+                    // ThumbnailRowClip clips just outside it instead.
+                    clipBehavior: Clip.none,
+                    child: row,
+                  ),
                 )
               : row,
         );
@@ -2219,11 +2292,14 @@ class LimitedThumbnailRow extends StatelessWidget {
         return SizedBox(
           height: height + captionAllowance,
           child: contentWidth > constraints.maxWidth
-              ? SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  // Don't clip the selected tile's check badge.
-                  clipBehavior: Clip.none,
-                  child: row,
+              ? ThumbnailRowClip(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    // Don't clip the selected tile's check badge —
+                    // ThumbnailRowClip clips just outside it instead.
+                    clipBehavior: Clip.none,
+                    child: row,
+                  ),
                 )
               : row,
         );
@@ -2300,17 +2376,31 @@ class _ThumbnailPickerGrid extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
     this.slowGif = false,
+    this.showLabels = true,
+    this.tileAspectRatio = 0.81,
   });
 
   final List<PickableThumb> items;
   final bool Function(String id) isSelected;
   final void Function(String id) onTap;
 
+  /// Whether each tile shows its name below the photo. Off for the Model,
+  /// Background, Pose, Lower Garment and Footwear sheets — those are picked
+  /// by the photo alone; on for Garment Type / Catalogue For, where the name
+  /// is what tells the options apart.
+  final bool showLabels;
+
+  /// Width / height of each tile's image. The 0.81 default suits portrait
+  /// photos (headshots, full-body poses); Background and Footwear pass 1 for
+  /// square tiles.
+  final double tileAspectRatio;
+
   /// See [SelectableThumbnailTile.slowGif] — set for the Motion Preset
   /// "More" sheet, whose items are all animated GIFs, not static photos.
   final bool slowGif;
 
   static const _crossAxisCount = 3;
+  static const _captionMaxLines = 2;
 
   @override
   Widget build(BuildContext context) {
@@ -2325,17 +2415,23 @@ class _ThumbnailPickerGrid extends StatelessWidget {
             horizontalPadding * 2 -
             crossSpacing * (_crossAxisCount - 1);
         final cellWidth = availableWidth / _crossAxisCount;
-        // 0.81 matches LimitedThumbnailRow's own tile ratio — these photos
-        // (headshots, full-body poses, backgrounds) are portrait, so the
-        // image portion is taller than it is wide, same as the compact row
-        // these sheets are the "More" destination for.
-        final imageHeight = cellWidth / 0.81;
-        // Was '_22sdp' — every cell overflowed by ~4 logical pixels (the
-        // caption's real rendered line height, including font
-        // ascent/descent, runs a bit taller than a naive fontSize*lineHeight
-        // estimate). '_28sdp' clears it with a small margin to spare.
-        final captionAllowance = AppDimens.sdp(context, '_28sdp');
-        final cellHeight = imageHeight + captionAllowance;
+        // Same ratio as the compact row this sheet is the "More"
+        // destination for (LimitedThumbnailRow's aspectRatio).
+        final imageHeight = cellWidth / tileAspectRatio;
+        // Room for the tile's 6sdp gap plus a two-line caption, so a long
+        // name wraps instead of being ellipsized. Derived from the caption's
+        // own (system-scaled) font size and line height rather than a fixed
+        // sdp value — fixed guesses ('_22sdp', then '_28sdp' for one line)
+        // overflowed the cell whenever the real line ran taller.
+        final captionFontSize = MediaQuery.textScalerOf(context)
+            .scale(AppDimens.ssp(context, '_10ssp'));
+        final captionAllowance =
+            AppDimens.sdp(context, '_6sdp') +
+            captionFontSize *
+                SelectableThumbnailTile.captionLineHeight *
+                _captionMaxLines +
+            AppDimens.sdp(context, '_4sdp');
+        final cellHeight = imageHeight + (showLabels ? captionAllowance : 0);
 
         return GridView.builder(
           shrinkWrap: true,
@@ -2357,7 +2453,8 @@ class _ThumbnailPickerGrid extends StatelessWidget {
               imageUrl: item.imageUrl,
               slowGif: slowGif,
               tint: item.tint,
-              caption: item.label,
+              caption: showLabels ? item.label : null,
+              captionMaxLines: _captionMaxLines,
               width: cellWidth,
               height: imageHeight,
               selected: isSelected(item.id),
@@ -2376,6 +2473,7 @@ Future<String?> showSingleThumbnailPickerSheet(
   required List<PickableThumb> items,
   required String? selectedId,
   bool slowGif = false,
+  bool showLabels = true,
 }) {
   return showModalBottomSheet<String>(
     context: context,
@@ -2418,6 +2516,7 @@ Future<String?> showSingleThumbnailPickerSheet(
                   isSelected: (id) => id == selectedId,
                   onTap: (id) => Navigator.of(sheetContext).pop(id),
                   slowGif: slowGif,
+                  showLabels: showLabels,
                 ),
               ),
               SizedBox(height: AppDimens.sdp(sheetContext, '_12sdp')),
@@ -2438,7 +2537,8 @@ typedef PickableCategory = ({
 });
 
 /// Bottom sheet grid for picking exactly one item, with a category filter —
-/// the "More" destination for Lower Garment / Footwear. Mirrors the web
+/// the "More" destination for Lower Garment / Footwear / Background. Mirrors
+/// the web
 /// app's own "View more" modal (studio/page.tsx): an "All Garments (N)"
 /// dropdown (each catalog category is a filter, not a separate section) atop
 /// the same picker grid [showSingleThumbnailPickerSheet] uses.
@@ -2447,6 +2547,8 @@ Future<String?> showFilterableThumbnailPickerSheet(
   required String title,
   required List<PickableCategory> categories,
   required String? selectedId,
+  String allLabel = 'All Garments',
+  double tileAspectRatio = 0.81,
 }) {
   return showModalBottomSheet<String>(
     context: context,
@@ -2459,7 +2561,7 @@ Future<String?> showFilterableThumbnailPickerSheet(
     ),
     builder: (sheetContext) {
       final maxHeight = MediaQuery.sizeOf(sheetContext).height * 0.8;
-      // null = "All Garments" (every category's items, unfiltered).
+      // null = [allLabel] (every category's items, unfiltered).
       String? activeCategoryId;
       return StatefulBuilder(
         builder: (sheetContext, setSheetState) {
@@ -2469,7 +2571,7 @@ Future<String?> showFilterableThumbnailPickerSheet(
               : categories.firstWhere((c) => c.id == activeCategoryId);
           final visibleItems = active?.items ?? allItems;
           final triggerLabel = active == null
-              ? 'All Garments (${allItems.length})'
+              ? '$allLabel (${allItems.length})'
               : '${active.label} (${active.items.length})';
 
           return SafeArea(
@@ -2532,7 +2634,7 @@ Future<String?> showFilterableThumbnailPickerSheet(
                           ),
                           onTap: () async {
                             final options = [
-                              'All Garments (${allItems.length})',
+                              '$allLabel (${allItems.length})',
                               for (final c in categories)
                                 '${c.label} (${c.items.length})',
                             ];
@@ -2610,6 +2712,8 @@ Future<String?> showFilterableThumbnailPickerSheet(
                             items: visibleItems,
                             isSelected: (id) => id == selectedId,
                             onTap: (id) => Navigator.of(sheetContext).pop(id),
+                            showLabels: false,
+                            tileAspectRatio: tileAspectRatio,
                           ),
                   ),
                   SizedBox(height: AppDimens.sdp(sheetContext, '_12sdp')),
@@ -2676,6 +2780,7 @@ Future<Set<String>?> showMultiThumbnailPickerSheet(
                       onTap: (id) => setSheetState(() {
                         if (!working.remove(id)) working.add(id);
                       }),
+                      showLabels: false,
                     ),
                   ),
                   Padding(
@@ -3015,7 +3120,7 @@ Future<void> showGarmentUploadTipsSheet(
                                         ),
                                         Expanded(
                                           child: _QuickTipItem(
-                                            icon: Icons.light_mode_rounded,
+                                            icon: Icons.lightbulb_rounded,
                                             label:
                                                 AppStrings.quickTipGoodLighting,
                                           ),
