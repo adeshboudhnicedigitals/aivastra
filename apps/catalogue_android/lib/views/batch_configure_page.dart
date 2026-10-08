@@ -196,9 +196,7 @@ class _BatchConfigurePageState extends ConsumerState<BatchConfigurePage> {
         facesAsync.isLoading ||
         backgroundsAsync.isLoading;
     final loadFailed =
-        posesAsync.hasError ||
-        facesAsync.hasError ||
-        backgroundsAsync.hasError;
+        posesAsync.hasError || facesAsync.hasError || backgroundsAsync.hasError;
 
     final gap = AppDimens.sdp(context, '_14sdp');
 
@@ -282,6 +280,7 @@ class _ApplyToAll extends ConsumerWidget {
         title: title,
         items: items,
         selectedId: null,
+        showLabels: false,
       );
       if (id != null) apply(id);
     }
@@ -401,7 +400,10 @@ class _BatchRowCard extends ConsumerWidget {
     ];
     final needs = requiredInputsForPoses(selectedPoses);
     final face = _BatchOptions.find(options.faces, row.faceId);
-    final background = _BatchOptions.find(options.backgrounds, row.backgroundId);
+    final background = _BatchOptions.find(
+      options.backgrounds,
+      row.backgroundId,
+    );
     final lower = _BatchOptions.find(options.lower, row.lowerCatalogItemId);
     final shoe = _BatchOptions.find(options.shoes, row.shoeCatalogItemId);
 
@@ -421,6 +423,7 @@ class _BatchRowCard extends ConsumerWidget {
         title: title,
         items: items,
         selectedId: selectedId,
+        showLabels: false,
       );
       if (id != null) apply(id);
     }
@@ -559,7 +562,8 @@ class _BatchRowCard extends ConsumerWidget {
                         'Choose lower garment',
                         options.lower,
                         row.lowerCatalogItemId,
-                        (id) => controller.selectRowLowerCatalogItem(row.id, id),
+                        (id) =>
+                            controller.selectRowLowerCatalogItem(row.id, id),
                       ),
                     )
                   : _PickedCell(
@@ -568,7 +572,8 @@ class _BatchRowCard extends ConsumerWidget {
                         'Choose lower garment',
                         options.lower,
                         row.lowerCatalogItemId,
-                        (id) => controller.selectRowLowerCatalogItem(row.id, id),
+                        (id) =>
+                            controller.selectRowLowerCatalogItem(row.id, id),
                       ),
                     )),
       ),
