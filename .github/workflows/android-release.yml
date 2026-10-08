@@ -217,5 +217,5 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.VTA_PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: aivastra.nice.interactive
           releaseFiles: dist/bundle/release/*.aab
-          track: ${{ vars.VTA_PLAY_TRACK || 'internal' }}
+          tracks: ${{ vars.VTA_PLAY_TRACK || 'internal' }}
           status: completed
