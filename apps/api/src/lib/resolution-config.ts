@@ -36,6 +36,12 @@ export const DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG: { creditCost: number } = {
   creditCost: SAREE_MANNEQUIN_DEV_COST,
 };
 
+export const FABRIC_TO_GARMENT_DEFAULT_COST = 8;
+
+export const DEFAULT_FABRIC_TO_GARMENT_CONFIG: { creditCost: number } = {
+  creditCost: FABRIC_TO_GARMENT_DEFAULT_COST,
+};
+
 export const DEFAULT_PIXVERSE_VIDEO_PRICING: PixverseVideoPricingConfig = {
   perSecondRate: { '360p': 0, '540p': 0, '720p': 0, '1080p': 0 },
   qualityBase: {
@@ -124,6 +130,22 @@ export async function getSareeMannequinDevCreditCost(app: FastifyInstance): Prom
     return typeof cost === 'number' ? cost : SAREE_MANNEQUIN_DEV_COST;
   } catch {
     return SAREE_MANNEQUIN_DEV_COST;
+  }
+}
+
+/**
+ * Reads the admin-configured credit cost for a fabric-to-garment job from the
+ * `config:system` Redis key. Falls back to FABRIC_TO_GARMENT_DEFAULT_COST if
+ * nothing is stored yet, or the entry is missing/malformed.
+ */
+export async function getFabricToGarmentCreditCost(app: FastifyInstance): Promise<number> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const cost = cfg.fabricToGarment?.creditCost;
+    return typeof cost === 'number' ? cost : FABRIC_TO_GARMENT_DEFAULT_COST;
+  } catch {
+    return FABRIC_TO_GARMENT_DEFAULT_COST;
   }
 }
 

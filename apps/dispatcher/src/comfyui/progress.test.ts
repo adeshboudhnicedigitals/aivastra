@@ -602,15 +602,15 @@ describe('typed caller enforcement', () => {
         source.match(
           /const completion = await (?:waitForCompletion|observeCompletion)\([\s\S]*?fetchHistory\(/g,
         ) ?? [];
-      expect(sites).toHaveLength(file === 'processor' ? 7 : 1);
+      expect(sites).toHaveLength(file === 'processor' ? 8 : 1);
       expect(source.match(/settlePerformanceSample\(w, 'success'\)/g)).toHaveLength(
-        file === 'processor' ? 7 : 1,
+        file === 'processor' ? 8 : 1,
       );
       expect(
         source.match(
           /selectWorker\(redis, WORKER_POOL\.\w+, performanceKey, \{\s*jobId,\s*log: jobLog,?\s*\}\)/g,
         ),
-      ).toHaveLength(file === 'processor' ? 7 : 1);
+      ).toHaveLength(file === 'processor' ? 8 : 1);
       for (const site of sites)
         expect(site).toMatch(
           file === 'processor'

@@ -19,7 +19,10 @@ export async function createDevJobCore(
   app: FastifyInstance,
   params: {
     merchantUserId: string;
-    apiKeyId: string;
+    // null for callers with no API key — e.g. the Chrome extension, where the
+    // caller authenticates as a platform user (JWT) on their own account, not
+    // a merchant's API key. jobs.api_key_id is nullable for exactly this case.
+    apiKeyId: string | null;
     cost: number;
     watermark: boolean;
     source: JobSource;

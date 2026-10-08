@@ -19,7 +19,8 @@ export type AssetTab =
   | 'accessory'
   | 'pose-assets'
   | 'catalogue-templates'
-  | 'saree-styles';
+  | 'saree-styles'
+  | 'fabric-garment-types';
 export type GenderFilter = 'all' | GenderSlug;
 
 const VALID_TABS: AssetTab[] = [
@@ -32,6 +33,7 @@ const VALID_TABS: AssetTab[] = [
   'pose-assets',
   'catalogue-templates',
   'saree-styles',
+  'fabric-garment-types',
 ];
 
 export type Toast = (t: { kind?: 'error'; title: string; body?: string }) => void;

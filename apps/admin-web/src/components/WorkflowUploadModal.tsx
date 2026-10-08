@@ -148,7 +148,13 @@ export function WorkflowUploadModal({
   const [showConvention, setShowConvention] = useState(false);
 
   const [workflowType, setWorkflowType] = useState<
-    'regular' | 'tryon' | 'saree_step1' | 'saree_step1_two_input' | 'two_stage' | 'regeneration'
+    | 'regular'
+    | 'tryon'
+    | 'saree_step1'
+    | 'saree_step1_two_input'
+    | 'two_stage'
+    | 'regeneration'
+    | 'fabric_to_garment'
   >('regular');
   const [slug, setSlug] = useState('');
   const [label, setLabel] = useState('');
@@ -262,6 +268,26 @@ export function WorkflowUploadModal({
         return;
       }
 
+      if (workflowType === 'fabric_to_garment') {
+        // Reuses the tryon-branch's scratch state: inputNodeId is the fabric
+        // photo's LoadImage node, resultNodeId the SaveImage node — same
+        // "input/output" role tryonPersonNodeId/tryonOutputNodeId already play
+        // for regeneration. See DetectedFabricMappings (fabric-detect.ts).
+        const d = result.detected as {
+          inputNodeId?: string;
+          resultNodeId?: string;
+          positivePromptNode?: string;
+          negativePromptNode?: string;
+        };
+        setTryonPersonNodeId(d.inputNodeId ?? '');
+        setTryonGarmentNodeId('');
+        setTryonGarmentNodeId2('');
+        setTryonOutputNodeId(d.resultNodeId ?? '');
+        setPositivePromptNode(d.positivePromptNode ?? '');
+        setNegativePromptNode(d.negativePromptNode ?? '');
+        return;
+      }
+
       if (workflowType === 'saree_step1_two_input') {
         const d = result.detected as {
           personNodeId?: string;
@@ -358,6 +384,15 @@ export function WorkflowUploadModal({
         setError('Reason (positive) and negative prompt nodes are required');
         return;
       }
+    } else if (workflowType === 'fabric_to_garment') {
+      if (!tryonPersonNodeId.trim()) {
+        setError('Input image node is required');
+        return;
+      }
+      if (!positivePromptNode) {
+        setError('Positive prompt node is required');
+        return;
+      }
     } else if (workflowType === 'saree_step1_two_input') {
       if (!tryonGarmentNodeId.trim() || !tryonGarmentNodeId2.trim() || !tryonOutputNodeId.trim()) {
         setError('Body, pallu, and output node IDs are required');
@@ -430,6 +465,17 @@ export function WorkflowUploadModal({
           ...(samSegmentationPromptNode.trim()
             ? { samSegmentationPromptNode: samSegmentationPromptNode.trim() }
             : {}),
+        };
+      } else if (workflowType === 'fabric_to_garment') {
+        payload = {
+          slug: slug.trim(),
+          label: label.trim(),
+          jsonContent,
+          workflowType: 'fabric_to_garment',
+          poseNodeId: tryonPersonNodeId.trim(),
+          ...(tryonOutputNodeId.trim() ? { resultNodeId: tryonOutputNodeId.trim() } : {}),
+          garmentPhasePromptNode: positivePromptNode,
+          ...(negativePromptNode ? { facePhasePromptNode: negativePromptNode } : {}),
         };
       } else if (workflowType === 'two_stage') {
         payload = {
@@ -562,34 +608,36 @@ export function WorkflowUploadModal({
     label.trim() &&
     (workflowType === 'regeneration'
       ? parsed && tryonPersonNodeId && tryonOutputNodeId && positivePromptNode && negativePromptNode
-      : workflowType === 'tryon' || workflowType === 'saree_step1'
-        ? parsed &&
-          tryonGarmentNodeId &&
-          tryonOutputNodeId &&
-          positivePromptNode &&
-          negativePromptNode
-        : workflowType === 'saree_step1_two_input'
+      : workflowType === 'fabric_to_garment'
+        ? parsed && tryonPersonNodeId && positivePromptNode
+        : workflowType === 'tryon' || workflowType === 'saree_step1'
           ? parsed &&
             tryonGarmentNodeId &&
-            tryonGarmentNodeId2 &&
             tryonOutputNodeId &&
             positivePromptNode &&
             negativePromptNode
-          : workflowType === 'two_stage'
+          : workflowType === 'saree_step1_two_input'
             ? parsed &&
-              faceNodeId &&
-              poseNodeId &&
-              bgNodeId &&
-              twoStageGarmentNodeId &&
-              stage1PositivePromptNode &&
-              stage1NegativePromptNode &&
+              tryonGarmentNodeId &&
+              tryonGarmentNodeId2 &&
+              tryonOutputNodeId &&
               positivePromptNode &&
               negativePromptNode
-            : parsed &&
-              poseNodeId &&
-              positivePromptNode &&
-              (!faceNodeId || negativePromptNode) &&
-              (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId)) &&
+            : workflowType === 'two_stage'
+              ? parsed &&
+                faceNodeId &&
+                poseNodeId &&
+                bgNodeId &&
+                twoStageGarmentNodeId &&
+                stage1PositivePromptNode &&
+                stage1NegativePromptNode &&
+                positivePromptNode &&
+                negativePromptNode
+              : parsed &&
+                poseNodeId &&
+                positivePromptNode &&
+                (!faceNodeId || negativePromptNode) &&
+                (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId)) &&
     (!proposeMode ||
       (proposeReason.trim() &&
         (proposalKind === 'new' || (targetWorkflowId && previousLimitations.trim()))));
@@ -615,6 +663,7 @@ export function WorkflowUploadModal({
               'saree_step1_two_input',
               'two_stage',
               'regeneration',
+              'fabric_to_garment',
             ] as const
           ).map((t) => (
             <button
@@ -637,7 +686,9 @@ export function WorkflowUploadModal({
                       ? 'Two-Stage (build + dress)'
                       : t === 'regeneration'
                         ? 'Regeneration (single-image edit)'
-                        : 'Catalogue workflows (pose-based)'}
+                        : t === 'fabric_to_garment'
+                          ? 'Fabric to Garment (single-image edit)'
+                          : 'Catalogue workflows (pose-based)'}
             </button>
           ))}
         </div>
@@ -841,7 +892,8 @@ export function WorkflowUploadModal({
               workflowType === 'saree_step1' ||
               workflowType === 'saree_step1_two_input' ||
               workflowType === 'two_stage' ||
-              workflowType === 'regeneration') && (
+              workflowType === 'regeneration' ||
+              workflowType === 'fabric_to_garment') && (
               <button
                 className="btn sm primary"
                 onClick={handleParse}
@@ -874,7 +926,8 @@ export function WorkflowUploadModal({
         {(workflowType === 'tryon' ||
           workflowType === 'saree_step1' ||
           workflowType === 'saree_step1_two_input' ||
-          workflowType === 'regeneration') &&
+          workflowType === 'regeneration' ||
+          workflowType === 'fabric_to_garment') &&
           parsed && (
             <>
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
@@ -909,8 +962,10 @@ export function WorkflowUploadModal({
                   <label>
                     {workflowType === 'regeneration'
                       ? 'Source image node'
-                      : 'Person node (optional — leave blank if face is fixed inside the workflow)'}
-                    {workflowType === 'regeneration' && (
+                      : workflowType === 'fabric_to_garment'
+                        ? 'Input image node'
+                        : 'Person node (optional — leave blank if face is fixed inside the workflow)'}
+                    {(workflowType === 'regeneration' || workflowType === 'fabric_to_garment') && (
                       <span style={{ color: 'var(--danger)' }}> *</span>
                     )}
                   </label>
@@ -921,7 +976,7 @@ export function WorkflowUploadModal({
                     onChange={(e) => setTryonPersonNodeId(e.target.value.trim())}
                   />
                 </div>
-                {workflowType !== 'regeneration' && (
+                {workflowType !== 'regeneration' && workflowType !== 'fabric_to_garment' && (
                   <div className="field">
                     <label>
                       {workflowType === 'saree_step1_two_input' ? 'Body node' : 'Garment node'}{' '}
@@ -950,7 +1005,12 @@ export function WorkflowUploadModal({
                 )}
                 <div className="field">
                   <label>
-                    Output node <span style={{ color: 'var(--danger)' }}>*</span>
+                    {workflowType === 'fabric_to_garment'
+                      ? 'Result node (optional)'
+                      : 'Output node'}
+                    {workflowType !== 'fabric_to_garment' && (
+                      <span style={{ color: 'var(--danger)' }}> *</span>
+                    )}
                   </label>
                   <input
                     className="input"
@@ -974,7 +1034,12 @@ export function WorkflowUploadModal({
                 </div>
                 <div className="field">
                   <label>
-                    Negative prompt node <span style={{ color: 'var(--danger)' }}>*</span>
+                    {workflowType === 'fabric_to_garment'
+                      ? 'Negative prompt node (optional)'
+                      : 'Negative prompt node'}
+                    {workflowType !== 'fabric_to_garment' && (
+                      <span style={{ color: 'var(--danger)' }}> *</span>
+                    )}
                   </label>
                   <input
                     className="input"
@@ -984,28 +1049,47 @@ export function WorkflowUploadModal({
                   />
                 </div>
               </div>
-              <div className="field">
-                <label>Positive prompt (default, editable)</label>
-                <textarea
-                  className="input"
-                  rows={3}
-                  value={tryonPositivePrompt}
-                  disabled={saving}
-                  onChange={(e) => setTryonPositivePrompt(e.target.value)}
-                  style={{ fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
-                />
-              </div>
-              <div className="field">
-                <label>Negative prompt (default, editable)</label>
-                <textarea
-                  className="input"
-                  rows={3}
-                  value={tryonNegativePrompt}
-                  disabled={saving}
-                  onChange={(e) => setTryonNegativePrompt(e.target.value)}
-                  style={{ fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
-                />
-              </div>
+              {workflowType !== 'fabric_to_garment' && (
+                <>
+                  <div className="field">
+                    <label>Positive prompt (default, editable)</label>
+                    <textarea
+                      className="input"
+                      rows={3}
+                      value={tryonPositivePrompt}
+                      disabled={saving}
+                      onChange={(e) => setTryonPositivePrompt(e.target.value)}
+                      style={{ fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Negative prompt (default, editable)</label>
+                    <textarea
+                      className="input"
+                      rows={3}
+                      value={tryonNegativePrompt}
+                      disabled={saving}
+                      onChange={(e) => setTryonNegativePrompt(e.target.value)}
+                      style={{ fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
+                    />
+                  </div>
+                </>
+              )}
+              {workflowType === 'fabric_to_garment' && (
+                <div
+                  style={{
+                    background: 'var(--subtle)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    padding: '8px 12px',
+                    fontSize: 12,
+                    color: 'var(--muted)',
+                  }}
+                >
+                  Each job's actual prompt comes from the garment-type preset picked at job creation
+                  (Fabric Garment Types tab), not from a default stored on the workflow itself.
+                </div>
+              )}
             </>
           )}
 
