@@ -10,9 +10,11 @@ import type { FabricGarmentTypeOption } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
-const GENDER_META: Record<'women' | 'men', { label: string; img: string }> = {
+const GENDER_META: Record<'women' | 'men' | 'boys' | 'girls', { label: string; img: string }> = {
   women: { label: 'Women', img: `${BASE}/assets/seg-women.png` },
   men: { label: 'Men', img: `${BASE}/assets/seg-men.png` },
+  boys: { label: 'Boys', img: `${BASE}/assets/seg-boy.png` },
+  girls: { label: 'Girls', img: `${BASE}/assets/seg-girl.png` },
 };
 
 export const CARD_STYLE: React.CSSProperties = {
@@ -214,9 +216,9 @@ export function FabricToShootSection({
   uploadError: string | null;
   onFile: (file: File) => void;
   onRemove: () => void;
-  gender: 'women' | 'men' | null;
-  onSelectGender: (gender: 'women' | 'men') => void;
-  availableGenders: ('women' | 'men')[];
+  gender: 'women' | 'men' | 'boys' | 'girls' | null;
+  onSelectGender: (gender: 'women' | 'men' | 'boys' | 'girls') => void;
+  availableGenders: ('women' | 'men' | 'boys' | 'girls')[];
   genderPresets: FabricGarmentTypeOption[];
   presetsLoading: boolean;
   presetsError: boolean;
