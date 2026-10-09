@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PartnerApiError } from '../../src/modules/shopify/partner-api.js';
 import { checkPurchases, settlePaid } from '../../src/modules/shopify/payment-settlement.js';
+import { runPaymentSettlementTick } from '../../src/modules/shopify/payment-settlement-scheduler.js';
 import { grantForPurchase } from '../../src/modules/shopify/purchase.js';
 import { buildTestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
@@ -214,5 +215,34 @@ describe('grantForPurchase with SHOPIFY_HOLD_UNTIL_PAID', () => {
     expect(await grantForPurchase(app, store, row, active(row))).toBe(0);
     expect(await ledgerFor(row)).toHaveLength(0);
     expect((await reload(row)).paymentStatus).toBe('AWAITING');
+  });
+});
+
+describe('payment settlement tick', () => {
+  it('settles due AWAITING rows and skips ones not yet due', async () => {
+    const due = await awaitingPurchase({ nextPaymentCheckAt: new Date(Date.now() - 1000) });
+    const later = await awaitingPurchase({ nextPaymentCheckAt: new Date(Date.now() + 3_600_000) });
+    const sales = new Map(
+      [due, later].map((r) => [
+        (r.shopifyChargeId as string).split('/').pop() as string,
+        { paidAt: new Date() },
+      ]),
+    );
+
+    await runPaymentSettlementTick(app, { fetchSales: async () => sales });
+
+    expect((await reload(due)).paymentStatus).toBe('PAID');
+    expect((await reload(later)).paymentStatus).toBe('AWAITING');
+  });
+
+  it('a Partner API outage does not throw out of the tick', async () => {
+    await awaitingPurchase({ nextPaymentCheckAt: new Date(Date.now() - 1000) });
+    await expect(
+      runPaymentSettlementTick(app, {
+        fetchSales: async () => {
+          throw new PartnerApiError('http', 'down');
+        },
+      }),
+    ).resolves.toBeUndefined();
   });
 });
