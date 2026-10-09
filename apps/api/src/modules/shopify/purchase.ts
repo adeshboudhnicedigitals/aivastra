@@ -9,6 +9,9 @@ import {
 } from '../../lib/resolution-config.js';
 import { grantStore } from '../credits/shopify-ledger.js';
 import { getPack } from './packs.js';
+import type { FetchOneTimeSales } from './partner-api.js';
+import { PartnerApiError } from './partner-api.js';
+import { checkPurchases, type PaymentStatus } from './payment-settlement.js';
 import { shopifyGraphQL, warnIfManagedPricing } from './service.js';
 import { getValidAccessToken } from './token.js';
 
@@ -200,6 +203,7 @@ interface ConfirmDeps {
     store: Store,
     chargeId: string,
   ) => Promise<OneTimePurchaseState | null>;
+  fetchSales?: FetchOneTimeSales;
 }
 
 /**
@@ -364,6 +368,40 @@ export async function grantForPurchase(
   return granted ? purchaseRow.credits : 0;
 }
 
+/** One Partner API call per purchase per this window — merchants' return pages poll every 5 s. */
+const PAYMENT_CHECK_THROTTLE_SEC = 10;
+
+/**
+ * On-demand payment check for one purchase, so the return page settles in
+ * seconds instead of waiting for the next loop tick. Throttled through Redis
+ * because the Partner API's 4 req/s limit is shared org-wide; a throttled or
+ * failed check just reports the stored state (fail closed).
+ */
+async function checkPaymentNow(
+  app: FastifyInstance,
+  store: Store,
+  row: typeof schema.shopifyCreditPurchases.$inferSelect,
+  fetchSales?: FetchOneTimeSales,
+): Promise<void> {
+  const claimed = await app.redis.set(
+    `shopify:paycheck:${row.id}`,
+    '1',
+    'EX',
+    PAYMENT_CHECK_THROTTLE_SEC,
+    'NX',
+  );
+  if (claimed !== 'OK') return;
+  try {
+    await checkPurchases(app, [row], { shop: store.shopDomain, fetchSales });
+  } catch (err) {
+    if (!(err instanceof PartnerApiError)) throw err;
+    app.log.warn(
+      { err, purchaseId: row.id },
+      'on-demand payment check failed — purchase stays pending',
+    );
+  }
+}
+
 /**
  * The merchant-facing confirm path, hit after Shopify's approval redirect.
  *
@@ -378,7 +416,13 @@ export async function confirmPurchase(
   store: Store,
   purchaseId: string,
   deps: ConfirmDeps = {},
-): Promise<{ status: string; creditsGranted: number; creditBalance: number }> {
+): Promise<{
+  status: string;
+  paymentStatus: PaymentStatus;
+  credits: number;
+  creditsGranted: number;
+  creditBalance: number;
+}> {
   const fetchPurchase = deps.fetchPurchase ?? defaultFetchPurchase;
 
   const [row] = await app.db
@@ -393,6 +437,8 @@ export async function confirmPurchase(
   if (!row.shopifyChargeId) {
     return {
       status: row.status,
+      paymentStatus: row.paymentStatus as PaymentStatus,
+      credits: row.credits,
       creditsGranted: 0,
       creditBalance: await storeBalance(app, store.id),
     };
@@ -403,15 +449,35 @@ export async function confirmPurchase(
     throw new AppError('SHOPIFY', 502, 'charge not found at Shopify');
   }
 
-  const creditsGranted = await grantForPurchase(app, store, row, observed);
+  let creditsGranted = await grantForPurchase(app, store, row, observed);
 
   await app.db
     .update(schema.shopifyCreditPurchases)
     .set({ status: observed.status, updatedAt: new Date() })
     .where(eq(schema.shopifyCreditPurchases.id, row.id));
 
+  // grantForPurchase may have just parked it AWAITING, so re-read before checking.
+  const reread = async () => {
+    const [r] = await app.db
+      .select()
+      .from(schema.shopifyCreditPurchases)
+      .where(eq(schema.shopifyCreditPurchases.id, row.id))
+      .limit(1);
+    return r;
+  };
+  let current = await reread();
+  if (current.paymentStatus === 'AWAITING' || current.paymentStatus === 'UNPAID') {
+    await checkPaymentNow(app, store, current, deps.fetchSales);
+    // Re-read rather than trust checkPurchases' outcome map: a concurrent
+    // settle can win, and the row is the only source of truth.
+    current = await reread();
+    if (current.paymentStatus === 'PAID') creditsGranted = current.credits;
+  }
+
   return {
     status: observed.status,
+    paymentStatus: current.paymentStatus as PaymentStatus,
+    credits: current.credits,
     creditsGranted,
     creditBalance: await storeBalance(app, store.id),
   };

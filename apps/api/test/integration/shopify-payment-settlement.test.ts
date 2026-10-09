@@ -2,12 +2,14 @@ import { schema } from '@aivastra/db';
 import { register } from '@aivastra/observability';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
 import { PartnerApiError } from '../../src/modules/shopify/partner-api.js';
 import { checkPurchases, settlePaid } from '../../src/modules/shopify/payment-settlement.js';
 import { runPaymentSettlementTick } from '../../src/modules/shopify/payment-settlement-scheduler.js';
-import { grantForPurchase } from '../../src/modules/shopify/purchase.js';
+import { confirmPurchase, grantForPurchase } from '../../src/modules/shopify/purchase.js';
 import { buildTestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
+import { signSessionToken } from '../helpers/shopify-session.js';
 
 let ctx: Containers;
 let app: Awaited<ReturnType<typeof buildTestApp>>;
@@ -285,5 +287,143 @@ describe('payment settlement tick', () => {
         .set({ nextPaymentCheckAt: new Date('2099-01-01T00:00:00Z') })
         .where(eq(schema.shopifyCreditPurchases.id, row.id));
     }
+  });
+});
+
+describe('confirmPurchase payment check', () => {
+  const activeFor = (row: Row) => async () => ({
+    id: row.shopifyChargeId as string,
+    status: 'ACTIVE',
+    test: false,
+  });
+
+  it('settles an AWAITING purchase on demand and reports the credits', async () => {
+    const row = await awaitingPurchase();
+    const res = await confirmPurchase(app, store, row.id, {
+      fetchPurchase: activeFor(row),
+      fetchSales: saleFor(row),
+    });
+    expect(res.paymentStatus).toBe('PAID');
+    expect(res.credits).toBe(800);
+    expect(res.creditsGranted).toBe(800);
+    expect((await reload(row)).paymentStatus).toBe('PAID');
+    expect(await ledgerFor(row)).toHaveLength(1);
+  });
+
+  it('throttles: a second check within 10 s does not call the Partner API', async () => {
+    const row = await awaitingPurchase();
+    await app.redis.del(`shopify:paycheck:${row.id}`);
+    let calls = 0;
+    const counting = async () => {
+      calls += 1;
+      return new Map();
+    };
+    const deps = { fetchPurchase: activeFor(row), fetchSales: counting };
+    await confirmPurchase(app, store, row.id, deps);
+    const second = await confirmPurchase(app, store, row.id, deps);
+    expect(calls).toBe(1);
+    expect(second.paymentStatus).toBe('AWAITING');
+    expect(await ledgerFor(row)).toHaveLength(0);
+  });
+
+  it('a Partner API failure returns AWAITING instead of erroring', async () => {
+    const row = await awaitingPurchase();
+    await app.redis.del(`shopify:paycheck:${row.id}`);
+    const warn = vi.spyOn(app.log, 'warn').mockImplementation(() => undefined);
+    try {
+      const res = await confirmPurchase(app, store, row.id, {
+        fetchPurchase: activeFor(row),
+        fetchSales: async () => {
+          throw new PartnerApiError('http', 'down');
+        },
+      });
+      expect(res.paymentStatus).toBe('AWAITING');
+      expect(res.creditsGranted).toBe(0);
+      expect((await reload(row)).paymentStatus).toBe('AWAITING');
+      expect(await ledgerFor(row)).toHaveLength(0);
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(PartnerApiError), purchaseId: row.id }),
+        'on-demand payment check failed — purchase stays pending',
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('GET /v1/shopify/billing/purchases/pending', () => {
+  const API_SECRET = 'test-secret';
+  const API_KEY = 'test-key';
+  let httpApp: Awaited<ReturnType<typeof buildTestApp>>;
+
+  beforeAll(async () => {
+    httpApp = await buildTestApp(ctx, {
+      SHOPIFY_TOKEN_ENC_KEY: Buffer.alloc(32, 14).toString('base64'),
+      SHOPIFY_API_SECRET: API_SECRET,
+      SHOPIFY_API_KEY: API_KEY,
+    });
+  });
+  afterAll(async () => {
+    await httpApp?.close();
+  });
+
+  function newStore(domain: string, shopId: number) {
+    return upsertShopifyStore(
+      httpApp,
+      {
+        shopifyShopId: shopId,
+        shopDomain: domain,
+        myshopifyDomain: domain,
+        name: 'P',
+        email: `${shopId}@p.com`,
+      },
+      'tok',
+      'read_products',
+    );
+  }
+
+  async function insertPurchase(storeId: string, n: number, extra: Partial<Row>) {
+    const [r] = await httpApp.db
+      .insert(schema.shopifyCreditPurchases)
+      .values({
+        storeId,
+        packId: 'pack_10',
+        credits: 800,
+        priceUsdCents: 1000,
+        status: 'ACTIVE',
+        shopifyChargeId: `gid://shopify/AppPurchaseOneTime/${8800 + n}`,
+        ...extra,
+      })
+      .returning();
+    return r;
+  }
+
+  it("returns only the caller store's AWAITING/UNPAID manual purchases", async () => {
+    const mine = await newStore('pending-mine.myshopify.com', 770001);
+    const other = await newStore('pending-other.myshopify.com', 770002);
+    const awaiting = await insertPurchase(mine.id, 1, { paymentStatus: 'AWAITING' });
+    const unpaid = await insertPurchase(mine.id, 2, { paymentStatus: 'UNPAID' });
+    await insertPurchase(mine.id, 3, { paymentStatus: 'PAID' });
+    await insertPurchase(mine.id, 4, { paymentStatus: 'NOT_REQUIRED' });
+    await insertPurchase(mine.id, 5, { paymentStatus: 'AWAITING', source: 'autorefill' });
+    await insertPurchase(other.id, 6, { paymentStatus: 'AWAITING' });
+
+    const res = await httpApp.inject({
+      method: 'GET',
+      url: '/v1/shopify/billing/purchases/pending',
+      headers: {
+        authorization: `Bearer ${signSessionToken('pending-mine.myshopify.com', API_SECRET, API_KEY)}`,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const { purchases } = res.json() as {
+      purchases: Array<{ id: string; paymentStatus: string; packId: string; credits: number }>;
+    };
+    expect(purchases.map((p) => p.id).sort()).toEqual([awaiting.id, unpaid.id].sort());
+    expect(purchases.find((p) => p.id === awaiting.id)).toMatchObject({
+      paymentStatus: 'AWAITING',
+      credits: 800,
+      packId: 'pack_10',
+    });
   });
 });
