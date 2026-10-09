@@ -22,8 +22,10 @@ import {
   DevTryonResponse,
   DevWidgetEventBody,
   DevWidgetEventResponse,
+  DevWorkersResponse,
   JOB_SOURCE,
   LEGACY_JOB_SOURCE,
+  WORKER_POOL,
 } from '@aivastra/types';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -488,6 +490,8 @@ export async function devRoutes(app: FastifyInstance) {
       const maxFileBytes = await getUploadLimitBytes(req.server, 'devApiMaxBytes');
 
       let categorySlug: string | undefined;
+      let primaryWorkerIds: string[] | undefined;
+      let fallbackWorkerIds: string[] | undefined;
       const files: Record<string, { buf: Buffer; mime: string }> = {};
 
       const isJson = (req.headers['content-type'] ?? '').startsWith('application/json');
@@ -502,6 +506,8 @@ export async function devRoutes(app: FastifyInstance) {
           );
         }
         categorySlug = parsed.data.category;
+        primaryWorkerIds = parsed.data.primaryWorkerIds;
+        fallbackWorkerIds = parsed.data.fallbackWorkerIds;
         for (const fieldname of ['person', 'garment'] as const) {
           const raw = parsed.data[fieldname].replace(/^data:[^;]+;base64,/, '');
           const buf = Buffer.from(raw, 'base64');
@@ -531,6 +537,22 @@ export async function devRoutes(app: FastifyInstance) {
         for await (const part of parts) {
           if (part.type === 'field' && part.fieldname === 'category') {
             categorySlug = String(part.value);
+            continue;
+          }
+          // Comma-separated worker ids — mirrors how the multipart path already
+          // takes category as a single text field, no array-field syntax needed.
+          if (part.type === 'field' && part.fieldname === 'primaryWorkerIds') {
+            primaryWorkerIds = String(part.value)
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean);
+            continue;
+          }
+          if (part.type === 'field' && part.fieldname === 'fallbackWorkerIds') {
+            fallbackWorkerIds = String(part.value)
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean);
             continue;
           }
           if (part.type !== 'file') continue;
@@ -593,6 +615,8 @@ export async function devRoutes(app: FastifyInstance) {
         categorySlug,
         personKey,
         garmentKey,
+        primaryWorkerIds,
+        fallbackWorkerIds,
       });
 
       // Lets a later /v1/dev/photo/preview call offer "reuse this photo"
@@ -601,6 +625,72 @@ export async function devRoutes(app: FastifyInstance) {
       await app.redis.set(`dev:person-photo:${merchantId}:${personKey}`, '1', 'EX', 86400);
 
       return reply.code(202).send({ jobId, status: 'QUEUED', personKey });
+    },
+  );
+
+  // Lets a caller populate a primary/fallback worker picker before creating
+  // a /v1/dev/tryon job. 'full' scope only (same as /v1/dev/me) — a widget
+  // key has no business steering GPU dispatch. Deliberately never returns
+  // `url`/`apiKey` (admin-only fields, see schema.workers) — id/label/status
+  // are the only fields this surface needs.
+  app.get(
+    '/v1/dev/workers',
+    {
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'List GPU workers eligible for try-on jobs',
+        response: {
+          200: DevWorkersResponse,
+          401: DevErrorResponse,
+          403: DevErrorResponse,
+          429: DevErrorResponse,
+        },
+      },
+    },
+    async () => {
+      const rows = await app.db
+        .select({
+          id: schema.workers.id,
+          label: schema.workers.label,
+          allowedJobTypes: schema.workers.allowedJobTypes,
+        })
+        .from(schema.workers)
+        .where(eq(schema.workers.isActive, true));
+      const eligible = rows.filter(
+        (w) => w.allowedJobTypes.length === 0 || w.allowedJobTypes.includes(WORKER_POOL.TRYON),
+      );
+
+      // Best-effort live status overlay — the dispatcher owns 'worker:registry',
+      // this is a read-only peek at the same Redis so the picker can show
+      // IDLE/BUSY instead of just "known". A dispatcher outage or an unknown
+      // id just falls back to UNKNOWN; never fails the listing over it.
+      const registry = await app.redis
+        .hgetall('worker:registry')
+        .catch(() => ({}) as Record<string, string>);
+
+      return {
+        workers: eligible.map((w) => {
+          let status: 'IDLE' | 'BUSY' | 'DRAINING' | 'UNKNOWN' = 'UNKNOWN';
+          const raw = registry[w.id];
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw) as { status?: string };
+              if (
+                parsed.status === 'IDLE' ||
+                parsed.status === 'BUSY' ||
+                parsed.status === 'DRAINING'
+              ) {
+                status = parsed.status;
+              }
+            } catch {
+              // Leave as UNKNOWN — malformed registry entry, not this route's problem.
+            }
+          }
+          return { id: w.id, label: w.label || w.id, status };
+        }),
+      };
     },
   );
 

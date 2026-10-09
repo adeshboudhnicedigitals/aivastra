@@ -231,6 +231,94 @@ async function releaseUnused(redis: Redis, workerId: string, selectorLog: Logger
   }
 }
 
+// Atomically claims ONE specific worker id if it's IDLE, healthy, and eligible
+// for the job type — sibling to CLAIM_LUA above rather than a modification of
+// it, since a worker-pinning claim has nothing to do with round-robin cursors
+// or performance ranking and should carry none of that blast radius.
+// ARGV[1] = worker id, ARGV[2] = Date.now() timestamp, ARGV[3] = jobType.
+export const CLAIM_SPECIFIC_LUA = `
+local raw = redis.call('HGET', KEYS[1], ARGV[1])
+if not raw then return false end
+local ok, val = pcall(cjson.decode, raw)
+if not ok or val.status ~= 'IDLE' then return false end
+if redis.call('EXISTS', KEYS[2] .. ARGV[1]) ~= 1 then return false end
+local jobType = ARGV[3]
+local allowed = val.allowedJobTypes
+if allowed and #allowed > 0 then
+  local eligible = false
+  for _, t in ipairs(allowed) do
+    if t == jobType then eligible = true break end
+  end
+  if not eligible then return false end
+end
+val.status = 'BUSY'
+val.lastSeen = tonumber(ARGV[2])
+redis.call('HSET', KEYS[1], ARGV[1], cjson.encode(val))
+return {val.url, val.apiKey}
+`;
+
+/**
+ * Tries to claim a job to one of a caller-pinned set of workers — primary ids
+ * in order, then fallback ids in order — instead of the normal round-robin
+ * pool. Returns null the moment every id in both lists has been tried and
+ * none was claimable; callers must treat that as a hard failure, not a cue to
+ * fall back to selectWorker(), per the no-silent-fallback requirement this
+ * exists for.
+ */
+export async function selectPreferredWorker(
+  redis: Redis,
+  jobType: WorkerPool,
+  primaryIds: string[],
+  fallbackIds: string[],
+  ctx?: { jobId?: string; log?: Logger },
+): Promise<ClaimedWorker | null> {
+  const healthPrefix = healthKey(''); // "worker:health:"
+  const selectorLog = ctx?.log ?? log;
+  const tried: string[] = [];
+
+  for (const id of [...primaryIds, ...fallbackIds]) {
+    const result = (await redis.eval(
+      CLAIM_SPECIFIC_LUA,
+      2,
+      REGISTRY_KEY,
+      healthPrefix,
+      id,
+      String(Date.now()),
+      jobType,
+    )) as [string, string] | false | null;
+
+    if (!result) {
+      tried.push(id);
+      continue;
+    }
+    const [url, apiKey] = result;
+    const claimed: ClaimedWorker = { id, url, apiKey };
+
+    try {
+      if (!(await isQueueGateEnabled(redis, id))) return claimed;
+      const probe = await isComfyQueueEmpty(url, apiKey);
+      if (probe.available) return claimed;
+    } catch (err) {
+      await releaseUnused(redis, id, selectorLog);
+      throw err;
+    }
+
+    workerExternalBusyRejectionsTotal.inc({ reason: 'queue_not_empty_or_unreadable' });
+    selectorLog.info(
+      { workerId: id, jobId: ctx?.jobId, pool: jobType },
+      'pinned worker busy or unreadable in ComfyUI — trying next pinned worker',
+    );
+    tried.push(id);
+    await releaseUnused(redis, id, selectorLog);
+  }
+
+  selectorLog.info(
+    { pool: jobType, jobId: ctx?.jobId, tried, primaryIds, fallbackIds },
+    'no pinned worker (primary or fallback) was claimable',
+  );
+  return null;
+}
+
 export async function selectWorker(
   redis: Redis,
   jobType: WorkerPool,
