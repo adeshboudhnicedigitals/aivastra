@@ -82,6 +82,12 @@ describe('creditsLanded', () => {
     expect(creditsLanded(r('NOT_REQUIRED', 800))).toBe(true);
     expect(creditsLanded(r('NOT_REQUIRED', 0))).toBe(false);
   });
+  it('UNVERIFIED and NOT_RECEIVED count only when something was actually granted', () => {
+    expect(creditsLanded(r('UNVERIFIED', 800))).toBe(true);
+    expect(creditsLanded(r('UNVERIFIED', 0))).toBe(false);
+    expect(creditsLanded(r('NOT_RECEIVED', 800))).toBe(true);
+    expect(creditsLanded(r('NOT_RECEIVED', 0))).toBe(false);
+  });
   it('AWAITING and UNPAID never count', () => {
     expect(creditsLanded(r('AWAITING', 800))).toBe(false);
     expect(creditsLanded(r('UNPAID', 800))).toBe(false);

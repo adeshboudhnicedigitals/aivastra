@@ -220,7 +220,13 @@ export interface ShopifyAnalytics {
   products: ShopifyAnalyticsProduct[];
 }
 
-export type PurchasePaymentStatus = 'NOT_REQUIRED' | 'AWAITING' | 'PAID' | 'UNPAID';
+export type PurchasePaymentStatus =
+  | 'NOT_REQUIRED'
+  | 'UNVERIFIED'
+  | 'PAID'
+  | 'NOT_RECEIVED'
+  | 'AWAITING'
+  | 'UNPAID';
 
 // `creditsGranted` is advisory under hold-until-paid (it can be 0 when the
 // credits landed via another process) — decide "credits landed" from
