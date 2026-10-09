@@ -32,19 +32,31 @@
   1. Deploy (migration runs via CI `db:migrate:prod`), flag still off.
   2. Create a **production** Partner API client ("View financials" only), set
      `SHOPIFY_PARTNER_API_TOKEN` + `SHOPIFY_PARTNER_ORG_ID` in `.env.production`, restart api.
-  3. On the VPS: `pnpm check:partner-transactions -- 3321168113` must report PAID.
+  3. On the VPS, inside the production api container (there is no root `.env` on the host; the
+     container mounts `/app/.env`): `docker exec aivastra-prod-api pnpm check:partner-transactions -- 3321168113`
+     must report PAID.
   4. Set `SHOPIFY_HOLD_UNTIL_PAID=true`, restart api (runtime var, no rebuild).
   5. Buy Silver on our store; confirm AWAITING → PAID within minutes, banner, toast, one ledger row.
-  6. Create the Grafana alert: `shopify_payment_check_last_success_timestamp` older than 15 min
-     while `shopify_purchases_awaiting_payment > 0`. Record it here when done.
+  6. Create the Grafana alert: alert when `shopify_purchases_overdue_payment_check > 0` for 15
+     minutes (and optionally `rate(shopify_payment_check_failures_total) > 0`). Record it here when done.
 - **Failed-Not-Done:** nothing failed in validation; rollout steps above are not done.
 - **Open:**
   - SPA banner/return page verified only by unit tests for the poll logic plus build — no
     component tests exist; verify by hand in rollout step 5.
-  - Known Minors not fixed: dashboard toast re-shows on reload; stale "received" note in
+  - Known Minors not fixed: stale "received" note in
     `PendingPaymentBanner`; a DECLINED/EXPIRED status discovered mid-poll navigates silently.
   - `SHOPIFY_PARTNER_*` must be created per environment (staging as well as production).
   - Grafana alert (rollout step 6) still to create.
+  - Per-row settlement failures have no metric: a row that keeps failing retries forever with only
+    log lines (add `shopify_payment_settle_row_failures_total`).
+  - UNPAID rows are never re-checked automatically after 30 days (consider a weekly re-check for ~90 days).
+  - The Partner API rate limit is not enforced org-wide: the loop plus the per-purchase confirm
+    throttle can exceed 4 req/s and get 429 (fail closed) — consider a Redis token bucket.
+  - Staging/local snapshots copy prod AWAITING rows and log `missing_config` every minute without
+    `SHOPIFY_PARTNER_*` (consider setting copied AWAITING rows to UNPAID in `scripts/staging/post-restore.sql`).
+  - The "received" note in `PendingPaymentBanner` and `BalanceCard` is not refreshed after a check.
+  - Mixed-flag stale-snapshot race on the old grant path only matters if two api processes run with
+    different flag values (prod has one container).
 
 ## 2026-10-09 — Shopify real-payment test ($1 Silver on prod) and grant-on-ACTIVE finding
 

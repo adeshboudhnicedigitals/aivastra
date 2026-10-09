@@ -176,7 +176,7 @@ comments. They are runtime vars, so a restart applies them and no rebuild is nee
 |---|---|
 | Token or org id missing | One error log per tick; nothing is checked or granted, and confirm returns `AWAITING`. |
 | HTTP, GraphQL or timeout error | Due rows are not rescheduled and retry next tick. Nothing is parked because of our own outage. |
-| 429 | As above; the client waits before its next page. |
+| 429 | As above; the client throws immediately (fail closed) rather than waiting. |
 | One row's settlement fails | Logged and skipped; the rest of the tick continues. |
 | Row has no charge id | Skipped. |
 | Store uninstalled while `AWAITING` | Still settled — the merchant paid. |
@@ -186,8 +186,13 @@ comments. They are runtime vars, so a restart applies them and no rebuild is nee
 - `shopify_payment_check_failures_total{reason}`
 - `shopify_payment_check_last_success_timestamp`
 - `shopify_purchases_awaiting_payment`
+- `shopify_purchases_overdue_payment_check` — AWAITING purchases whose `next_payment_check_at`
+  is more than 15 minutes in the past, i.e. the settlement loop is not keeping up or the
+  Partner API is failing. Set every tick. (`last_success_timestamp` only advances when rows are
+  due, so with backoff it goes stale while healthy and cannot drive the alert.)
 
-The Grafana alert ("no successful check for over 15 min while rows are awaiting") is
+The Grafana alert (alert when `shopify_purchases_overdue_payment_check > 0` for 15 minutes,
+and optionally `rate(shopify_payment_check_failures_total) > 0`) is
 configured outside the repo, so record it in `docs/progress.md` when it is created.
 
 ## Rollout

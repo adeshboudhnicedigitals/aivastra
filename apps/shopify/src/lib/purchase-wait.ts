@@ -34,3 +34,14 @@ export async function waitForPayment<T extends { status: string; paymentStatus: 
   }
   return data;
 }
+
+/**
+ * Whether a confirm result means credits actually landed. PAID is enough on its
+ * own: in hold mode `creditsGranted` is advisory and can be 0 when another
+ * process granted first. NOT_REQUIRED also covers outcomes that grant nothing
+ * (test charge refused on a non-development store, test grant limit reached,
+ * charge not ACTIVE), and there `creditsGranted` is accurate — so require it.
+ */
+export function creditsLanded(r: { paymentStatus: string; creditsGranted: number }): boolean {
+  return r.paymentStatus === 'PAID' || (r.paymentStatus === 'NOT_REQUIRED' && r.creditsGranted > 0);
+}

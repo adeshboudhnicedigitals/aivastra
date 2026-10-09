@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { register } from '@aivastra/observability';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, lt, sql } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { adminCheckPurchasePayment } from '../../src/modules/admin/shopify-stores.routes.js';
@@ -71,6 +71,24 @@ async function awaitingRowCount(): Promise<number> {
 async function awaitingGauge(): Promise<number | undefined> {
   const metric = await register.getSingleMetric('shopify_purchases_awaiting_payment')?.get();
   return metric?.values[0]?.value;
+}
+
+async function overdueGauge(): Promise<number | undefined> {
+  const metric = await register.getSingleMetric('shopify_purchases_overdue_payment_check')?.get();
+  return metric?.values[0]?.value;
+}
+
+async function overdueRowCount(now: Date): Promise<number> {
+  const [{ n }] = await app.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.shopifyCreditPurchases)
+    .where(
+      and(
+        eq(schema.shopifyCreditPurchases.paymentStatus, 'AWAITING'),
+        lt(schema.shopifyCreditPurchases.nextPaymentCheckAt, new Date(now.getTime() - 15 * 60_000)),
+      ),
+    );
+  return n;
 }
 
 const saleFor =
@@ -223,6 +241,21 @@ describe('grantForPurchase with SHOPIFY_HOLD_UNTIL_PAID', () => {
     expect((await reload(row)).paymentStatus).toBe('NOT_REQUIRED');
   });
 
+  it('flag on: a test charge on a partner development store still grants (App Store review path)', async () => {
+    const holdApp = Object.assign(Object.create(app), {
+      env: { ...app.env, SHOPIFY_HOLD_UNTIL_PAID: true },
+    });
+    const devStore = { ...store, partnerDevelopment: true };
+    const row = await freshRow();
+    const granted = await grantForPurchase(holdApp, devStore, row, active(row, true));
+
+    expect(granted).toBe(800);
+    const ledger = await ledgerFor(row);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ delta: 800, reason: 'SHOPIFY_PACK_TEST' });
+    expect((await reload(row)).paymentStatus).toBe('NOT_REQUIRED'); // not parked
+  });
+
   it('flag off: behaviour is unchanged — grants on ACTIVE', async () => {
     const row = await freshRow();
     expect(await grantForPurchase(app, store, row, active(row))).toBe(800);
@@ -289,6 +322,34 @@ describe('payment settlement tick', () => {
         .update(schema.shopifyCreditPurchases)
         .set({ nextPaymentCheckAt: new Date('2099-01-01T00:00:00Z') })
         .where(eq(schema.shopifyCreditPurchases.id, row.id));
+    }
+  });
+});
+
+describe('overdue payment check gauge', () => {
+  it('stays above zero while the Partner API fails, and drops once a tick settles the row', async () => {
+    const row = await awaitingPurchase({ nextPaymentCheckAt: new Date(Date.now() - 3_600_000) });
+    const logError = vi.spyOn(app.log, 'error').mockImplementation(() => undefined);
+    try {
+      const now = new Date();
+      await runPaymentSettlementTick(app, {
+        now,
+        fetchSales: async () => {
+          throw new PartnerApiError('http', 'down');
+        },
+      });
+      const stuck = await overdueGauge();
+      expect(stuck).toBeGreaterThanOrEqual(1);
+      expect(stuck).toBe(await overdueRowCount(now));
+
+      const later = new Date();
+      await runPaymentSettlementTick(app, { now: later, fetchSales: saleFor(row) });
+      expect((await reload(row)).paymentStatus).toBe('PAID');
+      const after = await overdueGauge();
+      expect(after).toBe(await overdueRowCount(later));
+      expect(after).toBeLessThan(stuck as number);
+    } finally {
+      logError.mockRestore();
     }
   });
 });

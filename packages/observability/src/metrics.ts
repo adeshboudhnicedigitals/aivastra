@@ -66,6 +66,12 @@ export const shopifyPurchasesAwaitingPayment = new Gauge({
   registers: [register],
 });
 
+export const shopifyPurchasesOverduePaymentCheck = new Gauge({
+  name: 'shopify_purchases_overdue_payment_check',
+  help: 'AWAITING purchases whose next_payment_check_at is more than 15 minutes in the past — i.e. the settlement loop is not keeping up or the Partner API is failing',
+  registers: [register],
+});
+
 // ── Dispatcher metrics ───────────────────────────────────────────────────────
 
 export const jobsProcessedTotal = new Counter({

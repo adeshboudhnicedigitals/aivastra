@@ -170,12 +170,15 @@ export default function DashboardPage() {
   const welcomeRequested = useRef(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const location = useLocation();
-  // Set by BillingCallbackPage once a pack's payment settled. Keyed on the
-  // state object, which is stable across re-renders, so it fires once per visit.
+  // Set by BillingCallbackPage once a pack's payment settled. Router state
+  // survives reloads and history re-entry, so clear it after showing the toast
+  // or it would announce the same purchase again.
   useEffect(() => {
     const added = (location.state as { creditsAdded?: number } | null)?.creditsAdded;
-    if (added) setToastMessage(`${added.toLocaleString()} credits added`);
-  }, [location.state]);
+    if (!added) return;
+    setToastMessage(`${added.toLocaleString()} credits added`);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
   useEffect(() => {
     if (!me || welcomeRequested.current || me.store.settings.emailBonusClaimed) return;
     welcomeRequested.current = true;

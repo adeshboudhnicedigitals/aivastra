@@ -1,6 +1,9 @@
 import { schema } from '@aivastra/db';
-import { shopifyPurchasesAwaitingPayment } from '@aivastra/observability';
-import { and, asc, eq, isNotNull, lte, sql } from 'drizzle-orm';
+import {
+  shopifyPurchasesAwaitingPayment,
+  shopifyPurchasesOverduePaymentCheck,
+} from '@aivastra/observability';
+import { and, asc, eq, isNotNull, lt, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { FetchOneTimeSales } from './partner-api.js';
 import { checkPurchases } from './payment-settlement.js';
@@ -8,6 +11,8 @@ import { checkPurchases } from './payment-settlement.js';
 /** One tick settles at most this many purchases; the rest wait for the next minute. */
 const BATCH = 200;
 const ONE_MINUTE_MS = 60_000;
+/** A row this far past its next check means the loop is stuck, not merely backing off. */
+const OVERDUE_GRACE_MS = 15 * ONE_MINUTE_MS;
 
 /**
  * One pass: settle every AWAITING purchase whose next check is due. Runs
@@ -51,6 +56,24 @@ export async function runPaymentSettlementTick(
     .from(schema.shopifyCreditPurchases)
     .where(eq(schema.shopifyCreditPurchases.paymentStatus, 'AWAITING'));
   shopifyPurchasesAwaitingPayment.set(awaiting);
+
+  // The alertable signal. "Last success" only advances when rows are due, so
+  // with backoff (hourly after 24h, daily after 7d) it goes stale while the
+  // Partner API is healthy; a row overdue by more than the grace period can
+  // only mean the loop is failing or not keeping up.
+  const [{ overdue }] = await app.db
+    .select({ overdue: sql<number>`count(*)::int` })
+    .from(schema.shopifyCreditPurchases)
+    .where(
+      and(
+        eq(schema.shopifyCreditPurchases.paymentStatus, 'AWAITING'),
+        lt(
+          schema.shopifyCreditPurchases.nextPaymentCheckAt,
+          new Date(now.getTime() - OVERDUE_GRACE_MS),
+        ),
+      ),
+    );
+  shopifyPurchasesOverduePaymentCheck.set(overdue);
 }
 
 /** Call once after `app.listen(...)`. */

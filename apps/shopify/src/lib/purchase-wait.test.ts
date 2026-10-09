@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { waitForPayment } from './purchase-wait';
+import { creditsLanded, waitForPayment } from './purchase-wait';
 
 type R = { status: string; paymentStatus: string; n?: number };
 const awaiting = (n = 0): R => ({ status: 'ACTIVE', paymentStatus: 'AWAITING', n });
@@ -68,5 +68,22 @@ describe('waitForPayment', () => {
     });
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(out.paymentStatus).toBe('AWAITING');
+  });
+});
+
+describe('creditsLanded', () => {
+  const r = (paymentStatus: string, creditsGranted: number) => ({ paymentStatus, creditsGranted });
+
+  it('PAID counts regardless of creditsGranted (advisory in hold mode)', () => {
+    expect(creditsLanded(r('PAID', 0))).toBe(true);
+    expect(creditsLanded(r('PAID', 800))).toBe(true);
+  });
+  it('NOT_REQUIRED counts only when something was actually granted', () => {
+    expect(creditsLanded(r('NOT_REQUIRED', 800))).toBe(true);
+    expect(creditsLanded(r('NOT_REQUIRED', 0))).toBe(false);
+  });
+  it('AWAITING and UNPAID never count', () => {
+    expect(creditsLanded(r('AWAITING', 800))).toBe(false);
+    expect(creditsLanded(r('UNPAID', 800))).toBe(false);
   });
 });

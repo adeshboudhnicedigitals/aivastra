@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { AppFont } from '../components/AppFont';
 import { useConfirmWithRetry } from '../hooks/useConfirmWithRetry';
 import { apiFetch } from '../lib/api';
-import { waitForPayment } from '../lib/purchase-wait';
+import { creditsLanded, waitForPayment } from '../lib/purchase-wait';
 import type { PurchaseConfirmResponse } from '../types';
 
 const POLL_MS = 5_000;
@@ -53,9 +53,8 @@ export default function BillingCallbackPage() {
         isCancelled: () => cancelled,
       });
       if (cancelled) return;
-      // Decide "credits landed" from paymentStatus, never creditsGranted: in
-      // hold mode that count is advisory and can be 0 even when credits landed.
-      const settled = data.paymentStatus === 'PAID' || data.paymentStatus === 'NOT_REQUIRED';
+      // See creditsLanded for why this isn't simply creditsGranted > 0.
+      const settled = creditsLanded(data);
       navigate('/', { replace: true, state: settled ? { creditsAdded: data.credits } : undefined });
     })();
     return () => {
