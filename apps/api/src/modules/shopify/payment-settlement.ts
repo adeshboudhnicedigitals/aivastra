@@ -21,7 +21,13 @@ import {
  */
 
 type PurchaseRow = typeof schema.shopifyCreditPurchases.$inferSelect;
-export type PaymentStatus = 'NOT_REQUIRED' | 'AWAITING' | 'PAID' | 'UNPAID';
+export type PaymentStatus =
+  | 'NOT_REQUIRED'
+  | 'UNVERIFIED'
+  | 'PAID'
+  | 'NOT_RECEIVED'
+  | 'AWAITING'
+  | 'UNPAID';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
