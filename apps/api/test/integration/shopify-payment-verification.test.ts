@@ -2,6 +2,8 @@ import { schema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { grantStore } from '../../src/modules/credits/shopify-ledger.js';
+import { PartnerApiError } from '../../src/modules/shopify/partner-api.js';
+import { verifyGrantedPurchases } from '../../src/modules/shopify/payment-verification.js';
 import { grantForPurchase } from '../../src/modules/shopify/purchase.js';
 import { buildTestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
@@ -195,5 +197,107 @@ describe('grantForPurchase with SHOPIFY_VERIFY_PAYMENTS', () => {
     ).rejects.toThrow();
     expect((await reload(row)).paymentStatus).toBe('NOT_REQUIRED');
     expect(await ledgerFor(row)).toHaveLength(0);
+  });
+});
+
+const MIN_MS = 60_000;
+const HOUR_MS = 60 * MIN_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/** A granted purchase waiting for confirmation. Charge ids are unique per call. */
+async function unverified(overrides: Partial<Row> = {}): Promise<Row> {
+  return purchase({
+    paymentStatus: 'UNVERIFIED',
+    nextPaymentCheckAt: new Date(Date.now() - MIN_MS),
+    ...overrides,
+  });
+}
+
+const saleFor =
+  (row: Row, paidAt = new Date('2026-10-09T06:39:29Z')) =>
+  async () =>
+    new Map([[(row.shopifyChargeId as string).split('/').pop() as string, { paidAt }]]);
+const noSales = async () => new Map();
+
+describe('verifyGrantedPurchases', () => {
+  it('a sale marks the purchase PAID with the sale time and never grants again', async () => {
+    const row = await unverified();
+    await verifyGrantedPurchases(app, [row], { fetchSales: saleFor(row) });
+
+    const fresh = await reload(row);
+    expect(fresh.paymentStatus).toBe('PAID');
+    expect(fresh.paidAt?.toISOString()).toBe('2026-10-09T06:39:29.000Z');
+    expect(fresh.nextPaymentCheckAt).toBeNull();
+    expect(await ledgerFor(row)).toHaveLength(0); // credits were given at approval, not here
+  });
+
+  it('a sale also rescues a NOT_RECEIVED purchase', async () => {
+    const row = await unverified({ paymentStatus: 'NOT_RECEIVED' });
+    await verifyGrantedPurchases(app, [row], { fetchSales: saleFor(row) });
+    expect((await reload(row)).paymentStatus).toBe('PAID');
+  });
+
+  it('no sale inside the window keeps it UNVERIFIED and re-checks in 15 minutes', async () => {
+    const row = await unverified({ createdAt: new Date() });
+    const now = new Date();
+    await verifyGrantedPurchases(app, [row], { fetchSales: noSales, now });
+    const fresh = await reload(row);
+    expect(fresh.paymentStatus).toBe('UNVERIFIED');
+    expect(fresh.nextPaymentCheckAt?.getTime()).toBe(now.getTime() + 15 * MIN_MS);
+  });
+
+  it('no sale once the window has passed marks it NOT_RECEIVED and re-checks tomorrow', async () => {
+    const row = await unverified({ createdAt: new Date(Date.now() - 4 * HOUR_MS) });
+    const now = new Date();
+    await verifyGrantedPurchases(app, [row], { fetchSales: noSales, now });
+    const fresh = await reload(row);
+    expect(fresh.paymentStatus).toBe('NOT_RECEIVED');
+    expect(fresh.nextPaymentCheckAt?.getTime()).toBe(now.getTime() + DAY_MS);
+    expect(await ledgerFor(row)).toHaveLength(0);
+  });
+
+  it('stops re-checking a NOT_RECEIVED purchase after 30 days', async () => {
+    const row = await unverified({
+      paymentStatus: 'NOT_RECEIVED',
+      createdAt: new Date(Date.now() - 31 * DAY_MS),
+    });
+    await verifyGrantedPurchases(app, [row], { fetchSales: noSales });
+    const fresh = await reload(row);
+    expect(fresh.paymentStatus).toBe('NOT_RECEIVED');
+    expect(fresh.nextPaymentCheckAt).toBeNull();
+  });
+
+  it('fails closed: a Partner API failure changes nothing, even for a past-window row', async () => {
+    const row = await unverified({ createdAt: new Date(Date.now() - 5 * HOUR_MS) });
+    const before = await reload(row);
+    await expect(
+      verifyGrantedPurchases(app, [row], {
+        fetchSales: async () => {
+          throw new PartnerApiError('http', 'down');
+        },
+      }),
+    ).rejects.toBeInstanceOf(PartnerApiError);
+
+    const after = await reload(row);
+    expect(after.paymentStatus).toBe('UNVERIFIED'); // NOT marked NOT_RECEIVED
+    expect(after.nextPaymentCheckAt?.getTime()).toBe(before.nextPaymentCheckAt?.getTime());
+  });
+
+  it('leaves an admin override alone even when a sale exists', async () => {
+    const row = await unverified({ paymentStatus: 'NOT_RECEIVED', paymentStatusSource: 'MANUAL' });
+    await verifyGrantedPurchases(app, [row], { fetchSales: saleFor(row) });
+    const fresh = await reload(row);
+    expect(fresh.paymentStatus).toBe('NOT_RECEIVED');
+    expect(fresh.paymentStatusSource).toBe('MANUAL');
+    expect(fresh.paidAt).toBeNull();
+  });
+
+  it('never touches a held (hold-until-paid) row', async () => {
+    const row = await purchase({
+      paymentStatus: 'AWAITING',
+      nextPaymentCheckAt: new Date(Date.now() - MIN_MS),
+    });
+    await verifyGrantedPurchases(app, [row], { fetchSales: saleFor(row) });
+    expect((await reload(row)).paymentStatus).toBe('AWAITING');
   });
 });
