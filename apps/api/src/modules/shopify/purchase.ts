@@ -9,6 +9,9 @@ import {
 } from '../../lib/resolution-config.js';
 import { grantStore } from '../credits/shopify-ledger.js';
 import { getPack } from './packs.js';
+import type { FetchOneTimeSales } from './partner-api.js';
+import { PartnerApiError } from './partner-api.js';
+import { checkPurchases, type PaymentStatus } from './payment-settlement.js';
 import { shopifyGraphQL, warnIfManagedPricing } from './service.js';
 import { getValidAccessToken } from './token.js';
 
@@ -200,6 +203,7 @@ interface ConfirmDeps {
     store: Store,
     chargeId: string,
   ) => Promise<OneTimePurchaseState | null>;
+  fetchSales?: FetchOneTimeSales;
 }
 
 /**
@@ -229,7 +233,8 @@ export async function storeBalance(app: FastifyInstance, storeId: string): Promi
 }
 
 /**
- * Grants credits for a purchase Shopify says is ACTIVE.
+ * Grants credits for a purchase Shopify says is ACTIVE — or, under
+ * SHOPIFY_HOLD_UNTIL_PAID, parks a real (non-test) one as AWAITING payment.
  *
  * Shared by the merchant-facing confirm route and the
  * APP_PURCHASES_ONE_TIME_UPDATE webhook, which can race each other — a merchant
@@ -276,6 +281,44 @@ export async function grantForPurchase(
     return 0;
   }
   if (observed.status !== 'ACTIVE') return 0;
+
+  // Hold-until-paid: ACTIVE on a one-time charge means invoiced, not paid —
+  // Shopify collects afterwards and collection can fail (2026-10-09: two
+  // ACTIVE charges, one invoice Failed, both granted). So a real charge is
+  // parked AWAITING here and granted by payment-settlement.ts once the Partner
+  // API shows the sale. Test charges never produce a sale, so they keep the
+  // grant-on-ACTIVE path below. `=== true`: a revenue gate must read as off
+  // for anything but explicit true (tests cast Env and leave it undefined).
+  // Once held, always held — independent of the flag. Turning the flag off is
+  // the rollback, and without this a confirm revisit on an AWAITING row would
+  // fall through to grant-on-ACTIVE below and hand out unpaid credits. Rows
+  // already held settle only through payment-settlement.ts.
+  if (purchaseRow.paymentStatus !== 'NOT_REQUIRED') return 0;
+
+  if (!observed.test && app.env.SHOPIFY_HOLD_UNTIL_PAID === true) {
+    // A purchase already granted before the flag flipped (confirm revisited,
+    // webhook replayed) must not be pulled into AWAITING — it would show a
+    // pending banner for credits the merchant already has.
+    const [already] = await app.db
+      .select({ id: schema.shopifyCreditLedger.id })
+      .from(schema.shopifyCreditLedger)
+      .where(eq(schema.shopifyCreditLedger.externalRef, `shopify_pack:${observed.id}`))
+      .limit(1);
+    if (already) return 0;
+
+    // Conditional on NOT_REQUIRED, so a replayed webhook can never drag a
+    // PAID or UNPAID row back to AWAITING.
+    await app.db
+      .update(schema.shopifyCreditPurchases)
+      .set({ paymentStatus: 'AWAITING', nextPaymentCheckAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.shopifyCreditPurchases.id, purchaseRow.id),
+          eq(schema.shopifyCreditPurchases.paymentStatus, 'NOT_REQUIRED'),
+        ),
+      );
+    return 0;
+  }
 
   // The bound on test-funded credits. Counted from the ledger rather than a
   // column so it survives a store row being rewritten by a reinstall, and it
@@ -325,6 +368,56 @@ export async function grantForPurchase(
   return granted ? purchaseRow.credits : 0;
 }
 
+/** One Partner API call per purchase per this window — merchants' return pages poll every 5 s. */
+const PAYMENT_CHECK_THROTTLE_SEC = 10;
+
+/**
+ * On-demand payment check for one purchase, so the return page settles in
+ * seconds instead of waiting for the next loop tick. Throttled through Redis
+ * because the Partner API's 4 req/s limit is shared org-wide; a throttled or
+ * failed check — including an unreachable Redis — just reports the stored state
+ * (fail closed). The settlement loop still covers the row either way.
+ */
+async function checkPaymentNow(
+  app: FastifyInstance,
+  store: Store,
+  row: typeof schema.shopifyCreditPurchases.$inferSelect,
+  fetchSales?: FetchOneTimeSales,
+): Promise<void> {
+  // By now the grant and status update have committed, so a Redis outage must
+  // not turn this into a 500. Without the throttle we can't bound Partner API
+  // calls, so skip the check rather than risk the shared rate limit.
+  let claimed: string | null;
+  try {
+    claimed = await app.redis.set(
+      `shopify:paycheck:${row.id}`,
+      '1',
+      'EX',
+      PAYMENT_CHECK_THROTTLE_SEC,
+      'NX',
+    );
+  } catch (err) {
+    app.log.warn(
+      { err, purchaseId: row.id },
+      'payment-check throttle unavailable — skipping on-demand check',
+    );
+    return;
+  }
+  if (claimed !== 'OK') return;
+  try {
+    await checkPurchases(app, [row], { shop: store.shopDomain, fetchSales });
+  } catch (err) {
+    // checkPurchases already converts fetch failures to PartnerApiError and
+    // swallows per-row DB errors with a log, so this rethrow is a safety net
+    // for programming errors, not an expected path.
+    if (!(err instanceof PartnerApiError)) throw err;
+    app.log.warn(
+      { err, purchaseId: row.id },
+      'on-demand payment check failed — purchase stays pending',
+    );
+  }
+}
+
 /**
  * The merchant-facing confirm path, hit after Shopify's approval redirect.
  *
@@ -333,13 +426,26 @@ export async function grantForPurchase(
  * from Shopify. A merchant editing the URL can at worst point at another store's
  * row, which the storeId check rejects with a 404 — not a 403, which would
  * confirm that row exists.
+ *
+ * `creditsGranted` is advisory under SHOPIFY_HOLD_UNTIL_PAID: it is derived from
+ * the row's state after the check, so it can be non-zero when the settlement loop
+ * did the grant, or 0 when this call polled after the loop had already settled.
+ * The ledger is exactly-once regardless. Callers (the Shopify SPA) must key off
+ * `paymentStatus === 'PAID'` and `credits` to decide whether credits landed, and
+ * must not treat `creditsGranted === 0` as "not granted".
  */
 export async function confirmPurchase(
   app: FastifyInstance,
   store: Store,
   purchaseId: string,
   deps: ConfirmDeps = {},
-): Promise<{ status: string; creditsGranted: number; creditBalance: number }> {
+): Promise<{
+  status: string;
+  paymentStatus: PaymentStatus;
+  credits: number;
+  creditsGranted: number;
+  creditBalance: number;
+}> {
   const fetchPurchase = deps.fetchPurchase ?? defaultFetchPurchase;
 
   const [row] = await app.db
@@ -354,6 +460,8 @@ export async function confirmPurchase(
   if (!row.shopifyChargeId) {
     return {
       status: row.status,
+      paymentStatus: row.paymentStatus as PaymentStatus,
+      credits: row.credits,
       creditsGranted: 0,
       creditBalance: await storeBalance(app, store.id),
     };
@@ -364,15 +472,36 @@ export async function confirmPurchase(
     throw new AppError('SHOPIFY', 502, 'charge not found at Shopify');
   }
 
-  const creditsGranted = await grantForPurchase(app, store, row, observed);
+  let creditsGranted = await grantForPurchase(app, store, row, observed);
 
   await app.db
     .update(schema.shopifyCreditPurchases)
     .set({ status: observed.status, updatedAt: new Date() })
     .where(eq(schema.shopifyCreditPurchases.id, row.id));
 
+  // grantForPurchase may have just parked it AWAITING, so re-read before checking.
+  const reread = async () => {
+    const [r] = await app.db
+      .select()
+      .from(schema.shopifyCreditPurchases)
+      .where(eq(schema.shopifyCreditPurchases.id, row.id))
+      .limit(1);
+    return r;
+  };
+  let current = await reread();
+  if (current.paymentStatus === 'AWAITING' || current.paymentStatus === 'UNPAID') {
+    await checkPaymentNow(app, store, current, deps.fetchSales);
+    // Re-read rather than trust checkPurchases' outcome map: a concurrent
+    // settle can win, and the row is the only source of truth.
+    current = await reread();
+    // Advisory only (see docblock): reflects row state, not who wrote the ledger entry.
+    if (current.paymentStatus === 'PAID') creditsGranted = current.credits;
+  }
+
   return {
     status: observed.status,
+    paymentStatus: current.paymentStatus as PaymentStatus,
+    credits: current.credits,
     creditsGranted,
     creditBalance: await storeBalance(app, store.id),
   };

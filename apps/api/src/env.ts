@@ -91,6 +91,23 @@ const Env = z.object({
   // write "off" in a .env — coerces to true. That failure mode is silent and
   // hands out free product, so this one accepts only the literal 'true'.
   SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS: z.preprocess((v) => v === 'true', z.boolean()).default(false),
+  // Grant credit packs only once the Partner API shows the charge was PAID,
+  // not when it goes ACTIVE (= invoiced). Same literal-'true' pattern as
+  // SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS: it gates revenue, so anything but the
+  // exact string stays off. See docs/superpowers/specs/2026-10-09-shopify-hold-until-paid-design.md.
+  SHOPIFY_HOLD_UNTIL_PAID: z.preprocess((v) => v === 'true', z.boolean()).default(false),
+  // Partner API client token ("View financials" only) — org-scoped, a secret.
+  // Use a separate client per environment: the 4 req/s limit is per client.
+  // Blank placeholders in .env.example (FOO=) must not crash startup; use z.preprocess to treat '' as undefined.
+  SHOPIFY_PARTNER_API_TOKEN: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(1).optional(),
+  ),
+  // Numeric Partner org id from partners.shopify.com/<ORG_ID>/… — not secret.
+  SHOPIFY_PARTNER_ORG_ID: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().regex(/^\d+$/).optional(),
+  ),
   // Comma-separated email allowlist for the Catalog Video (PixVerse) feature.
   // Unset = open to everyone (dev default). Set in production to restrict the
   // feature to a soft-launch cohort without a code change.

@@ -4,23 +4,29 @@ import { useNavigate } from 'react-router-dom';
 import { AppFont } from '../components/AppFont';
 import { useConfirmWithRetry } from '../hooks/useConfirmWithRetry';
 import { apiFetch } from '../lib/api';
+import { creditsLanded, waitForPayment } from '../lib/purchase-wait';
+import type { PurchaseConfirmResponse } from '../types';
+
+const POLL_MS = 5_000;
+const WAIT_MS = 3 * 60_000;
 
 /**
  * Shopify sends the merchant here after they approve a one-time charge for a
- * credit pack (the `confirmationUrl` returned from `POST
- * /v1/shopify/billing/purchase`). Confirming is what actually grants the
- * credits they just paid for, so this page is the one place in the app
- * where a silent failure is least acceptable — there is no background
- * scheduler reconciling purchases, so a swallowed error here means the
- * merchant was charged and never finds out the credits didn't land.
+ * credit pack. Under hold-until-paid, approval is not payment: the charge is
+ * invoiced at approval and collected afterwards, so confirm may answer
+ * AWAITING. We poll for up to WAIT_MS (most payments land in 1–2 minutes),
+ * then hand off to the dashboard's PendingPaymentBanner — the api's settlement
+ * loop grants the credits whenever payment lands, even if this tab is closed.
+ * A failed confirm is still the one error here worth shouting about.
  */
 export default function BillingCallbackPage() {
   const navigate = useNavigate();
   const [declined, setDeclined] = useState(false);
+  const [waiting, setWaiting] = useState(false);
 
   const confirm = useCallback(async () => {
     const purchase = new URLSearchParams(window.location.search).get('purchase') ?? '';
-    return apiFetch<{ status: string; creditsGranted: number; creditBalance: number }>(
+    return apiFetch<PurchaseConfirmResponse>(
       `/v1/shopify/billing/purchase/confirm?purchase=${encodeURIComponent(purchase)}`,
     );
   }, []);
@@ -28,19 +34,33 @@ export default function BillingCallbackPage() {
   const { error, run } = useConfirmWithRetry(confirm);
 
   useEffect(() => {
-    void run().then((result) => {
-      if (!result.ok) return; // reauth redirect in flight, or error state already set
+    let cancelled = false;
+    void (async () => {
+      const first = await run();
+      if (!first.ok || cancelled) return; // reauth redirect in flight, or error state already set
       // A DECLINED purchase is a normal outcome, not a failure — the merchant
       // looked at the charge and said no. Sending them to the dashboard with
       // no comment would be confusing, but so would an error banner about a
       // charge that deliberately never happened.
-      if (result.data.status === 'DECLINED' || result.data.status === 'EXPIRED') {
+      if (first.data.status === 'DECLINED' || first.data.status === 'EXPIRED') {
         setDeclined(true);
         return;
       }
-      navigate('/', { replace: true });
-    });
-  }, [run, navigate]);
+      if (first.data.paymentStatus === 'AWAITING') setWaiting(true);
+      const data = await waitForPayment(first.data, confirm, {
+        pollMs: POLL_MS,
+        waitMs: WAIT_MS,
+        isCancelled: () => cancelled,
+      });
+      if (cancelled) return;
+      // See creditsLanded for why this isn't simply creditsGranted > 0.
+      const settled = creditsLanded(data);
+      navigate('/', { replace: true, state: settled ? { creditsAdded: data.credits } : undefined });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [run, confirm, navigate]);
 
   if (declined) {
     return (
@@ -88,7 +108,14 @@ export default function BillingCallbackPage() {
   return (
     <AppFont>
       <Page>
-        <Spinner accessibilityLabel="Confirming your purchase" size="large" />
+        <BlockStack gap="400" inlineAlign="center">
+          <Spinner accessibilityLabel="Confirming your payment" size="large" />
+          {waiting && (
+            <Text as="p" tone="subdued">
+              Confirming your payment with Shopify… this usually takes a minute or two.
+            </Text>
+          )}
+        </BlockStack>
       </Page>
     </AppFont>
   );

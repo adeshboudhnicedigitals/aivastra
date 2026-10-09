@@ -2,6 +2,129 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-09 — Shopify credit packs: hold until paid (implemented, flag off)
+
+- **Done:** credit-pack credits can now be held until Shopify has actually collected payment,
+  behind `SHOPIFY_HOLD_UNTIL_PAID` (off by default — behaviour unchanged until flipped).
+  Spec `docs/superpowers/specs/2026-10-09-shopify-hold-until-paid-design.md`, plan
+  `docs/superpowers/plans/2026-10-09-shopify-hold-until-paid.md`. Migration `0219` adds
+  `payment_status` / `paid_at` / `next_payment_check_at` to `shopify_credit_purchases`.
+  New: `partner-api.ts`, `payment-settlement.ts`, `startPaymentSettlementScheduler` (60s),
+  confirm-route on-demand check (Redis-throttled 10s), `GET /v1/shopify/billing/purchases/pending`,
+  admin `GET /admin/shopify-stores/:id/purchases` + `POST /admin/shopify/purchases/:id/check-payment`
+  (`credits.write`, audited), SPA return-page polling + `PendingPaymentBanner`.
+  Follow-up fixes that landed beyond the plan:
+  - Partner API client fails closed on malformed responses.
+  - `/v1/shopify/me` no longer counts held/unpaid purchases as paid (`hasPurchasedPack`).
+  - Settlement-tick test strengthened.
+  - Confirm throttle fails soft when Redis is down; `creditsGranted` is documented as advisory in
+    hold mode (the SPA keys off `paymentStatus` + credits).
+  - Admin purchases card is a single instance, the admin payment check is scoped to the store's
+    shop, and any settle error is surfaced via `onRowError`.
+- **Validation (2026-10-09, repo root, docker up):**
+  - `pnpm typecheck` — exit 0, all packages clean.
+  - `pnpm lint` — exit 0, 0 errors (765 warnings, 13 infos, pre-existing style diagnostics).
+  - `pnpm --filter @aivastra/api test` (unit) — 89 files / 812 tests passed.
+  - `pnpm --filter @aivastra/api test:integration` — 155 files / 1134 tests passed.
+  - `pnpm --filter @aivastra/shopify-admin test` — 13 files / 91 tests passed; `build` OK.
+  - `pnpm --filter @aivastra/admin build`, `@aivastra/db build`, `@aivastra/observability build` — OK.
+- **Rollout (not done — production ops):**
+  1. Deploy (migration runs via CI `db:migrate:prod`), flag still off.
+  2. Create a **production** Partner API client ("View financials" only), set
+     `SHOPIFY_PARTNER_API_TOKEN` + `SHOPIFY_PARTNER_ORG_ID` in `.env.production`, restart api.
+  3. On the VPS, inside the production api container (there is no root `.env` on the host; the
+     container mounts `/app/.env`): `docker exec aivastra-prod-api pnpm check:partner-transactions -- 3321168113`
+     must report PAID.
+  4. Set `SHOPIFY_HOLD_UNTIL_PAID=true`, restart api (runtime var, no rebuild).
+  5. Buy Silver on our store; confirm AWAITING → PAID within minutes, banner, toast, one ledger row.
+  6. Create the Grafana alert: alert when `shopify_purchases_overdue_payment_check > 0` for 15
+     minutes (and optionally `rate(shopify_payment_check_failures_total) > 0`). Record it here when done.
+- **Failed-Not-Done:** nothing failed in validation; rollout steps above are not done.
+- **Open:**
+  - SPA banner/return page verified only by unit tests for the poll logic plus build — no
+    component tests exist; verify by hand in rollout step 5.
+  - Known Minors not fixed: stale "received" note in
+    `PendingPaymentBanner`; a DECLINED/EXPIRED status discovered mid-poll navigates silently.
+  - `SHOPIFY_PARTNER_*` must be created per environment (staging as well as production).
+  - Grafana alert (rollout step 6) still to create.
+  - Per-row settlement failures have no metric: a row that keeps failing retries forever with only
+    log lines (add `shopify_payment_settle_row_failures_total`).
+  - UNPAID rows are never re-checked automatically after 30 days (consider a weekly re-check for ~90 days).
+  - The Partner API rate limit is not enforced org-wide: the loop plus the per-purchase confirm
+    throttle can exceed 4 req/s and get 429 (fail closed) — consider a Redis token bucket.
+  - Staging/local snapshots copy prod AWAITING rows and log `missing_config` every minute without
+    `SHOPIFY_PARTNER_*` (consider setting copied AWAITING rows to UNPAID in `scripts/staging/post-restore.sql`).
+  - The "received" note in `PendingPaymentBanner` and `BalanceCard` is not refreshed after a check.
+  - Mixed-flag stale-snapshot race on the old grant path only matters if two api processes run with
+    different flag values (prod has one container).
+
+## 2026-10-09 — Shopify real-payment test ($1 Silver on prod) and grant-on-ACTIVE finding
+
+- **Done:** ran a real-money purchase test of the Shopify credit-pack flow on our own (non-development)
+  store against production.
+  - **Pre-step — prod tree was dirty.** `/home/aivastra-app/htdocs/app.aivastra.com` (confirmed as the
+    CI deploy path; both prod containers carry its compose labels) had uncommitted edits made directly
+    on the VPS to `apps/api/src/modules/admin/fabric-garment-types.routes.ts` and
+    `apps/api/src/modules/jobs/routes.ts` — a real fix (fabric garment-type thumbnails used
+    `storage.publicUrl()`, which 404s in prod because `R2_PUBLIC_URL` is unset; switched to
+    `presignGet(key, 3600)`). Shipped through git as #504 → `dev`, #505 → `main` (`ddd020b1`); the
+    deploy's `git reset --hard` cleaned the tree. The VPS stash taken as a safety copy was verified
+    byte-identical to `67198853` before being dropped. Four untracked files remain on the VPS
+    (three `docs/superpowers/specs/` files and `lehanga_30_09_2026.json`) — not in the build, owner
+    to decide whether to commit or delete. **Don't edit code on the prod VPS** — the next deploy
+    silently discards it, and until then prod runs code no PR or CI ever saw.
+  - **Test:** temporarily set `pack_10.priceUsd` 10 → 1 in both `apps/api/src/modules/shopify/packs.ts`
+    and `apps/shopify/src/lib/packs.ts` (the SPA bakes its own copy at build time), rebuilt and
+    force-recreated `api` + `shopify-admin` only (no migrations, nothing committed). shopify-admin
+    bundle went `index-BZFA-xLj.js` → `index-DQYiTjP8.js`; containers recreated 05:52:57Z.
+    Two charges approved: `…/3321135345` (12:06 IST) and `…/3321168113` (12:08 IST). Each granted 800
+    credits under reason `SHOPIFY_PACK` (not `_TEST`, as expected for a real store) on its own
+    `shopify_pack:{chargeId}` ref — no double-grant. Ledger showed no other grants in the window.
+  - **Reverted:** `git checkout --` on both files, rebuilt and recreated `api` + `shopify-admin`.
+    VPS tree back to `ddd020b1` with no tracked changes. The revert report didn't state the
+    post-revert bundle hash or that the SPA shows $10 again — confirm both in the app.
+- **Finding — credits are granted on `ACTIVE`, before payment is collected.** One of the two
+  charges' Shopify invoices shows **Failed** (`gid://billing/Invoice/601809415`, ₹115.90) while the
+  other is **Paid** (`601815934`), yet both granted 800 credits. Code: `grantForPurchase`
+  (`apps/api/src/modules/shopify/purchase.ts`) grants only when the live re-fetched status is
+  `ACTIVE`; both the confirm route and the `app_purchases_one_time_update` webhook use that same
+  `node(id:)` read. Nothing in the system can see payment collection.
+  - Shopify's `AppPurchaseStatus` reference defines `ACTIVE` as "approved by the merchant and has been
+    activated by the app … charged to the merchant and paid out to the partner", so granting on
+    `ACTIVE` is the documented pattern. But Shopify staff on community.shopify.dev clarify that for a
+    one-time charge `ACTIVE` means **invoiced, not paid**: each charge gets its own invoice at
+    approval, collection is automatic but can fail or lag, the partner is paid only once the merchant
+    settles, and there is no Admin API field or webhook for collection. The only signal is the Partner
+    API `transactions` query (type `APP_ONE_TIME_SALE`), which shows a record only after payment
+    (staff statement; not yet confirmed against the Partner API reference).
+  - A failed invoice stays owed ("Pay now" in the store's billing), and Shopify eventually freezes
+    stores with unpaid bills, which limits abuse. Exposure per unpaid charge is up to 800 / 2,250 /
+    10,000 credits for the $10 / $25 / $100 packs.
+  - **Options considered:** A — keep granting on `ACTIVE` (today; no work; instant credits).
+    B — hold every grant until the Partner API shows payment (Partner API token + poller + pending
+    state; credits arrive hours to days late, which honest merchants read as "paid and got
+    nothing"). C — grant on `ACTIVE`, reconcile after N days, claw back unpaid (moderate work off the
+    purchase path; negative balances for non-payers). D — like C but alert only.
+  - **Decision pending (product):** recommendation is A + D — keep the documented grant point, and
+    add a periodic report of `ACTIVE` charges with no matching `APP_ONE_TIME_SALE` transaction after
+    N days, to measure whether unpaid charges happen in practice before building clawback (C, likely
+    scoped to `pack_100`). Requires a Partner API access token, which isn't configured anywhere yet.
+- **Failed-Not-Done / open:**
+  - The failed ₹115.90 invoice on our own store still needs paying (Shopify admin → Settings →
+    Billing → Pay now), otherwise the store drifts toward a billing freeze. The 1,600 test credits
+    were kept; if they're ever removed, use an admin credit adjustment (audited), not SQL.
+  - Unexplained errors in `aivastra-prod-api` logs, seen during the test but **not yet shown to be
+    related to it or to predate it**: `shopify token refresh failed` (14), `webhook reconcile: tick
+    failed for store` (11), and `auto-refill reconciliation replay threw` with statusCode 403 every
+    15 min. The 403 replay matters most — see CLAUDE.md on stranded `PENDING` auto-refill rows,
+    which must never be resolved by marking them `FAILED`. Needs a read-only investigation (which
+    stores, underlying errors, Grafana history before 05:52:57Z).
+  - Short fragments of `id_token=`/`hmac=` values from nginx logs were printed into the VPS
+    session's transcript; they're short-lived and truncated, so no rotation was done.
+  - `CLAUDE.md` still points at `docs/audits/open-findings.md` as the findings backlog, but that
+    file is gitignored and absent from every checkout; findings keep landing in this log instead.
+    CLAUDE.md should be updated to say so.
+
 ## 2026-10-06 — Fabric to Garment feature port (from propicly)
 
 - **Done:** ported the "Fabric to Garment" feature from the sister repo `propicly` end-to-end, following `docs/superpowers/plans/2026-10-06-fabric-to-garment-port.md`'s 12-task plan — a user uploads a flat fabric photo, picks an admin-curated garment-type preset, and a ComfyUI workflow stitches the fabric into that garment's shape.

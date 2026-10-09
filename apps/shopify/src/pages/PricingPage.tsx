@@ -20,6 +20,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppFont } from '../components/AppFont';
 import { BalanceCard } from '../components/BalanceCard';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { PendingPaymentBanner } from '../components/PendingPaymentBanner';
 import { apiFetch, navigateTopLevel } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import { PACK_DISPLAY, SHARED_FEATURE_BULLETS, tryOnsFromCredits } from '../lib/packs';
@@ -149,6 +150,7 @@ export default function PricingPage() {
           <ErrorBanner error={error} onRetry={load} />
 
           {me && <LowCreditsBanner me={me} hideCapReached />}
+          {me && <PendingPaymentBanner shopDomain={me.store.shopDomain} include="all" />}
 
           <BalanceCard me={me} />
 

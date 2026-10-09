@@ -1,8 +1,10 @@
 import { schema } from '@aivastra/db';
 import { desc, eq, sql } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { type FetchOneTimeSales, PartnerApiError } from '../shopify/partner-api.js';
+import { checkPurchases } from '../shopify/payment-settlement.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
@@ -24,6 +26,80 @@ function utcMidnight(d: Date): Date {
 }
 function utcDateKey(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Core of POST /admin/shopify/purchases/:id/check-payment, exported so the
+ * audit-in-transaction behaviour can be driven directly with a stubbed Partner
+ * API (HTTP tests can't inject one).
+ *
+ * The audit row is written inside the settlement transaction (fail-closed
+ * admin-mutation invariant) and only when this call actually flipped the row —
+ * a check that finds nothing writes nothing.
+ */
+export async function adminCheckPurchasePayment(
+  app: FastifyInstance,
+  purchaseId: string,
+  actor: { userId: string; role: string },
+  request: FastifyRequest,
+  deps: { fetchSales?: FetchOneTimeSales } = {},
+): Promise<{ paymentStatus: string }> {
+  const load = async () => {
+    const [r] = await app.db
+      .select()
+      .from(schema.shopifyCreditPurchases)
+      .where(eq(schema.shopifyCreditPurchases.id, purchaseId))
+      .limit(1);
+    return r;
+  };
+  const row = await load();
+  if (!row) throw new AppError('NOT_FOUND', 404, 'purchase not found');
+  if (row.paymentStatus !== 'AWAITING' && row.paymentStatus !== 'UNPAID') {
+    return { paymentStatus: row.paymentStatus };
+  }
+
+  // Same scoping as the merchant confirm path: one store's sales, not the org's.
+  const [store] = await app.db
+    .select({ shopDomain: schema.shopifyStores.shopDomain })
+    .from(schema.shopifyStores)
+    .where(eq(schema.shopifyStores.id, row.storeId))
+    .limit(1);
+
+  // checkPurchases logs and swallows per-row failures (grant, PAID flip, audit)
+  // so one bad row can't abandon a batch. For a single admin action that would
+  // turn a failed settlement (which correctly rolled back) into a silent 200
+  // with status AWAITING, so we remember the first failure and re-raise it.
+  let rowError: unknown;
+  try {
+    await checkPurchases(app, [row], {
+      shop: store?.shopDomain,
+      fetchSales: deps.fetchSales,
+      onRowError: (_r, err) => {
+        rowError ??= err;
+      },
+      onSettled: async (tx, settled) => {
+        await recordAudit(tx, {
+          actor,
+          action: 'shopify_purchase.settle',
+          resourceType: 'shopify_credit_purchases',
+          resourceId: settled.id,
+          after: { credits: settled.credits, chargeId: settled.shopifyChargeId },
+          request,
+        });
+      },
+    });
+  } catch (err) {
+    if (err instanceof PartnerApiError) {
+      throw new AppError('SHOPIFY', 502, `Partner API unavailable: ${err.reason}`);
+    }
+    throw err;
+  }
+  if (rowError) throw rowError;
+
+  // Report the database, not checkPurchases' outcome map: a concurrent settle
+  // (loop or merchant confirm) can win the flip, and the map doesn't know.
+  const fresh = await load();
+  return { paymentStatus: fresh?.paymentStatus ?? row.paymentStatus };
 }
 
 export async function adminShopifyStoresRoutes(app: FastifyInstance) {
@@ -219,6 +295,50 @@ export async function adminShopifyStoresRoutes(app: FastifyInstance) {
       const nextCursor =
         entries.length === limit ? entries[entries.length - 1].createdAt.toISOString() : null;
       return { entries, nextCursor };
+    },
+  );
+
+  app.get(
+    '/admin/shopify-stores/:id/purchases',
+    { preHandler: RO, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const purchases = await app.db
+        .select({
+          id: schema.shopifyCreditPurchases.id,
+          packId: schema.shopifyCreditPurchases.packId,
+          credits: schema.shopifyCreditPurchases.credits,
+          priceUsdCents: schema.shopifyCreditPurchases.priceUsdCents,
+          status: schema.shopifyCreditPurchases.status,
+          paymentStatus: schema.shopifyCreditPurchases.paymentStatus,
+          paidAt: schema.shopifyCreditPurchases.paidAt,
+          createdAt: schema.shopifyCreditPurchases.createdAt,
+          shopifyChargeId: schema.shopifyCreditPurchases.shopifyChargeId,
+        })
+        .from(schema.shopifyCreditPurchases)
+        .where(eq(schema.shopifyCreditPurchases.storeId, id))
+        .orderBy(desc(schema.shopifyCreditPurchases.createdAt))
+        .limit(50);
+      return { purchases };
+    },
+  );
+
+  // credits.write, not a shopify_stores capability: this can grant credits, and
+  // shopify_stores only has read/delete.
+  app.post(
+    '/admin/shopify/purchases/:id/check-payment',
+    {
+      preHandler: requirePermission('credits.write'),
+      schema: { params: z.object({ id: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      return adminCheckPurchasePayment(
+        app,
+        id,
+        { userId: req.userId, role: req.adminRole as string },
+        req,
+      );
     },
   );
 
