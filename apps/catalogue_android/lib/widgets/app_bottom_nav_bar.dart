@@ -57,7 +57,8 @@ class AppBottomNavBar extends StatelessWidget {
     );
     final radius = BorderRadius.circular(AppDimens.sdp(context, '_32sdp'));
     final accentWidth = AppDimens.sdp(context, '_55sdp');
-    final accentHeight = AppDimens.sdp(context, '_3sdp');
+    // 1sdp taller than the old pill so the slanted sides actually read.
+    final accentHeight = AppDimens.sdp(context, '_4sdp');
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -124,20 +125,23 @@ class AppBottomNavBar extends StatelessWidget {
                         curve: Curves.easeOut,
                         top: 0,
                         left: accentLeft,
-                        child: Container(
-                          width: accentWidth,
-                          height: accentHeight,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(
-                              AppDimens.sdp(context, '_2sdp'),
-                            ),
-                            gradient: const LinearGradient(
-                              begin: Alignment.centerLeft,
-                              end: Alignment.centerRight,
-                              colors: [
-                                AppColors.pinkGradientStart,
-                                Color(0xFF4C6FF0),
-                              ],
+                        // Flat-topped trapezoid (full width along the bar's top
+                        // edge, sides slanting inward to a narrower bottom),
+                        // per the design reference — not a rounded pill.
+                        child: ClipPath(
+                          clipper: const _AccentTrapezoidClipper(),
+                          child: Container(
+                            width: accentWidth,
+                            height: accentHeight,
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                                colors: [
+                                  AppColors.pinkGradientStart,
+                                  Color(0xFF4C6FF0),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -152,6 +156,26 @@ class AppBottomNavBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The selected-tab accent's outline: each bottom corner sits inward by the
+/// shape's own height, giving the ~45° slanted sides of the reference.
+class _AccentTrapezoidClipper extends CustomClipper<Path> {
+  const _AccentTrapezoidClipper();
+
+  @override
+  Path getClip(Size size) {
+    final inset = size.height;
+    return Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width - inset, size.height)
+      ..lineTo(inset, size.height)
+      ..close();
+  }
+
+  @override
+  bool shouldReclip(_AccentTrapezoidClipper oldClipper) => false;
 }
 
 class _NavItemButton extends StatelessWidget {

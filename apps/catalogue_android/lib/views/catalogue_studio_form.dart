@@ -16,6 +16,7 @@ import '../features/studio/application/catalogue_selection_controller.dart';
 import '../features/studio/application/catalogue_selection_state.dart';
 import '../features/studio/application/studio_reference_providers.dart';
 import '../features/studio/data/models/catalog_node.dart';
+import '../features/studio/data/models/face_model.dart';
 import '../features/studio/data/models/garment_type.dart';
 import '../features/studio/data/models/gender.dart';
 import '../features/studio/data/models/pose_preset.dart';
@@ -38,6 +39,61 @@ String _genderAvatarAsset(Gender gender) => switch (gender) {
   Gender.boys => AppAssets.genderBoy,
   Gender.girls => AppAssets.genderGirl,
 };
+
+// Same labels and order as the web app's model picker (studio/page.tsx's
+// CONTINENT_LABELS / CONTINENT_ORDER).
+const _continentLabels = {
+  'asia': 'Asia',
+  'africa': 'Africa',
+  'europe': 'Europe',
+  'north_america': 'North America',
+  'south_america': 'South America',
+  'oceania': 'Oceania',
+};
+
+/// Continents are admin-defined slugs, not a fixed set — any slug an admin
+/// added that isn't in [_continentLabels] falls back to a title-cased label.
+String _continentLabel(String slug) =>
+    _continentLabels[slug] ??
+    slug
+        .split('_')
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1))
+        .join(' ');
+
+/// The Model "More" sheet's filter categories: the API has no separate face
+/// category list — a face's category is its `continent`, with null/empty
+/// meaning the "Global" bucket. Mirrors web's faceContinents: known
+/// continents in their fixed order, admin-added ones alphabetically, Global
+/// last; only continents that actually have a face appear.
+List<PickableCategory> _faceContinentCategories(List<FaceModel> faces) {
+  const global = 'global';
+  final bySlug = <String, List<PickableThumb>>{};
+  for (final face in faces) {
+    final continent = face.continent;
+    final slug = continent == null || continent.isEmpty ? global : continent;
+    (bySlug[slug] ??= []).add((
+      id: face.id,
+      label: face.label,
+      imageUrl: face.thumbnailUrl,
+      tint: AppColors.pinkGradientStart,
+    ));
+  }
+  final extra =
+      bySlug.keys
+          .where((s) => s != global && !_continentLabels.containsKey(s))
+          .toList()
+        ..sort((a, b) => _continentLabel(a).compareTo(_continentLabel(b)));
+  return [
+    for (final slug in [
+      ..._continentLabels.keys.where(bySlug.containsKey),
+      ...extra,
+    ])
+      (id: slug, label: _continentLabel(slug), items: bySlug[slug]!),
+    if (bySlug.containsKey(global))
+      (id: global, label: 'Global', items: bySlug[global]!),
+  ];
+}
 
 const _aspectRatioOptions = ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9'];
 const _platformOptions = [
@@ -64,7 +120,6 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
   File? _palluFile;
   String? _submitError;
   bool _isSubmitting = false;
-  int? _selectedBackgroundCategoryId;
 
   // First-open spotlight walkthrough targets — see _maybeShowTutorial.
   final _catalogueForKey = GlobalKey();
@@ -164,7 +219,6 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
       _lowerFile = null;
       _thirdFile = null;
       _palluFile = null;
-      _selectedBackgroundCategoryId = null;
     });
   }
 
@@ -394,120 +448,135 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                 ],
               ),
               SizedBox(height: sectionGap),
-              Row(
-                children: [
-                  Expanded(
-                    child: LabeledDropdownRow(
-                      key: _catalogueForKey,
+              // Dense boxes with a small thumbnail: at the full-width row's
+              // sizes each half-width box left ~40dp for text on a phone —
+              // "Catalogue For" wrapped mid-word and the value ellipsized
+              // to "Wom…".
+              Builder(
+                builder: (context) {
+                  final catalogueForField = LabeledDropdownRow(
+                    key: _catalogueForKey,
+                    bordered: true,
+                    dense: true,
+                    iconBoxSize: AppDimens.sdp(context, '_32sdp'),
+                    label: AppStrings.catalogueForLabel,
+                    value: selection.gender.displayLabel,
+                    icon: Icons.person_rounded,
+                    tint: AppColors.pinkGradientStart,
+                    image: Image.asset(
+                      _genderAvatarAsset(selection.gender),
+                      fit: BoxFit.cover,
+                    ),
+                    trailingIcon: Icons.keyboard_arrow_down_rounded,
+                    onTap: () async {
+                      // Same thumbnail-grid picker style as Garment Type,
+                      // Model, Background, etc. — no photo per gender, so
+                      // each tile falls back to its icon+tint placeholder.
+                      final picked = await showSingleThumbnailPickerSheet(
+                        context,
+                        title: AppStrings.catalogueForLabel,
+                        items: [
+                          for (final g in Gender.values)
+                            (
+                              id: g.apiValue,
+                              label: g.displayLabel,
+                              imageUrl: _genderAvatarAsset(g),
+                              tint: AppColors.pinkGradientStart,
+                            ),
+                        ],
+                        selectedId: selection.gender.apiValue,
+                      );
+                      if (picked == null) return;
+                      controller.selectGender(
+                        Gender.values.firstWhere((g) => g.apiValue == picked),
+                      );
+                      _resetGarmentTypeDependentState();
+                    },
+                  );
+                  final garmentTypeField = garmentTypesAsync.when(
+                    loading: () => LabeledDropdownRow(
                       bordered: true,
-                      iconBoxSize: AppDimens.sdp(context, '_44sdp'),
-                      label: AppStrings.catalogueForLabel,
-                      value: selection.gender.displayLabel,
-                      icon: Icons.person_rounded,
+                      dense: true,
+                      iconBoxSize: AppDimens.sdp(context, '_32sdp'),
+                      label: AppStrings.garmentTypeLabel,
+                      value: 'Loading…',
+                      icon: Icons.checkroom_rounded,
                       tint: AppColors.pinkGradientStart,
-                      image: Image.asset(
-                        _genderAvatarAsset(selection.gender),
-                        fit: BoxFit.cover,
-                      ),
-                      trailingIcon: Icons.keyboard_arrow_down_rounded,
-                      onTap: () async {
-                        // Same thumbnail-grid picker style as Garment Type,
-                        // Model, Background, etc. — no photo per gender, so
-                        // each tile falls back to its icon+tint placeholder.
-                        final picked = await showSingleThumbnailPickerSheet(
-                          context,
-                          title: AppStrings.catalogueForLabel,
-                          items: [
-                            for (final g in Gender.values)
-                              (
-                                id: g.apiValue,
-                                label: g.displayLabel,
-                                imageUrl: _genderAvatarAsset(g),
-                                tint: AppColors.pinkGradientStart,
-                              ),
-                          ],
-                          selectedId: selection.gender.apiValue,
-                        );
-                        if (picked == null) return;
-                        controller.selectGender(
-                          Gender.values.firstWhere((g) => g.apiValue == picked),
-                        );
-                        _resetGarmentTypeDependentState();
-                      },
+                      onTap: () {},
                     ),
-                  ),
-                  SizedBox(width: fieldGap),
-                  Expanded(
-                    child: garmentTypesAsync.when(
-                      loading: () => LabeledDropdownRow(
+                    error: (_, _) => LabeledDropdownRow(
+                      bordered: true,
+                      dense: true,
+                      iconBoxSize: AppDimens.sdp(context, '_32sdp'),
+                      label: AppStrings.garmentTypeLabel,
+                      value: 'Unavailable',
+                      icon: Icons.checkroom_rounded,
+                      tint: AppColors.pinkGradientStart,
+                      onTap: () {},
+                    ),
+                    data: (garmentTypes) {
+                      return LabeledDropdownRow(
+                        key: _garmentTypeKey,
                         bordered: true,
-                        iconBoxSize: AppDimens.sdp(context, '_44sdp'),
+                        dense: true,
+                        iconBoxSize: AppDimens.sdp(context, '_32sdp'),
                         label: AppStrings.garmentTypeLabel,
-                        value: 'Loading…',
+                        value: garmentType?.label ?? 'Select',
                         icon: Icons.checkroom_rounded,
                         tint: AppColors.pinkGradientStart,
-                        onTap: () {},
-                      ),
-                      error: (_, _) => LabeledDropdownRow(
-                        bordered: true,
-                        iconBoxSize: AppDimens.sdp(context, '_44sdp'),
-                        label: AppStrings.garmentTypeLabel,
-                        value: 'Unavailable',
-                        icon: Icons.checkroom_rounded,
-                        tint: AppColors.pinkGradientStart,
-                        onTap: () {},
-                      ),
-                      data: (garmentTypes) {
-                        return LabeledDropdownRow(
-                          key: _garmentTypeKey,
-                          bordered: true,
-                          iconBoxSize: AppDimens.sdp(context, '_44sdp'),
-                          label: AppStrings.garmentTypeLabel,
-                          value: garmentType?.label ?? 'Select',
-                          icon: Icons.checkroom_rounded,
-                          tint: AppColors.pinkGradientStart,
-                          image: garmentType?.thumbnailUrl == null
-                              ? null
-                              : AppNetworkImage(
-                                  garmentType!.thumbnailUrl!,
-                                  thumbnail: true,
-                                  errorBuilder: (_) => Icon(
-                                    Icons.checkroom_rounded,
-                                    color: AppColors.pinkGradientStart,
-                                    size: AppDimens.sdp(context, '_44sdp') * 0.5,
-                                  ),
+                        image: garmentType?.thumbnailUrl == null
+                            ? null
+                            : AppNetworkImage(
+                                garmentType!.thumbnailUrl!,
+                                thumbnail: true,
+                                errorBuilder: (_) => Icon(
+                                  Icons.checkroom_rounded,
+                                  color: AppColors.pinkGradientStart,
+                                  size: AppDimens.sdp(context, '_32sdp') * 0.5,
                                 ),
-                          onTap: () async {
-                            // A real thumbnail grid instead of a plain text
-                            // list — matches every other picker sheet in
-                            // this form (Model, Background, Poses, Lower
-                            // Garment, Footwear).
-                            final picked = await showSingleThumbnailPickerSheet(
-                              context,
-                              title: AppStrings.garmentTypeLabel,
-                              items: [
-                                for (final g in garmentTypes)
-                                  (
-                                    id: g.id,
-                                    label: g.label,
-                                    imageUrl: g.thumbnailUrl,
-                                    tint: AppColors.pinkGradientStart,
-                                  ),
-                              ],
-                              selectedId: garmentType?.id,
-                            );
-                            if (picked == null) return;
-                            final match = garmentTypes.firstWhere(
-                              (g) => g.id == picked,
-                            );
-                            controller.selectGarmentType(match);
-                            _resetGarmentTypeDependentState();
-                          },
-                        );
-                      },
+                              ),
+                        onTap: () async {
+                          // A real thumbnail grid instead of a plain text
+                          // list — matches every other picker sheet in
+                          // this form (Model, Background, Poses, Lower
+                          // Garment, Footwear).
+                          final picked = await showSingleThumbnailPickerSheet(
+                            context,
+                            title: AppStrings.garmentTypeLabel,
+                            items: [
+                              for (final g in garmentTypes)
+                                (
+                                  id: g.id,
+                                  label: g.label,
+                                  imageUrl: g.thumbnailUrl,
+                                  tint: AppColors.pinkGradientStart,
+                                ),
+                            ],
+                            selectedId: garmentType?.id,
+                          );
+                          if (picked == null) return;
+                          final match = garmentTypes.firstWhere(
+                            (g) => g.id == picked,
+                          );
+                          controller.selectGarmentType(match);
+                          _resetGarmentTypeDependentState();
+                        },
+                      );
+                    },
+                  );
+                  // IntrinsicHeight + stretch keeps both boxes the same
+                  // height when one value wraps to a second line.
+                  return IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(child: catalogueForField),
+                        SizedBox(width: AppDimens.sdp(context, '_8sdp')),
+                        Expanded(child: garmentTypeField),
+                      ],
                     ),
-                  ),
-                ],
+                  );
+                },
               ),
               if (garmentType != null) ...[
                 SizedBox(height: sectionGap),
@@ -520,78 +589,82 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                 // with just a remove button, since repeating that summary
                 // per box wouldn't fit.
                 () {
-                  final boxes = <
-                    ({
-                      String label,
-                      File? file,
-                      bool uploading,
-                      bool uploaded,
-                      VoidCallback onUpload,
-                      VoidCallback onRemove,
-                    })
-                  >[
-                    (
-                      label: garmentType.sareeTwoInputCapable
-                          ? 'Body'
-                          : garmentType.upperUploadLabel ?? garmentType.label,
-                      file: _upperFile,
-                      uploading: selection.isUploadingUpper,
-                      uploaded: selection.upperGarmentKey != null,
-                      onUpload: () => _pickUpload((file) async {
-                        setState(() => _upperFile = file);
-                        await controller.pickAndUploadUpper(file);
-                      }),
-                      onRemove: () {
-                        setState(() => _upperFile = null);
-                        controller.removeUpperUpload();
-                      },
-                    ),
-                    if (garmentType.sareeTwoInputCapable)
-                      (
-                        label: 'Pallu',
-                        file: _palluFile,
-                        uploading: selection.isUploadingPallu,
-                        uploaded: selection.palluGarmentKey != null,
-                        onUpload: () => _pickUpload((file) async {
-                          setState(() => _palluFile = file);
-                          await controller.pickAndUploadPallu(file);
-                        }),
-                        onRemove: () {
-                          setState(() => _palluFile = null);
-                          controller.removePalluUpload();
-                        },
-                      ),
-                    if (garmentType.requiresLowerUpload)
-                      (
-                        label: garmentType.lowerUploadLabel ?? 'Bottom Wear',
-                        file: _lowerFile,
-                        uploading: selection.isUploadingLower,
-                        uploaded: selection.lowerGarmentKey != null,
-                        onUpload: () => _pickUpload((file) async {
-                          setState(() => _lowerFile = file);
-                          await controller.pickAndUploadLower(file);
-                        }),
-                        onRemove: () {
-                          setState(() => _lowerFile = null);
-                          controller.removeLowerUpload();
-                        },
-                      ),
-                    if (garmentType.requiresThirdUpload)
-                      (
-                        label: garmentType.thirdUploadLabel ?? 'Extra Piece',
-                        file: _thirdFile,
-                        uploading: selection.isUploadingThird,
-                        uploaded: selection.thirdGarmentKey != null,
-                        onUpload: () => _pickUpload((file) async {
-                          setState(() => _thirdFile = file);
-                          await controller.pickAndUploadThird(file);
-                        }),
-                        onRemove: () {
-                          setState(() => _thirdFile = null);
-                          controller.removeThirdUpload();
-                        },
-                      ),
-                  ];
+                  final boxes =
+                      <
+                        ({
+                          String label,
+                          File? file,
+                          bool uploading,
+                          bool uploaded,
+                          VoidCallback onUpload,
+                          VoidCallback onRemove,
+                        })
+                      >[
+                        (
+                          label: garmentType.sareeTwoInputCapable
+                              ? 'Body'
+                              : garmentType.upperUploadLabel ??
+                                    garmentType.label,
+                          file: _upperFile,
+                          uploading: selection.isUploadingUpper,
+                          uploaded: selection.upperGarmentKey != null,
+                          onUpload: () => _pickUpload((file) async {
+                            setState(() => _upperFile = file);
+                            await controller.pickAndUploadUpper(file);
+                          }),
+                          onRemove: () {
+                            setState(() => _upperFile = null);
+                            controller.removeUpperUpload();
+                          },
+                        ),
+                        if (garmentType.sareeTwoInputCapable)
+                          (
+                            label: 'Pallu',
+                            file: _palluFile,
+                            uploading: selection.isUploadingPallu,
+                            uploaded: selection.palluGarmentKey != null,
+                            onUpload: () => _pickUpload((file) async {
+                              setState(() => _palluFile = file);
+                              await controller.pickAndUploadPallu(file);
+                            }),
+                            onRemove: () {
+                              setState(() => _palluFile = null);
+                              controller.removePalluUpload();
+                            },
+                          ),
+                        if (garmentType.requiresLowerUpload)
+                          (
+                            label:
+                                garmentType.lowerUploadLabel ?? 'Bottom Wear',
+                            file: _lowerFile,
+                            uploading: selection.isUploadingLower,
+                            uploaded: selection.lowerGarmentKey != null,
+                            onUpload: () => _pickUpload((file) async {
+                              setState(() => _lowerFile = file);
+                              await controller.pickAndUploadLower(file);
+                            }),
+                            onRemove: () {
+                              setState(() => _lowerFile = null);
+                              controller.removeLowerUpload();
+                            },
+                          ),
+                        if (garmentType.requiresThirdUpload)
+                          (
+                            label:
+                                garmentType.thirdUploadLabel ?? 'Extra Piece',
+                            file: _thirdFile,
+                            uploading: selection.isUploadingThird,
+                            uploaded: selection.thirdGarmentKey != null,
+                            onUpload: () => _pickUpload((file) async {
+                              setState(() => _thirdFile = file);
+                              await controller.pickAndUploadThird(file);
+                            }),
+                            onRemove: () {
+                              setState(() => _thirdFile = null);
+                              controller.removeThirdUpload();
+                            },
+                          ),
+                      ];
                   final isMulti = boxes.length > 1;
 
                   return Column(
@@ -609,26 +682,43 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                       ),
                       SizedBox(height: AppDimens.sdp(context, '_14sdp')),
                       if (isMulti)
-                        Row(
+                        // Each box is at least its width / 1.05 tall, but the
+                        // row grows past that when a box's own content needs
+                        // more: three across on a phone are too narrow for a
+                        // fixed aspect — a two-line label ("Upload Suit
+                        // Blazer") plus the file hint overflowed it.
+                        // IntrinsicHeight + stretch keeps all boxes level.
+                        LayoutBuilder(
                           key: _uploadKey,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            for (var i = 0; i < boxes.length; i++) ...[
-                              if (i > 0) SizedBox(width: fieldGap),
-                              Expanded(
-                                child: _UploadGarmentBox(
-                                  label: boxes[i].label,
-                                  file: boxes[i].file,
-                                  uploading: boxes[i].uploading,
-                                  uploaded: boxes[i].uploaded,
-                                  tint: AppColors.pinkGradientStart,
-                                  largeThumbnail: true,
-                                  onUpload: boxes[i].onUpload,
-                                  onRemove: boxes[i].onRemove,
-                                ),
+                          builder: (context, constraints) {
+                            final boxWidth =
+                                (constraints.maxWidth -
+                                    fieldGap * (boxes.length - 1)) /
+                                boxes.length;
+                            return IntrinsicHeight(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  for (var i = 0; i < boxes.length; i++) ...[
+                                    if (i > 0) SizedBox(width: fieldGap),
+                                    Expanded(
+                                      child: _UploadGarmentBox(
+                                        label: boxes[i].label,
+                                        file: boxes[i].file,
+                                        uploading: boxes[i].uploading,
+                                        uploaded: boxes[i].uploaded,
+                                        tint: AppColors.pinkGradientStart,
+                                        largeThumbnail: true,
+                                        rowBoxHeight: boxWidth / 1.05,
+                                        onUpload: boxes[i].onUpload,
+                                        onRemove: boxes[i].onRemove,
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
-                            ],
-                          ],
+                            );
+                          },
                         )
                       else
                         _UploadGarmentBox(
@@ -739,15 +829,6 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                                     selection.faceId!,
                                 },
                               );
-                              final thumbs = [
-                                for (final face in faces)
-                                  (
-                                    id: face.id,
-                                    label: face.label,
-                                    imageUrl: face.thumbnailUrl,
-                                    tint: AppColors.pinkGradientStart,
-                                  ),
-                              ];
                               return LimitedThumbnailRow(
                                 itemCount: faces.length,
                                 spacing: tileGap,
@@ -768,10 +849,13 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                                     },
                                 onMore: () async {
                                   final picked =
-                                      await showSingleThumbnailPickerSheet(
+                                      await showFilterableThumbnailPickerSheet(
                                         context,
                                         title: AppStrings.modelLabel,
-                                        items: thumbs,
+                                        allLabel: 'All Models',
+                                        categories: _faceContinentCategories(
+                                          facesRaw,
+                                        ),
                                         selectedId: selection.faceId,
                                       );
                                   if (picked != null) {
@@ -831,38 +915,42 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                                   );
                                   return SizedBox(
                                     height: tileHeight + captionAllowance,
-                                    child: ListView.separated(
-                                      scrollDirection: Axis.horizontal,
-                                      // The selected tile's check badge sits
-                                      // 4px outside the tile's top-right
-                                      // corner; the list's default clip cut
-                                      // it (and the border edge) off. Every
-                                      // other row here is a plain Row, which
-                                      // doesn't clip.
-                                      clipBehavior: Clip.none,
-                                      itemCount: templates.length,
-                                      separatorBuilder: (_, _) =>
-                                          SizedBox(width: tileGap),
-                                      itemBuilder: (context, index) {
-                                        final template = templates[index];
-                                        return SelectableThumbnailTile(
-                                          icon: Icons.landscape_rounded,
-                                          imageUrl: template.thumbnailUrl,
-                                          tint: AppColors.pinkGradientStart,
-                                          caption: template.label,
-                                          width: tileWidth,
-                                          height: tileHeight,
-                                          radius: AppDimens.sdp(
-                                            context,
-                                            '_6sdp',
-                                          ),
-                                          selected:
-                                              template.id ==
-                                              selection.selectedTemplate?.id,
-                                          onTap: () => controller
-                                              .selectTemplate(template),
-                                        );
-                                      },
+                                    child: ThumbnailRowClip(
+                                      child: ListView.separated(
+                                        scrollDirection: Axis.horizontal,
+                                        // The selected tile's check badge
+                                        // sits 4px outside the tile's
+                                        // top-right corner; the list's
+                                        // default clip cut it (and the
+                                        // border edge) off. ThumbnailRowClip
+                                        // clips just outside it instead, so
+                                        // tiles still scroll away inside
+                                        // the card.
+                                        clipBehavior: Clip.none,
+                                        itemCount: templates.length,
+                                        separatorBuilder: (_, _) =>
+                                            SizedBox(width: tileGap),
+                                        itemBuilder: (context, index) {
+                                          final template = templates[index];
+                                          return SelectableThumbnailTile(
+                                            icon: Icons.landscape_rounded,
+                                            imageUrl: template.thumbnailUrl,
+                                            tint: AppColors.pinkGradientStart,
+                                            caption: template.label,
+                                            width: tileWidth,
+                                            height: tileHeight,
+                                            radius: AppDimens.sdp(
+                                              context,
+                                              '_6sdp',
+                                            ),
+                                            selected:
+                                                template.id ==
+                                                selection.selectedTemplate?.id,
+                                            onTap: () => controller
+                                                .selectTemplate(template),
+                                          );
+                                        },
+                                      ),
                                     ),
                                   );
                                 },
@@ -1014,95 +1102,36 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                         SizedBox(height: AppDimens.sdp(context, '_14sdp')),
                         Consumer(
                           builder: (context, ref, _) {
-                            final categoriesAsync = ref.watch(
-                              backgroundCategoriesProvider(selection.gender),
-                            );
-                            return categoriesAsync.when(
-                              loading: () => const SizedBox.shrink(),
-                              error: (_, _) => const SizedBox.shrink(),
-                              data: (categories) {
-                                if (categories.isEmpty) {
-                                  return const SizedBox.shrink();
-                                }
-                                return Padding(
-                                  padding: EdgeInsets.only(
-                                    bottom: AppDimens.sdp(context, '_10sdp'),
-                                  ),
-                                  child: SizedBox(
-                                    height: chipRowHeight,
-                                    child: ListView.separated(
-                                      scrollDirection: Axis.horizontal,
-                                      itemCount: categories.length + 1,
-                                      separatorBuilder: (_, _) => SizedBox(
-                                        width: AppDimens.sdp(context, '_8sdp'),
-                                      ),
-                                      itemBuilder: (context, index) {
-                                        if (index == 0) {
-                                          return FilterChoiceChip(
-                                            label: 'All',
-                                            selected:
-                                                _selectedBackgroundCategoryId ==
-                                                null,
-                                            onTap: () => setState(
-                                              () =>
-                                                  _selectedBackgroundCategoryId =
-                                                      null,
-                                            ),
-                                          );
-                                        }
-                                        final category = categories[index - 1];
-                                        return FilterChoiceChip(
-                                          label: category.label,
-                                          selected:
-                                              _selectedBackgroundCategoryId ==
-                                              category.id,
-                                          onTap: () => setState(
-                                            () =>
-                                                _selectedBackgroundCategoryId =
-                                                    category.id,
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                );
-                              },
-                            );
-                          },
-                        ),
-                        Consumer(
-                          builder: (context, ref, _) {
                             final myBackgroundsAsync = ref.watch(
                               myBackgroundsProvider,
                             );
                             final backgroundsAsync = ref.watch(
                               backgroundsProvider(selection.gender),
                             );
+                            // Categories filter inside the "More" sheet, not
+                            // as a chip row here; still loading or failed
+                            // just means the sheet opens unfiltered.
+                            final backgroundCategories =
+                                ref
+                                    .watch(
+                                      backgroundCategoriesProvider(
+                                        selection.gender,
+                                      ),
+                                    )
+                                    .value ??
+                                const [];
                             return backgroundsAsync.when(
                               loading: () => _thumbnailRowSkeleton(context),
                               error: (_, _) => const InlineErrorBanner(
                                 message: 'Could not load backgrounds.',
                               ),
-                              data: (backgroundsRaw) {
+                              data: (backgrounds) {
                                 final myBackgrounds =
                                     myBackgroundsAsync.value ?? [];
-                                final backgrounds =
-                                    _selectedBackgroundCategoryId == null
-                                    ? backgroundsRaw
-                                    : backgroundsRaw
-                                          .where(
-                                            (b) =>
-                                                b.categoryId ==
-                                                _selectedBackgroundCategoryId,
-                                          )
-                                          .toList();
                                 final myIds = myBackgrounds
                                     .map((b) => b.id)
                                     .toSet();
-                                // Captioned in the "More" sheet (there's room), plain
-                                // tiles in the compact row (a caption here would
-                                // overflow the row's fixed tile height at 4-per-row).
-                                final thumbs = [
+                                final myThumbs = <PickableThumb>[
                                   for (final bg in myBackgrounds)
                                     (
                                       id: bg.id,
@@ -1110,6 +1139,8 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                                       imageUrl: bg.thumbnailUrl,
                                       tint: AppColors.success,
                                     ),
+                                ];
+                                final curatedThumbs = <PickableThumb>[
                                   for (final bg in backgrounds)
                                     (
                                       id: bg.id,
@@ -1118,6 +1149,51 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                                       tint: AppColors.violet,
                                     ),
                                 ];
+                                final thumbs = [...myThumbs, ...curatedThumbs];
+                                // The "More" sheet's filter options: the
+                                // user's own uploads, one per admin category,
+                                // and a catch-all so a background whose
+                                // category isn't in the list still appears
+                                // under "All". Empty groups are left out.
+                                final knownCategoryIds = {
+                                  for (final c in backgroundCategories) c.id,
+                                };
+                                final sheetCategories = <PickableCategory>[
+                                  (
+                                    id: 'mine',
+                                    label: 'My Backgrounds',
+                                    items: myThumbs,
+                                  ),
+                                  for (final c in backgroundCategories)
+                                    (
+                                      id: 'category:${c.id}',
+                                      label: c.label,
+                                      items: [
+                                        for (
+                                          var i = 0;
+                                          i < backgrounds.length;
+                                          i++
+                                        )
+                                          if (backgrounds[i].categoryId == c.id)
+                                            curatedThumbs[i],
+                                      ],
+                                    ),
+                                  (
+                                    id: 'other',
+                                    label: 'Other',
+                                    items: [
+                                      for (
+                                        var i = 0;
+                                        i < backgrounds.length;
+                                        i++
+                                      )
+                                        if (!knownCategoryIds.contains(
+                                          backgrounds[i].categoryId,
+                                        ))
+                                          curatedThumbs[i],
+                                    ],
+                                  ),
+                                ].where((c) => c.items.isNotEmpty).toList();
                                 // A selection made from the "More" sheet
                                 // keeps showing in this compact row instead
                                 // of possibly landing outside its visible
@@ -1132,6 +1208,9 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                                 );
                                 return LimitedThumbnailRow(
                                   itemCount: orderedThumbs.length,
+                                  // Square, unlike the portrait Model/Pose
+                                  // rows.
+                                  aspectRatio: 1,
                                   visibleCount: 3,
                                   spacing: tileGap,
                                   leading: (tileWidth, tileHeight) =>
@@ -1175,10 +1254,12 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                                       },
                                   onMore: () async {
                                     final picked =
-                                        await showSingleThumbnailPickerSheet(
+                                        await showFilterableThumbnailPickerSheet(
                                           context,
                                           title: AppStrings.backgroundLabel,
-                                          items: thumbs,
+                                          allLabel: 'All Backgrounds',
+                                          tileAspectRatio: 1,
+                                          categories: sheetCategories,
                                           selectedId: selection.backgroundId,
                                         );
                                     if (picked != null) {
@@ -1504,6 +1585,9 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                                 ),
                                 LimitedThumbnailRow(
                                   itemCount: orderedShoeItems.length,
+                                  // Square, unlike the portrait Model/Pose
+                                  // rows.
+                                  aspectRatio: 1,
                                   spacing: tileGap,
                                   itemBuilder:
                                       (context, index, tileWidth, tileHeight) {
@@ -1530,6 +1614,7 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                                         await showFilterableThumbnailPickerSheet(
                                           context,
                                           title: AppStrings.footWearLabel,
+                                          tileAspectRatio: 1,
                                           categories: shoeCategories,
                                           selectedId:
                                               selection.shoeCatalogItemId,
@@ -1833,6 +1918,7 @@ class _UploadGarmentBox extends StatelessWidget {
     required this.onUpload,
     required this.onRemove,
     this.largeThumbnail = false,
+    this.rowBoxHeight = 0,
   });
 
   final String label;
@@ -1849,6 +1935,11 @@ class _UploadGarmentBox extends StatelessWidget {
   /// Uploaded" summary row, which has no room to repeat per box.
   final bool largeThumbnail;
 
+  /// With [largeThumbnail]: the minimum height the row gives each box (its
+  /// width / 1.05). The row stretches every box to its tallest sibling, so
+  /// this is a floor, not a fixed size.
+  final double rowBoxHeight;
+
   @override
   Widget build(BuildContext context) {
     final radiusValue = AppDimens.sdp(context, '_14sdp');
@@ -1862,7 +1953,7 @@ class _UploadGarmentBox extends StatelessWidget {
           borderRadius: radius,
           child: Container(
             width: double.infinity,
-            height: largeThumbnail ? double.infinity : null,
+            alignment: largeThumbnail ? Alignment.center : null,
             padding: EdgeInsets.symmetric(
               vertical: AppDimens.sdp(
                 context,
@@ -1878,9 +1969,7 @@ class _UploadGarmentBox extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _UploadPlaceholderIcon(
-                  size: AppDimens.sdp(context, '_26sdp'),
-                ),
+                _UploadPlaceholderIcon(size: AppDimens.sdp(context, '_26sdp')),
                 SizedBox(height: AppDimens.sdp(context, '_6sdp')),
                 Text(
                   label,
@@ -1905,13 +1994,19 @@ class _UploadGarmentBox extends StatelessWidget {
         ),
       );
       return largeThumbnail
-          ? AspectRatio(aspectRatio: 1.05, child: placeholder)
+          ? ConstrainedBox(
+              constraints: BoxConstraints(minHeight: rowBoxHeight),
+              child: placeholder,
+            )
           : placeholder;
     }
 
     if (largeThumbnail) {
-      return AspectRatio(
-        aspectRatio: 1.05,
+      // A fixed height (not the photo's own) is what this box reports to the
+      // row's IntrinsicHeight; the row then stretches it level with any
+      // taller sibling.
+      return SizedBox(
+        height: rowBoxHeight,
         child: DashedBorderContainer(
           borderRadius: radiusValue,
           child: ClipRRect(
@@ -1957,64 +2052,86 @@ class _UploadGarmentBox extends StatelessWidget {
       );
     }
 
-    final thumbSize = AppDimens.sdp(context, '_55sdp');
+    return LayoutBuilder(
+      builder: (context, constraints) => _buildSingleUploaded(
+        context,
+        radiusValue: radiusValue,
+        radius: radius,
+        // The same size one box of the two-up row (Body + Pallu) gets: half
+        // the row less the gap between boxes, at that row's 1.05 aspect. The
+        // old fixed 55sdp square was too small to judge the photo by.
+        thumbWidth:
+            (constraints.maxWidth - AppDimens.sdp(context, '_12sdp')) / 2,
+      ),
+    );
+  }
+
+  Widget _buildSingleUploaded(
+    BuildContext context, {
+    required double radiusValue,
+    required BorderRadius radius,
+    required double thumbWidth,
+  }) {
+    final thumbHeight = thumbWidth / 1.05;
 
     return DashedBorderContainer(
       borderRadius: radiusValue,
       child: Container(
-        padding: EdgeInsets.all(AppDimens.sdp(context, '_12sdp')),
+        padding: EdgeInsets.all(AppDimens.sdp(context, '_8sdp')),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.03),
           borderRadius: radius,
         ),
         child: Row(
           children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(
-                    AppDimens.sdp(context, '_6sdp'),
-                  ),
-                  child: Container(
-                    width: thumbSize,
-                    height: thumbSize,
-                    color: AppColors.photoThumbnailBackground,
-                    child: file != null
-                        ? Image.file(file!, fit: BoxFit.cover)
-                        : Icon(
-                            Icons.checkroom_rounded,
-                            color: tint,
-                            size: thumbSize * 0.45,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(
+                AppDimens.sdp(context, '_10sdp'),
+              ),
+              child: SizedBox(
+                width: thumbWidth,
+                height: thumbHeight,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Container(
+                      color: AppColors.photoThumbnailBackground,
+                      child: file != null
+                          ? Image.file(file!, fit: BoxFit.cover)
+                          : Icon(
+                              Icons.checkroom_rounded,
+                              color: tint,
+                              size: thumbWidth * 0.3,
+                            ),
+                    ),
+                    if (!uploading)
+                      Positioned(
+                        top: AppDimens.sdp(context, '_6sdp'),
+                        right: AppDimens.sdp(context, '_6sdp'),
+                        child: InkWell(
+                          onTap: onRemove,
+                          customBorder: const CircleBorder(),
+                          child: Container(
+                            padding: EdgeInsets.all(
+                              AppDimens.sdp(context, '_4sdp'),
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.close_rounded,
+                              color: Colors.white,
+                              size: AppDimens.sdp(context, '_14sdp'),
+                            ),
                           ),
-                  ),
-                ),
-                if (!uploading)
-                  Positioned(
-                    top: -AppDimens.sdp(context, '_6sdp'),
-                    right: -AppDimens.sdp(context, '_6sdp'),
-                    child: InkWell(
-                      onTap: onRemove,
-                      customBorder: const CircleBorder(),
-                      child: Container(
-                        padding: EdgeInsets.all(
-                          AppDimens.sdp(context, '_3sdp'),
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.55),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.close_rounded,
-                          color: Colors.white,
-                          size: AppDimens.sdp(context, '_12sdp'),
                         ),
                       ),
-                    ),
-                  ),
-              ],
+                  ],
+                ),
+              ),
             ),
-            SizedBox(width: AppDimens.sdp(context, '_14sdp')),
+            SizedBox(width: AppDimens.sdp(context, '_12sdp')),
             Expanded(
               child: Row(
                 children: [
