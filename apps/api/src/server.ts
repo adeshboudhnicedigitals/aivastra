@@ -50,6 +50,7 @@ import { adminRolePermissionsRoutes } from './modules/admin/role-permissions.rou
 import { adminSareeRoutes } from './modules/admin/saree.routes.js';
 import { adminShopifyFunnelRulesRoutes } from './modules/admin/shopify-funnel-rules.routes.js';
 import { adminShopifyFunnelsRoutes } from './modules/admin/shopify-funnels.routes.js';
+import { adminShopifyPurchasesRoutes } from './modules/admin/shopify-purchases.routes.js';
 import { adminShopifyStoresRoutes } from './modules/admin/shopify-stores.routes.js';
 import { adminSignupCampaignsRoutes } from './modules/admin/signupCampaigns.routes.js';
 import { adminGarmentTypesRoutes } from './modules/admin/subcategories.routes.js';
@@ -458,6 +459,7 @@ export async function buildServer(env: Env) {
   await app.register(adminShopifyFunnelsRoutes);
   await app.register(adminShopifyFunnelRulesRoutes);
   await app.register(adminShopifyStoresRoutes);
+  await app.register(adminShopifyPurchasesRoutes);
   await app.register(adminWorkflowsRoutes);
   await app.register(adminWorkflowChangeRequestsRoutes);
   await app.register(adminTryonRoutes);
