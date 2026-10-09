@@ -1,0 +1,215 @@
+name: Android (catalogue_android)
+
+# check — flutter analyze + flutter test. Runs on every trigger below; a plain
+#         push or PR never builds an APK/AAB or reaches Firebase/Play.
+# build — signed release APK + AAB, published as a run artifact. Runs only on a
+#         tag or a manual run, and only after `check` passes. On a tag the APK
+#         is also sent to Firebase App Distribution.
+# publish-play — tags only. Waits for approval on the `play-store-catalogue`
+#         environment, then uploads this run's AAB to Google Play.
+#
+# Triggers:
+#   - push to dev/main or pull_request touching the app — `check` only.
+#   - tag push `cat-v*` — works from any branch, because GitHub reads this file
+#     from the tagged commit.
+#   - workflow_dispatch — only available once this file is on the default
+#     branch (main).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'apps/catalogue_android/**'
+      - '.github/workflows/catalogue-android.yml'
+    tags:
+      - 'cat-v*'
+  pull_request:
+    paths:
+      - 'apps/catalogue_android/**'
+      - '.github/workflows/catalogue-android.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalogue-android-${{ github.ref }}
+  # A newer push supersedes the old check; a release build is never cancelled
+  # half way.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/catalogue_android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # pubspec needs Dart ^3.13.3; keep this pin in step with the Flutter
+      # version developers build with locally.
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.3'
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter analyze
+
+      - run: flutter test
+
+  build:
+    needs: check
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/cat-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/catalogue_android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.3'
+          cache: true
+
+      # key.properties and the keystore are gitignored, so they are rebuilt
+      # from secrets on every run. Values go through env rather than being
+      # interpolated into the script, so they never appear in the rendered
+      # command. storeFile is resolved relative to android/app.
+      - name: Restore signing config
+        env:
+          KEYSTORE_B64: ${{ secrets.CAT_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.CAT_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.CAT_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.CAT_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > android/app/upload-keystore.jks
+          {
+            echo "storeFile=upload-keystore.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > android/key.properties
+          # app/build.gradle.kts silently skips signing when key.properties is
+          # missing, which would give a green run with an unsigned build.
+          test -s android/app/upload-keystore.jks
+          test -s android/key.properties
+
+      - run: flutter pub get
+
+      # Play rejects a repeated versionCode, so the run number is the build
+      # number; the user-facing name still comes from pubspec.yaml.
+      - name: Build release APK + AAB
+        run: |
+          flutter build apk --release --build-number=${{ github.run_number }}
+          flutter build appbundle --release --build-number=${{ github.run_number }}
+
+      - name: Verify APK is signed
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalogue-release
+          path: |
+            apps/catalogue_android/build/app/outputs/flutter-apk/app-release.apk
+            apps/catalogue_android/build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      # Tags only: a manual run builds the artifact without notifying testers.
+      # Runs after the artifact upload so a Firebase failure still leaves the
+      # signed APK + AAB downloadable from the run. No google-services.json is
+      # needed: the app has no Firebase SDK, App Distribution only needs the
+      # app id + service account.
+      # CAT_FIREBASE_TESTER_GROUPS is a repo *variable* (comma-separated group
+      # aliases). Unset means the release is uploaded but nobody is notified.
+      - name: Distribute APK to Firebase App Distribution
+        if: startsWith(github.ref, 'refs/tags/cat-v')
+        env:
+          FIREBASE_APP_ID: ${{ secrets.CAT_FIREBASE_APP_ID }}
+          FIREBASE_SA_JSON: ${{ secrets.CAT_FIREBASE_SERVICE_ACCOUNT_JSON }}
+          TESTER_GROUPS: ${{ vars.CAT_FIREBASE_TESTER_GROUPS }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          printf '%s' "$FIREBASE_SA_JSON" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -s "$GOOGLE_APPLICATION_CREDENTIALS"
+
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          NOTES="$TAG_NAME — $(git log -1 --pretty=%s)"
+
+          ARGS=(--app "$FIREBASE_APP_ID" --release-notes "$NOTES")
+          if [ -n "$TESTER_GROUPS" ]; then
+            ARGS+=(--groups "$TESTER_GROUPS")
+          else
+            echo "::warning::CAT_FIREBASE_TESTER_GROUPS is not set — release uploaded, no testers notified."
+          fi
+
+          # The CLI prints a tokenised direct-download link for the binary. This
+          # repo is public, so its Actions logs are too — drop that line.
+          # pipefail keeps a CLI failure from being masked by grep's exit code.
+          set -o pipefail
+          npx --yes firebase-tools@latest appdistribution:distribute "$APK" "${ARGS[@]}" \
+            | grep -v "app-binary-downloads"
+
+      - name: Remove signing material
+        if: always()
+        run: |
+          rm -f android/app/upload-keystore.jks android/key.properties
+          rm -f "$RUNNER_TEMP/firebase-sa.json"
+
+  # Play upload is gated by the `play-store-catalogue` environment: the run
+  # pauses here until one of its required reviewers approves, which is meant to
+  # happen only after the Firebase build above has been tested. It uploads the
+  # AAB built by `build` in this same run — never a rebuild — so what reaches
+  # Play is the bundle built from the exact commit the testers' APK came from.
+  #
+  # The environment MUST exist with required reviewers before this job runs:
+  # GitHub auto-creates a missing environment with no protection, and the
+  # upload would then go straight through unapproved.
+  #
+  # The artifact is kept 14 days, so approval has to land within that window.
+  publish-play:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/cat-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: play-store-catalogue
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: catalogue-release
+          path: dist
+
+      # Third-party action handling the Play credential, so it is pinned to a
+      # commit SHA (v1.1.5) rather than a movable tag.
+      # CAT_PLAY_TRACK is a repo variable; unset means the internal testing
+      # track, which never reaches the public without a manual promotion in
+      # Play Console.
+      - name: Upload AAB to Google Play
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.CAT_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.nice.aivastracatalogue
+          releaseFiles: dist/**/*.aab
+          tracks: ${{ vars.CAT_PLAY_TRACK || 'internal' }}
+          status: completed
