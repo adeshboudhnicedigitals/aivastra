@@ -16,4 +16,9 @@ useDefault = true
     '''body\.bgComfyR2Key''',
     # Not a secret — test fixture object keys in catalogue-template-subcategories-admin.test.ts
     '''[al][12]-thumb\.jpg''',
+    # Not a secret — a made-up SHOPIFY_PARTNER_API_TOKEN fixture in
+    # env-partner-blank.test.ts, shaped like a Shopify token (shpat_ prefix) so the
+    # generic-api-key rule matches it. It sits in commit 533bea7b, so editing the
+    # test later would not clear the finding in the scanned history.
+    '''shpat_1234567890abcdef''',
   ]
