@@ -2,6 +2,67 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-09 — Shopify credit packs: grant on approval, verify afterwards (implemented, flag off)
+
+- **Done:** with `SHOPIFY_VERIFY_PAYMENTS=true`, a real credit-pack purchase grants credits on
+  approval as before, but the purchase is marked `UNVERIFIED` in the **same Postgres
+  transaction** as the grant (conditional on `NOT_REQUIRED`, so concurrent callers and replays
+  grant exactly once; `grantStore`'s `external_ref` idempotency stays underneath). Test charges are
+  not tracked. Migration `0220`. A verification pass in the settlement loop looks each
+  `UNVERIFIED` row up in the Partner API: sale found -> `PAID`; no sale inside
+  `SHOPIFY_PAYMENT_VERIFY_WINDOW_MINUTES` (180) -> `NOT_RECEIVED`. Updates are conditional on
+  `payment_status_source = 'AUTO'`, so an admin override is never overwritten. New gauges include
+  `shopify_purchases_not_received` and `shopify_purchases_overdue_verification`. `/v1/shopify/me`
+  and the Shopify app count grant-then-verify purchases as bought. Admin gets an all-stores
+  **Pack purchases** page with filters, a detail view and an audited payment review (restricted to
+  approved manual purchases, row locked, `recordAudit` in the same transaction), plus
+  check-payment for already-granted rows. If `SHOPIFY_HOLD_UNTIL_PAID` is also on, the hold wins.
+- **Validation (2026-10-09, repo root, docker up):**
+  - `pnpm lint` — exit 0 (765 warnings, 13 infos, 0 errors).
+  - `pnpm --filter @aivastra/api test` (unit) — 91 files / 823 tests passed.
+  - `pnpm --filter @aivastra/api test:integration` — 157 files / 1171 tests passed.
+  - `pnpm --filter @aivastra/shopify-admin test` — 13 files / 95 tests passed; `build` exit 0.
+  - `pnpm --filter @aivastra/admin build` — exit 0.
+  - `pnpm typecheck` — exit 2 as a whole, from two packages this branch does not touch:
+    `@aivastra/chrome-extension` (TS2688 missing `chrome` type definitions; reproduced on base
+    commit `63f3fd9c` in a throwaway worktree) and `apps/admin-mobile` (paused; git-ignored, not
+    in the repo). Excluding those two, `pnpm -r typecheck` exits 0.
+  - Mutation checks (both reverted, `git diff apps/api/src` empty afterwards):
+    (1) `grantForPurchase` guard widened to `inArray(paymentStatus, ['NOT_REQUIRED','UNVERIFIED'])`
+    -> 4 tests failed, including "two concurrent callers grant exactly once" and "a replay grants
+    nothing more and leaves one ledger row"; (2) `eq(paymentStatusSource, 'AUTO')` removed from
+    `stillAutomatic` -> "leaves an admin override alone even when a sale exists" failed.
+- **Rollout (production):**
+  1. Deploy with `SHOPIFY_VERIFY_PAYMENTS` unset — migration `0220` runs via CI.
+  2. Set `SHOPIFY_VERIFY_PAYMENTS=true`, restart the API.
+  3. Buy Silver ($10) on the real store: credits arrive instantly, row is `UNVERIFIED`, `PAID`
+     roughly an hour later (Shopify's visibility delay was ~36-46 min in the one sample, plus the
+     15-minute poll).
+  4. In the admin page mark one row not received with a note, confirm the audit row, confirm the
+     loop leaves it alone, then clear the override.
+  5. Create the Grafana alerts — `shopify_purchases_not_received > 0` and
+     `shopify_purchases_overdue_verification > 0`, each for 30 minutes. Do NOT alert on the
+     last-success timestamp: it goes stale on a healthy system.
+- **Failed-Not-Done:**
+  - No browser walk of the new admin Pack purchases page (`ShopifyPurchasesPage`) was done; it is
+    verified only by typecheck/build and the API integration tests.
+  - Nothing was exercised against production or the real Partner API.
+- **Open:**
+  - The 180-minute window rests on one sample of Shopify's visibility delay — re-measure on real
+    purchases and tune `SHOPIFY_PAYMENT_VERIFY_WINDOW_MINUTES`.
+  - Management must decide what happens to a `NOT_RECEIVED` store (contact, block, claw back) and
+    whether merchants are told; there is no merchant-facing banner.
+  - The admin UI has no automated tests.
+  - Deferred review minors:
+    - Admin page `?review=` deep link is not gated on `credits.write`.
+    - Modals lack `role=dialog`/aria attributes and Escape-to-close.
+    - Clickable table rows are not keyboard-focusable.
+    - `load()` has no staleness guard.
+    - Success toast shows the raw enum value.
+    - Date filter range is built in UTC.
+    - Review list cursor paginates on `createdAt` only (ms precision).
+    - No test makes `recordAudit` itself throw.
+
 ## 2026-10-09 — Shopify credit packs: hold until paid (implemented, flag off)
 
 - **Done:** credit-pack credits can now be held until Shopify has actually collected payment,
