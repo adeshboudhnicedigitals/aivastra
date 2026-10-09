@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PartnerApiError } from '../../src/modules/shopify/partner-api.js';
 import { checkPurchases, settlePaid } from '../../src/modules/shopify/payment-settlement.js';
+import { grantForPurchase } from '../../src/modules/shopify/purchase.js';
 import { buildTestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
 
@@ -152,6 +153,66 @@ describe('payment settlement', () => {
     // buildTestApp sets no SHOPIFY_PARTNER_*, so the real client throws missing_config.
     const row = await awaitingPurchase();
     await expect(checkPurchases(app, [row])).rejects.toMatchObject({ reason: 'missing_config' });
+    expect((await reload(row)).paymentStatus).toBe('AWAITING');
+  });
+});
+
+describe('grantForPurchase with SHOPIFY_HOLD_UNTIL_PAID', () => {
+  const active = (row: Row, test = false) => ({
+    id: row.shopifyChargeId as string,
+    status: 'ACTIVE',
+    test,
+  });
+
+  async function freshRow(): Promise<Row> {
+    return awaitingPurchase({ paymentStatus: 'NOT_REQUIRED', nextPaymentCheckAt: null });
+  }
+
+  it('flag on: a real ACTIVE charge becomes AWAITING and grants nothing', async () => {
+    const holdApp = Object.assign(Object.create(app), {
+      env: { ...app.env, SHOPIFY_HOLD_UNTIL_PAID: true },
+    });
+    const row = await freshRow();
+    const granted = await grantForPurchase(holdApp, store, row, active(row));
+
+    expect(granted).toBe(0);
+    const fresh = await reload(row);
+    expect(fresh.paymentStatus).toBe('AWAITING');
+    expect(fresh.nextPaymentCheckAt).not.toBeNull();
+    expect(await ledgerFor(row)).toHaveLength(0);
+  });
+
+  it('flag on: a replay on an already-PAID row is a no-op', async () => {
+    const holdApp = Object.assign(Object.create(app), {
+      env: { ...app.env, SHOPIFY_HOLD_UNTIL_PAID: true },
+    });
+    const row = await awaitingPurchase({ paymentStatus: 'PAID', nextPaymentCheckAt: null });
+    expect(await grantForPurchase(holdApp, store, row, active(row))).toBe(0);
+    expect((await reload(row)).paymentStatus).toBe('PAID');
+  });
+
+  it('flag on: a row already granted before the flag stays NOT_REQUIRED', async () => {
+    const row = await freshRow();
+    // Granted under the old behaviour (flag off) first…
+    expect(await grantForPurchase(app, store, row, active(row))).toBe(800);
+    const holdApp = Object.assign(Object.create(app), {
+      env: { ...app.env, SHOPIFY_HOLD_UNTIL_PAID: true },
+    });
+    // …then a confirm revisit after the flag flipped must not pull it into AWAITING.
+    expect(await grantForPurchase(holdApp, store, row, active(row))).toBe(0);
+    expect((await reload(row)).paymentStatus).toBe('NOT_REQUIRED');
+  });
+
+  it('flag off: behaviour is unchanged — grants on ACTIVE', async () => {
+    const row = await freshRow();
+    expect(await grantForPurchase(app, store, row, active(row))).toBe(800);
+    expect((await reload(row)).paymentStatus).toBe('NOT_REQUIRED');
+  });
+
+  it('flag off (rollback): a row already AWAITING is never granted on ACTIVE', async () => {
+    const row = await awaitingPurchase();
+    expect(await grantForPurchase(app, store, row, active(row))).toBe(0);
+    expect(await ledgerFor(row)).toHaveLength(0);
     expect((await reload(row)).paymentStatus).toBe('AWAITING');
   });
 });

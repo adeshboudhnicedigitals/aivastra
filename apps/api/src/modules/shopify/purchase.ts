@@ -229,7 +229,8 @@ export async function storeBalance(app: FastifyInstance, storeId: string): Promi
 }
 
 /**
- * Grants credits for a purchase Shopify says is ACTIVE.
+ * Grants credits for a purchase Shopify says is ACTIVE — or, under
+ * SHOPIFY_HOLD_UNTIL_PAID, parks a real (non-test) one as AWAITING payment.
  *
  * Shared by the merchant-facing confirm route and the
  * APP_PURCHASES_ONE_TIME_UPDATE webhook, which can race each other — a merchant
@@ -276,6 +277,44 @@ export async function grantForPurchase(
     return 0;
   }
   if (observed.status !== 'ACTIVE') return 0;
+
+  // Hold-until-paid: ACTIVE on a one-time charge means invoiced, not paid —
+  // Shopify collects afterwards and collection can fail (2026-10-09: two
+  // ACTIVE charges, one invoice Failed, both granted). So a real charge is
+  // parked AWAITING here and granted by payment-settlement.ts once the Partner
+  // API shows the sale. Test charges never produce a sale, so they keep the
+  // grant-on-ACTIVE path below. `=== true`: a revenue gate must read as off
+  // for anything but explicit true (tests cast Env and leave it undefined).
+  // Once held, always held — independent of the flag. Turning the flag off is
+  // the rollback, and without this a confirm revisit on an AWAITING row would
+  // fall through to grant-on-ACTIVE below and hand out unpaid credits. Rows
+  // already held settle only through payment-settlement.ts.
+  if (purchaseRow.paymentStatus !== 'NOT_REQUIRED') return 0;
+
+  if (!observed.test && app.env.SHOPIFY_HOLD_UNTIL_PAID === true) {
+    // A purchase already granted before the flag flipped (confirm revisited,
+    // webhook replayed) must not be pulled into AWAITING — it would show a
+    // pending banner for credits the merchant already has.
+    const [already] = await app.db
+      .select({ id: schema.shopifyCreditLedger.id })
+      .from(schema.shopifyCreditLedger)
+      .where(eq(schema.shopifyCreditLedger.externalRef, `shopify_pack:${observed.id}`))
+      .limit(1);
+    if (already) return 0;
+
+    // Conditional on NOT_REQUIRED, so a replayed webhook can never drag a
+    // PAID or UNPAID row back to AWAITING.
+    await app.db
+      .update(schema.shopifyCreditPurchases)
+      .set({ paymentStatus: 'AWAITING', nextPaymentCheckAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.shopifyCreditPurchases.id, purchaseRow.id),
+          eq(schema.shopifyCreditPurchases.paymentStatus, 'NOT_REQUIRED'),
+        ),
+      );
+    return 0;
+  }
 
   // The bound on test-funded credits. Counted from the ledger rather than a
   // column so it survives a store row being rewritten by a reinstall, and it
