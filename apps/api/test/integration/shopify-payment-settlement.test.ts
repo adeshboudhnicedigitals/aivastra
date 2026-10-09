@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
-import { and, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { register } from '@aivastra/observability';
+import { and, eq, sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PartnerApiError } from '../../src/modules/shopify/partner-api.js';
 import { checkPurchases, settlePaid } from '../../src/modules/shopify/payment-settlement.js';
 import { runPaymentSettlementTick } from '../../src/modules/shopify/payment-settlement-scheduler.js';
@@ -52,6 +53,19 @@ async function reload(row: Row): Promise<Row> {
     .from(schema.shopifyCreditPurchases)
     .where(eq(schema.shopifyCreditPurchases.id, row.id));
   return fresh;
+}
+
+async function awaitingRowCount(): Promise<number> {
+  const [{ n }] = await app.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.shopifyCreditPurchases)
+    .where(eq(schema.shopifyCreditPurchases.paymentStatus, 'AWAITING'));
+  return n;
+}
+
+async function awaitingGauge(): Promise<number | undefined> {
+  const metric = await register.getSingleMetric('shopify_purchases_awaiting_payment')?.get();
+  return metric?.values[0]?.value;
 }
 
 const saleFor =
@@ -233,16 +247,43 @@ describe('payment settlement tick', () => {
 
     expect((await reload(due)).paymentStatus).toBe('PAID');
     expect((await reload(later)).paymentStatus).toBe('AWAITING');
+    expect(await awaitingGauge()).toBe(await awaitingRowCount());
   });
 
-  it('a Partner API outage does not throw out of the tick', async () => {
-    await awaitingPurchase({ nextPaymentCheckAt: new Date(Date.now() - 1000) });
-    await expect(
-      runPaymentSettlementTick(app, {
-        fetchSales: async () => {
-          throw new PartnerApiError('http', 'down');
-        },
-      }),
-    ).resolves.toBeUndefined();
+  it('a Partner API outage fails closed: no grant, no park, schedule untouched', async () => {
+    const dueAt = new Date(Date.now() - 60_000);
+    // Older than 31 days, so an implementation that parks on failure would visibly flip to UNPAID.
+    const row = await awaitingPurchase({
+      nextPaymentCheckAt: dueAt,
+      createdAt: new Date(Date.now() - 31 * 86_400_000),
+    });
+    const logError = vi.spyOn(app.log, 'error').mockImplementation(() => undefined);
+    try {
+      await expect(
+        runPaymentSettlementTick(app, {
+          fetchSales: async () => {
+            throw new PartnerApiError('http', 'down');
+          },
+        }),
+      ).resolves.toBeUndefined();
+
+      const fresh = await reload(row);
+      expect(fresh.paymentStatus).toBe('AWAITING');
+      expect(fresh.nextPaymentCheckAt?.getTime()).toBe(dueAt.getTime());
+      expect(await ledgerFor(row)).toHaveLength(0);
+
+      expect(logError).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(PartnerApiError) }),
+        'payment settlement check failed — purchases stay pending',
+      );
+      expect(await awaitingGauge()).toBe(await awaitingRowCount());
+    } finally {
+      logError.mockRestore();
+      // Move the still-due row out of the window so later tests are unaffected.
+      await app.db
+        .update(schema.shopifyCreditPurchases)
+        .set({ nextPaymentCheckAt: new Date('2099-01-01T00:00:00Z') })
+        .where(eq(schema.shopifyCreditPurchases.id, row.id));
+    }
   });
 });
