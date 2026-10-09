@@ -98,9 +98,16 @@ const Env = z.object({
   SHOPIFY_HOLD_UNTIL_PAID: z.preprocess((v) => v === 'true', z.boolean()).default(false),
   // Partner API client token ("View financials" only) — org-scoped, a secret.
   // Use a separate client per environment: the 4 req/s limit is per client.
-  SHOPIFY_PARTNER_API_TOKEN: z.string().min(1).optional(),
+  // Blank placeholders in .env.example (FOO=) must not crash startup; use z.preprocess to treat '' as undefined.
+  SHOPIFY_PARTNER_API_TOKEN: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(1).optional(),
+  ),
   // Numeric Partner org id from partners.shopify.com/<ORG_ID>/… — not secret.
-  SHOPIFY_PARTNER_ORG_ID: z.string().regex(/^\d+$/).optional(),
+  SHOPIFY_PARTNER_ORG_ID: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().regex(/^\d+$/).optional(),
+  ),
   // Comma-separated email allowlist for the Catalog Video (PixVerse) feature.
   // Unset = open to everyone (dev default). Set in production to restrict the
   // feature to a soft-launch cohort without a code change.
