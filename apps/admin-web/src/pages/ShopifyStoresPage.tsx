@@ -13,11 +13,13 @@ import {
 } from 'recharts';
 import { Icon } from '../components/Icons';
 import { StatusBadge } from '../components/StatusBadge';
+import { StorePurchasesCard } from '../components/StorePurchasesCard';
 import { useAuth } from '../context/AuthContext';
 import { useCrumb } from '../context/BreadcrumbContext';
 import { useCloseOverlay } from '../hooks/use-close-overlay';
 import { useUrlState } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
+import type { StorePurchase } from '../types';
 
 interface ShopifyStore {
   id: string;
@@ -215,7 +217,7 @@ function StoreIdentity({ store }: { store: ShopifyStore }) {
 
 export default function ShopifyStoresPage({ toast }: Props) {
   const navigate = useNavigate();
-  const { role: myRole } = useAuth();
+  const { role: myRole, hasPermission } = useAuth();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [stores, setStores] = useState<ShopifyStore[]>([]);
   const [loading, setLoading] = useState(true);
@@ -246,6 +248,12 @@ export default function ShopifyStoresPage({ toast }: Props) {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Purchases state lives here, not in the card: both the desktop and mobile
+  // layouts are always mounted, so card-owned state would fetch twice and a
+  // "Check payment" refresh would only reach one copy.
+  const [purchases, setPurchases] = useState<StorePurchase[]>([]);
+  const [purchasesLoading, setPurchasesLoading] = useState(false);
+  const [checkingPurchaseId, setCheckingPurchaseId] = useState<string | null>(null);
   const [storeJobs, setStoreJobs] = useState<StoreJob[]>([]);
   const [jobsNextCursor, setJobsNextCursor] = useState<string | null>(null);
   const [jobsLoading, setJobsLoading] = useState(false);
@@ -376,6 +384,48 @@ export default function ShopifyStoresPage({ toast }: Props) {
     [toast],
   );
 
+  const loadPurchases = useCallback(
+    async (storeId: string) => {
+      setPurchasesLoading(true);
+      try {
+        const data = await apiFetch<{ purchases: StorePurchase[] }>(
+          `/admin/shopify-stores/${storeId}/purchases`,
+        );
+        setPurchases(data.purchases);
+      } catch (err) {
+        toast({
+          kind: 'error',
+          title: 'Failed to load purchases',
+          body: apiErrorMessage(err, 'Please try again.'),
+        });
+      } finally {
+        setPurchasesLoading(false);
+      }
+    },
+    [toast],
+  );
+
+  async function checkPurchasePayment(purchaseId: string) {
+    if (!selectedStore) return;
+    setCheckingPurchaseId(purchaseId);
+    try {
+      const res = await apiFetch<{ paymentStatus: string }>(
+        `/admin/shopify/purchases/${purchaseId}/check-payment`,
+        { method: 'POST' },
+      );
+      toast({ title: `Payment status: ${res.paymentStatus}` });
+      await loadPurchases(selectedStore.id);
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Payment check failed',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setCheckingPurchaseId(null);
+    }
+  }
+
   function openStore(store: ShopifyStore) {
     setStoreIdParam(store.id);
   }
@@ -412,7 +462,9 @@ export default function ShopifyStoresPage({ toast }: Props) {
     setStoreJobs([]);
     setJobsNextCursor(null);
     void loadStoreJobs(selectedStore.id);
-  }, [selectedStore?.id, loadLedger, loadStoreJobs]);
+    setPurchases([]);
+    void loadPurchases(selectedStore.id);
+  }, [selectedStore?.id, loadLedger, loadStoreJobs, loadPurchases]);
 
   async function handleDeleteConfirm() {
     if (!confirmDelete) return;
@@ -674,6 +726,14 @@ export default function ShopifyStoresPage({ toast }: Props) {
               )}
             </div>
           </div>
+
+          <StorePurchasesCard
+            purchases={purchases}
+            loading={purchasesLoading}
+            checkingId={checkingPurchaseId}
+            canCheck={hasPermission('credits.write')}
+            onCheck={(id) => void checkPurchasePayment(id)}
+          />
 
           <div className="card">
             <div className="card-head">
@@ -976,6 +1036,14 @@ export default function ShopifyStoresPage({ toast }: Props) {
               {jobsLoadingMore ? 'Loading…' : 'Load more'}
             </button>
           )}
+
+          <StorePurchasesCard
+            purchases={purchases}
+            loading={purchasesLoading}
+            checkingId={checkingPurchaseId}
+            canCheck={hasPermission('credits.write')}
+            onCheck={(id) => void checkPurchasePayment(id)}
+          />
 
           <h3 style={{ fontSize: 13.5, fontWeight: 600, margin: '8px 0 0', color: 'var(--ink)' }}>
             Credit activity

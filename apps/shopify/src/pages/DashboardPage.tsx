@@ -13,11 +13,12 @@ import {
   Toast,
 } from '@shopify/polaris';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AppFont } from '../components/AppFont';
 import { BalanceCard } from '../components/BalanceCard';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { PackGrid } from '../components/PackGrid';
+import { PendingPaymentBanner } from '../components/PendingPaymentBanner';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import { isTryOnOff, needsEmbedEnable, unroutedWarningCount } from '../lib/onboarding';
@@ -168,6 +169,16 @@ export default function DashboardPage() {
   // twice. Best-effort: if it fails the next visit tries again.
   const welcomeRequested = useRef(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const location = useLocation();
+  // Set by BillingCallbackPage once a pack's payment settled. Router state
+  // survives reloads and history re-entry, so clear it after showing the toast
+  // or it would announce the same purchase again.
+  useEffect(() => {
+    const added = (location.state as { creditsAdded?: number } | null)?.creditsAdded;
+    if (!added) return;
+    setToastMessage(`${added.toLocaleString()} credits added`);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
   useEffect(() => {
     if (!me || welcomeRequested.current || me.store.settings.emailBonusClaimed) return;
     welcomeRequested.current = true;
@@ -294,6 +305,7 @@ export default function DashboardPage() {
           )}
 
           {me && <LowCreditsBanner me={me} />}
+          {me && <PendingPaymentBanner shopDomain={me.store.shopDomain} include="awaiting" />}
 
           <BalanceCard me={me} />
 

@@ -261,11 +261,27 @@ export const shopifyCreditPurchases = pgTable(
     // charge and said no — conflating them makes the two indistinguishable
     // when reconciling against Shopify payouts later.
     status: text('status').notNull().default('PENDING'),
+    // Ours, not Shopify's — `status` above mirrors the charge, this tracks
+    // whether the money was actually collected. ACTIVE means invoiced, not
+    // paid: on 2026-10-09 two ACTIVE $1 charges both granted while one invoice
+    // had Failed. 'NOT_REQUIRED' | 'AWAITING' | 'PAID' | 'UNPAID'. Only a
+    // manual, non-test charge under SHOPIFY_HOLD_UNTIL_PAID ever leaves
+    // NOT_REQUIRED; see payment-settlement.ts.
+    paymentStatus: text('payment_status').notNull().default('NOT_REQUIRED'),
+    // The Partner API AppOneTimeSale's createdAt — when Shopify recorded payment.
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    // Next settlement-loop check. Non-null only while AWAITING.
+    nextPaymentCheckAt: timestamp('next_payment_check_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     storeIdx: index('shopify_credit_purchases_store_idx').on(table.storeId),
+    // Partial: the settlement loop only ever asks "which AWAITING rows are due",
+    // and AWAITING rows are a vanishing fraction of purchase history.
+    awaitingPaymentIdx: index('shopify_credit_purchases_awaiting_payment_idx')
+      .on(table.nextPaymentCheckAt)
+      .where(sql`${table.paymentStatus} = 'AWAITING'`),
   }),
 );
 

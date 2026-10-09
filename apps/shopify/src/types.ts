@@ -219,3 +219,25 @@ export interface ShopifyAnalytics {
   funnel: ShopifyAnalyticsFunnel;
   products: ShopifyAnalyticsProduct[];
 }
+
+export type PurchasePaymentStatus = 'NOT_REQUIRED' | 'AWAITING' | 'PAID' | 'UNPAID';
+
+// `creditsGranted` is advisory under hold-until-paid (it can be 0 when the
+// credits landed via another process) — decide "credits landed" from
+// `paymentStatus` and display `credits`.
+export interface PurchaseConfirmResponse {
+  status: string;
+  paymentStatus: PurchasePaymentStatus;
+  credits: number;
+  creditsGranted: number;
+  creditBalance: number;
+}
+
+export interface PendingPurchase {
+  id: string;
+  packId: string;
+  label: string;
+  credits: number;
+  createdAt: string;
+  paymentStatus: 'AWAITING' | 'UNPAID';
+}

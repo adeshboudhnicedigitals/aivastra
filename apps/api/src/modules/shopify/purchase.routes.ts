@@ -1,7 +1,9 @@
-import type { schema } from '@aivastra/db';
+import { schema } from '@aivastra/db';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { buildPostInstallRedirect, EMBEDDED_SPA_PATH } from './auth.routes.js';
+import { getPack } from './packs.js';
 import { confirmPurchase, createPurchase } from './purchase.js';
 
 const PurchaseBody = z.object({ packId: z.string().min(1).max(64) });
@@ -61,6 +63,38 @@ export async function shopifyPurchaseRoutes(app: FastifyInstance) {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
       const { purchase } = req.query as z.infer<typeof ConfirmQuery>;
       return confirmPurchase(app, store, purchase);
+    },
+  );
+
+  // Feeds the SPA's PendingPaymentBanner. Deliberately not folded into
+  // /v1/shopify/me, which every page loads; only Dashboard and Pricing need this.
+  app.get(
+    '/v1/shopify/billing/purchases/pending',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      const rows = await app.db
+        .select()
+        .from(schema.shopifyCreditPurchases)
+        .where(
+          and(
+            eq(schema.shopifyCreditPurchases.storeId, store.id),
+            eq(schema.shopifyCreditPurchases.source, 'manual'),
+            inArray(schema.shopifyCreditPurchases.paymentStatus, ['AWAITING', 'UNPAID']),
+          ),
+        )
+        .orderBy(desc(schema.shopifyCreditPurchases.createdAt))
+        .limit(10);
+      return {
+        purchases: rows.map((r) => ({
+          id: r.id,
+          packId: r.packId,
+          label: getPack(r.packId)?.label ?? r.packId,
+          credits: r.credits,
+          createdAt: r.createdAt.toISOString(),
+          paymentStatus: r.paymentStatus as 'AWAITING' | 'UNPAID',
+        })),
+      };
     },
   );
 }

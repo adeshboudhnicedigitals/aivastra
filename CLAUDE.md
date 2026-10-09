@@ -528,6 +528,7 @@ test can drive one pass directly.
 | `startUploadSweeper` | 1h | deletes uploads orphaned >24h |
 | `startAlertScheduler` | 1h | low-store-credit merchant emails |
 | `startAutorefillReconciler` | 15m | settles auto-refill purchase rows stranded `PENDING` by a thrown charge |
+| `startPaymentSettlementScheduler` | 60s | grants credit packs held `AWAITING` once the Partner API shows the sale (hold-until-paid); fails closed |
 | `startRedactionRetryScheduler` | 30m | finishes GDPR erasures whose object deletes failed |
 | `startUserLowCreditAlertScheduler` | 1h | low-credit emails for platform users |
 
