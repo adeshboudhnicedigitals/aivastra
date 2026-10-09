@@ -84,7 +84,7 @@ export function useFabricToShoot() {
   // Defaults to 'women', same as Studio's own `useState('women')` — so Step 3
   // (garment type) and the Studio-style steps below it are populated and
   // visible immediately, rather than waiting on an explicit gender tap.
-  const [gender, setGenderRaw] = useState<'women' | 'men' | null>('women');
+  const [gender, setGenderRaw] = useState<'women' | 'men' | 'boys' | 'girls' | null>('women');
   const [presetId, setPresetIdRaw] = useState<string | null>(null);
 
   const {
@@ -105,7 +105,7 @@ export function useFabricToShoot() {
   // Only offer genders that actually have a preset — same spirit as Studio's
   // GENDERS list, but data-driven since fabric-to-garment's gender coverage
   // depends on what's configured.
-  const availableGenders = (['women', 'men'] as const).filter((g) =>
+  const availableGenders = (['women', 'men', 'boys', 'girls'] as const).filter((g) =>
     presets.some((p) => p.genderSlug === g),
   );
   const genderPresets = presets.filter((p) => p.genderSlug === gender);
@@ -160,7 +160,7 @@ export function useFabricToShoot() {
   // Same reset Studio's own gender card performs: a new audience invalidates
   // whichever garment type (and everything downstream of it) was picked for
   // the old one.
-  function setGender(next: 'women' | 'men') {
+  function setGender(next: 'women' | 'men' | 'boys' | 'girls') {
     setGenderRaw(next);
     setPresetId(null);
   }
@@ -170,7 +170,7 @@ export function useFabricToShoot() {
   // yet, auto-select the first one so every step below (face, background,
   // pose, ...) is populated and visible immediately instead of waiting on an
   // explicit tap, exactly like Studio auto-picking a garment type on load.
-  const didAutoPreset = useRef<'women' | 'men' | null>(null);
+  const didAutoPreset = useRef<'women' | 'men' | 'boys' | 'girls' | null>(null);
   useEffect(() => {
     if (genderPresets.length && !presetId && didAutoPreset.current !== gender) {
       setPresetId(genderPresets[0]?.id ?? null);

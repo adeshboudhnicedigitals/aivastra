@@ -285,13 +285,13 @@ export async function jobsRoutes(app: FastifyInstance) {
     },
   );
 
-  // GET /v1/fabric-garment-types?gender=men|women — active garment-type
-  // presets for the Fabric to Garment picker. Rows with no genderSlug set
-  // are included regardless of the requested gender.
+  // GET /v1/fabric-garment-types?gender=men|women|boys|girls — active
+  // garment-type presets for the Fabric to Garment picker. Rows with no
+  // genderSlug set are included regardless of the requested gender.
   app.get('/v1/fabric-garment-types', { preHandler: app.requireUser }, async (req) => {
     const { gender } = req.query as { gender?: string };
     const genderCondition =
-      gender === 'men' || gender === 'women'
+      gender === 'men' || gender === 'women' || gender === 'boys' || gender === 'girls'
         ? or(
             eq(schema.fabricGarmentTypes.genderSlug, gender),
             isNull(schema.fabricGarmentTypes.genderSlug),

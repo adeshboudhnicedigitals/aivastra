@@ -200,8 +200,7 @@ export const fabricGarmentTypes = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     slug: text('slug').notNull(),
-    // 'men' | 'women' only (not the system-wide men/women/boys/girls GenderSlug) —
-    // validated at the zod layer, not a DB enum.
+    // 'men' | 'women' | 'boys' | 'girls' — validated at the zod layer, not a DB enum.
     genderSlug: text('gender_slug'),
     label: text('label').notNull(),
     thumbnailKey: text('thumbnail_key'),

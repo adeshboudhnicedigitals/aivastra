@@ -3,7 +3,7 @@
 export interface FabricGarmentTypeOption {
   id: string;
   slug: string;
-  genderSlug: 'men' | 'women' | null;
+  genderSlug: 'men' | 'women' | 'boys' | 'girls' | null;
   label: string;
   thumbnailUrl: string | null;
   // Links this preset to Studio's garment type (garment_subcategories). Null
