@@ -34,10 +34,15 @@ export async function adminFabricGarmentTypesRoutes(app: FastifyInstance) {
         .from(schema.fabricGarmentTypes)
         .orderBy(asc(schema.fabricGarmentTypes.sortOrder), asc(schema.fabricGarmentTypes.label));
       return {
-        items: rows.map((r) => ({
-          ...r,
-          thumbnailUrl: r.thumbnailKey ? app.storage.publicUrl(r.thumbnailKey) : null,
-        })),
+        items: await Promise.all(
+          rows.map(async (r) => ({
+            ...r,
+            // Presigned: R2_PUBLIC_URL is unset in prod, so publicUrl 404s there.
+            thumbnailUrl: r.thumbnailKey
+              ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+              : null,
+          })),
+        ),
       };
     },
   );

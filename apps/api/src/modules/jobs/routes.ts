@@ -308,14 +308,20 @@ export async function jobsRoutes(app: FastifyInstance) {
       .orderBy(asc(schema.fabricGarmentTypes.sortOrder), asc(schema.fabricGarmentTypes.label));
     const creditsCost = await getFabricToGarmentCreditCost(app);
     return {
-      items: rows.map((r) => ({
-        id: r.id,
-        slug: r.slug,
-        genderSlug: r.genderSlug,
-        label: r.label,
-        thumbnailUrl: r.thumbnailKey ? app.storage.publicUrl(r.thumbnailKey) : null,
-        garmentTypeId: r.garmentTypeId,
-      })),
+      items: await Promise.all(
+        rows.map(async (r) => ({
+          id: r.id,
+          slug: r.slug,
+          genderSlug: r.genderSlug,
+          label: r.label,
+          // Presigned, not publicUrl: prod leaves R2_PUBLIC_URL unset (the bucket
+          // isn't public), so publicUrl yields a relative path that 404s.
+          thumbnailUrl: r.thumbnailKey
+            ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+            : null,
+          garmentTypeId: r.garmentTypeId,
+        })),
+      ),
       creditsCost,
     };
   });
