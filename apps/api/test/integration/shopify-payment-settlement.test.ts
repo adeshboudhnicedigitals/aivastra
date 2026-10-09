@@ -349,6 +349,33 @@ describe('confirmPurchase payment check', () => {
       warn.mockRestore();
     }
   });
+
+  it('Redis down: confirm resolves, skips the Partner API and leaves the row AWAITING', async () => {
+    const row = await awaitingPurchase();
+    const warn = vi.spyOn(app.log, 'warn').mockImplementation(() => undefined);
+    const set = vi.spyOn(app.redis, 'set').mockRejectedValueOnce(new Error('redis down'));
+    let calls = 0;
+    try {
+      const res = await confirmPurchase(app, store, row.id, {
+        fetchPurchase: activeFor(row),
+        fetchSales: async () => {
+          calls += 1;
+          return new Map();
+        },
+      });
+      expect(res.paymentStatus).toBe('AWAITING');
+      expect(calls).toBe(0);
+      expect((await reload(row)).paymentStatus).toBe('AWAITING');
+      expect(await ledgerFor(row)).toHaveLength(0);
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error), purchaseId: row.id }),
+        'payment-check throttle unavailable — skipping on-demand check',
+      );
+    } finally {
+      set.mockRestore();
+      warn.mockRestore();
+    }
+  });
 });
 
 describe('GET /v1/shopify/billing/purchases/pending', () => {

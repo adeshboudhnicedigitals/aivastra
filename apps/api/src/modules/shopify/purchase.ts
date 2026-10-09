@@ -375,7 +375,8 @@ const PAYMENT_CHECK_THROTTLE_SEC = 10;
  * On-demand payment check for one purchase, so the return page settles in
  * seconds instead of waiting for the next loop tick. Throttled through Redis
  * because the Partner API's 4 req/s limit is shared org-wide; a throttled or
- * failed check just reports the stored state (fail closed).
+ * failed check — including an unreachable Redis — just reports the stored state
+ * (fail closed). The settlement loop still covers the row either way.
  */
 async function checkPaymentNow(
   app: FastifyInstance,
@@ -383,17 +384,32 @@ async function checkPaymentNow(
   row: typeof schema.shopifyCreditPurchases.$inferSelect,
   fetchSales?: FetchOneTimeSales,
 ): Promise<void> {
-  const claimed = await app.redis.set(
-    `shopify:paycheck:${row.id}`,
-    '1',
-    'EX',
-    PAYMENT_CHECK_THROTTLE_SEC,
-    'NX',
-  );
+  // By now the grant and status update have committed, so a Redis outage must
+  // not turn this into a 500. Without the throttle we can't bound Partner API
+  // calls, so skip the check rather than risk the shared rate limit.
+  let claimed: string | null;
+  try {
+    claimed = await app.redis.set(
+      `shopify:paycheck:${row.id}`,
+      '1',
+      'EX',
+      PAYMENT_CHECK_THROTTLE_SEC,
+      'NX',
+    );
+  } catch (err) {
+    app.log.warn(
+      { err, purchaseId: row.id },
+      'payment-check throttle unavailable — skipping on-demand check',
+    );
+    return;
+  }
   if (claimed !== 'OK') return;
   try {
     await checkPurchases(app, [row], { shop: store.shopDomain, fetchSales });
   } catch (err) {
+    // checkPurchases already converts fetch failures to PartnerApiError and
+    // swallows per-row DB errors with a log, so this rethrow is a safety net
+    // for programming errors, not an expected path.
     if (!(err instanceof PartnerApiError)) throw err;
     app.log.warn(
       { err, purchaseId: row.id },
@@ -410,6 +426,13 @@ async function checkPaymentNow(
  * from Shopify. A merchant editing the URL can at worst point at another store's
  * row, which the storeId check rejects with a 404 — not a 403, which would
  * confirm that row exists.
+ *
+ * `creditsGranted` is advisory under SHOPIFY_HOLD_UNTIL_PAID: it is derived from
+ * the row's state after the check, so it can be non-zero when the settlement loop
+ * did the grant, or 0 when this call polled after the loop had already settled.
+ * The ledger is exactly-once regardless. Callers (the Shopify SPA) must key off
+ * `paymentStatus === 'PAID'` and `credits` to decide whether credits landed, and
+ * must not treat `creditsGranted === 0` as "not granted".
  */
 export async function confirmPurchase(
   app: FastifyInstance,
@@ -471,6 +494,7 @@ export async function confirmPurchase(
     // Re-read rather than trust checkPurchases' outcome map: a concurrent
     // settle can win, and the row is the only source of truth.
     current = await reread();
+    // Advisory only (see docblock): reflects row state, not who wrote the ledger entry.
     if (current.paymentStatus === 'PAID') creditsGranted = current.credits;
   }
 
