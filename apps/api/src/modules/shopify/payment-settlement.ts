@@ -91,6 +91,12 @@ export interface CheckOptions {
   fetchSales?: FetchOneTimeSales;
   now?: Date;
   onSettled?: (tx: DbTransaction, row: PurchaseRow) => Promise<void>;
+  /**
+   * Called from the per-row catch, alongside the log. Single-row callers (the
+   * admin action) use it to re-raise a failure that this function otherwise
+   * swallows to protect a batch.
+   */
+  onRowError?: (row: PurchaseRow, err: unknown) => void;
 }
 
 /**
@@ -155,6 +161,7 @@ export async function checkPurchases(
     } catch (err) {
       // One row's DB failure must not abandon the rest of the batch.
       app.log.error({ err, purchaseId: row.id }, 'payment settlement failed for purchase');
+      opts.onRowError?.(row, err);
     }
   }
   return outcome;

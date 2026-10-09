@@ -58,28 +58,34 @@ export async function adminCheckPurchasePayment(
     return { paymentStatus: row.paymentStatus };
   }
 
-  // checkPurchases logs and swallows per-row DB failures so one bad row can't
-  // abandon a batch. For a single admin action that would turn a failed audit
-  // write (which correctly rolled the grant back) into a silent 200, so the
-  // callback remembers its failure and we re-raise it below.
-  let auditError: unknown;
+  // Same scoping as the merchant confirm path: one store's sales, not the org's.
+  const [store] = await app.db
+    .select({ shopDomain: schema.shopifyStores.shopDomain })
+    .from(schema.shopifyStores)
+    .where(eq(schema.shopifyStores.id, row.storeId))
+    .limit(1);
+
+  // checkPurchases logs and swallows per-row failures (grant, PAID flip, audit)
+  // so one bad row can't abandon a batch. For a single admin action that would
+  // turn a failed settlement (which correctly rolled back) into a silent 200
+  // with status AWAITING, so we remember the first failure and re-raise it.
+  let rowError: unknown;
   try {
     await checkPurchases(app, [row], {
+      shop: store?.shopDomain,
       fetchSales: deps.fetchSales,
+      onRowError: (_r, err) => {
+        rowError ??= err;
+      },
       onSettled: async (tx, settled) => {
-        try {
-          await recordAudit(tx, {
-            actor,
-            action: 'shopify_purchase.settle',
-            resourceType: 'shopify_credit_purchases',
-            resourceId: settled.id,
-            after: { credits: settled.credits, chargeId: settled.shopifyChargeId },
-            request,
-          });
-        } catch (err) {
-          auditError = err;
-          throw err;
-        }
+        await recordAudit(tx, {
+          actor,
+          action: 'shopify_purchase.settle',
+          resourceType: 'shopify_credit_purchases',
+          resourceId: settled.id,
+          after: { credits: settled.credits, chargeId: settled.shopifyChargeId },
+          request,
+        });
       },
     });
   } catch (err) {
@@ -88,7 +94,7 @@ export async function adminCheckPurchasePayment(
     }
     throw err;
   }
-  if (auditError) throw auditError;
+  if (rowError) throw rowError;
 
   // Report the database, not checkPurchases' outcome map: a concurrent settle
   // (loop or merchant confirm) can win the flip, and the map doesn't know.

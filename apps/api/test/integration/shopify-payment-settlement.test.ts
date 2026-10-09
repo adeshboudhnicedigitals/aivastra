@@ -590,4 +590,44 @@ describe('admin check-payment', () => {
     expect(await ledgerFor(row)).toHaveLength(0);
     expect(await auditRows(row)).toHaveLength(0);
   });
+
+  it("scopes the Partner API query to the purchase's store", async () => {
+    const row = await awaitingPurchase();
+    const fetchSales = vi.fn(saleFor(row));
+    await adminCheckPurchasePayment(app, row.id, actor, fakeRequest, { fetchSales });
+    expect(fetchSales).toHaveBeenCalledTimes(1);
+    expect(fetchSales.mock.calls[0][1]).toMatchObject({ shop: store.shopDomain });
+  });
+
+  it('surfaces a settlement failure other than the audit write (no silent 200)', async () => {
+    const [other] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: 'settle-overflow.myshopify.com',
+        shopifyShopId: 555000222,
+        accessToken: 'enc:token',
+        scope: 'read_products',
+      })
+      .returning();
+    // A balance at INT_MAX makes the grant's balance upsert overflow inside
+    // settlePaid's transaction, after the PAID flip — a real grant failure.
+    await app.db
+      .insert(schema.shopifyStoreCredits)
+      .values({ storeId: other.id, balance: 2147483647 });
+    const row = await awaitingPurchase({ storeId: other.id });
+    const logSpy = vi.spyOn(app.log, 'error').mockImplementation(() => undefined);
+    await expect(
+      adminCheckPurchasePayment(app, row.id, actor, fakeRequest, { fetchSales: saleFor(row) }),
+    ).rejects.toThrow();
+    logSpy.mockRestore();
+    const fresh = await reload(row);
+    expect(fresh.paymentStatus).toBe('AWAITING');
+    expect(fresh.paidAt).toBeNull();
+    const ledger = await app.db
+      .select()
+      .from(schema.shopifyCreditLedger)
+      .where(eq(schema.shopifyCreditLedger.storeId, other.id));
+    expect(ledger).toHaveLength(0);
+    expect(await auditRows(row)).toHaveLength(0);
+  });
 });
