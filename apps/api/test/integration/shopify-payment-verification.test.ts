@@ -337,8 +337,38 @@ describe('settlement tick - verification pass', () => {
 
     expect((await reload(due)).paymentStatus).toBe('PAID');
     expect((await reload(later)).paymentStatus).toBe('UNVERIFIED'); // not due, so not looked at
-    expect(await gauge('shopify_purchases_unverified')).toBe(await dbCount(['UNVERIFIED']));
-    expect(await gauge('shopify_purchases_not_received')).toBe(await dbCount(['NOT_RECEIVED']));
+    const auto = sql`${schema.shopifyCreditPurchases.paymentStatusSource} = 'AUTO'`;
+    expect(await gauge('shopify_purchases_unverified')).toBe(await dbCount(['UNVERIFIED'], auto));
+    expect(await gauge('shopify_purchases_not_received')).toBe(
+      await dbCount(['NOT_RECEIVED'], auto),
+    );
+  });
+
+  it('gauges count automatic rows only, so an admin-reviewed row clears the alert', async () => {
+    await runPaymentSettlementTick(app, { fetchSales: async () => new Map() });
+    const unverifiedBefore = (await gauge('shopify_purchases_unverified')) ?? 0;
+    const notReceivedBefore = (await gauge('shopify_purchases_not_received')) ?? 0;
+    const parked = new Date(Date.now() + 30 * DAY_MS);
+
+    await unverified({
+      paymentStatus: 'NOT_RECEIVED',
+      paymentStatusSource: 'MANUAL',
+      nextPaymentCheckAt: parked,
+    });
+    await unverified({
+      paymentStatus: 'UNVERIFIED',
+      paymentStatusSource: 'MANUAL',
+      nextPaymentCheckAt: parked,
+    });
+    await runPaymentSettlementTick(app, { fetchSales: async () => new Map() });
+    expect(await gauge('shopify_purchases_unverified')).toBe(unverifiedBefore);
+    expect(await gauge('shopify_purchases_not_received')).toBe(notReceivedBefore);
+
+    await unverified({ paymentStatus: 'NOT_RECEIVED', nextPaymentCheckAt: parked });
+    await unverified({ nextPaymentCheckAt: parked });
+    await runPaymentSettlementTick(app, { fetchSales: async () => new Map() });
+    expect(await gauge('shopify_purchases_unverified')).toBe(unverifiedBefore + 1);
+    expect(await gauge('shopify_purchases_not_received')).toBe(notReceivedBefore + 1);
   });
 
   it('an outage leaves a past-window row UNVERIFIED, logs, and raises the overdue gauge', async () => {

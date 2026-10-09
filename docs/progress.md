@@ -9,10 +9,13 @@
   transaction** as the grant (conditional on `NOT_REQUIRED`, so concurrent callers and replays
   grant exactly once; `grantStore`'s `external_ref` idempotency stays underneath). Test charges are
   not tracked. Migration `0220`. A verification pass in the settlement loop looks each
-  `UNVERIFIED` row up in the Partner API: sale found -> `PAID`; no sale inside
+  `UNVERIFIED` row up in the Partner API (`NOT_RECEIVED` rows are re-checked daily until 30 days
+  old): sale found -> `PAID`; no sale inside
   `SHOPIFY_PAYMENT_VERIFY_WINDOW_MINUTES` (180) -> `NOT_RECEIVED`. Updates are conditional on
   `payment_status_source = 'AUTO'`, so an admin override is never overwritten. New gauges include
-  `shopify_purchases_not_received` and `shopify_purchases_overdue_verification`. `/v1/shopify/me`
+  `shopify_purchases_not_received` and `shopify_purchases_overdue_verification`; the
+  unverified/not-received gauges count AUTOMATIC rows only, so reviewing a long-`NOT_RECEIVED`
+  row in admin (it becomes `MANUAL`) is how to clear the alert. `/v1/shopify/me`
   and the Shopify app count grant-then-verify purchases as bought. Admin gets an all-stores
   **Pack purchases** page with filters, a detail view and an audited payment review (restricted to
   approved manual purchases, row locked, `recordAudit` in the same transaction), plus
@@ -34,7 +37,9 @@
     `stillAutomatic` -> "leaves an admin override alone even when a sale exists" failed.
 - **Rollout (production):**
   1. Deploy with `SHOPIFY_VERIFY_PAYMENTS` unset — migration `0220` runs via CI.
-  2. Set `SHOPIFY_VERIFY_PAYMENTS=true`, restart the API.
+  2. Precheck: confirm `SHOPIFY_PARTNER_API_TOKEN` and `SHOPIFY_PARTNER_ORG_ID` are set in the VPS
+     `.env` (report name, set/unset and length only, never the values). Then set
+     `SHOPIFY_VERIFY_PAYMENTS=true`, restart the API.
   3. Buy Silver ($10) on the real store: credits arrive instantly, row is `UNVERIFIED`, `PAID`
      roughly an hour later (Shopify's visibility delay was ~36-46 min in the one sample, plus the
      15-minute poll).
@@ -43,6 +48,8 @@
   5. Create the Grafana alerts — `shopify_purchases_not_received > 0` and
      `shopify_purchases_overdue_verification > 0`, each for 30 minutes. Do NOT alert on the
      last-success timestamp: it goes stale on a healthy system.
+  - Rollback: set `SHOPIFY_VERIFY_PAYMENTS` off and restart. The loop still checks rows already
+    tracked, and no credits change.
 - **Failed-Not-Done:**
   - No browser walk of the new admin Pack purchases page (`ShopifyPurchasesPage`) was done; it is
     verified only by typecheck/build and the API integration tests.
@@ -62,6 +69,23 @@
     - Date filter range is built in UTC.
     - Review list cursor paginates on `createdAt` only (ms precision).
     - No test makes `recordAudit` itself throw.
+    - The not-received window is measured from purchase `createdAt`, not approval time, so a slow
+      approver can get an early `NOT_RECEIVED` that self-heals at the daily check.
+    - "Clear override" on a row that was never tracked (`NOT_REQUIRED`, e.g. a test charge) turns
+      it into a tracked row that the loop would flag `NOT_RECEIVED`.
+    - Check-payment status changes are not audited.
+    - The page's "Approved" column shows `createdAt`.
+    - `creditsLanded` needs `creditsGranted > 0`, so the toast is skipped when a webhook granted
+      first.
+    - Settlement and verification share one tick, so a DB error in the settlement half skips
+      verification for that tick.
+    - Staging restores a prod snapshot, so staging would verify prod `UNVERIFIED` rows with
+      staging Partner credentials.
+    - Tasks 2-5 minors: no explicit early-return test on a fresh `UNVERIFIED` row; `CheckOptions`
+      duplicates `SalesFetchOptions`; `PendingPaymentBanner` landed check; a test parks its
+      overdue row outside `finally`.
+    - Task 6 minors: review cursor on `createdAt` only; a note-only review stamps `flagged_by`
+      but stays `AUTO`.
 
 ## 2026-10-09 — Shopify credit packs: hold until paid (implemented, flag off)
 

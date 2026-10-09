@@ -179,10 +179,12 @@ export async function runVerificationPass(
     }
   }
 
+  // AUTOMATIC rows only: an admin-reviewed (MANUAL) row has been looked at, and
+  // reviewing a long NOT_RECEIVED row is how an operator clears the alert.
   const counts = await app.db
     .select({ status: P.paymentStatus, n: sql<number>`count(*)::int` })
     .from(P)
-    .where(tracked)
+    .where(and(tracked, eq(P.paymentStatusSource, 'AUTO')))
     .groupBy(P.paymentStatus);
   shopifyPurchasesUnverified.set(counts.find((c) => c.status === 'UNVERIFIED')?.n ?? 0);
   shopifyPurchasesNotReceived.set(counts.find((c) => c.status === 'NOT_RECEIVED')?.n ?? 0);
