@@ -73,11 +73,14 @@ describe('admin app-video config + public read', () => {
       headers: adminAuth,
     });
     expect(adminGetRes.statusCode).toBe(200);
-    expect(adminGetRes.json().videoUrl).toBe(confirmed.videoUrl);
+    // Compare the key, not the full signed URL: each call re-signs independently, and
+    // SigV4's X-Amz-Date has 1-second granularity, so a presign landing in the next
+    // wall-clock second yields a different (still valid) signature for the same key.
+    expect(adminGetRes.json().videoUrl.split('?')[0]).toBe(confirmed.videoUrl.split('?')[0]);
 
     const publicRes = await app.inject({ method: 'GET', url: '/v1/config/app-video' });
     expect(publicRes.statusCode).toBe(200);
-    expect(publicRes.json().videoUrl).toBe(confirmed.videoUrl);
+    expect(publicRes.json().videoUrl.split('?')[0]).toBe(confirmed.videoUrl.split('?')[0]);
   });
 
   it('re-confirming re-signs the URL without changing the key', async () => {

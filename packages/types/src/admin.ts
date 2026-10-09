@@ -1002,9 +1002,7 @@ export type AdminHeldJobsReleaseResponse = z.infer<typeof AdminHeldJobsReleaseRe
 // template's garmentPhasePromptNode (and optionally facePhasePromptNode) at
 // dispatch time. See apps/dispatcher/src/job/processor.ts::processFabricToGarmentJob.
 
-// Separate from the system-wide GenderSlug (men/women/boys/girls) — fabric-to-garment
-// presets are deliberately scoped to just these two.
-export const FabricGarmentGenderEnum = z.enum(['men', 'women']);
+export const FabricGarmentGenderEnum = z.enum(['men', 'women', 'boys', 'girls']);
 
 export const CreateFabricGarmentTypeBody = z.object({
   slug: z

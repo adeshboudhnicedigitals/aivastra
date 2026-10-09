@@ -531,7 +531,7 @@ export interface FabricGarmentType {
   slug: string;
   // null only for legacy rows created before gender scoping was added — treated
   // as "show for every gender" until an admin edits the row to set one.
-  genderSlug: 'men' | 'women' | null;
+  genderSlug: 'men' | 'women' | 'boys' | 'girls' | null;
   label: string;
   thumbnailKey: string | null;
   thumbnailUrl: string | null;
