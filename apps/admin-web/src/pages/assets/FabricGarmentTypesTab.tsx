@@ -21,17 +21,21 @@ interface PresignResult {
   uploadUrl: string;
 }
 
-type FabricGender = 'men' | 'women';
+type FabricGender = 'men' | 'women' | 'boys' | 'girls';
 
 const GENDER_OPTIONS: { k: FabricGender; l: string }[] = [
   { k: 'men', l: 'Men' },
   { k: 'women', l: 'Women' },
+  { k: 'boys', l: 'Boys' },
+  { k: 'girls', l: 'Girls' },
 ];
 
 const FABRIC_GENDER_TABS: { k: 'all' | FabricGender; l: string }[] = [
   { k: 'all', l: 'All' },
   { k: 'men', l: 'Men' },
   { k: 'women', l: 'Women' },
+  { k: 'boys', l: 'Boys' },
+  { k: 'girls', l: 'Girls' },
 ];
 
 function putFile(url: string, file: File): Promise<void> {
@@ -83,8 +87,8 @@ function PresetModal({
   }, [file]);
 
   // Studio's garment types are gender-scoped too (men/women/boys/girls) — only
-  // offer ones matching this preset's own men/women gender, so the link can't
-  // point at a mismatched audience.
+  // offer ones matching this preset's own gender, so the link can't point at a
+  // mismatched audience.
   const garmentTypeOptions = useMemo(
     () =>
       garmentTypes
@@ -415,7 +419,10 @@ export function FabricGarmentTypesTab() {
   // ("show for every gender") — keep them visible under a specific tab too, since
   // they still apply until an admin edits them to pick one.
   const filteredPresets =
-    genderFilter === 'men' || genderFilter === 'women'
+    genderFilter === 'men' ||
+    genderFilter === 'women' ||
+    genderFilter === 'boys' ||
+    genderFilter === 'girls'
       ? presets.filter((p) => p.genderSlug === genderFilter || p.genderSlug === null)
       : presets;
 
@@ -494,7 +501,11 @@ export function FabricGarmentTypesTab() {
                     ? 'Men'
                     : preset.genderSlug === 'women'
                       ? 'Women'
-                      : 'Set gender'}
+                      : preset.genderSlug === 'boys'
+                        ? 'Boys'
+                        : preset.genderSlug === 'girls'
+                          ? 'Girls'
+                          : 'Set gender'}
                 </span>
               </div>
               <div

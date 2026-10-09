@@ -301,6 +301,7 @@ export function FabricToShootStudioFlow({
           title="Choose a model face"
           items={faces}
           selectedIds={faceId ? [faceId] : []}
+          aspect={215.2 / 212.67}
           hideLabels
           onSelect={(id) => {
             onSelectFace(id);
@@ -314,6 +315,7 @@ export function FabricToShootStudioFlow({
           title="Choose a background"
           items={backgrounds}
           selectedIds={backgroundId ? [backgroundId] : []}
+          aspect={215.2 / 212.67}
           hideLabels
           onSelect={(id) => {
             onSelectBackground(id);
@@ -328,6 +330,7 @@ export function FabricToShootStudioFlow({
           items={poses}
           selectedIds={poseIds}
           multiSelect
+          aspect={3 / 4}
           hideLabels
           continueLabel="Use {count} pose(s)"
           onSelect={onTogglePose}
@@ -339,6 +342,7 @@ export function FabricToShootStudioFlow({
           title="Choose a lower garment"
           items={lowerItems}
           selectedIds={lowerCatalogId ? [lowerCatalogId] : []}
+          aspect={3 / 4}
           hideLabels
           onSelect={(id) => {
             onSelectLower(lowerCatalogId === id ? null : id);
@@ -352,6 +356,7 @@ export function FabricToShootStudioFlow({
           title="Choose footwear"
           items={shoeItems}
           selectedIds={shoeCatalogId ? [shoeCatalogId] : []}
+          aspect={215.2 / 212.67}
           hideLabels
           onSelect={(id) => {
             onSelectShoe(shoeCatalogId === id ? null : id);
