@@ -2,6 +2,50 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-09 — Shopify credit packs: hold until paid (implemented, flag off)
+
+- **Done:** credit-pack credits can now be held until Shopify has actually collected payment,
+  behind `SHOPIFY_HOLD_UNTIL_PAID` (off by default — behaviour unchanged until flipped).
+  Spec `docs/superpowers/specs/2026-10-09-shopify-hold-until-paid-design.md`, plan
+  `docs/superpowers/plans/2026-10-09-shopify-hold-until-paid.md`. Migration `0219` adds
+  `payment_status` / `paid_at` / `next_payment_check_at` to `shopify_credit_purchases`.
+  New: `partner-api.ts`, `payment-settlement.ts`, `startPaymentSettlementScheduler` (60s),
+  confirm-route on-demand check (Redis-throttled 10s), `GET /v1/shopify/billing/purchases/pending`,
+  admin `GET /admin/shopify-stores/:id/purchases` + `POST /admin/shopify/purchases/:id/check-payment`
+  (`credits.write`, audited), SPA return-page polling + `PendingPaymentBanner`.
+  Follow-up fixes that landed beyond the plan:
+  - Partner API client fails closed on malformed responses.
+  - `/v1/shopify/me` no longer counts held/unpaid purchases as paid (`hasPurchasedPack`).
+  - Settlement-tick test strengthened.
+  - Confirm throttle fails soft when Redis is down; `creditsGranted` is documented as advisory in
+    hold mode (the SPA keys off `paymentStatus` + credits).
+  - Admin purchases card is a single instance, the admin payment check is scoped to the store's
+    shop, and any settle error is surfaced via `onRowError`.
+- **Validation (2026-10-09, repo root, docker up):**
+  - `pnpm typecheck` — exit 0, all packages clean.
+  - `pnpm lint` — exit 0, 0 errors (765 warnings, 13 infos, pre-existing style diagnostics).
+  - `pnpm --filter @aivastra/api test` (unit) — 89 files / 812 tests passed.
+  - `pnpm --filter @aivastra/api test:integration` — 155 files / 1134 tests passed.
+  - `pnpm --filter @aivastra/shopify-admin test` — 13 files / 91 tests passed; `build` OK.
+  - `pnpm --filter @aivastra/admin build`, `@aivastra/db build`, `@aivastra/observability build` — OK.
+- **Rollout (not done — production ops):**
+  1. Deploy (migration runs via CI `db:migrate:prod`), flag still off.
+  2. Create a **production** Partner API client ("View financials" only), set
+     `SHOPIFY_PARTNER_API_TOKEN` + `SHOPIFY_PARTNER_ORG_ID` in `.env.production`, restart api.
+  3. On the VPS: `pnpm check:partner-transactions -- 3321168113` must report PAID.
+  4. Set `SHOPIFY_HOLD_UNTIL_PAID=true`, restart api (runtime var, no rebuild).
+  5. Buy Silver on our store; confirm AWAITING → PAID within minutes, banner, toast, one ledger row.
+  6. Create the Grafana alert: `shopify_payment_check_last_success_timestamp` older than 15 min
+     while `shopify_purchases_awaiting_payment > 0`. Record it here when done.
+- **Failed-Not-Done:** nothing failed in validation; rollout steps above are not done.
+- **Open:**
+  - SPA banner/return page verified only by unit tests for the poll logic plus build — no
+    component tests exist; verify by hand in rollout step 5.
+  - Known Minors not fixed: dashboard toast re-shows on reload; stale "received" note in
+    `PendingPaymentBanner`; a DECLINED/EXPIRED status discovered mid-poll navigates silently.
+  - `SHOPIFY_PARTNER_*` must be created per environment (staging as well as production).
+  - Grafana alert (rollout step 6) still to create.
+
 ## 2026-10-09 — Shopify real-payment test ($1 Silver on prod) and grant-on-ACTIVE finding
 
 - **Done:** ran a real-money purchase test of the Shopify credit-pack flow on our own (non-development)
