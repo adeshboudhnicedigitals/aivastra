@@ -47,6 +47,25 @@ export const auditLogWriteFailuresTotal = new Counter({
   registers: [register],
 });
 
+export const shopifyPaymentCheckFailuresTotal = new Counter({
+  name: 'shopify_payment_check_failures_total',
+  help: 'Partner API payment checks that failed, by reason (missing_config/http/graphql/rate_limited)',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
+export const shopifyPaymentCheckLastSuccess = new Gauge({
+  name: 'shopify_payment_check_last_success_timestamp',
+  help: 'Unix seconds of the last successful Partner API payment check',
+  registers: [register],
+});
+
+export const shopifyPurchasesAwaitingPayment = new Gauge({
+  name: 'shopify_purchases_awaiting_payment',
+  help: 'Credit-pack purchases ACTIVE at Shopify but not yet seen as paid',
+  registers: [register],
+});
+
 // ── Dispatcher metrics ───────────────────────────────────────────────────────
 
 export const jobsProcessedTotal = new Counter({

@@ -1527,6 +1527,13 @@
       "when": 1791307230876,
       "tag": "0218_ordinary_nick_fury",
       "breakpoints": true
+    },
+    {
+      "idx": 219,
+      "version": "7",
+      "when": 1791534980640,
+      "tag": "0219_bright_tomas",
+      "breakpoints": true
     }
   ]
 }
