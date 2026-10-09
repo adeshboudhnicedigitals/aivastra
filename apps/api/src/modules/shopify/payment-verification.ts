@@ -1,7 +1,12 @@
 import { schema } from '@aivastra/db';
-import { and, eq, inArray } from 'drizzle-orm';
+import {
+  shopifyPurchasesNotReceived,
+  shopifyPurchasesOverdueVerification,
+  shopifyPurchasesUnverified,
+} from '@aivastra/observability';
+import { and, asc, eq, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { numericChargeId } from './partner-api.js';
+import { type FetchOneTimeSales, numericChargeId } from './partner-api.js';
 import { fetchSalesForRows, type SalesFetchOptions } from './payment-settlement.js';
 
 type PurchaseRow = typeof schema.shopifyCreditPurchases.$inferSelect;
@@ -126,4 +131,74 @@ export async function verifyGrantedPurchases(
       opts.onRowError?.(row, err);
     }
   }
+}
+
+/** One pass settles at most this many purchases; the rest wait for the next tick. */
+const BATCH = 200;
+/** A row this far past its next check is stuck, not merely backing off. */
+const OVERDUE_GRACE_MS = 60 * MIN;
+
+/**
+ * The verification half of the settlement tick: check every automatic
+ * UNVERIFIED/NOT_RECEIVED purchase whose next check is due, then refresh the
+ * gauges. Runs regardless of SHOPIFY_VERIFY_PAYMENTS so that turning the flag
+ * off (the rollback) still lets already-tracked rows reach PAID.
+ */
+export async function runVerificationPass(
+  app: FastifyInstance,
+  opts: { fetchSales?: FetchOneTimeSales; now?: Date } = {},
+): Promise<void> {
+  const now = opts.now ?? new Date();
+  const P = schema.shopifyCreditPurchases;
+  const tracked = inArray(P.paymentStatus, ['UNVERIFIED', 'NOT_RECEIVED']);
+
+  const due = await app.db
+    .select()
+    .from(P)
+    .where(
+      and(
+        tracked,
+        eq(P.paymentStatusSource, 'AUTO'),
+        isNotNull(P.shopifyChargeId),
+        lte(P.nextPaymentCheckAt, now),
+      ),
+    )
+    .orderBy(asc(P.nextPaymentCheckAt))
+    .limit(BATCH);
+
+  if (due.length > 0) {
+    try {
+      await verifyGrantedPurchases(app, due, { fetchSales: opts.fetchSales, now });
+    } catch (err) {
+      // Fail closed: rows stay as they are and are retried next tick. Logged every
+      // tick on purpose — together with the overdue gauge this is the alert.
+      app.log.error(
+        { err, due: due.length },
+        'payment verification check failed — purchases stay unverified',
+      );
+    }
+  }
+
+  const counts = await app.db
+    .select({ status: P.paymentStatus, n: sql<number>`count(*)::int` })
+    .from(P)
+    .where(tracked)
+    .groupBy(P.paymentStatus);
+  shopifyPurchasesUnverified.set(counts.find((c) => c.status === 'UNVERIFIED')?.n ?? 0);
+  shopifyPurchasesNotReceived.set(counts.find((c) => c.status === 'NOT_RECEIVED')?.n ?? 0);
+
+  // The alertable signal: "last success" only advances when rows are due, so it
+  // goes stale on a healthy system; a row overdue by an hour can only mean the
+  // loop is failing or not keeping up.
+  const [{ overdue }] = await app.db
+    .select({ overdue: sql<number>`count(*)::int` })
+    .from(P)
+    .where(
+      and(
+        tracked,
+        eq(P.paymentStatusSource, 'AUTO'),
+        lt(P.nextPaymentCheckAt, new Date(now.getTime() - OVERDUE_GRACE_MS)),
+      ),
+    );
+  shopifyPurchasesOverdueVerification.set(overdue);
 }

@@ -1,8 +1,10 @@
 import { schema } from '@aivastra/db';
-import { and, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { register } from '@aivastra/observability';
+import { and, eq, sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { grantStore } from '../../src/modules/credits/shopify-ledger.js';
 import { PartnerApiError } from '../../src/modules/shopify/partner-api.js';
+import { runPaymentSettlementTick } from '../../src/modules/shopify/payment-settlement-scheduler.js';
 import { verifyGrantedPurchases } from '../../src/modules/shopify/payment-verification.js';
 import { grantForPurchase } from '../../src/modules/shopify/purchase.js';
 import { buildTestApp } from '../helpers/api.js';
@@ -299,5 +301,79 @@ describe('verifyGrantedPurchases', () => {
     });
     await verifyGrantedPurchases(app, [row], { fetchSales: saleFor(row) });
     expect((await reload(row)).paymentStatus).toBe('AWAITING');
+  });
+});
+
+async function gauge(name: string): Promise<number | undefined> {
+  const metric = await register.getSingleMetric(name)?.get();
+  return metric?.values[0]?.value;
+}
+
+async function dbCount(statuses: string[], extra = sql`true`): Promise<number> {
+  const [{ n }] = await app.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.shopifyCreditPurchases)
+    .where(
+      sql`${schema.shopifyCreditPurchases.paymentStatus} IN (${sql.join(
+        statuses.map((s) => sql`${s}`),
+        sql`, `,
+      )}) AND ${extra}`,
+    );
+  return n;
+}
+
+describe('settlement tick - verification pass', () => {
+  it('confirms due rows, skips rows not yet due, and sets the gauges from the database', async () => {
+    const due = await unverified();
+    const later = await unverified({ nextPaymentCheckAt: new Date(Date.now() + HOUR_MS) });
+    const sales = new Map(
+      [due, later].map((r) => [
+        (r.shopifyChargeId as string).split('/').pop() as string,
+        { paidAt: new Date() },
+      ]),
+    );
+
+    await runPaymentSettlementTick(app, { fetchSales: async () => sales });
+
+    expect((await reload(due)).paymentStatus).toBe('PAID');
+    expect((await reload(later)).paymentStatus).toBe('UNVERIFIED'); // not due, so not looked at
+    expect(await gauge('shopify_purchases_unverified')).toBe(await dbCount(['UNVERIFIED']));
+    expect(await gauge('shopify_purchases_not_received')).toBe(await dbCount(['NOT_RECEIVED']));
+  });
+
+  it('an outage leaves a past-window row UNVERIFIED, logs, and raises the overdue gauge', async () => {
+    const row = await unverified({
+      createdAt: new Date(Date.now() - 5 * HOUR_MS),
+      nextPaymentCheckAt: new Date(Date.now() - 2 * HOUR_MS),
+    });
+    const logError = vi.spyOn(app.log, 'error').mockImplementation(() => undefined);
+    try {
+      await runPaymentSettlementTick(app, {
+        fetchSales: async () => {
+          throw new PartnerApiError('http', 'down');
+        },
+      });
+      expect(logError).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(PartnerApiError) }),
+        'payment verification check failed — purchases stay unverified',
+      );
+    } finally {
+      logError.mockRestore();
+    }
+
+    expect((await reload(row)).paymentStatus).toBe('UNVERIFIED'); // never NOT_RECEIVED on a failed query
+    const overdueRows = await dbCount(
+      ['UNVERIFIED', 'NOT_RECEIVED'],
+      sql`${schema.shopifyCreditPurchases.paymentStatusSource} = 'AUTO'
+        AND ${schema.shopifyCreditPurchases.nextPaymentCheckAt} < now() - interval '1 hour'`,
+    );
+    expect(overdueRows).toBeGreaterThanOrEqual(1);
+    expect(await gauge('shopify_purchases_overdue_verification')).toBe(overdueRows);
+
+    // Park the row so it cannot influence later tests.
+    await app.db
+      .update(schema.shopifyCreditPurchases)
+      .set({ nextPaymentCheckAt: new Date(Date.now() + 30 * DAY_MS) })
+      .where(eq(schema.shopifyCreditPurchases.id, row.id));
   });
 });
