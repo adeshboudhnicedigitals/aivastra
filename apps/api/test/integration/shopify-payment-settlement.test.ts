@@ -1,12 +1,15 @@
 import { schema } from '@aivastra/db';
 import { register } from '@aivastra/observability';
 import { and, eq, sql } from 'drizzle-orm';
+import type { FastifyRequest } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { adminCheckPurchasePayment } from '../../src/modules/admin/shopify-stores.routes.js';
 import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
 import { PartnerApiError } from '../../src/modules/shopify/partner-api.js';
 import { checkPurchases, settlePaid } from '../../src/modules/shopify/payment-settlement.js';
 import { runPaymentSettlementTick } from '../../src/modules/shopify/payment-settlement-scheduler.js';
 import { confirmPurchase, grantForPurchase } from '../../src/modules/shopify/purchase.js';
+import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
 import { signSessionToken } from '../helpers/shopify-session.js';
@@ -452,5 +455,139 @@ describe('GET /v1/shopify/billing/purchases/pending', () => {
       credits: 800,
       packId: 'pack_10',
     });
+  });
+});
+
+describe('admin check-payment', () => {
+  const fakeRequest = {
+    ip: '203.0.113.9',
+    headers: {},
+    id: 'req-test',
+  } as unknown as FastifyRequest;
+  let actor: { userId: string; role: string };
+
+  beforeAll(async () => {
+    const [u] = await app.db
+      .insert(schema.users)
+      .values({ email: `check-actor-${Date.now()}@x.com`, passwordHash: 'x', displayName: 'A' })
+      .returning();
+    actor = { userId: u.id, role: 'SUPER_ADMIN' };
+  });
+
+  const auditRows = (row: Row) =>
+    app.db
+      .select()
+      .from(schema.auditLogs)
+      .where(
+        and(
+          eq(schema.auditLogs.resourceId, row.id),
+          eq(schema.auditLogs.action, 'shopify_purchase.settle'),
+        ),
+      );
+
+  it('rejects a caller without credits.write', async () => {
+    const row = await awaitingPurchase();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/admin/shopify/purchases/${row.id}/check-payment`,
+      headers: await adminAuthHeader(app, 'SUPPORT'),
+    });
+    expect(res.statusCode).toBe(403);
+    expect((await reload(row)).paymentStatus).toBe('AWAITING');
+  });
+
+  it('fails closed with 502 when the Partner API is not configured', async () => {
+    const row = await awaitingPurchase();
+    const logSpy = vi.spyOn(app.log, 'error').mockImplementation(() => undefined);
+    const res = await app.inject({
+      method: 'POST',
+      url: `/admin/shopify/purchases/${row.id}/check-payment`,
+      headers: await adminAuthHeader(app, 'SUPER_ADMIN'),
+    });
+    logSpy.mockRestore();
+    // No SHOPIFY_PARTNER_* in the test env -> fail closed with a 502, row untouched.
+    expect(res.statusCode).toBe(502);
+    expect((await reload(row)).paymentStatus).toBe('AWAITING');
+    expect(await ledgerFor(row)).toHaveLength(0);
+  });
+
+  it('lists the store purchases with payment status', async () => {
+    const row = await awaitingPurchase();
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/shopify-stores/${store.id}/purchases`,
+      headers: await adminAuthHeader(app, 'SUPPORT'),
+    });
+    expect(res.statusCode).toBe(200);
+    const { purchases } = res.json() as { purchases: Array<{ id: string; paymentStatus: string }> };
+    expect(purchases.find((p) => p.id === row.id)).toMatchObject({ paymentStatus: 'AWAITING' });
+  });
+
+  it('a matching sale settles: PAID, one ledger row, one audit row', async () => {
+    const row = await awaitingPurchase();
+    const res = await adminCheckPurchasePayment(app, row.id, actor, fakeRequest, {
+      fetchSales: saleFor(row),
+    });
+    expect(res.paymentStatus).toBe('PAID');
+    expect((await reload(row)).paymentStatus).toBe('PAID');
+    expect(await ledgerFor(row)).toHaveLength(1);
+    const audits = await auditRows(row);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorUserId: actor.userId,
+      actorRole: 'SUPER_ADMIN',
+      resourceType: 'shopify_credit_purchases',
+    });
+  });
+
+  it('no matching sale writes no audit row and no ledger row', async () => {
+    const row = await awaitingPurchase();
+    const res = await adminCheckPurchasePayment(app, row.id, actor, fakeRequest, {
+      fetchSales: noSales,
+    });
+    expect(res.paymentStatus).toBe('AWAITING');
+    expect(await auditRows(row)).toHaveLength(0);
+    expect(await ledgerFor(row)).toHaveLength(0);
+  });
+
+  it('a second check after PAID writes no second audit or ledger row', async () => {
+    const row = await awaitingPurchase();
+    const deps = { fetchSales: saleFor(row) };
+    await adminCheckPurchasePayment(app, row.id, actor, fakeRequest, deps);
+    const again = await adminCheckPurchasePayment(app, row.id, actor, fakeRequest, deps);
+    expect(again.paymentStatus).toBe('PAID');
+    expect(await auditRows(row)).toHaveLength(1);
+    expect(await ledgerFor(row)).toHaveLength(1);
+  });
+
+  it('reports the database status when a concurrent settle wins', async () => {
+    const row = await awaitingPurchase();
+    // The sale is visible, but the loop flips the row between our read and our flip.
+    const racing = async () => {
+      await settlePaid(app.db, row, new Date());
+      return saleFor(row)();
+    };
+    const res = await adminCheckPurchasePayment(app, row.id, actor, fakeRequest, {
+      fetchSales: racing,
+    });
+    expect(res.paymentStatus).toBe('PAID');
+    expect(await auditRows(row)).toHaveLength(0); // the loop settled it, not this admin
+    expect(await ledgerFor(row)).toHaveLength(1);
+  });
+
+  it('fails closed: a failing audit write rolls back the grant and the PAID flip', async () => {
+    const row = await awaitingPurchase();
+    // An actor id with no users row violates the audit_logs FK, so recordAudit really throws.
+    const ghost = { userId: '00000000-0000-4000-8000-000000000000', role: 'SUPER_ADMIN' };
+    const logSpy = vi.spyOn(app.log, 'error').mockImplementation(() => undefined);
+    await expect(
+      adminCheckPurchasePayment(app, row.id, ghost, fakeRequest, { fetchSales: saleFor(row) }),
+    ).rejects.toThrow();
+    logSpy.mockRestore();
+    const fresh = await reload(row);
+    expect(fresh.paymentStatus).toBe('AWAITING');
+    expect(fresh.paidAt).toBeNull();
+    expect(await ledgerFor(row)).toHaveLength(0);
+    expect(await auditRows(row)).toHaveLength(0);
   });
 });

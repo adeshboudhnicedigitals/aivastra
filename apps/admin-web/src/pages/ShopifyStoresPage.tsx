@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import { Icon } from '../components/Icons';
 import { StatusBadge } from '../components/StatusBadge';
+import { StorePurchasesCard } from '../components/StorePurchasesCard';
 import { useAuth } from '../context/AuthContext';
 import { useCrumb } from '../context/BreadcrumbContext';
 import { useCloseOverlay } from '../hooks/use-close-overlay';
@@ -675,6 +676,8 @@ export default function ShopifyStoresPage({ toast }: Props) {
             </div>
           </div>
 
+          <StorePurchasesCard storeId={selectedStore.id} toast={toast} />
+
           <div className="card">
             <div className="card-head">
               <h3>Credit activity</h3>
@@ -976,6 +979,8 @@ export default function ShopifyStoresPage({ toast }: Props) {
               {jobsLoadingMore ? 'Loading…' : 'Load more'}
             </button>
           )}
+
+          <StorePurchasesCard storeId={selectedStore.id} toast={toast} />
 
           <h3 style={{ fontSize: 13.5, fontWeight: 600, margin: '8px 0 0', color: 'var(--ink)' }}>
             Credit activity

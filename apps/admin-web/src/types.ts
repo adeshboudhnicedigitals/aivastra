@@ -546,3 +546,15 @@ export interface FabricGarmentType {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface StorePurchase {
+  id: string;
+  packId: string;
+  credits: number;
+  priceUsdCents: number;
+  status: string;
+  paymentStatus: 'NOT_REQUIRED' | 'AWAITING' | 'PAID' | 'UNPAID';
+  paidAt: string | null;
+  createdAt: string;
+  shopifyChargeId: string | null;
+}
