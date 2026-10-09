@@ -135,8 +135,14 @@ export async function adminReviewPurchasePayment(
   request: FastifyRequest,
 ) {
   return app.db.transaction(async (tx) => {
-    const [row] = await tx.select().from(P).where(eq(P.id, purchaseId)).limit(1);
+    // Locked so the audit 'before' and the override check below see the committed row.
+    const [row] = await tx.select().from(P).where(eq(P.id, purchaseId)).limit(1).for('update');
     if (!row) throw new AppError('NOT_FOUND', 404, 'purchase not found');
+    // Only what the list shows: auto-refill rows carry a usage-record id that never
+    // appears in one-time sales, and PENDING rows were never approved.
+    if (row.source !== 'manual' || row.status !== 'ACTIVE') {
+      throw new AppError('CONFLICT', 409, 'only approved manual purchases can be reviewed');
+    }
     if (!(GRANTED_STATUSES as readonly string[]).includes(row.paymentStatus)) {
       throw new AppError('CONFLICT', 409, 'held purchase — use Check payment, not a manual review');
     }
@@ -172,7 +178,14 @@ export async function adminReviewPurchasePayment(
     const updated = await tx
       .update(P)
       .set(set)
-      .where(and(eq(P.id, row.id), inArray(P.paymentStatus, [...GRANTED_STATUSES])))
+      .where(
+        and(
+          eq(P.id, row.id),
+          eq(P.source, 'manual'),
+          eq(P.status, 'ACTIVE'),
+          inArray(P.paymentStatus, [...GRANTED_STATUSES]),
+        ),
+      )
       .returning({
         paymentStatus: P.paymentStatus,
         paymentStatusSource: P.paymentStatusSource,

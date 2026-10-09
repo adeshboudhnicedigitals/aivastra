@@ -333,6 +333,26 @@ describe('payment review', () => {
     expect(await auditRows(row)).toHaveLength(0);
   });
 
+  it('refuses auto-refill and never-approved purchases with 409 and no audit row', async () => {
+    for (const o of [
+      { source: 'autorefill' as const, paymentStatus: 'NOT_REQUIRED' as const },
+      { status: 'PENDING' as const, paymentStatus: 'NOT_REQUIRED' as const },
+    ]) {
+      const row = await purchase(o);
+      await expect(
+        adminReviewPurchasePayment(
+          app,
+          row.id,
+          { status: 'PAID', note: 'not reviewable' },
+          actor(),
+          fakeRequest,
+        ),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect((await reload(row)).paymentStatus).toBe('NOT_REQUIRED');
+      expect(await auditRows(row)).toHaveLength(0);
+    }
+  });
+
   it('returns 404 for an unknown purchase', async () => {
     await expect(
       adminReviewPurchasePayment(
