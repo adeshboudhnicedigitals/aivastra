@@ -35,10 +35,26 @@ export const DevJobParams = z.object({ id: z.string().uuid() });
 // JSON/base64 alternative to the multipart/form-data upload — same three
 // logical inputs, for callers whose stack can't easily build multipart bodies.
 // `person`/`garment` accept a raw base64 string or a `data:image/...;base64,` URI.
+// Pins this job to specific GPU workers instead of the normal round-robin
+// pool: primary tried first, then fallback, and the job fails outright if
+// none of either list is claimable (apps/dispatcher/src/worker/selector.ts's
+// selectPreferredWorker) — never silently drops back to the general pool.
 export const DevTryonJsonBody = z.object({
   category: z.string().min(1),
   person: z.string().min(1),
   garment: z.string().min(1),
+  primaryWorkerIds: z.array(z.string().min(1)).optional(),
+  fallbackWorkerIds: z.array(z.string().min(1)).optional(),
+});
+
+export const DevWorkerListItem = z.object({
+  id: z.string(),
+  label: z.string(),
+  status: z.enum(['IDLE', 'BUSY', 'DRAINING', 'UNKNOWN']),
+});
+
+export const DevWorkersResponse = z.object({
+  workers: z.array(DevWorkerListItem),
 });
 
 // JSON/base64 alternative to the multipart upload for the saree-mannequin
