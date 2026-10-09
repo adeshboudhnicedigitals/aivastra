@@ -5,7 +5,7 @@ import {
   PartnerApiError,
 } from '../src/modules/shopify/partner-api.js';
 
-const env = { SHOPIFY_PARTNER_API_TOKEN: 'tok', SHOPIFY_PARTNER_ORG_ID: '1234567' };
+const env = { SHOPIFY_PARTNER_API_TOKEN: 'shptka_secret_value', SHOPIFY_PARTNER_ORG_ID: '1234567' };
 const since = new Date('2026-10-08T00:00:00Z');
 
 function page(nodes: unknown[], hasNextPage = false) {
@@ -67,7 +67,7 @@ describe('fetchOneTimeSales', () => {
     expect(sales.size).toBe(1);
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe('https://partners.shopify.com/1234567/api/2026-10/graphql.json');
-    expect(init.headers['X-Shopify-Access-Token']).toBe('tok');
+    expect(init.headers['X-Shopify-Access-Token']).toBe('shptka_secret_value');
     const body = JSON.parse(init.body);
     expect(body.variables).toMatchObject({
       types: ['APP_ONE_TIME_SALE'],
@@ -124,6 +124,82 @@ describe('fetchOneTimeSales', () => {
         text: async () => '',
       }),
     );
+    await expect(fetchOneTimeSales(env, { since })).rejects.toMatchObject({ reason: 'graphql' });
+  });
+
+  // Fail-closed: a malformed 200 must never become a raw SyntaxError/TypeError
+  // or a partial Map that a caller would read as "no sale was paid".
+  const ok200 = (json: () => Promise<unknown>) => ({
+    ok: true,
+    status: 200,
+    json,
+    text: async () => '',
+  });
+  const withData = (transactions: unknown) => ok200(async () => ({ data: { transactions } }));
+
+  it('throws graphql when a 200 has neither data nor errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ok200(async () => ({}))));
+    await expect(fetchOneTimeSales(env, { since })).rejects.toMatchObject({ reason: 'graphql' });
+  });
+
+  it('throws http (not SyntaxError) on a 200 with a non-JSON body, without leaking the token', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        ok200(async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        }),
+      ),
+    );
+    const err = await fetchOneTimeSales(env, { since }).catch((e) => e);
+    expect(err).toBeInstanceOf(PartnerApiError);
+    expect(err.reason).toBe('http');
+    expect(err.message).not.toContain(env.SHOPIFY_PARTNER_API_TOKEN);
+  });
+
+  it('throws graphql when data.transactions is null', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(withData(null)));
+    await expect(fetchOneTimeSales(env, { since })).rejects.toMatchObject({ reason: 'graphql' });
+  });
+
+  it('throws graphql when edges is not an array', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(withData({ edges: null, pageInfo: { hasNextPage: false } })),
+    );
+    await expect(fetchOneTimeSales(env, { since })).rejects.toMatchObject({ reason: 'graphql' });
+  });
+
+  it('throws http when reading the error body of a non-2xx rejects', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 502,
+        text: async () => {
+          throw new Error('body stream aborted');
+        },
+      }),
+    );
+    await expect(fetchOneTimeSales(env, { since })).rejects.toMatchObject({ reason: 'http' });
+  });
+
+  it('throws graphql when a sale createdAt does not parse', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          page([
+            { id: 't1', createdAt: 'not-a-date', chargeId: 'gid://shopify/AppPurchaseOneTime/9' },
+          ]),
+        ),
+    );
+    await expect(fetchOneTimeSales(env, { since })).rejects.toMatchObject({ reason: 'graphql' });
+  });
+
+  it('throws graphql when hasNextPage is true but edges is empty (truncated result)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(page([], true)));
     await expect(fetchOneTimeSales(env, { since })).rejects.toMatchObject({ reason: 'graphql' });
   });
 });

@@ -101,36 +101,68 @@ export const fetchOneTimeSales: FetchOneTimeSales = async (env, { since, shop })
     if (res.status === 429) throw new PartnerApiError('rate_limited', 'Partner API rate limited');
     if (!res.ok) {
       // Shopify's error text, never our token.
-      throw new PartnerApiError(
-        'http',
-        `Partner API HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`,
+      // A body that fails to stream must not escape as a raw error.
+      const detail = await res.text().then(
+        (t) => t.slice(0, 300),
+        () => '(response body unreadable)',
       );
+      throw new PartnerApiError('http', `Partner API HTTP ${res.status}: ${detail}`);
     }
 
-    const body = (await res.json()) as {
+    // A 200 can still carry an HTML proxy/CDN error page; res.json() would
+    // throw a raw SyntaxError. Hint is truncated and never includes the token.
+    let body: {
       data?: {
-        transactions: {
-          edges: Array<{ cursor: string; node: SaleNode }>;
-          pageInfo: { hasNextPage: boolean };
-        };
-      };
+        transactions?: {
+          edges?: unknown;
+          pageInfo?: { hasNextPage?: boolean } | null;
+        } | null;
+      } | null;
       errors?: Array<{ message: string }>;
     };
-    if (body.errors?.length || !body.data) {
+    try {
+      body = await res.json();
+    } catch (err) {
+      throw new PartnerApiError(
+        'http',
+        `Partner API returned a non-JSON 200 body: ${(err as Error).message.slice(0, 100)}`,
+      );
+    }
+    if (body?.errors?.length || !body?.data) {
       throw new PartnerApiError(
         'graphql',
-        `Partner API errors: ${(body.errors ?? []).map((e) => e.message).join('; ') || 'no data'}`,
+        `Partner API errors: ${(body?.errors ?? []).map((e) => e.message).join('; ') || 'no data'}`,
       );
     }
 
-    const { edges, pageInfo } = body.data.transactions;
+    // Shape guard before destructuring: a null/missing connection must fail
+    // closed, not become a TypeError or an empty (looks-like-"unpaid") Map.
+    const tx = body.data.transactions;
+    if (!tx || !Array.isArray(tx.edges)) {
+      throw new PartnerApiError('graphql', 'Partner API response missing transactions.edges');
+    }
+    const edges = tx.edges as Array<{ cursor: string; node: SaleNode }>;
+    const hasNextPage = tx.pageInfo?.hasNextPage === true;
     for (const { node } of edges) {
       // chargeId is null for sales before September 2020 — nothing to match.
       if (node.chargeId) {
-        sales.set(numericChargeId(node.chargeId), { paidAt: new Date(node.createdAt) });
+        const paidAt = new Date(node.createdAt);
+        // An Invalid Date would silently defeat any later date comparison.
+        if (Number.isNaN(paidAt.getTime())) {
+          throw new PartnerApiError(
+            'graphql',
+            `Partner API sale ${node.id} has an unparseable createdAt`,
+          );
+        }
+        sales.set(numericChargeId(node.chargeId), { paidAt });
       }
     }
-    if (!pageInfo.hasNextPage || edges.length === 0) break;
+    if (!hasNextPage) break;
+    // More pages promised but no cursor to follow: the result is truncated,
+    // so returning it as success would hide sales that may have been paid.
+    if (edges.length === 0) {
+      throw new PartnerApiError('graphql', 'Partner API reported hasNextPage with no edges');
+    }
     after = edges[edges.length - 1].cursor;
     await new Promise((r) => setTimeout(r, PAGE_DELAY_MS));
   }
