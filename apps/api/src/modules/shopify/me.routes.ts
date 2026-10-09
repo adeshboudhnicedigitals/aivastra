@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, desc, eq, gte, ne, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { countUnroutedProducts } from './funnel-resolution.js';
 import { getPack } from './packs.js';
@@ -144,14 +144,15 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         ),
       );
 
-    // Dashboard's free-credits tile stays up until the store has paid for a
-    // pack at least once (manual or autorefill — both land here with the same
-    // status field) — 'ACTIVE' is Shopify's AppPurchaseOneTime status for a
-    // charge that actually went through, matching the same check
-    // grantForPurchase already gates the credit grant on. The most recent such
-    // row also doubles as "the pack currently shown on the balance card" —
-    // one query answers both, since existence of a row is exactly
-    // hasPurchasedPack.
+    // Dashboard's free-credits tile stays up until the store has actually PAID
+    // for a pack at least once (manual or autorefill). 'ACTIVE' alone is not
+    // enough: under hold-until-paid an ACTIVE charge whose payment_status is
+    // AWAITING (held) or UNPAID (parked) has granted no credits, so it must not
+    // hide the tile or show a pack on the balance card. NOT_REQUIRED covers
+    // legacy, test and autorefill rows, which grant immediately. The most
+    // recent qualifying row also doubles as "the pack currently shown on the
+    // balance card" — one query answers both, since existence of a row is
+    // exactly hasPurchasedPack.
     const [latestPurchase] = await app.db
       .select({ packId: schema.shopifyCreditPurchases.packId })
       .from(schema.shopifyCreditPurchases)
@@ -159,6 +160,7 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         and(
           eq(schema.shopifyCreditPurchases.storeId, store.id),
           eq(schema.shopifyCreditPurchases.status, 'ACTIVE'),
+          inArray(schema.shopifyCreditPurchases.paymentStatus, ['NOT_REQUIRED', 'PAID']),
         ),
       )
       .orderBy(desc(schema.shopifyCreditPurchases.createdAt))
