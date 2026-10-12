@@ -1,7 +1,7 @@
 # Refund auto-approve toggle — design
 
 **Date:** 2026-10-12
-**Status:** design approved in conversation, not yet implemented
+**Status:** implemented 2026-10-12 (branch `feat/refund-auto-approve`, unmerged); one deviation from the design: the forced-failure test seeds a delta-0 `REFUND_USER_REQUEST` ledger row rather than a `REFUND_ADMIN_CANCEL` offset (the latter zeroes the net so the create gate 409s before the savepoint is ever reached).
 **Builds on:** `2026-10-12-refund-on-request-design.md` (merged in PR #522). Everything here assumes that
 feature: the `refund_requests` table, `applyRefundTx`, `adminApproveRefundRequest`, and the
 customer create route in `apps/api/src/modules/jobs/refund-requests.ts`.

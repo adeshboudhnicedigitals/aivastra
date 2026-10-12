@@ -1,4 +1,4 @@
-import { index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { jobs } from './jobs.js';
 import { users } from './users.js';
 
@@ -26,9 +26,12 @@ export const refundRequests = pgTable(
     // The admin's users.id (not admin_users.id), matching credit_ledger.admin_id.
     reviewedBy: uuid('reviewed_by'),
     reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    // True only when the auto-approve path approved this row — what the daily cap counts and the admin "Auto" badge reads. reviewed_by stays NULL for auto rows (no admin involved).
+    autoApproved: boolean('auto_approved').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     byStatusCreated: index('refund_requests_status_created_idx').on(t.status, t.createdAt),
+    byUserReviewed: index('refund_requests_user_reviewed_idx').on(t.userId, t.reviewedAt),
   }),
 );

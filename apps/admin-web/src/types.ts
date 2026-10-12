@@ -605,6 +605,7 @@ export interface RefundRequest {
   note: string | null;
   status: RefundRequestStatus;
   adminNote: string | null;
+  autoApproved: boolean;
   reviewedAt: string | null;
   createdAt: string;
   downloadedAt: string | null;
