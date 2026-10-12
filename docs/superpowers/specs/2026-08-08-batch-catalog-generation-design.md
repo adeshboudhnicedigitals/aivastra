@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-08
 **Branch:** `feature/batch-catalog-generation`
-**Status:** Approved design, not yet implemented
+**Status:** Implemented; `/v1/jobs/batch` and `/v1/batches/:id` exist in `apps/api/src/modules/jobs/` (header checked against the code 2026-10-12); originally: Approved design, not yet implemented
 
 ## Problem
 

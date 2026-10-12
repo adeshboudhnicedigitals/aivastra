@@ -1,7 +1,7 @@
 # Developer Try-On API — Design
 
 **Date:** 2026-07-16
-**Status:** Approved, ready for implementation plan
+**Status:** Implemented; see `apps/api/src/modules/dev/` (header checked against the code 2026-10-12); originally: Approved, ready for implementation plan
 
 ## Problem
 

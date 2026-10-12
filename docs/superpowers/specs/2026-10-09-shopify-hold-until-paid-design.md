@@ -1,7 +1,7 @@
 # Shopify credit packs: hold credits until paid — design
 
 **Date:** 2026-10-09
-**Status:** approved design, not yet implemented
+**Status:** Implemented; cited from `apps/api/src/env.ts`, `apps/api/src/modules/shopify/payment-settlement.ts` (header checked against the code 2026-10-12); originally: approved design, not yet implemented
 **Scope:** manual one-time credit-pack purchases (`appPurchaseOneTimeCreate`) only
 
 ## Problem

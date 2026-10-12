@@ -1,5 +1,7 @@
 # Performance-Aware Worker Routing — Design (rev 1.1)
 
+Implementation status: Partially implemented: performance-aware worker selection exists in `apps/dispatcher/src/worker/selector.ts` (PR #477); `docs/progress.md` lists the full capacity-requeue delivery as not done (header checked against the code 2026-10-12)
+
 Status: draft for implementation review. Stage 2 of the ComfyUI routing work; independent of the
 Stage 1 timeout/cancel state machine (`2026-09-30-comfyui-timeout-from-execution-start-design.md`).
 

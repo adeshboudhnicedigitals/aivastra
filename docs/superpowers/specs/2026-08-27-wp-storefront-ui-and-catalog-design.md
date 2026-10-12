@@ -1,6 +1,6 @@
 # WordPress/WooCommerce Demo Storefront — UI & Catalog — Design
 
-> **Status:** Approved design, not yet implemented.
+> **Status:** Implemented for the local demo store (`wordpress-plugin/local-wp/`, PR #418) (header checked against the code 2026-10-12); originally: Approved design, not yet implemented
 > **Scope:** The local WooCommerce test store at `wordpress-plugin/local-wp/` —
 > theme, product catalog, and checkout configuration. This is the surrounding
 > store the Aivastra try-on plugin's "Try It On" button sits inside; it is

@@ -1,6 +1,6 @@
 # Job Taxonomy Registry
 
-**Status:** Approved design, not yet implemented. Revised twice after review.
+**Status:** Implemented; cited from `packages/db/src/schema/jobs.ts`, `packages/types/src/job-taxonomy.ts` (header checked against the code 2026-10-12); originally: Approved design, not yet implemented. Revised twice after review
 **Date:** 2026-07-30
 
 ## 1. Problem Statement

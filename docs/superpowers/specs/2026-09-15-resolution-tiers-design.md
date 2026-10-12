@@ -1,7 +1,7 @@
 # Fixed HD/2K/4K resolution tiers
 
 Date: 2026-09-15
-Status: Approved, pending implementation plan
+Status: Implemented (PR #380, `feature/resolution-tiers`) (header checked against the code 2026-10-12); originally: Approved, pending implementation plan
 
 ## Problem
 

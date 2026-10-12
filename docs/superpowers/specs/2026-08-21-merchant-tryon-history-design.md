@@ -1,7 +1,7 @@
 # Merchant tryon history API — design
 
 Date: 2026-08-21
-Status: approved for planning
+Status: Implemented; cited from `apps/api/src/modules/merchant/tryon.routes.ts` (header checked against the code 2026-10-12); originally: approved for planning
 
 ## Purpose
 
