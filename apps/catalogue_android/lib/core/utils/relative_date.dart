@@ -10,11 +10,6 @@ const _months = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
-const _fullMonths = [
-  'January', 'February', 'March', 'April', 'May', 'June', //
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-
 /// Parses an ISO-8601 timestamp from the API into local time. Falls back to
 /// "now" for a malformed value rather than throwing, since this only ever
 /// feeds display grouping/filtering.
@@ -25,7 +20,7 @@ DateTime parseApiDate(String iso) =>
 String formatDateGroup(DateTime dt) =>
     '${_months[dt.month - 1]} ${dt.day}, ${dt.year}';
 
-/// e.g. "August 06, 2026 at 5:15 PM" — a "Generated On" value, in place of
+/// e.g. "06 Aug 2026 at 5:15 PM" — a "Generated On" value, in place of
 /// the raw ISO timestamp the API returns.
 String formatGeneratedOn(String iso) {
   final dt = parseApiDate(iso);
@@ -33,7 +28,7 @@ String formatGeneratedOn(String iso) {
   final minute = dt.minute.toString().padLeft(2, '0');
   final period = dt.hour < 12 ? 'AM' : 'PM';
   final day = dt.day.toString().padLeft(2, '0');
-  return '${_fullMonths[dt.month - 1]} $day, ${dt.year} at $hour12:$minute $period';
+  return '$day ${_months[dt.month - 1]} ${dt.year} at $hour12:$minute $period';
 }
 
 /// e.g. "0:08" — a whole-seconds video duration (PixVerse jobs are always

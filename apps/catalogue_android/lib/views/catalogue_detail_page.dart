@@ -137,6 +137,7 @@ class _CatalogueDetailPageState extends ConsumerState<CatalogueDetailPage>
                       flex: 5,
                       child: AppPillButton(
                         label: AppStrings.download,
+                        fitLabel: true,
                         icon: Icons.download_rounded,
                         style: AppPillButtonStyle.filled,
                         onTap: job.isCompleted ? () => downloadJob(job) : () {},
@@ -147,6 +148,7 @@ class _CatalogueDetailPageState extends ConsumerState<CatalogueDetailPage>
                       flex: 6,
                       child: AppPillButton(
                         label: AppStrings.regenerate,
+                        fitLabel: true,
                         icon: Icons.repeat_rounded,
                         style: AppPillButtonStyle.tonal,
                         onTap: canRegenerate
@@ -163,6 +165,7 @@ class _CatalogueDetailPageState extends ConsumerState<CatalogueDetailPage>
                       flex: 4,
                       child: AppPillButton(
                         label: AppStrings.share,
+                        fitLabel: true,
                         icon: Icons.share_outlined,
                         style: AppPillButtonStyle.tonal,
                         onTap: job.isCompleted ? () => shareJob(job) : () {},
@@ -173,6 +176,7 @@ class _CatalogueDetailPageState extends ConsumerState<CatalogueDetailPage>
                       flex: 4,
                       child: AppPillButton(
                         label: AppStrings.delete,
+                        fitLabel: true,
                         icon: Icons.delete_outline_rounded,
                         style: AppPillButtonStyle.tonal,
                         onTap: () => deleteJob(job, jobs.length),
