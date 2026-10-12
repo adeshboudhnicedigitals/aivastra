@@ -1,7 +1,7 @@
 # Refund on customer request — design
 
 **Date:** 2026-10-12
-**Status:** design approved in conversation, not yet implemented
+**Status:** implemented on branch feat/refund-on-request
 
 ## Goal
 
@@ -17,7 +17,7 @@ only after an admin approves.** Nothing is refunded automatically.
 | Eligibility | Job is the caller's, `COMPLETED`, never downloaded, `creditsCharged > 0`, and has no earlier request. A rejected request cannot be re-filed. |
 | Request form | Fixed reason list plus an optional note (300 chars max). |
 | Regenerate | Blocked while the request is `PENDING` or `APPROVED`; allowed again after `REJECTED`. |
-| Download | Blocked while `PENDING` or `APPROVED`; allowed again after `REJECTED`. |
+| Download | `POST /v1/jobs/:id/download` (the call that stamps `downloadedAt`) is blocked while `PENDING` or `APPROVED`; allowed again after `REJECTED`. `GET /v1/jobs/:id/result` stays open so a pending image can still be viewed. |
 | Amount | Full `jobs.creditsCharged`, snapshotted at request time. No partial refunds. |
 | Outcome | Status chip on the tile (with admin note) plus an email on decision. |
 | Scope | Catalogues-web user jobs only. Shopify and merchant-widget jobs bill a store balance and are out of scope. |
@@ -52,12 +52,14 @@ Reason codes (shared Zod enum in `packages/types`): `WRONG_GARMENT`, `DISTORTED_
 - `POST /v1/jobs/:id/refund-request` — body `{ reasonCode, note? }`. Re-checks every eligibility
   rule server-side; 404 for another user's job, 409 for ineligible. Rate-limited per user.
 - `GET /v1/jobs/:id/refund-request` — current request or 404.
-- The job list endpoint the generation panel polls also returns `refundStatus` per job, so tiles
-  render status without per-tile fetches.
+- `GET /v1/jobs/refund-status?jobIds=…` (max 50 ids) returns `{ items: [{ jobId, eligible, request }] }`,
+  so tiles render status without per-tile fetches. The web hook chunks lookups into groups of 50
+  (batches can reach 200 jobs) and polls every 45s only while a request is `PENDING`.
 - `regenerateJob` (`modules/jobs/regenerate.ts`) throws 409 when a request exists in `PENDING` or
   `APPROVED`.
-- `GET /v1/jobs/:id/result` returns 409 `REFUND_REQUESTED` while `PENDING` or `APPROVED`, checked
-  **before** it stamps `downloadedAt`, so a blocked fetch never marks the job downloaded.
+- `POST /v1/jobs/:id/download` returns 409 `REFUND_REQUESTED` while `PENDING` or `APPROVED`, checked
+  **before** it stamps `downloadedAt`, so a blocked download never marks the job downloaded.
+  `GET /v1/jobs/:id/result` is not gated, so a pending image can still be viewed.
 
 Request/response shapes live in `packages/types` (Zod, single source of truth).
 
@@ -74,10 +76,15 @@ credit the user with reason `REFUND_USER_REQUEST`, set `APPROVED` + `reviewed_*`
 `ledger.ts`'s `refund()` opens its own transaction, so the plan must add a variant that accepts a
 `tx` (or extract the insert+balance update) — the status flip and the credit must commit together.
 
+Approve also re-checks `downloaded_at IS NULL` inside the transaction: if the customer downloaded
+the result after filing (e.g. via a path that predates the request), it returns 409
+`ALREADY_DOWNLOADED` and the admin should reject instead.
+
 **Reject**: same lock and audit; requires `admin_note`; no ledger entry.
 
 The email is sent after commit, best-effort via `lib/mailer.ts`; a failed send never rolls back a
-decision.
+decision. Tests mock the mailer, and a test covers the best-effort behaviour (a rejected send
+still leaves the decision committed).
 
 ## Customer UI (`apps/catalogues-web/src/app/(app)/studio/generation-panel.tsx`)
 
@@ -91,8 +98,10 @@ decision.
 ## Admin UI (`apps/admin-web`)
 
 New "Refund requests" page: status filter (default Pending) using `SearchableSelect`, list with
-result thumbnail, detail with Approve / Reject and admin note. Filter and open request are held in
-the URL per `docs/admin-url-routing-standard.md`. Sidebar entry and route in `App.tsx`.
+result thumbnail, detail with Approve / Reject and admin note. The status filter is local
+state; only the open request is a URL param (`?request=`, per `docs/admin-url-routing-standard.md`).
+Reason labels come from `@aivastra/types` (`REFUND_REASON_LABELS`), and the admin note resets
+whenever the open request changes, since it is emailed to the customer. Sidebar entry and route in `App.tsx`.
 
 ## Testing
 

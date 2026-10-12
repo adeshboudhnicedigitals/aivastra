@@ -2,6 +2,41 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-12 — Refund on customer request (implemented, flag off)
+
+- **Done:** a customer can ask for the credits back for one finished image in catalogues-web; an
+  admin approves or rejects, and credits are refunded only on approval. Migration `0221`
+  (`refund_requests`, unique on `job_id`; reason codes and Zod schemas in `@aivastra/types`).
+  Two route plugins: customer `apps/api/src/modules/jobs/refund-requests.ts`
+  (`POST/GET /v1/jobs/:id/refund-request`, batched `GET /v1/jobs/refund-status?jobIds=`, max 50) and
+  admin `apps/api/src/modules/admin/refund-requests.routes.ts` (list, approve, reject; approve is one
+  transaction with the `REFUND_USER_REQUEST` ledger credit via the new `applyRefundTx`, plus
+  fail-closed `recordAudit`, and re-checks `downloaded_at IS NULL`; decision email is best-effort
+  after commit). `regenerateJob` and `POST /v1/jobs/:id/download` return 409 while a request is
+  `PENDING`/`APPROVED`; `GET /result` stays open. Admin page "Refund requests" in admin-web.
+  Customer UI (button, modal, status chip) is behind `REFUND_REQUEST_ENABLED = false` in
+  `apps/catalogues-web/src/lib/feature-flags.ts`. Spec corrected to match what was built.
+- **Validation (2026-10-12, repo root, docker up):**
+  - `pnpm --filter @aivastra/api test:unit` — 91 files / 823 tests passed.
+  - `cd apps/api && npx vitest run --config vitest.integration.config.ts refund-apply-tx
+    refund-requests admin-refund-requests regenerate credits` — 6 files / 52 tests passed (the
+    `credits` pattern also matched `shopify-store-credits`).
+  - `pnpm --filter @aivastra/types test` — 4 files / 27 tests passed.
+  - `pnpm typecheck` — exit 0.
+  - `pnpm lint` — exit 0 (771 warnings, 0 errors).
+  - `pnpm --filter @aivastra/admin build` — exit 0 (only the usual chunk-size warning).
+- **Failed-Not-Done / not verified:**
+  - The manual end-to-end check (request -> pending chip -> admin approve/reject -> credits and
+    unlock, in a browser with the flag on) has NOT been performed. The web UI is covered only by
+    typecheck/lint and the API integration tests.
+- **Open:**
+  - `REFUND_REQUEST_ENABLED` stays `false` until someone enables it (staging first), which needs a
+    rebuild of catalogues-web.
+  - The decision email depends on `RESEND_API_KEY` / `EMAIL_FROM` already being set in each
+    environment; a failed send is logged and never blocks the decision.
+  - No admin notification email: pending requests are visible on the admin page only.
+  - Migration `0221` ships via push -> CI/CD -> `db:migrate:prod`; nothing was run on production.
+
 ## 2026-10-09 — Shopify credit packs: grant on approval, verify afterwards (implemented, flag off)
 
 - **Done:** with `SHOPIFY_VERIFY_PAYMENTS=true`, a real credit-pack purchase grants credits on
