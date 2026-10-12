@@ -46,6 +46,27 @@
   - The manual end-to-end check (request -> pending chip -> admin approve/reject -> credits and
     unlock, in a browser with the flag on) has NOT been performed. The web UI is covered only by
     typecheck/lint and the API integration tests.
+  - **Follow-up decisions (2026-10-12):**
+    - Decision A: a job with any child job (`jobs.parent_job_id = job.id`, any child status) is not
+      refundable, because regenerate is free and the customer would keep both images. Create returns 409
+      `ALREADY_REGENERATED`, `refund-status` reports `eligible: false` (one grouped query), and approve
+      re-checks under the job lock (409 `ALREADY_REGENERATED`, nothing credited) for a regenerate that
+      slipped in after filing. All three go through `refundIneligibility`/`hasRegeneratedChild`. The
+      modal says a regenerated image can no longer be refunded.
+    - Decision B: once a request is `APPROVED`, `GET /v1/jobs/:id/result` returns 409 `REFUND_APPROVED`.
+      `PENDING` (and `REJECTED`) still serve it. Unchanged on purpose: `GET /v1/jobs/:id/thumbnail` (the
+      low-res preview the customer can still see, so tiles do not break), admin image presigning, and
+      the internal `/results` webtool and `/v1/results/*`. catalogues-web: result queries do not retry
+      `REFUND_APPROVED` (`retryResultQuery`); the studio panel shows the thumbnail plus the existing
+      "Refund approved" chip for an approved tile (no zoom, no "Use this image"); the catalogue
+      preview page falls back to the thumbnail per slot; the catalogue detail card already falls back
+      to its thumbnail. Saree, fabric-to-shoot and the catalogue list only fetch `/result` right after
+      a job completes, so they cannot hit an approved job; the catalogue list's bulk download counts
+      it as a failed image.
+    - M2: the catalogue detail page's bulk download now shows the API's own message for
+      `REFUND_REQUESTED`/`REFUND_APPROVED` instead of only "N of M failed to download". Its single
+      download and the studio panel's `downloadImage` already alert `ApiError.message`, which is the
+      API's text, so they needed no change.
 - **Open:**
   - `REFUND_REQUEST_ENABLED` stays `false` until someone enables it (staging first), which needs a
     rebuild of catalogues-web.

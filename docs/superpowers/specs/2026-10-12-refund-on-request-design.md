@@ -14,10 +14,10 @@ only after an admin approves.** Nothing is refunded automatically.
 | Question | Decision |
 |---|---|
 | Granularity | One request per image (job). The button sits on each result tile beside Regenerate. |
-| Eligibility | Job is the caller's, `COMPLETED`, never downloaded (a Google Drive export counts as a download), `creditsCharged > 0`, not a merchant / API-key / Shopify job, the ledger shows credits still debited for it (`SUM(credit_ledger.delta) < 0` for that job and user), and it has no earlier request. A rejected request cannot be re-filed. Unlimited-plan jobs are excluded: `atomicDeduct` charges them 0 (a delta-0 `UNLIMITED_PLAN_USAGE` row) even though `jobs.creditsCharged` still holds the plan cost. |
+| Eligibility | Job is the caller's, `COMPLETED`, never downloaded (a Google Drive export counts as a download), `creditsCharged > 0`, not a merchant / API-key / Shopify job, the ledger shows credits still debited for it (`SUM(credit_ledger.delta) < 0` for that job and user), and it has no earlier request. A rejected request cannot be re-filed. A job that has any child job (`jobs.parent_job_id = job.id`, any child status) is not refundable (409 `ALREADY_REGENERATED`): regenerate is free, so refunding as well would let the customer keep both images. Unlimited-plan jobs are excluded: `atomicDeduct` charges them 0 (a delta-0 `UNLIMITED_PLAN_USAGE` row) even though `jobs.creditsCharged` still holds the plan cost. |
 | Request form | Fixed reason list plus an optional note (300 chars max). |
 | Regenerate | Blocked while the request is `PENDING` or `APPROVED`; allowed again after `REJECTED`. |
-| Download | `POST /v1/jobs/:id/download` (the call that stamps `downloadedAt`) is blocked while `PENDING` or `APPROVED`; allowed again after `REJECTED`. `GET /v1/jobs/:id/result` stays open so a pending image can still be viewed. |
+| Download | `POST /v1/jobs/:id/download` (the call that stamps `downloadedAt`) is blocked while `PENDING` or `APPROVED`; allowed again after `REJECTED`. `GET /v1/jobs/:id/result` stays open while `PENDING` so the image can still be viewed, but returns 409 `REFUND_APPROVED` once `APPROVED` (credits returned, so the full image is withheld). `GET /v1/jobs/:id/thumbnail` (low-res preview), admin image presigning and the internal `/results` webtool are unchanged. |
 | Amount | The net amount actually debited for the job according to the ledger (`-SUM(delta)` over `credit_ledger` rows for that job and user), **not** `jobs.creditsCharged`, snapshotted at request time. No partial refunds. |
 | Outcome | Status chip on the tile (with admin note) plus an email on decision. |
 | Scope | Catalogues-web user jobs only. Shopify and merchant-widget jobs bill a store balance and are out of scope. |
@@ -63,7 +63,9 @@ Reason codes (shared Zod enum in `packages/types`): `WRONG_GARMENT`, `DISTORTED_
   `APPROVED`.
 - `POST /v1/jobs/:id/download` returns 409 `REFUND_REQUESTED` while `PENDING` or `APPROVED`, checked
   **before** it stamps `downloadedAt`, so a blocked download never marks the job downloaded.
-  `GET /v1/jobs/:id/result` is not gated, so a pending image can still be viewed.
+  `GET /v1/jobs/:id/result` is not gated while `PENDING`, so a pending image can still be viewed; once
+  `APPROVED` it returns 409 `REFUND_APPROVED` (`hasApprovedRefundRequest`). The thumbnail route is left
+  open so tiles keep a low-res preview.
 - `POST /v1/jobs/:id/export/google-drive` (`modules/google-drive/service.ts`) is gated the same
   way (409 `REFUND_REQUESTED`, checked before anything leaves storage), and a successful export
   stamps `downloaded_at` with the same `coalesce(downloaded_at, now())` — an export hands the
@@ -87,6 +89,9 @@ credit the user with reason `REFUND_USER_REQUEST`, set `APPROVED` + `reviewed_*`
 Approve also re-checks `downloaded_at IS NULL` inside the transaction: if the customer downloaded
 the result after filing (e.g. via a path that predates the request), it returns 409
 `ALREADY_DOWNLOADED` and the admin should reject instead.
+
+Approve likewise refuses with 409 `ALREADY_REGENERATED` (crediting nothing) if a child job exists under
+the job lock, covering a regenerate that landed as the request was filed.
 
 Approve then locks the job row `FOR UPDATE` (the same lock admin-cancel refunds take), requires
 the job still `COMPLETED`, and recomputes the ledger net for (job, user): it requires
