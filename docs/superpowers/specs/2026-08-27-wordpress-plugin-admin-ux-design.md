@@ -1,6 +1,6 @@
 # WordPress Plugin Admin UX — Design
 
-> **Status:** Approved design, not yet implemented.
+> **Status:** Implemented; see `wordpress-plugin/admin/class-settings-page.php` (PR #491) (header checked against the code 2026-10-12); originally: Approved design, not yet implemented
 > **Scope:** The plugin's admin-facing surface — Settings → Aivastra Try-On
 > (`admin/class-settings-page.php` and its supporting classes). The
 > storefront widget (button + modal) already received a full "SaaS-grade"

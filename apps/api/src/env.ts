@@ -108,6 +108,19 @@ const Env = z.object({
     (v) => (v === '' ? undefined : v),
     z.string().regex(/^\d+$/).optional(),
   ),
+  // Grant credit packs at approval as always, then use the Partner API afterwards
+  // to confirm Shopify collected the money (UNVERIFIED -> PAID / NOT_RECEIVED).
+  // Same literal-'true' pattern as the other revenue flags: anything but the exact
+  // string stays off. See docs/superpowers/specs/2026-10-09-shopify-grant-then-verify-design.md.
+  SHOPIFY_VERIFY_PAYMENTS: z.preprocess((v) => v === 'true', z.boolean()).default(false),
+  // How long after approval a missing sale means "not received". Shopify's sale
+  // took ~36-46 minutes to become visible in the one sample we have, so the default
+  // is several times that; min 60 so a typo can't flood admins with false alarms.
+  // A blank line in .env must not crash startup, hence the preprocess.
+  SHOPIFY_PAYMENT_VERIFY_WINDOW_MINUTES: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.coerce.number().int().min(60).default(180),
+  ),
   // Comma-separated email allowlist for the Catalog Video (PixVerse) feature.
   // Unset = open to everyone (dev default). Set in production to restrict the
   // feature to a soft-launch cohort without a code change.

@@ -72,6 +72,24 @@ export const shopifyPurchasesOverduePaymentCheck = new Gauge({
   registers: [register],
 });
 
+export const shopifyPurchasesUnverified = new Gauge({
+  name: 'shopify_purchases_unverified',
+  help: 'Credit-pack purchases granted at approval whose payment has not been confirmed by a Partner API sale yet',
+  registers: [register],
+});
+
+export const shopifyPurchasesNotReceived = new Gauge({
+  name: 'shopify_purchases_not_received',
+  help: 'Credit-pack purchases granted at approval with no Partner API sale after the verification window — someone should look',
+  registers: [register],
+});
+
+export const shopifyPurchasesOverdueVerification = new Gauge({
+  name: 'shopify_purchases_overdue_verification',
+  help: 'Automatic UNVERIFIED/NOT_RECEIVED purchases whose next_payment_check_at is more than 1 hour in the past — the verification loop is stuck or the Partner API is failing',
+  registers: [register],
+});
+
 // ── Dispatcher metrics ───────────────────────────────────────────────────────
 
 export const jobsProcessedTotal = new Counter({

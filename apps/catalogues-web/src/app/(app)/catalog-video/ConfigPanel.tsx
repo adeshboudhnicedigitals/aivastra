@@ -16,7 +16,9 @@ import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { PremiumSelect } from '@/components/ui/premium-select';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useMediaQuery } from '@/hooks/use-media-query';
 import { api } from '@/lib/api';
+import { BREAKPOINTS } from '@/lib/breakpoints';
 import type { ImageSource } from './types';
 
 interface SampleVideoOption {
@@ -43,10 +45,12 @@ type Choice = {
   creditCost: number;
 };
 
-// The inline grid shows a fixed 4x2 page of presets; anything beyond that
-// only surfaces through the "View all" picker modal, so the panel doesn't
-// grow taller as the admin-curated catalogue grows.
-const VISIBLE_PRESET_COUNT = 8;
+// The inline grid shows a fixed page of presets (4x2 at desktop's 4 columns,
+// 2x2 on mobile's 2-column grid) — anything beyond that only surfaces through
+// the "View all" picker modal, so the panel doesn't grow taller as the
+// admin-curated catalogue grows.
+const VISIBLE_PRESET_COUNT_DESKTOP = 8;
+const VISIBLE_PRESET_COUNT_MOBILE = 4;
 
 const CARD_STYLE: React.CSSProperties = {
   width: '100%',
@@ -121,9 +125,11 @@ export function ConfigPanel({
 
   const balance = creditsData?.balance;
   const pricing = sampleVideos?.pixverseVideoPricing;
+  const isMobile = useMediaQuery(`(max-width: ${BREAKPOINTS.sm - 1}px)`);
+  const visibleCount = isMobile ? VISIBLE_PRESET_COUNT_MOBILE : VISIBLE_PRESET_COUNT_DESKTOP;
   const allPresets = sampleVideos?.items ?? [];
-  const visiblePresets = allPresets.slice(0, VISIBLE_PRESET_COUNT);
-  const hasMorePresets = allPresets.length > VISIBLE_PRESET_COUNT;
+  const visiblePresets = allPresets.slice(0, visibleCount);
+  const hasMorePresets = allPresets.length > visibleCount;
   const selectedSample = allPresets.find((option) => option.id === sampleVideoId);
   // Duration/quality are always set (defaulted up front, then pre-filled from
   // whichever preset is picked) — cost recomputes live via the same formula
@@ -165,6 +171,16 @@ export function ConfigPanel({
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: 8px;
+        }
+        .config-panel-duration-quality-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+        }
+        @media (max-width: 400px) {
+          .config-panel-duration-quality-row {
+            grid-template-columns: 1fr;
+          }
         }
         @media (max-width: 639px) {
           .config-panel-preset-grid {
@@ -304,8 +320,8 @@ export function ConfigPanel({
           borderTop: `1px solid ${C.border}`,
         }}
       >
-        <div style={{ display: 'flex', gap: 12 }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="config-panel-duration-quality-row">
+          <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
             <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
               Duration (seconds)
             </label>
@@ -366,7 +382,7 @@ export function ConfigPanel({
               </button>
             </div>
           </div>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
             <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Quality</label>
             <div
               style={{

@@ -102,3 +102,30 @@ export function networkError(err: unknown): Error {
     cause: err,
   });
 }
+
+/** True for the 409 GET /v1/jobs/:id/result returns once a refund was approved. */
+export function isRefundApproved(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409 && err.code === 'REFUND_APPROVED';
+}
+
+/**
+ * react-query `retry` for result-URL queries: a REFUND_APPROVED 409 is permanent, so
+ * do not retry it; every other failure keeps the app-wide single retry (providers.tsx).
+ */
+export function retryResultQuery(failureCount: number, err: unknown): boolean {
+  return !isRefundApproved(err) && failureCount < 1;
+}
+
+/**
+ * Download failures worth showing verbatim: the API's own wording for a job held by a
+ * refund request, instead of the generic 409 text.
+ */
+export function refundDownloadMessage(err: unknown): string | undefined {
+  if (
+    err instanceof ApiError &&
+    (err.code === 'REFUND_REQUESTED' || err.code === 'REFUND_APPROVED')
+  ) {
+    return err.message;
+  }
+  return undefined;
+}

@@ -480,3 +480,44 @@ export async function sendUnlimitedPlanReminderEmail(
 
   await send(apiKey, { from, to, subject, html: unlimitedPlanReminderHtml(params) });
 }
+
+function refundDecisionHtml(p: {
+  approved: boolean;
+  credits: number;
+  adminNote: string | null;
+}): string {
+  const heading = p.approved
+    ? 'Your refund request was approved'
+    : 'Your refund request was declined';
+  const body = p.approved
+    ? `We've returned <strong style="color:#1a1a1a;">${p.credits.toLocaleString()} credits</strong> to your account.`
+    : "We reviewed your request and weren't able to refund this image.";
+  const note = p.adminNote
+    ? `<p style="font-size:14px;color:#555;margin:16px 0 0;"><strong>Note from our team:</strong> ${escapeHtml(p.adminNote)}</p>`
+    : '';
+  return `<!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif;background:#f6f6f6;margin:0;padding:40px 0;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:40px;">
+    <h1 style="font-size:20px;font-weight:700;color:#1a1a1a;margin:0 0 16px;">${heading}</h1>
+    <p style="font-size:14px;color:#555;margin:0;">${body}</p>
+    ${note}
+    <p style="font-size:12px;color:#999;margin:32px 0 0;">If you have questions, just reply to this email or contact support from the app.</p>
+  </div>
+</body>
+</html>`;
+}
+
+export async function sendRefundDecisionEmail(
+  apiKey: string,
+  from: string,
+  to: string,
+  p: { approved: boolean; credits: number; adminNote: string | null },
+): Promise<void> {
+  await send(apiKey, {
+    from,
+    to,
+    subject: p.approved ? 'Your refund request was approved' : 'Your refund request was declined',
+    html: refundDecisionHtml(p),
+  });
+}

@@ -1,7 +1,7 @@
 # Motion Studio config panel (right section) — Design
 
 **Date:** 2026-09-09
-**Status:** Approved, proceeding to implementation plan
+**Status:** Implemented (PR #473, `feat/motion-studio-ui-and-pixverse-pricing`) (header checked against the code 2026-10-12); originally: Approved, proceeding to implementation plan
 
 ## Context
 

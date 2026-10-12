@@ -2,6 +2,246 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-12 — Refund auto-approve toggle (implemented, off by default)
+
+- **Done:** admin panel toggle for auto-approving customer refund requests, on branch
+  `feat/refund-auto-approve` (unmerged). Setting `{ enabled, dailyCap }` in Redis key
+  `config:refund-auto-approve` (same pattern as `config:image-compression`); defaults OFF /
+  cap 5, fail-safe to OFF when unreadable, so shipping changes no behaviour until an admin
+  flips it. `GET`/`PATCH /admin/refund-requests/auto-approve` (`credits.read` / `credits.write`;
+  PATCH merges onto current config, audit row `refund_auto_approve.update` written before the
+  Redis write). Migration `0223` adds `refund_requests.auto_approved` (default false) plus a
+  `(user_id, reviewed_at)` index for the 24h cap count. Auto-approve runs in a nested
+  transaction (savepoint) inside the create transaction via the shared `approveRefundRequestTx`
+  (same re-checks, same `REFUND_USER_REQUEST` ledger reason as the admin button); any failure
+  leaves the request `PENDING`. Audit actor is the customer with role `AUTO_APPROVE`,
+  `reviewed_by` stays NULL, admin note `'Auto-approved'`. Admin page has the toggle card
+  (confirm-on-enable), per-day cap field, "Auto" badges, and "Auto-approved" detail.
+- **Verified 2026-10-12:** `refund-auto-approve` 18 tests + `refund-requests`/`admin-refund-requests`/
+  `refund-apply-tx` suites — 4 files / 56 passed; `pnpm --filter @aivastra/api test` — 91 files /
+  823 passed (matches baseline); `@aivastra/types` — 31 passed; root `pnpm typecheck` exit 0;
+  admin build pass; biome on touched files 0 errors (3 pre-existing page warnings only).
+  Post-subagent cleanup: `biome check --write` (import order + format, 4 files), `as string`
+  instead of a new `!`, dropped an unused import. Admin-web click-through still to be done
+  manually (no test runner).
+- **Rollout:** additive migration; production change only via push → CI/CD → `db:migrate:prod`.
+  One spec deviation (recorded in the spec): the forced-failure test seeds a delta-0
+  `REFUND_USER_REQUEST` row, not a `REFUND_ADMIN_CANCEL` offset (the latter 409s at the create
+  gate before the savepoint is reached).
+
+## 2026-10-12 — Refund on customer request (implemented, enabled)
+
+- **Done:** a customer can ask for the credits back for one finished image in catalogues-web; an
+  admin approves or rejects, and credits are refunded only on approval. Migration `0221`
+  (`refund_requests`, unique on `job_id`; reason codes and Zod schemas in `@aivastra/types`).
+  Two route plugins: customer `apps/api/src/modules/jobs/refund-requests.ts`
+  (`POST /v1/jobs/:id/refund-request`, batched `GET /v1/jobs/refund-status?jobIds=`, max 50; there
+  is no per-job GET) and
+  admin `apps/api/src/modules/admin/refund-requests.routes.ts` (list, approve, reject; approve is one
+  transaction with the `REFUND_USER_REQUEST` ledger credit via the new `applyRefundTx`, plus
+  fail-closed `recordAudit`, and re-checks `downloaded_at IS NULL`; decision email is best-effort
+  after commit). `regenerateJob` and `POST /v1/jobs/:id/download` return 409 while a request is
+  `PENDING`/`APPROVED`; `GET /result` stays open. Admin page "Refund requests" in admin-web.
+  Customer UI (button, modal, status chip) is gated by `REFUND_REQUEST_ENABLED` (`true`, always on; a kill switch) in
+  `apps/catalogues-web/src/lib/feature-flags.ts`. Spec corrected to match what was built.
+- **Done (final-review fixes, 2026-10-12):**
+  - Eligibility and the refunded amount come from the **ledger**, not `jobs.creditsCharged`: the
+    job's net `SUM(credit_ledger.delta)` for its user must be negative, and the snapshot is
+    `-net`. Before this, an unlimited-plan job (`atomicDeduct` writes a delta-0
+    `UNLIMITED_PLAN_USAGE` row but `creditsCharged` keeps the plan cost) was refundable and
+    approval would have minted credits. `refund-status` computes nets in one grouped query.
+  - Approve now locks the job, requires `COMPLETED` and re-checks the ledger net inside its
+    transaction (409 `NOT_REFUNDABLE` otherwise), closing a double refund when an admin cancel or a
+    dispatcher terminal refund already returned the credits under a different reason.
+  - `POST /v1/jobs/:id/export/google-drive` now honours the refund hold (409 `REFUND_REQUESTED`)
+    and stamps `job_outputs.downloaded_at` on success; the "Save to Drive" tile button is gated
+    like Download.
+  - Validation: `npx vitest run --config vitest.integration.config.ts refund-requests
+    admin-refund-requests refund-apply-tx regenerate google-drive` — 5 files / 70 tests passed;
+    `pnpm --filter @aivastra/api test:unit` — 91 files / 823 passed; api and web typecheck exit 0;
+    api lint 40 warnings / web lint 85 warnings, both unchanged from baseline, 0 errors.
+  - **Follow-up decisions (2026-10-12):**
+    - Decision A: a job with any child job (`jobs.parent_job_id = job.id`, any child status) is not
+      refundable, because regenerate is free and the customer would keep both images. Create returns 409
+      `ALREADY_REGENERATED`, `refund-status` reports `eligible: false` (one grouped query), and approve
+      re-checks under the job lock (409 `ALREADY_REGENERATED`, nothing credited) for a regenerate that
+      slipped in after filing. Create and `refund-status` go through `refundIneligibility`; approve
+      re-checks only the subset it needs under the job lock (COMPLETED, child via
+      `hasRegeneratedChild`, ledger net) rather than calling it, because merchant/API-key/Shopify are
+      fixed job attributes. The
+      modal says a regenerated image can no longer be refunded.
+    - Decision B: once a request is `APPROVED`, `GET /v1/jobs/:id/result` returns 409 `REFUND_APPROVED`.
+      `PENDING` (and `REJECTED`) still serve it. Unchanged on purpose: `GET /v1/jobs/:id/thumbnail` (the
+      low-res preview the customer can still see, so tiles do not break), admin image presigning, and
+      the internal `/results` webtool and `/v1/results/*`. (Third wave: `/thumbnail` now also 409s
+      `REFUND_APPROVED` when the job has no `thumbnailKey`, see below.) catalogues-web: result queries do not retry
+      `REFUND_APPROVED` (`retryResultQuery`); the studio panel shows the thumbnail plus the existing
+      "Refund approved" chip for an approved tile (no zoom, no "Use this image"); the catalogue
+      preview page falls back to the thumbnail per slot; the catalogue detail card already falls back
+      to its thumbnail. Saree, fabric-to-shoot and the catalogue list only fetch `/result` right after
+      a job completes, so they cannot hit an approved job.
+    - M2: the catalogue detail page's bulk download now shows the API's own message for
+      `REFUND_REQUESTED`/`REFUND_APPROVED` instead of only "N of M failed to download". Its single
+      download and the studio panel's `downloadImage` already alert `ApiError.message`, which is the
+      API's text, so they needed no change.
+  - **Third fix wave (2026-10-12):**
+    - `GET /v1/jobs/:id/thumbnail` returned the full-resolution result when `thumbnailKey` was null,
+      leaking the image after approval. It now returns 409 `REFUND_APPROVED` in exactly that case
+      (APPROVED and no `thumbnailKey`); a real thumbnail keeps serving and PENDING still serves.
+      Web: the studio approved-tile thumbnail query, the catalogue preview, the catalogue detail card
+      and `JobThumbnail` use `retryResultQuery` (no retry loop); a refunded tile with no thumbnail
+      shows the muted garment plus the existing "Refund approved" chip.
+    - Migration `0222` adds partial index `jobs_parent_job_id_idx` on `jobs (parent_job_id) WHERE
+      parent_job_id IS NOT NULL` (the 0082 FK created no index), used by `hasRegeneratedChild`, the
+      approve child check and the status query's `parent_job_id IN (...)`. Generated SQL contains only
+      that `CREATE INDEX IF NOT EXISTS`. Applied to the local docker DB only; ships via push ->
+      CI/CD -> `db:migrate:prod`.
+    - The catalogue-list bulk ZIP (`catalogs/page.tsx`) now fetches phase 1 through
+      `POST /v1/jobs/:id/download` (the gated call that stamps `downloaded_at`) instead of
+      `GET /result`, and reports refund-held jobs with the API's message via `refundDownloadMessage`
+      instead of counting them as generic failures.
+    - `POST /v1/jobs/:id/download` now returns `REFUND_APPROVED` (the `/result` copy) for an APPROVED
+      request and `REFUND_REQUESTED` for PENDING; `refundDownloadMessage` already handled both.
+    - Accepted known limitations: Drive export stamps `downloaded_at` after the upload, so a request
+      filed and approved inside the upload window is practically unreachable; `regenerateJob` checks
+      the refund hold outside its transaction, so a regenerate passing the pre-check just as a request
+      is created and approved within milliseconds could slip (approve's child check under the job
+      lock narrows it); approve and the admin pose-asset purge take locks in opposite order (rare
+      deadlock abort, retryable).
+- **Validation (2026-10-12, repo root, docker up):**
+  - `pnpm --filter @aivastra/api test:unit` — 91 files / 823 tests passed.
+  - `cd apps/api && npx vitest run --config vitest.integration.config.ts refund-apply-tx
+    refund-requests admin-refund-requests regenerate credits` — 6 files / 52 tests passed (the
+    `credits` pattern also matched `shopify-store-credits`).
+  - `pnpm --filter @aivastra/types test` — 4 files / 27 tests passed.
+  - `pnpm typecheck` — exit 0.
+  - `pnpm lint` — exit 0 (771 warnings, 0 errors).
+  - `pnpm --filter @aivastra/admin build` — exit 0 (only the usual chunk-size warning).
+  - Third fix wave (2026-10-12): `cd apps/api && npx vitest run --config
+    vitest.integration.config.ts refund-requests admin-refund-requests refund-apply-tx regenerate
+    jobs-result-thumbnail-delete results-thumbnails` - 6 files / 69 tests passed; the files that
+    reference `/download` or `/thumbnail` (`jobs-result-thumbnail-delete refund-requests regenerate
+    shopify-retention shopify-settings`) - 6 files passed (the pattern also matched a second
+    `shopify-retention*` file); `pnpm --filter @aivastra/api test:unit` - 91 files / 823 passed;
+    api typecheck exit 0, api lint 40 warnings / 0 errors; web typecheck exit 0; web lint 86
+    warnings / 0 errors (+1 vs 85: the new muted-garment `<img>` trips the same `noImgElement`
+    warning as its neighbours); `pnpm db:migrate` applied 0222 locally; `pnpm db:verify` - all 222
+    migrations verified.
+- **Failed-Not-Done / not verified:**
+  - The manual end-to-end check (request -> pending chip -> admin approve/reject -> credits and
+    unlock, in a browser with the flag on) has NOT been performed. The web UI is covered only by
+    typecheck/lint and the API integration tests.
+- **Done (UI rework, 2026-10-12):** the per-tile "Request refund" button moved out of the tile into the
+  results header beside Download All: disabled by default, enabled when at least one image is ticked via
+  a new top-right checkbox on each eligible tile (unchecked by default; only server-eligible images get one).
+  One modal sends one request per ticked image (sequentially) and lists any that failed; a 2-3 business hours
+  note shows in the modal and on the pending chip. `POST /v1/jobs/:id/refund-request` rate limit raised 10 -> 60
+  per minute for this. Typechecked and linted only; not exercised in a browser.
+- **Open:**
+  - `REFUND_REQUEST_ENABLED` is `true` (decided 2026-10-12: always on). Setting it to `false` is only
+    a kill switch and needs a rebuild of catalogues-web.
+  - The decision email depends on `RESEND_API_KEY` / `EMAIL_FROM` already being set in each
+    environment; a failed send is logged and never blocks the decision.
+  - No admin notification email: pending requests are visible on the admin page only.
+  - Known and accepted: the admin pose-asset purge (`apps/api/src/modules/admin/models.routes.ts`,
+    the job delete around lines 1423-1431) cascade-deletes a `PENDING` refund request through the
+    `refund_requests.job_id` FK (`onDelete: cascade`) with no notice to the customer.
+  - **Pre-existing, not fixed here (CRED-1, high):** for an unlimited-plan user `atomicDeduct`
+    debits nothing (delta-0 `UNLIMITED_PLAN_USAGE` row) but the job keeps `creditsCharged` = plan
+    cost, and every failure/cancel refund credits that amount back without reading the ledger, so a
+    failed or cancelled unlimited-plan job mints credits. Affected: dispatcher `terminateJob`
+    (`JOB_FAIL_REFUND`/`JOB_CANCEL_REFUND`), `markWidgetFailed`, sweeper `failAndRefund`,
+    `saree-step2-promoter`; API `refund(..., 'REFUND_ADMIN_CANCEL')` (admin cancel + flush), the
+    user cancel route's inline `JOB_CANCEL_REFUND`, and `refundAndMarkFailed`
+    (`REFUND_ENQUEUE_FAIL`). Shopify store refunds and refund-on-request are unaffected. Full write-up
+    in the (gitignored, local-only) `docs/audits/open-findings.md`.
+  - Migration `0221` ships via push -> CI/CD -> `db:migrate:prod`; nothing was run on production.
+
+## 2026-10-09 — Shopify credit packs: grant on approval, verify afterwards (implemented, flag off)
+
+- **Done:** with `SHOPIFY_VERIFY_PAYMENTS=true`, a real credit-pack purchase grants credits on
+  approval as before, but the purchase is marked `UNVERIFIED` in the **same Postgres
+  transaction** as the grant (conditional on `NOT_REQUIRED`, so concurrent callers and replays
+  grant exactly once; `grantStore`'s `external_ref` idempotency stays underneath). Test charges are
+  not tracked. Migration `0220`. A verification pass in the settlement loop looks each
+  `UNVERIFIED` row up in the Partner API (`NOT_RECEIVED` rows are re-checked daily until 30 days
+  old): sale found -> `PAID`; no sale inside
+  `SHOPIFY_PAYMENT_VERIFY_WINDOW_MINUTES` (180) -> `NOT_RECEIVED`. Updates are conditional on
+  `payment_status_source = 'AUTO'`, so an admin override is never overwritten. New gauges include
+  `shopify_purchases_not_received` and `shopify_purchases_overdue_verification`; the
+  unverified/not-received gauges count AUTOMATIC rows only, so reviewing a long-`NOT_RECEIVED`
+  row in admin (it becomes `MANUAL`) is how to clear the alert. `/v1/shopify/me`
+  and the Shopify app count grant-then-verify purchases as bought. Admin gets an all-stores
+  **Pack purchases** page with filters, a detail view and an audited payment review (restricted to
+  approved manual purchases, row locked, `recordAudit` in the same transaction), plus
+  check-payment for already-granted rows. If `SHOPIFY_HOLD_UNTIL_PAID` is also on, the hold wins.
+- **Validation (2026-10-09, repo root, docker up):**
+  - `pnpm lint` — exit 0 (765 warnings, 13 infos, 0 errors).
+  - `pnpm --filter @aivastra/api test` (unit) — 91 files / 823 tests passed.
+  - `pnpm --filter @aivastra/api test:integration` — 157 files / 1171 tests passed.
+  - `pnpm --filter @aivastra/shopify-admin test` — 13 files / 95 tests passed; `build` exit 0.
+  - `pnpm --filter @aivastra/admin build` — exit 0.
+  - `pnpm typecheck` — exit 2 as a whole, from two packages this branch does not touch:
+    `@aivastra/chrome-extension` (TS2688 missing `chrome` type definitions; reproduced on base
+    commit `63f3fd9c` in a throwaway worktree) and `apps/admin-mobile` (paused; git-ignored, not
+    in the repo). Excluding those two, `pnpm -r typecheck` exits 0.
+  - Mutation checks (both reverted, `git diff apps/api/src` empty afterwards):
+    (1) `grantForPurchase` guard widened to `inArray(paymentStatus, ['NOT_REQUIRED','UNVERIFIED'])`
+    -> 4 tests failed, including "two concurrent callers grant exactly once" and "a replay grants
+    nothing more and leaves one ledger row"; (2) `eq(paymentStatusSource, 'AUTO')` removed from
+    `stillAutomatic` -> "leaves an admin override alone even when a sale exists" failed.
+- **Rollout (production):**
+  1. Deploy with `SHOPIFY_VERIFY_PAYMENTS` unset — migration `0220` runs via CI.
+  2. Precheck: confirm `SHOPIFY_PARTNER_API_TOKEN` and `SHOPIFY_PARTNER_ORG_ID` are set in the VPS
+     `.env` (report name, set/unset and length only, never the values). Then set
+     `SHOPIFY_VERIFY_PAYMENTS=true`, restart the API.
+  3. Buy Silver ($10) on the real store: credits arrive instantly, row is `UNVERIFIED`, `PAID`
+     roughly an hour later (Shopify's visibility delay was ~36-46 min in the one sample, plus the
+     15-minute poll).
+  4. In the admin page mark one row not received with a note, confirm the audit row, confirm the
+     loop leaves it alone, then clear the override.
+  5. Create the Grafana alerts — `shopify_purchases_not_received > 0` and
+     `shopify_purchases_overdue_verification > 0`, each for 30 minutes. Do NOT alert on the
+     last-success timestamp: it goes stale on a healthy system.
+  - Rollback: set `SHOPIFY_VERIFY_PAYMENTS` off and restart. The loop still checks rows already
+    tracked, and no credits change.
+- **Failed-Not-Done:**
+  - No browser walk of the new admin Pack purchases page (`ShopifyPurchasesPage`) was done; it is
+    verified only by typecheck/build and the API integration tests.
+  - Nothing was exercised against production or the real Partner API.
+- **Open:**
+  - The 180-minute window rests on one sample of Shopify's visibility delay — re-measure on real
+    purchases and tune `SHOPIFY_PAYMENT_VERIFY_WINDOW_MINUTES`.
+  - Management must decide what happens to a `NOT_RECEIVED` store (contact, block, claw back) and
+    whether merchants are told; there is no merchant-facing banner.
+  - The admin UI has no automated tests.
+  - Deferred review minors:
+    - Admin page `?review=` deep link is not gated on `credits.write`.
+    - Modals lack `role=dialog`/aria attributes and Escape-to-close.
+    - Clickable table rows are not keyboard-focusable.
+    - `load()` has no staleness guard.
+    - Success toast shows the raw enum value.
+    - Date filter range is built in UTC.
+    - Review list cursor paginates on `createdAt` only (ms precision).
+    - No test makes `recordAudit` itself throw.
+    - The not-received window is measured from purchase `createdAt`, not approval time, so a slow
+      approver can get an early `NOT_RECEIVED` that self-heals at the daily check.
+    - "Clear override" on a row that was never tracked (`NOT_REQUIRED`, e.g. a test charge) turns
+      it into a tracked row that the loop would flag `NOT_RECEIVED`.
+    - Check-payment status changes are not audited.
+    - The page's "Approved" column shows `createdAt`.
+    - `creditsLanded` needs `creditsGranted > 0`, so the toast is skipped when a webhook granted
+      first.
+    - Settlement and verification share one tick, so a DB error in the settlement half skips
+      verification for that tick.
+    - Staging restores a prod snapshot, so staging would verify prod `UNVERIFIED` rows with
+      staging Partner credentials.
+    - Tasks 2-5 minors: no explicit early-return test on a fresh `UNVERIFIED` row; `CheckOptions`
+      duplicates `SalesFetchOptions`; `PendingPaymentBanner` landed check; a test parks its
+      overdue row outside `finally`.
+    - Task 6 minors: review cursor on `createdAt` only; a note-only review stamps `flagged_by`
+      but stays `AUTO`.
+
 ## 2026-10-09 — Shopify credit packs: hold until paid (implemented, flag off)
 
 - **Done:** credit-pack credits can now be held until Shopify has actually collected payment,

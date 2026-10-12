@@ -574,8 +574,8 @@ class _CardMenuButton extends StatelessWidget {
   }
 }
 
-/// Frosted-glass popup card: the content behind it is blurred, with a faint
-/// white tint and hairline border.
+/// Frosted-glass popup card: the content behind it is blurred under a dark
+/// translucent fill with a hairline border.
 class _GlassMenu extends StatelessWidget {
   const _GlassMenu({this.onDownload, this.onDelete});
 
@@ -625,16 +625,11 @@ class _GlassMenu extends StatelessWidget {
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: radius,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white.withValues(alpha: 0.16),
-                      Colors.white.withValues(alpha: 0.05),
-                    ],
-                  ),
+                  // Dark smoked glass rather than a white tint, so the menu
+                  // reads clearly over bright thumbnails.
+                  color: const Color(0xFF2A2A30).withValues(alpha: 0.78),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.22),
+                    color: Colors.white.withValues(alpha: 0.10),
                   ),
                 ),
                 child: Column(
@@ -651,7 +646,7 @@ class _GlassMenu extends StatelessWidget {
                     if (onDownload != null && onDelete != null)
                       Divider(
                         height: 1,
-                        color: Colors.white.withValues(alpha: 0.18),
+                        color: Colors.white.withValues(alpha: 0.10),
                       ),
                     if (onDelete != null)
                       item(
@@ -1103,7 +1098,7 @@ class _PromptSection extends StatelessWidget {
           // card width scales up genuinely on a wider screen.
           LayoutBuilder(
             builder: (context, constraints) {
-              final thumbWidth = (constraints.maxWidth * 0.28).clamp(
+              final thumbWidth = (constraints.maxWidth * 0.24).clamp(
                 84.0,
                 170.0,
               );
@@ -1194,7 +1189,9 @@ class _PromptSection extends StatelessWidget {
                           _CompactMetaRow(
                             icon: Icons.calendar_today_rounded,
                             label: AppStrings.generatedOnLabel,
-                            value: generatedOn,
+                            // Date on one line, time on the next: the full
+                            // timestamp is too wide for one line.
+                            value: generatedOn.replaceFirst(' at ', '\nat '),
                           ),
                         ],
                       ),
@@ -1211,9 +1208,8 @@ class _PromptSection extends StatelessWidget {
 }
 
 /// One label/value stat inside [GenerationDetailsCard]'s compact column next
-/// to the Source Image thumbnail — a bare tinted icon and tighter spacing
-/// than [MetaRow]'s full-width tile-and-divider row, since five of these
-/// share that narrow column.
+/// to the Source Image thumbnail: tinted icon, white label, then the value in
+/// a second grey column so the values of all five rows start at the same x.
 class _CompactMetaRow extends StatelessWidget {
   const _CompactMetaRow({
     required this.icon,
@@ -1227,10 +1223,10 @@ class _CompactMetaRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final fontSize = AppDimens.ssp(context, '_12ssp');
     return Padding(
-      padding: EdgeInsets.only(bottom: AppDimens.sdp(context, '_12sdp')),
+      padding: EdgeInsets.only(bottom: AppDimens.sdp(context, '_14sdp')),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             icon,
@@ -1238,30 +1234,38 @@ class _CompactMetaRow extends StatelessWidget {
             size: AppDimens.sdp(context, '_16sdp'),
           ),
           SizedBox(width: AppDimens.sdp(context, '_8sdp')),
-          // A fixed width, not a flex ratio of the whole row: flex split the
-          // *entire* remaining card width between label and value, pushing
-          // the value far to the right of its own label with a huge gap.
-          // '_145sdp' clears "Output Quality"/"Generated On" at this row's
-          // biggest font scale (e.g. '_12ssp' runs bigger under the sw600
-          // bucket than phone); maxLines+ellipsis is just a safety net.
-          SizedBox(
-            width: AppDimens.sdp(context, '_145sdp'),
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.regular.copyWith(
-                color: AppColors.textSecondary,
-                fontSize: AppDimens.ssp(context, '_12ssp'),
+          Expanded(
+            flex: 5,
+            // Scales down like the value, so "Output Quality" is never
+            // ellipsised on a narrow phone.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: AppTextStyles.semiBold.copyWith(
+                  color: Colors.white,
+                  fontSize: fontSize,
+                ),
               ),
             ),
           ),
           Expanded(
-            child: Text(
-              value,
-              style: AppTextStyles.semiBold.copyWith(
-                color: Colors.white,
-                fontSize: AppDimens.ssp(context, '_12ssp'),
+            flex: 7,
+            // Scales down rather than wrapping, so a long date such as
+            // "06 Aug 2026 at 5:15 PM" stays on one line.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                value,
+                maxLines: value.contains('\n') ? 2 : 1,
+                textAlign: TextAlign.right,
+                style: AppTextStyles.regular.copyWith(
+                  color: AppColors.textSecondary,
+                  fontSize: fontSize,
+                ),
               ),
             ),
           ),
@@ -1359,16 +1363,21 @@ class WizardStepHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final badgeSize = AppDimens.sdp(context, '_22sdp');
+    final badgeSize = AppDimens.sdp(context, '_26sdp');
 
     return Row(
       children: [
         Container(
           width: badgeSize,
           height: badgeSize,
-          decoration: const BoxDecoration(
-            gradient: AppColors.pinkGradient,
+          // Dark disc with a soft light ring, white numeral.
+          decoration: BoxDecoration(
+            color: const Color(0xFF101012),
             shape: BoxShape.circle,
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.28),
+              width: 1.5,
+            ),
           ),
           alignment: Alignment.center,
           child: Text(
@@ -2477,9 +2486,10 @@ Future<String?> showSingleThumbnailPickerSheet(
 }) {
   return showModalBottomSheet<String>(
     context: context,
-    backgroundColor: AppColors.sheetBackground,
+    backgroundColor: AppColors.sheetFill,
     isScrollControlled: true,
     shape: RoundedRectangleBorder(
+      side: const BorderSide(color: AppColors.sheetBorder),
       borderRadius: BorderRadius.vertical(
         top: Radius.circular(AppDimens.sdp(context, '_20sdp')),
       ),
@@ -2552,9 +2562,10 @@ Future<String?> showFilterableThumbnailPickerSheet(
 }) {
   return showModalBottomSheet<String>(
     context: context,
-    backgroundColor: AppColors.sheetBackground,
+    backgroundColor: AppColors.sheetFill,
     isScrollControlled: true,
     shape: RoundedRectangleBorder(
+      side: const BorderSide(color: AppColors.sheetBorder),
       borderRadius: BorderRadius.vertical(
         top: Radius.circular(AppDimens.sdp(context, '_20sdp')),
       ),
@@ -2737,9 +2748,10 @@ Future<Set<String>?> showMultiThumbnailPickerSheet(
 }) {
   return showModalBottomSheet<Set<String>>(
     context: context,
-    backgroundColor: AppColors.sheetBackground,
+    backgroundColor: AppColors.sheetFill,
     isScrollControlled: true,
     shape: RoundedRectangleBorder(
+      side: const BorderSide(color: AppColors.sheetBorder),
       borderRadius: BorderRadius.vertical(
         top: Radius.circular(AppDimens.sdp(context, '_20sdp')),
       ),
@@ -4020,9 +4032,10 @@ Future<String?> pickOptionSheet(
 }) {
   return showModalBottomSheet<String>(
     context: context,
-    backgroundColor: AppColors.sheetBackground,
+    backgroundColor: AppColors.sheetFill,
     isScrollControlled: true,
     shape: RoundedRectangleBorder(
+      side: const BorderSide(color: AppColors.sheetBorder),
       borderRadius: BorderRadius.vertical(
         top: Radius.circular(AppDimens.sdp(context, '_20sdp')),
       ),
@@ -4105,6 +4118,7 @@ class AppPillButton extends StatelessWidget {
     this.icon,
     this.trailingIcon,
     this.style = AppPillButtonStyle.filled,
+    this.fitLabel = false,
   });
 
   final String label;
@@ -4112,6 +4126,10 @@ class AppPillButton extends StatelessWidget {
   final IconData? icon;
   final IconData? trailingIcon;
   final AppPillButtonStyle style;
+
+  /// Shrinks icon + label to fit a narrow slot (four pills in one row on a
+  /// phone) rather than truncating the label with an ellipsis.
+  final bool fitLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -4179,52 +4197,68 @@ class AppPillButton extends StatelessWidget {
               padding: EdgeInsets.symmetric(
                 horizontal: AppDimens.sdp(
                   context,
-                  highlight ? '_18sdp' : '_14sdp',
+                  fitLabel ? '_8sdp' : (highlight ? '_18sdp' : '_14sdp'),
                 ),
                 vertical: AppDimens.sdp(context, '_10sdp'),
               ),
               child: _PillGradientMask(
                 enabled: highlight,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (icon != null) ...[
-                      Icon(
-                        icon,
-                        size: AppDimens.sdp(context, '_14sdp'),
-                        color: textColor,
-                      ),
-                      SizedBox(width: AppDimens.sdp(context, '_6sdp')),
-                    ],
-                    Flexible(
-                      child: Text(
-                        label,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            (highlight
-                                    ? AppTextStyles.bold
-                                    : AppTextStyles.semiBold)
-                                .copyWith(color: textColor, fontSize: fontSize),
-                      ),
-                    ),
-                    if (trailingIcon != null) ...[
-                      SizedBox(
-                        width: AppDimens.sdp(
-                          context,
-                          highlight ? '_12sdp' : '_6sdp',
+                child: _fitIfNeeded(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (icon != null) ...[
+                        Icon(
+                          icon,
+                          size: AppDimens.sdp(context, '_14sdp'),
+                          color: textColor,
                         ),
-                      ),
-                      Icon(
-                        trailingIcon,
-                        size: AppDimens.sdp(
-                          context,
-                          highlight ? '_22sdp' : '_15sdp',
+                        SizedBox(width: AppDimens.sdp(context, '_6sdp')),
+                      ],
+                      if (fitLabel)
+                        Text(
+                          label,
+                          maxLines: 1,
+                          softWrap: false,
+                          style: AppTextStyles.semiBold.copyWith(
+                            color: textColor,
+                            fontSize: fontSize,
+                          ),
+                        )
+                      else
+                        Flexible(
+                          child: Text(
+                            label,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                (highlight
+                                        ? AppTextStyles.bold
+                                        : AppTextStyles.semiBold)
+                                    .copyWith(
+                                      color: textColor,
+                                      fontSize: fontSize,
+                                    ),
+                          ),
                         ),
-                        color: textColor,
-                      ),
+                      if (trailingIcon != null) ...[
+                        SizedBox(
+                          width: AppDimens.sdp(
+                            context,
+                            highlight ? '_12sdp' : '_6sdp',
+                          ),
+                        ),
+                        Icon(
+                          trailingIcon,
+                          size: AppDimens.sdp(
+                            context,
+                            highlight ? '_22sdp' : '_15sdp',
+                          ),
+                          color: textColor,
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -4233,6 +4267,11 @@ class AppPillButton extends StatelessWidget {
       ),
     );
   }
+
+  /// With [fitLabel] the content scales down to the pill's width instead of
+  /// being ellipsised.
+  Widget _fitIfNeeded(Widget row) =>
+      fitLabel ? FittedBox(fit: BoxFit.scaleDown, child: row) : row;
 }
 
 /// The highlight pill's thin rim: full pink along the top edge, fading to a

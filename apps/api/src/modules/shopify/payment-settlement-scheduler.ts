@@ -7,6 +7,7 @@ import { and, asc, eq, isNotNull, lt, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { FetchOneTimeSales } from './partner-api.js';
 import { checkPurchases } from './payment-settlement.js';
+import { runVerificationPass } from './payment-verification.js';
 
 /** One tick settles at most this many purchases; the rest wait for the next minute. */
 const BATCH = 200;
@@ -15,7 +16,8 @@ const ONE_MINUTE_MS = 60_000;
 const OVERDUE_GRACE_MS = 15 * ONE_MINUTE_MS;
 
 /**
- * One pass: settle every AWAITING purchase whose next check is due. Runs
+ * One pass: settle every AWAITING purchase whose next check is due, then verify
+ * granted purchases. The settlement half runs
  * regardless of SHOPIFY_HOLD_UNTIL_PAID, so turning the flag off still lets
  * rows already parked AWAITING settle.
  */
@@ -74,6 +76,9 @@ export async function runPaymentSettlementTick(
       ),
     );
   shopifyPurchasesOverduePaymentCheck.set(overdue);
+
+  // Grant-then-verify: confirm purchases that were granted at approval.
+  await runVerificationPass(app, opts);
 }
 
 /** Call once after `app.listen(...)`. */

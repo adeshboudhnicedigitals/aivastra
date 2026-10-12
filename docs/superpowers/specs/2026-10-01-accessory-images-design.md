@@ -1,7 +1,7 @@
 # Accessory images — design
 
 Date: 2026-10-01
-Status: approved, pending implementation plan
+Status: Implemented; cited from `apps/dispatcher/src/workflow/accessory-stack.ts`, `packages/db/src/schema/jobs.ts` (header checked against the code 2026-10-12); originally: approved, pending implementation plan
 
 ## Problem
 

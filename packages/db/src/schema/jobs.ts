@@ -98,6 +98,12 @@ export const jobs = pgTable(
     // GET /v1/merchant/tryon/history groups by (merchant_id, day) — without
     // this, that query sequential-scans the whole jobs table as it grows.
     byMerchant: index('jobs_merchant_created_idx').on(t.merchantId, t.createdAt),
+    // Refund-on-request asks "does this job have a regenerated child?" and the status
+    // query batches `parent_job_id IN (...)`; the FK from 0082 creates no index, so each
+    // was a sequential scan. Partial: most jobs are not regenerations.
+    byParent: index('jobs_parent_job_id_idx')
+      .on(t.parentJobId)
+      .where(sql`${t.parentJobId} is not null`),
   }),
 );
 

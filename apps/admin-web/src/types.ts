@@ -547,14 +547,68 @@ export interface FabricGarmentType {
   updatedAt: string;
 }
 
+export type PurchasePaymentStatus =
+  | 'NOT_REQUIRED'
+  | 'UNVERIFIED'
+  | 'PAID'
+  | 'NOT_RECEIVED'
+  | 'AWAITING'
+  | 'UNPAID';
+
 export interface StorePurchase {
   id: string;
   packId: string;
   credits: number;
   priceUsdCents: number;
   status: string;
-  paymentStatus: 'NOT_REQUIRED' | 'AWAITING' | 'PAID' | 'UNPAID';
+  paymentStatus: PurchasePaymentStatus;
+  paymentStatusSource: 'AUTO' | 'MANUAL';
+  paymentNote: string | null;
+  paymentFlaggedAt: string | null;
   paidAt: string | null;
   createdAt: string;
   shopifyChargeId: string | null;
+}
+
+/** One row of GET /admin/shopify/purchases (all stores). */
+export interface PackPurchase {
+  id: string;
+  storeId: string;
+  shopDomain: string;
+  packId: string;
+  credits: number;
+  priceUsdCents: number;
+  status: string;
+  paymentStatus: PurchasePaymentStatus;
+  paymentStatusSource: 'AUTO' | 'MANUAL';
+  paidAt: string | null;
+  paymentNote: string | null;
+  paymentFlaggedAt: string | null;
+  flaggedByName: string | null;
+  flaggedByEmail: string | null;
+  createdAt: string;
+  shopifyChargeId: string | null;
+  creditsGrantedAt: string | null;
+}
+
+export type RefundRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/** One row of GET /admin/refund-requests. */
+export interface RefundRequest {
+  id: string;
+  jobId: string;
+  userId: string;
+  userEmail: string;
+  userName: string | null;
+  credits: number;
+  reasonCode: string;
+  note: string | null;
+  status: RefundRequestStatus;
+  adminNote: string | null;
+  autoApproved: boolean;
+  reviewedAt: string | null;
+  createdAt: string;
+  downloadedAt: string | null;
+  imageUrl: string;
+  previewUrl: string;
 }

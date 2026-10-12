@@ -28,7 +28,7 @@ import type { CatalogVideoItem } from '@/hooks/use-catalog-videos';
 import { PENDING_STATUSES, useCatalogVideos } from '@/hooks/use-catalog-videos';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
-import { downloadErrorMessage } from '@/lib/errors';
+import { downloadErrorMessage, refundDownloadMessage } from '@/lib/errors';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -169,6 +169,29 @@ function Cover({
         </>
       )}
     </div>
+  );
+}
+
+// ─── video card thumbnail ─────────────────────────────────────────────────────
+
+// The API presigns thumbnailUrl without checking the object exists, so a deleted
+// source image still arrives as a non-null URL and 404s in the browser. Fall back
+// to the same placeholder used when there is no URL rather than the broken-image icon.
+function VideoThumb({ url }: { url: string | null }) {
+  const [imgError, setImgError] = useState(false);
+  if (!url || imgError) {
+    return <div style={{ width: '100%', height: '100%', background: C.lighter }} />;
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    // biome-ignore lint/performance/noImgElement: presigned R2 URL
+    <img
+      src={url}
+      alt="Generated video"
+      loading="lazy"
+      onError={() => setImgError(true)}
+      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+    />
   );
 }
 
@@ -647,7 +670,9 @@ function CataloguesPageInner(): React.ReactElement {
     setToast(null);
 
     try {
-      // Phase 1: fetch presigned URLs — abort signal forwarded so cancellation stops API calls too
+      // Phase 1: fetch presigned URLs — abort signal forwarded so cancellation stops API calls too.
+      // POST /download (not GET /result) is the gated download signal: it refuses jobs held by a
+      // refund request and stamps downloadedAt, which disables each job's regenerate option.
       const completedJobs = snapshotCatalogues.flatMap((cat) =>
         cat.jobs
           .filter((j) => j.status === 'COMPLETED')
@@ -658,9 +683,11 @@ function CataloguesPageInner(): React.ReactElement {
       const urlResults = await Promise.allSettled(
         completedJobs.map(({ catalogueId, jobId }) =>
           api
-            .get<{ url: string; expiresIn: number }>(`/v1/jobs/${jobId}/result`, {
-              signal: abort.signal,
-            })
+            .post<{ url: string; expiresIn: number }>(
+              `/v1/jobs/${jobId}/download`,
+              {},
+              { signal: abort.signal },
+            )
             .then((res) => ({ catalogueId, url: res.url, expiresIn: res.expiresIn, jobId })),
         ),
       );
@@ -683,8 +710,15 @@ function CataloguesPageInner(): React.ReactElement {
         .filter((r) => r.value.expiresIn - phase1ElapsedSec > 10)
         .map((r) => r.value);
 
+      // A refund request holds the image: say so in the API's own words instead of the
+      // generic failure (other failures keep the generic wording).
+      const heldMessages = urlResults
+        .map((r) => (r.status === 'rejected' ? refundDownloadMessage(r.reason) : undefined))
+        .filter((m): m is string => Boolean(m));
+      const refundHold = heldMessages[0];
+
       if (validEntries.length === 0) {
-        setToast({ message: 'No images could be retrieved.', type: 'error' });
+        setToast({ message: refundHold ?? 'No images could be retrieved.', type: 'error' });
         return;
       }
 
@@ -764,7 +798,12 @@ function CataloguesPageInner(): React.ReactElement {
       const totalImages = succeeded.length;
       const totalCats = byCat.size;
       const skipped = total - succeeded.length;
-      if (skipped > 0) {
+      if (heldMessages.length > 0) {
+        setToast({
+          message: `Downloaded ${totalImages} image${totalImages !== 1 ? 's' : ''}. ${heldMessages.length} not downloaded: ${refundHold}${skipped > 0 ? ` ${skipped} more could not be retrieved.` : ''}`,
+          type: 'warning',
+        });
+      } else if (skipped > 0) {
         setToast({
           message: `Downloaded ${totalImages} of ${total} images from ${totalCats} catalogue${totalCats !== 1 ? 's' : ''}. ${skipped} could not be retrieved.`,
           type: 'warning',
@@ -869,6 +908,7 @@ function CataloguesPageInner(): React.ReactElement {
           }
 
           .catalogues-sticky-toolbar {
+            position: static;
             margin: 0 -20px;
             padding: 12px 20px;
           }
@@ -912,6 +952,7 @@ function CataloguesPageInner(): React.ReactElement {
           }
 
           .catalogues-sticky-toolbar {
+            position: static;
             margin: 0 -16px;
             padding: 10px 16px;
           }
@@ -1773,22 +1814,7 @@ function CataloguesPageInner(): React.ReactElement {
                             cursor: video.videoUrl ? 'pointer' : 'default',
                           }}
                         >
-                          {video.thumbnailUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            // biome-ignore lint/performance/noImgElement: presigned R2 URL
-                            <img
-                              src={video.thumbnailUrl}
-                              alt="Generated video"
-                              style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover',
-                                display: 'block',
-                              }}
-                            />
-                          ) : (
-                            <div style={{ width: '100%', height: '100%', background: C.lighter }} />
-                          )}
+                          <VideoThumb url={video.thumbnailUrl} />
                           <div
                             style={{
                               position: 'absolute',

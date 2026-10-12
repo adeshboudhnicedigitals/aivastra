@@ -1,4 +1,4 @@
-import type { DB } from '@aivastra/db';
+import type { DB, DbTransaction } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { creditsDeductedTotal, creditsRefundedTotal } from '@aivastra/observability';
 import { and, eq, gte, inArray, sql } from 'drizzle-orm';
@@ -37,6 +37,33 @@ export async function atomicDeduct(db: DB, userId: string, amount: number, jobId
   return balance;
 }
 
+/**
+ * Writes the refund ledger row and bumps the balance inside the caller's
+ * transaction. The ledger insert goes first: the unique index on (job_id, reason)
+ * WHERE job_id IS NOT NULL is what guarantees at-most-once without a racy SELECT.
+ * Returns false when this (job, reason) was already refunded. Callers own the
+ * metric (`creditsRefundedTotal`) — increment it only after the transaction commits.
+ */
+export async function applyRefundTx(
+  tx: DbTransaction,
+  userId: string,
+  amount: number,
+  jobId: string,
+  reason: string,
+): Promise<boolean> {
+  const inserted = await tx
+    .insert(schema.creditLedger)
+    .values({ userId, delta: amount, reason, jobId })
+    .onConflictDoNothing()
+    .returning({ id: schema.creditLedger.id });
+  if (!inserted.length) return false;
+  await tx
+    .update(schema.userCredits)
+    .set({ balance: sql`${schema.userCredits.balance} + ${amount}`, updatedAt: new Date() })
+    .where(eq(schema.userCredits.userId, userId));
+  return true;
+}
+
 export async function refund(
   db: DB,
   userId: string,
@@ -68,19 +95,7 @@ export async function refund(
         .limit(1);
       if (priorRefund) return false;
     }
-    // Insert ledger row first — unique index on (job_id, reason) WHERE job_id IS NOT NULL
-    // guarantees at-most-once without a racy SELECT check.
-    const inserted = await tx
-      .insert(schema.creditLedger)
-      .values({ userId, delta: amount, reason, jobId })
-      .onConflictDoNothing()
-      .returning({ id: schema.creditLedger.id });
-    if (!inserted.length) return false; // already refunded
-    await tx
-      .update(schema.userCredits)
-      .set({ balance: sql`${schema.userCredits.balance} + ${amount}`, updatedAt: new Date() })
-      .where(eq(schema.userCredits.userId, userId));
-    return true;
+    return applyRefundTx(tx, userId, amount, jobId, reason);
   });
   if (refunded) creditsRefundedTotal.inc(amount);
 }

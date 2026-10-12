@@ -1,7 +1,7 @@
 # Shopify Shopper Limits, Email Capture & Retention — Design
 
 **Date:** 2026-07-31
-**Status:** Approved, ready for implementation planning
+**Status:** Implemented; see `apps/api/src/modules/shopify/limits.ts`, `store-day.ts`, `shopper.ts` (header checked against the code 2026-10-12); originally: Approved, ready for implementation planning
 **Supersedes/extends:** `2026-07-30-shopify-app-restructure-design.md`
 
 ## Problem

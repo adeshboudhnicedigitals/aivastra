@@ -1,7 +1,7 @@
 # Shopify admin support chat — design
 
 **Date:** 2026-09-05
-**Status:** Approved, ready for implementation plan
+**Status:** Implemented; cited from `apps/shopify/src/hooks/useSupportChat.ts` (header checked against the code 2026-10-12); originally: Approved, ready for implementation plan
 
 ## Overview
 

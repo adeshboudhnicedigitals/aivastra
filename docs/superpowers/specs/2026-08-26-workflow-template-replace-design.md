@@ -1,6 +1,6 @@
 # Workflow Template Replace (with drain)
 
-**Status:** Approved design, not yet implemented.
+**Status:** Implemented; cited from `apps/dispatcher/src/workflow/resolve-template-version.ts`, `packages/db/src/schema/models.ts` (header checked against the code 2026-10-12); originally: Approved design, not yet implemented
 **Date:** 2026-08-26
 
 ## 1. Problem Statement

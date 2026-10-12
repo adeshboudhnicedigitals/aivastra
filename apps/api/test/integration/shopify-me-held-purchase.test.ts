@@ -28,7 +28,7 @@ afterAll(async () => {
 
 // One store per case so each store's "latest purchase" is exactly the row
 // under test.
-async function meFor(paymentStatus: 'NOT_REQUIRED' | 'AWAITING' | 'PAID' | 'UNPAID') {
+async function meFor(paymentStatus: string) {
   seq += 1;
   const domain = `held-${seq}.myshopify.com`;
   const store = await upsertShopifyStore(
@@ -82,6 +82,18 @@ describe('GET /v1/shopify/me - hasPurchasedPack with an ACTIVE charge', () => {
 
   it('is true for NOT_REQUIRED (legacy / test / autorefill)', async () => {
     const body = await meFor('NOT_REQUIRED');
+    expect(body.hasPurchasedPack).toBe(true);
+    expect(body.currentPack).toEqual({ id: 'pack_10', label: 'Silver' });
+  });
+
+  it('is true for UNVERIFIED (credits were granted at approval, payment not yet confirmed)', async () => {
+    const body = await meFor('UNVERIFIED');
+    expect(body.hasPurchasedPack).toBe(true);
+    expect(body.currentPack).toEqual({ id: 'pack_10', label: 'Silver' });
+  });
+
+  it('is true for NOT_RECEIVED (credits were delivered; the payment is flagged separately)', async () => {
+    const body = await meFor('NOT_RECEIVED');
     expect(body.hasPurchasedPack).toBe(true);
     expect(body.currentPack).toEqual({ id: 'pack_10', label: 'Silver' });
   });

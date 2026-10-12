@@ -1,7 +1,7 @@
 # Staging Environment on the Production VPS — Design
 
 Date: 2026-08-06
-Status: approved (design), not yet implemented
+Status: Implemented; see `scripts/staging/`, `infra/docker-compose.staging.yml` and `docs/staging-runbook.md` (header checked against the code 2026-10-12); originally: approved (design), not yet implemented
 
 ## Goal
 

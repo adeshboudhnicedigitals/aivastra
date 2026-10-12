@@ -1,6 +1,6 @@
 # Dedicated Regeneration Workflow
 
-**Status:** Approved design, not yet implemented.
+**Status:** Implemented; cited from `apps/api/src/modules/jobs/regenerate.ts` (header checked against the code 2026-10-12); originally: Approved design, not yet implemented
 **Date:** 2026-08-31
 
 ## 1. Problem Statement

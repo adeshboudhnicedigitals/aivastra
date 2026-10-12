@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS "jobs_parent_job_id_idx" ON "jobs" USING btree ("parent_job_id") WHERE "jobs"."parent_job_id" is not null;

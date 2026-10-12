@@ -35,6 +35,7 @@ import { createBatchJobs } from './createBatch.js';
 import { createFabricToGarmentJob } from './createFabricToGarment.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
+import { hasActiveRefundRequest, hasApprovedRefundRequest } from './refund-requests.js';
 import { getRegenerateReasons, regenerateJob } from './regenerate.js';
 import { sseHandler, userStreamHandler } from './sse.js';
 
@@ -938,6 +939,16 @@ export async function jobsRoutes(app: FastifyInstance) {
         .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
       if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
       if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
+      // Once credits are returned the customer no longer gets the full image. PENDING
+      // still serves (they may view while we decide); /thumbnail stays open as a
+      // low-res preview so tiles do not break.
+      if (await hasApprovedRefundRequest(app.db, id)) {
+        throw new AppError(
+          'REFUND_APPROVED',
+          409,
+          'Credits for this image were refunded, so it is no longer available.',
+        );
+      }
 
       // Tryon-direct results (source='tryon'/'api_tryon') are stored WebP-encoded,
       // not PNG (see apps/dispatcher/src/workflow/finalize.ts) — the actual
@@ -972,6 +983,22 @@ export async function jobsRoutes(app: FastifyInstance) {
         .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
       if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
       if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
+      // Checked before anything is presigned or stamped: a blocked download must never
+      // mark the job downloaded, or a rejected request could not release it again.
+      if (await hasApprovedRefundRequest(app.db, id)) {
+        throw new AppError(
+          'REFUND_APPROVED',
+          409,
+          'Credits for this image were refunded, so it is no longer available.',
+        );
+      }
+      if (await hasActiveRefundRequest(app.db, id)) {
+        throw new AppError(
+          'REFUND_REQUESTED',
+          409,
+          'This image has a refund request open, so it cannot be downloaded until we decide.',
+        );
+      }
 
       const [output] = await app.db
         .select({ resultKey: schema.jobOutputs.resultKey })
@@ -1026,6 +1053,16 @@ export async function jobsRoutes(app: FastifyInstance) {
       // pending) — use the job's actual stored resultKey (tryon-direct results are
       // WebP, not PNG; see apps/dispatcher/src/workflow/finalize.ts), only falling
       // back further to the reconstructed PNG key for legacy rows with no output row.
+      // The fallback IS the full-resolution image, so once credits are returned it must
+      // not be served here either — that would defeat the /result gate. A real thumbnail
+      // keeps serving so tiles do not break.
+      if (!output?.thumbnailKey && (await hasApprovedRefundRequest(app.db, id))) {
+        throw new AppError(
+          'REFUND_APPROVED',
+          409,
+          'Credits for this image were refunded, so it is no longer available.',
+        );
+      }
       const r2Key = output?.thumbnailKey ?? output?.resultKey ?? keys.output(id);
       const { url, expiresIn } = await app.storage.presignGet(r2Key, 3600);
       return { url, expiresIn };
