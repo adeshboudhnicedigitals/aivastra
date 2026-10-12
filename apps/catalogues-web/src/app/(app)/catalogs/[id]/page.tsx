@@ -221,6 +221,8 @@ function ImageCard({
     queryFn: () => api.get(`/v1/jobs/${job.id}/thumbnail`),
     enabled: isCompleted,
     staleTime: 55 * 60 * 1000,
+    // Refunded with no real thumbnail: 409 REFUND_APPROVED for good, do not retry.
+    retry: retryResultQuery,
   });
 
   async function handleDelete() {

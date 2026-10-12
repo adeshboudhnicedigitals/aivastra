@@ -374,6 +374,8 @@ function LivePlatformPreviewPage({ id }: { id: string }): React.ReactElement {
       queryFn: () => api.get<{ url: string }>(`/v1/jobs/${job.id}/thumbnail`),
       staleTime: 4 * 60 * 1000,
       enabled: isRefundApproved(resultQueries[i]?.error),
+      // No real thumbnail also 409s REFUND_APPROVED for good: leave the slot empty.
+      retry: retryResultQuery,
     })),
   });
 

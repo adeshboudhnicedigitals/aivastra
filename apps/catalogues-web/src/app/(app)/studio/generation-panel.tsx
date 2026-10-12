@@ -268,6 +268,9 @@ export function GenerationPanel({
       enabled:
         completedIds.includes(j.id) && refunds.byJob.get(j.id)?.request?.status === 'APPROVED',
       staleTime: 55 * 60 * 1000,
+      // A refunded job with no real thumbnail 409s REFUND_APPROVED for good: the tile
+      // then shows just the chip, so do not retry.
+      retry: retryResultQuery,
     })),
   });
 
@@ -837,7 +840,7 @@ export function GenerationPanel({
                         src={garmentPreviewUrl || current.thumbnailUrl}
                         alt="Loading Preview"
                         className={
-                          !currentFailed && currentStatus !== 'QUEUED'
+                          !currentFailed && !currentCompleted && currentStatus !== 'QUEUED'
                             ? 'garment-deblur processing-pulse'
                             : ''
                         }
@@ -1174,6 +1177,24 @@ export function GenerationPanel({
                           <CheckIcon size={11} color="#FFFFFF" />
                           <span>Ready</span>
                         </div>
+                      </>
+                    ) : isCompleted && approvedThumbQueries[idx]?.isError ? (
+                      <>
+                        {/* Refund approved and no low-res thumbnail exists: the full image is
+                            withheld, so show the garment, muted — the chip below says why. */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={garmentPreviewUrl || job.thumbnailUrl}
+                          alt={job.label}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            objectPosition: 'top center',
+                            filter: 'grayscale(60%)',
+                            opacity: 0.35,
+                          }}
+                        />
                       </>
                     ) : isTerminalFailed ? (
                       <>
