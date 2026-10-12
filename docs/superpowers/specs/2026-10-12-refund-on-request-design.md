@@ -13,7 +13,7 @@ only after an admin approves.** Nothing is refunded automatically.
 
 | Question | Decision |
 |---|---|
-| Granularity | One request per image (job). The button sits on each result tile beside Regenerate. |
+| Granularity | One request per image (job). A checkbox on each eligible result tile selects it; one "Request refund" button beside Download All (disabled until something is checked) opens a single modal that sends one request per checked image. |
 | Eligibility | Job is the caller's, `COMPLETED`, never downloaded (a Google Drive export counts as a download), `creditsCharged > 0`, not a merchant / API-key / Shopify job, the ledger shows credits still debited for it (`SUM(credit_ledger.delta) < 0` for that job and user), and it has no earlier request. A rejected request cannot be re-filed. A job that has any child job (`jobs.parent_job_id = job.id`, any child status) is not refundable (409 `ALREADY_REGENERATED`): regenerate is free, so refunding as well would let the customer keep both images. Unlimited-plan jobs are excluded: `atomicDeduct` charges them 0 (a delta-0 `UNLIMITED_PLAN_USAGE` row) even though `jobs.creditsCharged` still holds the plan cost. |
 | Request form | Fixed reason list plus an optional note (300 chars max). |
 | Regenerate | Blocked while the request is `PENDING` or `APPROVED`; allowed again after `REJECTED`. |
@@ -111,12 +111,12 @@ still leaves the decision committed).
 
 ## Customer UI (`apps/catalogues-web/src/app/(app)/studio/generation-panel.tsx`)
 
-- "Request refund" button next to Regenerate on each completed, eligible tile.
+- A checkbox (top-right of the tile, unchecked by default) on each completed, eligible tile. A "Request refund" button next to Download All is disabled until at least one eligible image is checked; the modal sends one request per checked image sequentially and lists any that failed. `POST /v1/jobs/:id/refund-request` is limited to 60/min per client to allow this.
 - Modal: reason via `PremiumSelect`, optional note, warning that the image cannot be downloaded
   until the request is decided. Colours from `C` tokens, no raw hex.
 - After submit, a status chip: Pending / Approved (credits refunded) / Rejected (admin note).
   Regenerate, Download and Save to Drive are disabled while Pending and Approved.
-- Gated by a flag in `lib/feature-flags.ts` (like `REGENERATE_ENABLED`) so it can ship dark.
+- Gated by a flag in `lib/feature-flags.ts` (like `REGENERATE_ENABLED`) so it can be switched off as a kill switch. Decided 2026-10-12: it is always on (`true`).
 
 ## Admin UI (`apps/admin-web`)
 
@@ -144,5 +144,5 @@ whenever the open request changes, since it is emailed to the customer. Sidebar 
 
 ## Rollout
 
-Migration through push → CI/CD → `db:migrate:prod`, nothing ad hoc on production. Web flag off by
-default; enable on staging first. Record the flag and any new env in `docs/progress.md`.
+Migration through push → CI/CD → `db:migrate:prod`, nothing ad hoc on production. Web flag `REFUND_REQUEST_ENABLED` is
+always on (`true`); it remains only as a kill switch. Record the flag and any new env in `docs/progress.md`.

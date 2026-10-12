@@ -2,7 +2,7 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
-## 2026-10-12 — Refund on customer request (implemented, flag off)
+## 2026-10-12 — Refund on customer request (implemented, enabled)
 
 - **Done:** a customer can ask for the credits back for one finished image in catalogues-web; an
   admin approves or rejects, and credits are refunded only on approval. Migration `0221`
@@ -15,7 +15,7 @@
   fail-closed `recordAudit`, and re-checks `downloaded_at IS NULL`; decision email is best-effort
   after commit). `regenerateJob` and `POST /v1/jobs/:id/download` return 409 while a request is
   `PENDING`/`APPROVED`; `GET /result` stays open. Admin page "Refund requests" in admin-web.
-  Customer UI (button, modal, status chip) is behind `REFUND_REQUEST_ENABLED = false` in
+  Customer UI (button, modal, status chip) is gated by `REFUND_REQUEST_ENABLED` (`true`, always on; a kill switch) in
   `apps/catalogues-web/src/lib/feature-flags.ts`. Spec corrected to match what was built.
 - **Done (final-review fixes, 2026-10-12):**
   - Eligibility and the refunded amount come from the **ledger**, not `jobs.creditsCharged`: the
@@ -104,9 +104,15 @@
   - The manual end-to-end check (request -> pending chip -> admin approve/reject -> credits and
     unlock, in a browser with the flag on) has NOT been performed. The web UI is covered only by
     typecheck/lint and the API integration tests.
+- **Done (UI rework, 2026-10-12):** the per-tile "Request refund" button moved out of the tile into the
+  results header beside Download All: disabled by default, enabled when at least one image is ticked via
+  a new top-right checkbox on each eligible tile (unchecked by default; only server-eligible images get one).
+  One modal sends one request per ticked image (sequentially) and lists any that failed; a 2-3 business hours
+  note shows in the modal and on the pending chip. `POST /v1/jobs/:id/refund-request` rate limit raised 10 -> 60
+  per minute for this. Typechecked and linted only; not exercised in a browser.
 - **Open:**
-  - `REFUND_REQUEST_ENABLED` stays `false` until someone enables it (staging first), which needs a
-    rebuild of catalogues-web.
+  - `REFUND_REQUEST_ENABLED` is `true` (decided 2026-10-12: always on). Setting it to `false` is only
+    a kill switch and needs a rebuild of catalogues-web.
   - The decision email depends on `RESEND_API_KEY` / `EMAIL_FROM` already being set in each
     environment; a failed send is logged and never blocks the decision.
   - No admin notification email: pending requests are visible on the admin page only.
