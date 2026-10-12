@@ -1,3 +1,4 @@
+import { REFUND_REASON_LABELS } from '@aivastra/types';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../context/AuthContext';
@@ -19,16 +20,8 @@ const FILTER_OPTIONS: { id: Filter; label: string }[] = [
   { id: 'ALL', label: 'All requests' },
 ];
 
-// Mirrors REFUND_REASON_LABELS in packages/types/src/refund.ts. admin-web does not
-// depend on @aivastra/types, so the labels are repeated here.
-const REASON_LABEL: Record<string, string> = {
-  WRONG_GARMENT: 'Wrong garment or colour',
-  DISTORTED_BODY: 'Distorted body or hands',
-  FACE_MISMATCH: 'Face does not match',
-  BACKGROUND_OR_POSE: 'Background or pose issue',
-  POOR_QUALITY: 'Poor image quality',
-  OTHER: 'Other',
-};
+// Widened so a reason code the API adds later still type-checks and falls back to the raw code.
+const REASON_LABEL: Record<string, string> = REFUND_REASON_LABELS;
 
 function badgeClass(s: RefundRequestStatus): string {
   if (s === 'APPROVED') return 'badge success';
@@ -100,8 +93,13 @@ export default function RefundRequestsPage({ toast }: Props) {
     [rows, requestParam],
   );
 
-  function open(row: RefundRequest) {
+  // The note is emailed to the customer on decision, so it must never follow the admin to a
+  // different request (back/forward, pasted ?request= link) — reset on every id change.
+  useEffect(() => {
     setAdminNote('');
+  }, [selected?.id]);
+
+  function open(row: RefundRequest) {
     setRequestParam(row.id);
   }
 
