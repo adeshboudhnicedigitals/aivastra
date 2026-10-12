@@ -70,9 +70,10 @@ class _MotionStudioFormState extends ConsumerState<MotionStudioForm> {
 
     final pickedJobId = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: AppColors.sheetBackground,
+      backgroundColor: AppColors.sheetFill,
       isScrollControlled: true,
       shape: RoundedRectangleBorder(
+        side: const BorderSide(color: AppColors.sheetBorder),
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(AppDimens.sdp(context, '_20sdp')),
         ),
@@ -204,10 +205,8 @@ class _MotionStudioFormState extends ConsumerState<MotionStudioForm> {
               ),
               SizedBox(height: sectionGap),
               sampleVideosAsync.when(
-                loading: () => SizedBox(
-                  height: presetRowHeight,
-                  child: const AppLoader(),
-                ),
+                loading: () =>
+                    SizedBox(height: presetRowHeight, child: const AppLoader()),
                 error: (error, stack) {
                   // A non-network failure here is a response this app
                   // couldn't read; the generic banner alone hid which field.

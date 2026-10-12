@@ -37,6 +37,12 @@ class AppColors {
   /// Background for dark bottom sheets (option pickers).
   static const sheetBackground = Color(0xFF141414);
 
+  /// Fill of the modal bottom sheets: #0F0F0F at 40% (design spec).
+  static const sheetFill = Color(0x660F0F0F);
+
+  /// Hairline around a modal bottom sheet: #FFFFFF at 10%, 1px.
+  static const sheetBorder = Color(0x1AFFFFFF);
+
   /// Fallback background behind avatar initials when no photo is set.
   static const avatarPlaceholder = Color(0xFF2A2A2A);
 
