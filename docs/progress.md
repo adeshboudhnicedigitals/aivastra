@@ -2,6 +2,33 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-12 — Refund auto-approve toggle (implemented, off by default)
+
+- **Done:** admin panel toggle for auto-approving customer refund requests, on branch
+  `feat/refund-auto-approve` (unmerged). Setting `{ enabled, dailyCap }` in Redis key
+  `config:refund-auto-approve` (same pattern as `config:image-compression`); defaults OFF /
+  cap 5, fail-safe to OFF when unreadable, so shipping changes no behaviour until an admin
+  flips it. `GET`/`PATCH /admin/refund-requests/auto-approve` (`credits.read` / `credits.write`;
+  PATCH merges onto current config, audit row `refund_auto_approve.update` written before the
+  Redis write). Migration `0223` adds `refund_requests.auto_approved` (default false) plus a
+  `(user_id, reviewed_at)` index for the 24h cap count. Auto-approve runs in a nested
+  transaction (savepoint) inside the create transaction via the shared `approveRefundRequestTx`
+  (same re-checks, same `REFUND_USER_REQUEST` ledger reason as the admin button); any failure
+  leaves the request `PENDING`. Audit actor is the customer with role `AUTO_APPROVE`,
+  `reviewed_by` stays NULL, admin note `'Auto-approved'`. Admin page has the toggle card
+  (confirm-on-enable), per-day cap field, "Auto" badges, and "Auto-approved" detail.
+- **Verified 2026-10-12:** `refund-auto-approve` 18 tests + `refund-requests`/`admin-refund-requests`/
+  `refund-apply-tx` suites — 4 files / 56 passed; `pnpm --filter @aivastra/api test` — 91 files /
+  823 passed (matches baseline); `@aivastra/types` — 31 passed; root `pnpm typecheck` exit 0;
+  admin build pass; biome on touched files 0 errors (3 pre-existing page warnings only).
+  Post-subagent cleanup: `biome check --write` (import order + format, 4 files), `as string`
+  instead of a new `!`, dropped an unused import. Admin-web click-through still to be done
+  manually (no test runner).
+- **Rollout:** additive migration; production change only via push → CI/CD → `db:migrate:prod`.
+  One spec deviation (recorded in the spec): the forced-failure test seeds a delta-0
+  `REFUND_USER_REQUEST` row, not a `REFUND_ADMIN_CANCEL` offset (the latter 409s at the create
+  gate before the savepoint is reached).
+
 ## 2026-10-12 — Refund on customer request (implemented, enabled)
 
 - **Done:** a customer can ask for the credits back for one finished image in catalogues-web; an

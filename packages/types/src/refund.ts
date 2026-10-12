@@ -38,3 +38,38 @@ export const AdminRejectRefundBody = z.object({
   adminNote: z.string().trim().min(3).max(500),
 });
 export type AdminRejectRefundBody = z.infer<typeof AdminRejectRefundBody>;
+
+export const RefundAutoApproveConfig = z.object({
+  enabled: z.boolean(),
+  dailyCap: z.number().int().min(1).max(100),
+});
+export type RefundAutoApproveConfig = z.infer<typeof RefundAutoApproveConfig>;
+
+export const RefundAutoApprovePatch = RefundAutoApproveConfig.partial();
+export type RefundAutoApprovePatch = z.infer<typeof RefundAutoApprovePatch>;
+
+// Off by default — shipping this changes no behaviour until an admin flips it.
+export const DEFAULT_REFUND_AUTO_APPROVE_CONFIG: RefundAutoApproveConfig = {
+  enabled: false,
+  dailyCap: 5,
+};
+
+// Validates each field independently so one bad field falls back to its
+// default while keeping a good sibling (flat shape — no per-key loop needed).
+export function fillRefundAutoApproveDefaults(stored: unknown): RefundAutoApproveConfig {
+  if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) {
+    return { ...DEFAULT_REFUND_AUTO_APPROVE_CONFIG };
+  }
+  const s = stored as Record<string, unknown>;
+  return {
+    enabled:
+      typeof s.enabled === 'boolean' ? s.enabled : DEFAULT_REFUND_AUTO_APPROVE_CONFIG.enabled,
+    dailyCap:
+      typeof s.dailyCap === 'number' &&
+      Number.isInteger(s.dailyCap) &&
+      s.dailyCap >= 1 &&
+      s.dailyCap <= 100
+        ? s.dailyCap
+        : DEFAULT_REFUND_AUTO_APPROVE_CONFIG.dailyCap,
+  };
+}

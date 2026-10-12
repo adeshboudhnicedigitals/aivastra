@@ -1,14 +1,20 @@
 import { REFUND_REASON_LABELS } from '@aivastra/types';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { Switch } from '../components/Switch';
 import { useAuth } from '../context/AuthContext';
 import { useCloseOverlay } from '../hooks/use-close-overlay';
 import { useUrlState } from '../hooks/use-url-state';
-import { apiErrorMessage, apiFetch } from '../lib/data';
+import { ApiError, apiErrorMessage, apiFetch } from '../lib/data';
 import type { RefundRequest, RefundRequestStatus } from '../types';
 
 interface Props {
   toast: (opts: { kind?: 'error'; title: string; body?: string }) => void;
+}
+
+interface AutoApproveConfig {
+  enabled: boolean;
+  dailyCap: number;
 }
 
 type Filter = 'ALL' | RefundRequestStatus;
@@ -55,6 +61,89 @@ export default function RefundRequestsPage({ toast }: Props) {
 
   const [adminNote, setAdminNote] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Auto-approve config: everyone with list access (credits.read) sees the state;
+  // the controls stay disabled without credits.write. Hidden entirely on 403.
+  const [autoConfig, setAutoConfig] = useState<AutoApproveConfig | null>(null);
+  const [autoVisible, setAutoVisible] = useState(true);
+  const [autoLoadFailed, setAutoLoadFailed] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [capDraft, setCapDraft] = useState('5');
+  const [confirmEnable, setConfirmEnable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<AutoApproveConfig>('/admin/refund-requests/auto-approve')
+      .then((cfg) => {
+        if (cancelled) return;
+        setAutoConfig(cfg);
+        setCapDraft(String(cfg.dailyCap));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 403) {
+          setAutoVisible(false);
+          return;
+        }
+        setAutoLoadFailed(true);
+        toast({
+          kind: 'error',
+          title: 'Failed to load auto-approve setting',
+          body: apiErrorMessage(err, 'Please try again.'),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [toast]);
+
+  async function patchAutoApprove(patch: Partial<AutoApproveConfig>) {
+    setAutoSaving(true);
+    try {
+      const updated = await apiFetch<AutoApproveConfig>('/admin/refund-requests/auto-approve', {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      setAutoConfig(updated);
+      setCapDraft(String(updated.dailyCap));
+    } catch (err) {
+      // Revert the cap field so it never shows a value the server rejected.
+      setCapDraft((draft) =>
+        autoConfig && draft !== String(autoConfig.dailyCap) ? String(autoConfig.dailyCap) : draft,
+      );
+      toast({
+        kind: 'error',
+        title: 'Failed to update auto-approve setting',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setAutoSaving(false);
+    }
+  }
+
+  function onToggleAuto(next: boolean) {
+    if (!canWrite || autoSaving || !autoConfig) return;
+    // Enabling moves money without review, so it asks for confirmation first;
+    // disabling is harmless and applies immediately.
+    if (next) setConfirmEnable(true);
+    else void patchAutoApprove({ enabled: false });
+  }
+
+  function commitCap() {
+    if (!canWrite || autoSaving || !autoConfig) return;
+    const n = Number(capDraft);
+    if (!Number.isInteger(n) || n < 1 || n > 100) {
+      setCapDraft(String(autoConfig.dailyCap));
+      toast({
+        kind: 'error',
+        title: 'Invalid daily cap',
+        body: 'Enter a whole number between 1 and 100.',
+      });
+      return;
+    }
+    if (n === autoConfig.dailyCap) return;
+    void patchAutoApprove({ dailyCap: n });
+  }
 
   const load = useCallback(
     async (cursor?: string) => {
@@ -143,6 +232,91 @@ export default function RefundRequestsPage({ toast }: Props) {
         </div>
       </div>
 
+      {autoVisible && (
+        <div className="card">
+          <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {autoConfig === null ? (
+              <p style={{ color: 'var(--muted)', fontSize: 13 }}>
+                {autoLoadFailed ? 'Could not load the auto-approve setting.' : 'Loading…'}
+              </p>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Switch
+                    checked={autoConfig.enabled}
+                    onChange={onToggleAuto}
+                    disabled={!canWrite || autoSaving}
+                  />
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>
+                    Auto-approve refund requests
+                  </span>
+                </div>
+                <div style={{ maxWidth: 240 }}>
+                  <label className="sub" htmlFor="rr-cap">
+                    Max per customer per day
+                  </label>
+                  <input
+                    id="rr-cap"
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={100}
+                    step={1}
+                    value={capDraft}
+                    disabled={!canWrite || autoSaving}
+                    onChange={(e) => setCapDraft(e.target.value)}
+                    onBlur={commitCap}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    }}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div className="sub">Approved instantly; credits are returned immediately.</div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {confirmEnable && autoConfig && (
+        <div className="modal-overlay" onClick={() => setConfirmEnable(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Enable auto-approve?</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                New eligible refund requests will be approved instantly and credits returned
+                immediately, without admin review (up to {autoConfig.dailyCap} per customer per
+                day).
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => setConfirmEnable(false)}
+                disabled={autoSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={autoSaving}
+                onClick={() => {
+                  setConfirmEnable(false);
+                  void patchAutoApprove({ enabled: true });
+                }}
+              >
+                {autoSaving ? 'Saving…' : 'Enable auto-approve'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div className="card-body" style={{ maxWidth: 320 }}>
           <label className="sub" htmlFor="rr-filter">
@@ -196,6 +370,11 @@ export default function RefundRequestsPage({ toast }: Props) {
                       <td style={{ textAlign: 'right' }}>{r.credits.toLocaleString()}</td>
                       <td>
                         <span className={badgeClass(r.status)}>{r.status}</span>
+                        {r.autoApproved && (
+                          <span className="badge info" style={{ marginLeft: 6 }}>
+                            Auto
+                          </span>
+                        )}
                       </td>
                       <td>{when(r.createdAt)}</td>
                     </tr>
@@ -255,6 +434,11 @@ export default function RefundRequestsPage({ toast }: Props) {
               )}
               {selected.status !== 'PENDING' && (
                 <>
+                  {selected.autoApproved && (
+                    <div>
+                      <span className="badge info">Auto-approved</span>
+                    </div>
+                  )}
                   <div>
                     <strong>Decided:</strong> {when(selected.reviewedAt)}
                   </div>

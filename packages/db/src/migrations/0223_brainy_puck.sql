@@ -1,0 +1,2 @@
+ALTER TABLE "refund_requests" ADD COLUMN "auto_approved" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "refund_requests_user_reviewed_idx" ON "refund_requests" USING btree ("user_id","reviewed_at");

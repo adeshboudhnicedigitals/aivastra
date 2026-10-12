@@ -1,10 +1,15 @@
 import type { DB, DbTransaction } from '@aivastra/db';
 import { schema } from '@aivastra/db';
+import { creditsRefundedTotal } from '@aivastra/observability';
 import { CreateRefundRequestBody } from '@aivastra/types';
-import { and, eq, inArray, sql } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import { and, eq, gt, inArray, sql } from 'drizzle-orm';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { sendRefundDecisionEmail } from '../../lib/mailer.js';
+import { getRefundAutoApproveConfig } from '../../lib/refund-auto-approve-config.js';
+import { recordAudit } from '../admin/audit.js';
+import { applyRefundTx } from '../credits/ledger.js';
 
 const R = schema.refundRequests;
 const L = schema.creditLedger;
@@ -114,6 +119,126 @@ export function refundIneligibility(
   return null;
 }
 
+export type Actor = { userId: string; role: string };
+
+export type RefundRequestRow = typeof R.$inferSelect;
+
+/**
+ * Shared approve body used by the admin button and the auto-approve path so the
+ * two can never diverge: re-checks, ledger refund, status flip and audit row in
+ * the caller's transaction (or savepoint). The row must already be locked by the
+ * caller, and PENDING-checked by the admin wrapper (the auto path inserts it as
+ * PENDING moments earlier). Metrics and email stay with the callers — they run
+ * post-commit. Ledger reason is always REFUND_USER_REQUEST either way.
+ */
+export async function approveRefundRequestTx(
+  tx: DbTransaction,
+  row: RefundRequestRow,
+  opts: {
+    actor: Actor;
+    adminNote: string | null;
+    autoApproved: boolean;
+    action: 'refund_request.approve' | 'refund_request.auto_approve';
+    request?: FastifyRequest;
+  },
+) {
+  // The customer cannot download while the request is open, so this only trips when a
+  // download landed in the instant before the request was created. They have the image
+  // — the admin should reject, not refund.
+  const [output] = await tx
+    .select({ downloadedAt: schema.jobOutputs.downloadedAt })
+    .from(schema.jobOutputs)
+    .where(eq(schema.jobOutputs.jobId, row.jobId));
+  if (output?.downloadedAt) {
+    throw new AppError(
+      'ALREADY_DOWNLOADED',
+      409,
+      'the customer downloaded this image — reject the request instead',
+    );
+  }
+
+  // Re-verify against the job and the ledger, under the job lock that admin-cancel
+  // refunds also take: between filing and now the job may have been cancelled, or
+  // another path (REFUND_ADMIN_CANCEL, JOB_FAIL_REFUND, JOB_CANCEL_REFUND) may have
+  // already returned these credits. The (job_id, reason) unique index only stops a
+  // second REFUND_USER_REQUEST, not a refund under a different reason.
+  const [job] = await tx
+    .select({ status: schema.jobs.status })
+    .from(schema.jobs)
+    .where(eq(schema.jobs.id, row.jobId))
+    .for('update');
+  if (job?.status !== 'COMPLETED') {
+    throw new AppError('NOT_REFUNDABLE', 409, 'this job is no longer completed');
+  }
+  // Regenerate is free: if one slipped in as the request was filed, the customer
+  // already has a replacement image, so refunding the original would double-dip.
+  if (await hasRegeneratedChild(tx, row.jobId)) {
+    throw new AppError(
+      'ALREADY_REGENERATED',
+      409,
+      'this image was regenerated, so it can no longer be refunded',
+    );
+  }
+  const net = await ledgerNetForJob(tx, row.jobId, row.userId);
+  if (-net < row.credits) {
+    throw new AppError(
+      'NOT_REFUNDABLE',
+      409,
+      'credits for this job were already refunded or were never charged',
+    );
+  }
+
+  const applied = await applyRefundTx(
+    tx,
+    row.userId,
+    row.credits,
+    row.jobId,
+    'REFUND_USER_REQUEST',
+  );
+  if (!applied) throw new AppError('CONFLICT', 409, 'credits for this job were already refunded');
+
+  const now = new Date();
+  await tx
+    .update(R)
+    .set({
+      status: 'APPROVED',
+      adminNote: opts.adminNote,
+      reviewedBy: opts.autoApproved ? null : opts.actor.userId,
+      reviewedAt: now,
+      autoApproved: opts.autoApproved,
+    })
+    .where(and(eq(R.id, row.id), eq(R.status, 'PENDING')));
+
+  await recordAudit(tx, {
+    actor: opts.actor,
+    action: opts.action,
+    resourceType: 'refund_requests',
+    resourceId: row.id,
+    before: { status: 'PENDING' },
+    after: { status: 'APPROVED', credits: row.credits, adminNote: opts.adminNote },
+    request: opts.request,
+  });
+  return { id: row.id, status: 'APPROVED' as const, credits: row.credits, userId: row.userId };
+}
+
+/** Best-effort: a failed email must never undo a committed decision. */
+export async function notifyRefundDecision(
+  app: FastifyInstance,
+  userId: string,
+  decision: { approved: boolean; credits: number; adminNote: string | null },
+) {
+  try {
+    const [user] = await app.db
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId));
+    if (!user?.email) return;
+    await sendRefundDecisionEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, user.email, decision);
+  } catch (err) {
+    app.log.error({ err, userId }, 'Failed to send refund decision email');
+  }
+}
+
 export async function createRefundRequest(
   app: FastifyInstance,
   userId: string,
@@ -158,7 +283,7 @@ export async function createRefundRequest(
         note: body.note || null,
       })
       .returning();
-    return {
+    const pending = {
       id: row.id,
       jobId: row.jobId,
       status: row.status,
@@ -166,7 +291,41 @@ export async function createRefundRequest(
       reasonCode: row.reasonCode,
       note: row.note,
       createdAt: row.createdAt,
+      autoApproved: false,
     };
+
+    // Auto-approve runs in a nested transaction (savepoint): any failure rolls back
+    // only the approval, leaving the request PENDING. The customer's request never
+    // fails because of auto-approve.
+    const cfg = await getRefundAutoApproveConfig(app);
+    if (!cfg.enabled) return pending;
+
+    const [{ autoCount }] = await tx
+      .select({ autoCount: sql<number>`count(*)::int` })
+      .from(R)
+      .where(
+        and(
+          eq(R.userId, userId),
+          eq(R.autoApproved, true),
+          gt(R.reviewedAt, sql`now() - interval '24 hours'`),
+        ),
+      );
+    if (autoCount >= cfg.dailyCap) return pending;
+
+    try {
+      await tx.transaction((sp) =>
+        approveRefundRequestTx(sp, row, {
+          actor: { userId, role: 'AUTO_APPROVE' },
+          adminNote: 'Auto-approved',
+          autoApproved: true,
+          action: 'refund_request.auto_approve',
+        }),
+      );
+    } catch (err) {
+      app.log.warn({ err, jobId, userId }, 'auto-approve failed, leaving request PENDING');
+      return pending;
+    }
+    return { ...pending, status: 'APPROVED', autoApproved: true };
   });
 }
 
@@ -240,6 +399,14 @@ export async function refundRequestsRoutes(app: FastifyInstance) {
         id,
         req.body as CreateRefundRequestBody,
       );
+      if (created.autoApproved) {
+        creditsRefundedTotal.inc(created.credits);
+        await notifyRefundDecision(app, req.userId, {
+          approved: true,
+          credits: created.credits,
+          adminNote: 'Auto-approved',
+        });
+      }
       return reply.code(201).send(created);
     },
   );

@@ -1,26 +1,34 @@
 import { schema } from '@aivastra/db';
 import { creditsRefundedTotal } from '@aivastra/observability';
 import { keys } from '@aivastra/storage';
-import { AdminApproveRefundBody, AdminRejectRefundBody, RefundStatus } from '@aivastra/types';
+import {
+  AdminApproveRefundBody,
+  AdminRejectRefundBody,
+  fillRefundAutoApproveDefaults,
+  RefundAutoApprovePatch,
+  RefundStatus,
+} from '@aivastra/types';
 import { and, desc, eq, lt } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { sendRefundDecisionEmail } from '../../lib/mailer.js';
-import { applyRefundTx } from '../credits/ledger.js';
-import { hasRegeneratedChild, ledgerNetForJob } from '../jobs/refund-requests.js';
+import {
+  type Actor,
+  approveRefundRequestTx,
+  notifyRefundDecision,
+} from '../jobs/refund-requests.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
 const R = schema.refundRequests;
+
+const AUTO_APPROVE_KEY = 'config:refund-auto-approve';
 
 const ListQuery = z.object({
   status: RefundStatus.optional(),
   cursor: z.string().datetime().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
-
-type Actor = { userId: string; role: string };
 
 /**
  * Approve = refund the snapshotted credits, flip the status and write the audit row
@@ -41,84 +49,13 @@ export async function adminApproveRefundRequest(
     if (row.status !== 'PENDING') {
       throw new AppError('CONFLICT', 409, `request is already ${row.status}`);
     }
-
-    // The customer cannot download while the request is open, so this only trips when a
-    // download landed in the instant before the request was created. They have the image
-    // — the admin should reject, not refund.
-    const [output] = await tx
-      .select({ downloadedAt: schema.jobOutputs.downloadedAt })
-      .from(schema.jobOutputs)
-      .where(eq(schema.jobOutputs.jobId, row.jobId));
-    if (output?.downloadedAt) {
-      throw new AppError(
-        'ALREADY_DOWNLOADED',
-        409,
-        'the customer downloaded this image — reject the request instead',
-      );
-    }
-
-    // Re-verify against the job and the ledger, under the job lock that admin-cancel
-    // refunds also take: between filing and now the job may have been cancelled, or
-    // another path (REFUND_ADMIN_CANCEL, JOB_FAIL_REFUND, JOB_CANCEL_REFUND) may have
-    // already returned these credits. The (job_id, reason) unique index only stops a
-    // second REFUND_USER_REQUEST, not a refund under a different reason.
-    const [job] = await tx
-      .select({ status: schema.jobs.status })
-      .from(schema.jobs)
-      .where(eq(schema.jobs.id, row.jobId))
-      .for('update');
-    if (job?.status !== 'COMPLETED') {
-      throw new AppError('NOT_REFUNDABLE', 409, 'this job is no longer completed');
-    }
-    // Regenerate is free: if one slipped in as the request was filed, the customer
-    // already has a replacement image, so refunding the original would double-dip.
-    if (await hasRegeneratedChild(tx, row.jobId)) {
-      throw new AppError(
-        'ALREADY_REGENERATED',
-        409,
-        'this image was regenerated, so it can no longer be refunded',
-      );
-    }
-    const net = await ledgerNetForJob(tx, row.jobId, row.userId);
-    if (-net < row.credits) {
-      throw new AppError(
-        'NOT_REFUNDABLE',
-        409,
-        'credits for this job were already refunded or were never charged',
-      );
-    }
-
-    const adminNote = body.adminNote || null;
-    const applied = await applyRefundTx(
-      tx,
-      row.userId,
-      row.credits,
-      row.jobId,
-      'REFUND_USER_REQUEST',
-    );
-    if (!applied) throw new AppError('CONFLICT', 409, 'credits for this job were already refunded');
-
-    const now = new Date();
-    await tx
-      .update(R)
-      .set({
-        status: 'APPROVED',
-        adminNote,
-        reviewedBy: actor.userId,
-        reviewedAt: now,
-      })
-      .where(and(eq(R.id, id), eq(R.status, 'PENDING')));
-
-    await recordAudit(tx, {
+    return approveRefundRequestTx(tx, row, {
       actor,
+      adminNote: body.adminNote || null,
+      autoApproved: false,
       action: 'refund_request.approve',
-      resourceType: 'refund_requests',
-      resourceId: id,
-      before: { status: 'PENDING' },
-      after: { status: 'APPROVED', credits: row.credits, adminNote },
       request,
     });
-    return { id, status: 'APPROVED' as const, credits: row.credits, userId: row.userId };
   });
   creditsRefundedTotal.inc(result.credits);
   return result;
@@ -160,24 +97,6 @@ export async function adminRejectRefundRequest(
   });
 }
 
-/** Best-effort: a failed email must never undo a committed decision. */
-async function notifyUser(
-  app: FastifyInstance,
-  userId: string,
-  decision: { approved: boolean; credits: number; adminNote: string | null },
-) {
-  try {
-    const [user] = await app.db
-      .select({ email: schema.users.email })
-      .from(schema.users)
-      .where(eq(schema.users.id, userId));
-    if (!user?.email) return;
-    await sendRefundDecisionEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, user.email, decision);
-  } catch (err) {
-    app.log.error({ err, userId }, 'Failed to send refund decision email');
-  }
-}
-
 export async function adminRefundRequestsRoutes(app: FastifyInstance) {
   const RO = requirePermission('credits.read');
   const RW = requirePermission('credits.write');
@@ -204,6 +123,7 @@ export async function adminRefundRequestsRoutes(app: FastifyInstance) {
           note: R.note,
           status: R.status,
           adminNote: R.adminNote,
+          autoApproved: R.autoApproved,
           reviewedAt: R.reviewedAt,
           createdAt: R.createdAt,
           resultKey: schema.jobOutputs.resultKey,
@@ -246,7 +166,7 @@ export async function adminRefundRequestsRoutes(app: FastifyInstance) {
         req,
         body,
       );
-      await notifyUser(app, out.userId, {
+      await notifyRefundDecision(app, out.userId, {
         approved: true,
         credits: out.credits,
         adminNote: body.adminNote || null,
@@ -268,12 +188,46 @@ export async function adminRefundRequestsRoutes(app: FastifyInstance) {
         req,
         body,
       );
-      await notifyUser(app, out.userId, {
+      await notifyRefundDecision(app, out.userId, {
         approved: false,
         credits: out.credits,
         adminNote: body.adminNote,
       });
       return { id: out.id, status: out.status };
+    },
+  );
+
+  app.get('/admin/refund-requests/auto-approve', { preHandler: RO }, async () => {
+    const raw = await app.redis.get(AUTO_APPROVE_KEY);
+    return fillRefundAutoApproveDefaults(JSON.parse(raw ?? '{}'));
+  });
+
+  app.patch(
+    '/admin/refund-requests/auto-approve',
+    { preHandler: RW, schema: { body: RefundAutoApprovePatch } },
+    async (req) => {
+      const before = fillRefundAutoApproveDefaults(
+        JSON.parse((await app.redis.get(AUTO_APPROVE_KEY)) ?? '{}'),
+      );
+      // Merge onto the existing (default-filled) config — PATCH is partial, so
+      // a wholesale overwrite would silently revert untouched fields.
+      const after = { ...before, ...(req.body as typeof before) };
+
+      // Audit first: a config change must never land without its Team Activity
+      // entry (same ordering as the image-compression PATCH).
+      await app.db.transaction(async (tx) => {
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole as string },
+          action: 'refund_auto_approve.update',
+          resourceType: 'system_config',
+          resourceId: 'refund_auto_approve',
+          before,
+          after,
+          request: req,
+        });
+      });
+      await app.redis.set(AUTO_APPROVE_KEY, JSON.stringify(after));
+      return after;
     },
   );
 }
