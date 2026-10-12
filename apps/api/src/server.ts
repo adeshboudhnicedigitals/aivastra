@@ -74,6 +74,7 @@ import { minioProxyRoutes } from './modules/dev/minio-proxy.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { extensionRoutes } from './modules/extension/routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
+import { refundRequestsRoutes } from './modules/jobs/refund-requests.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
 import { merchantApiKeysRoutes } from './modules/merchant/api-keys.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
@@ -409,6 +410,7 @@ export async function buildServer(env: Env) {
   await app.register(uploadsRoutes);
   await app.register(backgroundsRoutes);
   await app.register(jobsRoutes);
+  await app.register(refundRequestsRoutes);
   await app.register(googleDriveRoutes);
   await app.register(posePresetsRoutes);
   await app.register(merchantCatalogRoutes);

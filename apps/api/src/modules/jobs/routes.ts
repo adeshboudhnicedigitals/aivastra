@@ -35,6 +35,7 @@ import { createBatchJobs } from './createBatch.js';
 import { createFabricToGarmentJob } from './createFabricToGarment.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
+import { hasActiveRefundRequest } from './refund-requests.js';
 import { getRegenerateReasons, regenerateJob } from './regenerate.js';
 import { sseHandler, userStreamHandler } from './sse.js';
 
@@ -972,6 +973,15 @@ export async function jobsRoutes(app: FastifyInstance) {
         .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
       if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
       if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
+      // Checked before anything is presigned or stamped: a blocked download must never
+      // mark the job downloaded, or a rejected request could not release it again.
+      if (await hasActiveRefundRequest(app.db, id)) {
+        throw new AppError(
+          'REFUND_REQUESTED',
+          409,
+          'This image has a refund request open, so it cannot be downloaded until we decide.',
+        );
+      }
 
       const [output] = await app.db
         .select({ resultKey: schema.jobOutputs.resultKey })
