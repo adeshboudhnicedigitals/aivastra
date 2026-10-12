@@ -172,6 +172,29 @@ function Cover({
   );
 }
 
+// ─── video card thumbnail ─────────────────────────────────────────────────────
+
+// The API presigns thumbnailUrl without checking the object exists, so a deleted
+// source image still arrives as a non-null URL and 404s in the browser. Fall back
+// to the same placeholder used when there is no URL rather than the broken-image icon.
+function VideoThumb({ url }: { url: string | null }) {
+  const [imgError, setImgError] = useState(false);
+  if (!url || imgError) {
+    return <div style={{ width: '100%', height: '100%', background: C.lighter }} />;
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    // biome-ignore lint/performance/noImgElement: presigned R2 URL
+    <img
+      src={url}
+      alt="Generated video"
+      loading="lazy"
+      onError={() => setImgError(true)}
+      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+    />
+  );
+}
+
 // ─── date grouping ────────────────────────────────────────────────────────────
 
 function groupByDate<T>(items: T[], getCreatedAt: (item: T) => string): Record<string, T[]> {
@@ -869,6 +892,7 @@ function CataloguesPageInner(): React.ReactElement {
           }
 
           .catalogues-sticky-toolbar {
+            position: static;
             margin: 0 -20px;
             padding: 12px 20px;
           }
@@ -912,6 +936,7 @@ function CataloguesPageInner(): React.ReactElement {
           }
 
           .catalogues-sticky-toolbar {
+            position: static;
             margin: 0 -16px;
             padding: 10px 16px;
           }
@@ -1773,22 +1798,7 @@ function CataloguesPageInner(): React.ReactElement {
                             cursor: video.videoUrl ? 'pointer' : 'default',
                           }}
                         >
-                          {video.thumbnailUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            // biome-ignore lint/performance/noImgElement: presigned R2 URL
-                            <img
-                              src={video.thumbnailUrl}
-                              alt="Generated video"
-                              style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover',
-                                display: 'block',
-                              }}
-                            />
-                          ) : (
-                            <div style={{ width: '100%', height: '100%', background: C.lighter }} />
-                          )}
+                          <VideoThumb url={video.thumbnailUrl} />
                           <div
                             style={{
                               position: 'absolute',

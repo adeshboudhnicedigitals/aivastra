@@ -47,6 +47,26 @@ describe('runUploadSweepTick', () => {
     expect(head.contentLength).toBeGreaterThan(0);
   });
 
+  it('leaves an object alone when a video job references it as params.sourceImageKey', async () => {
+    const sourceKey = keys.inputGarment('sweeper-video-source');
+    await app.storage.putObject(sourceKey, Buffer.from('x'), 'image/jpeg');
+
+    const [user] = await app.db
+      .insert(schema.users)
+      .values({ email: 'sweeper-video-owner@x.com', emailVerified: true, tier: 'free' })
+      .returning();
+    const [job] = await app.db.insert(schema.jobs).values({ userId: user.id }).returning();
+    await app.db.insert(schema.jobInputs).values({
+      jobId: job.id,
+      params: { kind: 'video', sourceImageKey: sourceKey },
+    });
+
+    await runUploadSweepTick(app, { maxAgeMs: 0 });
+
+    const head = await app.storage.headObject(sourceKey);
+    expect(head.contentLength).toBeGreaterThan(0);
+  });
+
   it('leaves a recent unreferenced object alone (default 24h cutoff)', async () => {
     const freshKey = keys.inputGarment('sweeper-fresh');
     await app.storage.putObject(freshKey, Buffer.from('x'), 'image/jpeg');

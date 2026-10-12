@@ -1,7 +1,7 @@
 # Shopify prepaid credit wallet — design
 
 **Date:** 2026-08-19
-**Status:** approved, not yet implemented
+**Status:** Implemented as prepaid credit packs; see `apps/api/src/modules/shopify/packs.ts` and `shopify_store_credits` (PR #294) (header checked against the code 2026-10-12); originally: approved, not yet implemented
 **Branch:** `feature/shopify-credit-wallet`
 **Supersedes:** `2026-08-17-shopify-payg-design.md` (implemented, to be removed by this work)
 **Revives:** `2026-08-17-shopify-credit-topup-design.md` (was blocked; the blocker is removable — see below)

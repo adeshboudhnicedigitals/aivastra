@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { inArray, or } from 'drizzle-orm';
+import { inArray, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 // SEC-H4: presignPut cannot enforce contentLength (see packages/storage/src/r2.ts),
@@ -14,7 +14,9 @@ const INPUT_GARMENT_PREFIX = 'inputs/';
  * Deletes objects under inputs/ that are older than 24h and are not referenced
  * by any job_inputs row (upper/lower/third garment key). All three columns can
  * hold an inputs/ key — each garment slot gets its own /v1/uploads/presign call
- * and therefore its own inputs/<token>/garment.jpg key.
+ * and therefore its own inputs/<token>/garment.jpg key. Video jobs instead keep
+ * their uploaded image in params.sourceImageKey; it doubles as the card thumbnail
+ * and the "Input" image on the results page, so it is protected too.
  */
 export async function runUploadSweepTick(
   app: FastifyInstance,
@@ -44,14 +46,23 @@ export async function runUploadSweepTick(
         inArray(schema.jobInputs.fourthGarmentKey, keys),
       ),
     );
-  const referencedKeys = new Set(
-    referenced.flatMap((r) => [
+  // Not a garment column: video jobs (params.kind = 'video') snapshot the image they
+  // animate here. Without this check the sweeper deleted every video source after 24h,
+  // leaving the card thumbnail 404ing (presignGet signs locally and never notices).
+  const sourceImageKey = sql<string>`${schema.jobInputs.params}->>'sourceImageKey'`;
+  const referencedAsSource = await app.db
+    .select({ key: sourceImageKey })
+    .from(schema.jobInputs)
+    .where(inArray(sourceImageKey, keys));
+  const referencedKeys = new Set<string | null>([
+    ...referenced.flatMap((r) => [
       r.upperGarmentKey,
       r.lowerGarmentKey,
       r.thirdGarmentKey,
       r.fourthGarmentKey,
     ]),
-  );
+    ...referencedAsSource.map((r) => r.key),
+  ]);
 
   let deleted = 0;
   for (const key of keys) {

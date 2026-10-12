@@ -1,5 +1,7 @@
 # Shopify: routing-aware enablement + hardened full-sync accuracy
 
+Implementation status: Implemented; see the 2026-09-25 entry in `docs/progress.md` (failed products no longer counted as synced) (header checked against the code 2026-10-12)
+
 Status: proposed, not yet implemented. Written against `origin/dev` as of this
 commit (PR #384 and #386 already merged into it — see "Already fixed upstream"
 below for what that changed).

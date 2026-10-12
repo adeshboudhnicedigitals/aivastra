@@ -38,7 +38,7 @@ import { performanceKey as getPerformanceKey } from '../perf/performance-key.js'
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 import { releaseWorker } from '../worker/registry.js';
-import { selectWorker } from '../worker/selector.js';
+import { selectPreferredWorker, selectWorker } from '../worker/selector.js';
 import { stackAccessoryImages } from '../workflow/accessory-stack.js';
 import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
 import { encodeCompressedImage, finalizeOutput } from '../workflow/finalize.js';
@@ -1238,11 +1238,45 @@ async function processTryonDirectJob(
   }
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.TRYON, performanceKey, {
-    jobId,
-    log: jobLog,
-  });
+  const primaryWorkerIds = Array.isArray(params.primaryWorkerIds)
+    ? params.primaryWorkerIds.filter((v): v is string => typeof v === 'string')
+    : [];
+  const fallbackWorkerIds = Array.isArray(params.fallbackWorkerIds)
+    ? params.fallbackWorkerIds.filter((v): v is string => typeof v === 'string')
+    : [];
+  const hasPinnedWorkers = primaryWorkerIds.length > 0;
+  const worker = hasPinnedWorkers
+    ? await selectPreferredWorker(redis, WORKER_POOL.TRYON, primaryWorkerIds, fallbackWorkerIds, {
+        jobId,
+        log: jobLog,
+      })
+    : await selectWorker(redis, WORKER_POOL.TRYON, performanceKey, {
+        jobId,
+        log: jobLog,
+      });
   if (!worker) {
+    if (hasPinnedWorkers) {
+      // Caller pinned this job to specific workers — no silent fallback to the
+      // normal pool and no requeue/backoff retry loop, per that feature's
+      // explicit requirement. Fail now, terminally.
+      jobLog.warn(
+        { primaryWorkerIds, fallbackWorkerIds },
+        'none of the pinned primary/fallback workers were claimable — failing job',
+      );
+      await terminateJob(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'PREFERRED_WORKERS_UNAVAILABLE',
+        job.creditsCharged,
+        jobLog,
+        startedAt,
+        job.source,
+      );
+      return;
+    }
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle tryon worker — job exceeded max queue wait, terminating with refund');
       await terminateJob(

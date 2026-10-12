@@ -1,6 +1,6 @@
 # Gartex Expo QR Signup Campaign — 25% Bonus Credits
 
-**Status:** Approved design, not yet implemented.
+**Status:** Implemented; cited from `apps/catalogues-web/src/middleware.ts`, `packages/db/src/schema/users.ts` (header checked against the code 2026-10-12); originally: Approved design, not yet implemented
 **Date:** 2026-08-01
 
 ## 1. Problem Statement

@@ -1,7 +1,7 @@
 # Chatbot: detach the LLM agent, turn HITL into a ticket system
 
 Date: 2026-09-03
-Status: approved (pending final spec review)
+Status: Implemented; `apps/chatbot` is a human-agent ticket system (see CLAUDE.md, "Monorepo layout") (header checked against the code 2026-10-12); originally: approved (pending final spec review)
 
 ## Problem
 

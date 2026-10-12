@@ -40,9 +40,28 @@ export async function creditsRoutes(app: FastifyInstance) {
       .select()
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, req.userId));
+    // Left-joined so a per-item ledger UI (the mobile app's Credit History
+    // page) can tell a still-image dispatch apart from a video one instead of
+    // bucketing every JOB_DISPATCH row under one generic label — jobs.source
+    // is the only place that distinction lives (JOB_SOURCE.CATALOG_VIDEO vs.
+    // the image sources, packages/types/src/job-taxonomy.ts). Null for
+    // non-job-triggered rows (PAYMENT, FREE_TRIAL, CAMPAIGN_BONUS, …).
     const recent = await app.db
-      .select()
+      .select({
+        id: schema.creditLedger.id,
+        delta: schema.creditLedger.delta,
+        reason: schema.creditLedger.reason,
+        createdAt: schema.creditLedger.createdAt,
+        jobSource: schema.jobs.source,
+        garmentType: schema.garmentSubcategories.label,
+      })
       .from(schema.creditLedger)
+      .leftJoin(schema.jobs, eq(schema.jobs.id, schema.creditLedger.jobId))
+      .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .leftJoin(
+        schema.garmentSubcategories,
+        eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+      )
       .where(eq(schema.creditLedger.userId, req.userId))
       .orderBy(desc(schema.creditLedger.createdAt))
       .limit(20);
@@ -64,6 +83,8 @@ export async function creditsRoutes(app: FastifyInstance) {
         delta: r.delta,
         reason: r.reason,
         createdAt: r.createdAt.toISOString(),
+        jobSource: r.jobSource ?? null,
+        garmentType: r.garmentType ?? null,
       })),
     };
   });

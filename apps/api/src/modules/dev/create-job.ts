@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
-import { JOB_SOURCE, type JobSource } from '@aivastra/types';
-import { and, eq } from 'drizzle-orm';
+import { JOB_SOURCE, type JobSource, WORKER_POOL } from '@aivastra/types';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { assertMerchantJobRateLimit } from '../../lib/job-rate-limit.js';
@@ -123,9 +123,35 @@ export async function createDevTryonJob(
     categorySlug: string;
     personKey: string;
     garmentKey: string;
+    // Pins dispatch to specific GPU workers instead of the normal round-robin
+    // pool — see apps/dispatcher/src/worker/selector.ts's selectPreferredWorker.
+    // Validated here (exists, active, tryon-eligible) so a typo'd worker id
+    // fails fast with a clear error instead of silently failing the job at
+    // dispatch time after credits are already charged.
+    primaryWorkerIds?: string[];
+    fallbackWorkerIds?: string[];
   },
 ): Promise<{ jobId: string }> {
   const cost = await getTryonCreditCost(app);
+
+  const pinnedWorkerIds = [...(params.primaryWorkerIds ?? []), ...(params.fallbackWorkerIds ?? [])];
+  if (pinnedWorkerIds.length > 0) {
+    const rows = await app.db
+      .select({ id: schema.workers.id, allowedJobTypes: schema.workers.allowedJobTypes })
+      .from(schema.workers)
+      .where(and(inArray(schema.workers.id, pinnedWorkerIds), eq(schema.workers.isActive, true)));
+    const eligible = new Set(
+      rows
+        .filter(
+          (w) => w.allowedJobTypes.length === 0 || w.allowedJobTypes.includes(WORKER_POOL.TRYON),
+        )
+        .map((w) => w.id),
+    );
+    const badId = pinnedWorkerIds.find((id) => !eligible.has(id));
+    if (badId) {
+      throw new AppError('BAD_WORKER_ID', 400, `worker "${badId}" is not an active try-on worker`);
+    }
+  }
 
   // Resolve off the DEDICATED dev table, not tryon_categories — the public API
   // surface is controlled independent of the internal Studio catalog. Kill-switch
@@ -176,6 +202,10 @@ export async function createDevTryonJob(
         personKey: params.personKey,
         workflowTemplateId: category.workflowTemplateId,
         dispatchTemplateVersion: category.templateVersion ?? null,
+        ...(params.primaryWorkerIds?.length ? { primaryWorkerIds: params.primaryWorkerIds } : {}),
+        ...(params.fallbackWorkerIds?.length
+          ? { fallbackWorkerIds: params.fallbackWorkerIds }
+          : {}),
       },
     }),
   });

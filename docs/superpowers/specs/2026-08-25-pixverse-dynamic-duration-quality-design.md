@@ -1,7 +1,7 @@
 # PixVerse dynamic duration & quality — design
 
 Date: 2026-08-25 (revised same day — see "Revision note")
-Status: approved, pending plan
+Status: Implemented; cited from `packages/db/src/schema/models.ts` (header checked against the code 2026-10-12); originally: approved, pending plan
 
 ## Problem
 
