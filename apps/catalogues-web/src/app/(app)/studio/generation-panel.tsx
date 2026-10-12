@@ -16,9 +16,15 @@ import { PremiumSelect } from '@/components/ui/premium-select';
 import { ZoomableImage } from '@/components/ZoomableImage';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
+import { useRefundStatuses } from '@/hooks/use-refund-statuses';
 import { api } from '@/lib/api';
 import { ApiError, downloadErrorMessage } from '@/lib/errors';
-import { GOOGLE_DRIVE_ENABLED, REGENERATE_ENABLED } from '@/lib/feature-flags';
+import {
+  GOOGLE_DRIVE_ENABLED,
+  REFUND_REQUEST_ENABLED,
+  REGENERATE_ENABLED,
+} from '@/lib/feature-flags';
+import { RefundRequestModal } from './refund-request-modal';
 
 // Mirrors FREE_REGENERATE_DAILY_LIMIT in apps/api/src/modules/jobs/regenerate.ts —
 // display-only copy; the actual cap is enforced server-side.
@@ -235,6 +241,14 @@ export function GenerationPanel({
   }, [allSettled, onAllSettled]);
 
   const completedIds = displayJobs.filter((j) => statuses[j.id] === 'COMPLETED').map((j) => j.id);
+  // Refund requests: one batched status lookup for every completed result. The server
+  // decides eligibility; a PENDING or APPROVED request also locks Regenerate/Download.
+  const refunds = useRefundStatuses(completedIds);
+  const [refundModalJobId, setRefundModalJobId] = useState<string | null>(null);
+  const refundBlocks = (jobId: string) => {
+    const s = refunds.byJob.get(jobId)?.request?.status;
+    return s === 'PENDING' || s === 'APPROVED';
+  };
   const resultQueries = useQueries({
     queries: displayJobs.map((j) => ({
       queryKey: ['job-result', j.id],
@@ -391,7 +405,9 @@ export function GenerationPanel({
 
   // Download all completed images
   const handleDownloadAll = async () => {
-    const completedSelected = displayJobs.filter((j) => statuses[j.id] === 'COMPLETED');
+    const completedSelected = displayJobs.filter(
+      (j) => statuses[j.id] === 'COMPLETED' && !refundBlocks(j.id),
+    );
     for (const job of completedSelected) {
       const idx = displayJobs.findIndex((j) => j.id === job.id);
       const url = resultQueries[idx]?.data?.url;
@@ -1337,6 +1353,25 @@ export function GenerationPanel({
                     )}
                   </div>
 
+                  {REFUND_REQUEST_ENABLED && refunds.byJob.get(job.id)?.request && (
+                    <div
+                      style={{
+                        padding: '6px 10px',
+                        fontSize: 11,
+                        color: C.mid,
+                        borderTop: `1px solid ${C.border}`,
+                      }}
+                    >
+                      {(() => {
+                        const req = refunds.byJob.get(job.id)?.request;
+                        if (!req) return null;
+                        if (req.status === 'PENDING') return 'Refund requested — under review';
+                        if (req.status === 'APPROVED') return 'Refund approved — credits returned';
+                        return `Refund declined${req.adminNote ? `: ${req.adminNote}` : ''}`;
+                      })()}
+                    </div>
+                  )}
+
                   {/* Actions row — below the image, not overlaid on top of it.
                       Order: Regenerate (or Use this, in embedded contexts) first, then Download,
                       then Save to Drive. */}
@@ -1380,7 +1415,8 @@ export function GenerationPanel({
                       !onUseImage &&
                       isCompleted &&
                       resultUrl &&
-                      !downloadedJobIds.has(job.id) && (
+                      !downloadedJobIds.has(job.id) &&
+                      !refundBlocks(job.id) && (
                         <button
                           type="button"
                           onClick={(e) => {
@@ -1410,12 +1446,43 @@ export function GenerationPanel({
                           </span>
                         </button>
                       )}
+                    {REFUND_REQUEST_ENABLED &&
+                      !onUseImage &&
+                      isCompleted &&
+                      resultUrl &&
+                      refunds.byJob.get(job.id)?.eligible && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRefundModalJobId(job.id);
+                          }}
+                          style={{
+                            flex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 3,
+                            minWidth: 0,
+                            padding: '8px 2px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: C.mid,
+                          }}
+                        >
+                          <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            Request refund
+                          </span>
+                        </button>
+                      )}
                     {!hideDownload && (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (resultUrl) downloadImage(resultUrl, job.id);
+                          if (resultUrl && !refundBlocks(job.id)) downloadImage(resultUrl, job.id);
                         }}
                         style={{
                           flex: 1,
@@ -1428,8 +1495,11 @@ export function GenerationPanel({
                           padding: '8px 2px',
                           background: 'none',
                           border: 'none',
-                          cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
-                          opacity: isCompleted && resultUrl ? 1 : 0.45,
+                          cursor:
+                            isCompleted && resultUrl && !refundBlocks(job.id)
+                              ? 'pointer'
+                              : 'not-allowed',
+                          opacity: isCompleted && resultUrl && !refundBlocks(job.id) ? 1 : 0.45,
                           color: C.mid,
                         }}
                       >
@@ -1655,6 +1725,17 @@ export function GenerationPanel({
         <SupportModal
           initialMessage={REGENERATE_LIMIT_SUPPORT_MESSAGE}
           onClose={() => setShowRegenerateLimitModal(false)}
+        />
+      )}
+
+      {REFUND_REQUEST_ENABLED && refundModalJobId && (
+        <RefundRequestModal
+          jobId={refundModalJobId}
+          onClose={() => setRefundModalJobId(null)}
+          onSubmitted={() => {
+            setRefundModalJobId(null);
+            void refunds.refetch();
+          }}
         />
       )}
     </>

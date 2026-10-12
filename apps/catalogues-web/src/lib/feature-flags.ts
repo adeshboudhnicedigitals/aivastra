@@ -7,3 +7,7 @@ export const GOOGLE_DRIVE_ENABLED = false;
 // the button/CTA and its reason/limit modals are live. Flip to false to hide
 // them again without touching any other regenerate logic.
 export const REGENERATE_ENABLED = true;
+
+// Refund requests: the "Request refund" button, modal and status chip on completed
+// results. The API and admin page ship with it; flip to true to expose the button.
+export const REFUND_REQUEST_ENABLED = false;
