@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { sendRefundDecisionEmail } from '../../src/lib/mailer.js';
 import {
   adminApproveRefundRequest,
   adminRejectRefundRequest,
@@ -10,6 +11,13 @@ import {
 import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
+
+// Tests must never reach Resend: the route's email is best-effort and runs after commit.
+vi.mock('../../src/lib/mailer.js', async (orig) => ({
+  ...(await orig<typeof import('../../src/lib/mailer.js')>()),
+  sendRefundDecisionEmail: vi.fn().mockResolvedValue(undefined),
+}));
+const emailMock = vi.mocked(sendRefundDecisionEmail);
 
 describe('admin refund requests', () => {
   let c: Containers;
@@ -29,6 +37,10 @@ describe('admin refund requests', () => {
       .limit(1);
     adminUserId = u.id;
   }, 60_000);
+  beforeEach(() => {
+    emailMock.mockReset();
+    emailMock.mockResolvedValue(undefined);
+  });
   afterAll(async () => {
     await app?.close();
     await c?.stop();
@@ -145,7 +157,7 @@ describe('admin refund requests', () => {
           fakeRequest,
           {},
         ),
-      ).rejects.toBeTruthy();
+      ).rejects.toThrow(/actor_role|null value|not-null/i);
       expect(await balance(userId)).toBe(3);
       const [row] = await app.db
         .select({ status: schema.refundRequests.status })
@@ -213,17 +225,54 @@ describe('admin refund requests', () => {
       expect(requests.every((r) => r.status === 'PENDING')).toBe(true);
     });
 
-    it('approves over HTTP', async () => {
-      const { request, userId } = await seedRequest({ credits: 4 });
-      const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
-      const res = await app.inject({
+    const post = async (id: string, action: 'approve' | 'reject', payload: object) =>
+      app.inject({
         method: 'POST',
-        url: `/admin/refund-requests/${request.id}/approve`,
-        headers,
-        payload: {},
+        url: `/admin/refund-requests/${id}/${action}`,
+        headers: await adminAuthHeader(app, 'SUPER_ADMIN'),
+        payload,
       });
+    const status = async (id: string) =>
+      (
+        await app.db
+          .select({ s: schema.refundRequests.status })
+          .from(schema.refundRequests)
+          .where(eq(schema.refundRequests.id, id))
+      )[0].s;
+
+    it('approves over HTTP and emails the requester', async () => {
+      const { request, userId } = await seedRequest({ credits: 4 });
+      const res = await post(request.id, 'approve', {});
       expect(res.statusCode).toBe(200);
       expect(await balance(userId)).toBe(7);
+      expect(emailMock).toHaveBeenCalledTimes(1);
+      expect(emailMock.mock.calls[0][2]).toBe(`admin-refund-${seq}@x.com`);
+      expect(emailMock.mock.calls[0][3]).toMatchObject({ approved: true, credits: 4 });
+    });
+
+    it('still approves when the email send fails', async () => {
+      const { request, userId } = await seedRequest({ credits: 4 });
+      emailMock.mockRejectedValueOnce(new Error('resend down'));
+      const res = await post(request.id, 'approve', {});
+      expect(res.statusCode).toBe(200);
+      expect(emailMock).toHaveBeenCalledTimes(1);
+      expect(await balance(userId)).toBe(7);
+      expect(await status(request.id)).toBe('APPROVED');
+    });
+
+    it('rejects over HTTP: needs a real note, moves no credits, emails the decline', async () => {
+      const { request, userId } = await seedRequest({ credits: 4 });
+      expect((await post(request.id, 'reject', {})).statusCode).toBe(400);
+      expect((await post(request.id, 'reject', { adminNote: 'no' })).statusCode).toBe(400);
+      expect(await status(request.id)).toBe('PENDING');
+      expect(emailMock).not.toHaveBeenCalled();
+
+      const res = await post(request.id, 'reject', { adminNote: 'Image looks fine' });
+      expect(res.statusCode).toBe(200);
+      expect(await status(request.id)).toBe('REJECTED');
+      expect(await balance(userId)).toBe(3);
+      expect(emailMock).toHaveBeenCalledTimes(1);
+      expect(emailMock.mock.calls[0][3]).toMatchObject({ approved: false });
     });
   });
 });
