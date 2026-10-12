@@ -1480,6 +1480,7 @@ export function GenerationPanel({
                     {!hideDownload && (
                       <button
                         type="button"
+                        aria-disabled={!(isCompleted && resultUrl && !refundBlocks(job.id))}
                         onClick={(e) => {
                           e.stopPropagation();
                           if (resultUrl && !refundBlocks(job.id)) downloadImage(resultUrl, job.id);
