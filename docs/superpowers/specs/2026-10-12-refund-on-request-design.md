@@ -61,11 +61,13 @@ Reason codes (shared Zod enum in `packages/types`): `WRONG_GARMENT`, `DISTORTED_
   the server cannot disagree.
 - `regenerateJob` (`modules/jobs/regenerate.ts`) throws 409 when a request exists in `PENDING` or
   `APPROVED`.
-- `POST /v1/jobs/:id/download` returns 409 `REFUND_REQUESTED` while `PENDING` or `APPROVED`, checked
-  **before** it stamps `downloadedAt`, so a blocked download never marks the job downloaded.
+- `POST /v1/jobs/:id/download` returns 409 `REFUND_REQUESTED` while `PENDING` and 409
+  `REFUND_APPROVED` (same copy as `/result`) once `APPROVED`, checked **before** it stamps
+  `downloadedAt`, so a blocked download never marks the job downloaded.
   `GET /v1/jobs/:id/result` is not gated while `PENDING`, so a pending image can still be viewed; once
-  `APPROVED` it returns 409 `REFUND_APPROVED` (`hasApprovedRefundRequest`). The thumbnail route is left
-  open so tiles keep a low-res preview.
+  `APPROVED` it returns 409 `REFUND_APPROVED` (`hasApprovedRefundRequest`). The thumbnail route keeps
+  serving a real `thumbnailKey` so tiles keep a low-res preview, but when no thumbnail exists its
+  fallback is the full-resolution result, so after approval it returns 409 `REFUND_APPROVED` too.
 - `POST /v1/jobs/:id/export/google-drive` (`modules/google-drive/service.ts`) is gated the same
   way (409 `REFUND_REQUESTED`, checked before anything leaves storage), and a successful export
   stamps `downloaded_at` with the same `coalesce(downloaded_at, now())` — an export hands the
@@ -79,27 +81,27 @@ Request/response shapes live in `packages/types` (Zod, single source of truth).
   note and a result thumbnail URL.
 - `POST /admin/refund-requests/:id/approve` and `/reject` — `credits.write`.
 
-**Approve**, one Postgres transaction: lock the request row `FOR UPDATE`, require `PENDING`,
-credit the user with reason `REFUND_USER_REQUEST`, set `APPROVED` + `reviewed_*`, then
-`recordAudit(tx, ...)` (fail-closed, per the audit invariant). The ledger's unique
-`(job_id, reason)` index makes the credit at-most-once even under two concurrent approvals.
-`ledger.ts`'s `refund()` opens its own transaction, so the plan must add a variant that accepts a
-`tx` (or extract the insert+balance update) — the status flip and the credit must commit together.
+**Approve**, one Postgres transaction, in the order the code runs:
 
-Approve also re-checks `downloaded_at IS NULL` inside the transaction: if the customer downloaded
-the result after filing (e.g. via a path that predates the request), it returns 409
-`ALREADY_DOWNLOADED` and the admin should reject instead.
+1. Lock the request row `FOR UPDATE` and require `PENDING`.
+2. Re-check `downloaded_at IS NULL`: if the customer downloaded the result after filing (e.g. via a
+   path that predates the request), return 409 `ALREADY_DOWNLOADED`; the admin should reject instead.
+3. Lock the job row `FOR UPDATE` (the same lock admin-cancel refunds take) and require the job still
+   `COMPLETED`, otherwise 409 `NOT_REFUNDABLE`.
+4. Child check: if any job has `parent_job_id = job.id`, return 409 `ALREADY_REGENERATED` (crediting
+   nothing); this covers a regenerate that landed as the request was filed.
+5. Ledger-net check: recompute the net for (job, user) and require `-net >= credits`, otherwise 409
+   `NOT_REFUNDABLE` (credits already refunded or never charged). This closes the double refund where
+   an admin cancel or a dispatcher terminal refund (`REFUND_ADMIN_CANCEL`, `JOB_FAIL_REFUND`,
+   `JOB_CANCEL_REFUND`) already returned the credits; the `(job_id, reason)` index only stops a second
+   credit under the *same* reason.
+6. Refund: credit exactly the snapshotted `credits` with reason `REFUND_USER_REQUEST` through
+   `applyRefundTx`, and set `APPROVED` + `reviewed_*`. The unique `(job_id, reason)` index makes the
+   credit at-most-once under two concurrent approvals.
+7. `recordAudit(tx, ...)` (fail-closed, per the audit invariant), then commit.
 
-Approve likewise refuses with 409 `ALREADY_REGENERATED` (crediting nothing) if a child job exists under
-the job lock, covering a regenerate that landed as the request was filed.
-
-Approve then locks the job row `FOR UPDATE` (the same lock admin-cancel refunds take), requires
-the job still `COMPLETED`, and recomputes the ledger net for (job, user): it requires
-`-net >= credits`, otherwise 409 `NOT_REFUNDABLE` (credits already refunded or never charged).
-This closes the double refund where an admin cancel or a dispatcher terminal refund
-(`REFUND_ADMIN_CANCEL`, `JOB_FAIL_REFUND`, `JOB_CANCEL_REFUND`) already returned the credits — the
-`(job_id, reason)` index only stops a second credit under the *same* reason. It then credits
-exactly the snapshotted `credits`.
+Approve re-checks only the subset it needs (steps 2-5) rather than calling `refundIneligibility`:
+merchant, API-key and Shopify are fixed job attributes that were already verified at creation.
 
 **Reject**: same lock and audit; requires `admin_note`; no ledger entry.
 

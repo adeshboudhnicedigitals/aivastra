@@ -33,6 +33,54 @@
     admin-refund-requests refund-apply-tx regenerate google-drive` — 5 files / 70 tests passed;
     `pnpm --filter @aivastra/api test:unit` — 91 files / 823 passed; api and web typecheck exit 0;
     api lint 40 warnings / web lint 85 warnings, both unchanged from baseline, 0 errors.
+  - **Follow-up decisions (2026-10-12):**
+    - Decision A: a job with any child job (`jobs.parent_job_id = job.id`, any child status) is not
+      refundable, because regenerate is free and the customer would keep both images. Create returns 409
+      `ALREADY_REGENERATED`, `refund-status` reports `eligible: false` (one grouped query), and approve
+      re-checks under the job lock (409 `ALREADY_REGENERATED`, nothing credited) for a regenerate that
+      slipped in after filing. Create and `refund-status` go through `refundIneligibility`; approve
+      re-checks only the subset it needs under the job lock (COMPLETED, child via
+      `hasRegeneratedChild`, ledger net) rather than calling it, because merchant/API-key/Shopify are
+      fixed job attributes. The
+      modal says a regenerated image can no longer be refunded.
+    - Decision B: once a request is `APPROVED`, `GET /v1/jobs/:id/result` returns 409 `REFUND_APPROVED`.
+      `PENDING` (and `REJECTED`) still serve it. Unchanged on purpose: `GET /v1/jobs/:id/thumbnail` (the
+      low-res preview the customer can still see, so tiles do not break), admin image presigning, and
+      the internal `/results` webtool and `/v1/results/*`. (Third wave: `/thumbnail` now also 409s
+      `REFUND_APPROVED` when the job has no `thumbnailKey`, see below.) catalogues-web: result queries do not retry
+      `REFUND_APPROVED` (`retryResultQuery`); the studio panel shows the thumbnail plus the existing
+      "Refund approved" chip for an approved tile (no zoom, no "Use this image"); the catalogue
+      preview page falls back to the thumbnail per slot; the catalogue detail card already falls back
+      to its thumbnail. Saree, fabric-to-shoot and the catalogue list only fetch `/result` right after
+      a job completes, so they cannot hit an approved job.
+    - M2: the catalogue detail page's bulk download now shows the API's own message for
+      `REFUND_REQUESTED`/`REFUND_APPROVED` instead of only "N of M failed to download". Its single
+      download and the studio panel's `downloadImage` already alert `ApiError.message`, which is the
+      API's text, so they needed no change.
+  - **Third fix wave (2026-10-12):**
+    - `GET /v1/jobs/:id/thumbnail` returned the full-resolution result when `thumbnailKey` was null,
+      leaking the image after approval. It now returns 409 `REFUND_APPROVED` in exactly that case
+      (APPROVED and no `thumbnailKey`); a real thumbnail keeps serving and PENDING still serves.
+      Web: the studio approved-tile thumbnail query, the catalogue preview, the catalogue detail card
+      and `JobThumbnail` use `retryResultQuery` (no retry loop); a refunded tile with no thumbnail
+      shows the muted garment plus the existing "Refund approved" chip.
+    - Migration `0222` adds partial index `jobs_parent_job_id_idx` on `jobs (parent_job_id) WHERE
+      parent_job_id IS NOT NULL` (the 0082 FK created no index), used by `hasRegeneratedChild`, the
+      approve child check and the status query's `parent_job_id IN (...)`. Generated SQL contains only
+      that `CREATE INDEX IF NOT EXISTS`. Applied to the local docker DB only; ships via push ->
+      CI/CD -> `db:migrate:prod`.
+    - The catalogue-list bulk ZIP (`catalogs/page.tsx`) now fetches phase 1 through
+      `POST /v1/jobs/:id/download` (the gated call that stamps `downloaded_at`) instead of
+      `GET /result`, and reports refund-held jobs with the API's message via `refundDownloadMessage`
+      instead of counting them as generic failures.
+    - `POST /v1/jobs/:id/download` now returns `REFUND_APPROVED` (the `/result` copy) for an APPROVED
+      request and `REFUND_REQUESTED` for PENDING; `refundDownloadMessage` already handled both.
+    - Accepted known limitations: Drive export stamps `downloaded_at` after the upload, so a request
+      filed and approved inside the upload window is practically unreachable; `regenerateJob` checks
+      the refund hold outside its transaction, so a regenerate passing the pre-check just as a request
+      is created and approved within milliseconds could slip (approve's child check under the job
+      lock narrows it); approve and the admin pose-asset purge take locks in opposite order (rare
+      deadlock abort, retryable).
 - **Validation (2026-10-12, repo root, docker up):**
   - `pnpm --filter @aivastra/api test:unit` — 91 files / 823 tests passed.
   - `cd apps/api && npx vitest run --config vitest.integration.config.ts refund-apply-tx
@@ -42,31 +90,20 @@
   - `pnpm typecheck` — exit 0.
   - `pnpm lint` — exit 0 (771 warnings, 0 errors).
   - `pnpm --filter @aivastra/admin build` — exit 0 (only the usual chunk-size warning).
+  - Third fix wave (2026-10-12): `cd apps/api && npx vitest run --config
+    vitest.integration.config.ts refund-requests admin-refund-requests refund-apply-tx regenerate
+    jobs-result-thumbnail-delete results-thumbnails` - 6 files / 69 tests passed; the files that
+    reference `/download` or `/thumbnail` (`jobs-result-thumbnail-delete refund-requests regenerate
+    shopify-retention shopify-settings`) - 6 files passed (the pattern also matched a second
+    `shopify-retention*` file); `pnpm --filter @aivastra/api test:unit` - 91 files / 823 passed;
+    api typecheck exit 0, api lint 40 warnings / 0 errors; web typecheck exit 0; web lint 86
+    warnings / 0 errors (+1 vs 85: the new muted-garment `<img>` trips the same `noImgElement`
+    warning as its neighbours); `pnpm db:migrate` applied 0222 locally; `pnpm db:verify` - all 222
+    migrations verified.
 - **Failed-Not-Done / not verified:**
   - The manual end-to-end check (request -> pending chip -> admin approve/reject -> credits and
     unlock, in a browser with the flag on) has NOT been performed. The web UI is covered only by
     typecheck/lint and the API integration tests.
-  - **Follow-up decisions (2026-10-12):**
-    - Decision A: a job with any child job (`jobs.parent_job_id = job.id`, any child status) is not
-      refundable, because regenerate is free and the customer would keep both images. Create returns 409
-      `ALREADY_REGENERATED`, `refund-status` reports `eligible: false` (one grouped query), and approve
-      re-checks under the job lock (409 `ALREADY_REGENERATED`, nothing credited) for a regenerate that
-      slipped in after filing. All three go through `refundIneligibility`/`hasRegeneratedChild`. The
-      modal says a regenerated image can no longer be refunded.
-    - Decision B: once a request is `APPROVED`, `GET /v1/jobs/:id/result` returns 409 `REFUND_APPROVED`.
-      `PENDING` (and `REJECTED`) still serve it. Unchanged on purpose: `GET /v1/jobs/:id/thumbnail` (the
-      low-res preview the customer can still see, so tiles do not break), admin image presigning, and
-      the internal `/results` webtool and `/v1/results/*`. catalogues-web: result queries do not retry
-      `REFUND_APPROVED` (`retryResultQuery`); the studio panel shows the thumbnail plus the existing
-      "Refund approved" chip for an approved tile (no zoom, no "Use this image"); the catalogue
-      preview page falls back to the thumbnail per slot; the catalogue detail card already falls back
-      to its thumbnail. Saree, fabric-to-shoot and the catalogue list only fetch `/result` right after
-      a job completes, so they cannot hit an approved job; the catalogue list's bulk download counts
-      it as a failed image.
-    - M2: the catalogue detail page's bulk download now shows the API's own message for
-      `REFUND_REQUESTED`/`REFUND_APPROVED` instead of only "N of M failed to download". Its single
-      download and the studio panel's `downloadImage` already alert `ApiError.message`, which is the
-      API's text, so they needed no change.
 - **Open:**
   - `REFUND_REQUEST_ENABLED` stays `false` until someone enables it (staging first), which needs a
     rebuild of catalogues-web.
