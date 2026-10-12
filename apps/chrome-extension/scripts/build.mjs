@@ -8,7 +8,7 @@
 // this problem, which is why login via the popup worked while the on-page
 // widget silently did nothing). tsc still runs separately, for type-checking
 // only — esbuild does not type-check.
-import { execFileSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +19,9 @@ const dist = join(root, 'dist');
 
 rmSync(dist, { recursive: true, force: true });
 
-execFileSync('pnpm', ['exec', 'tsc', '--noEmit', '-p', 'tsconfig.json'], {
+// execSync with a command string: it resolves the Windows `pnpm.cmd` shim, which execFileSync
+// can't (ENOENT), and avoids Node 24's DEP0190 warning for args-array + shell.
+execSync('pnpm exec tsc --noEmit -p tsconfig.json', {
   cwd: root,
   stdio: 'inherit',
 });
