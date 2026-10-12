@@ -252,10 +252,7 @@ class _MotionDetailPageState extends ConsumerState<MotionDetailPage> {
         borderRadius: radius,
         child: const AspectRatio(
           aspectRatio: _frameAspect,
-          child: ColoredBox(
-            color: Colors.black,
-            child: AppLoader(),
-          ),
+          child: ColoredBox(color: Colors.black, child: AppLoader()),
         ),
       );
     }
@@ -277,6 +274,7 @@ class _MotionDetailPageState extends ConsumerState<MotionDetailPage> {
           flex: 5,
           child: AppPillButton(
             label: AppStrings.download,
+            fitLabel: true,
             icon: Icons.download_rounded,
             style: AppPillButtonStyle.filled,
             onTap: job.isCompleted ? _download : () {},
@@ -287,6 +285,7 @@ class _MotionDetailPageState extends ConsumerState<MotionDetailPage> {
           flex: 6,
           child: AppPillButton(
             label: AppStrings.regenerate,
+            fitLabel: true,
             icon: Icons.refresh_rounded,
             style: AppPillButtonStyle.tonal,
             // The regenerate endpoint always re-runs the dedicated
@@ -295,9 +294,8 @@ class _MotionDetailPageState extends ConsumerState<MotionDetailPage> {
             // video-aware path, so wiring this to a real call would submit a
             // job that's doomed to fail and burn the user's free-regenerate
             // daily quota for nothing. Surface that honestly instead.
-            onTap: () => _toast(
-              'Regenerate isn\'t available for motion videos yet.',
-            ),
+            onTap: () =>
+                _toast('Regenerate isn\'t available for motion videos yet.'),
           ),
         ),
         SizedBox(width: s),
@@ -305,6 +303,7 @@ class _MotionDetailPageState extends ConsumerState<MotionDetailPage> {
           flex: 4,
           child: AppPillButton(
             label: AppStrings.share,
+            fitLabel: true,
             icon: Icons.share_outlined,
             style: AppPillButtonStyle.tonal,
             onTap: job.isCompleted ? _share : () {},
@@ -315,6 +314,7 @@ class _MotionDetailPageState extends ConsumerState<MotionDetailPage> {
           flex: 4,
           child: AppPillButton(
             label: AppStrings.delete,
+            fitLabel: true,
             icon: Icons.delete_outline_rounded,
             style: AppPillButtonStyle.tonal,
             onTap: _delete,
