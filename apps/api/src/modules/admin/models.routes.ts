@@ -781,8 +781,9 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .orderBy(schema.modelPoseAssets.sortOrder, schema.modelPoseAssets.label);
 
       // Garment-type visibility count per pose, for the grid badge — computed from
-      // the same opt-out semantics as the pose/garment-type config endpoints above
-      // (pose_garment_configs overrides a per-gender default), without an N+1 fetch.
+      // the same opt-in semantics as the pose/garment-type config endpoints above
+      // (a pose is mapped only where a pose_garment_configs row exists for it),
+      // without an N+1 fetch.
       const genderCounts = await app.db
         .select({
           genderSlug: schema.garmentSubcategories.genderSlug,
@@ -891,9 +892,9 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           scope: z.enum(['general', 'template']).optional(),
           shotType: z.enum(['full', 'half', 'closeup']).optional(),
           // When set, this pose is being uploaded directly from one garment type's
-          // Configs page rather than the general Pose Assets tab — scope it to just
-          // that garment type instead of leaving it visible on every garment type of
-          // its gender (pose_garment_configs' normal opt-out default).
+          // Configs page rather than the general Pose Assets tab — maps it to just
+          // that garment type (pose_garment_configs is opt-in: with no subcategoryId
+          // the pose starts mapped to nothing until explicitly added somewhere).
           subcategoryId: z.string().uuid().optional(),
         }),
       },
@@ -950,32 +951,18 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           })
           .returning();
 
-        if (body.subcategoryId && body.genderSlug) {
-          // Mirror of the seeding in garment-type creation (POST
-          // /admin/assets/garment-types): there, a new garment type gets hidden
-          // overrides for every existing pose so it starts empty. Here it's a new
-          // pose getting hidden overrides for every OTHER garment type of its
-          // gender, so uploading from one garment type's Configs page scopes the
-          // pose to just that type instead of the usual opt-out default (visible
-          // everywhere of its gender).
-          const otherGarmentTypes = await tx
-            .select({ id: schema.garmentSubcategories.id })
-            .from(schema.garmentSubcategories)
-            .where(
-              and(
-                eq(schema.garmentSubcategories.genderSlug, body.genderSlug),
-                ne(schema.garmentSubcategories.id, body.subcategoryId),
-              ),
-            );
-          if (otherGarmentTypes.length > 0) {
-            await tx.insert(schema.poseGarmentConfigs).values(
-              otherGarmentTypes.map((g) => ({
-                poseAssetId: row.id,
-                subcategoryId: g.id,
-                isActive: false,
-              })),
-            );
-          }
+        if (body.subcategoryId) {
+          // pose_garment_configs is opt-in: a pose is only visible on a garment
+          // type when a config row exists for that (poseAssetId, subcategoryId)
+          // pair (see the GET /pose-configs mappedPoses filter), so a pose
+          // uploaded from one garment type's Configs page needs its OWN row here
+          // — without it, the pose has no mapping anywhere and never appears,
+          // including on the garment type it was uploaded for.
+          await tx.insert(schema.poseGarmentConfigs).values({
+            poseAssetId: row.id,
+            subcategoryId: body.subcategoryId,
+            isActive: true,
+          });
         }
 
         await recordAudit(tx, {
@@ -1484,20 +1471,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (!wf) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
     }
 
-    const otherGarmentTypeIdsForScoping = subcategoryId
-      ? (
-          await app.db
-            .select({ id: schema.garmentSubcategories.id })
-            .from(schema.garmentSubcategories)
-            .where(
-              and(
-                eq(schema.garmentSubcategories.genderSlug, genderSlug),
-                ne(schema.garmentSubcategories.id, subcategoryId),
-              ),
-            )
-        ).map((g) => g.id)
-      : [];
-
     // Buffer the ZIP
     const zipBuffer = await data.toBuffer().catch(() => {
       throw new AppError(
@@ -1743,14 +1716,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             poseVariant,
           })
           .returning({ id: schema.modelPoseAssets.id });
-        if (otherGarmentTypeIdsForScoping.length > 0) {
-          await app.db.insert(schema.poseGarmentConfigs).values(
-            otherGarmentTypeIdsForScoping.map((subId) => ({
-              poseAssetId: newPose.id,
-              subcategoryId: subId,
-              isActive: false,
-            })),
-          );
+        if (subcategoryId) {
+          // Same opt-in requirement as POST /admin/assets/pose-assets — the
+          // pose needs its own config row for subcategoryId or it's mapped
+          // nowhere, including the garment type this import was scoped to.
+          await app.db.insert(schema.poseGarmentConfigs).values({
+            poseAssetId: newPose.id,
+            subcategoryId,
+            isActive: true,
+          });
         }
         _sortOrder++;
         createdPoses++;

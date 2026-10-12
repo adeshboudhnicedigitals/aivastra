@@ -975,6 +975,42 @@ describe('shot-type workflow resolve', () => {
     expect(row.shotType).toBe('closeup');
   });
 
+  it('POST pose-assets with subcategoryId maps the new pose to that garment type (opt-in)', async () => {
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `scoped-upload-${Date.now()}-${Math.random()}`,
+        label: 'Scoped Upload Target',
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/assets/pose-assets',
+      headers,
+      payload: {
+        label: `Scoped pose ${Date.now()}`,
+        r2Key: `scoped-pose-${Date.now()}.jpg`,
+        thumbnailKey: `scoped-pose-thumb-${Date.now()}.jpg`,
+        genderSlug: 'women',
+        subcategoryId: garmentType.id,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const poseId = res.json().id;
+
+    const configRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/pose-configs`,
+      headers,
+    });
+    expect(configRes.statusCode).toBe(200);
+    const mapped = configRes.json().items.find((i: { id: string }) => i.id === poseId);
+    expect(mapped).toBeDefined();
+    expect(mapped.isActive).toBe(true);
+  });
+
   it('GET pose-assets returns shotType for an already-tagged pose', async () => {
     const [pose] = await app.db
       .insert(schema.modelPoseAssets)
