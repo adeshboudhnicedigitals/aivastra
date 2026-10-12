@@ -353,7 +353,7 @@ describe('refund requests — customer API and gates', () => {
         .where(eq(schema.refundRequests.jobId, jobId));
       const approved = await download();
       expect(approved.statusCode).toBe(409);
-      expect(approved.json().error.code).toBe('REFUND_REQUESTED');
+      expect(approved.json().error.code).toBe('REFUND_APPROVED');
       expect(await blockedDownloadedAt()).toBeNull();
 
       await app.db
@@ -364,7 +364,7 @@ describe('refund requests — customer API and gates', () => {
       expect(await blockedDownloadedAt()).not.toBeNull();
     });
 
-    it('serves GET /result while PENDING or REJECTED, 409 REFUND_APPROVED once APPROVED, and keeps the thumbnail open', async () => {
+    it('serves GET /result while PENDING or REJECTED and 409 REFUND_APPROVED once APPROVED', async () => {
       const { u, jobId } = await pendingJob();
       const get = (path: string) =>
         app.inject({ method: 'GET', url: `/v1/jobs/${jobId}/${path}`, headers: u.auth });
@@ -381,11 +381,46 @@ describe('refund requests — customer API and gates', () => {
       const approved = await get('result');
       expect(approved.statusCode).toBe(409);
       expect(approved.json().error.code).toBe('REFUND_APPROVED');
-      // The low-res preview stays so tiles do not turn into broken images.
-      expect((await get('thumbnail')).statusCode).toBe(200);
 
       await setStatus('REJECTED');
       expect((await get('result')).statusCode).toBe(200);
+    });
+
+    describe('GET /thumbnail', () => {
+      const setThumb = (jobId: string, thumbnailKey: string | null) =>
+        app.db
+          .update(schema.jobOutputs)
+          .set({ thumbnailKey })
+          .where(eq(schema.jobOutputs.jobId, jobId));
+      const setStatus = (jobId: string, status: string) =>
+        app.db
+          .update(schema.refundRequests)
+          .set({ status })
+          .where(eq(schema.refundRequests.jobId, jobId));
+      const thumb = (u: { auth: Record<string, string> }, jobId: string) =>
+        app.inject({ method: 'GET', url: `/v1/jobs/${jobId}/thumbnail`, headers: u.auth });
+
+      it('409 REFUND_APPROVED when there is no thumbnailKey (the fallback is the full image) and the request is APPROVED', async () => {
+        const { u, jobId } = await pendingJob();
+        await setStatus(jobId, 'APPROVED');
+        const res = await thumb(u, jobId);
+        expect(res.statusCode).toBe(409);
+        expect(res.json().error.code).toBe('REFUND_APPROVED');
+      });
+
+      it('keeps serving a real thumbnailKey once APPROVED', async () => {
+        const { u, jobId } = await pendingJob();
+        await setThumb(jobId, `thumbs/${jobId}.jpg`);
+        await setStatus(jobId, 'APPROVED');
+        const res = await thumb(u, jobId);
+        expect(res.statusCode).toBe(200);
+        expect(res.json().url).toContain(`thumbs/${jobId}.jpg`);
+      });
+
+      it('serves the fallback while the request is only PENDING', async () => {
+        const { u, jobId } = await pendingJob();
+        expect((await thumb(u, jobId)).statusCode).toBe(200);
+      });
     });
   });
 });
