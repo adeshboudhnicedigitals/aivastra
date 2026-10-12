@@ -1,6 +1,6 @@
 # Pricing Page — Premium Payment Result Modal
 
-**Status:** Approved design, not yet implemented.
+**Status:** Implemented; `PaymentResult` is used in the web pricing flow (header checked against the code 2026-10-12); originally: Approved design, not yet implemented
 **Date:** 2026-08-03
 
 ## 1. Problem Statement

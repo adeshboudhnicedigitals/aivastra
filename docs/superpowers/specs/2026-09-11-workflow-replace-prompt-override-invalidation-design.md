@@ -1,6 +1,6 @@
 # Workflow Replace: Invalidate Stale Prompt Overrides
 
-**Status:** Approved design, not yet implemented.
+**Status:** Implemented; cited from `apps/api/src/modules/admin/workflow-mapping-reassign.ts`, `apps/api/src/modules/admin/workflows.routes.ts`, `apps/api/src/modules/jobs/create.ts` (header checked against the code 2026-10-12); originally: Approved design, not yet implemented
 **Date:** 2026-09-11
 
 ## 1. Problem Statement

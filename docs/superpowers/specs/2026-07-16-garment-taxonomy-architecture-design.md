@@ -1,5 +1,7 @@
 # Garment Taxonomy & Generation Pipeline Architecture
 
+**Implementation status:** Not built as written: there are no `garmentFamilies` or workflow-profile tables. The narrower `2026-07-30-job-taxonomy-registry-design` was built instead; this spec is kept as design precedent (header checked against the code 2026-10-12)
+
 **Status:** Approved design, not yet implemented.
 **Date:** 2026-07-16
 

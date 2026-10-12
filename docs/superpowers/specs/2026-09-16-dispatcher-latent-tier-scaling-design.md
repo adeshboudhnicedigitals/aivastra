@@ -1,7 +1,7 @@
 # Dispatcher latent canvas scales with resolution tier — design
 
 **Date:** 2026-09-16
-**Status:** Approved, ready for implementation plan
+**Status:** Implemented; the dispatcher honours per-template latent/output `max_px` caps (commit `d86a1217`) (header checked against the code 2026-10-12); originally: Approved, ready for implementation plan
 **Related:** `docs/superpowers/specs/2026-09-15-resolution-tiers-design.md` (the HD/2K/4K
 tier feature this extends), `docs/progress.md`'s 2026-09-16 entry
 

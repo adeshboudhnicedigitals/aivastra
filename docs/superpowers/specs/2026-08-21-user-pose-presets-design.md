@@ -1,7 +1,7 @@
 # User pose presets — design
 
 Date: 2026-08-21
-Status: approved, pending implementation plan
+Status: Implemented (PR #229, `feat/pose-presets-context-scoping`) (header checked against the code 2026-10-12); originally: approved, pending implementation plan
 
 ## Problem
 
