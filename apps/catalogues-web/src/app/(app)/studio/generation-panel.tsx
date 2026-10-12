@@ -373,6 +373,8 @@ export function GenerationPanel({
     setExportingToDrive(jobId);
     try {
       await api.post(`/v1/jobs/${jobId}/export/google-drive`, {});
+      // The export stamps downloadedAt server-side, same as POST /download.
+      setDownloadedJobIds((prev) => new Set(prev).add(jobId));
       alert('Image saved to your "AI Vastra" Google Drive folder!');
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Could not save to Google Drive. Try again.');
@@ -1514,9 +1516,12 @@ export function GenerationPanel({
                       <button
                         type="button"
                         disabled={exportingToDrive === job.id}
+                        // An export hands over the full image, so the refund hold
+                        // blocks it exactly like Download (the server enforces it too).
+                        aria-disabled={refundBlocks(job.id)}
                         onClick={(e) => {
                           e.stopPropagation();
-                          saveToDrive(job.id);
+                          if (!refundBlocks(job.id)) saveToDrive(job.id);
                         }}
                         title={
                           driveStatus.data?.status === 'CONNECTED'
@@ -1534,8 +1539,15 @@ export function GenerationPanel({
                           padding: '8px 2px',
                           background: 'none',
                           border: 'none',
-                          cursor: exportingToDrive === job.id ? 'not-allowed' : 'pointer',
-                          opacity: exportingToDrive === job.id ? 0.6 : 1,
+                          cursor:
+                            exportingToDrive === job.id || refundBlocks(job.id)
+                              ? 'not-allowed'
+                              : 'pointer',
+                          opacity: refundBlocks(job.id)
+                            ? 0.45
+                            : exportingToDrive === job.id
+                              ? 0.6
+                              : 1,
                           color: C.mid,
                         }}
                       >
