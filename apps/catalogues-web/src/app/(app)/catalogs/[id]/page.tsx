@@ -13,6 +13,7 @@ import {
   TrashIcon,
   XIcon,
 } from '@/components/icons';
+import { RefundRequestModal } from '@/components/refund-request-modal';
 import { SupportModal } from '@/components/SupportModal';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
@@ -21,9 +22,20 @@ import { PremiumSelect } from '@/components/ui/premium-select';
 import { ZoomableImage } from '@/components/ZoomableImage';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
+import { type RefundStatusItem, useRefundStatuses } from '@/hooks/use-refund-statuses';
 import { api } from '@/lib/api';
-import { ApiError, downloadErrorMessage } from '@/lib/errors';
-import { GOOGLE_DRIVE_ENABLED, REGENERATE_ENABLED } from '@/lib/feature-flags';
+import {
+  ApiError,
+  downloadErrorMessage,
+  refundDownloadMessage,
+  retryResultQuery,
+} from '@/lib/errors';
+import {
+  GOOGLE_DRIVE_ENABLED,
+  REFUND_REQUEST_ENABLED,
+  REGENERATE_ENABLED,
+} from '@/lib/feature-flags';
+import { refundChipText } from '@/lib/refund-ui';
 
 const REGENERATE_LIMIT_SUPPORT_MESSAGE =
   "I've used all 5 free regenerations for today and would like help getting more.";
@@ -161,6 +173,12 @@ function ImageCard({
   garmentUrl,
   onZoom,
   onRegenerate,
+  label,
+  refundEligible,
+  refundRequest,
+  refundChecked,
+  onToggleRefund,
+  refundBlocked,
 }: {
   job: Job;
   catalogueId: string;
@@ -168,6 +186,15 @@ function ImageCard({
   garmentUrl?: string | null;
   onZoom: (data: { url: string; job: Job }) => void;
   onRegenerate: (jobId: string) => void;
+  /** Position label ("Image N") used to name this card in the refund checkbox. */
+  label: string;
+  /** Server-decided: this image can be put in a refund request right now. */
+  refundEligible: boolean;
+  refundRequest: RefundStatusItem['request'];
+  refundChecked: boolean;
+  onToggleRefund: (jobId: string) => void;
+  /** A PENDING/APPROVED refund holds the image: no download, regenerate or Drive export. */
+  refundBlocked: boolean;
 }) {
   const isCompleted = job.status === 'COMPLETED';
   const isFailed = job.status === 'FAILED';
@@ -185,7 +212,7 @@ function ImageCard({
   const pct = useAnimatedProgress(job.status);
 
   async function saveToDrive() {
-    if (savingToDrive) return;
+    if (savingToDrive || refundBlocked) return;
     if (driveStatus.data?.status !== 'CONNECTED') {
       window.location.href = '/api/integrations/google-drive/connect';
       return;
@@ -205,6 +232,8 @@ function ImageCard({
     queryFn: () => api.get(`/v1/jobs/${job.id}/result`),
     enabled: isCompleted,
     staleTime: 55 * 60 * 1000,
+    // A refunded image 409s REFUND_APPROVED for good; the card keeps showing its thumbnail.
+    retry: retryResultQuery,
   });
 
   // Thumbnail for card display — smaller file, faster grid load.
@@ -214,6 +243,8 @@ function ImageCard({
     queryFn: () => api.get(`/v1/jobs/${job.id}/thumbnail`),
     enabled: isCompleted,
     staleTime: 55 * 60 * 1000,
+    // Refunded with no real thumbnail: 409 REFUND_APPROVED for good, do not retry.
+    retry: retryResultQuery,
   });
 
   async function handleDelete() {
@@ -256,7 +287,37 @@ function ImageCard({
           background: C.card,
         }}
       >
-        <div>
+        <div style={{ position: 'relative' }}>
+          {/* Refund checkbox — sibling of the image button (a control nested inside a
+              <button> is invalid). Top-right: the "Ready" badge and actions live in the
+              footer and the watermark banner is bottom, so this corner is free. */}
+          {REFUND_REQUEST_ENABLED && isCompleted && refundEligible && (
+            <label
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                zIndex: 3,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 26,
+                height: 26,
+                borderRadius: 6,
+                background: 'rgba(255,255,255,0.92)',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                aria-label={`Select ${label} for a refund request`}
+                checked={refundChecked}
+                onChange={() => onToggleRefund(job.id)}
+                style={{ width: 16, height: 16, cursor: 'pointer', accentColor: C.pink }}
+              />
+            </label>
+          )}
           <button
             type="button"
             disabled={!(isCompleted && result?.url)}
@@ -561,10 +622,11 @@ function ImageCard({
                 </button>
                 <button
                   type="button"
+                  aria-disabled={refundBlocked}
                   disabled={downloading}
                   title="Download"
                   onClick={async () => {
-                    if (downloading) return;
+                    if (downloading || refundBlocked) return;
                     setDownloading(true);
                     try {
                       // Real download signal — POST /download (not the cached result.url)
@@ -603,7 +665,8 @@ function ImageCard({
                     background: downloading
                       ? C.border
                       : 'linear-gradient(91.84deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)',
-                    cursor: downloading ? 'not-allowed' : 'pointer',
+                    cursor: downloading || refundBlocked ? 'not-allowed' : 'pointer',
+                    opacity: refundBlocked ? 0.45 : 1,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -617,7 +680,10 @@ function ImageCard({
                 {REGENERATE_ENABLED && !job.alreadyDownloaded && (
                   <button
                     type="button"
-                    onClick={() => onRegenerate(job.id)}
+                    aria-disabled={refundBlocked}
+                    onClick={() => {
+                      if (!refundBlocked) onRegenerate(job.id);
+                    }}
                     title="Regenerate"
                     style={{
                       display: 'flex',
@@ -630,7 +696,8 @@ function ImageCard({
                       border: 'none',
                       fontSize: 11,
                       fontWeight: 600,
-                      cursor: 'pointer',
+                      cursor: refundBlocked ? 'not-allowed' : 'pointer',
+                      opacity: refundBlocked ? 0.45 : 1,
                     }}
                   >
                     Regenerate
@@ -639,6 +706,7 @@ function ImageCard({
                 {GOOGLE_DRIVE_ENABLED && (
                   <button
                     type="button"
+                    aria-disabled={refundBlocked}
                     disabled={savingToDrive}
                     title="Save to Drive"
                     onClick={saveToDrive}
@@ -647,7 +715,8 @@ function ImageCard({
                       height: 28,
                       borderRadius: 8,
                       background: savingToDrive ? C.border : C.lighter,
-                      cursor: savingToDrive ? 'not-allowed' : 'pointer',
+                      cursor: savingToDrive || refundBlocked ? 'not-allowed' : 'pointer',
+                      opacity: refundBlocked ? 0.45 : 1,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -663,6 +732,18 @@ function ImageCard({
             )}
           </div>
         </div>
+        {REFUND_REQUEST_ENABLED && refundRequest && (
+          <div
+            style={{
+              padding: '6px 10px',
+              fontSize: 11,
+              color: C.mid,
+              borderTop: `1px solid ${C.border}`,
+            }}
+          >
+            {refundChipText(refundRequest)}
+          </div>
+        )}
       </div>
       <ConfirmDialog
         open={confirmOpen}
@@ -820,9 +901,40 @@ export default function CataloguePage({
   const completedCount = visibleJobs.filter((j) => j.status === 'COMPLETED').length;
   const total = visibleJobs.length;
 
+  // Refund requests: one batched status lookup for every completed image. The server
+  // decides eligibility; a PENDING or APPROVED request also locks Download/Regenerate/Drive.
+  const completedIds = useMemo(
+    () => visibleJobs.filter((j) => j.status === 'COMPLETED').map((j) => j.id),
+    [visibleJobs],
+  );
+  const refunds = useRefundStatuses(completedIds);
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+  // Starts empty on purpose: the refund button stays disabled until something is ticked.
+  const [refundChecked, setRefundChecked] = useState<string[]>([]);
+  const refundBlocks = (jobId: string) => {
+    if (!REFUND_REQUEST_ENABLED) return false;
+    const s = refunds.byJob.get(jobId)?.request?.status;
+    return s === 'PENDING' || s === 'APPROVED';
+  };
+  // A tick only counts while the image is still visible, completed and server-eligible
+  // (a regenerate swaps the job id; a decided request flips `eligible`).
+  const refundCheckedItems = visibleJobs
+    .map((j, i) => ({ job: j, label: `Image ${i + 1}` }))
+    .filter(
+      ({ job }) =>
+        refundChecked.includes(job.id) &&
+        job.status === 'COMPLETED' &&
+        refunds.byJob.get(job.id)?.eligible,
+    )
+    .map(({ job, label }) => ({ jobId: job.id, label }));
+  const toggleRefundChecked = (jobId: string) =>
+    setRefundChecked((prev) =>
+      prev.includes(jobId) ? prev.filter((x) => x !== jobId) : [...prev, jobId],
+    );
+
   async function handleDownloadAll() {
     if (!data || downloading) return;
-    const completed = visibleJobs.filter((j) => j.status === 'COMPLETED');
+    const completed = visibleJobs.filter((j) => j.status === 'COMPLETED' && !refundBlocks(j.id));
     if (completed.length === 0) return;
     setDownloading(true);
     setDownloadErr(null);
@@ -880,7 +992,14 @@ export default function CataloguePage({
         URL.revokeObjectURL(objectUrl);
       }
 
-      if (failures > 0) {
+      // A refund request holds the image: say so in the API's own words instead of
+      // the generic count (other failures keep the count).
+      const refundHold = urlResults
+        .map((r) => (r.status === 'rejected' ? refundDownloadMessage(r.reason) : undefined))
+        .find(Boolean);
+      if (failures > 0 && refundHold) {
+        setDownloadErr(`${failures} of ${completed.length} not downloaded: ${refundHold}`);
+      } else if (failures > 0) {
         setDownloadErr(
           `${failures} of ${completed.length} image${completed.length !== 1 ? 's' : ''} failed to download.`,
         );
@@ -899,7 +1018,7 @@ export default function CataloguePage({
       window.location.href = '/api/integrations/google-drive/connect';
       return;
     }
-    const completed = data.jobs.filter((j) => j.status === 'COMPLETED');
+    const completed = data.jobs.filter((j) => j.status === 'COMPLETED' && !refundBlocks(j.id));
     if (completed.length === 0) return;
     setSavingAllToDrive(true);
     setDriveErr(null);
@@ -1064,6 +1183,35 @@ export default function CataloguePage({
             >
               <MonitorPlayIcon size={18} /> Preview
             </Link>
+            {REFUND_REQUEST_ENABLED && (
+              <button
+                type="button"
+                onClick={() => setRefundModalOpen(true)}
+                disabled={refundCheckedItems.length === 0}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  padding: '0 20px',
+                  height: 38,
+                  borderRadius: 8,
+                  background: 'transparent',
+                  color: C.text,
+                  border: `1px solid ${C.border}`,
+                  fontFamily: 'inherit',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: refundCheckedItems.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: refundCheckedItems.length === 0 ? 0.5 : 1,
+                  boxSizing: 'border-box',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Request refund
+                {refundCheckedItems.length > 0 ? ` (${refundCheckedItems.length})` : ''}
+              </button>
+            )}
             <button
               type="button"
               onClick={handleDownloadAll}
@@ -1150,7 +1298,7 @@ export default function CataloguePage({
         )}
         {data && (
           <div className="catalogue-detail-grid">
-            {visibleJobs.map((job) => (
+            {visibleJobs.map((job, i) => (
               <ImageCard
                 key={job.id}
                 job={job}
@@ -1159,6 +1307,12 @@ export default function CataloguePage({
                 garmentUrl={data.garmentUrl}
                 onZoom={setZoom}
                 onRegenerate={openReasonModal}
+                label={`Image ${i + 1}`}
+                refundEligible={!!refunds.byJob.get(job.id)?.eligible}
+                refundRequest={refunds.byJob.get(job.id)?.request ?? null}
+                refundChecked={refundChecked.includes(job.id)}
+                onToggleRefund={toggleRefundChecked}
+                refundBlocked={refundBlocks(job.id)}
               />
             ))}
           </div>
@@ -1190,9 +1344,10 @@ export default function CataloguePage({
           {REGENERATE_ENABLED && zoom.job.status === 'COMPLETED' && !zoom.job.alreadyDownloaded && (
             <button
               type="button"
+              aria-disabled={refundBlocks(zoom.job.id)}
               onClick={(e) => {
                 e.stopPropagation();
-                openReasonModal(zoom.job.id);
+                if (!refundBlocks(zoom.job.id)) openReasonModal(zoom.job.id);
               }}
               disabled={regenerating}
               style={{
@@ -1205,8 +1360,8 @@ export default function CataloguePage({
                 border: 'none',
                 fontWeight: 600,
                 fontSize: 14,
-                cursor: regenerating ? 'not-allowed' : 'pointer',
-                opacity: regenerating ? 0.7 : 1,
+                cursor: regenerating || refundBlocks(zoom.job.id) ? 'not-allowed' : 'pointer',
+                opacity: refundBlocks(zoom.job.id) ? 0.45 : regenerating ? 0.7 : 1,
                 boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
                 display: 'flex',
                 alignItems: 'center',
@@ -1356,6 +1511,18 @@ export default function CataloguePage({
         >
           {driveErr}
         </div>
+      )}
+
+      {REFUND_REQUEST_ENABLED && refundModalOpen && (
+        <RefundRequestModal
+          items={refundCheckedItems}
+          onClose={() => setRefundModalOpen(false)}
+          onDone={(sentJobIds) => {
+            setRefundModalOpen(false);
+            setRefundChecked((prev) => prev.filter((jid) => !sentJobIds.includes(jid)));
+            void refunds.refetch();
+          }}
+        />
       )}
     </>
   );

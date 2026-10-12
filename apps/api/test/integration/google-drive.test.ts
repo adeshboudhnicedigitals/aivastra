@@ -414,6 +414,46 @@ describe('google-drive integration', () => {
       // Verify token refresh was called with proper credentials
       expect(fetchCalls.some((c) => c.url === 'https://oauth2.googleapis.com/token')).toBe(true);
       expect(fetchCalls.some((c) => c.url.includes('/upload/drive/v3/files'))).toBe(true);
+
+      // An export is a download: it closes the refund window like POST /download does.
+      const [output] = await app.db
+        .select({ downloadedAt: schema.jobOutputs.downloadedAt })
+        .from(schema.jobOutputs)
+        .where(eq(schema.jobOutputs.jobId, job.id));
+      expect(output.downloadedAt).toBeInstanceOf(Date);
+    });
+
+    it('409s REFUND_REQUESTED while a refund request holds the job, without exporting or stamping', async () => {
+      const { token, userId } = await createVerifiedUserToken(app, 'gdrive-refund@example.com');
+      const job = await createJobWithOutput(userId);
+      await app.db.insert(schema.googleDriveConnections).values({
+        userId,
+        googleEmail: 'refund@gmail.com',
+        refreshTokenEnc: encryptToken('test-refresh-token', TEST_ENC_KEY),
+        scope: 'https://www.googleapis.com/auth/drive.file',
+      });
+      await app.db
+        .insert(schema.refundRequests)
+        .values({ jobId: job.id, userId, credits: 25, reasonCode: 'POOR_QUALITY' });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        throw new Error(`Unexpected fetch URL: ${input}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${job.id}/export/google-drive`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe('REFUND_REQUESTED');
+      expect(fetchMock).not.toHaveBeenCalled();
+      const [output] = await app.db
+        .select({ downloadedAt: schema.jobOutputs.downloadedAt })
+        .from(schema.jobOutputs)
+        .where(eq(schema.jobOutputs.jobId, job.id));
+      expect(output.downloadedAt).toBeNull();
     });
 
     it('creates AI Vastra folder if absent during export', async () => {

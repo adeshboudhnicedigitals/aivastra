@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { resolveQueueRouting } from './create.js';
+import { hasActiveRefundRequest } from './refund-requests.js';
 import { promptGuard } from './sanitize.js';
 
 const FREE_REGENERATE_DAILY_LIMIT = 5;
@@ -114,6 +115,15 @@ export async function regenerateJob(
       'ALREADY_DOWNLOADED',
       409,
       'this result has already been downloaded and can no longer be regenerated',
+    );
+  }
+  // A refund request holds the job (PENDING, or APPROVED once credits are back):
+  // regenerating would be a free retry on top of the claim. REJECTED releases it.
+  if (await hasActiveRefundRequest(app.db, originalJobId)) {
+    throw new AppError(
+      'REFUND_REQUESTED',
+      409,
+      'a refund request is open for this image, so it cannot be regenerated',
     );
   }
 

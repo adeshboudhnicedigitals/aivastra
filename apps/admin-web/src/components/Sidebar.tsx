@@ -178,6 +178,12 @@ const groups: NavGroup[] = [
         perm: 'shopify_stores.read',
       },
       {
+        k: 'refund-requests',
+        label: 'Refund requests',
+        icon: Icon.Coin,
+        perm: 'credits.read',
+      },
+      {
         k: 'audit-logs',
         label: 'Activity Logs',
         icon: Icon.Clock,

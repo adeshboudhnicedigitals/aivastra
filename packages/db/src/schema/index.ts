@@ -14,6 +14,7 @@ export * from './kiosk.js';
 export * from './merchant.js';
 export * from './models.js';
 export * from './permissions.js';
+export * from './refund-requests.js';
 export * from './saree.js';
 export * from './shopify.js';
 export * from './tryon.js';

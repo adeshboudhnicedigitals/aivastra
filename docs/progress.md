@@ -2,6 +2,134 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-12 — Refund on customer request (implemented, enabled)
+
+- **Done:** a customer can ask for the credits back for one finished image in catalogues-web; an
+  admin approves or rejects, and credits are refunded only on approval. Migration `0221`
+  (`refund_requests`, unique on `job_id`; reason codes and Zod schemas in `@aivastra/types`).
+  Two route plugins: customer `apps/api/src/modules/jobs/refund-requests.ts`
+  (`POST /v1/jobs/:id/refund-request`, batched `GET /v1/jobs/refund-status?jobIds=`, max 50; there
+  is no per-job GET) and
+  admin `apps/api/src/modules/admin/refund-requests.routes.ts` (list, approve, reject; approve is one
+  transaction with the `REFUND_USER_REQUEST` ledger credit via the new `applyRefundTx`, plus
+  fail-closed `recordAudit`, and re-checks `downloaded_at IS NULL`; decision email is best-effort
+  after commit). `regenerateJob` and `POST /v1/jobs/:id/download` return 409 while a request is
+  `PENDING`/`APPROVED`; `GET /result` stays open. Admin page "Refund requests" in admin-web.
+  Customer UI (button, modal, status chip) is gated by `REFUND_REQUEST_ENABLED` (`true`, always on; a kill switch) in
+  `apps/catalogues-web/src/lib/feature-flags.ts`. Spec corrected to match what was built.
+- **Done (final-review fixes, 2026-10-12):**
+  - Eligibility and the refunded amount come from the **ledger**, not `jobs.creditsCharged`: the
+    job's net `SUM(credit_ledger.delta)` for its user must be negative, and the snapshot is
+    `-net`. Before this, an unlimited-plan job (`atomicDeduct` writes a delta-0
+    `UNLIMITED_PLAN_USAGE` row but `creditsCharged` keeps the plan cost) was refundable and
+    approval would have minted credits. `refund-status` computes nets in one grouped query.
+  - Approve now locks the job, requires `COMPLETED` and re-checks the ledger net inside its
+    transaction (409 `NOT_REFUNDABLE` otherwise), closing a double refund when an admin cancel or a
+    dispatcher terminal refund already returned the credits under a different reason.
+  - `POST /v1/jobs/:id/export/google-drive` now honours the refund hold (409 `REFUND_REQUESTED`)
+    and stamps `job_outputs.downloaded_at` on success; the "Save to Drive" tile button is gated
+    like Download.
+  - Validation: `npx vitest run --config vitest.integration.config.ts refund-requests
+    admin-refund-requests refund-apply-tx regenerate google-drive` — 5 files / 70 tests passed;
+    `pnpm --filter @aivastra/api test:unit` — 91 files / 823 passed; api and web typecheck exit 0;
+    api lint 40 warnings / web lint 85 warnings, both unchanged from baseline, 0 errors.
+  - **Follow-up decisions (2026-10-12):**
+    - Decision A: a job with any child job (`jobs.parent_job_id = job.id`, any child status) is not
+      refundable, because regenerate is free and the customer would keep both images. Create returns 409
+      `ALREADY_REGENERATED`, `refund-status` reports `eligible: false` (one grouped query), and approve
+      re-checks under the job lock (409 `ALREADY_REGENERATED`, nothing credited) for a regenerate that
+      slipped in after filing. Create and `refund-status` go through `refundIneligibility`; approve
+      re-checks only the subset it needs under the job lock (COMPLETED, child via
+      `hasRegeneratedChild`, ledger net) rather than calling it, because merchant/API-key/Shopify are
+      fixed job attributes. The
+      modal says a regenerated image can no longer be refunded.
+    - Decision B: once a request is `APPROVED`, `GET /v1/jobs/:id/result` returns 409 `REFUND_APPROVED`.
+      `PENDING` (and `REJECTED`) still serve it. Unchanged on purpose: `GET /v1/jobs/:id/thumbnail` (the
+      low-res preview the customer can still see, so tiles do not break), admin image presigning, and
+      the internal `/results` webtool and `/v1/results/*`. (Third wave: `/thumbnail` now also 409s
+      `REFUND_APPROVED` when the job has no `thumbnailKey`, see below.) catalogues-web: result queries do not retry
+      `REFUND_APPROVED` (`retryResultQuery`); the studio panel shows the thumbnail plus the existing
+      "Refund approved" chip for an approved tile (no zoom, no "Use this image"); the catalogue
+      preview page falls back to the thumbnail per slot; the catalogue detail card already falls back
+      to its thumbnail. Saree, fabric-to-shoot and the catalogue list only fetch `/result` right after
+      a job completes, so they cannot hit an approved job.
+    - M2: the catalogue detail page's bulk download now shows the API's own message for
+      `REFUND_REQUESTED`/`REFUND_APPROVED` instead of only "N of M failed to download". Its single
+      download and the studio panel's `downloadImage` already alert `ApiError.message`, which is the
+      API's text, so they needed no change.
+  - **Third fix wave (2026-10-12):**
+    - `GET /v1/jobs/:id/thumbnail` returned the full-resolution result when `thumbnailKey` was null,
+      leaking the image after approval. It now returns 409 `REFUND_APPROVED` in exactly that case
+      (APPROVED and no `thumbnailKey`); a real thumbnail keeps serving and PENDING still serves.
+      Web: the studio approved-tile thumbnail query, the catalogue preview, the catalogue detail card
+      and `JobThumbnail` use `retryResultQuery` (no retry loop); a refunded tile with no thumbnail
+      shows the muted garment plus the existing "Refund approved" chip.
+    - Migration `0222` adds partial index `jobs_parent_job_id_idx` on `jobs (parent_job_id) WHERE
+      parent_job_id IS NOT NULL` (the 0082 FK created no index), used by `hasRegeneratedChild`, the
+      approve child check and the status query's `parent_job_id IN (...)`. Generated SQL contains only
+      that `CREATE INDEX IF NOT EXISTS`. Applied to the local docker DB only; ships via push ->
+      CI/CD -> `db:migrate:prod`.
+    - The catalogue-list bulk ZIP (`catalogs/page.tsx`) now fetches phase 1 through
+      `POST /v1/jobs/:id/download` (the gated call that stamps `downloaded_at`) instead of
+      `GET /result`, and reports refund-held jobs with the API's message via `refundDownloadMessage`
+      instead of counting them as generic failures.
+    - `POST /v1/jobs/:id/download` now returns `REFUND_APPROVED` (the `/result` copy) for an APPROVED
+      request and `REFUND_REQUESTED` for PENDING; `refundDownloadMessage` already handled both.
+    - Accepted known limitations: Drive export stamps `downloaded_at` after the upload, so a request
+      filed and approved inside the upload window is practically unreachable; `regenerateJob` checks
+      the refund hold outside its transaction, so a regenerate passing the pre-check just as a request
+      is created and approved within milliseconds could slip (approve's child check under the job
+      lock narrows it); approve and the admin pose-asset purge take locks in opposite order (rare
+      deadlock abort, retryable).
+- **Validation (2026-10-12, repo root, docker up):**
+  - `pnpm --filter @aivastra/api test:unit` — 91 files / 823 tests passed.
+  - `cd apps/api && npx vitest run --config vitest.integration.config.ts refund-apply-tx
+    refund-requests admin-refund-requests regenerate credits` — 6 files / 52 tests passed (the
+    `credits` pattern also matched `shopify-store-credits`).
+  - `pnpm --filter @aivastra/types test` — 4 files / 27 tests passed.
+  - `pnpm typecheck` — exit 0.
+  - `pnpm lint` — exit 0 (771 warnings, 0 errors).
+  - `pnpm --filter @aivastra/admin build` — exit 0 (only the usual chunk-size warning).
+  - Third fix wave (2026-10-12): `cd apps/api && npx vitest run --config
+    vitest.integration.config.ts refund-requests admin-refund-requests refund-apply-tx regenerate
+    jobs-result-thumbnail-delete results-thumbnails` - 6 files / 69 tests passed; the files that
+    reference `/download` or `/thumbnail` (`jobs-result-thumbnail-delete refund-requests regenerate
+    shopify-retention shopify-settings`) - 6 files passed (the pattern also matched a second
+    `shopify-retention*` file); `pnpm --filter @aivastra/api test:unit` - 91 files / 823 passed;
+    api typecheck exit 0, api lint 40 warnings / 0 errors; web typecheck exit 0; web lint 86
+    warnings / 0 errors (+1 vs 85: the new muted-garment `<img>` trips the same `noImgElement`
+    warning as its neighbours); `pnpm db:migrate` applied 0222 locally; `pnpm db:verify` - all 222
+    migrations verified.
+- **Failed-Not-Done / not verified:**
+  - The manual end-to-end check (request -> pending chip -> admin approve/reject -> credits and
+    unlock, in a browser with the flag on) has NOT been performed. The web UI is covered only by
+    typecheck/lint and the API integration tests.
+- **Done (UI rework, 2026-10-12):** the per-tile "Request refund" button moved out of the tile into the
+  results header beside Download All: disabled by default, enabled when at least one image is ticked via
+  a new top-right checkbox on each eligible tile (unchecked by default; only server-eligible images get one).
+  One modal sends one request per ticked image (sequentially) and lists any that failed; a 2-3 business hours
+  note shows in the modal and on the pending chip. `POST /v1/jobs/:id/refund-request` rate limit raised 10 -> 60
+  per minute for this. Typechecked and linted only; not exercised in a browser.
+- **Open:**
+  - `REFUND_REQUEST_ENABLED` is `true` (decided 2026-10-12: always on). Setting it to `false` is only
+    a kill switch and needs a rebuild of catalogues-web.
+  - The decision email depends on `RESEND_API_KEY` / `EMAIL_FROM` already being set in each
+    environment; a failed send is logged and never blocks the decision.
+  - No admin notification email: pending requests are visible on the admin page only.
+  - Known and accepted: the admin pose-asset purge (`apps/api/src/modules/admin/models.routes.ts`,
+    the job delete around lines 1423-1431) cascade-deletes a `PENDING` refund request through the
+    `refund_requests.job_id` FK (`onDelete: cascade`) with no notice to the customer.
+  - **Pre-existing, not fixed here (CRED-1, high):** for an unlimited-plan user `atomicDeduct`
+    debits nothing (delta-0 `UNLIMITED_PLAN_USAGE` row) but the job keeps `creditsCharged` = plan
+    cost, and every failure/cancel refund credits that amount back without reading the ledger, so a
+    failed or cancelled unlimited-plan job mints credits. Affected: dispatcher `terminateJob`
+    (`JOB_FAIL_REFUND`/`JOB_CANCEL_REFUND`), `markWidgetFailed`, sweeper `failAndRefund`,
+    `saree-step2-promoter`; API `refund(..., 'REFUND_ADMIN_CANCEL')` (admin cancel + flush), the
+    user cancel route's inline `JOB_CANCEL_REFUND`, and `refundAndMarkFailed`
+    (`REFUND_ENQUEUE_FAIL`). Shopify store refunds and refund-on-request are unaffected. Full write-up
+    in the (gitignored, local-only) `docs/audits/open-findings.md`.
+  - Migration `0221` ships via push -> CI/CD -> `db:migrate:prod`; nothing was run on production.
+
 ## 2026-10-09 — Shopify credit packs: grant on approval, verify afterwards (implemented, flag off)
 
 - **Done:** with `SHOPIFY_VERIFY_PAYMENTS=true`, a real credit-pack purchase grants credits on

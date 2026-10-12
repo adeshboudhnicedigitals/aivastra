@@ -590,3 +590,24 @@ export interface PackPurchase {
   shopifyChargeId: string | null;
   creditsGrantedAt: string | null;
 }
+
+export type RefundRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/** One row of GET /admin/refund-requests. */
+export interface RefundRequest {
+  id: string;
+  jobId: string;
+  userId: string;
+  userEmail: string;
+  userName: string | null;
+  credits: number;
+  reasonCode: string;
+  note: string | null;
+  status: RefundRequestStatus;
+  adminNote: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  downloadedAt: string | null;
+  imageUrl: string;
+  previewUrl: string;
+}

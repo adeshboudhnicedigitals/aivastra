@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { C } from '@/components/tokens';
 import { api } from '@/lib/api';
+import { retryResultQuery } from '@/lib/errors';
 
 export type CatalogueResponse = Array<{
   catalogueId: string;
@@ -76,6 +77,8 @@ export function JobThumbnail({ jobId, alt }: { jobId: string; alt: string }): Re
     queryFn: () => api.get(`/v1/jobs/${jobId}/thumbnail`),
     staleTime: 55 * 60 * 1000,
     enabled: inView,
+    // A refunded job with no real thumbnail 409s REFUND_APPROVED for good.
+    retry: retryResultQuery,
   });
 
   if (!data?.url) {

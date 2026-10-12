@@ -22,6 +22,7 @@ import LoginPage from './pages/LoginPage';
 import PaymentsPage from './pages/PaymentsPage';
 import PixversePage from './pages/PixversePage';
 import RecycleBinPage from './pages/RecycleBinPage';
+import RefundRequestsPage from './pages/RefundRequestsPage';
 import SareePage from './pages/SareePage';
 import SettingsPage from './pages/SettingsPage';
 import ShopifyFunnelsPage from './pages/ShopifyFunnelsPage';
@@ -59,6 +60,7 @@ const PATH_LABELS: Record<string, string> = {
   payments: 'Payments',
   'shopify-stores': 'Shopify Dashboard',
   'shopify-purchases': 'Pack purchases',
+  'refund-requests': 'Refund requests',
   telemetry: 'Telemetry',
   'audit-logs': 'Activity Logs',
 };
@@ -265,6 +267,7 @@ export default function App() {
             <Route path="/payments" element={<PaymentsPage {...pageProps} />} />
             <Route path="/shopify-stores" element={<ShopifyStoresPage {...pageProps} />} />
             <Route path="/shopify-purchases" element={<ShopifyPurchasesPage {...pageProps} />} />
+            <Route path="/refund-requests" element={<RefundRequestsPage {...pageProps} />} />
             <Route path="/telemetry" element={<TelemetryPage {...pageProps} />} />
             <Route path="/tryon" element={<TryonPage {...pageProps} />} />
             <Route path="/demo-catalog" element={<DemoCatalogPage {...pageProps} />} />
