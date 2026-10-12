@@ -172,6 +172,12 @@ const groups: NavGroup[] = [
         perm: 'shopify_stores.read',
       },
       {
+        k: 'shopify-purchases',
+        label: 'Pack purchases',
+        icon: Icon.Coin,
+        perm: 'shopify_stores.read',
+      },
+      {
         k: 'audit-logs',
         label: 'Activity Logs',
         icon: Icon.Clock,

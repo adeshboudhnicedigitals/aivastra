@@ -3,7 +3,7 @@ import { register } from '@aivastra/observability';
 import { and, eq, lt, sql } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { adminCheckPurchasePayment } from '../../src/modules/admin/shopify-stores.routes.js';
+import { adminCheckPurchasePayment } from '../../src/modules/admin/shopify-purchases.routes.js';
 import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
 import { PartnerApiError } from '../../src/modules/shopify/partner-api.js';
 import { checkPurchases, settlePaid } from '../../src/modules/shopify/payment-settlement.js';

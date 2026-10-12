@@ -272,6 +272,17 @@ export const shopifyCreditPurchases = pgTable(
     paidAt: timestamp('paid_at', { withTimezone: true }),
     // Next settlement-loop check. Non-null only while AWAITING.
     nextPaymentCheckAt: timestamp('next_payment_check_at', { withTimezone: true }),
+    // 'AUTO' | 'MANUAL'. MANUAL means an admin set payment_status by hand (the
+    // payment-review route); the automatic verification loop never overwrites it.
+    paymentStatusSource: text('payment_status_source').notNull().default('AUTO'),
+    // Free-text note from the last admin review (3-500 chars, enforced by the route).
+    paymentNote: text('payment_note'),
+    // The admin who last reviewed it, and when. SET NULL so deleting an admin user
+    // never deletes the purchase record.
+    paymentFlaggedBy: uuid('payment_flagged_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    paymentFlaggedAt: timestamp('payment_flagged_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -282,6 +293,13 @@ export const shopifyCreditPurchases = pgTable(
     awaitingPaymentIdx: index('shopify_credit_purchases_awaiting_payment_idx')
       .on(table.nextPaymentCheckAt)
       .where(sql`${table.paymentStatus} = 'AWAITING'`),
+    // Partial: the verification loop only asks "which unverified / not-received
+    // rows that nobody overrode are due".
+    verifyPaymentIdx: index('shopify_credit_purchases_verify_payment_idx')
+      .on(table.nextPaymentCheckAt)
+      .where(
+        sql`${table.paymentStatus} IN ('UNVERIFIED','NOT_RECEIVED') AND ${table.paymentStatusSource} = 'AUTO'`,
+      ),
   }),
 );
 

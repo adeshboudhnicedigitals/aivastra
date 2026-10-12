@@ -10,6 +10,7 @@ import {
   type FetchOneTimeSales,
   fetchOneTimeSales,
   numericChargeId,
+  type OneTimeSale,
   PartnerApiError,
 } from './partner-api.js';
 
@@ -21,7 +22,13 @@ import {
  */
 
 type PurchaseRow = typeof schema.shopifyCreditPurchases.$inferSelect;
-export type PaymentStatus = 'NOT_REQUIRED' | 'AWAITING' | 'PAID' | 'UNPAID';
+export type PaymentStatus =
+  | 'NOT_REQUIRED'
+  | 'UNVERIFIED'
+  | 'PAID'
+  | 'NOT_RECEIVED'
+  | 'AWAITING'
+  | 'UNPAID';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -85,6 +92,44 @@ export async function settlePaid(
   });
 }
 
+export interface SalesFetchOptions {
+  /** Narrows the Partner API query to one store — used by single-purchase checks. */
+  shop?: string;
+  fetchSales?: FetchOneTimeSales;
+  now?: Date;
+}
+
+/**
+ * One Partner API query covering `rows`: every sale since the oldest row's
+ * createdAt (minus slack). Shared by the hold-until-paid settlement and the
+ * grant-then-verify pass so both bump the same failure counter and last-success
+ * gauge. Throws PartnerApiError on any failure — callers must treat that as
+ * "learned nothing" and leave every row untouched.
+ */
+export async function fetchSalesForRows(
+  app: FastifyInstance,
+  rows: PurchaseRow[],
+  opts: SalesFetchOptions = {},
+): Promise<Map<string, OneTimeSale>> {
+  const now = opts.now ?? new Date();
+  const fetchSales = opts.fetchSales ?? fetchOneTimeSales;
+  const oldest = Math.min(...rows.map((r) => r.createdAt.getTime()));
+
+  let sales: Map<string, OneTimeSale>;
+  try {
+    sales = await fetchSales(app.env, {
+      since: new Date(oldest - SINCE_SLACK_MS),
+      shop: opts.shop,
+    });
+  } catch (err) {
+    const reason = err instanceof PartnerApiError ? err.reason : 'http';
+    shopifyPaymentCheckFailuresTotal.inc({ reason });
+    throw err instanceof PartnerApiError ? err : new PartnerApiError('http', String(err));
+  }
+  shopifyPaymentCheckLastSuccess.set(Math.floor(now.getTime() / 1000));
+  return sales;
+}
+
 export interface CheckOptions {
   /** Narrows the Partner API query to one store — used by single-purchase checks. */
   shop?: string;
@@ -114,21 +159,7 @@ export async function checkPurchases(
   if (checkable.length === 0) return outcome;
 
   const now = opts.now ?? new Date();
-  const fetchSales = opts.fetchSales ?? fetchOneTimeSales;
-  const oldest = Math.min(...checkable.map((r) => r.createdAt.getTime()));
-
-  let sales: Awaited<ReturnType<FetchOneTimeSales>>;
-  try {
-    sales = await fetchSales(app.env, {
-      since: new Date(oldest - SINCE_SLACK_MS),
-      shop: opts.shop,
-    });
-  } catch (err) {
-    const reason = err instanceof PartnerApiError ? err.reason : 'http';
-    shopifyPaymentCheckFailuresTotal.inc({ reason });
-    throw err instanceof PartnerApiError ? err : new PartnerApiError('http', String(err));
-  }
-  shopifyPaymentCheckLastSuccess.set(Math.floor(now.getTime() / 1000));
+  const sales = await fetchSalesForRows(app, checkable, opts);
 
   for (const row of checkable) {
     try {

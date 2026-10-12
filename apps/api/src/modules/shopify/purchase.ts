@@ -12,6 +12,7 @@ import { getPack } from './packs.js';
 import type { FetchOneTimeSales } from './partner-api.js';
 import { PartnerApiError } from './partner-api.js';
 import { checkPurchases, type PaymentStatus } from './payment-settlement.js';
+import { VERIFY_FIRST_CHECK_MS } from './payment-verification.js';
 import { shopifyGraphQL, warnIfManagedPricing } from './service.js';
 import { getValidAccessToken } from './token.js';
 
@@ -318,6 +319,47 @@ export async function grantForPurchase(
         ),
       );
     return 0;
+  }
+
+  // Grant-then-verify: the merchant gets credits at approval as always, but the
+  // purchase is marked UNVERIFIED so a later Partner API pass can confirm Shopify
+  // collected the money. Mark and grant share ONE transaction: marking first and
+  // granting after could strand a row marked-but-ungranted (the early return on
+  // `paymentStatus !== 'NOT_REQUIRED'` above would then block every retry), and
+  // the reverse would grant an untracked purchase. The conditional UPDATE is the
+  // race guard — a concurrent caller that loses it gets no row back and grants
+  // nothing; grantStore's external_ref idempotency stays underneath. Reached only
+  // when the hold above did not return (it returns for every real charge while
+  // SHOPIFY_HOLD_UNTIL_PAID is on, so the hold wins when both flags are set).
+  // Test charges never get a sale and so are not tracked.
+  if (!observed.test && app.env.SHOPIFY_VERIFY_PAYMENTS === true) {
+    const externalRef = `shopify_pack:${observed.id}`;
+    return app.db.transaction(async (tx) => {
+      const marked = await tx
+        .update(schema.shopifyCreditPurchases)
+        .set({
+          paymentStatus: 'UNVERIFIED',
+          nextPaymentCheckAt: new Date(Date.now() + VERIFY_FIRST_CHECK_MS),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(schema.shopifyCreditPurchases.id, purchaseRow.id),
+            eq(schema.shopifyCreditPurchases.paymentStatus, 'NOT_REQUIRED'),
+          ),
+        )
+        .returning({ id: schema.shopifyCreditPurchases.id });
+      if (marked.length === 0) return 0;
+
+      const { granted } = await grantStore(
+        tx as never,
+        purchaseRow.storeId,
+        purchaseRow.credits,
+        'SHOPIFY_PACK',
+        externalRef,
+      );
+      return granted ? purchaseRow.credits : 0;
+    });
   }
 
   // The bound on test-funded credits. Counted from the ledger rather than a

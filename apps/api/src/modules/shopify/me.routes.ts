@@ -153,6 +153,10 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
     // recent qualifying row also doubles as "the pack currently shown on the
     // balance card" — one query answers both, since existence of a row is
     // exactly hasPurchasedPack.
+    // UNVERIFIED and NOT_RECEIVED are grant-then-verify states: the credits WERE
+    // delivered at approval and only the payment confirmation is pending/missing,
+    // so they count — the merchant has the pack. Only the hold-until-paid states
+    // AWAITING/UNPAID (credits withheld) stay excluded.
     const [latestPurchase] = await app.db
       .select({ packId: schema.shopifyCreditPurchases.packId })
       .from(schema.shopifyCreditPurchases)
@@ -160,7 +164,12 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         and(
           eq(schema.shopifyCreditPurchases.storeId, store.id),
           eq(schema.shopifyCreditPurchases.status, 'ACTIVE'),
-          inArray(schema.shopifyCreditPurchases.paymentStatus, ['NOT_REQUIRED', 'PAID']),
+          inArray(schema.shopifyCreditPurchases.paymentStatus, [
+            'NOT_REQUIRED',
+            'PAID',
+            'UNVERIFIED',
+            'NOT_RECEIVED',
+          ]),
         ),
       )
       .orderBy(desc(schema.shopifyCreditPurchases.createdAt))

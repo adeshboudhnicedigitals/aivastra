@@ -48,10 +48,19 @@ export function StorePurchasesCard({ purchases, loading, checkingId, canCheck, o
                     <td>
                       {p.paymentStatus}
                       {p.paidAt ? ` · ${new Date(p.paidAt).toLocaleString()}` : ''}
+                      {p.paymentStatusSource === 'MANUAL' ? ' · set by an admin' : ''}
+                      {p.paymentNote ? (
+                        <div className="sub" style={{ fontSize: 11 }}>
+                          {p.paymentNote}
+                        </div>
+                      ) : null}
                     </td>
                     <td>{new Date(p.createdAt).toLocaleString()}</td>
                     <td>
-                      {(p.paymentStatus === 'AWAITING' || p.paymentStatus === 'UNPAID') &&
+                      {(p.paymentStatus === 'AWAITING' ||
+                        p.paymentStatus === 'UNPAID' ||
+                        ((p.paymentStatus === 'UNVERIFIED' || p.paymentStatus === 'NOT_RECEIVED') &&
+                          p.paymentStatusSource === 'AUTO')) &&
                         canCheck && (
                           <button
                             type="button"
