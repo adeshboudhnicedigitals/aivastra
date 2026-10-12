@@ -8,7 +8,8 @@
   admin approves or rejects, and credits are refunded only on approval. Migration `0221`
   (`refund_requests`, unique on `job_id`; reason codes and Zod schemas in `@aivastra/types`).
   Two route plugins: customer `apps/api/src/modules/jobs/refund-requests.ts`
-  (`POST/GET /v1/jobs/:id/refund-request`, batched `GET /v1/jobs/refund-status?jobIds=`, max 50) and
+  (`POST /v1/jobs/:id/refund-request`, batched `GET /v1/jobs/refund-status?jobIds=`, max 50; there
+  is no per-job GET) and
   admin `apps/api/src/modules/admin/refund-requests.routes.ts` (list, approve, reject; approve is one
   transaction with the `REFUND_USER_REQUEST` ledger credit via the new `applyRefundTx`, plus
   fail-closed `recordAudit`, and re-checks `downloaded_at IS NULL`; decision email is best-effort
@@ -16,6 +17,22 @@
   `PENDING`/`APPROVED`; `GET /result` stays open. Admin page "Refund requests" in admin-web.
   Customer UI (button, modal, status chip) is behind `REFUND_REQUEST_ENABLED = false` in
   `apps/catalogues-web/src/lib/feature-flags.ts`. Spec corrected to match what was built.
+- **Done (final-review fixes, 2026-10-12):**
+  - Eligibility and the refunded amount come from the **ledger**, not `jobs.creditsCharged`: the
+    job's net `SUM(credit_ledger.delta)` for its user must be negative, and the snapshot is
+    `-net`. Before this, an unlimited-plan job (`atomicDeduct` writes a delta-0
+    `UNLIMITED_PLAN_USAGE` row but `creditsCharged` keeps the plan cost) was refundable and
+    approval would have minted credits. `refund-status` computes nets in one grouped query.
+  - Approve now locks the job, requires `COMPLETED` and re-checks the ledger net inside its
+    transaction (409 `NOT_REFUNDABLE` otherwise), closing a double refund when an admin cancel or a
+    dispatcher terminal refund already returned the credits under a different reason.
+  - `POST /v1/jobs/:id/export/google-drive` now honours the refund hold (409 `REFUND_REQUESTED`)
+    and stamps `job_outputs.downloaded_at` on success; the "Save to Drive" tile button is gated
+    like Download.
+  - Validation: `npx vitest run --config vitest.integration.config.ts refund-requests
+    admin-refund-requests refund-apply-tx regenerate google-drive` — 5 files / 70 tests passed;
+    `pnpm --filter @aivastra/api test:unit` — 91 files / 823 passed; api and web typecheck exit 0;
+    api lint 40 warnings / web lint 85 warnings, both unchanged from baseline, 0 errors.
 - **Validation (2026-10-12, repo root, docker up):**
   - `pnpm --filter @aivastra/api test:unit` — 91 files / 823 tests passed.
   - `cd apps/api && npx vitest run --config vitest.integration.config.ts refund-apply-tx
@@ -35,6 +52,18 @@
   - The decision email depends on `RESEND_API_KEY` / `EMAIL_FROM` already being set in each
     environment; a failed send is logged and never blocks the decision.
   - No admin notification email: pending requests are visible on the admin page only.
+  - Known and accepted: the admin pose-asset purge (`apps/api/src/modules/admin/models.routes.ts`,
+    the job delete around lines 1423-1431) cascade-deletes a `PENDING` refund request through the
+    `refund_requests.job_id` FK (`onDelete: cascade`) with no notice to the customer.
+  - **Pre-existing, not fixed here (CRED-1, high):** for an unlimited-plan user `atomicDeduct`
+    debits nothing (delta-0 `UNLIMITED_PLAN_USAGE` row) but the job keeps `creditsCharged` = plan
+    cost, and every failure/cancel refund credits that amount back without reading the ledger, so a
+    failed or cancelled unlimited-plan job mints credits. Affected: dispatcher `terminateJob`
+    (`JOB_FAIL_REFUND`/`JOB_CANCEL_REFUND`), `markWidgetFailed`, sweeper `failAndRefund`,
+    `saree-step2-promoter`; API `refund(..., 'REFUND_ADMIN_CANCEL')` (admin cancel + flush), the
+    user cancel route's inline `JOB_CANCEL_REFUND`, and `refundAndMarkFailed`
+    (`REFUND_ENQUEUE_FAIL`). Shopify store refunds and refund-on-request are unaffected. Full write-up
+    in the (gitignored, local-only) `docs/audits/open-findings.md`.
   - Migration `0221` ships via push -> CI/CD -> `db:migrate:prod`; nothing was run on production.
 
 ## 2026-10-09 — Shopify credit packs: grant on approval, verify afterwards (implemented, flag off)
