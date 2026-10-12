@@ -22,7 +22,12 @@ import { ZoomableImage } from '@/components/ZoomableImage';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
-import { ApiError, downloadErrorMessage } from '@/lib/errors';
+import {
+  ApiError,
+  downloadErrorMessage,
+  refundDownloadMessage,
+  retryResultQuery,
+} from '@/lib/errors';
 import { GOOGLE_DRIVE_ENABLED, REGENERATE_ENABLED } from '@/lib/feature-flags';
 
 const REGENERATE_LIMIT_SUPPORT_MESSAGE =
@@ -205,6 +210,8 @@ function ImageCard({
     queryFn: () => api.get(`/v1/jobs/${job.id}/result`),
     enabled: isCompleted,
     staleTime: 55 * 60 * 1000,
+    // A refunded image 409s REFUND_APPROVED for good; the card keeps showing its thumbnail.
+    retry: retryResultQuery,
   });
 
   // Thumbnail for card display — smaller file, faster grid load.
@@ -880,7 +887,14 @@ export default function CataloguePage({
         URL.revokeObjectURL(objectUrl);
       }
 
-      if (failures > 0) {
+      // A refund request holds the image: say so in the API's own words instead of
+      // the generic count (other failures keep the count).
+      const refundHold = urlResults
+        .map((r) => (r.status === 'rejected' ? refundDownloadMessage(r.reason) : undefined))
+        .find(Boolean);
+      if (failures > 0 && refundHold) {
+        setDownloadErr(`${failures} of ${completed.length} not downloaded: ${refundHold}`);
+      } else if (failures > 0) {
         setDownloadErr(
           `${failures} of ${completed.length} image${completed.length !== 1 ? 's' : ''} failed to download.`,
         );

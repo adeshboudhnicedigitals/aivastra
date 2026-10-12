@@ -6,6 +6,7 @@ import { use, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, MonitorIcon, SmartphoneIcon, SpinnerIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { api } from '@/lib/api';
+import { isRefundApproved, retryResultQuery } from '@/lib/errors';
 import {
   AmazonDesktopTemplate,
   AmazonMobileTemplate,
@@ -362,10 +363,21 @@ function LivePlatformPreviewPage({ id }: { id: string }): React.ReactElement {
       queryKey: ['job-result', job.id],
       queryFn: () => api.get<{ url: string }>(`/v1/jobs/${job.id}/result`),
       staleTime: 4 * 60 * 1000,
+      retry: retryResultQuery,
+    })),
+  });
+  // A refunded image no longer serves its full result (409 REFUND_APPROVED): show the
+  // low-res thumbnail in its slot rather than an empty one.
+  const thumbQueries = useQueries({
+    queries: completedJobs.map((job, i) => ({
+      queryKey: ['job-thumb', job.id],
+      queryFn: () => api.get<{ url: string }>(`/v1/jobs/${job.id}/thumbnail`),
+      staleTime: 4 * 60 * 1000,
+      enabled: isRefundApproved(resultQueries[i]?.error),
     })),
   });
 
-  const imageSlots = resultQueries.map((q) => q.data?.url);
+  const imageSlots = resultQueries.map((q, i) => q.data?.url ?? thumbQueries[i]?.data?.url);
   const cssRatio = aspectToCss(catalogue?.aspectRatio);
   const hasImages = completedJobs.length > 0;
   const clampedIndex = Math.min(activeIndex, Math.max(0, imageSlots.length - 1));

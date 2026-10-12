@@ -72,7 +72,8 @@ export function RefundRequestModal({ jobId, onClose, onSubmitted }: Props) {
         </h3>
         <p style={{ margin: 0, fontSize: 12.5, color: C.mid, lineHeight: 1.5 }}>
           Tell us what went wrong. Our team will review it and, if approved, the credits go back to
-          your account. Until we decide, this image can't be downloaded or regenerated.
+          your account. Until we decide, this image can't be downloaded or regenerated. Once an
+          image has been regenerated it can no longer be refunded.
         </p>
         <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: C.lighter }}>
           <PremiumSelect

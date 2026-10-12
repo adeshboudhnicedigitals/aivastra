@@ -18,7 +18,7 @@ import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { useRefundStatuses } from '@/hooks/use-refund-statuses';
 import { api } from '@/lib/api';
-import { ApiError, downloadErrorMessage } from '@/lib/errors';
+import { ApiError, downloadErrorMessage, retryResultQuery } from '@/lib/errors';
 import {
   GOOGLE_DRIVE_ENABLED,
   REFUND_REQUEST_ENABLED,
@@ -255,6 +255,19 @@ export function GenerationPanel({
       queryFn: () => api.get<{ url: string }>(`/v1/jobs/${j.id}/result`),
       enabled: completedIds.includes(j.id),
       staleTime: 55 * 60 * 1000,
+      // An approved refund 409s REFUND_APPROVED for good — do not retry it.
+      retry: retryResultQuery,
+    })),
+  });
+  // Once a refund is approved the full image is withheld; the tile keeps the low-res
+  // thumbnail (same ['job-thumb'] cache the completion prefetch fills) plus the chip.
+  const approvedThumbQueries = useQueries({
+    queries: displayJobs.map((j) => ({
+      queryKey: ['job-thumb', j.id],
+      queryFn: () => api.get<{ url: string }>(`/v1/jobs/${j.id}/thumbnail`),
+      enabled:
+        completedIds.includes(j.id) && refunds.byJob.get(j.id)?.request?.status === 'APPROVED',
+      staleTime: 55 * 60 * 1000,
     })),
   });
 
@@ -263,6 +276,7 @@ export function GenerationPanel({
   const currentCompleted = currentStatus === 'COMPLETED';
   const currentFailed = currentStatus === 'FAILED' || currentStatus === 'CANCELLED';
   const currentResultUrl = resultQueries[selected]?.data?.url;
+  const currentPreviewUrl = currentResultUrl ?? approvedThumbQueries[selected]?.data?.url;
 
   async function downloadImage(_url: string, jobId: string) {
     if (downloading) return;
@@ -760,11 +774,11 @@ export function GenerationPanel({
                     background: C.lighter,
                   }}
                 >
-                  {currentCompleted && currentResultUrl ? (
+                  {currentCompleted && currentPreviewUrl ? (
                     <>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={currentResultUrl}
+                        src={currentPreviewUrl}
                         alt="Preview Output"
                         draggable={false}
                         onContextMenu={(e) => e.preventDefault()}
@@ -786,7 +800,7 @@ export function GenerationPanel({
                           gap: 6,
                         }}
                       >
-                        {onUseImage && current && (
+                        {onUseImage && current && currentResultUrl && (
                           <button
                             type="button"
                             onClick={() =>
@@ -1071,6 +1085,7 @@ export function GenerationPanel({
               const cardProgress = STATUS_PROGRESS[status] ?? 10;
               const cardStep = getJobStepInfo(status);
               const resultUrl = resultQueries[idx]?.data?.url;
+              const tileUrl = resultUrl ?? approvedThumbQueries[idx]?.data?.url;
               const isSelected = selected === idx;
 
               return (
@@ -1107,17 +1122,19 @@ export function GenerationPanel({
                       overflow: 'hidden',
                     }}
                   >
-                    {isCompleted && resultUrl ? (
+                    {isCompleted && tileUrl ? (
                       <>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={resultUrl}
+                          src={tileUrl}
                           alt={job.label}
                           draggable={false}
                           onContextMenu={(e) => e.preventDefault()}
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelected(idx);
+                            // The refunded thumbnail is a preview only — nothing to zoom.
+                            if (!resultUrl) return;
                             setZoomUrl(resultUrl);
                             requestAnimationFrame(() => setZoomVisible(true));
                           }}
