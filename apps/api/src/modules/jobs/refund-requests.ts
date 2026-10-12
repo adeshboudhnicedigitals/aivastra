@@ -27,6 +27,30 @@ export async function hasActiveRefundRequest(db: DB, jobId: string): Promise<boo
   return !!row;
 }
 
+/** True once a refund request on the job was APPROVED: the credits are back, so the full image is withheld. */
+export async function hasApprovedRefundRequest(db: DB, jobId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: R.id })
+    .from(R)
+    .where(and(eq(R.jobId, jobId), eq(R.status, 'APPROVED')))
+    .limit(1);
+  return !!row;
+}
+
+/**
+ * True when any job was regenerated from this one (a row with parent_job_id = jobId),
+ * whatever the child's status. Regenerate is free, so refunding the original as well
+ * would let the customer keep both images.
+ */
+export async function hasRegeneratedChild(db: DB | DbTransaction, jobId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: schema.jobs.id })
+    .from(schema.jobs)
+    .where(eq(schema.jobs.parentJobId, jobId))
+    .limit(1);
+  return !!row;
+}
+
 /**
  * Net credits the ledger shows for (job, user): the debit plus any refunds already
  * written against it. Negative means credits are still out of the user's balance.
@@ -57,6 +81,7 @@ export function refundIneligibility(
   downloadedAt: Date | null,
   hasRequest: boolean,
   ledgerNet: number,
+  hasChild: boolean,
 ): { code: string; message: string } | null {
   if (job.status !== 'COMPLETED') return { code: 'NOT_READY', message: 'job not complete' };
   // Free regenerations charge 0, unlimited-plan jobs debit 0 in the ledger, and a job
@@ -75,6 +100,12 @@ export function refundIneligibility(
     return {
       code: 'ALREADY_DOWNLOADED',
       message: 'this result has already been downloaded and can no longer be refunded',
+    };
+  }
+  if (hasChild) {
+    return {
+      code: 'ALREADY_REGENERATED',
+      message: 'this image was regenerated, so it can no longer be refunded',
     };
   }
   if (hasRequest) {
@@ -105,8 +136,15 @@ export async function createRefundRequest(
       .where(eq(schema.jobOutputs.jobId, jobId));
     const [existing] = await tx.select({ id: R.id }).from(R).where(eq(R.jobId, jobId)).limit(1);
     const net = await ledgerNetForJob(tx, jobId, userId);
+    const hasChild = await hasRegeneratedChild(tx, jobId);
 
-    const problem = refundIneligibility(job, output?.downloadedAt ?? null, !!existing, net);
+    const problem = refundIneligibility(
+      job,
+      output?.downloadedAt ?? null,
+      !!existing,
+      net,
+      hasChild,
+    );
     if (problem) throw new AppError(problem.code, 409, problem.message);
 
     const [row] = await tx
@@ -154,13 +192,23 @@ export async function getRefundStatuses(app: FastifyInstance, userId: string, jo
         .groupBy(L.jobId)
     : [];
   const netByJob = new Map(nets.map((n) => [n.jobId, n.net]));
+  // One grouped query for every owned job's regenerated children, not one per job.
+  const children = owned.length
+    ? await app.db
+        .selectDistinct({ parentJobId: schema.jobs.parentJobId })
+        .from(schema.jobs)
+        .where(inArray(schema.jobs.parentJobId, owned))
+    : [];
+  const regenerated = new Set(children.map((c) => c.parentJobId));
 
   return jobs.map(({ job, downloadedAt }) => {
     const req = byJob.get(job.id);
     const net = netByJob.get(job.id) ?? 0;
     return {
       jobId: job.id,
-      eligible: refundIneligibility(job, downloadedAt ?? null, !!req, net) === null,
+      eligible:
+        refundIneligibility(job, downloadedAt ?? null, !!req, net, regenerated.has(job.id)) ===
+        null,
       request: req
         ? {
             status: req.status,

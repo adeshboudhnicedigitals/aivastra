@@ -35,7 +35,7 @@ import { createBatchJobs } from './createBatch.js';
 import { createFabricToGarmentJob } from './createFabricToGarment.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
-import { hasActiveRefundRequest } from './refund-requests.js';
+import { hasActiveRefundRequest, hasApprovedRefundRequest } from './refund-requests.js';
 import { getRegenerateReasons, regenerateJob } from './regenerate.js';
 import { sseHandler, userStreamHandler } from './sse.js';
 
@@ -939,6 +939,16 @@ export async function jobsRoutes(app: FastifyInstance) {
         .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
       if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
       if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
+      // Once credits are returned the customer no longer gets the full image. PENDING
+      // still serves (they may view while we decide); /thumbnail stays open as a
+      // low-res preview so tiles do not break.
+      if (await hasApprovedRefundRequest(app.db, id)) {
+        throw new AppError(
+          'REFUND_APPROVED',
+          409,
+          'Credits for this image were refunded, so it is no longer available.',
+        );
+      }
 
       // Tryon-direct results (source='tryon'/'api_tryon') are stored WebP-encoded,
       // not PNG (see apps/dispatcher/src/workflow/finalize.ts) — the actual

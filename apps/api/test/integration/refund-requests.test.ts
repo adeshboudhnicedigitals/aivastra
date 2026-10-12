@@ -211,6 +211,17 @@ describe('refund requests — customer API and gates', () => {
       expect(again.json().error.code).toBe('REFUND_ALREADY_REQUESTED');
     });
 
+    it('409s ALREADY_REGENERATED when the job has a child job, whatever its status', async () => {
+      const u = await registerUser('regen');
+      const jobId = await seedJob(u.userId);
+      await app.db
+        .insert(schema.jobs)
+        .values({ userId: u.userId, status: 'FAILED', parentJobId: jobId });
+      const res = await post(jobId, u.auth, { reasonCode: 'OTHER' });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe('ALREADY_REGENERATED');
+    });
+
     it('400s on an unknown reason code or an over-long note', async () => {
       const u = await registerUser('bad');
       const jobId = await seedJob(u.userId);
@@ -229,11 +240,15 @@ describe('refund requests — customer API and gates', () => {
       const requested = await seedJob(u.userId);
       const downloaded = await seedJob(u.userId, { downloadedAt: new Date() });
       const foreign = await seedJob(other.userId);
+      const regenerated = await seedJob(u.userId);
+      await app.db
+        .insert(schema.jobs)
+        .values({ userId: u.userId, status: 'QUEUED', parentJobId: regenerated });
       await post(requested, u.auth, { reasonCode: 'POOR_QUALITY' });
 
       const res = await app.inject({
         method: 'GET',
-        url: `/v1/jobs/refund-status?jobIds=${[fresh, requested, downloaded, foreign].join(',')}`,
+        url: `/v1/jobs/refund-status?jobIds=${[fresh, requested, downloaded, foreign, regenerated].join(',')}`,
         headers: u.auth,
       });
       expect(res.statusCode).toBe(200);
@@ -249,6 +264,7 @@ describe('refund requests — customer API and gates', () => {
         request: { status: 'PENDING' },
       });
       expect(byId.get(downloaded)).toMatchObject({ eligible: false, request: null });
+      expect(byId.get(regenerated)).toMatchObject({ eligible: false, request: null });
       expect(byId.has(foreign)).toBe(false);
     });
 
@@ -348,14 +364,28 @@ describe('refund requests — customer API and gates', () => {
       expect(await blockedDownloadedAt()).not.toBeNull();
     });
 
-    it('keeps GET /result open so a pending image can still be viewed', async () => {
+    it('serves GET /result while PENDING or REJECTED, 409 REFUND_APPROVED once APPROVED, and keeps the thumbnail open', async () => {
       const { u, jobId } = await pendingJob();
-      const res = await app.inject({
-        method: 'GET',
-        url: `/v1/jobs/${jobId}/result`,
-        headers: u.auth,
-      });
-      expect(res.statusCode).toBe(200);
+      const get = (path: string) =>
+        app.inject({ method: 'GET', url: `/v1/jobs/${jobId}/${path}`, headers: u.auth });
+      const setStatus = (status: string) =>
+        app.db
+          .update(schema.refundRequests)
+          .set({ status })
+          .where(eq(schema.refundRequests.jobId, jobId));
+
+      // PENDING: the customer can still view the image while we decide.
+      expect((await get('result')).statusCode).toBe(200);
+
+      await setStatus('APPROVED');
+      const approved = await get('result');
+      expect(approved.statusCode).toBe(409);
+      expect(approved.json().error.code).toBe('REFUND_APPROVED');
+      // The low-res preview stays so tiles do not turn into broken images.
+      expect((await get('thumbnail')).statusCode).toBe(200);
+
+      await setStatus('REJECTED');
+      expect((await get('result')).statusCode).toBe(200);
     });
   });
 });

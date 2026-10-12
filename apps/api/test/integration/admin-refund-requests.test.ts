@@ -201,6 +201,20 @@ describe('admin refund requests', () => {
       expect(await balance(userId)).toBe(3);
     });
 
+    it('409s ALREADY_REGENERATED without crediting when a child job appeared after filing', async () => {
+      const { request, userId, jobId } = await seedRequest({ credits: 10 });
+      await app.db.insert(schema.jobs).values({ userId, status: 'QUEUED', parentJobId: jobId });
+      await expect(
+        adminApproveRefundRequest(app, request.id, actor(), fakeRequest, {}),
+      ).rejects.toMatchObject({ statusCode: 409, code: 'ALREADY_REGENERATED' });
+      expect(await balance(userId)).toBe(3);
+      const [row] = await app.db
+        .select({ status: schema.refundRequests.status })
+        .from(schema.refundRequests)
+        .where(eq(schema.refundRequests.id, request.id));
+      expect(row.status).toBe('PENDING');
+    });
+
     it('404s for an unknown id', async () => {
       await expect(
         adminApproveRefundRequest(app, randomUUID(), actor(), fakeRequest, {}),

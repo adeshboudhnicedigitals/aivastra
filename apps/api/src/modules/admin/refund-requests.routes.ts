@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { sendRefundDecisionEmail } from '../../lib/mailer.js';
 import { applyRefundTx } from '../credits/ledger.js';
-import { ledgerNetForJob } from '../jobs/refund-requests.js';
+import { hasRegeneratedChild, ledgerNetForJob } from '../jobs/refund-requests.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
@@ -69,6 +69,15 @@ export async function adminApproveRefundRequest(
       .for('update');
     if (job?.status !== 'COMPLETED') {
       throw new AppError('NOT_REFUNDABLE', 409, 'this job is no longer completed');
+    }
+    // Regenerate is free: if one slipped in as the request was filed, the customer
+    // already has a replacement image, so refunding the original would double-dip.
+    if (await hasRegeneratedChild(tx, row.jobId)) {
+      throw new AppError(
+        'ALREADY_REGENERATED',
+        409,
+        'this image was regenerated, so it can no longer be refunded',
+      );
     }
     const net = await ledgerNetForJob(tx, row.jobId, row.userId);
     if (-net < row.credits) {
