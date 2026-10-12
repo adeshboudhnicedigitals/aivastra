@@ -892,6 +892,7 @@ function CataloguesPageInner(): React.ReactElement {
           }
 
           .catalogues-sticky-toolbar {
+            position: static;
             margin: 0 -20px;
             padding: 12px 20px;
           }
@@ -935,6 +936,7 @@ function CataloguesPageInner(): React.ReactElement {
           }
 
           .catalogues-sticky-toolbar {
+            position: static;
             margin: 0 -16px;
             padding: 10px 16px;
           }

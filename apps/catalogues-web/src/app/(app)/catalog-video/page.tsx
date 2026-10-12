@@ -191,25 +191,31 @@ export default function CatalogVideoPage(): React.ReactElement {
 
         @media (max-width: 1023px) {
           .cat-video-main {
-            padding: 16px 20px;
+            /* Extra bottom padding reserves scroll room below Generate so it
+               can be scrolled clear of ChatWidget's fixed bottom-right
+               trigger (56px + 24px offset at this width) instead of ending
+               the page flush under it with nowhere left to scroll. */
+            padding: 16px 20px 96px;
           }
+          /* Stacked: each column sizes to its own content (floored by the
+             panels' own minHeight: 360) instead of each claiming a near-full
+             viewport height — forcing viewport height here meant the second
+             column sat a full screen-scroll below the first on phones/tablets,
+             hiding Generate behind an almost-empty source panel. */
           .cat-video-two-col {
             flex-direction: column;
             height: auto;
           }
           .cat-video-source-col,
           .cat-video-result-col {
-            height: calc(100vh - 76px - 32px);
+            height: auto;
           }
         }
 
         @media (max-width: 639px) {
           .cat-video-main {
-            padding: 12px 16px;
-          }
-          .cat-video-source-col,
-          .cat-video-result-col {
-            height: calc(100vh - 76px - 24px);
+            /* ChatWidget shrinks to 48px + 16px offset below this width. */
+            padding: 12px 16px 88px;
           }
         }
       `}</style>
