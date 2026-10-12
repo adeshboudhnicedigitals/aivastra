@@ -50,7 +50,7 @@ class AppStrings {
 
   // Bottom navigation
   static const navHome = 'Home';
-  static const navMyCreations = 'My Creations';
+  static const navMyCreations = 'Creations';
   static const navProducts = 'Products';
   static const navProfile = 'Profile';
   static const comingSoon = 'Coming soon';

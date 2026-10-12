@@ -24,6 +24,9 @@ class CreditsBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final addSize = AppDimens.sdp(context, '_26sdp');
     final radius = BorderRadius.circular(AppDimens.sdp(context, '_20sdp'));
+    // One inset for all four sides and for the gaps between the elements, so
+    // the content sits evenly inside the pill.
+    final inset = AppDimens.sdp(context, '_6sdp');
 
     return Material(
       color: Colors.transparent,
@@ -32,10 +35,7 @@ class CreditsBadge extends StatelessWidget {
         borderRadius: radius,
         onTap: () => context.push(AppRoutes.plansBilling),
         child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: AppDimens.sdp(context, '_12sdp'),
-            vertical: AppDimens.sdp(context, '_6sdp'),
-          ),
+          padding: EdgeInsets.all(inset),
           decoration: BoxDecoration(
             color: AppColors.fieldFill,
             borderRadius: radius,
@@ -53,7 +53,7 @@ class CreditsBadge extends StatelessWidget {
                   BlendMode.srcIn,
                 ),
               ),
-              SizedBox(width: AppDimens.sdp(context, '_6sdp')),
+              SizedBox(width: inset),
               Text(
                 credits?.toString() ?? '—',
                 style: AppTextStyles.semiBold.copyWith(
@@ -61,7 +61,7 @@ class CreditsBadge extends StatelessWidget {
                   fontSize: AppDimens.ssp(context, '_13ssp'),
                 ),
               ),
-              SizedBox(width: AppDimens.sdp(context, '_14sdp')),
+              SizedBox(width: inset),
               SvgPicture.asset(
                 AppAssets.addCreditsIcon,
                 width: addSize,
