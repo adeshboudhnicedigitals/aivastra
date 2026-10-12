@@ -20,6 +20,8 @@ export const CreditsResponse = z.object({
       delta: z.number().int(),
       reason: z.string(),
       createdAt: z.string(),
+      jobSource: z.string().nullable().optional(),
+      garmentType: z.string().nullable().optional(),
     }),
   ),
 });

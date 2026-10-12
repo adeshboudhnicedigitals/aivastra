@@ -183,8 +183,9 @@ class _ProfilePreferencesPageState
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: AppColors.sheetBackground,
+      backgroundColor: AppColors.sheetFill,
       shape: RoundedRectangleBorder(
+        side: const BorderSide(color: AppColors.sheetBorder),
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(AppDimens.sdp(context, '_20sdp')),
         ),
