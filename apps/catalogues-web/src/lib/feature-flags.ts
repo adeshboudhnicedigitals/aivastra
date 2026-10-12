@@ -9,5 +9,6 @@ export const GOOGLE_DRIVE_ENABLED = false;
 export const REGENERATE_ENABLED = true;
 
 // Refund requests: the "Request refund" button, modal and status chip on completed
-// results. The API and admin page ship with it; flip to true to expose the button.
-export const REFUND_REQUEST_ENABLED = false;
+// results. Always on; the API and admin page ship with it. Set to false only as a kill
+// switch to hide the button without touching the refund logic.
+export const REFUND_REQUEST_ENABLED = true;

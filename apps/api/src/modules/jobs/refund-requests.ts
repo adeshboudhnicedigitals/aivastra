@@ -228,7 +228,9 @@ export async function refundRequestsRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireUser,
       schema: { params: z.object({ id: z.string().uuid() }), body: CreateRefundRequestBody },
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      // The web UI sends one request per ticked image, so a batch refund is many calls in a
+      // row. The unique job_id (one request per job) is the real abuse brake, not this.
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
     async (req, reply) => {
       const { id } = req.params as { id: string };

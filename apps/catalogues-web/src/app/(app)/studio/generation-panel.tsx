@@ -10,6 +10,7 @@ import {
   SpinnerIcon,
   XIcon,
 } from '@/components/icons';
+import { RefundRequestModal } from '@/components/refund-request-modal';
 import { SupportModal } from '@/components/SupportModal';
 import { C } from '@/components/tokens';
 import { PremiumSelect } from '@/components/ui/premium-select';
@@ -24,7 +25,7 @@ import {
   REFUND_REQUEST_ENABLED,
   REGENERATE_ENABLED,
 } from '@/lib/feature-flags';
-import { RefundRequestModal } from './refund-request-modal';
+import { refundChipText } from '@/lib/refund-ui';
 
 // Mirrors FREE_REGENERATE_DAILY_LIMIT in apps/api/src/modules/jobs/regenerate.ts —
 // display-only copy; the actual cap is enforced server-side.
@@ -137,6 +138,7 @@ export function GenerationPanel({
     setStatuses(Object.fromEntries(jobs.map((j) => [j.id, 'QUEUED'])));
     setSelected(0);
     setSelectedJobs(jobs.map((j) => j.id));
+    setRefundChecked([]);
     setFavorites([]);
     setDisplayJobs(jobs);
   }, [jobs]);
@@ -244,11 +246,28 @@ export function GenerationPanel({
   // Refund requests: one batched status lookup for every completed result. The server
   // decides eligibility; a PENDING or APPROVED request also locks Regenerate/Download.
   const refunds = useRefundStatuses(completedIds);
-  const [refundModalJobId, setRefundModalJobId] = useState<string | null>(null);
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+  // Images the customer has ticked for a refund. Starts empty on purpose (unlike
+  // `selectedJobs`): the refund button stays disabled until something is checked.
+  const [refundChecked, setRefundChecked] = useState<string[]>([]);
   const refundBlocks = (jobId: string) => {
     const s = refunds.byJob.get(jobId)?.request?.status;
     return s === 'PENDING' || s === 'APPROVED';
   };
+  // A tick only counts while the server still says the image is refundable (a regenerate
+  // swaps the slot's job id; a decided request flips `eligible`).
+  const refundCheckedItems = displayJobs
+    .filter(
+      (j) =>
+        refundChecked.includes(j.id) &&
+        statuses[j.id] === 'COMPLETED' &&
+        refunds.byJob.get(j.id)?.eligible,
+    )
+    .map((j) => ({ jobId: j.id, label: j.label }));
+  const toggleRefundChecked = (jobId: string) =>
+    setRefundChecked((prev) =>
+      prev.includes(jobId) ? prev.filter((x) => x !== jobId) : [...prev, jobId],
+    );
   const resultQueries = useQueries({
     queries: displayJobs.map((j) => ({
       queryKey: ['job-result', j.id],
@@ -993,36 +1012,65 @@ export function GenerationPanel({
                   : PROCESSING_MESSAGES[activeMessageIndex]}
               </span>
             </div>
-            {!hideDownload && (
+            {(!hideDownload || (REFUND_REQUEST_ENABLED && !onUseImage)) && (
               <div style={{ display: 'flex', gap: 10 }}>
+                {/* Request refund — disabled until at least one refundable image is ticked. */}
+                {REFUND_REQUEST_ENABLED && !onUseImage && (
+                  <button
+                    type="button"
+                    onClick={() => setRefundModalOpen(true)}
+                    disabled={refundCheckedItems.length === 0}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      background: 'transparent',
+                      color: C.text,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 8,
+                      padding: '8px 16px',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: refundCheckedItems.length === 0 ? 'not-allowed' : 'pointer',
+                      opacity: refundCheckedItems.length === 0 ? 0.5 : 1,
+                    }}
+                  >
+                    Request refund
+                    {refundCheckedItems.length > 0 ? ` (${refundCheckedItems.length})` : ''}
+                  </button>
+                )}
                 {/* Download All Button */}
-                <button
-                  type="button"
-                  onClick={handleDownloadAll}
-                  disabled={downloading || displayJobs.every((j) => statuses[j.id] !== 'COMPLETED')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    background: '#141414',
-                    color: '#FEFEFE',
-                    border: 'none',
-                    borderRadius: 8,
-                    padding: '8px 16px',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor:
+                {!hideDownload && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadAll}
+                    disabled={
                       downloading || displayJobs.every((j) => statuses[j.id] !== 'COMPLETED')
-                        ? 'not-allowed'
-                        : 'pointer',
-                    opacity:
-                      downloading || displayJobs.every((j) => statuses[j.id] !== 'COMPLETED')
-                        ? 0.5
-                        : 1,
-                  }}
-                >
-                  <DownloadIcon size={14} /> Download All
-                </button>
+                    }
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      background: '#141414',
+                      color: '#FEFEFE',
+                      border: 'none',
+                      borderRadius: 8,
+                      padding: '8px 16px',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor:
+                        downloading || displayJobs.every((j) => statuses[j.id] !== 'COMPLETED')
+                          ? 'not-allowed'
+                          : 'pointer',
+                      opacity:
+                        downloading || displayJobs.every((j) => statuses[j.id] !== 'COMPLETED')
+                          ? 0.5
+                          : 1,
+                    }}
+                  >
+                    <DownloadIcon size={14} /> Download All
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1125,6 +1173,44 @@ export function GenerationPanel({
                       overflow: 'hidden',
                     }}
                   >
+                    {/* Refund checkbox — only on images the server says are refundable.
+                        Top-right: the top-left corner holds the "Ready" badge. */}
+                    {REFUND_REQUEST_ENABLED &&
+                      !onUseImage &&
+                      isCompleted &&
+                      refunds.byJob.get(job.id)?.eligible && (
+                        <label
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            position: 'absolute',
+                            top: 8,
+                            right: 8,
+                            zIndex: 3,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 26,
+                            height: 26,
+                            borderRadius: 6,
+                            background: 'rgba(255,255,255,0.92)',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${job.label} for a refund request`}
+                            checked={refundChecked.includes(job.id)}
+                            onChange={() => toggleRefundChecked(job.id)}
+                            style={{
+                              width: 16,
+                              height: 16,
+                              cursor: 'pointer',
+                              accentColor: C.pink,
+                            }}
+                          />
+                        </label>
+                      )}
                     {isCompleted && tileUrl ? (
                       <>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1393,24 +1479,23 @@ export function GenerationPanel({
                     )}
                   </div>
 
-                  {REFUND_REQUEST_ENABLED && refunds.byJob.get(job.id)?.request && (
-                    <div
-                      style={{
-                        padding: '6px 10px',
-                        fontSize: 11,
-                        color: C.mid,
-                        borderTop: `1px solid ${C.border}`,
-                      }}
-                    >
-                      {(() => {
-                        const req = refunds.byJob.get(job.id)?.request;
-                        if (!req) return null;
-                        if (req.status === 'PENDING') return 'Refund requested — under review';
-                        if (req.status === 'APPROVED') return 'Refund approved — credits returned';
-                        return `Refund declined${req.adminNote ? `: ${req.adminNote}` : ''}`;
-                      })()}
-                    </div>
-                  )}
+                  {REFUND_REQUEST_ENABLED &&
+                    (() => {
+                      const req = refunds.byJob.get(job.id)?.request;
+                      if (!req) return null;
+                      return (
+                        <div
+                          style={{
+                            padding: '6px 10px',
+                            fontSize: 11,
+                            color: C.mid,
+                            borderTop: `1px solid ${C.border}`,
+                          }}
+                        >
+                          {refundChipText(req)}
+                        </div>
+                      );
+                    })()}
 
                   {/* Actions row — below the image, not overlaid on top of it.
                       Order: Regenerate (or Use this, in embedded contexts) first, then Download,
@@ -1483,37 +1568,6 @@ export function GenerationPanel({
                           <RegenerateIcon size={16} />
                           <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
                             Regenerate
-                          </span>
-                        </button>
-                      )}
-                    {REFUND_REQUEST_ENABLED &&
-                      !onUseImage &&
-                      isCompleted &&
-                      resultUrl &&
-                      refunds.byJob.get(job.id)?.eligible && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRefundModalJobId(job.id);
-                          }}
-                          style={{
-                            flex: 1,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: 3,
-                            minWidth: 0,
-                            padding: '8px 2px',
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: C.mid,
-                          }}
-                        >
-                          <span style={{ fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            Request refund
                           </span>
                         </button>
                       )}
@@ -1779,12 +1833,13 @@ export function GenerationPanel({
         />
       )}
 
-      {REFUND_REQUEST_ENABLED && refundModalJobId && (
+      {REFUND_REQUEST_ENABLED && refundModalOpen && (
         <RefundRequestModal
-          jobId={refundModalJobId}
-          onClose={() => setRefundModalJobId(null)}
-          onSubmitted={() => {
-            setRefundModalJobId(null);
+          items={refundCheckedItems}
+          onClose={() => setRefundModalOpen(false)}
+          onDone={(sentJobIds) => {
+            setRefundModalOpen(false);
+            setRefundChecked((prev) => prev.filter((id) => !sentJobIds.includes(id)));
             void refunds.refetch();
           }}
         />
