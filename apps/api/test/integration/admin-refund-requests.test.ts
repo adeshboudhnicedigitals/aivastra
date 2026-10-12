@@ -58,6 +58,10 @@ describe('admin refund requests', () => {
       .insert(schema.jobs)
       .values({ userId: user.id, status: 'COMPLETED', creditsCharged: credits })
       .returning();
+    // The debit atomicDeduct wrote: approval re-checks the ledger before crediting.
+    await app.db
+      .insert(schema.creditLedger)
+      .values({ userId: user.id, jobId: job.id, delta: -credits, reason: 'JOB_DISPATCH' });
     await app.db.insert(schema.jobOutputs).values({
       jobId: job.id,
       resultKey: `outputs/${job.id}.png`,
@@ -105,10 +109,67 @@ describe('admin refund requests', () => {
       const ledger = await app.db
         .select()
         .from(schema.creditLedger)
-        .where(eq(schema.creditLedger.jobId, jobId));
+        .where(
+          and(
+            eq(schema.creditLedger.jobId, jobId),
+            eq(schema.creditLedger.reason, 'REFUND_USER_REQUEST'),
+          ),
+        );
       expect(ledger).toHaveLength(1);
       expect(ledger[0]).toMatchObject({ reason: 'REFUND_USER_REQUEST', delta: 10 });
-      expect(await audit(request.id, 'refund_request.approve')).toHaveLength(1);
+      const [auditRow] = await audit(request.id, 'refund_request.approve');
+      expect(auditRow.after).toMatchObject({ adminNote: 'confirmed' });
+    });
+
+    it('stores and audits an empty note as null', async () => {
+      const { request } = await seedRequest();
+      await adminApproveRefundRequest(app, request.id, actor(), fakeRequest, { adminNote: '' });
+      const [row] = await app.db
+        .select({ adminNote: schema.refundRequests.adminNote })
+        .from(schema.refundRequests)
+        .where(eq(schema.refundRequests.id, request.id));
+      expect(row.adminNote).toBeNull();
+      const [auditRow] = await audit(request.id, 'refund_request.approve');
+      expect((auditRow.after as { adminNote: unknown }).adminNote).toBeNull();
+    });
+
+    it('409s NOT_REFUNDABLE without crediting when another path already refunded the job', async () => {
+      const { request, userId, jobId } = await seedRequest({ credits: 10 });
+      // An admin cancel landed after the request was filed and returned the debit.
+      await app.db
+        .insert(schema.creditLedger)
+        .values({ userId, jobId, delta: 10, reason: 'REFUND_ADMIN_CANCEL' });
+      await expect(
+        adminApproveRefundRequest(app, request.id, actor(), fakeRequest, {}),
+      ).rejects.toMatchObject({ statusCode: 409, code: 'NOT_REFUNDABLE' });
+      expect(await balance(userId)).toBe(3);
+      const userRefunds = await app.db
+        .select()
+        .from(schema.creditLedger)
+        .where(
+          and(
+            eq(schema.creditLedger.jobId, jobId),
+            eq(schema.creditLedger.reason, 'REFUND_USER_REQUEST'),
+          ),
+        );
+      expect(userRefunds).toHaveLength(0);
+    });
+
+    it('409s NOT_REFUNDABLE without crediting when the job is no longer COMPLETED', async () => {
+      const { request, userId, jobId } = await seedRequest({ credits: 10 });
+      await app.db
+        .update(schema.jobs)
+        .set({ status: 'CANCELLED' })
+        .where(eq(schema.jobs.id, jobId));
+      await expect(
+        adminApproveRefundRequest(app, request.id, actor(), fakeRequest, {}),
+      ).rejects.toMatchObject({ statusCode: 409, code: 'NOT_REFUNDABLE' });
+      expect(await balance(userId)).toBe(3);
+      const [row] = await app.db
+        .select({ status: schema.refundRequests.status })
+        .from(schema.refundRequests)
+        .where(eq(schema.refundRequests.id, request.id));
+      expect(row.status).toBe('PENDING');
     });
 
     it('credits exactly once under two concurrent approvals', async () => {
@@ -179,7 +240,9 @@ describe('admin refund requests', () => {
         .select()
         .from(schema.creditLedger)
         .where(eq(schema.creditLedger.jobId, jobId));
-      expect(ledger).toHaveLength(0);
+      // Only the seeded debit — rejection writes nothing.
+      expect(ledger).toHaveLength(1);
+      expect(ledger[0].reason).toBe('JOB_DISPATCH');
       const [row] = await app.db
         .select()
         .from(schema.refundRequests)

@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { sendRefundDecisionEmail } from '../../lib/mailer.js';
 import { applyRefundTx } from '../credits/ledger.js';
+import { ledgerNetForJob } from '../jobs/refund-requests.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
@@ -56,6 +57,29 @@ export async function adminApproveRefundRequest(
       );
     }
 
+    // Re-verify against the job and the ledger, under the job lock that admin-cancel
+    // refunds also take: between filing and now the job may have been cancelled, or
+    // another path (REFUND_ADMIN_CANCEL, JOB_FAIL_REFUND, JOB_CANCEL_REFUND) may have
+    // already returned these credits. The (job_id, reason) unique index only stops a
+    // second REFUND_USER_REQUEST, not a refund under a different reason.
+    const [job] = await tx
+      .select({ status: schema.jobs.status })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, row.jobId))
+      .for('update');
+    if (job?.status !== 'COMPLETED') {
+      throw new AppError('NOT_REFUNDABLE', 409, 'this job is no longer completed');
+    }
+    const net = await ledgerNetForJob(tx, row.jobId, row.userId);
+    if (-net < row.credits) {
+      throw new AppError(
+        'NOT_REFUNDABLE',
+        409,
+        'credits for this job were already refunded or were never charged',
+      );
+    }
+
+    const adminNote = body.adminNote || null;
     const applied = await applyRefundTx(
       tx,
       row.userId,
@@ -70,7 +94,7 @@ export async function adminApproveRefundRequest(
       .update(R)
       .set({
         status: 'APPROVED',
-        adminNote: body.adminNote || null,
+        adminNote,
         reviewedBy: actor.userId,
         reviewedAt: now,
       })
@@ -82,7 +106,7 @@ export async function adminApproveRefundRequest(
       resourceType: 'refund_requests',
       resourceId: id,
       before: { status: 'PENDING' },
-      after: { status: 'APPROVED', credits: row.credits, adminNote: body.adminNote ?? null },
+      after: { status: 'APPROVED', credits: row.credits, adminNote },
       request,
     });
     return { id, status: 'APPROVED' as const, credits: row.credits, userId: row.userId };

@@ -39,17 +39,30 @@ describe('refund requests — customer API and gates', () => {
       creditsCharged?: number;
       downloadedAt?: Date | null;
       shopifyStoreId?: string;
+      // The ledger row the charge wrote. Defaults to the debit atomicDeduct writes
+      // for creditsCharged; null skips it (a free job writes nothing to refund).
+      ledger?: { delta: number; reason: string } | null;
     } = {},
   ) {
+    const creditsCharged = o.creditsCharged ?? 10;
     const [job] = await app.db
       .insert(schema.jobs)
       .values({
         userId,
         status: o.status ?? 'COMPLETED',
-        creditsCharged: o.creditsCharged ?? 10,
+        creditsCharged,
         shopifyStoreId: o.shopifyStoreId,
       })
       .returning();
+    const ledger =
+      o.ledger === undefined
+        ? creditsCharged > 0
+          ? { delta: -creditsCharged, reason: 'JOB_DISPATCH' }
+          : null
+        : o.ledger;
+    if (ledger) {
+      await app.db.insert(schema.creditLedger).values({ userId, jobId: job.id, ...ledger });
+    }
     await app.db.insert(schema.jobInputs).values({ jobId: job.id, upperGarmentKey: 'x' });
     await app.db.insert(schema.jobOutputs).values({
       jobId: job.id,
@@ -129,6 +142,35 @@ describe('refund requests — customer API and gates', () => {
       const res = await post(jobId, u.auth, { reasonCode: 'OTHER' });
       expect(res.statusCode).toBe(409);
       expect(res.json().error.code).toBe('NOT_REFUNDABLE');
+    });
+
+    it('409s for an unlimited-plan job: creditsCharged is set but the ledger debited 0', async () => {
+      const u = await registerUser('unlimited');
+      const jobId = await seedJob(u.userId, {
+        creditsCharged: 10,
+        ledger: { delta: 0, reason: 'UNLIMITED_PLAN_USAGE' },
+      });
+      const res = await post(jobId, u.auth, { reasonCode: 'OTHER' });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe('NOT_REFUNDABLE');
+
+      const status = await app.inject({
+        method: 'GET',
+        url: `/v1/jobs/refund-status?jobIds=${jobId}`,
+        headers: u.auth,
+      });
+      expect(status.json().items).toEqual([{ jobId, eligible: false, request: null }]);
+    });
+
+    it('snapshots the ledger debit, not creditsCharged, when they differ', async () => {
+      const u = await registerUser('ledger-amount');
+      const jobId = await seedJob(u.userId, {
+        creditsCharged: 10,
+        ledger: { delta: -7, reason: 'JOB_DISPATCH' },
+      });
+      const res = await post(jobId, u.auth, { reasonCode: 'OTHER' });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().credits).toBe(7);
     });
 
     it('409s for a Shopify store job', async () => {
@@ -260,13 +302,18 @@ describe('refund requests — customer API and gates', () => {
         .update(schema.refundRequests)
         .set({ status: 'REJECTED' })
         .where(eq(schema.refundRequests.jobId, jobId));
-      // Past the refund gate. No regeneration template is seeded here, so it stops at
-      // the config check — the point is that it is no longer REFUND_REQUESTED.
+      // REJECTED releases the job. Migration 0184 seeds an active regeneration workflow
+      // into every fresh database, so the regeneration goes all the way through.
       const after = await regen();
-      expect(after.json().error?.code).not.toBe('REFUND_REQUESTED');
+      expect(after.statusCode).toBe(201);
+      const children = await app.db
+        .select({ id: schema.jobs.id })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.parentJobId, jobId));
+      expect(children).toHaveLength(1);
     });
 
-    it('blocks the download while PENDING without stamping downloadedAt, and allows it after REJECTED', async () => {
+    it('blocks the download while PENDING and APPROVED without stamping downloadedAt, and allows it after REJECTED', async () => {
       const { u, jobId } = await pendingJob();
       const download = () =>
         app.inject({ method: 'POST', url: `/v1/jobs/${jobId}/download`, headers: u.auth });
@@ -281,6 +328,16 @@ describe('refund requests — customer API and gates', () => {
       const blocked = await download();
       expect(blocked.statusCode).toBe(409);
       expect(blocked.json().error.code).toBe('REFUND_REQUESTED');
+      expect(await blockedDownloadedAt()).toBeNull();
+
+      // Approved credits went back, so the image stays locked for good.
+      await app.db
+        .update(schema.refundRequests)
+        .set({ status: 'APPROVED' })
+        .where(eq(schema.refundRequests.jobId, jobId));
+      const approved = await download();
+      expect(approved.statusCode).toBe(409);
+      expect(approved.json().error.code).toBe('REFUND_REQUESTED');
       expect(await blockedDownloadedAt()).toBeNull();
 
       await app.db

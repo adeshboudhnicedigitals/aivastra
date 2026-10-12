@@ -1,12 +1,13 @@
-import type { DB } from '@aivastra/db';
+import type { DB, DbTransaction } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { CreateRefundRequestBody } from '@aivastra/types';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 
 const R = schema.refundRequests;
+const L = schema.creditLedger;
 const ACTIVE_STATUSES = ['PENDING', 'APPROVED'];
 const MAX_STATUS_IDS = 50;
 
@@ -27,19 +28,47 @@ export async function hasActiveRefundRequest(db: DB, jobId: string): Promise<boo
 }
 
 /**
+ * Net credits the ledger shows for (job, user): the debit plus any refunds already
+ * written against it. Negative means credits are still out of the user's balance.
+ * This — not jobs.creditsCharged — is what a refund may return: an unlimited-plan job
+ * keeps its plan cost in creditsCharged but writes a delta-0 ledger row, and a job an
+ * admin cancel or the dispatcher already refunded nets back to zero.
+ */
+export async function ledgerNetForJob(
+  db: DB | DbTransaction,
+  jobId: string,
+  userId: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ net: sql<number>`coalesce(sum(${L.delta}), 0)::int` })
+    .from(L)
+    .where(and(eq(L.jobId, jobId), eq(L.userId, userId)));
+  return row?.net ?? 0;
+}
+
+/**
  * Single source of truth for "can this job be refund-requested", shared by the
  * create route (which throws) and the status route (which reports a boolean) so
- * the button and the server can never disagree. Null means eligible.
+ * the button and the server can never disagree. `ledgerNet` is the job's net ledger
+ * delta for its owner (see `ledgerNetForJob`). Null means eligible.
  */
 export function refundIneligibility(
   job: JobRow,
   downloadedAt: Date | null,
   hasRequest: boolean,
+  ledgerNet: number,
 ): { code: string; message: string } | null {
   if (job.status !== 'COMPLETED') return { code: 'NOT_READY', message: 'job not complete' };
-  // Free regenerations and unlimited-plan jobs charge 0 — there is nothing to return.
+  // Free regenerations charge 0, unlimited-plan jobs debit 0 in the ledger, and a job
+  // already refunded by another path nets to 0 — there is nothing to return.
   // Merchant, API-key and Shopify jobs bill a different balance than the user's.
-  if (job.creditsCharged <= 0 || job.merchantId || job.apiKeyId || job.shopifyStoreId) {
+  if (
+    job.creditsCharged <= 0 ||
+    ledgerNet >= 0 ||
+    job.merchantId ||
+    job.apiKeyId ||
+    job.shopifyStoreId
+  ) {
     return { code: 'NOT_REFUNDABLE', message: 'this job has no refundable credits' };
   }
   if (downloadedAt) {
@@ -75,8 +104,9 @@ export async function createRefundRequest(
       .from(schema.jobOutputs)
       .where(eq(schema.jobOutputs.jobId, jobId));
     const [existing] = await tx.select({ id: R.id }).from(R).where(eq(R.jobId, jobId)).limit(1);
+    const net = await ledgerNetForJob(tx, jobId, userId);
 
-    const problem = refundIneligibility(job, output?.downloadedAt ?? null, !!existing);
+    const problem = refundIneligibility(job, output?.downloadedAt ?? null, !!existing, net);
     if (problem) throw new AppError(problem.code, 409, problem.message);
 
     const [row] = await tx
@@ -84,7 +114,8 @@ export async function createRefundRequest(
       .values({
         jobId,
         userId,
-        credits: job.creditsCharged,
+        // What the ledger actually took, not the job's list price.
+        credits: -net,
         reasonCode: body.reasonCode,
         note: body.note || null,
       })
@@ -114,12 +145,22 @@ export async function getRefundStatuses(app: FastifyInstance, userId: string, jo
   const owned = jobs.map((j) => j.job.id);
   const requests = owned.length ? await app.db.select().from(R).where(inArray(R.jobId, owned)) : [];
   const byJob = new Map(requests.map((r) => [r.jobId, r]));
+  // One grouped query for every owned job's net, not one per job.
+  const nets = owned.length
+    ? await app.db
+        .select({ jobId: L.jobId, net: sql<number>`coalesce(sum(${L.delta}), 0)::int` })
+        .from(L)
+        .where(and(inArray(L.jobId, owned), eq(L.userId, userId)))
+        .groupBy(L.jobId)
+    : [];
+  const netByJob = new Map(nets.map((n) => [n.jobId, n.net]));
 
   return jobs.map(({ job, downloadedAt }) => {
     const req = byJob.get(job.id);
+    const net = netByJob.get(job.id) ?? 0;
     return {
       jobId: job.id,
-      eligible: refundIneligibility(job, downloadedAt ?? null, !!req) === null,
+      eligible: refundIneligibility(job, downloadedAt ?? null, !!req, net) === null,
       request: req
         ? {
             status: req.status,
