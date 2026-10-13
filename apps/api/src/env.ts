@@ -147,6 +147,31 @@ const Env = z.object({
       .regex(/^\d{8,15}$/)
       .optional(),
   ),
+  // WhatsApp Cloud API (spec section 16). The token and app secret are secrets:
+  // never log them. Blank lines in .env must not crash startup.
+  WHATSAPP_PHONE_NUMBER_ID: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().regex(/^\d+$/).optional(),
+  ),
+  WHATSAPP_ACCESS_TOKEN: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(20).optional(),
+  ),
+  WHATSAPP_APP_SECRET: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(16).optional(),
+  ),
+  WHATSAPP_VERIFY_TOKEN: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(16).optional(),
+  ),
+  WHATSAPP_GRAPH_VERSION: z
+    .string()
+    .regex(/^v\d+\.\d+$/)
+    .default('v25.0'),
+  // Approved utility template sent when results finish after the 24-hour window
+  // closed (D26). Unset = such results simply wait for the seller's next message.
+  WHATSAPP_RESULTS_TEMPLATE: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
   // WhatsApp bot garment recognition on our own GPU (spec 8a). Off: the bot
   // always shows the garment-type list — the state until the dispatcher's
   // classify lane ships, and the way back if recognition isn't good enough.
