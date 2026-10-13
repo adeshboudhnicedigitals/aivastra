@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { getResolutionTierConfig } from '../../lib/resolution-config.js';
 import { listCatalogueTemplates, listFaces, listGarmentTypes } from '../models/queries.js';
 import { recognizeGarment, recordRecognitionCorrected } from './classify.js';
 import type {
@@ -14,7 +15,9 @@ import type {
 import { createRun, quoteRun, runProgress } from './runs.js';
 
 const ASPECTS = new Set(['1:1', '2:3', '3:4', '4:5']);
-const RESOLUTIONS = new Set(['HD', '2K', '4K']);
+// Cheapest first: the fallback when the seller's own default tier is switched off.
+const RESOLUTION_ORDER: Resolution[] = ['HD', '2K', '4K'];
+const RESOLUTIONS = new Set<string>(RESOLUTION_ORDER);
 
 /** Real EngineDeps: every option list is the studio's own query (models/queries.ts). */
 export function createEngineDeps(app: FastifyInstance): EngineDeps {
@@ -30,9 +33,23 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
         })
         .from(schema.users)
         .where(eq(schema.users.id, userId));
+      const preferred = (RESOLUTIONS.has(u?.resolution ?? '') ? u?.resolution : 'HD') as Resolution;
+      // The studio only offers enabled tiers; the bot has no picker, so it must not
+      // send one the create path will reject. HD is off out of the box
+      // (DEFAULT_RESOLUTION_CONFIG) while users default to HD — without this every
+      // bot job failed with 'resolution "HD" is not currently enabled'.
+      let resolution = preferred;
+      if (!(await getResolutionTierConfig(app, preferred)).enabled) {
+        for (const r of RESOLUTION_ORDER) {
+          if ((await getResolutionTierConfig(app, r)).enabled) {
+            resolution = r;
+            break;
+          }
+        }
+      }
       return {
         aspectRatio: (ASPECTS.has(u?.aspect ?? '') ? u?.aspect : '1:1') as AspectRatio,
-        resolution: (RESOLUTIONS.has(u?.resolution ?? '') ? u?.resolution : 'HD') as Resolution,
+        resolution,
       };
     },
 

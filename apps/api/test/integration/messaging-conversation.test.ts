@@ -226,4 +226,26 @@ describe('messaging conversation (real deps)', () => {
     expect(runs).toHaveLength(1);
     expect(await balanceOf(userId)).toBe(95);
   });
+
+  it("falls back to an enabled resolution when the seller's default tier is disabled", async () => {
+    // HD is off out of the box (DEFAULT_RESOLUTION_CONFIG) and users default to HD,
+    // so without the fallback every bot job failed with 'resolution "HD" is not
+    // currently enabled'. Restore this file's HD-on config afterwards.
+    const saved = await app.redis.get('config:system');
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ resolutions: { HD: { enabled: false, creditCost: 5, longEdgePx: 1536 } } }),
+    );
+    try {
+      const { userId } = await createVerifiedUserToken(app, `wa-res-${Date.now()}@example.com`);
+      await app.db
+        .update(schema.users)
+        .set({ defaultResolution: 'HD' })
+        .where(eq(schema.users.id, userId));
+      const defaults = await createEngineDeps(app).getUserDefaults(userId);
+      expect(defaults.resolution).toBe('2K');
+    } finally {
+      if (saved) await app.redis.set('config:system', saved);
+    }
+  });
 });
