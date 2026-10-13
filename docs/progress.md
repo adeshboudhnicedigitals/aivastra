@@ -2,6 +2,37 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-13 — WhatsApp catalog bot plan 1: connect and identity (implemented, off everywhere)
+
+- **Done:** seller can connect a WhatsApp number to their web account from either direction,
+  on branch `feat/whatsapp-bot-1-connect-identity` (unmerged). `messaging_accounts` table
+  (migration `0224_wakeful_ink`: `(channel, external_id)` unique, FK to `users` with
+  `ON DELETE CASCADE`) plus `@aivastra/types` messaging shapes; `apps/api` identity helpers
+  (E.164/mask/profile-hint helpers, chat tokens TTL 30 min + web codes TTL 10 min as
+  SHA-256-hashed Redis keys redeemed with `GETDEL`, `connectAccount` insert-first for
+  `NUMBER_IN_USE`) and authenticated routes `GET /v1/messaging/accounts`,
+  `DELETE /v1/messaging/accounts/:id`, `POST /v1/messaging/connect/web-code`,
+  `POST /v1/messaging/connect/chat/preview|confirm`; catalogues-web `/connect/whatsapp`
+  confirm page with the approved consent wording (spec section 14, verbatim), WhatsApp
+  section in Settings (connect via `wa.me` + `CONNECT <code>`, list, disconnect) and a
+  studio status chip. Spec deviation recorded in the spec itself (D32, section 12, T4):
+  connect tokens live in Redis, not the spec's `messaging_connect_tokens` Postgres table.
+- **Verified 2026-10-13 (all re-run for this entry):**
+  `npx vitest run test/messaging-identity.test.ts` (from `apps/api`) — 13 passed;
+  `npx vitest run --config vitest.integration.config.ts messaging-connect` — 10 passed;
+  `pnpm --filter @aivastra/api test` — 92 files / 836 passed;
+  `pnpm --filter @aivastra/api typecheck` exit 0, `pnpm --filter @aivastra/api lint`
+  40 warnings / 0 errors; `pnpm --filter @aivastra/web typecheck` exit 0,
+  `pnpm --filter @aivastra/web lint` exit 0 (87 warnings, none in the new WhatsApp files);
+  root `pnpm typecheck` exit 0.
+- **Rollout:** both env vars (`MESSAGING_WHATSAPP_ENABLED`, `WHATSAPP_DISPLAY_NUMBER`) must
+  be set per environment and are **off** everywhere until plan 3 ships (inbound consumer,
+  `CONNECT <code>` redemption, STOP/START, delivery). Migration is additive; production
+  change only via push → CI/CD → `db:migrate:prod`.
+- **Not run:** browser pixel checks for the connect page / Settings panel / studio chip
+  (no browser automation available); manual flows per plan Tasks 4–5 Step 7 still to be
+  done by hand. No production commands run.
+
 ## 2026-10-13 — WhatsApp catalog bot: Meta developer app created (dashboard state, not in repo)
 
 - **Done:** Meta developer app **Aivastra Catalog Bot**, App ID `28674690505558878`, created

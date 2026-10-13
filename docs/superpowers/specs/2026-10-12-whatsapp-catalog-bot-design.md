@@ -99,6 +99,7 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D29 | Profile mobile number vs WhatsApp number | Kept separate. The profile number is only a hint: the connect step is always required, and the page says whether the WhatsApp number matches the one on the account (section 7). A match never connects a number by itself. |
 | D30 | Amazon white-background rule on the web | Removed, logic only: the api's background override for `platform: 'Amazon'` and the studio's "main listing" mode with its main-image picker. The admin "white background" tag and its column stay, so there is no migration. This is its own change, shipped separately from the bot. |
 | D31 | Garment types | Every garment type the standard try-on flow serves, including lower-only types (jeans and similar) and types that need a second, third or optional fourth photo. The bot follows the studio's rules for which upload goes into which slot (section 8). Only types flagged `requiresMannequinStep` (the two-step saree flow) stay deferred (D16). **Narrowed by D46 and D47:** the optional fourth photo is not asked for, and a type needs a catalogue template to be offered. |
+| D32 | Connect tokens storage | Redis `SET EX` + `GETDEL`, not a Postgres table: atomic single use and expiry, no sweeper, matches the WordPress connect flow. The durable record is the `messaging_accounts` row. Chat tokens live 30 minutes so a seller can register and verify their email first. |
 | D28 | Success metric | Main: catalog images generated from WhatsApp per week. Adoption: share of web users who connect a number. Both come from data the design already records (`job_inputs.params.channel`, `messaging_accounts`). |
 | D40 | Catalog flow (management, 2026-10-13) | Five steps: (1) garment photo, (2) the garment is recognised automatically, (3) "Create catalogue for" Women / Men / Boys / Girls, (4) how many poses, (5) pick the poses; generation starts on the last pick. Gender is asked first and recognition runs after it: garment types are defined per gender (`garment_subcategories.gender_slug` is NOT NULL), so the model chooses only among that gender's types, a much shorter list (section 8a). |
 | D41 | Garment recognition | Our own Qwen2.5-VL on our GPU workers, as a classify-only ComfyUI workflow run by the dispatcher (section 8a). The result is shown as "Detected: <type>" with a way to change it. If it is slow, fails, or names no type we have, the bot shows the garment-type list instead. If it causes problems or delay in production (thresholds in section 8a), it moves to a hosted vision API behind the same interface. |
@@ -679,21 +680,15 @@ messaging_accounts                         -- one row per (channel, sender)
   user_id          uuid → users.id (ON DELETE CASCADE)
   opted_in_at      timestamptz
   opted_out_at     timestamptz NULL  -- set when the user blocks the bot / sends STOP
-  last_inbound_at  timestamptz       -- 24-hour window check before any free-form send
+  last_inbound_at  timestamptz NULL  -- 24-hour window check before any free-form send
   linked_via       text  ('chat_link' | 'web_code')
   created_at / updated_at
   UNIQUE (channel, external_id)
 
-messaging_connect_tokens                   -- one-time connect tokens, both directions
-  id               uuid pk
-  channel          text
-  origin           text  ('chat' | 'web')
-  external_id      text NULL   -- set when origin='chat': the number asking to connect
-  user_id          uuid NULL → users.id   -- set when origin='web': the logged-in user
-  token_hash       text  (sha256 of the link token or the short code)
-  expires_at       timestamptz (~10 min)
-  used_at          timestamptz NULL
-  created_at
+Connect tokens and codes are not a table. They live in Redis (plan 1, D32):
+  msg:connect:chat:{sha256(token)}  → { channel, externalId }   TTL 30 min, redeemed with GETDEL
+  msg:connect:web:{sha256(code)}    → { userId }                TTL 10 min, redeemed with GETDEL
+Same pattern as the WordPress connect flow (modules/merchant/wordpress-shared.ts).
 
 jobs.channel_delivered_at   timestamptz NULL   -- set once the result is sent to the chat
 job_inputs.params.channel = 'whatsapp'         -- JSONB, no migration
@@ -896,9 +891,7 @@ numbers. If they do not, they need a line added before launch. No legal review w
   service window are free.
 - **T3.** Confirm Meta can fetch result and thumbnail images from our MinIO public URL
   (`app.aivastra.com/minio/…`) or presigned URLs, or whether we must upload media to Meta first.
-- **T4.** Decide where the connect confirmation page (`/connect/whatsapp`) and the Settings
-  "Connect WhatsApp" section live in `apps/catalogues-web`, and make sure a seller who has to
-  register (and verify their email) lands back on the confirmation page with the token intact.
+- **T4.** Closed. `/connect/whatsapp` sits outside `(app)` like `/connect/wordpress`; the middleware sends logged-out sellers to login with `next`, and registration carries it across email verification as `pending_next` (same tab only). WhatsApp settings live in Settings → Profile Details; the studio has a status chip (D27).
 - **T5.** Closed. The audit of code paths that assume `users.email` is set is no longer needed,
   because the bot creates no accounts.
 - **T6.** Choose the WhatsApp message-ID dedupe TTL and the per-sender rate limit values.
