@@ -81,14 +81,16 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D18 | Help | A contact link in v1. Opening a support ticket from the chat is deferred. |
 | D19 | Launch audience | No closed pilot. The feature flag is the only gate; testing happens on the test number before launch. |
 | D20 | Phone numbers | Development and staging on Meta's test number. Launch on a new dedicated number (being obtained), not a migrated existing one. |
-| D21 | Consent and opt-out | The bot carries consent wording and STOP handling. Draft wording is in section 14; it needs approval (Q8). |
+| D21 | Consent and opt-out | The bot carries consent wording and STOP handling. The wording in section 14 was approved on 2026-10-13. |
 | D22 | Back-view poses | Supported. When a chosen pose or template look is a back view, the bot asks for a second photo, of the garment's back. |
-| D23 | Amazon white background | The bot does not apply it. It never sends `platform: 'Amazon'` to the create path, so a seller who picks Amazon gets the 1:1 aspect ratio with the background they chose. Removing the rule from the web studio and the api as well was raised on 2026-10-13 and is a separate change, not part of this spec (Q12). |
+| D23 | Amazon white background | The bot does not apply it. It never sends `platform: 'Amazon'` to the create path, so a seller who picks Amazon gets the 1:1 aspect ratio with the background they chose. The rule is also being removed from the web app (D30). |
 | D24 | Template looks | A ready-made run generates every look of the template. Unticking individual looks stays on the web; a seller who wants fewer images uses "Create your own". |
-| D25 | Meta onboarding owner | Taken on by the reviewer who answered on 2026-10-13 (name to be filled in): starts the Business Portfolio and business verification. |
+| D25 | Meta onboarding owner | Ram Kumar starts the Business Portfolio and business verification. |
 | D26 | Template message budget | No monthly cap and no proactive or marketing messages in v1. The only message the bot starts on its own is "Your catalog images are ready", once per run. |
 | D27 | Connection status on the web | The studio shows whether a WhatsApp number is connected, with the connect / disconnect action. |
 | D29 | Profile mobile number vs WhatsApp number | Kept separate. The profile number is only a hint: the connect step is always required, and the page says whether the WhatsApp number matches the one on the account (section 7). A match never connects a number by itself. |
+| D30 | Amazon white-background rule on the web | Removed, logic only: the api's background override for `platform: 'Amazon'` and the studio's "main listing" mode with its main-image picker. The admin "white background" tag and its column stay, so there is no migration. This is its own change, shipped separately from the bot. |
+| D31 | Garment types | Every garment type the standard try-on flow serves, including lower-only types (jeans and similar). The bot follows the studio's rules for which upload goes into which slot (section 8). Types that need the saree / mannequin step stay deferred with that flow (D16). |
 | D28 | Success metric | Main: catalog images generated from WhatsApp per week. Adoption: share of web users who connect a number. Both come from data the design already records (`job_inputs.params.channel`, `messaging_accounts`). |
 
 ## 4. Meta platform setup
@@ -306,7 +308,7 @@ Both directions are built (D15). They share one token table and end in the same
    `/connect/whatsapp?t=<token>`. The token is bound to the phone number, not to any user.
 2. The seller opens it and logs in normally. A seller with no account registers first (including
    the normal email verification) and is returned to the same page afterwards.
-3. The page shows "Connect WhatsApp +91… to this account?" with the consent wording (Q8) and
+3. The page shows "Connect WhatsApp +91… to this account?" with the consent wording (section 14) and
    whether the number matches the mobile number on the account (D29). On
    confirm, the `messaging_accounts` row is created and the bot sends "Connected" plus the main
    menu.
@@ -401,6 +403,18 @@ How this maps onto the existing create path (`CreateTryOnJobInputs`, `packages/t
 - A back-view pose needs `upperGarmentBackKey`; without it the create path rejects the whole
   request ("back-view upper garment required for this pose"). So the back photo is asked for
   before CONFIRM, never discovered as an error after it.
+- **Lower-only garment types** (D31). When every selected pose or look has a lower slot and no
+  upper slot, the seller's one photo is the lower garment. The studio's rule
+  (`lowerOnly` in `studio/page.tsx`) is mirrored: the same key is sent as both
+  `upperGarmentKey` (the schema requires it; the api drops it for these poses) and
+  `lowerGarmentKey`; a back-view lower-only pose takes the back photo as `lowerGarmentBackKey`
+  instead; and the PICK_LOWER step is skipped, because the upload *is* the lower.
+- Garment types flagged `requiresLowerUpload` need a second upload for the lower garment rather
+  than a catalog pick. The bot asks for it at the PICK_LOWER step ("Send a photo of the lower
+  garment").
+- These slot rules are derived from pose and garment-type flags the api already returns. They
+  are implemented once in the engine and covered by unit tests against the same cases the studio
+  handles, so the two cannot drift silently.
 - The bot calls `createJob(app, userId, body)` directly — it takes no request object — wrapped in
   the same `withIdempotency` helper the route uses, keyed on the Meta message ID of the
   `[Generate]` tap, and then calls `updateLastUsedPosePreset` as the route does. A duplicate
@@ -585,7 +599,7 @@ which user) asked to connect.
   erasure must delete that row. Consent is shown on the connect confirmation page and STOP is
   honoured in the chat (D21).
 
-### Consent and opt-out wording (draft, not approved — Q8)
+### Consent and opt-out wording (approved 2026-10-13)
 
 All of this text lives in `engine/copy.ts` and the connect page, so changing it later is a copy
 edit, not a code change.
@@ -701,21 +715,17 @@ Question numbers are kept from the first draft so earlier notes still line up.
 | Q7 Free-trial guard | Same trial as web. Moot for the bot, which grants nothing. | D12 |
 | Q9 Help | Contact link in v1; ticket handoff is not a v1 priority. | D18 |
 | Q10 Launch audience | No closed pilot. | D19 |
-| Q3 Meta onboarding owner | Owner confirmed (name to be filled in). | D25 |
+| Q3 Meta onboarding owner | Ram Kumar. | D25 |
 | Q5 Template budget | No monthly cap; no proactive messages. | D26 |
 | Q11 Success metric | Generations from WhatsApp per week; connected share as the adoption number. | D28 |
+| Q8 Consent wording | The draft in section 14 is approved. | D21 |
+| Q12 Amazon rule on the web | Remove the logic; keep the admin tag. | D30 |
 
 ### Still open — for management (business / product)
 
-- **Q8. Consent and opt-out wording.** A draft is in section 14. Two things are open: approval of
-  the text, and whether legal review is wanted (e.g. India's DPDP Act). The existing
-  `/privacy` and `/terms` pages have not been checked for whether they already cover WhatsApp
-  messaging and phone numbers; if they do not, they need a line added.
-- **Q12. Removing the Amazon white-background rule from the web app.** Today the api swaps the
-  background for the admin-tagged white one when the studio sends `platform: 'Amazon'`
-  ("main listing" mode), and the studio asks which pose is the main image. Dropping it everywhere
-  would remove that api override, the studio's main-image picker and the admin "white background"
-  tag. Confirm that is wanted, and it gets its own change; the bot does not depend on it.
+None. One follow-up from Q8 remains a check rather than a decision: the existing `/privacy` and
+`/terms` pages have not been read for whether they already cover WhatsApp messaging and phone
+numbers. If they do not, they need a line added before launch. No legal review was requested.
 
 ### Technical (to verify before or during implementation)
 
@@ -739,15 +749,21 @@ Question numbers are kept from the first draft so earlier notes still line up.
   or whether delivery should move to the dispatcher, which already owns job completion.
 - **T9.** Closed. The bot asks for a back photo (D22).
 - **T10.** Closed for the bot: it does not apply the Amazon white-background rule (D23). Removal
-  from the web app is Q12.
+  from the web app is D30.
 - **T11.** Closed. A ready-made run generates the whole template (D24).
 - **T12.** Closed. `createJob(app, userId, body)` takes no request object (section 8).
-- **T13. Lower-only garment types.** For garment types with no upper garment (jeans and similar),
-  the create path wants the seller's photo as a lower upload (`lowerGarmentKey`, or
-  `lowerGarmentBackKey` for a back view), not as the upper garment. Read how the studio decides
-  this (`lowerOnly` in `studio/page.tsx`) and mirror it in the bot, or leave lower-only types out
-  of v1.
+- **T13.** Closed. Lower-only garment types are supported, following the studio's slot rules
+  (D31, section 8).
 - **T14. Meta's charge is ours, not the seller's.** A template message is billed by Meta to
   Aivastra's WABA payment method. It is not taken from the seller's credits. With no cap (D26) the
   exposure is one message per run that finishes after the window closed; add a metric for it so
   the monthly figure is visible.
+- **T15. Back-view looks inside a catalogue template.** The studio only asks for a back photo in
+  "Create your own" mode (`needsUpperBack` is gated on the custom template), yet the api rejects
+  any back-view pose that arrives without one. Find out which is true before building
+  ASK_BACK_PHOTO for templates: templates never contain back-view looks, or the studio has a gap.
+  D22 stands either way; this only decides whether the template branch can ever reach that step.
+- **T16. Other upload slots.** The create schema also has `thirdGarmentKey` and
+  `fourthGarmentKey`. Confirm which standard garment types use them and whether "all garment
+  types" (D31) therefore needs a third-photo step, or whether those slots belong only to the
+  deferred saree flow.
