@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md` (sections 7, 12, 14; decisions D13, D15, D21, D27, D29).
 
-**This is plan 1 of 4.** Plan 2 (conversation engine), plan 3 (WhatsApp adapter, inbound consumer, delivery) and plan 4 (Amazon white-background removal) are separate. Plan 3 calls `createChatConnectToken`, `consumeWebConnectCode`, `connectAccount` and `findAccountByExternalId` from this plan; nothing here talks to Meta.
+**This is plan 1 of 5.** Plan 2 (conversation engine), plan 3 (WhatsApp adapter, inbound consumer, delivery), plan 4 (Amazon white-background removal) and plan 5 (garment recognition on our GPU) are separate. Nothing in this plan changed when the catalog flow was cut to five steps (spec D40). Plan 3 calls `createChatConnectToken`, `consumeWebConnectCode`, `connectAccount` and `findAccountByExternalId` from this plan; nothing here talks to Meta.
 
 ## Deviation from the spec (recorded in Task 6)
 

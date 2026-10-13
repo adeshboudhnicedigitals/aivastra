@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md` — sections 4, 5, 6, 9, 11, 13, 14, 16; decisions D10, D15, D20, D21, D26, D29.
 
-**This is plan 3 of 4.** Depends on plan 1 (`identity.ts`, connect routes) and plan 2 (`runConversation`, `storeGarmentPhoto`, `messaging_runs`, engine `COPY`). Plan 4 (Amazon white-background removal) is independent.
+**This is plan 3 of 5.** Depends on plan 1 (`identity.ts`, connect routes) and plan 2 (`runConversation`, `storeGarmentPhoto`, `messaging_runs`, engine `COPY`), in its five-step version (commit `05a04de7`). Plan 4 (Amazon white-background removal) is independent. Plan 5 (the dispatcher's garment-recognition lane) can ship before or after this plan: until it does, `GARMENT_RECOGNITION_ENABLED` stays off and the bot uses the garment-type list.
 
 ## What is confirmed, and what Task 1 must confirm first
 
@@ -35,6 +35,13 @@ If the spike contradicts the plan on any point, change the renderer or parser in
 
 - **D38 — results are uploaded to Meta, not linked.** Uploading needs no public URL and no T3 answer.
 - **D39 — the window margin is 10 minutes.** A free-form send is attempted only if the seller's last message is less than 23 h 50 min old, so a send in flight never crosses the 24-hour line.
+- **D50 — senders are processed concurrently, each in order.** Plan 2's D48 waits up to 8 s for garment recognition inside `runConversation`. A consumer that handles one message at a time would make every other seller wait behind that. The consumer keeps reading, chains each sender's messages on an in-process promise (so one sender stays in order) and runs different senders in parallel, up to 20 in flight. The per-sender Redis lock still serialises one sender across api replicas.
+
+  | | Developers | Users |
+  |---|---|---|
+  | One message at a time (first draft) | Simplest loop | One seller's recognition wait delays everyone's replies by up to 8 s |
+  | Batches of 10, `Promise.all` per batch | Small change | Still waits for the slowest sender in each batch |
+  | **Per-sender chains, 20 in flight** | A map of promise chains and a counter | A seller only ever waits for their own previous message |
 
 ## Global Constraints
 
@@ -99,31 +106,43 @@ curl -s -X POST "$GRAPH/$PHONE_ID/messages" -H "Authorization: Bearer $WA_TOKEN"
   "messaging_product":"whatsapp","to":"'"$TO"'","type":"interactive",
   "interactive":{"type":"list","body":{"text":"Spike: list"},
     "action":{"button":"Choose","sections":[{"title":"Options","rows":[
-      {"id":"n1|gender|women","title":"Women"},{"id":"n1|gender|men","title":"Men"}]}]}}}'
+      {"id":"n1|gender|women","title":"Women"},{"id":"n1|gender|men","title":"Men"},
+      {"id":"n1|gender|boys","title":"Boys"},{"id":"n1|gender|girls","title":"Girls"}]}]}}}'
 ```
 
 Expected: `{"messages":[{"id":"wamid..."}]}` for each, and both render on the phone.
 
+Also send the pose-count list at its largest — nine rows plus "Wrong garment? Change" (21 characters, the longest row title the bot sends) — and confirm all ten rows show and no title is cut:
+
+```bash
+ROWS=$(for n in 1 2 3 4 5 6 7 8 9; do printf '{"id":"n1|count|%s","title":"%s poses · %s credits"},' "$n" "$n" "$((n*5))"; done)
+curl -s -X POST "$GRAPH/$PHONE_ID/messages" -H "Authorization: Bearer $WA_TOKEN" -H 'Content-Type: application/json' -d '{
+  "messaging_product":"whatsapp","to":"'"$TO"'","type":"interactive",
+  "interactive":{"type":"list","body":{"text":"How many poses do you want? Your balance: 50 credits."},
+    "action":{"button":"Choose","sections":[{"title":"Options","rows":['"$ROWS"'
+      {"id":"n1|change|","title":"Wrong garment? Change"}]}]}}}'
+```
+
 - [ ] **Step 2: Carousel, with and without the card `type`**
 
-Use two real image URLs: one presigned URL from your local MinIO (from any `/v1/models/faces` response while running the api locally — expect this one to **fail** because Meta cannot reach localhost), and one from staging or production (`https://app.aivastra.com/minio/...` presigned). Send the payload twice: once as below, once with `"type":"cta_url"` added to each card.
+Use two real image URLs: one presigned URL from your local MinIO (from any `/v1/models/catalogue-templates` look's `poseThumbnailUrl` while running the api locally — expect this one to **fail** because Meta cannot reach localhost), and one from staging or production (`https://app.aivastra.com/minio/...` presigned). Send the payload twice: once as below, once with `"type":"cta_url"` added to each card.
 
 ```bash
 curl -s -X POST "$GRAPH/$PHONE_ID/messages" -H "Authorization: Bearer $WA_TOKEN" -H 'Content-Type: application/json' -d '{
   "messaging_product":"whatsapp","to":"'"$TO"'","type":"interactive",
   "interactive":{"type":"carousel","body":{"text":"Spike: carousel"},
     "action":{"cards":[
-      {"card_index":0,"header":{"type":"image","image":{"link":"<URL_1>"}},"body":{"text":"Face 1"},
-       "action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"n1|face|a","title":"Select"}}]}},
-      {"card_index":1,"header":{"type":"image","image":{"link":"<URL_2>"}},"body":{"text":"Face 2"},
-       "action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"n1|face|b","title":"Select"}}]}}]}}}'
+      {"card_index":0,"header":{"type":"image","image":{"link":"<URL_1>"}},"body":{"text":"Pose 1"},
+       "action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"n1|look|a","title":"Select"}}]}},
+      {"card_index":1,"header":{"type":"image","image":{"link":"<URL_2>"}},"body":{"text":"Pose 2"},
+       "action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"n1|look|b","title":"Select"}}]}}]}}}'
 ```
 
 Record: which variant Meta accepts; whether the presigned staging/production URL renders (T3); any error text.
 
 - [ ] **Step 3: See what a tap sends back**
 
-Meta posts taps to the app's webhook, which does not exist yet. Use a temporary request bin: in the developer console → WhatsApp → Configuration, set the callback URL to a throwaway HTTPS inspector you control (for example a `webhook.site` URL) with any verify token — the inspector must echo `hub.challenge`; if it cannot, skip this step and confirm the shape in Task 8 instead. Subscribe the `messages` field. Tap a reply button, a list row and a carousel card. Record the `messages[0].interactive` object for each (`button_reply` / `list_reply` / other).
+Meta posts taps to the app's webhook, which does not exist yet. Use a temporary request bin: in the developer console → WhatsApp → Configuration, set the callback URL to a throwaway HTTPS inspector you control (for example a `webhook.site` URL) with any verify token — the inspector must echo `hub.challenge`; if it cannot, skip this step and confirm the shape in Task 8 instead. Subscribe the `messages` field. Tap a reply button, a list row and a carousel card — and tap two different cards of the same carousel one after the other, the way a seller picks several poses, to confirm both taps arrive. Record the `messages[0].interactive` object for each (`button_reply` / `list_reply` / other).
 
 **Remove the temporary callback URL afterwards** — it would otherwise receive real messages.
 
@@ -430,30 +449,30 @@ describe('renderMessage', () => {
   it('2+ cards → one carousel with a Select quick reply per card', () => {
     const [p] = renderMessage({
       kind: 'cards',
-      text: 'Choose a model.',
+      text: 'Tap 2 poses. Generation starts after the last one.',
       cards: [
-        { id: 'n|face|1', imageUrl: 'https://i/1.jpg', title: 'Asha' },
-        { id: 'n|face|2', imageUrl: 'https://i/2.jpg', title: 'Meera' },
+        { id: 'n|look|1', imageUrl: 'https://i/1.jpg', title: 'Pose 1' },
+        { id: 'n|look|2', imageUrl: 'https://i/2.jpg', title: 'Pose 2' },
       ],
     });
     expect(p).toEqual({
       type: 'interactive',
       interactive: {
         type: 'carousel',
-        body: { text: 'Choose a model.' },
+        body: { text: 'Tap 2 poses. Generation starts after the last one.' },
         action: {
           cards: [
             {
               card_index: 0,
               header: { type: 'image', image: { link: 'https://i/1.jpg' } },
-              body: { text: 'Asha' },
-              action: { buttons: [{ type: 'quick_reply', quick_reply: { id: 'n|face|1', title: 'Select' } }] },
+              body: { text: 'Pose 1' },
+              action: { buttons: [{ type: 'quick_reply', quick_reply: { id: 'n|look|1', title: 'Select' } }] },
             },
             {
               card_index: 1,
               header: { type: 'image', image: { link: 'https://i/2.jpg' } },
-              body: { text: 'Meera' },
-              action: { buttons: [{ type: 'quick_reply', quick_reply: { id: 'n|face|2', title: 'Select' } }] },
+              body: { text: 'Pose 2' },
+              action: { buttons: [{ type: 'quick_reply', quick_reply: { id: 'n|look|2', title: 'Select' } }] },
             },
           ],
         },
@@ -464,17 +483,17 @@ describe('renderMessage', () => {
   it('1 card → an image then a Select button (carousels need at least 2)', () => {
     const out = renderMessage({
       kind: 'cards',
-      text: 'Choose a model.',
-      cards: [{ id: 'n|face|1', imageUrl: 'https://i/1.jpg', title: 'Asha' }],
+      text: 'Tap 2 poses. Generation starts after the last one.',
+      cards: [{ id: 'n|look|1', imageUrl: 'https://i/1.jpg', title: 'Pose 1' }],
     });
     expect(out).toEqual([
-      { type: 'image', image: { link: 'https://i/1.jpg', caption: 'Asha' } },
+      { type: 'image', image: { link: 'https://i/1.jpg', caption: 'Pose 1' } },
       {
         type: 'interactive',
         interactive: {
           type: 'button',
-          body: { text: 'Choose a model.' },
-          action: { buttons: [{ type: 'reply', reply: { id: 'n|face|1', title: 'Select' } }] },
+          body: { text: 'Tap 2 poses. Generation starts after the last one.' },
+          action: { buttons: [{ type: 'reply', reply: { id: 'n|look|1', title: 'Select' } }] },
         },
       },
     ]);
@@ -1455,7 +1474,7 @@ git commit -m "feat(api): process WhatsApp messages — connect, STOP/START, pho
 
 **Files:**
 - Modify: `packages/db/src/schema/messaging.ts` (two columns on `messaging_runs`)
-- Generated: `packages/db/src/migrations/0226_*.sql` + `meta/`
+- Generated: `packages/db/src/migrations/<next>_*.sql` + `meta/` (the number after plan 2's `messaging_runs` migration)
 - Create: `apps/api/src/modules/messaging/delivery.ts`
 - Test: `apps/api/test/integration/whatsapp-delivery.test.ts`
 
@@ -1473,7 +1492,7 @@ In `messagingRuns` (plan 2), add after `jobIds`:
     readyNoticeSentAt: timestamp('ready_notice_sent_at', { withTimezone: true }),
 ```
 
-Add `sql` to the file's `drizzle-orm` imports (`import { sql } from 'drizzle-orm';`). Run `pnpm --filter @aivastra/db generate` and `pnpm db:migrate`; expect `0226_*.sql` with two `ALTER TABLE "messaging_runs" ADD COLUMN` statements only.
+Add `sql` to the file's `drizzle-orm` imports (`import { sql } from 'drizzle-orm';`). Run `pnpm --filter @aivastra/db generate` and `pnpm db:migrate`; expect one new migration with two `ALTER TABLE "messaging_runs" ADD COLUMN` statements only.
 
 - [ ] **Step 2: Implement delivery**
 
@@ -1644,6 +1663,8 @@ import { INBOUND_STREAM } from './webhook.routes.js';
 
 const GROUP = 'messaging-inbound-cg';
 const DELIVERY_INTERVAL_MS = 5_000;
+// D50: different senders run in parallel, up to this many messages in flight.
+const MAX_IN_FLIGHT = 20;
 type XReadGroupResult = Array<[string, Array<[string, string[]]>]> | null;
 
 export function createAppWhatsappClient(app: FastifyInstance): WhatsappClient | null {
@@ -1659,11 +1680,13 @@ export function createAppWhatsappClient(app: FastifyInstance): WhatsappClient | 
 /**
  * One sender at a time across replicas: a per-sender lock, waited on briefly.
  * Two of one seller's messages handled at once would overwrite each other's
- * session (plan 2, conversation.ts).
+ * session (plan 2, conversation.ts). Within one process the per-sender chain
+ * below already orders them; the lock covers a second api replica. The wait
+ * budget (15 s) outlasts a gender tap's recognition wait (8 s, plan 2 D48).
  */
 async function withSenderLock(app: FastifyInstance, from: string, fn: () => Promise<void>) {
   const key = `msg:lock:whatsapp:${from}`;
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 75; i++) {
     if ((await app.redis.set(key, '1', 'EX', 60, 'NX')) === 'OK') {
       try {
         return await fn();
@@ -1676,10 +1699,50 @@ async function withSenderLock(app: FastifyInstance, from: string, fn: () => Prom
   throw new Error('sender lock timeout');
 }
 
-/** Same consumer-group idiom as shopify/sync-consumer.ts. */
+/**
+ * Same consumer-group idiom as shopify/sync-consumer.ts, but not one message at
+ * a time (D50): each sender's messages are chained in arrival order, and
+ * different senders run in parallel. A gender tap can wait up to 8 s for
+ * garment recognition; with a single sequential loop every other seller would
+ * wait behind it.
+ */
 export function startWhatsappInboundConsumer(app: FastifyInstance, wa: WhatsappClient): () => void {
   const consumer = `${hostname()}-${process.pid}`;
   let running = true;
+  let inFlight = 0;
+  // Tail of each sender's chain; removed once it is the last link and settles.
+  const chains = new Map<string, Promise<void>>();
+
+  async function handleOne(id: string, raw: string | undefined): Promise<void> {
+    try {
+      const m = JSON.parse(raw ?? '') as ParsedInbound;
+      await withSenderLock(app, m.from, () => processInbound(app, wa, m, deliverPendingForAccount));
+    } catch (err) {
+      // Acked anyway: retrying a message that throws would loop forever.
+      // The seller can simply send it again.
+      app.log.error({ err, streamId: id }, 'whatsapp inbound message failed');
+    }
+    // app.redis, not redisBlocking: that connection is parked in XREADGROUP BLOCK.
+    await app.redis.xack(INBOUND_STREAM, GROUP, id);
+  }
+
+  function enqueue(id: string, raw: string | undefined) {
+    let from = id; // unparseable: its own chain, so it cannot hold anyone up
+    try {
+      from = (JSON.parse(raw ?? '') as ParsedInbound).from ?? id;
+    } catch {
+      /* handled (logged and acked) in handleOne */
+    }
+    inFlight++;
+    const next = (chains.get(from) ?? Promise.resolve())
+      .then(() => handleOne(id, raw))
+      .catch((err) => app.log.error({ err, streamId: id }, 'whatsapp inbound chain error'))
+      .finally(() => {
+        inFlight--;
+        if (chains.get(from) === next) chains.delete(from);
+      });
+    chains.set(from, next);
+  }
 
   async function loop() {
     try {
@@ -1689,22 +1752,17 @@ export function startWhatsappInboundConsumer(app: FastifyInstance, wa: WhatsappC
     }
     while (running) {
       try {
-        const result = (await app.redisBlocking.xreadgroup(
-          'GROUP', GROUP, consumer, 'COUNT', '1', 'BLOCK', '5000', 'STREAMS', INBOUND_STREAM, '>',
-        )) as XReadGroupResult;
-        const entry = result?.[0]?.[1]?.[0];
-        if (!entry) continue;
-        const [id, fields] = entry;
-        const raw = fields[fields.indexOf('msg') + 1];
-        try {
-          const m = JSON.parse(raw) as ParsedInbound;
-          await withSenderLock(app, m.from, () => processInbound(app, wa, m, deliverPendingForAccount));
-        } catch (err) {
-          // Acked anyway: retrying a message that throws would loop forever.
-          // The seller can simply send it again.
-          app.log.error({ err, streamId: id }, 'whatsapp inbound message failed');
+        const room = MAX_IN_FLIGHT - inFlight;
+        if (room <= 0) {
+          await new Promise((r) => setTimeout(r, 50));
+          continue;
         }
-        await app.redisBlocking.xack(INBOUND_STREAM, GROUP, id);
+        const result = (await app.redisBlocking.xreadgroup(
+          'GROUP', GROUP, consumer, 'COUNT', String(room), 'BLOCK', '5000', 'STREAMS', INBOUND_STREAM, '>',
+        )) as XReadGroupResult;
+        for (const [id, fields] of result?.[0]?.[1] ?? []) {
+          enqueue(id, fields[fields.indexOf('msg') + 1]);
+        }
       } catch (err) {
         app.log.error({ err }, 'whatsapp inbound loop error — resuming');
         await new Promise((r) => setTimeout(r, 1000));
@@ -1737,6 +1795,8 @@ export function startWhatsappDelivery(app: FastifyInstance, wa: WhatsappClient):
 ```
 
 (Biome will reformat the long `xreadgroup` call; that is fine.)
+
+Add to `apps/api/test/integration/whatsapp-hooks.test.ts` (Step 4) a consumer test with `processInbound` mocked (`vi.mock('../../src/modules/messaging/inbound.js', …)`) to record calls and, for sender A's first message only, wait 1 s: XADD A1, A2, B1 to `messaging:inbound`, start the consumer, and assert B1 is processed before A1 finishes, A2 after A1, and all three are acked (`XPENDING` count 0).
 
 - [ ] **Step 2: Start them in `main.ts`**
 
@@ -1830,7 +1890,7 @@ In `apps/api/src/modules/payments/routes.ts`, after each successful grant **comm
 
 `apps/api/test/integration/whatsapp-hooks.test.ts`: with `vi.mock('../../src/modules/messaging/inbound-consumer.js', …)` returning a `fakeWhatsapp().client` from `createAppWhatsappClient`, assert:
 1. `notifyConnected` sends "Connected…" then the menu when `lastInboundAt` is recent, and sends nothing when it is 25 h old or `optedOutAt` is set.
-2. `notifyCreditsAdded` on a session in `NO_CREDITS` (seed with `saveSession`) sends "N credits added." and a confirm prompt; with the flag off it sends nothing.
+2. `notifyCreditsAdded` on a session in `NO_CREDITS` (seed with `saveSession`) sends "N credits added." and the pose-count list again; with the flag off it sends nothing.
 
 Run: `npx vitest run --config vitest.integration.config.ts whatsapp-hooks` → PASS.
 
@@ -1845,12 +1905,13 @@ git commit -m "feat(api): start the WhatsApp loops; connect and credit hooks"
 
 - [ ] **Step 6: Staging end to end (manual)**
 
-On staging, set in `.env.staging` (values via the VPS, never pasted into chat or the repo): `MESSAGING_WHATSAPP_ENABLED=true`, `WHATSAPP_DISPLAY_NUMBER=15556585373`, `WHATSAPP_PHONE_NUMBER_ID=1331723183359956`, `WHATSAPP_ACCESS_TOKEN` (temporary token is fine for this test; a system-user token before anything lasting), `WHATSAPP_APP_SECRET` (App settings → Basic), `WHATSAPP_VERIFY_TOKEN` (any random 32+ characters), `WHATSAPP_RESULTS_TEMPLATE=catalog_images_ready` once approved. Add the new names to `scripts/staging/check-staging-env.sh` if it lists required vars. Deploy through the normal pipeline (migrations `0224`–`0226` via CI/CD).
+On staging, set in `.env.staging` (values via the VPS, never pasted into chat or the repo): `MESSAGING_WHATSAPP_ENABLED=true`, `WHATSAPP_DISPLAY_NUMBER=15556585373`, `WHATSAPP_PHONE_NUMBER_ID=1331723183359956`, `WHATSAPP_ACCESS_TOKEN` (temporary token is fine for this test; a system-user token before anything lasting), `WHATSAPP_APP_SECRET` (App settings → Basic), `WHATSAPP_VERIFY_TOKEN` (any random 32+ characters), `WHATSAPP_RESULTS_TEMPLATE=catalog_images_ready` once approved. Add the new names to `scripts/staging/check-staging-env.sh` if it lists required vars. Deploy through the normal pipeline (plans 1–3 migrations via CI/CD).
 
 In the developer console → WhatsApp → Configuration: callback URL `https://<staging-admin-host>/v1/whatsapp/webhook`, the same verify token, subscribe `messages`. Then from the registered phone:
 
 1. "hi" → connect link → log in on staging → confirm → "Connected" + menu arrive.
-2. Send a garment photo → gender → type → shape → face carousel renders → template → confirm shows cost → Generate.
+2. Send a garment photo → "Create catalogue for" list (4 rows) → garment-type list (recognition is off until plan 5) → pose-count list shows cost per pose and the balance → pose carousel renders → tap the chosen number of poses → "Working on N images" arrives after the last tap.
+   Then once more with the count list's "Wrong garment? Change" row, and once with a count larger than the balance allows (NO_CREDITS with the pricing link).
 3. The image arrives; the follow-up buttons arrive; the run is in `/catalogs` on staging web; credits dropped by the quoted amount.
 4. STOP → confirmation; send "hi" → menu again.
 5. Settings → Connect WhatsApp from a second test phone → prefilled `CONNECT` code → "Connected".
@@ -1867,15 +1928,15 @@ Record the results, and the webhook configuration (URL, subscribed fields — no
 
 - [ ] **Step 1: Spec**
 
-Add D37 (polling delivery), D38 (upload results to Meta), D39 (10-minute window margin) to section 3, using the tables at the top of this plan. Replace the section 5 diagram's notifier/pub-sub branch with "delivery loop (5 s) over `messaging_runs`". Mark T1, T2 (if the spike answered it), T3, T6 and T8 closed in section 18 with the spike's findings and these values: dedupe 3 days, 30 messages per sender per minute, delivery in the api process.
+Add D37 (polling delivery), D38 (upload results to Meta), D39 (10-minute window margin) and D50 (per-sender concurrent consumer) to section 3, using the tables at the top of this plan. Replace the section 5 diagram's notifier/pub-sub branch with "delivery loop (5 s) over `messaging_runs`". Mark T1, T2 (if the spike answered it), T3, T6 and T8 closed in section 18 with the spike's findings and these values: dedupe 3 days, 30 messages per sender per minute, delivery in the api process.
 
 - [ ] **Step 2: Progress and commit**
 
-Dated `docs/progress.md` entry: what shipped, test counts, migration `0226`, the staging check results, the Meta dashboard state (callback URL, template name and approval status), and what remains before production: production number and display-name approval, system-user permanent token, business verification of Nice Interactive (Ram Kumar), production env values.
+Dated `docs/progress.md` entry: what shipped, test counts, the migration number, the staging check results, the Meta dashboard state (callback URL, template name and approval status), and what remains before production: production number and display-name approval, system-user permanent token, business verification of Nice Interactive (Ram Kumar), production env values.
 
 ```bash
 git add docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md docs/progress.md
-git commit -m "docs: WhatsApp bot plan 3 decisions (D37-D39) and progress"
+git commit -m "docs: WhatsApp bot plan 3 decisions (D37-D39, D50) and progress"
 ```
 
 ---
@@ -1885,3 +1946,4 @@ git commit -m "docs: WhatsApp bot plan 3 decisions (D37-D39) and progress"
 - **Spec coverage:** webhook verification and signature (§4.5, §14) — Tasks 4–5; dedupe and durable stream (§5) — Task 5; per-sender rate limit (§14) — Task 6; unknown number → connect link, CONNECT code, profile hint (§7, D15, D29) — Task 6; STOP/START (D21) — Task 6; photo download, type check, two retries (§13) — Task 6; rendering incl. carousel and the 1-card fallback (§6, §9) — Task 3; delivery, 24-hour window, one template per run (§11, D26) — Task 7; failed jobs reported with Retry (§11) — Task 7 via plan 2's `runFinished`; credits added (§8) — Task 8; "Connected" after web confirm (§7) — Task 8; flag off (§13) — Tasks 5 and 8; secrets redaction (§14) — Task 2.
 - **Written as instructions rather than full code, deliberately:** the delivery and hook integration tests (Task 7 Step 3, Task 8 Step 4) list exact cases and assertions but leave the `jobs` / `job_inputs` / `job_outputs` inserts to the implementer, because their required columns were not read while writing this plan. Everything else is complete code.
 - **Depends on the spike:** the carousel card shape (Task 3) and the tap webhook shape (Task 4) — both coded to the documented/most likely form and flagged.
+- **Revised 2026-10-13 for plan 2's five-step flow:** the renderer and parser were already flow-agnostic (they render any `OutboundMessage`); what changed is the consumer (D50, so recognition waits never block other sellers), the spike's sample payloads (4-row gender list, 10-row count list, look carousel with two taps), and the staging walkthrough.

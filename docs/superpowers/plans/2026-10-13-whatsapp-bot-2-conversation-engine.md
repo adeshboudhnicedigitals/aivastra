@@ -2815,11 +2815,10 @@ git commit -m "feat(api): WhatsApp runs table, real engine deps and conversation
 
 ---
 
-### Task 8: Record the decisions, flag plan 3, and progress
+### Task 8: Record the decisions, check plan 3, and progress
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md`
-- Modify: `docs/superpowers/plans/2026-10-13-whatsapp-bot-3-whatsapp-adapter.md`
 - Modify: `docs/progress.md`
 
 - [ ] **Step 1: Update the spec**
@@ -2835,13 +2834,9 @@ Add to the section 3 table:
 
 In section 12, replace `jobs.channel_delivered_at` and `job_inputs.params.channel` with the `messaging_runs` table (plan 3 adds per-job delivery tracking), and add `GARMENT_RECOGNITION_ENABLED` to section 16's table.
 
-- [ ] **Step 2: Flag the change plan 3 needs**
+- [ ] **Step 2: Check plan 3 still carries the consumer change**
 
-Plan 3's inbound consumer reads one message at a time and processes it before reading the next (`withSenderLock` inside a single loop). With D48, a gender tap holds that loop for up to 8 seconds, so every other seller would wait behind it. Add to the top of plan 3, under its decisions:
-
-> **Required by plan 2 (D48):** the inbound consumer must not serialise different senders. Read up to 10 messages per `XREADGROUP`, group them by sender, and process the groups concurrently (each group in order, under `withSenderLock`); acknowledge each message after it is processed. The lock's waiter budget (50 × 200 ms) must exceed the 8-second recognition wait plus normal handling — raise it to 75 × 200 ms.
-
-Then update plan 3's renderer and parser tasks for the new message shapes: the gender question is a 4-row list, the count question a list whose last row is "Wrong garment? Change", and the look carousel uses card ids with action `look`.
+Plan 3's inbound consumer must not serialise different senders: a gender tap holds `runConversation` for up to 8 seconds (D48). Plan 3 was revised for this on 2026-10-13 (its D50: per-sender promise chains, 20 messages in flight, sender-lock wait raised to 75 × 200 ms). If plan 3 has not been implemented yet, confirm its `startWhatsappInboundConsumer` still reads that way; if it has, confirm the shipped consumer does. Nothing to change otherwise.
 
 - [ ] **Step 3: Add the progress entry**
 
@@ -2850,8 +2845,8 @@ Dated entry at the top of `docs/progress.md`: what shipped (five-step engine, lo
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md docs/superpowers/plans/2026-10-13-whatsapp-bot-3-whatsapp-adapter.md docs/progress.md
-git commit -m "docs: WhatsApp bot plan 2 decisions (D33, D34, D48, D49), plan 3 consumer note, progress"
+git add docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md docs/progress.md
+git commit -m "docs: WhatsApp bot plan 2 decisions (D33, D34, D48, D49) and progress"
 ```
 
 ---
@@ -2860,6 +2855,6 @@ git commit -m "docs: WhatsApp bot plan 2 decisions (D33, D34, D48, D49), plan 3 
 
 - **Spec section 8 coverage:** main menu + Credits + Help, global `menu`/`restart`/`help`, photo from the menu or after delivery, stale buttons, session expiry, unexpected input (Task 3); gender list of four in management's order (Task 3); recognised type with "Detected", list fallback, recognised-but-unavailable and no-template / no-face → web studio (Task 3); count list with cost, balance, cap of 9 and "Change", correction metric, NO_CREDITS before picking, credits added (Task 4); look carousel, duplicate taps, generation on the last pick, defaults for lower and shoes, lower-only, required third and lower photos (Task 4); BAD_CATALOG → pick again, insufficient credits at create (Task 4); progress, delivery buttons, partial failure, retry of failed looks, more poses (Task 4); duplicate create (Task 7).
 - **Spec 8a coverage:** options from the cached dev API list with public slugs only, per gender (Task 5 integration); exact slug matching (Task 5 unit); budget, timeout, dispatcher errors, flag off (Task 5 integration); outcome and correction metrics (Task 5, Task 4). The dispatcher lane, the workflow and the duration histogram are plan 5.
-- **Deferred to plan 3, by design:** STOP / START, `CONNECT <code>`, the connect prompt for an unknown number, per-sender serialisation and the concurrency change above, downloading the photo and calling `storeGarmentPhoto`, sending `runFinished` and `creditsAdded`, sending each finished image, the 24-hour template message, and rendering `OutboundMessage` to WhatsApp JSON.
+- **Deferred to plan 3, by design:** STOP / START, `CONNECT <code>`, the connect prompt for an unknown number, per-sender serialisation and its concurrent consumer (plan 3 D50), downloading the photo and calling `storeGarmentPhoto`, sending `runFinished` and `creditsAdded`, sending each finished image, the 24-hour template message, and rendering `OutboundMessage` to WhatsApp JSON.
 - **Type consistency:** `TemplateLook.id` is the catalogue_template_looks id (card ids carry it); `failedPoseIds` from plan 3 are pose ids, mapped back to look ids in the retry branch; `recognizeGarment` returns `{ garmentTypeId, label }` in both `EngineDeps` and `classify.ts`.
 - **Known limits, as in the studio:** a template's back-view looks cannot be detected (the templates query returns no garment view), so such a look would be rejected by the create path before charging; a lower-only look in a mixed template is hidden rather than asking for a lower photo the type doesn't declare.
