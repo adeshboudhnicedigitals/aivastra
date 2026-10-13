@@ -133,6 +133,20 @@ const Env = z.object({
   // a stray 'false' must not coerce to on and leak raw errors to real shoppers.
   // Off in production.
   SHOPIFY_WIDGET_VERBOSE: z.preprocess((v) => v === 'true', z.boolean()).default(false),
+  // WhatsApp catalog bot (docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md).
+  // Same literal-'true' pattern as SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS: a stray 'false'
+  // must not coerce to on. Off: GET /v1/messaging/accounts reports enabled:false and
+  // every other messaging route 404s, so the web hides all WhatsApp UI.
+  MESSAGING_WHATSAPP_ENABLED: z.preprocess((v) => v === 'true', z.boolean()).default(false),
+  // The bot's number, digits only ('15556585373'), for wa.me links. Public, not a
+  // secret. Blank in .env must not crash startup.
+  WHATSAPP_DISPLAY_NUMBER: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z
+      .string()
+      .regex(/^\d{8,15}$/)
+      .optional(),
+  ),
   // Distribution bucket for the local-dev production snapshot
   // (scripts/local-sync/, docs/local-dev-snapshot-runbook.md) — a separate,
   // scoped-read-only bucket from the live R2_* one above, never the same
