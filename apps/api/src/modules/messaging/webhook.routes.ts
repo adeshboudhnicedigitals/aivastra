@@ -39,8 +39,8 @@ export async function whatsappWebhookRoutes(app: FastifyInstance) {
           !secret ||
           !verifySignature(raw, req.headers['x-hub-signature-256'] as string | undefined, secret)
         ) {
-          app.log.warn('whatsapp webhook: missing or invalid signature — dropped');
-          return reply.code(200).send();
+          app.log.warn('whatsapp webhook: missing or invalid signature — rejected');
+          return reply.code(401).send();
         }
 
         let body: unknown;

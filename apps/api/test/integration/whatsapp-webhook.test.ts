@@ -73,13 +73,40 @@ describe('whatsapp webhook', () => {
     expect(await streamLength()).toBe(before + 1);
   });
 
-  it('acks but drops a badly signed request', async () => {
+  it('rejects a badly signed request with 401 and enqueues nothing', async () => {
     const before = await streamLength();
     const raw = payload(`wamid.bad-1-${runId}`);
     const res = await app.inject({
       method: 'POST',
       url: '/v1/whatsapp/webhook',
       headers: { 'content-type': 'application/json', 'x-hub-signature-256': 'sha256=00' },
+      payload: raw,
+    });
+    expect(res.statusCode).toBe(401);
+    expect(await streamLength()).toBe(before);
+  });
+
+  it('checks the signature before parsing: bad signature on a garbage body is still 401', async () => {
+    const before = await streamLength();
+    const raw = 'not-json{{{';
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/whatsapp/webhook',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': 'sha256=00' },
+      payload: raw,
+    });
+    // Had the body been parsed first, JSON.parse would have thrown a 500.
+    expect(res.statusCode).toBe(401);
+    expect(await streamLength()).toBe(before);
+  });
+
+  it('acks a signed-but-unusable payload with 200 and enqueues nothing', async () => {
+    const before = await streamLength();
+    const raw = 'not-json{{{';
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/whatsapp/webhook',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': sign(raw) },
       payload: raw,
     });
     expect(res.statusCode).toBe(200);
