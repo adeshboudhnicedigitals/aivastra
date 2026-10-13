@@ -58,24 +58,76 @@ pushed. If either gains a `0224+` before this merges, renumber ours
 - Plan 2 spec loose end fixed in plan 3: delivery state lives in `messaging_runs`, not
   `job_inputs.params.channel`.
 
+## Local end-to-end test (2026-10-13/14) — where it stopped
+
+Local stack ran against the Meta test number with two `cloudflared` quick tunnels
+(api `:4000` for the webhook, MinIO `:9000` with `--http-host-header 127.0.0.1:9000` so
+presigned signatures still match; `R2_PUBLIC_PRESIGN_BASE` pointed at it). Quick-tunnel
+URLs change on every restart — update Meta's callback URL and `.env` each time, and put
+`R2_PUBLIC_PRESIGN_BASE` back to `http://127.0.0.1:9000` when done.
+
+Reached: inbound webhook → stream → consumer → connect link → account linked → photo →
+gender → garment type → pose count → the 1-look pick message. **Stopped right before the
+"Select" tap**, so no job has been created or delivered locally yet.
+
+What it took (none of this was in the plans):
+
+- **Meta: the app must be subscribed to the WABA.** Saving the callback URL in the
+  dashboard is not enough — only Meta's internal "WA DevX Webhook Events 1P App" was
+  subscribed, so nothing was delivered. Fixed with `POST /{waba-id}/subscribed_apps`
+  (test WABA `1595318551521211`). Staging/production need the same call.
+- **Meta: the developer account was blocked** ("unusual activity") mid-session; after
+  confirming it, the existing token could read but every send failed `#131005 Access
+  denied`. A freshly generated token fixed it. Temporary tokens last ~1–2 h here.
+- **Admin data the bot needs** (local DB was near-empty): a catalogue template for the
+  gender, mapped to the garment type, with a workflow per pose; and if that workflow has a
+  lower node, the garment type needs `default_lower_catalog_id` (D49 hides the look
+  otherwise and the bot says the type "isn't available on WhatsApp yet").
+
+Fixed on this branch during the session (each with a test that failed first):
+
+- Request logs no longer carry `hub.verify_token` or other token-like query values
+  (`@aivastra/logger` req serializer + `redactUrl`, also in the api error handler).
+- Blank `WHATSAPP_GRAPH_VERSION=` (as `.env.example` ships it) no longer aborts startup.
+- Catalogue-template editor: pose/background create responses now carry `thumbnailUrl`
+  (tiles stayed blank after a successful upload — production has the same bug), and a
+  template-scoped pose whose label is taken gets `-2`, `-3` … instead of a 409.
+- Bot resolution: falls back to the cheapest enabled tier when the seller's default is
+  disabled (HD is off by default; users default to HD).
+
+Open from the session:
+
+- **1-look pick UX:** with a single look the renderer sends an image and a separate
+  button message; WhatsApp delivered the button message first. Proposed: one interactive
+  button message with an image header. Not done.
+- Pick cards show the raw pose label (template uploads are named after the file, e.g. a
+  UUID); consider `displayName`.
+- When no look survives the rules, the seller gets the generic "not available" text and
+  nothing is logged with the reason — a log line would have saved an hour here.
+- Admin copy in the pose "Map to garment types" dialog still says poses show on every
+  garment type by default (stale since #523's opt-in change).
+
 ## Next, in order
 
-1. **Manual, Meta side:** regenerate the temporary access token (one was pasted into a
-   chat); cancel the stray Facebook Login "Create a Configuration" wizard; submit the
-   `catalog_images_ready` template (Utility, `en`, body "Your Aivastra catalog images
-   are ready.", one quick-reply button "Show images") and record its approval.
-2. Review / PR `feat/whatsapp-catalog-bot` → `dev`; migrations ride CI/CD.
-3. Staging env on the VPS: `MESSAGING_WHATSAPP_ENABLED=true`, `WHATSAPP_DISPLAY_NUMBER`,
+1. **Manual, Meta side:** cancel the stray Facebook Login "Create a Configuration" wizard;
+   submit the `catalog_images_ready` template (Utility, `en`, body "Your Aivastra catalog
+   images are ready.", one quick-reply button "Show images") and record its approval.
+   (Access token and verify token were both rotated 2026-10-13.)
+2. Finish the local run: tap Select → job → dispatcher/worker → delivery back to WhatsApp.
+3. Review / PR `feat/whatsapp-catalog-bot` → `dev`; migrations ride CI/CD.
+4. Staging env on the VPS: `MESSAGING_WHATSAPP_ENABLED=true`, `WHATSAPP_DISPLAY_NUMBER`,
    `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET`,
    `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_RESULTS_TEMPLATE` (`WHATSAPP_GRAPH_VERSION` has a
    default). Extend `scripts/staging/check-staging-env.sh` if needed. Secrets only on the
    VPS — never in chat or the repo.
-4. Point the Meta callback URL at staging (`/v1/whatsapp/webhook`), subscribe `messages`,
-   and run plan 3 Task 8 Step 6's walkthrough; record results in `docs/progress.md`.
-5. Not yet browser-checked: plan 1's connect page, Settings panel and studio chip.
-6. Plan 4 (any time) and plan 5 (spike first) — same subagent-driven prompt pattern as
+5. Point the Meta callback URL at staging (`/v1/whatsapp/webhook`), subscribe `messages`,
+   **and `POST /{waba-id}/subscribed_apps`** (see above), then run plan 3 Task 8 Step 6's
+   walkthrough; record results in `docs/progress.md`.
+6. Not yet browser-checked: plan 1's Settings panel and studio chip. (The connect page
+   worked in the 2026-10-13 local run.)
+7. Plan 4 (any time) and plan 5 (spike first) — same subagent-driven prompt pattern as
    plans 1–3, each on its own branch from `feat/whatsapp-catalog-bot`.
-7. Before production: production number + display-name approval, system-user permanent
+8. Before production: production number + display-name approval, system-user permanent
    token, business verification of Nice Interactive.
 
 ## How the plans were executed

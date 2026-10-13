@@ -2,6 +2,28 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-14 — WhatsApp catalog bot: first local end-to-end run, four fixes, Meta-side state
+
+- **Done:** local run against the Meta test number reached the pose-pick step (inbound →
+  connect → photo → gender → type → count → pick message); stopped before the tap, so no
+  bot job ran yet. Fixes on `feat/whatsapp-catalog-bot`, each with a failing-first test:
+  request-log redaction of token-like query params (`@aivastra/logger` `redactUrl` + req
+  serializer — Meta's `hub.verify_token` was being logged); blank `WHATSAPP_GRAPH_VERSION`
+  falls back to `v25.0`; catalogue-template editor create responses carry `thumbnailUrl`
+  and template-scoped pose labels auto-suffix on clash; bot resolution falls back to the
+  cheapest enabled tier.
+- **State outside the repo (Meta, test app "Aivastra Catalog Bot" `28674690505558878`):**
+  the app is now subscribed to test WABA `1595318551521211` via
+  `POST /{waba}/subscribed_apps` — the dashboard's webhook save alone did **not** do this,
+  and no messages were delivered until it was done; staging/production need the same call.
+  The developer account was blocked for "unusual activity" and re-confirmed on
+  2026-10-13; the access token and `WHATSAPP_VERIFY_TOKEN` were both rotated afterwards
+  (the old token returned `#131005` on every send even after the unblock).
+- **Failed / not done:** the 1-look pick sends image + button as two messages and WhatsApp
+  reordered them (button first) — single-message fix proposed, not made. Production very
+  likely has the template-editor blank-tile bug too (same code). Details and open items:
+  `docs/superpowers/handoff/2026-10-13-whatsapp-bot-handoff.md`.
+
 ## 2026-10-13 — WhatsApp catalog bot plan 3: WhatsApp adapter, inbound consumer, delivery (implemented, not yet live)
 
 - **Done:** plan 3 Tasks 1–8 (code) on branch `feat/whatsapp-bot-3-whatsapp-adapter`
