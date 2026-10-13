@@ -901,7 +901,6 @@ function commonCss(): string {
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
-body { min-width: 1024px; }
 button, input, select { font-family: inherit; font-size: inherit; color: inherit; }
 button { cursor: pointer; }
 `;
@@ -989,10 +988,26 @@ ${commonCss()}
 .header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 .header-actions { display: flex; gap: 8px; align-items: center; }
 
+.filters-wrap { margin-bottom: 16px; }
+.filters-toggle {
+  display: none; width: 100%; align-items: center; justify-content: space-between;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 12px 14px; cursor: pointer; font: inherit; color: var(--ink); text-align: left;
+}
+.filters-toggle-left { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
+.filters-badge {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px;
+  padding: 0 5px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600;
+}
+.filters-toggle-right { display: flex; align-items: center; gap: 10px; }
+.result-count-compact { font-size: 12px; color: var(--muted); text-align: right; line-height: 1.3; }
+.filters-chevron { transition: transform 120ms ease; color: var(--muted); flex: none; }
+.filters-wrap.open .filters-chevron { transform: rotate(90deg); }
+
 .filters {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
   padding: 16px 18px; display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;
-  margin-bottom: 16px; box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm);
 }
 .filter-group { display: flex; flex-direction: column; gap: 5px; min-width: 160px; flex: 1; }
 .filter-group label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; }
@@ -1165,7 +1180,7 @@ ${commonCss()}
   display: none; justify-content: center; align-items: center; cursor: zoom-out; backdrop-filter: blur(2px);
 }
 .lightbox.active { display: flex; overflow: hidden; }
-.lightbox img { border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); user-select: none; -webkit-user-drag: none; }
+.lightbox img { max-width: 92vw; max-height: 92vh; border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); user-select: none; -webkit-user-drag: none; }
 .lightbox video { max-width: 92vw; max-height: 92vh; border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); cursor: default; }
 .lightbox-close {
   position: absolute; top: 20px; right: 24px; color: #fff; font-size: 32px; line-height: 1;
@@ -1191,6 +1206,86 @@ ${commonCss()}
 
 .empty-state { text-align: center; padding: 48px 24px; color: var(--muted); }
 .empty-state .ico { width: 48px; height: 48px; margin: 0 auto 14px; border-radius: 12px; background: var(--surface-2); display: grid; place-items: center; }
+
+/* Mobile/tablet card list — an alternative rendering of the same row data
+   (see renderCard in appJs), shown instead of .table-wrap below 1200px. The
+   table markup doesn't reflow well into this layout (avatar block,
+   corner-pinned flag/credits, a horizontal thumbnail strip) so it's a second
+   template rather than a CSS-only reflow of the <table>. One column on phones,
+   two on tablets (see the 768–1199px media query below). */
+.cards-wrap { display: none; }
+.result-card {
+  border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface);
+  box-shadow: var(--shadow-sm); padding: 14px; margin-bottom: 12px;
+}
+.result-card.flagged-row { border-color: var(--flag); background: var(--flag-soft); }
+.result-card.resolved-row { border-color: var(--resolved); background: var(--resolved-soft); }
+
+.card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.card-id { display: flex; align-items: baseline; gap: 8px; }
+.card-id .id-num { font-family: var(--mono); font-size: 16px; font-weight: 600; color: var(--ink); }
+.card-id .when-text { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+
+.card-flag-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+.card-user { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; }
+.card-avatar {
+  flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--surface-2);
+  border: 1px solid var(--border); display: grid; place-items: center; font-size: 12px; font-weight: 600;
+  color: var(--muted); text-transform: uppercase;
+}
+.card-user-info { flex: 1; min-width: 0; }
+.card-credits { flex: none; text-align: right; }
+.card-credits-label { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.card-credits .credits-num { font-size: 15px; }
+
+.card-thumbs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-top: 14px; }
+.card-thumb-col { min-width: 0; text-align: center; }
+.card-thumb-label { display: block; font-size: 10.5px; color: var(--muted); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Thumbs reuse the desktop .thumb-img/.sm sizing, which caps at a fixed px
+   width — override to fill the grid column so all 5 fit the card without a
+   side-scroll on narrow phones. */
+.card-thumb-col .thumb-img, .card-thumb-col .thumb-placeholder { max-width: none; width: 100%; }
+.card-thumb-col .thumb-dl { width: 16px; height: 16px; }
+.card-thumb-col .thumb-dl svg { width: 9px; height: 9px; }
+.card-thumb-col .garments-row { gap: 4px; }
+
+.card-actions { display: flex; gap: 8px; margin-top: 12px; }
+.card-actions .bundle-link, .card-actions .flag-btn { flex: 1; justify-content: center; text-align: center; }
+
+@media (max-width: 1199px) {
+  .page { padding: 16px 16px 32px; }
+  .header { flex-direction: column; align-items: stretch; gap: 12px; }
+  .header-actions { display: flex; }
+  .header-actions .btn { flex: 1; }
+
+  .filters-toggle { display: flex; }
+  .filters {
+    display: none; flex-direction: column; align-items: stretch; margin-top: 8px;
+  }
+  .filters-wrap.open .filters { display: flex; }
+  .filter-group { min-width: 0 !important; width: 100%; flex: none !important; }
+  #btn-apply, #btn-clear { width: 100%; }
+
+  .info-bar { display: none; }
+  .table-wrap { display: none; }
+  .cards-wrap { display: grid; grid-template-columns: 1fr; }
+
+  .modal-card { max-width: calc(100vw - 32px); }
+}
+
+/* Tablet: two cards per row instead of one stretched wide, since 768–1199px
+   has room for a second column without cramming the card internals (avatar
+   block, thumbnail row) the way the dense desktop table would. */
+@media (min-width: 768px) and (max-width: 1199px) {
+  .cards-wrap { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .result-card { margin-bottom: 0; }
+}
+
+@media (max-width: 639px) {
+  .page { padding: 12px 12px 28px; }
+  h1 { font-size: 18px; }
+}
 </style>
 </head>
 <body>
@@ -1206,7 +1301,19 @@ ${commonCss()}
     </div>
   </div>
 
-  <div class="filters">
+  <div class="filters-wrap" id="filters-wrap">
+    <button type="button" class="filters-toggle" id="filters-toggle" aria-expanded="false" aria-controls="filters-panel">
+      <span class="filters-toggle-left">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        <span>Filters</span>
+        <span class="filters-badge" id="filters-badge" hidden>0</span>
+      </span>
+      <span class="filters-toggle-right">
+        <span class="result-count-compact" id="result-count-compact"></span>
+        <svg class="filters-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </span>
+    </button>
+    <div class="filters" id="filters-panel">
     <div class="filter-group">
       <label>User</label>
       <select class="select" id="filter-user"><option value="">All users</option></select>
@@ -1265,6 +1372,7 @@ ${commonCss()}
     </div>
     <button class="btn primary" id="btn-apply">Apply</button>
     <button class="btn ghost" id="btn-clear">Clear all</button>
+    </div>
   </div>
 
   <div class="info-bar">
@@ -1290,6 +1398,8 @@ ${commonCss()}
       <tbody id="results-body"></tbody>
     </table>
   </div>
+
+  <div class="cards-wrap" id="results-cards"></div>
 
   <div class="pager" id="pager"></div>
 </div>
@@ -1413,6 +1523,7 @@ function appJs(): string {
   // MONITOR PAGE
   // ═══════════════════════════════════════════════════════════════════════════
   var resultsBody = document.getElementById('results-body');
+  var resultsCards = document.getElementById('results-cards');
   if (!resultsBody) return;
 
   var FLAG_REASONS = ${JSON.stringify(FLAG_REASONS)};
@@ -1425,6 +1536,14 @@ function appJs(): string {
   };
 
   function $(id) { return document.getElementById(id); }
+
+  // Mirrored into the desktop info-bar and the mobile filters-toggle chip,
+  // which show the same count in two different places in the layout.
+  function setResultCountText(text) {
+    $('result-count').textContent = text;
+    var compact = $('result-count-compact');
+    if (compact) compact.textContent = text;
+  }
 
   function api(path) {
     return fetch(path, { credentials: 'include' }).then(function(res) {
@@ -1521,18 +1640,29 @@ function appJs(): string {
         '<td class="col-flag"><div class="skel" style="height:24px;width:80px;margin:0 auto"></div></td></tr>');
     }
     resultsBody.innerHTML = rows.join('');
-    $('result-count').textContent = 'Loading…';
+    var cards = [];
+    for (var c = 0; c < 3; c++) {
+      cards.push('<div class="result-card">' +
+        '<div class="skel" style="height:16px;width:60px"></div>' +
+        '<div class="skel" style="height:40px;width:100%;margin-top:12px"></div>' +
+        '<div class="skel" style="height:64px;width:100%;margin-top:14px"></div>' +
+        '</div>');
+    }
+    resultsCards.innerHTML = cards.join('');
+    setResultCountText('Loading…');
     $('pager').innerHTML = '';
   }
 
   function render() {
     var totalPages = Math.max(1, Math.ceil(state.total / state.pageSize));
-    $('result-count').textContent = state.total + ' output(s) — page ' + state.page + ' of ' + totalPages;
+    setResultCountText(state.total + ' output(s) — page ' + state.page + ' of ' + totalPages);
 
     if (state.items.length === 0) {
       resultsBody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg></div><div>No results found.</div></div></td></tr>';
+      resultsCards.innerHTML = '<div class="empty-state"><div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg></div><div>No results found.</div></div>';
     } else {
       var rows = [];
+      var cards = [];
       for (var i = 0; i < state.items.length; i++) {
         var item = state.items[i];
         var seq = (state.page - 1) * state.pageSize + i + 1;
@@ -1559,21 +1689,23 @@ function appJs(): string {
           '<td class="col-flag">' + renderFlagCell(item) + '</td>' +
           '</tr>'
         );
+        cards.push(renderCard(item, seq, rev, rowClass, rowTitle, poseLabel));
       }
       resultsBody.innerHTML = rows.join('');
-      var flagBtns = resultsBody.querySelectorAll('[data-flag-btn]');
+      resultsCards.innerHTML = cards.join('');
+      var flagBtns = document.querySelectorAll('[data-flag-btn]');
       for (var fb = 0; fb < flagBtns.length; fb++) {
         flagBtns[fb].addEventListener('click', (function(jobId) {
           return function() { openFlagModal(jobId); };
         })(flagBtns[fb].getAttribute('data-flag-btn')));
       }
-      var resolveBtns = resultsBody.querySelectorAll('[data-resolve-btn]');
+      var resolveBtns = document.querySelectorAll('[data-resolve-btn]');
       for (var rb = 0; rb < resolveBtns.length; rb++) {
         resolveBtns[rb].addEventListener('click', (function(jobId) {
           return function() { openResolveModal(jobId); };
         })(resolveBtns[rb].getAttribute('data-resolve-btn')));
       }
-      var thumbImgs = resultsBody.querySelectorAll('.thumb[data-lb]');
+      var thumbImgs = document.querySelectorAll('.thumb[data-lb]');
       for (var ti = 0; ti < thumbImgs.length; ti++) {
         thumbImgs[ti].addEventListener('click', (function(url) {
           return function() { window.openLightbox(url); };
@@ -1583,28 +1715,41 @@ function appJs(): string {
     renderPager(totalPages);
   }
 
-  function renderFlagCell(item) {
+  // Split into three pieces (button / meta / actions) so the mobile card
+  // layout can place them in three different spots (corner button, a
+  // full-width banner, full-width action row) instead of the single stacked
+  // column the desktop table's narrow .col-flag cell uses.
+  function renderFlagButton(item) {
     if (!item.flagged) {
       return '<button class="flag-btn" data-flag-btn="' + esc(item.id) + '">' +
         '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>' +
         ' Flag</button>';
     }
-    var label = FLAG_REASON_LABELS[item.flagReason] || item.flagReason || 'Flagged';
     var resolved = !!item.resolvedAt;
     var flagIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/></svg>';
-    var html = '<div class="flag-cell">' +
-      '<div class="flag-status">' +
-        '<button class="flag-btn ' + (resolved ? 'resolved-active' : 'active') + '" data-flag-btn="' + esc(item.id) + '">' +
-          flagIcon + ' ' + (resolved ? 'Resolved' : 'Flagged') + '</button>' +
-        '<span class="flag-badge' + (resolved ? ' resolved' : '') + '" title="' + esc(label) + '">' + esc(label) + '</span>';
+    return '<button class="flag-btn ' + (resolved ? 'resolved-active' : 'active') + '" data-flag-btn="' + esc(item.id) + '">' +
+      flagIcon + ' ' + (resolved ? 'Resolved' : 'Flagged') + '</button>';
+  }
+  function renderFlagMeta(item) {
+    if (!item.flagged) return '';
+    var label = FLAG_REASON_LABELS[item.flagReason] || item.flagReason || 'Flagged';
+    var resolved = !!item.resolvedAt;
+    var html = '<span class="flag-badge' + (resolved ? ' resolved' : '') + '" title="' + esc(label) + '">' + esc(label) + '</span>';
     if (item.flagNote) html += '<span class="flag-note-hint">' + esc(item.flagNote) + '</span>';
     if (resolved && item.resolvedNote) html += '<span class="flag-note-hint resolved-hint">Resolved: ' + esc(item.resolvedNote) + '</span>';
-    html += '</div>' +
-      '<div class="flag-actions">' +
-        '<a class="bundle-link" href="/results/' + esc(item.id) + '/bundle">Download bundle</a>';
+    return html;
+  }
+  function renderFlagActions(item) {
+    if (!item.flagged) return '';
+    var resolved = !!item.resolvedAt;
+    var html = '<a class="bundle-link" href="/results/' + esc(item.id) + '/bundle">Download bundle</a>';
     if (!resolved) html += '<button class="flag-btn resolve" data-resolve-btn="' + esc(item.id) + '">Mark resolved</button>';
-    html += '</div>' +
-    '</div>';
+    return html;
+  }
+  function renderFlagCell(item) {
+    var html = '<div class="flag-cell"><div class="flag-status">' + renderFlagButton(item) + renderFlagMeta(item) + '</div>';
+    if (item.flagged) html += '<div class="flag-actions">' + renderFlagActions(item) + '</div>';
+    html += '</div>';
     return html;
   }
 
@@ -1636,12 +1781,61 @@ function appJs(): string {
   // other single-image column, but 2- and 3-input jobs render every uploaded
   // image side by side instead of only the first one. Each entry carries the
   // full object (url) plus its on-demand thumbnail (thumbUrl).
-  function renderGarmentCell(garments) {
-    if (!garments || garments.length === 0) return '<div class="thumb-placeholder">—</div>';
-    if (garments.length === 1) return renderThumb(garments[0].thumbUrl || garments[0].url, garments[0].label || 'Garment', null, false, garments[0].url);
+  function renderGarmentCell(garments, small) {
+    if (!garments || garments.length === 0) return '<div class="thumb-placeholder' + (small ? ' sm' : '') + '">—</div>';
+    if (garments.length === 1) return renderThumb(garments[0].thumbUrl || garments[0].url, garments[0].label || 'Garment', null, small, garments[0].url);
     return '<div class="garments-row">' + garments.map(function(g) {
       return renderThumb(g.thumbUrl || g.url, g.label || 'Garment', g.label, true, g.url);
     }).join('') + '</div>';
+  }
+
+  // First + last initial of the display name, falling back to the email's
+  // local part — mirrors the avatar bubble in the mobile card layout.
+  function cardInitials(name, email) {
+    var src = (name || '').trim();
+    if (src) {
+      var parts = src.split(/\\s+/);
+      if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+      return parts[0].slice(0, 2).toUpperCase();
+    }
+    var local = (email || '').split('@')[0];
+    return local ? local.slice(0, 2).toUpperCase() : '?';
+  }
+
+  // Mobile equivalent of the <tr> built in render() — a separate template
+  // rather than a CSS reflow of the table, since the target layout (corner
+  // avatar, flag/credits pinned top-right, a horizontal thumbnail strip)
+  // reorders content the table's column order can't express with CSS alone.
+  function renderCard(item, seq, rev, rowClass, rowTitle, poseLabel) {
+    var html = '<div class="result-card ' + rowClass + '" title="' + esc(rowTitle) + '">' +
+      '<div class="card-top">' +
+        '<div class="card-id"><span class="id-num">#' + rev + '</span><span class="when-text">' + fmtDate(item.createdAt) + '</span></div>' +
+        renderFlagButton(item) +
+      '</div>';
+    var flagMeta = renderFlagMeta(item);
+    if (flagMeta) html += '<div class="card-flag-meta">' + flagMeta + '</div>';
+    html +=
+      '<div class="card-user">' +
+        '<div class="card-avatar">' + esc(cardInitials(item.userDisplayName, item.userEmail)) + '</div>' +
+        '<div class="card-user-info">' +
+          '<div class="user-name">' + esc(item.userDisplayName || item.userEmail || '—') + '</div>' +
+          '<div class="user-email">' + esc(item.userEmail || '—') + '</div>' +
+          '<div class="user-since">Member since ' + fmtDate(item.userCreatedAt) + '</div>' +
+          '<div class="user-tier">Plan: ' + esc(item.userTier || 'free') + '</div>' +
+        '</div>' +
+        '<div class="card-credits"><span class="card-credits-label">Credits</span><span class="credits-num">' + item.creditsCharged + '</span></div>' +
+      '</div>' +
+      '<div class="card-thumbs">' +
+        '<div class="card-thumb-col"><span class="card-thumb-label">Garment</span>' + renderGarmentCell(item.garments, true) + '</div>' +
+        '<div class="card-thumb-col"><span class="card-thumb-label">' + esc(poseLabel) + '</span>' + renderThumb(item.personThumbUrl || item.poseUrl, poseLabel, null, true, item.poseFullUrl || item.poseUrl) + '</div>' +
+        '<div class="card-thumb-col"><span class="card-thumb-label">Background</span>' + renderThumb(item.backgroundUrl, 'Background', null, true, item.backgroundFullUrl) + '</div>' +
+        '<div class="card-thumb-col"><span class="card-thumb-label">Shoes</span>' + renderThumb(item.shoeUrl, 'Shoes', null, true, item.shoeFullUrl) + '</div>' +
+        '<div class="card-thumb-col"><span class="card-thumb-label">Output</span>' + renderThumb(item.outputThumbUrl || item.outputUrl, 'Output', null, true, item.outputUrl) + '</div>' +
+      '</div>';
+    var flagActions = renderFlagActions(item);
+    if (flagActions) html += '<div class="card-actions">' + flagActions + '</div>';
+    html += '</div>';
+    return html;
   }
 
   function renderPager(totalPages) {
@@ -1802,6 +1996,30 @@ function appJs(): string {
   // entries until the next fetch, which is the exact "same garment types for
   // every gender" complaint this narrowing fixes.
   $('filter-gender').addEventListener('change', renderGarmentTypeOptions);
+
+  // Mobile filters-toggle chip: collapses the filter panel behind a tap
+  // target showing how many filters are active, matching the condensed
+  // filter bar used below 1024px. No-op on desktop, where the toggle button
+  // itself stays hidden via CSS and the panel is always visible.
+  var FILTER_DEFAULTS = { userId: '', date: 'any', search: '', status: 'completed', flag: 'all', jobType: 'all', gender: 'all', garmentTypeId: '' };
+  function updateFiltersBadge() {
+    var count = 0;
+    for (var k in FILTER_DEFAULTS) { if (state.filters[k] !== FILTER_DEFAULTS[k]) count++; }
+    var badge = $('filters-badge');
+    if (!badge) return;
+    if (count > 0) { badge.textContent = String(count); badge.hidden = false; }
+    else { badge.hidden = true; }
+  }
+  var filtersWrap = $('filters-wrap');
+  var filtersToggle = $('filters-toggle');
+  if (filtersToggle && filtersWrap) {
+    filtersToggle.addEventListener('click', function() {
+      var open = filtersWrap.classList.toggle('open');
+      filtersToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
+  updateFiltersBadge();
+
   $('btn-apply').addEventListener('click', function() {
     state.filters.userId = $('filter-user').value;
     state.filters.date = $('filter-date').value;
@@ -1812,6 +2030,8 @@ function appJs(): string {
     state.filters.garmentTypeId = $('filter-garmenttype').value;
     state.filters.search = $('filter-search').value.trim();
     state.page = 1;
+    updateFiltersBadge();
+    if (filtersWrap) filtersWrap.classList.remove('open');
     loadData();
   });
   $('btn-clear').addEventListener('click', function() {
@@ -1826,6 +2046,8 @@ function appJs(): string {
     $('filter-search').value = '';
     state.filters = { userId: '', date: 'any', search: '', status: 'completed', flag: 'all', jobType: 'all', gender: 'all', garmentTypeId: '' };
     state.page = 1;
+    updateFiltersBadge();
+    if (filtersWrap) filtersWrap.classList.remove('open');
     loadData();
   });
 
