@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { users } from './users.js';
 
@@ -53,6 +54,10 @@ export const messagingRuns = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     jobIds: uuid('job_ids').array().notNull(),
+    // Jobs whose outcome reached the chat (image sent, or failure accounted for).
+    deliveredJobIds: uuid('delivered_job_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    // D26: the paid "images are ready" template goes out at most once per run.
+    readyNoticeSentAt: timestamp('ready_notice_sent_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     // Set by plan 3 once the follow-up buttons for the whole run were sent.
     finishedAt: timestamp('finished_at', { withTimezone: true }),
