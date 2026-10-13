@@ -12,6 +12,7 @@ export * from './google-drive.js';
 export * from './jobs.js';
 export * from './kiosk.js';
 export * from './merchant.js';
+export * from './messaging.js';
 export * from './models.js';
 export * from './permissions.js';
 export * from './refund-requests.js';
