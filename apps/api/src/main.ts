@@ -5,6 +5,11 @@ import { loadEnv } from './env.js';
 import { hashPassword } from './modules/auth/service.js';
 import { startUserLowCreditAlertScheduler } from './modules/credits/low-credit-alert-scheduler.js';
 import { startUnlimitedPlanReminderScheduler } from './modules/credits/unlimited-plan-scheduler.js';
+import {
+  createAppWhatsappClient,
+  startWhatsappDelivery,
+  startWhatsappInboundConsumer,
+} from './modules/messaging/inbound-consumer.js';
 import { startAlertScheduler } from './modules/shopify/alert-scheduler.js';
 import { startAutorefillReconciler } from './modules/shopify/autorefill-reconciler.js';
 import { startCollectionResyncScheduler } from './modules/shopify/collections-resync-scheduler.js';
@@ -39,6 +44,20 @@ startRedactionRetryScheduler(app);
 startWebhookRegistrationReconciler(app);
 startUserLowCreditAlertScheduler(app);
 startUnlimitedPlanReminderScheduler(app);
+
+// WhatsApp catalog bot (plan 3). Started only when enabled AND fully configured,
+// so a half-configured environment logs once instead of failing on every message.
+if (app.env.MESSAGING_WHATSAPP_ENABLED === true) {
+  const wa = createAppWhatsappClient(app);
+  if (wa) {
+    startWhatsappInboundConsumer(app, wa);
+    startWhatsappDelivery(app, wa);
+  } else {
+    app.log.warn(
+      'MESSAGING_WHATSAPP_ENABLED is on but WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN are missing — bot not started',
+    );
+  }
+}
 
 if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
   const [existing] = await app.db

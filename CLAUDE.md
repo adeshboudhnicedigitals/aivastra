@@ -531,6 +531,8 @@ test can drive one pass directly.
 | `startPaymentSettlementScheduler` | 60s | grants credit packs held `AWAITING` once the Partner API shows the sale (hold-until-paid); fails closed |
 | `startRedactionRetryScheduler` | 30m | finishes GDPR erasures whose object deletes failed |
 | `startUserLowCreditAlertScheduler` | 1h | low-credit emails for platform users |
+| `startWhatsappInboundConsumer` | continuous | `messaging:inbound` stream → `processInbound` (per-sender chains, 20 in flight) |
+| `startWhatsappDelivery` | 5s | sends finished runs; the paid template goes out once when the window is closed |
 
 The dispatcher runs its own, separately: the stuck-job sweeper and the
 `XPENDING` recovery pass (`apps/dispatcher/src/stream/`).

@@ -26,6 +26,7 @@ import {
   WEB_CODE_TTL_SECONDS,
   waConnectLink,
 } from './identity.js';
+import { notifyConnected } from './notify.js';
 
 function assertEnabled(app: FastifyInstance) {
   // `=== true`, not truthiness: tests build Env directly and leave the flag undefined.
@@ -142,6 +143,8 @@ export async function messagingConnectRoutes(app: FastifyInstance) {
         userId: req.userId,
         linkedVia: 'chat_link',
       });
+      // Fire-and-forget: the web response must not wait on Meta.
+      void notifyConnected(app, account.id);
       return { account: toMessagingAccountDto(account) };
     },
   );
