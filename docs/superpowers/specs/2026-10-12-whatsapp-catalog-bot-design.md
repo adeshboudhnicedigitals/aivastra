@@ -100,7 +100,7 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D30 | Amazon white-background rule on the web | Removed, logic only: the api's background override for `platform: 'Amazon'` and the studio's "main listing" mode with its main-image picker. The admin "white background" tag and its column stay, so there is no migration. This is its own change, shipped separately from the bot. |
 | D31 | Garment types | Every garment type the standard try-on flow serves, including lower-only types (jeans and similar) and types that need a second, third or optional fourth photo. The bot follows the studio's rules for which upload goes into which slot (section 8). Only types flagged `requiresMannequinStep` (the two-step saree flow) stay deferred (D16). **Narrowed by D46 and D47:** the optional fourth photo is not asked for, and a type needs a catalogue template to be offered. |
 | D32 | Connect tokens storage | Redis `SET EX` + `GETDEL`, not a Postgres table: atomic single use and expiry, no sweeper, matches the WordPress connect flow. The durable record is the `messaging_accounts` row. Chat tokens live 30 minutes so a seller can register and verify their email first. |
-| D28 | Success metric | Main: catalog images generated from WhatsApp per week. Adoption: share of web users who connect a number. Both come from data the design already records (`job_inputs.params.channel`, `messaging_accounts`). |
+| D28 | Success metric | Main: catalog images generated from WhatsApp per week. Adoption: share of web users who connect a number. Both come from data the design already records (`messaging_runs`, `messaging_accounts`). |
 | D40 | Catalog flow (management, 2026-10-13) | Five steps: (1) garment photo, (2) the garment is recognised automatically, (3) "Create catalogue for" Women / Men / Boys / Girls, (4) how many poses, (5) pick the poses; generation starts on the last pick. Gender is asked first and recognition runs after it: garment types are defined per gender (`garment_subcategories.gender_slug` is NOT NULL), so the model chooses only among that gender's types, a much shorter list (section 8a). |
 | D41 | Garment recognition | Our own Qwen2.5-VL on our GPU workers, as a classify-only ComfyUI workflow run by the dispatcher (section 8a). The result is shown as "Detected: <type>" with a way to change it. If it is slow, fails, or names no type we have, the bot shows the garment-type list instead. If it causes problems or delay in production (thresholds in section 8a), it moves to a hosted vision API behind the same interface. |
 | D42 | What leaves the chat | "Create your own" (own background and poses), back-view poses and "use my last poses". Every image is a catalogue-template look. Replaces D14 and D22 in the chat; the web studio keeps everything. |
@@ -113,6 +113,10 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D34 | Run tracking | A `messaging_runs` table (one row per create call, keyed by `catalogue_id`, with the account and job ids), not `job_inputs.params.channel`: the create request strips unknown params keys, and params feed the workflow. |
 | D48 | Waiting for recognition | Inside the conversation, polling the result key for at most 8 s after the gender tap, behind `GARMENT_RECOGNITION_ENABLED` (literal `'true'`; off = always the list). The request/result contract is `packages/types/src/garment-recognition.ts`. |
 | D49 | Looks needing a question | Not offered: a shoe look without a default shoe, a combined look without a default lower or lower photo, a lower-only look in a mixed template unless the type takes a lower photo. |
+| D37 | Delivery by polling, not pub/sub | One polling loop over unfinished `messaging_runs` (indexed, a handful of rows) replaces the notifier on the dispatcher's `sse:events:admin` channel plus the sweeper. Cost: up to one poll interval (5 s) of extra latency on a multi-minute generation. |
+| D38 | Result images are uploaded to Meta, not linked | Uploading needs no public URL and no answer to whether Meta can fetch our presigned URLs (T3: it can, but delivery does not depend on it). |
+| D39 | The 24-hour window margin is 10 minutes | A free-form send is attempted only if the seller's last message is less than 23 h 50 min old, so a send in flight never crosses the 24-hour line. |
+| D50 | Senders are processed concurrently, each in order | The consumer chains each sender's messages on an in-process promise (one sender stays in order) and runs different senders in parallel, up to 20 in flight; the per-sender Redis lock still serialises one sender across api replicas. A gender tap's 8 s recognition wait (D48) never blocks other sellers. |
 
 ## 4. Meta platform setup
 
@@ -191,8 +195,8 @@ Meta Cloud API ──webhook──▶ POST /v1/whatsapp/webhook   (verify signat
                               ▼
                  createJob(...)  — existing path: validate ➜ credit deduct ➜ jobs row ➜ XADD
                               │
-  dispatcher ── Redis pub/sub sse:events:admin ──▶ result notifier ──▶ send result to the chat
-                                                 + delivery sweeper (catches missed events)
+  dispatcher ── job COMPLETED ──▶ delivery loop (5 s, api process) over `messaging_runs`
+                                 ──▶ send result to the chat
 ```
 
 Why each piece exists:
@@ -210,10 +214,13 @@ Why each piece exists:
   upload key builders, and its ownership recorded the same way `/v1/uploads/presign` does
   (`upload:owner:{key}`), so `createJob` accepts it unchanged and the hourly upload sweeper cleans
   up abandoned ones.
-- **Result notifier** listens to the dispatcher's existing `sse:events:admin` pub/sub channel
-  (`apps/dispatcher/src/job/state.ts`) and acts on jobs whose `job_inputs.params.channel` is
-  `whatsapp`. Pub/sub is lossy (an api restart drops events), so a **delivery sweeper** loop
-  periodically looks for finished WhatsApp jobs whose result has not been delivered.
+- **Delivery loop** (D37) polls unfinished `messaging_runs` every 5 s from the api
+  process and sends whatever finished: each result image (uploaded to Meta's media
+  endpoint, D38) as it completes, then the follow-up buttons once every job of the run
+  is accounted for in `delivered_job_ids`. One polling path replaces the earlier
+  notifier + sweeper design — no pub/sub subscription to manage, and a lost event only
+  delays delivery by one interval. The loop finds a finished job's chat through
+  `messaging_runs`, never through `job_inputs.params`.
 - **Garment classifier** (D41, section 8a). The api never talks to a GPU worker, so recognition
   goes through the dispatcher like every other GPU call: the api adds a request to a Redis stream,
   the dispatcher runs a classify-only workflow on a worker and writes the answer to a Redis key the
@@ -659,13 +666,13 @@ it first looks.
 
 ## 11. Result delivery and the 24-hour window
 
-- A run is several jobs, one per image. When the dispatcher marks a WhatsApp job `COMPLETED`, the
-  notifier sends that result image (from MinIO via a URL Meta can fetch, or uploaded to Meta's
-  media endpoint) and sets `jobs.channel_delivered_at`. Images arrive one by one as they finish.
-- The follow-up buttons are sent once, after the last job of the run has finished or failed. The
-  jobs of one run share a catalogue, which is how the notifier knows the run is complete.
-- The delivery sweeper (interval about 1 minute) finds finished WhatsApp jobs with
-  `channel_delivered_at IS NULL` and delivers them, so a lost pub/sub event only delays delivery.
+- A run is several jobs, one per image. The delivery loop (D37) polls unfinished
+  `messaging_runs` rows and sends whatever finished: each result image uploaded to Meta's
+  media endpoint (D38), marking the job in the run's `delivered_job_ids` so every send
+  happens once. Images arrive one by one as they finish.
+- The follow-up buttons are sent once, after the last job of the run has finished or failed
+  (the run's `finished_at` is set then). The jobs of one run share a catalogue, which is how
+  the loop knows the run is complete.
 - **If the 24-hour window has closed** (`messaging_accounts.last_inbound_at` older than 24 hours),
   free-form messages are not allowed. The bot sends the approved utility template "Your catalog
   images are ready" with a button — **one per run, not one per image** — and the seller's tap
@@ -729,7 +736,7 @@ which user) asked to connect.
 | Garment photo download from Meta fails | Retry twice, then "Couldn't receive that photo, please send it again"; state stays at ASK_GARMENT_PHOTO. |
 | Unsupported upload (video, document, too large) | Explain what is accepted; stay at ASK_GARMENT_PHOTO. |
 | `createJob` rejects (insufficient credits, inactive asset) | NO_CREDITS, or re-ask that step with "That option is no longer available". |
-| Send to Meta fails (5xx, rate limit) | Retry with backoff. Undelivered results are picked up by the sweeper because `channel_delivered_at` stays NULL. |
+| Send to Meta fails (5xx, rate limit) | Retry with backoff. Undelivered results are picked up by the next delivery-loop poll because the job stays out of `delivered_job_ids`. |
 | Result ready after the 24-hour window closed | Approved utility template with a button; image sent after the tap. |
 | Job fails terminally | Dispatcher refunds that job; bot reports "k of N failed" with Retry for the failed ones. |
 | Message from a number that is not connected | Connect prompt with a fresh link. Nothing else is processed, and a garment photo sent at this point is not downloaded. |
@@ -820,8 +827,9 @@ Behaviour behind the wording:
 - A run of k picked looks creates k jobs and deducts the same credits the web would.
 - The dispatcher classify lane, with ComfyUI stubbed: writes the result key, records the outcome,
   and never touches `jobs` or credits.
-- Notifier and sweeper set `channel_delivered_at` exactly once per job, and send the follow-up
-  buttons once per run.
+- The delivery loop marks each job in `delivered_job_ids` exactly once, sends the follow-up
+  buttons once per run (setting `finished_at`), and sends the paid ready template at most
+  once per run (`ready_notice_sent_at`).
 - Insufficient credits leads to NO_CREDITS without a job being created.
 
 **Manual end-to-end on staging** using Meta's test number and a team phone registered as a test
@@ -897,21 +905,28 @@ numbers. If they do not, they need a line added before launch. No legal review w
 
 ### Technical (to verify before or during implementation)
 
-- **T1.** Confirm the interactive media carousel limits (cards, text length, button rules, 24-hour
-  requirement) against Meta's official Cloud API documentation, and test-send one from the
-  developer test number. Include the tap-per-look selection (section 9) in that device test.
+- **T1. Closed 2026-10-13 (spike on the test number).** Non-template carousel confirmed:
+  `type: "interactive"`, 2–10 cards, quick-reply buttons; every card MUST carry a card-level
+  `type` — `"type": "cta_url"` with quick_reply buttons is accepted (without it Meta returns
+  HTTP 400 `missing: 'type'`). Tap-per-look works: each carousel tap arrives as its own
+  message of `type: "button"` with the reply id in `button.payload` (not
+  `interactive.quick_reply`), so two taps in a row select two looks.
 - **T2.** Confirm Meta's current pricing model and whether utility templates sent inside an open
   service window are free.
-- **T3.** Confirm Meta can fetch result and thumbnail images from our MinIO public URL
-  (`app.aivastra.com/minio/…`) or presigned URLs, or whether we must upload media to Meta first.
+- **T3. Closed 2026-10-13 (spike).** YES: a production presigned link
+  (`app.aivastra.com/minio/...`, 1h expiry) loaded in a carousel card. Carousels use links;
+  result images are still uploaded to Meta's media endpoint and sent by id (D38).
 - **T4.** Closed. `/connect/whatsapp` sits outside `(app)` like `/connect/wordpress`; the middleware sends logged-out sellers to login with `next`, and registration carries it across email verification as `pending_next` (same tab only). WhatsApp settings live in Settings → Profile Details; the studio has a status chip (D27).
 - **T5.** Closed. The audit of code paths that assume `users.email` is set is no longer needed,
   because the bot creates no accounts.
-- **T6.** Choose the WhatsApp message-ID dedupe TTL and the per-sender rate limit values.
+- **T6. Closed 2026-10-13 (D-decisions in plan 3).** Message-ID dedupe TTL 3 days
+  (`msg:seen:whatsapp:<messageId>`, `SET NX`); per-sender rate limit 30 messages per minute
+  (over the limit the message is dropped with a log line).
 - **T7.** Confirm the `payment_link.paid` webhook payload shape before the in-chat payment work
   (deferred, but recorded so it is not rediscovered).
-- **T8.** Decide whether the delivery sweeper runs in the api process (alongside the other loops)
-  or whether delivery should move to the dispatcher, which already owns job completion.
+- **T8. Closed 2026-10-13 (D37).** Delivery runs in the api process: one polling loop
+  (`startWhatsappDelivery`, 5 s) over unfinished `messaging_runs` — no dispatcher move, no
+  pub/sub notifier.
 - **T9.** Closed, then reversed: the chat has no back-photo step (D42).
 - **T10.** Closed for the bot: it does not apply the Amazon white-background rule (D23). Removal
   from the web app is D30.

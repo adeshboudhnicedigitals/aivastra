@@ -2,6 +2,72 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-13 — WhatsApp catalog bot plan 3: WhatsApp adapter, inbound consumer, delivery (implemented, not yet live)
+
+- **Done:** plan 3 Tasks 1–8 (code) on branch `feat/whatsapp-bot-3-whatsapp-adapter`
+  (unmerged, 9 commits, nothing pushed, no PR): Task 1 spike notes; Task 2 Graph API
+  client (`channels/whatsapp/client.ts`: send/upload/download, `META_ERROR_OUTSIDE_WINDOW`
+  131047) + 6 env vars + logger redaction; Task 3 renderer (`render.ts`: text/buttons/list/
+  carousel + 1-card image+button fallback); Task 4 parser (`parse.ts`) + `signature.ts`
+  (HMAC-SHA256 over the raw body, timingSafeEqual, before parse); Task 5 webhook routes
+  (GET handshake, POST verify → `SET NX` dedupe → `XADD messaging:inbound`); Task 6
+  `send.ts` (23h50m window, stop-at-first-failure) + `inbound.ts` (unknown→connect link,
+  `CONNECT <code>`, STOP/START per D21, 30/min rate limit, photo download with 2 retries);
+  Task 7 `delivery.ts` (per-run lock, `delivered_job_ids` once-only, one ready template per
+  run, D38 upload-not-link) + migration `0226_quick_pestilence` (exactly two ADD COLUMNs on
+  `messaging_runs`); Task 8 `inbound-consumer.ts` (D50: per-sender chains, 20 in flight,
+  75×200 ms sender lock; 5 s delivery loop), `main.ts` startup, `notify.ts` +
+  `notifyConnected` (chat-confirm) and `notifyCreditsAdded` (`/verify` + payment webhook,
+  post-commit, fire-and-forget). Spec decisions D37 (polling delivery), D38 (upload
+  results), D39 (10-min window margin), D50 (per-sender concurrency) recorded in the spec;
+  T1/T3/T6/T8 closed there (T2 pricing unanswered by the spike, still open). Spec
+  back-corrected to plan 2's `messaging_runs`: sections 5/11/13/15 + D28 no longer mention
+  `job_inputs.params.channel` / `channel_delivered_at` (wording only).
+- **Spike-driven adjustments (spike = source of truth):** renderer emits `type: 'cta_url'`
+  on every carousel card (Meta 400s without it); `case 'button'` returns reply when the
+  payload parses as an engine reply id (carousel taps arrive as `type: "button"`, not
+  `interactive.quick_reply`) else templateButton; T3 = YES (presigned links render).
+  Payloads also carry business-scoped `user_id` beside `wa_id` — future identity risk if
+  Meta ever drops `wa_id` (noted 2026-10-13 spike entry).
+- **Rule-over-plan departure:** bad/missing webhook signatures get **401**, not the plan's
+  200-ack (operator rule: raw-body HMAC before parse; proven by tests: bad-signature on a
+  garbage body → 401, signed-but-unusable → 200, nothing reaches the stream). Other
+  departures: `uploadMedia` copies Buffer into a fresh Uint8Array (DOM BlobPart typing);
+  delivery reads `headObject(...).contentType` (results can be webp) instead of literal
+  `image/png`; inbound photo test asserts plan 2's real `'Create catalogue for:'` copy;
+  webhook/inbound/delivery/hook tests use per-run ids + delta stream asserts (pooled test
+  Redis is not flushed; seen-keys TTL 3 days); `decodeReplyId(...) !== null` is the
+  reply-vs-template discriminator; NO_CREDITS hook test walks the engine instead of raw
+  `saveSession`; commit authors vary per subagent (local only).
+- **Verified 2026-10-13 (final full re-run, this entry):**
+  `pnpm --filter @aivastra/api test` — 99 files / 910 passed (baseline 96/893:
+  +client 4, +render 6, +parse 7);
+  `pnpm --filter @aivastra/api test:integration` — 168 files / 1271 passed (baseline
+  164/1248: +webhook 6, +inbound 7, +delivery 5, +hooks 5);
+  `pnpm --filter @aivastra/api typecheck` exit 0. Ordering test proves real concurrency
+  (B1 ends while A1 sleeps; A2 starts after A1 ends; XPENDING 0). `pnpm lint` still shows
+  the pre-existing `noNonNullAssertion` errors in untouched `admin/*` (baseline state).
+  Migration applied to the local docker DB only; production change only via push → CI/CD →
+  `db:migrate:prod`. No production commands run.
+- **NOT done (manual, needs push/staging deploy/Meta dashboard — checklist for the operator):**
+  1. `catalog_images_ready` template submit + approval (Utility, `en`, approved body +
+     `Show images` button) — Task 7 works without it until the window-closed path is tested.
+  2. Push the branch, get it reviewed/merged, deploy through the normal pipeline (plans
+     1–3 migrations via CI/CD). 3. Staging `.env.staging`: `MESSAGING_WHATSAPP_ENABLED=true`,
+     `WHATSAPP_DISPLAY_NUMBER=15556585373`, `WHATSAPP_PHONE_NUMBER_ID=1331723183359956`,
+     `WHATSAPP_ACCESS_TOKEN` (system-user token before anything lasting),
+     `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN` (32+ chars),
+     `WHATSAPP_RESULTS_TEMPLATE=catalog_images_ready` once approved (values via the VPS,
+     never chat/repo); extend `check-staging-env.sh` if it lists required vars.
+  4. Console → WhatsApp → Configuration: callback `https://<staging-admin-host>/v1/whatsapp/webhook`
+     + verify token, subscribe `messages`; run the plan's 5-step staging walkthrough (connect
+     both directions, photo→gender→type→count→carousel→generation, Change row, NO_CREDITS,
+     image + buttons arrival, `/catalogs` + credits, STOP/START). 5. Regenerate the Meta
+     access token (its value was pasted into chat during the spike) and close the console's
+     "Create a Configuration" tab. 6. Before production: production number + display-name
+     approval, system-user permanent token, business verification of Nice Interactive
+     (Ram Kumar).
+
 ## 2026-10-13 — WhatsApp spike (T1–T3) on the Meta test number (manual, no code)
 
 - **Done:** ran plan 3 Task 1 against the test number (Phone Number ID `1331723183359956`,
