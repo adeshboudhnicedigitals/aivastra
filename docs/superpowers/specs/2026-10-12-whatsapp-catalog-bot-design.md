@@ -20,7 +20,8 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
   on WhatsApp show up in the seller's `/catalogs` page on the web, and credits are one shared
   balance.
 - **There is one account, and it is the web account.** The bot never creates an account. A seller
-  signs up on the web app (where the free trial is granted, as today) and connects their WhatsApp
+  signs up on the web app (where the free trial is granted as today, once the profile has an
+  email and a mobile number) and connects their WhatsApp
   number to it. Connecting can be started from the chat or from the web app.
 - **Credits and payments stay on the web app.** The bot's main menu shows the balance and a link
   to `/pricing`. No payment code changes. Paying inside the chat (Razorpay payment link) is a
@@ -71,7 +72,7 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D9 | Where the code runs | Module inside `apps/api` (approach A, section 5). |
 | D10 | Meta integration | Directly on Meta's WhatsApp Cloud API, no BSP (section 4). |
 | D11 | Other Meta channels | Channel-ready design: generic identity table and an abstract message layer; only the WhatsApp adapter built. |
-| D12 | Free trial | **Revised 2026-10-13:** unchanged from web. It is granted at web sign-up as today; the bot grants nothing. |
+| D12 | Free trial | **Revised 2026-10-13:** unchanged from web. It is granted as today, when the web profile has both an email and a 10-digit mobile number (`PATCH /v1/me`); the bot grants nothing. |
 | D13 | Account model | One common account for web and WhatsApp. Account creation, credits and payment all live on the web app; the bot's main menu links to them. |
 | D14 | Look selection | Mirrors the web studio: `[Ready-made looks]` picks an admin-curated catalogue template (each look has its own pose and background), `[Create your own]` picks one background and one or more poses. "Use my last poses" is offered inside "Create your own". |
 | D15 | Connecting a number | Both directions (section 7): the bot sends a connect link, and the web app has a "Connect WhatsApp" button. |
@@ -87,6 +88,7 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D25 | Meta onboarding owner | Taken on by the reviewer who answered on 2026-10-13 (name to be filled in): starts the Business Portfolio and business verification. |
 | D26 | Template message budget | No monthly cap and no proactive or marketing messages in v1. The only message the bot starts on its own is "Your catalog images are ready", once per run. |
 | D27 | Connection status on the web | The studio shows whether a WhatsApp number is connected, with the connect / disconnect action. |
+| D29 | Profile mobile number vs WhatsApp number | Kept separate. The profile number is only a hint: the connect step is always required, and the page says whether the WhatsApp number matches the one on the account (section 7). A match never connects a number by itself. |
 | D28 | Success metric | Main: catalog images generated from WhatsApp per week. Adoption: share of web users who connect a number. Both come from data the design already records (`job_inputs.params.channel`, `messaging_accounts`). |
 
 ## 4. Meta platform setup
@@ -240,10 +242,44 @@ The bot never creates a `users` row. Every seller the bot talks to already has a
 - `users` gets no migration and no new kind of row. Every account still has whatever the web
   sign-up gave it (email or username, password or Google), so nothing that assumes an email
   exists needs auditing for this feature.
-- The free trial is granted at web sign-up exactly as today. The bot grants nothing.
+- The free trial is granted exactly as today: `PATCH /v1/me` writes the `FREE_TRIAL` ledger row
+  once the profile has both an email and a 10-digit mobile number. The bot grants nothing.
 - Two accounts for one seller cannot arise from the bot, so there is no claim flow and no merge.
-- `users.phone` is still not the identity: it is unverified free text with no format enforcement,
-  and trusting it would let anyone attach to an account by typing a number into a profile.
+- `users.phone` is still not the identity. `PATCH /v1/me` does check that it is 10 digits and
+  not already on another account, but the column itself has no constraint, the number carries no
+  country code, and — the part that matters — **nobody has ever proved they own it**: there is
+  no OTP. Trusting it would let anyone attach to an account by typing a number into a profile.
+
+### The profile mobile number and the WhatsApp number
+
+A seller gives a mobile number on the web to receive the free trial, and later messages the bot
+from a WhatsApp number. They are usually the same number, but nothing makes them so.
+
+| | Profile mobile (`users.phone`) | WhatsApp number (`messaging_accounts.external_id`) |
+|---|---|---|
+| Source | Typed by the seller | The number WhatsApp delivered the message from |
+| Verified | No | Yes, by WhatsApp |
+| Format | 10 digits, no country code | E.164 |
+
+| Option | Developers | Users |
+|---|---|---|
+| A. Fully independent | Nothing extra. | Always does the connect step; no reassurance that it is the expected number. |
+| B. Auto-connect when the numbers match | A lookup; no connect page for matches. | No connect step for most sellers. But the profile number is unverified, so a typo or a deliberately wrong number lets a stranger's WhatsApp spend that account's credits. |
+| **C. Connect step always; profile number as a hint (chosen, D29)** | Compare and show the result on the confirm page. | Connect step stays; the seller is told whether the number matches their account. |
+
+How the hint works:
+
+- The comparison is the WhatsApp number's last 10 digits against `users.phone`. This assumes
+  Indian numbers, which is all the profile field can hold today.
+- **Chat-started:** the confirm page says "This is the mobile number on your account", or
+  "This is different from the mobile number on your account (ending 1234)". Either way the
+  seller can confirm.
+- **Web-started:** the comparison can only happen when the `CONNECT` code arrives, so a
+  difference is mentioned in the bot's "Connected" message rather than blocking it.
+- A mismatch never blocks a connect and never rewrites `users.phone`. Overwriting it would run
+  into the one-number-per-account check and would change what the free-trial rule looked at.
+- Not built in v1, but recorded: a connected WhatsApp number is the first *verified* number we
+  hold for a seller, so it is the natural input if the free-trial rule is ever tightened.
 
 ### Identity options considered
 
@@ -270,7 +306,8 @@ Both directions are built (D15). They share one token table and end in the same
    `/connect/whatsapp?t=<token>`. The token is bound to the phone number, not to any user.
 2. The seller opens it and logs in normally. A seller with no account registers first (including
    the normal email verification) and is returned to the same page afterwards.
-3. The page shows "Connect WhatsApp +91… to this account?" with the consent wording (Q8). On
+3. The page shows "Connect WhatsApp +91… to this account?" with the consent wording (Q8) and
+   whether the number matches the mobile number on the account (D29). On
    confirm, the `messaging_accounts` row is created and the bot sends "Connected" plus the main
    menu.
 
