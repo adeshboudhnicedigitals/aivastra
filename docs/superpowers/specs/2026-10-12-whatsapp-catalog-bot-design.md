@@ -82,7 +82,7 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D19 | Launch audience | No closed pilot. The feature flag is the only gate; testing happens on the test number before launch. |
 | D20 | Phone numbers | Development and staging on Meta's test number. Launch on a new dedicated number (being obtained), not a migrated existing one. |
 | D21 | Consent and opt-out | The bot carries consent wording and STOP handling. The wording in section 14 was approved on 2026-10-13. |
-| D22 | Back-view poses | Supported. When a chosen pose or template look is a back view, the bot asks for a second photo, of the garment's back. |
+| D22 | Back-view poses | Supported in "Create your own": when a chosen pose is a back view, the bot asks for a second photo, of the garment's back. Ready-made templates never ask, matching the studio (section 8). |
 | D23 | Amazon white background | The bot does not apply it. It never sends `platform: 'Amazon'` to the create path, so a seller who picks Amazon gets the 1:1 aspect ratio with the background they chose. The rule is also being removed from the web app (D30). |
 | D24 | Template looks | A ready-made run generates every look of the template. Unticking individual looks stays on the web; a seller who wants fewer images uses "Create your own". |
 | D25 | Meta onboarding owner | Ram Kumar starts the Business Portfolio and business verification. |
@@ -90,7 +90,7 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D27 | Connection status on the web | The studio shows whether a WhatsApp number is connected, with the connect / disconnect action. |
 | D29 | Profile mobile number vs WhatsApp number | Kept separate. The profile number is only a hint: the connect step is always required, and the page says whether the WhatsApp number matches the one on the account (section 7). A match never connects a number by itself. |
 | D30 | Amazon white-background rule on the web | Removed, logic only: the api's background override for `platform: 'Amazon'` and the studio's "main listing" mode with its main-image picker. The admin "white background" tag and its column stay, so there is no migration. This is its own change, shipped separately from the bot. |
-| D31 | Garment types | Every garment type the standard try-on flow serves, including lower-only types (jeans and similar). The bot follows the studio's rules for which upload goes into which slot (section 8). Types that need the saree / mannequin step stay deferred with that flow (D16). |
+| D31 | Garment types | Every garment type the standard try-on flow serves, including lower-only types (jeans and similar) and types that need a second, third or optional fourth photo. The bot follows the studio's rules for which upload goes into which slot (section 8). Only types flagged `requiresMannequinStep` (the two-step saree flow) stay deferred (D16). |
 | D28 | Success metric | Main: catalog images generated from WhatsApp per week. Adoption: share of web users who connect a number. Both come from data the design already records (`job_inputs.params.channel`, `messaging_accounts`). |
 
 ## 4. Meta platform setup
@@ -376,8 +376,11 @@ sessions; the durable record of what ran is the existing `jobs` / `job_inputs` /
                                 and garment type; otherwise image cards, tap to add
                                 ("Added, 2 selected"), then [Done]
         ▼
-  8 ASK_BACK_PHOTO?     only if any selected pose or look is a back view: "Now send a photo of
-                        the back of the garment". Same download ➜ MinIO ➜ ownership path as step 4.
+  8 ASK_BACK_PHOTO?     "Create your own" only, if any selected pose is a back view: "Now send
+                        a photo of the back of the garment". Same download ➜ MinIO ➜ ownership
+                        path as step 4.
+    ASK_EXTRA_PHOTOS?   only for garment types that declare more uploads: a required lower
+                        photo, a required third photo, an optional fourth photo + [Skip]
     PICK_LOWER?         only if any selected pose supports a lower; image cards + [Skip]
   9 PICK_SHOES?         only if any selected pose supports shoes; image cards + [Skip]
  10 CONFIRM             summary + "N images, uses C credits, balance M"  [Generate] [Start over]
@@ -409,9 +412,25 @@ How this maps onto the existing create path (`CreateTryOnJobInputs`, `packages/t
   `upperGarmentKey` (the schema requires it; the api drops it for these poses) and
   `lowerGarmentKey`; a back-view lower-only pose takes the back photo as `lowerGarmentBackKey`
   instead; and the PICK_LOWER step is skipped, because the upload *is* the lower.
-- Garment types flagged `requiresLowerUpload` need a second upload for the lower garment rather
-  than a catalog pick. The bot asks for it at the PICK_LOWER step ("Send a photo of the lower
-  garment").
+- **Extra uploads are declared by the garment type**, not by the pose
+  (`garment_subcategories`), so the bot knows what to ask for as soon as the type is chosen:
+  - `requiresLowerUpload` — a required photo of the lower garment, instead of a catalog pick.
+    PICK_LOWER is skipped for these types.
+  - `requiresThirdUpload` — a required third photo (`thirdGarmentKey`). It is a generic third
+    garment role, not a saree-only one.
+  - `allowsFourthUpload` — an optional fourth photo (`fourthGarmentKey`, the blouse on the
+    one-step workflow). The bot offers it with `[Skip]`; the dispatcher already prunes that part
+    of the workflow when it is left empty.
+  - Each has an admin-set label (`upperUploadLabel`, `lowerUploadLabel`, `thirdUploadLabel`,
+    `fourthUploadLabel`) that the bot uses in its prompt, e.g. "Now send a photo of the
+    <thirdUploadLabel>".
+- **Back-view looks in a ready-made template are out of scope, as they are in the studio.** The
+  studio's template mode never collects a back photo, and `/v1/models/catalogue-templates` does
+  not return a look's garment view at all
+  (`docs/superpowers/plans/2026-09-29-studio-back-pose-garment-view.md` records this as a
+  deliberate exclusion). The bot therefore cannot know a look is a back view and does not ask.
+  If an admin ever maps a back-view workflow into a template, the create path rejects the whole
+  run for web and bot alike, before any credits are taken.
 - These slot rules are derived from pose and garment-type flags the api already returns. They
   are implemented once in the engine and covered by unit tests against the same cases the studio
   handles, so the two cannot drift silently.
@@ -758,12 +777,13 @@ numbers. If they do not, they need a line added before launch. No legal review w
   Aivastra's WABA payment method. It is not taken from the seller's credits. With no cap (D26) the
   exposure is one message per run that finishes after the window closed; add a metric for it so
   the monthly figure is visible.
-- **T15. Back-view looks inside a catalogue template.** The studio only asks for a back photo in
-  "Create your own" mode (`needsUpperBack` is gated on the custom template), yet the api rejects
-  any back-view pose that arrives without one. Find out which is true before building
-  ASK_BACK_PHOTO for templates: templates never contain back-view looks, or the studio has a gap.
-  D22 stands either way; this only decides whether the template branch can ever reach that step.
-- **T16. Other upload slots.** The create schema also has `thirdGarmentKey` and
-  `fourthGarmentKey`. Confirm which standard garment types use them and whether "all garment
-  types" (D31) therefore needs a third-photo step, or whether those slots belong only to the
-  deferred saree flow.
+- **T15.** Closed. Template mode has no back-photo step in the studio by design, and the bot
+  matches it (D22, section 8).
+- **T16.** Closed. The third and fourth upload slots are driven by garment-type flags and apply
+  to standard types, so the bot asks for them (D31, section 8). Which garment types currently
+  have those flags set is admin data, not code, and was not looked up.
+- **T17. Is a missing required third photo rejected by the api?** The studio blocks Generate
+  until a `requiresThirdUpload` type has its third photo. In `resolveTryonPlan` the only third-
+  upload check found fires when a third photo *is* sent but the workflow has no node for it.
+  Confirm whether a request with no third photo is rejected elsewhere; if it is not, the bot's
+  own step is the only guard and should be tested as such.
