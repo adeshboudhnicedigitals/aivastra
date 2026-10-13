@@ -2,6 +2,41 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-13 — WhatsApp catalog bot plan 2: conversation engine (implemented, not reachable)
+
+- **Done:** deterministic five-step conversation engine (`apps/api/src/modules/messaging/`,
+  branch `feat/whatsapp-bot-2-conversation-engine`, 7 commits Tasks 1–7, unmerged):
+  engine types/copy/reply ids, look eligibility + create-body rules (D49: looks needing
+  a question are not offered), the five-step engine (photo → recognition → gender →
+  count → looks, generation on the last pick), count/picks/extra-photos/delivery
+  branches, garment recognition request/wait/fallback (D48: polls the result key at
+  most 8 s after the gender tap; flag off = always the list), extracted
+  garment-type/face/template queries (Task 6 refactor; models-pattern integration
+  11 files / 31 tests unchanged), and real engine deps + conversation entry point
+  with the `messaging_runs` table (migration `0225_youthful_stingray`: one row per
+  create call keyed by `catalogue_id`, with the account and job ids — D34, not
+  `job_inputs.params.channel`). Spec decisions recorded in the spec itself
+  (D33 engine purity, D34 run tracking, D48 recognition wait, D49 look rules;
+  section 12 now shows `messaging_runs`, plan 3 adds per-job delivery tracking).
+- **Verified 2026-10-13 (all re-run for this entry):**
+  `pnpm --filter @aivastra/api test` — 96 files / 893 passed (baseline 836; +4 new
+  test files: `messaging-reply-id` 3, `messaging-rules` 15, `messaging-engine` 36,
+  `messaging-classify` 3);
+  `pnpm --filter @aivastra/api test:integration` — baseline 1241 passed plus new
+  files `messaging-classify` 5 + `messaging-conversation` 2;
+  `pnpm --filter @aivastra/api typecheck` exit 0; `pnpm --filter @aivastra/api lint`
+  has pre-existing `noNonNullAssertion` errors in untouched `src/modules/admin/*`
+  files (identical code on the base branch — not from this work).
+- **Rollout:** `GARMENT_RECOGNITION_ENABLED` stays OFF until plan 5 (dispatcher
+  classify lane). Nothing is reachable by users until plan 3 (no webhook yet:
+  no inbound consumer, no delivery). Plan 3 check done: its
+  `startWhatsappInboundConsumer` still reads per-sender promise chains with
+  20 messages in flight and a 75 × 200 ms sender-lock wait (D50), so a gender
+  tap's 8 s recognition wait never blocks other senders. Migration is additive;
+  production change only via push → CI/CD → `db:migrate:prod`.
+- **Not run:** no production commands run; no user-reachable flow to click through
+  until plan 3 ships the webhook.
+
 ## 2026-10-13 — WhatsApp catalog bot plan 1: connect and identity (implemented, off everywhere)
 
 - **Done:** seller can connect a WhatsApp number to their web account from either direction,

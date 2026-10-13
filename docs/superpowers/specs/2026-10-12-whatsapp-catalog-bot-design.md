@@ -109,6 +109,10 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D45 | Confirmation | No separate Confirm step. Choosing the count, with its cost and balance shown, is the seller's agreement to spend; the last pick starts generation, charged at the quote for the exact looks picked (D17). Too few credits is caught at the count step and again before creating the run. |
 | D46 | Extra uploads | A garment type that **requires** another photo (`requiresLowerUpload`, `requiresThirdUpload`) still gets its prompt, right after the type is known; it cannot be defaulted. The optional fourth photo is not asked for. |
 | D47 | Garment types with no template | A garment type with no active catalogue template for that gender is not available in the chat; the bot says so and points to the web studio. |
+| D33 | Engine purity | Deterministic, not pure: `handle(session, event, ctx, deps)` awaits an injected `EngineDeps` for option lists and side effects but does no I/O of its own and takes randomness from `deps`. Tested with in-memory fakes. |
+| D34 | Run tracking | A `messaging_runs` table (one row per create call, keyed by `catalogue_id`, with the account and job ids), not `job_inputs.params.channel`: the create request strips unknown params keys, and params feed the workflow. |
+| D48 | Waiting for recognition | Inside the conversation, polling the result key for at most 8 s after the gender tap, behind `GARMENT_RECOGNITION_ENABLED` (literal `'true'`; off = always the list). The request/result contract is `packages/types/src/garment-recognition.ts`. |
+| D49 | Looks needing a question | Not offered: a shoe look without a default shoe, a combined look without a default lower or lower photo, a lower-only look in a mixed template unless the type takes a lower photo. |
 
 ## 4. Meta platform setup
 
@@ -690,8 +694,16 @@ Connect tokens and codes are not a table. They live in Redis (plan 1, D32):
   msg:connect:web:{sha256(code)}    → { userId }                TTL 10 min, redeemed with GETDEL
 Same pattern as the WordPress connect flow (modules/merchant/wordpress-shared.ts).
 
-jobs.channel_delivered_at   timestamptz NULL   -- set once the result is sent to the chat
-job_inputs.params.channel = 'whatsapp'         -- JSONB, no migration
+messaging_runs (D34)                            -- one row per create call, keyed by catalogue_id
+  catalogue_id         uuid pk                  -- the catalogue every job of the call shares
+  messaging_account_id uuid → messaging_accounts.id (ON DELETE CASCADE)
+  user_id              uuid → users.id (ON DELETE CASCADE)
+  job_ids              uuid[]                   -- every job the call created
+  created_at           timestamptz
+  finished_at          timestamptz NULL         -- set by plan 3 once the run's follow-up is sent
+Per-job delivery tracking is plan 3's: the delivery loop finds a finished
+job's chat through this table, never through `job_inputs.params` (the create
+request strips unknown params keys, and params feed the workflow).
 ```
 
 Redis keys (no migration):
@@ -833,6 +845,7 @@ New env vars (api), separate values for staging and production:
 | `WHATSAPP_ACCESS_TOKEN` | System-user permanent token (secret) |
 | `WHATSAPP_APP_SECRET` | Webhook signature verification (secret) |
 | `WHATSAPP_VERIFY_TOKEN` | Webhook verification handshake (secret) |
+| `GARMENT_RECOGNITION_ENABLED` | Garment recognition wait (D48), literal `'true'` only; off = always the garment-type list |
 
 Added to `.env.production.example`, the staging env check, and `apps/api/src/env.ts`.
 
