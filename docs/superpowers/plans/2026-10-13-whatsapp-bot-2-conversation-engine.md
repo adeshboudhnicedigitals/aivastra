@@ -2,35 +2,42 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A channel-agnostic conversation engine that walks a connected seller from "New catalog" to a created try-on run — gender, garment type, image shape, garment photo, face, ready-made template or own background + poses, any extra photos, lower, shoes, a priced confirmation, and generation — producing abstract messages that plan 3 renders to WhatsApp.
+**Goal:** A channel-agnostic conversation engine that walks a connected seller through management's five-step catalog flow — garment photo, "Create catalogue for" gender, garment type (recognised automatically, or picked from a list), how many poses, which poses — and starts generation on the last pick, producing abstract messages that plan 3 renders to WhatsApp.
 
-**Architecture:** A deterministic `handle(session, event, ctx, deps)` function in `apps/api/src/modules/messaging/engine/` decides every transition and the messages to send. All I/O sits behind an `EngineDeps` interface: unit tests drive the engine with in-memory fakes; the real implementation (`messaging/deps.ts`) reuses the exact queries behind the studio's `/v1/models/*` and `/v1/catalog/:type` routes (extracted into shared functions, no behaviour change), prices runs with the create path's own `resolveTryonPlan`, and creates runs through `createJob`. Sessions live in Redis for 24 hours.
+**Architecture:** A deterministic `handle(session, event, ctx, deps)` function in `apps/api/src/modules/messaging/engine/` decides every transition and the messages to send. All I/O sits behind an `EngineDeps` interface: unit tests drive the engine with in-memory fakes; the real implementation (`messaging/deps.ts`) reuses the studio's own garment-type, face and catalogue-template queries (extracted into shared functions, no behaviour change), prices runs with the create path's `resolveTryonPlan`, creates runs through `createJob`, and asks for garment recognition through a Redis stream that the dispatcher answers (the dispatcher side is plan 5). Sessions live in Redis for 24 hours.
 
-**Tech Stack:** TypeScript (ESM), Fastify 5, Drizzle ORM, ioredis, Zod, Vitest.
+**Tech Stack:** TypeScript (ESM), Fastify 5, Drizzle ORM, ioredis, Zod, prom-client, Vitest.
 
-**Spec:** `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md` — sections 8 (state machine), 9 (selection), 10 (credits), 13 (failures); decisions D7, D14, D16, D17, D22, D23, D24, D31.
+**Spec:** `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md` — sections 8 and 8a (flow, defaults, recognition), 9 (selection), 10 (credits), 13 (failures); decisions D7, D16, D17, D23, D31, D40–D47.
 
-**This is plan 2 of 4.** Depends on plan 1 (`messaging_accounts`, `identity.ts`). Plan 3 owns everything Meta-facing: webhook, inbound consumer, downloading the photo from Meta (it calls `storeGarmentPhoto` from this plan), rendering `OutboundMessage`s, STOP/START, `CONNECT <code>`, the connect prompt for unknown numbers, per-sender locking, result delivery and the `runFinished` / `creditsAdded` events.
+**This is plan 2 of 5.** Depends on plan 1 (`messaging_accounts`, `identity.ts`, the `MESSAGING_WHATSAPP_ENABLED` env block). Plan 3 owns everything Meta-facing: webhook, inbound consumer, downloading the photo from Meta (it calls `storeGarmentPhoto` from this plan), rendering `OutboundMessage`s, STOP/START, `CONNECT <code>`, the connect prompt for unknown numbers, per-sender locking, result delivery and the `runFinished` / `creditsAdded` events. Plan 5 owns the dispatcher's classify lane and the ComfyUI workflow. **Until plan 5 ships, keep `GARMENT_RECOGNITION_ENABLED` off: the bot then always shows the garment-type list, which is the complete fallback path.**
 
 ## Decisions this plan makes (recorded in Task 8)
 
-1. **The engine is deterministic, not strictly pure.** It awaits `deps` for option lists and side effects, but performs no I/O of its own and takes its randomness (`newNonce`) from `deps`. Passing every possible list into a pure function would mean loading faces, poses, templates and catalog items on every message. Spec section 5 called it "pure"; D33 records the change.
-2. **Runs are tracked in a `messaging_runs` table, not `job_inputs.params.channel`.** The create request's `params` object is a strict Zod schema that strips unknown keys, and `job_inputs.params` is merged into the ComfyUI workflow params — the wrong place for a routing flag. A run is one `catalogueId` (every job of one create call shares it). D34.
-3. **No platform is sent.** The bot asks only for the image shape (aspect ratio), from the four values `PATCH /v1/me` allows. `platform` is never set, so the Amazon white-background override never runs (D23). Resolution is the user's saved `defaultResolution`.
-4. **"Use default" replaces "Skip" for lower and shoes.** The create path rejects a pose with a lower or shoe slot and no item; the studio silently fills the garment type's default. The bot offers `[Use default]` only when the garment type has a default.
+1. **D33 — the engine is deterministic, not strictly pure.** It awaits `deps` for option lists and side effects, but performs no I/O of its own and takes its randomness (`newNonce`) from `deps`. Spec section 5 called it "pure".
+2. **D34 — runs are tracked in a `messaging_runs` table, not `job_inputs.params.channel`.** The create request's `params` object is a strict Zod schema that strips unknown keys, and `job_inputs.params` is merged into the ComfyUI workflow params — the wrong place for a routing flag. A run is one `catalogueId` (every job of one create call shares it).
+3. **D48 — recognition is waited for inside the conversation, behind a kill switch.** After the gender tap, `deps.recognizeGarment` appends a request to the `classify:requests` stream and polls the result key for at most 8 seconds (spec 8a). The wait happens inside `runConversation`, under plan 3's per-sender lock. `GARMENT_RECOGNITION_ENABLED` (literal `'true'`) turns it on; off means the list every time, which is also how recognition is dropped if the trial fails. The request/result shapes live in `@aivastra/types` (`garment-recognition.ts`) because two processes depend on them.
+4. **D49 — looks that would need a question are not offered.** The create path rejects a look whose lower or shoe slot is empty (`create.ts`, "lower garment required for this pose" / "shoe catalog item required for this pose"), and the chat asks no lower/shoe question (D43). So `eligibleLooks` drops a look with a shoe slot when the garment type has no default shoe, a combined upper+lower look when there is no default lower (and no lower upload), and a lower-only look in a mixed template unless the type takes a lower photo. A type left with no eligible look is "not available on WhatsApp" (D47).
 
 ## Global Constraints
 
-- Feature flag and env rules from plan 1 apply (`MESSAGING_WHATSAPP_ENABLED`, literal `'true'`, `=== true`).
+- Feature flag and env rules from plan 1 apply (`MESSAGING_WHATSAPP_ENABLED`, literal `'true'`, `=== true`). `GARMENT_RECOGNITION_ENABLED` follows the same pattern.
 - **The bot never creates users and never grants credits** (D13). It only spends through `createJob`.
 - **Same validation and price as the web** (D17): every create body goes through `CreateTryOnJobRequest.parse`, quotes come from `resolveTryonPlan`, runs from `createJob` wrapped in `withIdempotency(app, 'jobs', userId, key, …)` with the same `updateLastUsedPosePreset` follow-up the `/v1/jobs/tryon` route does.
+- **Every run is a catalogue-template run** (D42): the create body always carries `looks` + `catalogueTemplateMappingId`, never `backgroundId` / `poseIds`.
 - **Standard try-on only** (D16, D31): garment types with `requiresMannequinStep` are never offered.
-- **Never send `platform`** (D23).
-- Option lists must come from the same queries as the studio's routes — extracted, not copied.
+- **Never send `platform`** (D23). Aspect ratio and resolution are the seller's saved defaults (D43).
+- **Recognition can never cost the seller a run** (spec 8a): every failure — flag off, no slugged types, Redis error, timeout, `no_worker`, `failed`, an answer outside the options — returns `null`, and the engine shows the garment-type list.
+- Option lists come from the same queries as the studio's routes — extracted, not copied. Recognition options come from the dev API's cached list, `getCatalogOptions(app, { gender, publicOnly: true })` (spec 8a), not a new query.
 - No production schema work; migrations ship through CI/CD → `db:migrate:prod`.
 - No `console.log`; comment the *why*.
 - English only; every user-visible string lives in `engine/copy.ts` (D8).
-- WhatsApp limits the engine must respect (spec section 9, unverified until plan 3's spike — T1): ≤3 reply buttons, button title ≤20 characters, ≤10 list rows, list row title ≤24 characters, ≤10 cards per carousel. Card ids and button ids ≤ 200 characters.
+- WhatsApp limits (spec section 9, unverified until plan 3's spike — T1): ≤3 reply buttons, button title ≤20 characters, ≤10 list rows, list row title ≤24 characters, ≤10 cards per carousel, ids ≤200 characters.
+- `packages/types` and `packages/observability` publish from `dist/`: rebuild them (`pnpm --filter @aivastra/types build`, `pnpm --filter @aivastra/observability build`) after editing, before the api typechecks against them.
+
+## What changed from the first version of this plan
+
+The first version (commit `f930abf6`) followed the ten-step studio-like flow. Management's five-step flow (spec D40–D47) replaced it on 2026-10-13. Kept: reply ids, the deterministic engine, the `messaging_runs` table, photo storage, the session store, the idempotent create and the query extraction. Gone: the aspect, face, look-mode, background, pose, lower, shoe and confirm steps, back photos, the optional fourth photo, "use my last poses", and the backgrounds/poses/catalog-tree query extractions. New: recognition (Task 5), pose count and look picking, eligibility rules.
 
 ## File structure
 
@@ -38,20 +45,22 @@
 |---|---|
 | `apps/api/src/modules/messaging/engine/types.ts` (create) | `Session`, `InboundEvent`, `OutboundMessage`, option types, `EngineDeps`, `EngineContext` |
 | `apps/api/src/modules/messaging/engine/copy.ts` (create) | every English string |
-| `apps/api/src/modules/messaging/engine/reply-id.ts` (create) | encode / decode button & card ids |
-| `apps/api/src/modules/messaging/engine/rules.ts` (create) | slot rules + create-body builder, mirroring the studio |
+| `apps/api/src/modules/messaging/engine/reply-id.ts` (create) | encode / decode button, row and card ids |
+| `apps/api/src/modules/messaging/engine/rules.ts` (create) | look eligibility, extra photo slots, create-body builder |
 | `apps/api/src/modules/messaging/engine/engine.ts` (create) | `handle()` — the state machine |
-| `apps/api/src/modules/models/queries.ts` (create) | extracted option queries shared by routes and bot |
-| `apps/api/src/modules/models/routes.ts` (modify) | handlers call `queries.ts` |
-| `apps/api/src/modules/catalog/routes.ts` (modify) | handler calls `listCatalogTree` |
-| `apps/api/src/modules/catalog/queries.ts` (create) | extracted `listCatalogTree` |
+| `packages/types/src/garment-recognition.ts` (create) | api ↔ dispatcher recognition contract |
+| `packages/observability/src/metrics.ts` (modify) | recognition outcome and correction counters |
+| `apps/api/src/env.ts` (modify) | `GARMENT_RECOGNITION_ENABLED` |
+| `apps/api/src/modules/messaging/classify.ts` (create) | `recognizeGarment`, `matchAnswer`, correction metric |
+| `apps/api/src/modules/models/queries.ts` (create) | extracted garment-type, face and catalogue-template queries |
+| `apps/api/src/modules/models/routes.ts` (modify) | those three handlers call `queries.ts` |
 | `packages/db/src/schema/messaging.ts` (modify) | `messaging_runs` table |
 | `apps/api/src/modules/messaging/runs.ts` (create) | quote, create run, run progress |
 | `apps/api/src/modules/messaging/photos.ts` (create) | store a received photo as an owned garment upload |
 | `apps/api/src/modules/messaging/deps.ts` (create) | real `EngineDeps` |
 | `apps/api/src/modules/messaging/session-store.ts` (create) | Redis load / save |
 | `apps/api/src/modules/messaging/conversation.ts` (create) | `runConversation()` — load, handle, save |
-| tests | `apps/api/test/messaging-reply-id.test.ts`, `messaging-rules.test.ts`, `messaging-engine.test.ts`, `apps/api/test/helpers/engine-fakes.ts`, `apps/api/test/integration/messaging-conversation.test.ts` |
+| tests | `apps/api/test/messaging-reply-id.test.ts`, `messaging-rules.test.ts`, `messaging-engine.test.ts`, `messaging-classify.test.ts`, `apps/api/test/helpers/engine-fakes.ts`, `apps/api/test/integration/messaging-classify.test.ts`, `apps/api/test/integration/messaging-conversation.test.ts` |
 
 ---
 
@@ -80,67 +89,48 @@ export type AspectRatio = '1:1' | '2:3' | '3:4' | '4:5';
 export type Resolution = 'HD' | '2K' | '4K';
 export type TryonBody = z.infer<typeof CreateTryOnJobRequest>;
 
+// Spec section 8: photo → gender → (recognised or listed) garment type →
+// required extra photos → pose count → look picks → generating → delivered.
 export type State =
   | 'MAIN_MENU'
+  | 'ASK_GARMENT_PHOTO'
   | 'ASK_GENDER'
   | 'ASK_GARMENT_TYPE'
-  | 'ASK_ASPECT'
-  | 'PICK_ASPECT'
-  | 'ASK_GARMENT_PHOTO'
-  | 'PICK_FACE'
-  | 'PICK_LOOK_MODE'
-  | 'PICK_TEMPLATE'
-  | 'PICK_BACKGROUND'
-  | 'PICK_POSES'
   | 'ASK_EXTRA_PHOTO'
-  | 'PICK_LOWER'
-  | 'PICK_SHOES'
-  | 'CONFIRM'
+  | 'ASK_POSE_COUNT'
+  | 'PICK_LOOKS'
   | 'NO_CREDITS'
   | 'GENERATING'
   | 'DELIVERED';
 
-// Extra uploads, asked in this order after the look is chosen (rules.ts).
-export type PhotoSlot = 'upperBack' | 'lowerFront' | 'lowerBack' | 'third' | 'fourth';
+// Uploads a garment type requires (D46). The optional fourth photo is never asked.
+export type PhotoSlot = 'lowerFront' | 'third';
 
 export interface GarmentTypeOption {
   id: string;
   label: string;
   requiresLowerUpload: boolean;
   requiresThirdUpload: boolean;
-  allowsFourthUpload: boolean;
-  upperUploadLabel: string | null;
   lowerUploadLabel: string | null;
   thirdUploadLabel: string | null;
-  fourthUploadLabel: string | null;
   defaultLowerCatalogId: string | null;
   defaultShoeCatalogId: string | null;
 }
 
-export interface ImageOption {
-  id: string;
-  label: string;
-  imageUrl: string;
-}
-
-export interface PoseRoles {
-  hasUpper: boolean;
-  hasLower: boolean;
-  hasShoes: boolean;
-  garmentView: 'front' | 'back';
-}
-
-export interface PoseOption extends ImageOption, PoseRoles {}
-
+// One (pose, background) pairing of a catalogue template — one image.
 export interface TemplateLook {
+  id: string;
   poseId: string;
   backgroundId: string;
+  label: string;
+  imageUrl: string;
   hasUpper: boolean;
   hasLower: boolean;
   hasShoes: boolean;
 }
 
-export interface TemplateOption extends ImageOption {
+export interface TemplateOption {
+  id: string;
   mappingId: string;
   looks: TemplateLook[];
 }
@@ -148,30 +138,30 @@ export interface TemplateOption extends ImageOption {
 export interface Session {
   v: 1;
   state: State;
-  // Changes every time a new step is prompted; every button/card id carries it,
-  // so a tap on an older message is recognised and ignored (spec section 8).
+  // Changes every time a new step is prompted; every button/row/card id carries
+  // it, so a tap on an older message is recognised and ignored (spec section 8).
   nonce: string;
-  // Card / list paging within the current step. Paging keeps the nonce, so a
+  // List / card paging within the current step. Paging keeps the nonce, so a
   // card from page 1 still works after "More".
   page: number;
   aspectRatio: AspectRatio;
   resolution: Resolution;
+  garmentKey?: string;
   gender?: Gender;
   garmentType?: GarmentTypeOption;
-  garmentKey?: string;
+  // The type came from recognition, not the list: a later "Change" is counted
+  // as a correction (spec 8a metrics).
+  recognized?: boolean;
   photos: Partial<Record<PhotoSlot, string>>;
-  skippedFourth?: boolean;
   faceId?: string;
-  mode?: 'template' | 'custom';
-  template?: { id: string; label: string; mappingId: string; looks: TemplateLook[] };
-  backgroundId?: string;
-  // Selected custom poses in tap order (string keys keep insertion order).
-  poses: Record<string, PoseRoles>;
-  // undefined = not asked yet; null = "Use default".
-  lowerCatalogId?: string | null;
-  shoeCatalogId?: string | null;
-  lowerDone?: boolean;
-  shoesDone?: boolean;
+  // The chosen template with only the looks the bot can generate (rules.ts).
+  template?: { id: string; mappingId: string; lowerOnly: boolean; looks: TemplateLook[] };
+  // Cost per image and balance as shown at the count step (D45).
+  perImage?: number;
+  balance?: number;
+  count?: number;
+  // Picked look ids, in tap order.
+  picked: string[];
   runId?: string;
   runImages?: number;
   failedPoseIds?: string[];
@@ -208,7 +198,7 @@ export interface EngineContext {
   userId: string;
   // messaging_accounts.id — which chat a run's results go back to.
   accountId: string;
-  // Meta's message id of the inbound event; the idempotency key for Generate.
+  // Meta's message id of the inbound event; the idempotency key for a run.
   messageId: string;
 }
 
@@ -223,27 +213,24 @@ export interface EngineDeps {
   newNonce(): string;
   getUserDefaults(userId: string): Promise<{ aspectRatio: AspectRatio; resolution: Resolution }>;
   getBalance(userId: string): Promise<number>;
+  // Types the bot can offer: standard try-on with at least one template mapping.
   listGarmentTypes(gender: Gender): Promise<GarmentTypeOption[]>;
-  listFaces(gender: Gender, garmentTypeId: string): Promise<ImageOption[]>;
-  listTemplates(gender: Gender, garmentTypeId: string): Promise<TemplateOption[]>;
-  listBackgrounds(gender: Gender): Promise<ImageOption[]>;
-  listPoses(gender: Gender, garmentTypeId: string): Promise<PoseOption[]>;
-  getLastPoseIds(userId: string, gender: Gender, garmentTypeId: string): Promise<string[]>;
-  listCatalogItems(
-    type: 'lower' | 'shoe',
+  // Spec 8a. Null means "show the list" — for every failure, never an error.
+  recognizeGarment(
+    garmentKey: string,
     gender: Gender,
-    garmentTypeId: string,
-    poseIds: string[],
-  ): Promise<ImageOption[]>;
+  ): Promise<{ garmentTypeId: string; label: string } | null>;
+  recordRecognitionCorrected(): void;
+  // The top-sorted active template for the type (D43), or null.
+  getTemplate(gender: Gender, garmentTypeId: string): Promise<TemplateOption | null>;
+  // The first active face for the gender and type in admin order (D43), or null.
+  getDefaultFaceId(gender: Gender, garmentTypeId: string): Promise<string | null>;
   // Throws AppError for anything createJob would reject.
   quote(userId: string, body: TryonBody): Promise<Quote>;
   // Throws AppError('INSUFFICIENT_CREDITS', 402) when the balance is short.
-  createRun(
-    ctx: EngineContext,
-    body: TryonBody,
-  ): Promise<{ runId: string; images: number }>;
+  createRun(ctx: EngineContext, body: TryonBody): Promise<{ runId: string; images: number }>;
   runProgress(runId: string): Promise<{ finished: number; total: number }>;
-  links: { pricing: string; help: string };
+  links: { pricing: string; help: string; studio: string };
 }
 
 export interface EngineResult {
@@ -266,16 +253,8 @@ export const COPY = {
   btnHelp: 'Help',
   btnMenu: 'Menu',
   btnMore: 'More',
-  btnDone: 'Done',
-  btnSkip: 'Skip',
-  btnUseDefault: 'Use default',
-  btnGenerate: 'Generate',
   btnStartOver: 'Start over',
-  btnReadyMade: 'Ready-made looks',
-  btnCreateOwn: 'Create your own',
-  btnUseLastPoses: 'Use my last poses',
-  btnChange: 'Change',
-  btnMoreLooks: 'More looks',
+  btnMorePoses: 'More poses',
   btnRetryFailed: 'Retry failed',
   listChoose: 'Choose',
   moreOptions: 'More options:',
@@ -285,59 +264,43 @@ export const COPY = {
   help: (help: string) =>
     `Send a photo of your garment to start a catalog, or type MENU at any time. Need a person? ${help}`,
 
-  askGender: 'Who is the garment for?',
-  genders: { women: 'Women', men: 'Men', girls: 'Girls', boys: 'Boys' } as const,
-  askGarmentType: 'What type of garment is it?',
-  askAspect: (ratio: string) => `Image shape: ${ratio}. Keep it or change it?`,
-  btnKeepAspect: (ratio: string) => `Keep ${ratio}`,
-  pickAspect: 'Choose the image shape.',
-  aspects: {
-    '1:1': 'Square 1:1',
-    '2:3': 'Portrait 2:3',
-    '3:4': 'Portrait 3:4',
-    '4:5': 'Portrait 4:5',
-  } as const,
-  askGarmentPhoto: (label: string | null) =>
-    `Send a photo of the ${label ?? 'garment'}, laid flat and fully visible.`,
-  pickFace: 'Choose a model.',
-  pickLookMode: 'Use a ready-made set of looks, or choose your own background and poses?',
-  pickTemplate: 'Choose a ready-made set. All of its looks are generated.',
-  templateTitle: (label: string, n: number) => `${label} · ${n} looks`,
-  pickBackground: 'Choose a background.',
-  pickPoses: (n: number) =>
-    n === 0 ? 'Choose one or more poses. Tap a card to add it.' : `${n} selected. Add more or tap Done.`,
-  poseAdded: (n: number) => `Added. ${n} selected.`,
-  poseAlreadyAdded: 'That pose is already added.',
+  askGarmentPhoto: 'Send a photo of your garment, laid flat and fully visible.',
+  askGender: 'Create catalogue for:',
+  genders: { women: 'Women', men: 'Men', boys: 'Boys', girls: 'Girls' } as const,
+  askGarmentType: 'Which garment is it?',
+  detected: (label: string) => `Detected: ${label}.`,
+  notAvailable: (label: string, studio: string) =>
+    `${label} catalogs aren't available on WhatsApp yet. You can create one in the web studio: ${studio}`,
   askPhoto: {
-    upperBack: (label: string | null) => `Now send a photo of the back of the ${label ?? 'garment'}.`,
     lowerFront: (label: string | null) => `Now send a photo of the ${label ?? 'lower garment'}.`,
-    lowerBack: (label: string | null) => `Now send a photo of the back of the ${label ?? 'lower garment'}.`,
     third: (label: string | null) => `Now send a photo of the ${label ?? 'third garment'}.`,
-    fourth: (label: string | null) =>
-      `Optional: send a photo of the ${label ?? 'blouse'}, or tap Skip.`,
   },
-  pickLower: 'Choose the lower garment.',
-  pickShoes: 'Choose the shoes.',
-  confirm: (q: { images: number; total: number; balance: number }, summary: string) =>
-    `${summary}\n\n${q.images} ${q.images === 1 ? 'image' : 'images'}, uses ${q.total} credits. Your balance: ${q.balance}.`,
-  summary: (parts: string[]) => parts.join('\n'),
+  askCount: (balance: number) => `How many poses do you want? Your balance: ${balance} credits.`,
+  // At most "9 poses · 999 credits" (21 characters).
+  countRow: (n: number, credits: number) => `${n} ${n === 1 ? 'pose' : 'poses'} · ${credits} credits`,
+  rowChangeGarment: 'Wrong garment? Change',
+  pickLooks: (count: number) =>
+    `Tap ${count} ${count === 1 ? 'pose' : 'poses'}. Generation starts after the last one.`,
+  lookAdded: (k: number, n: number) => `Added, ${k} of ${n}.`,
+  lookAlreadyAdded: 'That pose is already added.',
   noCredits: (pricing: string) =>
     `You don't have enough credits for this. Buy more on the website, then come back: ${pricing}`,
   creditsAdded: (n: number) => `${n} credits added.`,
-  generating: (n: number) =>
-    `Working on ${n} ${n === 1 ? 'image' : 'images'}. I'll send each one here as it's ready.`,
+  generating: (n: number, credits: number) =>
+    `Working on ${n} ${n === 1 ? 'image' : 'images'}, ${credits} credits. I'll send each one here as it's ready.`,
   stillGenerating: (finished: number, total: number) =>
     `Still generating: ${finished} of ${total} done.`,
   delivered: 'All done. What next?',
   partlyFailed: (failed: number, total: number) =>
     `${failed} of ${total} ${total === 1 ? 'image' : 'images'} failed. The credits for ${failed === 1 ? 'it were' : 'them were'} refunded.`,
+  posesChanged: 'Those poses changed. Please choose again.',
 
   stale: 'That option is from an earlier step.',
   sessionExpired: "Your last session expired, let's start again.",
   reprompt: 'Please use the options above, or type MENU.',
   notNow: "I wasn't expecting a photo just now.",
   unsupported: 'Please send a photo (JPG or PNG), not a video or document.',
-  nothingAvailable: 'Nothing is available for that choice right now. Please pick something else.',
+  nothingAvailable: 'Nothing is available for that choice right now.',
 } as const;
 ```
 
@@ -351,17 +314,17 @@ import { decodeReplyId, encodeReplyId } from '../src/modules/messaging/engine/re
 
 describe('reply ids', () => {
   it('round-trips nonce, action and value', () => {
-    const id = encodeReplyId('n1', 'face', '6f1c3b2a-0000-4000-8000-000000000001');
+    const id = encodeReplyId('n1', 'look', '6f1c3b2a-0000-4000-8000-000000000001');
     expect(decodeReplyId(id)).toEqual({
       nonce: 'n1',
-      action: 'face',
+      action: 'look',
       value: '6f1c3b2a-0000-4000-8000-000000000001',
     });
   });
   it('allows an empty value', () => {
-    expect(decodeReplyId(encodeReplyId('n1', 'done'))).toEqual({
+    expect(decodeReplyId(encodeReplyId('n1', 'change'))).toEqual({
       nonce: 'n1',
-      action: 'done',
+      action: 'change',
       value: '',
     });
   });
@@ -381,7 +344,7 @@ Expected: FAIL — module not found.
 
 ```ts
 // "<nonce>|<action>|<value>". The nonce ties a tap to the prompt that offered
-// it; values are UUIDs or short enum strings, never containing '|'.
+// it; values are UUIDs, small integers or short enum strings, never containing '|'.
 const SEP = '|';
 
 export function encodeReplyId(nonce: string, action: string, value = ''): string {
@@ -411,17 +374,17 @@ git commit -m "feat(api): WhatsApp engine types, copy and reply ids"
 
 ---
 
-### Task 2: Slot rules and create-body builder
+### Task 2: Look eligibility, extra photos and the create body
 
-These mirror `apps/catalogues-web/src/app/(app)/studio/page.tsx` lines 1139–1183 (`needsUpperBack`, `needsLowerBack`, `lowerOnly`, `lowerOnlyIsBack`, `lowerGarmentKeyForSubmit`), 1648–1651 (`effectiveLowerId`) and 1774–1776 (`effectiveShoesId`). Read those lines before starting; if the studio has changed since 2026-10-13, follow the studio.
+These rules decide which template looks the bot may offer without asking anything more, and build the same request the studio's template mode builds. Before starting, read `apps/catalogues-web/src/app/(app)/studio/page.tsx` around `lowerOnly`, `effectiveLowerId` and `effectiveShoesId` (template mode), and `apps/api/src/modules/jobs/create.ts` lines ~929–960 (the per-pose slot checks). If either has changed since 2026-10-13, follow the code and adjust these rules and tests.
 
 **Files:**
 - Create: `apps/api/src/modules/messaging/engine/rules.ts`
 - Test: `apps/api/test/messaging-rules.test.ts`
 
 **Interfaces:**
-- Consumes: `Session`, `PoseRoles`, `PhotoSlot`, `TryonBody` (Task 1).
-- Produces: `selectedRoles(s)`, `isLowerOnly(s)`, `requiredPhotoSlots(s)`, `firstMissingSlot(s)`, `needsLowerPick(s)`, `needsShoesPick(s)`, `selectedPoseIds(s)`, `imageCount(s)`, `buildTryonBody(s)`.
+- Consumes: `Session`, `TemplateLook`, `GarmentTypeOption`, `PhotoSlot`, `TryonBody` (Task 1).
+- Produces: `eligibleLooks(gt, looks) → { lowerOnly: boolean; looks: TemplateLook[] }`, `requiredPhotoSlots(gt) → PhotoSlot[]`, `firstMissingSlot(s) → PhotoSlot | null`, `MAX_POSES`, `maxCount(s) → number`, `buildTryonBody(s, lookIds?) → TryonBody`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -431,190 +394,172 @@ These mirror `apps/catalogues-web/src/app/(app)/studio/page.tsx` lines 1139–11
 import { describe, expect, it } from 'vitest';
 import {
   buildTryonBody,
+  eligibleLooks,
   firstMissingSlot,
-  isLowerOnly,
-  needsLowerPick,
-  needsShoesPick,
+  maxCount,
   requiredPhotoSlots,
 } from '../src/modules/messaging/engine/rules';
-import type { GarmentTypeOption, PoseRoles, Session } from '../src/modules/messaging/engine/types';
+import type {
+  GarmentTypeOption,
+  Session,
+  TemplateLook,
+} from '../src/modules/messaging/engine/types';
 
 const GT: GarmentTypeOption = {
   id: 'gt-1',
   label: 'Shirt',
   requiresLowerUpload: false,
   requiresThirdUpload: false,
-  allowsFourthUpload: false,
-  upperUploadLabel: null,
   lowerUploadLabel: null,
   thirdUploadLabel: null,
-  fourthUploadLabel: null,
   defaultLowerCatalogId: 'lower-default',
   defaultShoeCatalogId: 'shoe-default',
 };
-const FRONT_FULL: PoseRoles = { hasUpper: true, hasLower: true, hasShoes: true, garmentView: 'front' };
-const BACK_UPPER: PoseRoles = { hasUpper: true, hasLower: false, hasShoes: false, garmentView: 'back' };
-const LOWER_ONLY: PoseRoles = { hasUpper: false, hasLower: true, hasShoes: false, garmentView: 'front' };
-const LOWER_ONLY_BACK: PoseRoles = { ...LOWER_ONLY, garmentView: 'back' };
+
+const look = (id: string, roles: Partial<TemplateLook> = {}): TemplateLook => ({
+  id,
+  poseId: `pose-${id}`,
+  backgroundId: `bg-${id}`,
+  label: id,
+  imageUrl: `https://img/${id}.jpg`,
+  hasUpper: true,
+  hasLower: false,
+  hasShoes: false,
+  ...roles,
+});
+const UPPER = look('up');
+const COMBINED = look('comb', { hasLower: true });
+const SHOES = look('shoes', { hasShoes: true });
+const LOWER_ONLY = look('lo', { hasUpper: false, hasLower: true });
 
 function session(over: Partial<Session> = {}): Session {
   return {
     v: 1,
-    state: 'CONFIRM',
+    state: 'PICK_LOOKS',
     nonce: 'n',
     page: 0,
-    aspectRatio: '1:1',
+    aspectRatio: '3:4',
     resolution: 'HD',
     gender: 'women',
     garmentType: GT,
     garmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg',
     photos: {},
     faceId: 'face-1',
-    mode: 'custom',
-    backgroundId: 'bg-1',
-    poses: { 'pose-1': FRONT_FULL },
+    template: { id: 't', mappingId: 'map-1', lowerOnly: false, looks: [UPPER, COMBINED, SHOES] },
+    picked: ['up'],
     ...over,
   };
 }
 
-describe('requiredPhotoSlots', () => {
-  it('asks nothing extra for a plain front pose', () => {
-    expect(requiredPhotoSlots(session())).toEqual([]);
-  });
-  it('asks for the back photo when a custom pose is a back view', () => {
-    expect(requiredPhotoSlots(session({ poses: { a: FRONT_FULL, b: BACK_UPPER } }))).toEqual([
-      'upperBack',
+describe('eligibleLooks', () => {
+  it('keeps every look the type has defaults for', () => {
+    expect(eligibleLooks(GT, [UPPER, COMBINED, SHOES]).looks.map((l) => l.id)).toEqual([
+      'up',
+      'comb',
+      'shoes',
     ]);
   });
-  it('never asks for a back photo in template mode (T15)', () => {
-    const s = session({
-      mode: 'template',
-      poses: {},
-      template: {
-        id: 't',
-        label: 'T',
-        mappingId: 'm',
-        looks: [{ poseId: 'p', backgroundId: 'b', hasUpper: true, hasLower: false, hasShoes: false }],
-      },
-    });
-    expect(requiredPhotoSlots(s)).toEqual([]);
+  it('drops a shoe look when the type has no default shoe', () => {
+    const r = eligibleLooks({ ...GT, defaultShoeCatalogId: null }, [UPPER, SHOES]);
+    expect(r.looks.map((l) => l.id)).toEqual(['up']);
   });
-  it('uses the back slot for a lower-only back pose', () => {
-    expect(requiredPhotoSlots(session({ poses: { a: LOWER_ONLY_BACK } }))).toEqual(['upperBack']);
+  it('drops a combined look when there is no default lower and no lower photo', () => {
+    const r = eligibleLooks({ ...GT, defaultLowerCatalogId: null }, [UPPER, COMBINED]);
+    expect(r.looks.map((l) => l.id)).toEqual(['up']);
   });
-  it('asks for a separate lower back photo in a mixed selection', () => {
-    expect(requiredPhotoSlots(session({ poses: { a: FRONT_FULL, b: LOWER_ONLY_BACK } }))).toEqual([
-      'lowerBack',
-    ]);
+  it('keeps a combined look without a default when the type takes a lower photo', () => {
+    const gt = { ...GT, defaultLowerCatalogId: null, requiresLowerUpload: true };
+    expect(eligibleLooks(gt, [COMBINED]).looks).toHaveLength(1);
   });
-  it('adds garment-type uploads in order, fourth last', () => {
-    const gt = { ...GT, requiresLowerUpload: true, requiresThirdUpload: true, allowsFourthUpload: true };
-    expect(requiredPhotoSlots(session({ garmentType: gt }))).toEqual(['lowerFront', 'third', 'fourth']);
+  it('an all-lower-only template is a lower-only garment', () => {
+    const r = eligibleLooks(GT, [LOWER_ONLY, look('lo2', { hasUpper: false, hasLower: true })]);
+    expect(r).toMatchObject({ lowerOnly: true });
+    expect(r.looks).toHaveLength(2);
+  });
+  it('drops a lower-only look from a mixed template unless the type takes a lower photo', () => {
+    expect(eligibleLooks(GT, [UPPER, LOWER_ONLY]).looks.map((l) => l.id)).toEqual(['up']);
+    const gt = { ...GT, requiresLowerUpload: true };
+    expect(eligibleLooks(gt, [UPPER, LOWER_ONLY]).looks).toHaveLength(2);
   });
 });
 
-describe('firstMissingSlot', () => {
-  it('treats a skipped fourth photo as done', () => {
-    const gt = { ...GT, allowsFourthUpload: true };
-    expect(firstMissingSlot(session({ garmentType: gt }))).toBe('fourth');
-    expect(firstMissingSlot(session({ garmentType: gt, skippedFourth: true }))).toBeNull();
+describe('extra photos', () => {
+  it('asks only for uploads the type requires, lower first', () => {
+    expect(requiredPhotoSlots(GT)).toEqual([]);
+    expect(
+      requiredPhotoSlots({ ...GT, requiresLowerUpload: true, requiresThirdUpload: true }),
+    ).toEqual(['lowerFront', 'third']);
+  });
+  it('firstMissingSlot walks the slots in order', () => {
+    const gt = { ...GT, requiresLowerUpload: true, requiresThirdUpload: true };
+    expect(firstMissingSlot(session({ garmentType: gt }))).toBe('lowerFront');
+    expect(firstMissingSlot(session({ garmentType: gt, photos: { lowerFront: 'L' } }))).toBe('third');
+    expect(
+      firstMissingSlot(session({ garmentType: gt, photos: { lowerFront: 'L', third: 'T' } })),
+    ).toBeNull();
   });
 });
 
-describe('lower and shoe steps', () => {
-  it('lower-only selections need no lower pick', () => {
-    const s = session({ poses: { a: LOWER_ONLY } });
-    expect(isLowerOnly(s)).toBe(true);
-    expect(needsLowerPick(s)).toBe(false);
-  });
-  it('a lower upload type needs no lower pick', () => {
-    expect(needsLowerPick(session({ garmentType: { ...GT, requiresLowerUpload: true } }))).toBe(false);
-  });
-  it('a pose with a lower slot needs a lower pick; shoes likewise', () => {
-    expect(needsLowerPick(session())).toBe(true);
-    expect(needsShoesPick(session())).toBe(true);
-    expect(needsShoesPick(session({ poses: { a: BACK_UPPER } }))).toBe(false);
+describe('maxCount', () => {
+  it('is the eligible look count, capped at 9', () => {
+    expect(maxCount(session())).toBe(3);
+    const many = Array.from({ length: 12 }, (_, i) => look(`l${i}`));
+    expect(maxCount(session({ template: { id: 't', mappingId: 'm', lowerOnly: false, looks: many } }))).toBe(9);
   });
 });
 
 describe('buildTryonBody', () => {
-  it('custom: background + poses, defaults filled, no platform', () => {
-    const body = buildTryonBody(session({ lowerCatalogId: null, shoeCatalogId: 'shoe-9' }));
+  it('sends the picked looks with the mapping id, defaults only where a slot needs one, no platform', () => {
+    const body = buildTryonBody(session({ picked: ['shoes', 'up'] }));
     expect(body).toEqual({
-      aspectRatio: '1:1',
+      aspectRatio: '3:4',
       resolution: 'HD',
       inputs: {
         upperGarmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg',
         faceId: 'face-1',
         garmentTypeId: 'gt-1',
-        backgroundId: 'bg-1',
-        poseIds: ['pose-1'],
-        lowerCatalogId: 'lower-default',
-        shoeCatalogId: 'shoe-9',
+        looks: [
+          { poseId: 'pose-shoes', backgroundId: 'bg-shoes' },
+          { poseId: 'pose-up', backgroundId: 'bg-up' },
+        ],
+        catalogueTemplateMappingId: 'map-1',
+        shoeCatalogId: 'shoe-default',
       },
     });
     expect(body).not.toHaveProperty('platform');
-  });
-  it('template: looks + mapping id, never backgroundId/poseIds', () => {
-    const body = buildTryonBody(
-      session({
-        mode: 'template',
-        poses: {},
-        backgroundId: undefined,
-        template: {
-          id: 't',
-          label: 'T',
-          mappingId: 'map-1',
-          looks: [
-            { poseId: 'p1', backgroundId: 'b1', hasUpper: true, hasLower: false, hasShoes: false },
-            { poseId: 'p2', backgroundId: 'b2', hasUpper: true, hasLower: false, hasShoes: false },
-          ],
-        },
-      }),
-    );
-    expect(body.inputs).toMatchObject({
-      looks: [
-        { poseId: 'p1', backgroundId: 'b1' },
-        { poseId: 'p2', backgroundId: 'b2' },
-      ],
-      catalogueTemplateMappingId: 'map-1',
-    });
     expect(body.inputs).not.toHaveProperty('backgroundId');
     expect(body.inputs).not.toHaveProperty('poseIds');
-    expect(body.inputs).not.toHaveProperty('lowerCatalogId');
   });
-  it('lower-only front: the one photo is sent as both upper and lower', () => {
-    const body = buildTryonBody(session({ poses: { a: LOWER_ONLY } }));
+  it('a combined look gets the default lower', () => {
+    expect(buildTryonBody(session({ picked: ['comb'] })).inputs.lowerCatalogId).toBe('lower-default');
+  });
+  it('lower-only: the one photo is sent as both upper and lower, no lower item', () => {
+    const body = buildTryonBody(
+      session({ template: { id: 't', mappingId: 'm', lowerOnly: true, looks: [LOWER_ONLY] }, picked: ['lo'] }),
+    );
     expect(body.inputs.lowerGarmentKey).toBe(body.inputs.upperGarmentKey);
     expect(body.inputs).not.toHaveProperty('lowerCatalogId');
   });
-  it('lower-only back: the back photo goes to lowerGarmentBackKey', () => {
-    const body = buildTryonBody(
-      session({ poses: { a: LOWER_ONLY_BACK }, photos: { upperBack: 'inputs/x/garment.jpg' } }),
-    );
-    expect(body.inputs.lowerGarmentBackKey).toBe('inputs/x/garment.jpg');
-    expect(body.inputs).not.toHaveProperty('lowerGarmentKey');
-    expect(body.inputs).not.toHaveProperty('upperGarmentBackKey');
-  });
-  it('back upper: the back photo goes to upperGarmentBackKey', () => {
-    const body = buildTryonBody(
-      session({ poses: { a: BACK_UPPER }, photos: { upperBack: 'inputs/y/garment.jpg' } }),
-    );
-    expect(body.inputs.upperGarmentBackKey).toBe('inputs/y/garment.jpg');
-  });
-  it('extra uploads map to their slots', () => {
-    const gt = { ...GT, requiresLowerUpload: true, requiresThirdUpload: true, allowsFourthUpload: true };
+  it('a lower-photo type sends that photo and no lower item', () => {
     const body = buildTryonBody(
       session({
-        garmentType: gt,
-        photos: { lowerFront: 'L', third: 'T', fourth: 'F' },
+        garmentType: { ...GT, requiresLowerUpload: true },
+        photos: { lowerFront: 'inputs/l/garment.jpg' },
+        picked: ['comb'],
       }),
     );
-    expect(body.inputs).toMatchObject({
-      lowerGarmentKey: 'L',
-      thirdGarmentKey: 'T',
-      fourthGarmentKey: 'F',
-    });
+    expect(body.inputs.lowerGarmentKey).toBe('inputs/l/garment.jpg');
+    expect(body.inputs).not.toHaveProperty('lowerCatalogId');
+  });
+  it('the third photo goes to thirdGarmentKey', () => {
+    const body = buildTryonBody(
+      session({ garmentType: { ...GT, requiresThirdUpload: true }, photos: { third: 'T' } }),
+    );
+    expect(body.inputs.thirdGarmentKey).toBe('T');
+  });
+  it('explicit look ids (retry) override the picks and unknown ids are ignored', () => {
+    const body = buildTryonBody(session({ picked: ['up', 'comb'] }), ['comb', 'gone']);
+    expect(body.inputs.looks).toEqual([{ poseId: 'pose-comb', backgroundId: 'bg-comb' }]);
   });
 });
 ```
@@ -627,136 +572,89 @@ Expected: FAIL — module not found.
 `apps/api/src/modules/messaging/engine/rules.ts`:
 
 ```ts
-import type { PhotoSlot, PoseRoles, Session, TryonBody } from './types.js';
+import type { GarmentTypeOption, PhotoSlot, Session, TemplateLook, TryonBody } from './types.js';
 
-// Mirrors studio/page.tsx's slot logic (needsUpperBack, needsLowerBack, lowerOnly,
-// lowerOnlyIsBack, effectiveLowerId, effectiveShoesId) so a bot run and a web run
-// with the same choices build the same request. Change both together.
+// 9 counts + the "Wrong garment? Change" row fill WhatsApp's 10-row list, and
+// stay under the create schema's 12-look cap.
+export const MAX_POSES = 9;
 
-type Role = PoseRoles & { poseId: string };
+const isLowerOnlyLook = (l: TemplateLook) => l.hasLower && !l.hasUpper;
 
-/** Roles of every pose the run will generate. Template looks never carry a
- *  garment view (the templates endpoint doesn't return one — T15), so they
- *  count as front views, exactly as in the studio. */
-export function selectedRoles(s: Session): Role[] {
-  if (s.mode === 'template') {
-    return (s.template?.looks ?? []).map((l) => ({
-      poseId: l.poseId,
-      hasUpper: l.hasUpper,
-      hasLower: l.hasLower,
-      hasShoes: l.hasShoes,
-      garmentView: 'front' as const,
-    }));
-  }
-  return Object.entries(s.poses).map(([poseId, r]) => ({ poseId, ...r }));
-}
-
-export function selectedPoseIds(s: Session): string[] {
-  return selectedRoles(s).map((r) => r.poseId);
-}
-
-export function imageCount(s: Session): number {
-  return selectedRoles(s).length;
-}
-
-/** Every pose consumes only a lower garment: the seller's one photo IS the lower. */
-export function isLowerOnly(s: Session): boolean {
-  if (!s.garmentType || s.garmentType.requiresLowerUpload) return false;
-  const roles = selectedRoles(s);
-  return roles.length > 0 && roles.every((r) => r.hasLower && r.hasUpper === false);
-}
-
-function flags(s: Session) {
-  const roles = selectedRoles(s);
-  const custom = s.mode === 'custom';
-  const lowerOnly = isLowerOnly(s);
+/**
+ * The looks the bot can generate for this garment type without asking another
+ * question (D49). The create path rejects a look whose lower or shoe slot is
+ * empty (jobs/create.ts per-pose checks), and the chat never asks for a lower
+ * or shoe item (D43), so a look that would need one is not offered.
+ *
+ * `lowerOnly` mirrors the studio's rule: when every look dresses only the
+ * lower body, the seller's one photo IS the lower garment.
+ */
+export function eligibleLooks(
+  gt: GarmentTypeOption,
+  looks: TemplateLook[],
+): { lowerOnly: boolean; looks: TemplateLook[] } {
+  const lowerOnly = !gt.requiresLowerUpload && looks.length > 0 && looks.every(isLowerOnlyLook);
   return {
-    roles,
     lowerOnly,
-    needsUpperBack: custom && roles.some((r) => r.hasUpper && r.garmentView === 'back'),
-    lowerOnlyIsBack: lowerOnly && custom && roles.some((r) => r.garmentView === 'back'),
-    needsLowerBack:
-      custom && roles.some((r) => r.hasLower && r.hasUpper === false && r.garmentView === 'back'),
+    looks: looks.filter((l) => {
+      if (l.hasShoes && !gt.defaultShoeCatalogId) return false;
+      if (lowerOnly) return true;
+      // In a mixed template a lower-only pose needs its own lower photo, which
+      // only a requiresLowerUpload type collects (the studio has the same gap).
+      if (isLowerOnlyLook(l)) return gt.requiresLowerUpload;
+      if (l.hasLower && !gt.requiresLowerUpload && !gt.defaultLowerCatalogId) return false;
+      return true;
+    }),
   };
 }
 
-export function requiredPhotoSlots(s: Session): PhotoSlot[] {
-  const gt = s.garmentType;
-  if (!gt) return [];
-  const f = flags(s);
+/** Uploads the type requires, in the order the bot asks for them (D46). */
+export function requiredPhotoSlots(gt: GarmentTypeOption): PhotoSlot[] {
   const slots: PhotoSlot[] = [];
-  // A lower-only back pose takes the same single back photo (studio: one box).
-  if (f.needsUpperBack || f.lowerOnlyIsBack) slots.push('upperBack');
   if (gt.requiresLowerUpload) slots.push('lowerFront');
-  if (f.needsLowerBack && !f.lowerOnly) slots.push('lowerBack');
   if (gt.requiresThirdUpload) slots.push('third');
-  if (gt.allowsFourthUpload) slots.push('fourth');
   return slots;
 }
 
 export function firstMissingSlot(s: Session): PhotoSlot | null {
-  for (const slot of requiredPhotoSlots(s)) {
-    if (slot === 'fourth') {
-      if (!s.photos.fourth && !s.skippedFourth) return slot;
-    } else if (!s.photos[slot]) {
-      return slot;
-    }
-  }
-  return null;
+  if (!s.garmentType) return null;
+  return requiredPhotoSlots(s.garmentType).find((slot) => !s.photos[slot]) ?? null;
 }
 
-export function needsLowerPick(s: Session): boolean {
-  if (!s.garmentType || s.garmentType.requiresLowerUpload || isLowerOnly(s)) return false;
-  return selectedRoles(s).some((r) => r.hasLower);
+export function maxCount(s: Session): number {
+  return Math.min(s.template?.looks.length ?? 0, MAX_POSES);
 }
 
-export function needsShoesPick(s: Session): boolean {
-  return selectedRoles(s).some((r) => r.hasShoes);
-}
-
-export function buildTryonBody(s: Session): TryonBody {
+/**
+ * The /v1/jobs/tryon body for the picked looks (or `lookIds`, for a retry).
+ * Template mode only (D42): looks + mapping id, never backgroundId/poseIds.
+ */
+export function buildTryonBody(s: Session, lookIds: string[] = s.picked): TryonBody {
   const gt = s.garmentType;
-  if (!gt || !s.garmentKey || !s.faceId) throw new Error('session incomplete');
-  const f = flags(s);
-  const needsLower = f.roles.some((r) => r.hasLower);
-  const needsShoes = f.roles.some((r) => r.hasShoes);
-
-  const lowerCatalogId = f.lowerOnly
-    ? undefined
-    : s.lowerCatalogId || (needsLower ? (gt.defaultLowerCatalogId ?? undefined) : undefined);
-  const shoeCatalogId =
-    s.shoeCatalogId || (needsShoes ? (gt.defaultShoeCatalogId ?? undefined) : undefined);
-  const lowerGarmentKey = f.lowerOnly
-    ? f.lowerOnlyIsBack
-      ? undefined
-      : s.garmentKey
-    : s.photos.lowerFront;
-  const lowerGarmentBackKey = f.lowerOnlyIsBack
-    ? s.photos.upperBack
-    : f.needsLowerBack
-      ? s.photos.lowerBack
-      : undefined;
-
-  const look =
-    s.mode === 'template' && s.template
-      ? {
-          looks: s.template.looks.map((l) => ({ poseId: l.poseId, backgroundId: l.backgroundId })),
-          catalogueTemplateMappingId: s.template.mappingId,
-        }
-      : { backgroundId: s.backgroundId as string, poseIds: Object.keys(s.poses) };
+  const t = s.template;
+  if (!gt || !t || !s.garmentKey || !s.faceId) throw new Error('session incomplete');
+  const byId = new Map(t.looks.map((l) => [l.id, l]));
+  const looks = lookIds.flatMap((id) => {
+    const l = byId.get(id);
+    return l ? [l] : [];
+  });
+  // A combined upper+lower pose's lower slot takes the type's default item
+  // unless the seller sent a lower photo (studio: effectiveLowerId).
+  const needsLowerItem = !t.lowerOnly && !gt.requiresLowerUpload && looks.some((l) => l.hasLower);
+  const needsShoes = looks.some((l) => l.hasShoes);
 
   const inputs: Record<string, unknown> = {
     upperGarmentKey: s.garmentKey,
-    upperGarmentBackKey: f.needsUpperBack ? s.photos.upperBack : undefined,
     faceId: s.faceId,
     garmentTypeId: gt.id,
-    ...look,
-    lowerCatalogId,
-    lowerGarmentKey,
-    lowerGarmentBackKey,
-    shoeCatalogId,
+    looks: looks.map((l) => ({ poseId: l.poseId, backgroundId: l.backgroundId })),
+    catalogueTemplateMappingId: t.mappingId,
+    // Lower-only: the schema requires upperGarmentKey, the api drops it for
+    // these poses, and the same photo is the lower (studio: lowerGarmentKeyForSubmit).
+    lowerGarmentKey: t.lowerOnly ? s.garmentKey : s.photos.lowerFront,
+    lowerCatalogId: needsLowerItem ? (gt.defaultLowerCatalogId ?? undefined) : undefined,
+    shoeCatalogId: needsShoes ? (gt.defaultShoeCatalogId ?? undefined) : undefined,
     thirdGarmentKey: s.photos.third,
-    fourthGarmentKey: gt.allowsFourthUpload ? s.photos.fourth : undefined,
   };
   // Drop undefined keys so the body equals what the studio's JSON would carry.
   for (const k of Object.keys(inputs)) if (inputs[k] === undefined) delete inputs[k];
@@ -779,12 +677,12 @@ Expected: PASS, 15 tests.
 
 ```bash
 git add apps/api/src/modules/messaging/engine/rules.ts apps/api/test/messaging-rules.test.ts
-git commit -m "feat(api): WhatsApp engine slot rules mirroring the studio"
+git commit -m "feat(api): WhatsApp look eligibility and create-body rules"
 ```
 
 ---
 
-### Task 3: Engine — menu, global commands and the steps up to the face
+### Task 3: Engine — the state machine, menu, photo, gender and garment type
 
 **Files:**
 - Create: `apps/api/src/modules/messaging/engine/engine.ts`
@@ -795,7 +693,7 @@ git commit -m "feat(api): WhatsApp engine slot rules mirroring the studio"
 - Consumes: Tasks 1–2.
 - Produces: `handle(prev: Session | null, event: InboundEvent, ctx: EngineContext, deps: EngineDeps): Promise<EngineResult>`; `freshSession(userId, deps): Promise<Session>`.
 
-This task writes the whole `engine.ts`; Tasks 4 and 5 add tests for the later steps, which this code already handles. Writing it in one file at once avoids three half-working versions of one state machine. If a Task 4 or 5 test fails, fix `engine.ts` there.
+This task writes the whole `engine.ts`; Task 4 adds tests for the later steps, which this code already handles. If a Task 4 test fails, fix `engine.ts` there.
 
 - [ ] **Step 1: Write the fakes**
 
@@ -807,7 +705,7 @@ import type {
   EngineContext,
   EngineDeps,
   GarmentTypeOption,
-  PoseOption,
+  TemplateLook,
   TemplateOption,
   TryonBody,
 } from '../../src/modules/messaging/engine/types';
@@ -819,56 +717,70 @@ export const GT_SHIRT: GarmentTypeOption = {
   label: 'Shirt',
   requiresLowerUpload: false,
   requiresThirdUpload: false,
-  allowsFourthUpload: false,
-  upperUploadLabel: 'shirt',
   lowerUploadLabel: null,
   thirdUploadLabel: null,
-  fourthUploadLabel: null,
   defaultLowerCatalogId: 'lower-default',
   defaultShoeCatalogId: null,
 };
 
-const img = (id: string) => ({ id, label: id, imageUrl: `https://img/${id}.jpg` });
+export const look = (id: string, roles: Partial<TemplateLook> = {}): TemplateLook => ({
+  id,
+  poseId: `pose-${id}`,
+  backgroundId: `bg-${id}`,
+  label: `Pose ${id}`,
+  imageUrl: `https://img/${id}.jpg`,
+  hasUpper: true,
+  hasLower: false,
+  hasShoes: false,
+  ...roles,
+});
 
-export const POSES: PoseOption[] = [
-  { ...img('pose-front'), hasUpper: true, hasLower: true, hasShoes: false, garmentView: 'front' },
-  { ...img('pose-back'), hasUpper: true, hasLower: false, hasShoes: false, garmentView: 'back' },
-];
-
+// 'd' has a shoe slot and GT_SHIRT has no default shoe → not offered (D49).
 export const TEMPLATE: TemplateOption = {
-  ...img('tpl-1'),
+  id: 'tpl-1',
   mappingId: 'map-1',
-  looks: [
-    { poseId: 'pose-front', backgroundId: 'bg-1', hasUpper: true, hasLower: false, hasShoes: false },
-    { poseId: 'pose-x', backgroundId: 'bg-2', hasUpper: true, hasLower: false, hasShoes: false },
-  ],
+  looks: [look('a'), look('b', { hasLower: true }), look('c'), look('d', { hasShoes: true })],
 };
+
+const lookCount = (body: TryonBody) => body.inputs.looks?.length ?? 0;
 
 export function fakeDeps(over: Partial<EngineDeps> = {}) {
   let n = 0;
-  const calls = { quote: [] as TryonBody[], createRun: [] as TryonBody[] };
+  const calls = {
+    quote: [] as TryonBody[],
+    createRun: [] as TryonBody[],
+    recognize: [] as { garmentKey: string; gender: string }[],
+    corrected: 0,
+  };
   const deps: EngineDeps = {
     newNonce: () => `n${++n}`,
-    getUserDefaults: async () => ({ aspectRatio: '1:1', resolution: 'HD' }),
+    getUserDefaults: async () => ({ aspectRatio: '3:4', resolution: 'HD' }),
     getBalance: async () => 50,
     listGarmentTypes: async () => [GT_SHIRT],
-    listFaces: async () => [img('face-1'), img('face-2')],
-    listTemplates: async () => [TEMPLATE],
-    listBackgrounds: async () => [img('bg-1')],
-    listPoses: async () => POSES,
-    getLastPoseIds: async () => [],
-    listCatalogItems: async (type) => [img(`${type}-a`)],
+    recognizeGarment: async (garmentKey, gender) => {
+      calls.recognize.push({ garmentKey, gender });
+      return null;
+    },
+    recordRecognitionCorrected: () => {
+      calls.corrected++;
+    },
+    getTemplate: async () => TEMPLATE,
+    getDefaultFaceId: async () => 'face-1',
     quote: async (_u, body) => {
       calls.quote.push(body);
-      const images = body.inputs.looks?.length ?? body.inputs.poseIds?.length ?? 0;
+      const images = lookCount(body);
       return { images, perImage: 5, total: images * 5, balance: 50 };
     },
     createRun: async (_ctx, body) => {
       calls.createRun.push(body);
-      return { runId: 'run-1', images: body.inputs.looks?.length ?? body.inputs.poseIds?.length ?? 0 };
+      return { runId: 'run-1', images: lookCount(body) };
     },
     runProgress: async () => ({ finished: 1, total: 2 }),
-    links: { pricing: 'https://app.test/pricing', help: 'https://app.test/contact-us' },
+    links: {
+      pricing: 'https://app.test/pricing',
+      help: 'https://app.test/contact-us',
+      studio: 'https://app.test/studio',
+    },
     ...over,
   };
   return { deps, calls };
@@ -883,15 +795,15 @@ export const insufficient = () => new AppError('INSUFFICIENT_CREDITS', 402, 'ins
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { decodeReplyId } from '../src/modules/messaging/engine/reply-id';
 import { handle } from '../src/modules/messaging/engine/engine';
+import { decodeReplyId } from '../src/modules/messaging/engine/reply-id';
 import type {
   EngineDeps,
   EngineResult,
   InboundEvent,
   OutboundMessage,
 } from '../src/modules/messaging/engine/types';
-import { CTX, fakeDeps, GT_SHIRT, insufficient } from './helpers/engine-fakes';
+import { CTX, fakeDeps, GT_SHIRT } from './helpers/engine-fakes';
 
 // Finds the reply id the engine offered for `action` (and `value`, if given) in
 // the last messages — what a seller's tap would send back.
@@ -916,6 +828,10 @@ function tap(r: EngineResult, action: string, value?: string): InboundEvent {
 }
 
 const texts = (msgs: OutboundMessage[]) => msgs.map((m) => ('text' in m ? m.text : ''));
+const listOf = (r: EngineResult) => {
+  const m = r.messages.find((x) => x.kind === 'list');
+  return m && m.kind === 'list' ? m : null;
+};
 const photo = (n: number): InboundEvent => ({
   type: 'image',
   garmentKey: `inputs/00000000-0000-4000-8000-00000000000${n}/garment.jpg`,
@@ -939,7 +855,7 @@ describe('engine: menu and global commands', () => {
 
   it('a tap with no session says the session expired, then shows the menu', async () => {
     const { deps } = fakeDeps();
-    const r = await handle(null, { type: 'reply', id: 'old|face|x' }, CTX, deps);
+    const r = await handle(null, { type: 'reply', id: 'old|look|x' }, CTX, deps);
     expect(texts(r.messages)[0]).toMatch(/session expired/);
     expect(r.session.state).toBe('MAIN_MENU');
   });
@@ -947,7 +863,7 @@ describe('engine: menu and global commands', () => {
   it('menu and restart always return to the main menu', async () => {
     const { deps } = fakeDeps();
     const deep = await run(deps, [(r) => tap(r, 'menu', 'new')]);
-    expect(deep.session.state).toBe('ASK_GENDER');
+    expect(deep.session.state).toBe('ASK_GARMENT_PHOTO');
     for (const word of ['menu', ' Restart ']) {
       const r = await handle(deep.session, { type: 'text', text: word }, CTX, deps);
       expect(r.session.state).toBe('MAIN_MENU');
@@ -959,7 +875,7 @@ describe('engine: menu and global commands', () => {
     const at = await run(deps, [(r) => tap(r, 'menu', 'new')]);
     const r = await handle(at.session, { type: 'text', text: 'help' }, CTX, deps);
     expect(texts(r.messages)[0]).toContain('https://app.test/contact-us');
-    expect(r.session.state).toBe('ASK_GENDER');
+    expect(r.session.state).toBe('ASK_GARMENT_PHOTO');
   });
 
   it('credits shows the balance and the pricing link', async () => {
@@ -975,73 +891,98 @@ describe('engine: menu and global commands', () => {
     const { deps } = fakeDeps();
     const menu = await handle(null, { type: 'text', text: 'hi' }, CTX, deps);
     const staleTap = tap(menu, 'menu', 'new');
-    const gender = await handle(menu.session, staleTap, CTX, deps);
-    const again = await handle(gender.session, staleTap, CTX, deps);
+    const next = await handle(menu.session, staleTap, CTX, deps);
+    const again = await handle(next.session, staleTap, CTX, deps);
     expect(texts(again.messages)).toEqual(['That option is from an earlier step.']);
-    expect(again.session).toEqual(gender.session);
+    expect(again.session).toEqual(next.session);
   });
 });
 
-describe('engine: steps up to the face', () => {
-  it('walks gender → garment type → shape → photo → face', async () => {
+describe('engine: photo, gender and garment type', () => {
+  it('New catalog asks for the photo; the photo leads to the four-gender list', async () => {
     const { deps } = fakeDeps();
-    const r = await run(deps, [
-      (x) => tap(x, 'menu', 'new'),
-      (x) => tap(x, 'gender', 'women'),
-      (x) => tap(x, 'gt', 'gt-shirt'),
-      (x) => tap(x, 'aspect_keep'),
-      () => photo(1),
-    ]);
+    const r = await run(deps, [(x) => tap(x, 'menu', 'new'), () => photo(1)]);
     expect(r.session).toMatchObject({
-      state: 'PICK_FACE',
-      gender: 'women',
-      garmentType: { id: 'gt-shirt' },
-      aspectRatio: '1:1',
+      state: 'ASK_GENDER',
       garmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg',
     });
-    expect(r.messages[0]).toMatchObject({ kind: 'cards' });
+    const list = listOf(r);
+    expect(list?.text).toBe('Create catalogue for:');
+    expect(list?.rows.map((x) => x.title)).toEqual(['Women', 'Men', 'Boys', 'Girls']);
   });
 
-  it('changing the shape uses the picked ratio', async () => {
+  it('a photo sent from the main menu starts at the gender step', async () => {
     const { deps } = fakeDeps();
-    const r = await run(deps, [
-      (x) => tap(x, 'menu', 'new'),
-      (x) => tap(x, 'gender', 'women'),
-      (x) => tap(x, 'gt', 'gt-shirt'),
-      (x) => tap(x, 'aspect_change'),
-      (x) => tap(x, 'aspect', '4:5'),
-    ]);
-    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_PHOTO', aspectRatio: '4:5' });
-  });
-
-  it('a photo sent from the main menu skips the photo step later', async () => {
-    const { deps } = fakeDeps();
-    const r = await run(deps, [
-      () => photo(2),
-      (x) => tap(x, 'gender', 'women'),
-      (x) => tap(x, 'gt', 'gt-shirt'),
-      (x) => tap(x, 'aspect_keep'),
-    ]);
-    expect(r.session.state).toBe('PICK_FACE');
+    const r = await run(deps, [() => photo(2)]);
+    expect(r.session.state).toBe('ASK_GENDER');
     expect(r.session.garmentKey).toContain('000000000002');
+  });
+
+  it('recognised: the type is announced and the count step follows', async () => {
+    const { deps } = fakeDeps({
+      recognizeGarment: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
+    });
+    const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    expect(texts(r.messages)[0]).toBe('Detected: Shirt.');
+    expect(r.session).toMatchObject({
+      state: 'ASK_POSE_COUNT',
+      gender: 'women',
+      garmentType: { id: 'gt-shirt' },
+      recognized: true,
+      faceId: 'face-1',
+    });
+  });
+
+  it('recognition is asked with the photo and the tapped gender', async () => {
+    const { deps, calls } = fakeDeps();
+    await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'boys')]);
+    expect(calls.recognize).toEqual([
+      { garmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg', gender: 'boys' },
+    ]);
+  });
+
+  it('not recognised: the garment-type list, then a pick goes to the count step', async () => {
+    const { deps } = fakeDeps();
+    const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    expect(list.session.state).toBe('ASK_GARMENT_TYPE');
+    expect(listOf(list)?.text).toBe('Which garment is it?');
+    const r = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
+    expect(r.session).toMatchObject({ state: 'ASK_POSE_COUNT', recognized: false });
+    expect(texts(r.messages)).not.toContain('Detected: Shirt.');
+  });
+
+  it('a recognised type the bot cannot offer gets the web-studio message (D47)', async () => {
+    const { deps } = fakeDeps({
+      recognizeGarment: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
+    });
+    const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    expect(texts(r.messages)[0]).toBe(
+      "Saree catalogs aren't available on WhatsApp yet. You can create one in the web studio: https://app.test/studio",
+    );
+    expect(r.session.state).toBe('MAIN_MENU');
+  });
+
+  it('no template or no face for the type also gets the web-studio message', async () => {
+    for (const over of [{ getTemplate: async () => null }, { getDefaultFaceId: async () => null }]) {
+      const { deps } = fakeDeps(over);
+      const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+      const r = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
+      expect(texts(r.messages)[0]).toMatch(/^Shirt catalogs aren't available on WhatsApp yet/);
+      expect(r.session.state).toBe('MAIN_MENU');
+    }
   });
 
   it('text where a tap is expected gets a re-prompt and keeps the step', async () => {
     const { deps } = fakeDeps();
-    const at = await run(deps, [(x) => tap(x, 'menu', 'new')]);
-    const r = await handle(at.session, { type: 'text', text: 'shirt please' }, CTX, deps);
+    const at = await run(deps, [() => photo(1)]);
+    const r = await handle(at.session, { type: 'text', text: 'its a shirt' }, CTX, deps);
     expect(texts(r.messages)[0]).toBe('Please use the options above, or type MENU.');
     expect(r.session.state).toBe('ASK_GENDER');
   });
 
   it('a video at the photo step explains what is accepted', async () => {
     const { deps } = fakeDeps();
-    const at = await run(deps, [
-      (x) => tap(x, 'menu', 'new'),
-      (x) => tap(x, 'gender', 'women'),
-      (x) => tap(x, 'gt', 'gt-shirt'),
-      (x) => tap(x, 'aspect_keep'),
-    ]);
+    const at = await run(deps, [(x) => tap(x, 'menu', 'new')]);
     const r = await handle(at.session, { type: 'unsupportedMedia' }, CTX, deps);
     expect(texts(r.messages)[0]).toMatch(/JPG or PNG/);
     expect(r.session.state).toBe('ASK_GARMENT_PHOTO');
@@ -1050,19 +991,12 @@ describe('engine: steps up to the face', () => {
   it('garment types are paged at 9 rows plus More', async () => {
     const many = Array.from({ length: 12 }, (_, i) => ({ ...GT_SHIRT, id: `gt-${i}`, label: `Type ${i}` }));
     const { deps } = fakeDeps({ listGarmentTypes: async () => many });
-    const first = await run(deps, [(x) => tap(x, 'menu', 'new'), (x) => tap(x, 'gender', 'women')]);
-    const list = first.messages.find((m) => m.kind === 'list');
-    expect(list && list.kind === 'list' ? list.rows.length : 0).toBe(10);
+    const first = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    expect(listOf(first)?.rows).toHaveLength(10);
     const second = await handle(first.session, tap(first, 'more'), CTX, deps);
-    const list2 = second.messages.find((m) => m.kind === 'list');
-    expect(list2 && list2.kind === 'list' ? list2.rows.map((r) => r.title) : []).toEqual([
-      'Type 9',
-      'Type 10',
-      'Type 11',
-    ]);
+    expect(listOf(second)?.rows.map((r) => r.title)).toEqual(['Type 9', 'Type 10', 'Type 11']);
   });
 });
-
 ```
 
 Run: `npx vitest run test/messaging-engine.test.ts`
@@ -1076,22 +1010,13 @@ Expected: FAIL — `engine` module not found.
 import { AppError } from '../../../lib/errors.js';
 import { COPY } from './copy.js';
 import { decodeReplyId, encodeReplyId } from './reply-id.js';
-import {
-  buildTryonBody,
-  firstMissingSlot,
-  imageCount,
-  needsLowerPick,
-  needsShoesPick,
-  selectedPoseIds,
-} from './rules.js';
+import { buildTryonBody, eligibleLooks, firstMissingSlot, maxCount } from './rules.js';
 import type {
-  AspectRatio,
-  Button,
   EngineContext,
   EngineDeps,
   EngineResult,
+  GarmentTypeOption,
   Gender,
-  ImageOption,
   InboundEvent,
   OutboundMessage,
   Session,
@@ -1101,10 +1026,11 @@ import type {
 const CARDS_PER_PAGE = 10;
 // 9 rows + a "More" row keeps a list inside WhatsApp's 10-row limit.
 const ROWS_PER_PAGE = 9;
-const GENDERS: Gender[] = ['women', 'men', 'girls', 'boys'];
-const ASPECTS: AspectRatio[] = ['1:1', '2:3', '3:4', '4:5'];
+// The order management gave: "Create catalogue for (Women, Men, Boys, Girls)".
+const GENDERS: Gender[] = ['women', 'men', 'boys', 'girls'];
 
 type Out = OutboundMessage[];
+type Row = { action: string; value: string; title: string };
 
 export async function freshSession(userId: string, deps: EngineDeps): Promise<Session> {
   const defaults = await deps.getUserDefaults(userId);
@@ -1116,27 +1042,35 @@ export async function freshSession(userId: string, deps: EngineDeps): Promise<Se
     aspectRatio: defaults.aspectRatio,
     resolution: defaults.resolution,
     photos: {},
-    poses: {},
+    picked: [],
   };
 }
 
 /** Everything chosen for a catalog, cleared; image shape and resolution kept. */
 function cleared(s: Session): Session {
-  return { v: 1, state: s.state, nonce: s.nonce, page: 0, aspectRatio: s.aspectRatio, resolution: s.resolution, photos: {}, poses: {} };
+  return {
+    v: 1,
+    state: s.state,
+    nonce: s.nonce,
+    page: 0,
+    aspectRatio: s.aspectRatio,
+    resolution: s.resolution,
+    photos: {},
+    picked: [],
+  };
 }
 
-/** The look and everything after it, cleared; garment, photos and face kept. */
-function lookCleared(s: Session): Session {
+/** Back to choosing the garment type; the photo and gender are kept. */
+function garmentCleared(s: Session): Session {
+  return { ...cleared(s), garmentKey: s.garmentKey, gender: s.gender };
+}
+
+/** Back to the count step; garment, type, extra photos, face and template kept. */
+function picksCleared(s: Session): Session {
   return {
     ...s,
-    mode: undefined,
-    template: undefined,
-    backgroundId: undefined,
-    poses: {},
-    lowerCatalogId: undefined,
-    shoeCatalogId: undefined,
-    lowerDone: undefined,
-    shoesDone: undefined,
+    count: undefined,
+    picked: [],
     runId: undefined,
     runImages: undefined,
     failedPoseIds: undefined,
@@ -1153,10 +1087,11 @@ function buttons(s: Session, body: string, items: [action: string, value: string
   };
 }
 
-function listMsg(s: Session, body: string, action: string, rows: { value: string; title: string }[]): OutboundMessage {
+/** A list page; rows beyond one page get a "More" row. */
+function listMsg(s: Session, body: string, rows: Row[]): OutboundMessage {
   const start = s.page * ROWS_PER_PAGE;
   const page = rows.slice(start, start + ROWS_PER_PAGE).map((r) => ({
-    id: encodeReplyId(s.nonce, action, r.value),
+    id: encodeReplyId(s.nonce, r.action, r.value),
     title: r.title.slice(0, 24),
   }));
   if (start + ROWS_PER_PAGE < rows.length) {
@@ -1170,7 +1105,7 @@ function cardsMsgs(
   s: Session,
   body: string,
   action: string,
-  items: ImageOption[],
+  items: { id: string; label: string; imageUrl: string }[],
   extra: [action: string, value: string, title: string][] = [],
 ): Out {
   const start = s.page * CARDS_PER_PAGE;
@@ -1189,17 +1124,24 @@ function cardsMsgs(
   return out;
 }
 
-function nextAfterLook(s: Session): State {
-  if (firstMissingSlot(s)) return 'ASK_EXTRA_PHOTO';
-  if (needsLowerPick(s) && !s.lowerDone) return 'PICK_LOWER';
-  if (needsShoesPick(s) && !s.shoesDone) return 'PICK_SHOES';
-  return 'CONFIRM';
-}
-
-function summary(s: Session): string {
-  const parts = [`${s.garmentType?.label ?? 'Garment'} · ${s.aspectRatio} · ${s.resolution}`];
-  if (s.mode === 'template' && s.template) parts.push(`Looks: ${s.template.label}`);
-  return COPY.summary(parts);
+/**
+ * Re-reads the type's template and keeps only the looks the bot can generate
+ * (D49). Re-read on every count / pick prompt, so a look an admin removed, or
+ * a presigned image URL that expired, never reaches the seller. Null when
+ * nothing is left — the type is then not available in the chat (D47).
+ */
+async function loadTemplate(s: Session, deps: EngineDeps): Promise<Session | null> {
+  if (!s.gender || !s.garmentType) return null;
+  const t = await deps.getTemplate(s.gender, s.garmentType.id);
+  if (!t) return null;
+  const { lowerOnly, looks } = eligibleLooks(s.garmentType, t.looks);
+  if (looks.length === 0) return null;
+  const ids = new Set(looks.map((l) => l.id));
+  return {
+    ...s,
+    template: { id: t.id, mappingId: t.mappingId, lowerOnly, looks },
+    picked: s.picked.filter((id) => ids.has(id)),
+  };
 }
 
 /** Moves to `state` with a fresh nonce and renders its prompt. */
@@ -1207,11 +1149,65 @@ async function enter(s: Session, state: State, out: Out, ctx: EngineContext, dep
   return render({ ...s, state, nonce: deps.newNonce(), page: 0 }, out, ctx, deps);
 }
 
+function notAvailable(s: Session, label: string, out: Out, ctx: EngineContext, deps: EngineDeps) {
+  out.push(text(COPY.notAvailable(label, deps.links.studio)));
+  return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
+}
+
+/**
+ * The garment type is known, from recognition or the list. Fills the defaults
+ * the chat no longer asks for (D43): face and template. Then the required
+ * extra photos, then the count.
+ */
+async function chooseGarmentType(
+  s: Session,
+  gt: GarmentTypeOption,
+  recognized: boolean,
+  out: Out,
+  ctx: EngineContext,
+  deps: EngineDeps,
+): Promise<EngineResult> {
+  const faceId = await deps.getDefaultFaceId(s.gender as Gender, gt.id);
+  const withType: Session = { ...garmentCleared(s), garmentType: gt, recognized, faceId: faceId ?? undefined };
+  const loaded = faceId ? await loadTemplate(withType, deps) : null;
+  if (!loaded) return notAvailable(s, gt.label, out, ctx, deps);
+  if (recognized) out.push(text(COPY.detected(gt.label)));
+  return enter(loaded, firstMissingSlot(loaded) ? 'ASK_EXTRA_PHOTO' : 'ASK_POSE_COUNT', out, ctx, deps);
+}
+
+/** Creates the run for `lookIds` (all picks, or the failed ones on retry). */
+async function generate(
+  s: Session,
+  lookIds: string[],
+  out: Out,
+  ctx: EngineContext,
+  deps: EngineDeps,
+): Promise<EngineResult> {
+  try {
+    const { runId, images } = await deps.createRun(ctx, buildTryonBody(s, lookIds));
+    // Shown, not charged, from the count step's quote: the charge itself is
+    // createJob's own resolution of the same plan (D17).
+    out.push(text(COPY.generating(images, images * (s.perImage ?? 0))));
+    return {
+      session: { ...s, state: 'GENERATING', nonce: deps.newNonce(), page: 0, runId, runImages: images, failedPoseIds: undefined },
+      messages: out,
+    };
+  } catch (err) {
+    if (!(err instanceof AppError)) throw err;
+    if (err.code === 'INSUFFICIENT_CREDITS') return enter(s, 'NO_CREDITS', out, ctx, deps);
+    // A look deactivated or a mapping changed after the list was shown (spec section 13).
+    if (err.code === 'BAD_CATALOG') {
+      out.push(text(COPY.posesChanged));
+      return enter(picksCleared(s), 'ASK_POSE_COUNT', out, ctx, deps);
+    }
+    out.push(text(err.message));
+    return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
+  }
+}
+
 /** Appends the current step's prompt. May redirect when a step has nothing to ask. */
 async function render(s: Session, out: Out, ctx: EngineContext, deps: EngineDeps): Promise<EngineResult> {
-  const done = (): EngineResult => ({ session: s, messages: out });
-  const gender = s.gender as Gender;
-  const gtId = s.garmentType?.id as string;
+  const done = (session: Session = s): EngineResult => ({ session, messages: out });
 
   switch (s.state) {
     case 'MAIN_MENU':
@@ -1224,148 +1220,71 @@ async function render(s: Session, out: Out, ctx: EngineContext, deps: EngineDeps
       );
       return done();
 
+    case 'ASK_GARMENT_PHOTO':
+      out.push(text(COPY.askGarmentPhoto));
+      return done();
+
     case 'ASK_GENDER':
-      out.push(listMsg(s, COPY.askGender, 'gender', GENDERS.map((g) => ({ value: g, title: COPY.genders[g] }))));
+      // Four options: one more than reply buttons allow, so a list.
+      out.push(listMsg(s, COPY.askGender, GENDERS.map((g) => ({ action: 'gender', value: g, title: COPY.genders[g] }))));
       return done();
 
     case 'ASK_GARMENT_TYPE': {
-      const types = await deps.listGarmentTypes(gender);
+      const types = await deps.listGarmentTypes(s.gender as Gender);
       if (types.length === 0) {
         out.push(text(COPY.nothingAvailable));
-        return enter(s, 'ASK_GENDER', out, ctx, deps);
+        return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
       }
-      out.push(listMsg(s, COPY.askGarmentType, 'gt', types.map((t) => ({ value: t.id, title: t.label }))));
-      return done();
-    }
-
-    case 'ASK_ASPECT':
-      out.push(
-        buttons(s, COPY.askAspect(COPY.aspects[s.aspectRatio]), [
-          ['aspect_keep', '', COPY.btnKeepAspect(s.aspectRatio)],
-          ['aspect_change', '', COPY.btnChange],
-        ]),
-      );
-      return done();
-
-    case 'PICK_ASPECT':
-      out.push(listMsg(s, COPY.pickAspect, 'aspect', ASPECTS.map((a) => ({ value: a, title: COPY.aspects[a] }))));
-      return done();
-
-    case 'ASK_GARMENT_PHOTO':
-      out.push(text(COPY.askGarmentPhoto(s.garmentType?.upperUploadLabel ?? null)));
-      return done();
-
-    case 'PICK_FACE': {
-      const faces = await deps.listFaces(gender, gtId);
-      if (faces.length === 0) {
-        out.push(text(COPY.nothingAvailable));
-        return enter(s, 'ASK_GARMENT_TYPE', out, ctx, deps);
-      }
-      out.push(...cardsMsgs(s, COPY.pickFace, 'face', faces));
-      return done();
-    }
-
-    case 'PICK_LOOK_MODE': {
-      // No template mapped for this garment type: straight to "Create your own".
-      const templates = await deps.listTemplates(gender, gtId);
-      if (templates.length === 0) return enter({ ...s, mode: 'custom' }, 'PICK_BACKGROUND', out, ctx, deps);
-      out.push(
-        buttons(s, COPY.pickLookMode, [
-          ['mode', 'template', COPY.btnReadyMade],
-          ['mode', 'custom', COPY.btnCreateOwn],
-        ]),
-      );
-      return done();
-    }
-
-    case 'PICK_TEMPLATE': {
-      const templates = await deps.listTemplates(gender, gtId);
-      out.push(
-        ...cardsMsgs(
-          s,
-          COPY.pickTemplate,
-          'tpl',
-          templates.map((t) => ({ ...t, label: COPY.templateTitle(t.label, t.looks.length) })),
-        ),
-      );
-      return done();
-    }
-
-    case 'PICK_BACKGROUND': {
-      const bgs = await deps.listBackgrounds(gender);
-      if (bgs.length === 0) {
-        out.push(text(COPY.nothingAvailable));
-        return enter(s, 'MAIN_MENU', out, ctx, deps);
-      }
-      out.push(...cardsMsgs(s, COPY.pickBackground, 'bg', bgs));
-      return done();
-    }
-
-    case 'PICK_POSES': {
-      const poses = await deps.listPoses(gender, gtId);
-      if (poses.length === 0) {
-        out.push(text(COPY.nothingAvailable));
-        return enter(s, 'PICK_LOOK_MODE', out, ctx, deps);
-      }
-      const n = Object.keys(s.poses).length;
-      const extra: [string, string, string][] = [];
-      if (n > 0) extra.push(['done', '', COPY.btnDone]);
-      if (n === 0 && (await lastPoses(s, ctx, deps, poses.map((p) => p.id))).length > 0) {
-        extra.push(['last', '', COPY.btnUseLastPoses]);
-      }
-      out.push(...cardsMsgs(s, COPY.pickPoses(n), 'pose', poses, extra));
+      out.push(listMsg(s, COPY.askGarmentType, types.map((t) => ({ action: 'gt', value: t.id, title: t.label }))));
       return done();
     }
 
     case 'ASK_EXTRA_PHOTO': {
       const slot = firstMissingSlot(s);
-      if (!slot) return enter(s, nextAfterLook(s), out, ctx, deps);
+      if (!slot) return enter(s, 'ASK_POSE_COUNT', out, ctx, deps);
       const gt = s.garmentType;
-      const label =
-        slot === 'upperBack'
-          ? (gt?.upperUploadLabel ?? null)
-          : slot === 'lowerFront' || slot === 'lowerBack'
-            ? (gt?.lowerUploadLabel ?? null)
-            : slot === 'third'
-              ? (gt?.thirdUploadLabel ?? null)
-              : (gt?.fourthUploadLabel ?? null);
-      const prompt = COPY.askPhoto[slot](label);
-      out.push(slot === 'fourth' ? buttons(s, prompt, [['skip', '', COPY.btnSkip]]) : text(prompt));
+      const label = slot === 'lowerFront' ? (gt?.lowerUploadLabel ?? null) : (gt?.thirdUploadLabel ?? null);
+      out.push(text(COPY.askPhoto[slot](label)));
       return done();
     }
 
-    case 'PICK_LOWER':
-    case 'PICK_SHOES': {
-      const type = s.state === 'PICK_LOWER' ? 'lower' : 'shoe';
-      const items = await deps.listCatalogItems(type, gender, gtId, selectedPoseIds(s));
-      const fallback = type === 'lower' ? s.garmentType?.defaultLowerCatalogId : s.garmentType?.defaultShoeCatalogId;
-      const extra: [string, string, string][] = fallback ? [['default', '', COPY.btnUseDefault]] : [];
-      if (items.length === 0) {
-        // Nothing to pick: the default (or nothing, if the type has none) is used.
-        const next = type === 'lower' ? { ...s, lowerCatalogId: null, lowerDone: true } : { ...s, shoeCatalogId: null, shoesDone: true };
-        return enter(next, nextAfterLook(next), out, ctx, deps);
-      }
-      out.push(...cardsMsgs(s, type === 'lower' ? COPY.pickLower : COPY.pickShoes, 'item', items, extra));
-      return done();
-    }
-
-    case 'CONFIRM': {
+    case 'ASK_POSE_COUNT': {
+      const loaded = await loadTemplate(s, deps);
+      if (!loaded?.template) return notAvailable(s, s.garmentType?.label ?? 'These', out, ctx, deps);
+      let perImage: number;
+      let balance: number;
       try {
-        const q = await deps.quote(ctx.userId, buildTryonBody(s));
-        out.push(
-          buttons(s, COPY.confirm(q, summary(s)), [
-            ['generate', '', COPY.btnGenerate],
-            ['restart', '', COPY.btnStartOver],
-          ]),
-        );
+        // One look prices one image: the cost per image comes from the same plan
+        // resolution the web uses (D17); the count rows multiply it.
+        const q = await deps.quote(ctx.userId, buildTryonBody(loaded, [loaded.template.looks[0].id]));
+        perImage = q.perImage;
+        balance = q.balance;
       } catch (err) {
-        // Anything createJob would reject (an asset deactivated mid-wizard, a
-        // misconfigured pose) surfaces here, before any credits are taken.
+        // Anything createJob would reject surfaces here, before any credits are taken.
         if (!(err instanceof AppError)) throw err;
         out.push(text(err.message));
-        out.push(buttons(s, COPY.menu, [['restart', '', COPY.btnStartOver]]));
+        return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
       }
-      return done();
+      const rows: Row[] = Array.from({ length: maxCount(loaded) }, (_, i) => ({
+        action: 'count',
+        value: String(i + 1),
+        title: COPY.countRow(i + 1, (i + 1) * perImage),
+      }));
+      rows.push({ action: 'change', value: '', title: COPY.rowChangeGarment });
+      const next: Session = { ...loaded, perImage, balance };
+      out.push(listMsg(next, COPY.askCount(balance), rows));
+      return done(next);
+    }
+
+    case 'PICK_LOOKS': {
+      const loaded = await loadTemplate(s, deps);
+      if (!loaded?.template) return notAvailable(s, s.garmentType?.label ?? 'These', out, ctx, deps);
+      out.push(
+        ...cardsMsgs(loaded, COPY.pickLooks(loaded.count ?? 1), 'look', loaded.template.looks, [
+          ['restart', '', COPY.btnStartOver],
+        ]),
+      );
+      return done(loaded);
     }
 
     case 'NO_CREDITS':
@@ -1382,19 +1301,12 @@ async function render(s: Session, out: Out, ctx: EngineContext, deps: EngineDeps
       const failed = s.failedPoseIds?.length ?? 0;
       const items: [string, string, string][] = [];
       if (failed > 0) items.push(['retry', '', COPY.btnRetryFailed]);
-      items.push(['more_looks', '', COPY.btnMoreLooks]);
+      items.push(['more_poses', '', COPY.btnMorePoses]);
       items.push(failed > 0 ? ['menu', 'menu', COPY.btnMenu] : ['menu', 'new', COPY.btnNewCatalog]);
       out.push(buttons(s, COPY.delivered, items));
       return done();
     }
   }
-}
-
-async function lastPoses(s: Session, ctx: EngineContext, deps: EngineDeps, available: string[]): Promise<string[]> {
-  const last = await deps.getLastPoseIds(ctx.userId, s.gender as Gender, s.garmentType?.id as string);
-  const ok = new Set(available);
-  // A last-used pose an admin has since hidden is silently dropped, as on the web.
-  return last.filter((id) => ok.has(id));
 }
 
 async function onReply(
@@ -1413,7 +1325,7 @@ async function onReply(
   if (action === 'more') return render({ ...s, page: s.page + 1 }, out, ctx, deps);
   if (action === 'restart') return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
   if (action === 'menu') {
-    if (value === 'new') return enter(cleared(s), 'ASK_GENDER', out, ctx, deps);
+    if (value === 'new') return enter(cleared(s), 'ASK_GARMENT_PHOTO', out, ctx, deps);
     if (value === 'credits') {
       out.push(text(COPY.credits(await deps.getBalance(ctx.userId), deps.links.pricing)));
       return enter(s, 'MAIN_MENU', out, ctx, deps);
@@ -1425,149 +1337,69 @@ async function onReply(
     return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
   }
 
-  const gender = s.gender as Gender;
-  const gtId = s.garmentType?.id as string;
-
   switch (s.state) {
-    case 'ASK_GENDER':
+    case 'ASK_GENDER': {
       if (action !== 'gender' || !GENDERS.includes(value as Gender)) return reprompt();
-      return enter({ ...s, gender: value as Gender }, 'ASK_GARMENT_TYPE', out, ctx, deps);
+      const gender = value as Gender;
+      const withGender: Session = { ...s, gender };
+      // Spec 8a: recognition runs now, against that gender's types only, and
+      // returns null on every failure — the list is always the way out.
+      const hit = s.garmentKey ? await deps.recognizeGarment(s.garmentKey, gender) : null;
+      if (hit) {
+        const gt = (await deps.listGarmentTypes(gender)).find((t) => t.id === hit.garmentTypeId);
+        // A correct answer for a type the bot cannot offer (a saree two-step
+        // type, no template): say so, rather than pretending we didn't know.
+        if (!gt) return notAvailable(withGender, hit.label, out, ctx, deps);
+        return chooseGarmentType(withGender, gt, true, out, ctx, deps);
+      }
+      return enter(withGender, 'ASK_GARMENT_TYPE', out, ctx, deps);
+    }
 
     case 'ASK_GARMENT_TYPE': {
-      const gt = (await deps.listGarmentTypes(gender)).find((t) => t.id === value);
+      const gt = (await deps.listGarmentTypes(s.gender as Gender)).find((t) => t.id === value);
       if (action !== 'gt' || !gt) return reprompt();
-      return enter({ ...s, garmentType: gt }, 'ASK_ASPECT', out, ctx, deps);
+      return chooseGarmentType(s, gt, false, out, ctx, deps);
     }
 
-    case 'ASK_ASPECT':
-      if (action === 'aspect_change') return enter(s, 'PICK_ASPECT', out, ctx, deps);
-      if (action !== 'aspect_keep') return reprompt();
-      return enter(s, s.garmentKey ? 'PICK_FACE' : 'ASK_GARMENT_PHOTO', out, ctx, deps);
-
-    case 'PICK_ASPECT':
-      if (action !== 'aspect' || !ASPECTS.includes(value as AspectRatio)) return reprompt();
-      return enter(
-        { ...s, aspectRatio: value as AspectRatio },
-        s.garmentKey ? 'PICK_FACE' : 'ASK_GARMENT_PHOTO',
-        out,
-        ctx,
-        deps,
-      );
-
-    case 'PICK_FACE': {
-      const face = (await deps.listFaces(gender, gtId)).find((f) => f.id === value);
-      if (action !== 'face' || !face) return reprompt();
-      return enter({ ...s, faceId: face.id }, 'PICK_LOOK_MODE', out, ctx, deps);
-    }
-
-    case 'PICK_LOOK_MODE':
-      if (action === 'mode' && value === 'template') return enter(s, 'PICK_TEMPLATE', out, ctx, deps);
-      if (action === 'mode' && value === 'custom') return enter({ ...s, mode: 'custom' }, 'PICK_BACKGROUND', out, ctx, deps);
-      return reprompt();
-
-    case 'PICK_TEMPLATE': {
-      const t = (await deps.listTemplates(gender, gtId)).find((x) => x.id === value);
-      if (action !== 'tpl' || !t) return reprompt();
-      const next: Session = {
-        ...s,
-        mode: 'template',
-        template: { id: t.id, label: t.label, mappingId: t.mappingId, looks: t.looks },
-        backgroundId: undefined,
-        poses: {},
-      };
-      return enter(next, nextAfterLook(next), out, ctx, deps);
-    }
-
-    case 'PICK_BACKGROUND': {
-      const bg = (await deps.listBackgrounds(gender)).find((b) => b.id === value);
-      if (action !== 'bg' || !bg) return reprompt();
-      return enter({ ...s, backgroundId: bg.id, poses: {} }, 'PICK_POSES', out, ctx, deps);
-    }
-
-    case 'PICK_POSES': {
-      const poses = await deps.listPoses(gender, gtId);
-      if (action === 'pose') {
-        const p = poses.find((x) => x.id === value);
-        if (!p) return reprompt();
-        if (s.poses[p.id]) {
-          out.push(text(COPY.poseAlreadyAdded));
-          return { session: s, messages: out };
-        }
-        const next: Session = {
-          ...s,
-          poses: { ...s.poses, [p.id]: { hasUpper: p.hasUpper, hasLower: p.hasLower, hasShoes: p.hasShoes, garmentView: p.garmentView } },
-        };
-        const n = Object.keys(next.poses).length;
-        // Not a re-render: re-sending the whole carousel after every tap would
-        // bury the chat. One short message with Done is enough.
-        out.push(buttons(next, COPY.poseAdded(n), [['done', '', COPY.btnDone]]));
-        return { session: next, messages: out };
+    case 'ASK_POSE_COUNT': {
+      if (action === 'change') {
+        if (s.recognized) deps.recordRecognitionCorrected();
+        return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
       }
-      if (action === 'last') {
-        const ids = await lastPoses(s, ctx, deps, poses.map((p) => p.id));
-        if (ids.length === 0) return reprompt();
-        const byId = new Map(poses.map((p) => [p.id, p]));
-        const picked: Session['poses'] = {};
-        for (const id of ids) {
-          const p = byId.get(id);
-          if (p) picked[id] = { hasUpper: p.hasUpper, hasLower: p.hasLower, hasShoes: p.hasShoes, garmentView: p.garmentView };
-        }
-        const next = { ...s, poses: picked };
-        return enter(next, nextAfterLook(next), out, ctx, deps);
-      }
-      if (action === 'done' && Object.keys(s.poses).length > 0) return enter(s, nextAfterLook(s), out, ctx, deps);
-      return reprompt();
+      const n = Number(value);
+      if (action !== 'count' || !Number.isInteger(n) || n < 1 || n > maxCount(s)) return reprompt();
+      const next: Session = { ...s, count: n, picked: [] };
+      // Caught here, before the seller taps n poses (D45); createJob checks again.
+      const balance = await deps.getBalance(ctx.userId);
+      if (n * (s.perImage ?? 0) > balance) return enter(next, 'NO_CREDITS', out, ctx, deps);
+      return enter(next, 'PICK_LOOKS', out, ctx, deps);
     }
 
-    case 'ASK_EXTRA_PHOTO':
-      if (action === 'skip' && firstMissingSlot(s) === 'fourth') {
-        const next = { ...s, skippedFourth: true };
-        return enter(next, nextAfterLook(next), out, ctx, deps);
+    case 'PICK_LOOKS': {
+      if (action !== 'look' || !s.template?.looks.some((l) => l.id === value)) return reprompt();
+      if (s.picked.includes(value)) {
+        out.push(text(COPY.lookAlreadyAdded));
+        return { session: s, messages: out };
       }
-      return reprompt();
-
-    case 'PICK_LOWER':
-    case 'PICK_SHOES': {
-      const isLower = s.state === 'PICK_LOWER';
-      let chosen: string | null;
-      if (action === 'default') chosen = null;
-      else if (action === 'item') {
-        const items = await deps.listCatalogItems(isLower ? 'lower' : 'shoe', gender, gtId, selectedPoseIds(s));
-        if (!items.some((i) => i.id === value)) return reprompt();
-        chosen = value;
-      } else return reprompt();
-      const next: Session = isLower
-        ? { ...s, lowerCatalogId: chosen, lowerDone: true }
-        : { ...s, shoeCatalogId: chosen, shoesDone: true };
-      return enter(next, nextAfterLook(next), out, ctx, deps);
-    }
-
-    case 'CONFIRM': {
-      if (action !== 'generate') return reprompt();
-      try {
-        const { runId, images } = await deps.createRun(ctx, buildTryonBody(s));
-        out.push(text(COPY.generating(images)));
-        return { session: { ...s, state: 'GENERATING', nonce: deps.newNonce(), page: 0, runId, runImages: images }, messages: out };
-      } catch (err) {
-        if (err instanceof AppError && err.code === 'INSUFFICIENT_CREDITS') return enter(s, 'NO_CREDITS', out, ctx, deps);
-        if (!(err instanceof AppError)) throw err;
-        out.push(text(err.message));
-        return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
-      }
+      const next: Session = { ...s, picked: [...s.picked, value] };
+      const count = s.count ?? 1;
+      // Choosing the count was the agreement to spend (D45): the last pick starts the run.
+      if (next.picked.length >= count) return generate(next, next.picked, out, ctx, deps);
+      // Not a re-render: re-sending the carousel after every tap would bury the chat.
+      out.push(buttons(next, COPY.lookAdded(next.picked.length, count), [['restart', '', COPY.btnStartOver]]));
+      return { session: next, messages: out };
     }
 
     case 'DELIVERED': {
-      if (action === 'more_looks') return enter(lookCleared(s), 'PICK_LOOK_MODE', out, ctx, deps);
+      if (action === 'more_poses') return enter(picksCleared(s), 'ASK_POSE_COUNT', out, ctx, deps);
       if (action === 'retry') {
         const failed = new Set(s.failedPoseIds ?? []);
-        if (failed.size === 0) return reprompt();
-        // Same choices, only the poses that failed. The dispatcher already
-        // refunded them, so this is a fresh, priced run.
-        const next: Session =
-          s.mode === 'template' && s.template
-            ? { ...s, template: { ...s.template, looks: s.template.looks.filter((l) => failed.has(l.poseId)) } }
-            : { ...s, poses: Object.fromEntries(Object.entries(s.poses).filter(([id]) => failed.has(id))) };
-        return enter({ ...next, runId: undefined, failedPoseIds: undefined }, 'CONFIRM', out, ctx, deps);
+        const looks = s.template?.looks ?? [];
+        const ids = s.picked.filter((id) => failed.has(looks.find((l) => l.id === id)?.poseId ?? ''));
+        if (ids.length === 0) return reprompt();
+        // The dispatcher already refunded the failed images; this is a fresh,
+        // priced run of only those looks.
+        return generate({ ...s, picked: ids }, ids, out, ctx, deps);
       }
       return reprompt();
     }
@@ -1576,6 +1408,10 @@ async function onReply(
       return reprompt();
   }
 }
+
+// States where a new photo starts a new catalog (spec section 8): outside the
+// question steps, a photo can only mean "do this one".
+const NEW_PHOTO_STATES: State[] = ['MAIN_MENU', 'ASK_GARMENT_PHOTO', 'NO_CREDITS', 'GENERATING', 'DELIVERED'];
 
 /**
  * The whole conversation as one deterministic step: (session, event) → (session,
@@ -1621,17 +1457,14 @@ export async function handle(
     }
 
     case 'image': {
-      if (s.state === 'MAIN_MENU') {
+      if (NEW_PHOTO_STATES.includes(s.state)) {
         return enter({ ...cleared(s), garmentKey: event.garmentKey }, 'ASK_GENDER', out, ctx, deps);
-      }
-      if (s.state === 'ASK_GARMENT_PHOTO') {
-        return enter({ ...s, garmentKey: event.garmentKey }, 'PICK_FACE', out, ctx, deps);
       }
       if (s.state === 'ASK_EXTRA_PHOTO') {
         const slot = firstMissingSlot(s);
         if (slot) {
           const next = { ...s, photos: { ...s.photos, [slot]: event.garmentKey } };
-          return enter(next, nextAfterLook(next), out, ctx, deps);
+          return enter(next, firstMissingSlot(next) ? 'ASK_EXTRA_PHOTO' : 'ASK_POSE_COUNT', out, ctx, deps);
         }
       }
       out.push(text(COPY.notNow));
@@ -1645,8 +1478,9 @@ export async function handle(
         : render(s, out, ctx, deps);
 
     case 'runFinished': {
-      // A run from an older session (the seller restarted meanwhile) still gets
-      // its images (plan 3 sends them by run, not by session), but no buttons here.
+      // A run from an older session (the seller started another catalog
+      // meanwhile) still gets its images (plan 3 sends them by run, not by
+      // session), but no buttons here.
       if (s.runId !== event.runId) return { session: s, messages: out };
       if (event.failedPoseIds.length > 0) out.push(text(COPY.partlyFailed(event.failedPoseIds.length, event.images)));
       return enter({ ...s, failedPoseIds: event.failedPoseIds }, 'DELIVERED', out, ctx, deps);
@@ -1654,7 +1488,7 @@ export async function handle(
 
     case 'creditsAdded':
       out.push(text(COPY.creditsAdded(event.credits)));
-      if (s.state === 'NO_CREDITS') return enter(s, 'CONFIRM', out, ctx, deps);
+      if (s.state === 'NO_CREDITS') return enter(picksCleared(s), 'ASK_POSE_COUNT', out, ctx, deps);
       return { session: s, messages: out };
   }
 }
@@ -1663,21 +1497,21 @@ export async function handle(
 - [ ] **Step 4: Run the tests**
 
 Run: `npx vitest run test/messaging-engine.test.ts`
-Expected: PASS, 12 tests.
+Expected: PASS, 16 tests.
 
 - [ ] **Step 5: Lint, typecheck and commit**
 
 Run: `pnpm --filter @aivastra/api typecheck && pnpm --filter @aivastra/api lint`
-Expected: exit 0. Biome may reformat long lines in `engine.ts`; run `pnpm --filter @aivastra/api exec biome check --write src/modules/messaging test/messaging-*.test.ts test/helpers/engine-fakes.ts` and re-run the tests.
+Expected: exit 0. Biome may reformat long lines; run `pnpm --filter @aivastra/api exec biome check --write src/modules/messaging test/messaging-*.test.ts test/helpers/engine-fakes.ts` and re-run the tests.
 
 ```bash
 git add apps/api/src/modules/messaging/engine/engine.ts apps/api/test/helpers/engine-fakes.ts apps/api/test/messaging-engine.test.ts
-git commit -m "feat(api): WhatsApp conversation engine"
+git commit -m "feat(api): WhatsApp five-step conversation engine"
 ```
 
 ---
 
-### Task 4: Engine tests — looks, extra photos, lower and shoes
+### Task 4: Engine tests — count, picks, extra photos, generation and delivery
 
 **Files:**
 - Modify: `apps/api/test/messaging-engine.test.ts` (append)
@@ -1685,157 +1519,70 @@ git commit -m "feat(api): WhatsApp conversation engine"
 
 - [ ] **Step 1: Append the tests**
 
-```ts
-async function atFace(deps: EngineDeps) {
-  return run(deps, [
-    (x) => tap(x, 'menu', 'new'),
-    (x) => tap(x, 'gender', 'women'),
-    (x) => tap(x, 'gt', 'gt-shirt'),
-    (x) => tap(x, 'aspect_keep'),
-    () => photo(1),
-    (x) => tap(x, 'face', 'face-1'),
-  ]);
-}
-
-describe('engine: looks', () => {
-  it('a template goes straight to confirm with all of its looks (D24)', async () => {
-    const { deps, calls } = fakeDeps();
-    const at = await atFace(deps);
-    expect(at.session.state).toBe('PICK_LOOK_MODE');
-    const r = await run(deps, [(x) => tap(x, 'mode', 'template'), (x) => tap(x, 'tpl', 'tpl-1')], at);
-    expect(r.session.state).toBe('CONFIRM');
-    expect(calls.quote.at(-1)?.inputs).toMatchObject({
-      looks: [
-        { poseId: 'pose-front', backgroundId: 'bg-1' },
-        { poseId: 'pose-x', backgroundId: 'bg-2' },
-      ],
-      catalogueTemplateMappingId: 'map-1',
-    });
-  });
-
-  it('no templates for the garment type skips straight to backgrounds', async () => {
-    const { deps } = fakeDeps({ listTemplates: async () => [] });
-    const at = await atFace(deps);
-    expect(at.session).toMatchObject({ state: 'PICK_BACKGROUND', mode: 'custom' });
-  });
-
-  it('custom: tap poses to add, Done moves on, a second tap does not duplicate', async () => {
-    const { deps } = fakeDeps();
-    const at = await atFace(deps);
-    const bg = await run(deps, [(x) => tap(x, 'mode', 'custom'), (x) => tap(x, 'bg', 'bg-1')], at);
-    expect(bg.session.state).toBe('PICK_POSES');
-    const one = await handle(bg.session, tap(bg, 'pose', 'pose-front'), CTX, deps);
-    expect(texts(one.messages)[0]).toBe('Added. 1 selected.');
-    const dup = await handle(one.session, tap(bg, 'pose', 'pose-front'), CTX, deps);
-    expect(texts(dup.messages)).toEqual(['That pose is already added.']);
-    const done = await handle(dup.session, tap(one, 'done'), CTX, deps);
-    // pose-front has a lower slot and the garment type has no lower upload → lower step.
-    expect(done.session.state).toBe('PICK_LOWER');
-  });
-
-  it('"Use my last poses" appears only when last-used poses are still available', async () => {
-    const { deps } = fakeDeps({ getLastPoseIds: async () => ['pose-back', 'pose-gone'] });
-    const at = await atFace(deps);
-    const bg = await run(deps, [(x) => tap(x, 'mode', 'custom'), (x) => tap(x, 'bg', 'bg-1')], at);
-    const r = await handle(bg.session, tap(bg, 'last'), CTX, deps);
-    expect(Object.keys(r.session.poses)).toEqual(['pose-back']);
-    // pose-back is a back view → the back photo is asked next (D22).
-    expect(r.session.state).toBe('ASK_EXTRA_PHOTO');
-    expect(texts(r.messages)[0]).toBe('Now send a photo of the back of the shirt.');
-  });
-
-  it('a back photo fills its slot and moves on', async () => {
-    const { deps, calls } = fakeDeps({ getLastPoseIds: async () => ['pose-back'] });
-    const at = await atFace(deps);
-    const r = await run(
-      deps,
-      [(x) => tap(x, 'mode', 'custom'), (x) => tap(x, 'bg', 'bg-1'), (x) => tap(x, 'last'), () => photo(3)],
-      at,
-    );
-    expect(r.session.state).toBe('CONFIRM');
-    expect(calls.quote.at(-1)?.inputs.upperGarmentBackKey).toContain('000000000003');
-  });
-
-  it('an optional fourth photo can be skipped', async () => {
-    const { deps } = fakeDeps({
-      listGarmentTypes: async () => [{ ...GT_SHIRT, allowsFourthUpload: true, fourthUploadLabel: 'blouse' }],
-      listTemplates: async () => [],
-    });
-    const at = await atFace(deps);
-    const r = await run(deps, [(x) => tap(x, 'bg', 'bg-1'), (x) => tap(x, 'pose', 'pose-front'), (x) => tap(x, 'done')], at);
-    expect(texts(r.messages)[0]).toBe('Optional: send a photo of the blouse, or tap Skip.');
-    const skipped = await handle(r.session, tap(r, 'skip'), CTX, deps);
-    expect(skipped.session.skippedFourth).toBe(true);
-    // pose-front has a lower slot and the type has a default → the lower step is next.
-    expect(skipped.session.state).toBe('PICK_LOWER');
-  });
-
-  it('lower: pick an item, or Use default when the type has one', async () => {
-    const { deps, calls } = fakeDeps();
-    const at = await atFace(deps);
-    const lower = await run(
-      deps,
-      [(x) => tap(x, 'mode', 'custom'), (x) => tap(x, 'bg', 'bg-1'), (x) => tap(x, 'pose', 'pose-front'), (x) => tap(x, 'done')],
-      at,
-    );
-    const picked = await handle(lower.session, tap(lower, 'item', 'lower-a'), CTX, deps);
-    expect(picked.session.state).toBe('CONFIRM');
-    expect(calls.quote.at(-1)?.inputs.lowerCatalogId).toBe('lower-a');
-
-    const byDefault = await handle(lower.session, tap(lower, 'default'), CTX, deps);
-    expect(byDefault.session.state).toBe('CONFIRM');
-    expect(calls.quote.at(-1)?.inputs.lowerCatalogId).toBe('lower-default');
-  });
-
-  it('a garment type without a default offers no Use default', async () => {
-    const { deps } = fakeDeps({
-      listGarmentTypes: async () => [{ ...GT_SHIRT, defaultLowerCatalogId: null }],
-    });
-    const at = await atFace(deps);
-    const lower = await run(
-      deps,
-      [(x) => tap(x, 'mode', 'custom'), (x) => tap(x, 'bg', 'bg-1'), (x) => tap(x, 'pose', 'pose-front'), (x) => tap(x, 'done')],
-      at,
-    );
-    expect(() => tap(lower, 'default')).toThrow();
-  });
-});
-```
-
-- [ ] **Step 2: Run them**
-
-Run: `npx vitest run test/messaging-engine.test.ts`
-Expected: PASS, 20 tests. Fix `engine.ts` (not the tests) if a transition disagrees with spec section 8.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add apps/api/test/messaging-engine.test.ts apps/api/src/modules/messaging/engine/engine.ts
-git commit -m "test(api): WhatsApp engine look, photo, lower and shoe steps"
-```
-
----
-
-### Task 5: Engine tests — confirm, generate, credits and delivery
-
-**Files:**
-- Modify: `apps/api/test/messaging-engine.test.ts` (append)
-- Modify (only if a test fails): `apps/api/src/modules/messaging/engine/engine.ts`
-
-- [ ] **Step 1: Append the tests**
+Add `insufficient`, `look` and `TEMPLATE` to the `./helpers/engine-fakes` import at the top of the file, then append:
 
 ```ts
-async function atConfirm(deps: EngineDeps) {
-  const at = await atFace(deps);
-  return run(deps, [(x) => tap(x, 'mode', 'template'), (x) => tap(x, 'tpl', 'tpl-1')], at);
+// A seller at the count step for GT_SHIRT, through the garment-type list.
+async function atCount(deps: EngineDeps) {
+  const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+  return run(deps, [(x) => tap(x, 'gt', 'gt-shirt')], list);
 }
 
-describe('engine: confirm and generate', () => {
-  it('confirm shows image count, cost and balance', async () => {
-    const { deps } = fakeDeps();
-    const r = await atConfirm(deps);
-    expect(r.messages.at(-1)).toMatchObject({ kind: 'buttons' });
-    expect(texts(r.messages).at(-1)).toContain('2 images, uses 10 credits. Your balance: 50.');
+async function picked(deps: EngineDeps, count: number, lookIds: string[]) {
+  const at = await atCount(deps);
+  const pick = await run(deps, [(x) => tap(x, 'count', String(count))], at);
+  let r = pick;
+  for (const id of lookIds) r = await handle(r.session, tap(pick, 'look', id), CTX, deps);
+  return { pick, r };
+}
+
+describe('engine: pose count', () => {
+  it('lists 1..eligible looks with the cost, the balance and a Change row', async () => {
+    const { deps, calls } = fakeDeps();
+    const r = await atCount(deps);
+    const list = listOf(r);
+    expect(list?.text).toBe('How many poses do you want? Your balance: 50 credits.');
+    // Look 'd' needs shoes and GT_SHIRT has no default shoe (D49): 3 looks, not 4.
+    expect(list?.rows.map((x) => x.title)).toEqual([
+      '1 pose · 5 credits',
+      '2 poses · 10 credits',
+      '3 poses · 15 credits',
+      'Wrong garment? Change',
+    ]);
+    // Priced with one look, through the real create-body builder.
+    expect(calls.quote.at(-1)?.inputs.looks).toEqual([{ poseId: 'pose-a', backgroundId: 'bg-a' }]);
+  });
+
+  it('never offers more than 9', async () => {
+    const big = { ...TEMPLATE, looks: Array.from({ length: 12 }, (_, i) => look(`l${i}`)) };
+    const { deps } = fakeDeps({ getTemplate: async () => big });
+    expect(listOf(await atCount(deps))?.rows).toHaveLength(10);
+  });
+
+  it('Change after a recognised type counts a correction; after a list pick it does not', async () => {
+    const recognised = fakeDeps({
+      recognizeGarment: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
+    });
+    const r1 = await run(recognised.deps, [() => photo(1), (x) => tap(x, 'gender', 'women'), (x) => tap(x, 'change')]);
+    expect(r1.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
+    expect(r1.session.garmentKey).toContain('000000000001');
+    expect(recognised.calls.corrected).toBe(1);
+
+    const listed = fakeDeps();
+    const at = await atCount(listed.deps);
+    await handle(at.session, tap(at, 'change'), CTX, listed.deps);
+    expect(listed.calls.corrected).toBe(0);
+  });
+
+  it('a count the balance cannot cover goes to NO_CREDITS; credits added returns to the count', async () => {
+    const { deps } = fakeDeps({ getBalance: async () => 8 });
+    const at = await atCount(deps);
+    const r = await handle(at.session, tap(at, 'count', '2'), CTX, deps);
+    expect(r.session.state).toBe('NO_CREDITS');
+    expect(texts(r.messages)[0]).toContain('https://app.test/pricing');
+    const back = await handle(r.session, { type: 'creditsAdded', credits: 100 }, CTX, deps);
+    expect(texts(back.messages)[0]).toBe('100 credits added.');
+    expect(back.session.state).toBe('ASK_POSE_COUNT');
   });
 
   it('a quote error is shown before any credits are taken', async () => {
@@ -1845,53 +1592,143 @@ describe('engine: confirm and generate', () => {
         throw new AppError('VALIDATION', 400, 'face not found or inactive');
       },
     });
-    const r = await atConfirm(deps);
+    const r = await atCount(deps);
     expect(texts(r.messages)).toContain('face not found or inactive');
-  });
-
-  it('generate creates one run with the confirmed body', async () => {
-    const { deps, calls } = fakeDeps();
-    const at = await atConfirm(deps);
-    const r = await handle(at.session, tap(at, 'generate'), CTX, deps);
-    expect(r.session).toMatchObject({ state: 'GENERATING', runId: 'run-1', runImages: 2 });
-    expect(calls.createRun).toHaveLength(1);
-    expect(calls.createRun[0]).toEqual(calls.quote.at(-1));
-    expect(texts(r.messages)[0]).toBe("Working on 2 images. I'll send each one here as it's ready.");
-  });
-
-  it('short of credits → NO_CREDITS, then creditsAdded returns to confirm', async () => {
-    const { deps } = fakeDeps({ createRun: async () => { throw insufficient(); } });
-    const at = await atConfirm(deps);
-    const r = await handle(at.session, tap(at, 'generate'), CTX, deps);
-    expect(r.session.state).toBe('NO_CREDITS');
-    expect(texts(r.messages)[0]).toContain('https://app.test/pricing');
-    const back = await handle(r.session, { type: 'creditsAdded', credits: 100 }, CTX, deps);
-    expect(texts(back.messages)[0]).toBe('100 credits added.');
-    expect(back.session.state).toBe('CONFIRM');
-  });
-
-  it('messages while generating report progress', async () => {
-    const { deps } = fakeDeps();
-    const at = await atConfirm(deps);
-    const gen = await handle(at.session, tap(at, 'generate'), CTX, deps);
-    const r = await handle(gen.session, { type: 'text', text: 'done yet?' }, CTX, deps);
-    expect(texts(r.messages)).toEqual(['Still generating: 1 of 2 done.']);
+    expect(r.session.state).toBe('MAIN_MENU');
   });
 });
 
-describe('engine: delivery', () => {
-  async function generated(deps: EngineDeps) {
-    const at = await atConfirm(deps);
-    return handle(at.session, tap(at, 'generate'), CTX, deps);
-  }
+describe('engine: picking looks', () => {
+  it('shows the eligible looks; each tap adds one; a repeat is not counted', async () => {
+    const { deps } = fakeDeps();
+    const { pick } = await picked(deps, 2, []);
+    expect(pick.session.state).toBe('PICK_LOOKS');
+    const cards = pick.messages.find((m) => m.kind === 'cards');
+    expect(cards && cards.kind === 'cards' ? cards.cards.map((c) => c.title) : []).toEqual([
+      'Pose a',
+      'Pose b',
+      'Pose c',
+    ]);
+    const one = await handle(pick.session, tap(pick, 'look', 'a'), CTX, deps);
+    expect(texts(one.messages)[0]).toBe('Added, 1 of 2.');
+    const dup = await handle(one.session, tap(pick, 'look', 'a'), CTX, deps);
+    expect(texts(dup.messages)).toEqual(['That pose is already added.']);
+    expect(dup.session.picked).toEqual(['a']);
+  });
 
-  it('runFinished with no failures offers more looks and a new catalog', async () => {
+  it('the last pick starts generation with exactly the picked looks', async () => {
+    const { deps, calls } = fakeDeps();
+    const { r } = await picked(deps, 2, ['c', 'a']);
+    expect(r.session).toMatchObject({ state: 'GENERATING', runId: 'run-1', runImages: 2 });
+    expect(calls.createRun).toHaveLength(1);
+    expect(calls.createRun[0].inputs).toMatchObject({
+      looks: [
+        { poseId: 'pose-c', backgroundId: 'bg-c' },
+        { poseId: 'pose-a', backgroundId: 'bg-a' },
+      ],
+      catalogueTemplateMappingId: 'map-1',
+      faceId: 'face-1',
+    });
+    expect(calls.createRun[0].inputs).not.toHaveProperty('lowerCatalogId');
+    expect(texts(r.messages)[0]).toBe("Working on 2 images, 10 credits. I'll send each one here as it's ready.");
+  });
+
+  it('a look with a lower slot gets the type default lower', async () => {
+    const { deps, calls } = fakeDeps();
+    await picked(deps, 1, ['b']);
+    expect(calls.createRun[0].inputs.lowerCatalogId).toBe('lower-default');
+  });
+
+  it('a type with a default shoe offers the shoe look and sends the shoe', async () => {
+    const { deps, calls } = fakeDeps({
+      listGarmentTypes: async () => [{ ...GT_SHIRT, defaultShoeCatalogId: 'shoe-default' }],
+    });
+    await picked(deps, 1, ['d']);
+    expect(calls.createRun[0].inputs.shoeCatalogId).toBe('shoe-default');
+  });
+
+  it('a lower-only template sends the photo as the lower garment', async () => {
+    const lowerOnly = { ...TEMPLATE, looks: [look('j', { hasUpper: false, hasLower: true })] };
+    const { deps, calls } = fakeDeps({ getTemplate: async () => lowerOnly });
+    await picked(deps, 1, ['j']);
+    expect(calls.createRun[0].inputs.lowerGarmentKey).toBe(calls.createRun[0].inputs.upperGarmentKey);
+    expect(calls.createRun[0].inputs).not.toHaveProperty('lowerCatalogId');
+  });
+
+  it('short of credits at create time goes to NO_CREDITS', async () => {
+    const { deps } = fakeDeps({
+      createRun: async () => {
+        throw insufficient();
+      },
+    });
+    const { r } = await picked(deps, 1, ['a']);
+    expect(r.session.state).toBe('NO_CREDITS');
+  });
+
+  it('a look that changed meanwhile returns to the count step', async () => {
+    const { AppError } = await import('../src/lib/errors');
+    const { deps } = fakeDeps({
+      createRun: async () => {
+        throw new AppError('BAD_CATALOG', 400, 'one or more looks are not configured for this template mapping');
+      },
+    });
+    const { r } = await picked(deps, 1, ['a']);
+    expect(texts(r.messages)[0]).toBe('Those poses changed. Please choose again.');
+    expect(r.session).toMatchObject({ state: 'ASK_POSE_COUNT', picked: [] });
+  });
+});
+
+describe('engine: required extra photos', () => {
+  it('asks for the third photo before the count and sends it', async () => {
+    const { deps, calls } = fakeDeps({
+      listGarmentTypes: async () => [{ ...GT_SHIRT, requiresThirdUpload: true, thirdUploadLabel: 'dupatta' }],
+    });
+    const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    const ask = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
+    expect(ask.session.state).toBe('ASK_EXTRA_PHOTO');
+    expect(texts(ask.messages)[0]).toBe('Now send a photo of the dupatta.');
+    const count = await handle(ask.session, photo(3), CTX, deps);
+    expect(count.session.state).toBe('ASK_POSE_COUNT');
+    const pick = await handle(count.session, tap(count, 'count', '1'), CTX, deps);
+    await handle(pick.session, tap(pick, 'look', 'a'), CTX, deps);
+    expect(calls.createRun[0].inputs.thirdGarmentKey).toContain('000000000003');
+  });
+
+  it('a lower-photo type sends that photo instead of a lower item', async () => {
+    const { deps, calls } = fakeDeps({
+      listGarmentTypes: async () => [{ ...GT_SHIRT, requiresLowerUpload: true, lowerUploadLabel: 'pyjama' }],
+    });
+    const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'men')]);
+    const ask = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
+    expect(texts(ask.messages)[0]).toBe('Now send a photo of the pyjama.');
+    const count = await handle(ask.session, photo(4), CTX, deps);
+    const pick = await handle(count.session, tap(count, 'count', '1'), CTX, deps);
+    await handle(pick.session, tap(pick, 'look', 'b'), CTX, deps);
+    expect(calls.createRun[0].inputs.lowerGarmentKey).toContain('000000000004');
+    expect(calls.createRun[0].inputs).not.toHaveProperty('lowerCatalogId');
+  });
+});
+
+describe('engine: generating and delivery', () => {
+  const generated = async (deps: EngineDeps) => (await picked(deps, 2, ['a', 'c'])).r;
+
+  it('messages while generating report progress', async () => {
+    const { deps } = fakeDeps();
+    const gen = await generated(deps);
+    const r = await handle(gen.session, { type: 'text', text: 'done yet?' }, CTX, deps);
+    expect(texts(r.messages)).toEqual(['Still generating: 1 of 2 done.']);
+  });
+
+  it('runFinished with no failures offers more poses and a new catalog', async () => {
     const { deps } = fakeDeps();
     const gen = await generated(deps);
     const r = await handle(gen.session, { type: 'runFinished', runId: 'run-1', images: 2, failedPoseIds: [] }, CTX, deps);
     expect(r.session.state).toBe('DELIVERED');
     const btns = r.messages.at(-1);
-    expect(btns && btns.kind === 'buttons' ? btns.buttons.map((b) => b.title) : []).toEqual(['More looks', 'New catalog']);
+    expect(btns && btns.kind === 'buttons' ? btns.buttons.map((b) => b.title) : []).toEqual([
+      'More poses',
+      'New catalog',
+    ]);
   });
 
   it('a runFinished for an older run changes nothing', async () => {
@@ -1901,24 +1738,33 @@ describe('engine: delivery', () => {
     expect(r).toEqual({ session: gen.session, messages: [] });
   });
 
-  it('partial failure reports the refund and retries only the failed looks', async () => {
+  it('partial failure reports the refund; Retry regenerates only the failed looks', async () => {
     const { deps, calls } = fakeDeps();
     const gen = await generated(deps);
-    const r = await handle(gen.session, { type: 'runFinished', runId: 'run-1', images: 2, failedPoseIds: ['pose-x'] }, CTX, deps);
+    const r = await handle(gen.session, { type: 'runFinished', runId: 'run-1', images: 2, failedPoseIds: ['pose-c'] }, CTX, deps);
     expect(texts(r.messages)[0]).toBe('1 of 2 images failed. The credits for it were refunded.');
     const retry = await handle(r.session, tap(r, 'retry'), CTX, deps);
-    expect(retry.session.state).toBe('CONFIRM');
-    expect(calls.quote.at(-1)?.inputs.looks).toEqual([{ poseId: 'pose-x', backgroundId: 'bg-2' }]);
+    expect(retry.session.state).toBe('GENERATING');
+    expect(calls.createRun.at(-1)?.inputs.looks).toEqual([{ poseId: 'pose-c', backgroundId: 'bg-c' }]);
   });
 
-  it('More looks keeps the garment and face', async () => {
+  it('More poses returns to the count with the garment, type and face kept', async () => {
     const { deps } = fakeDeps();
     const gen = await generated(deps);
     const done = await handle(gen.session, { type: 'runFinished', runId: 'run-1', images: 2, failedPoseIds: [] }, CTX, deps);
-    const r = await handle(done.session, tap(done, 'more_looks'), CTX, deps);
-    expect(r.session).toMatchObject({ state: 'PICK_LOOK_MODE', faceId: 'face-1' });
+    const r = await handle(done.session, tap(done, 'more_poses'), CTX, deps);
+    expect(r.session).toMatchObject({ state: 'ASK_POSE_COUNT', garmentType: { id: 'gt-shirt' }, faceId: 'face-1', picked: [] });
     expect(r.session.garmentKey).toContain('000000000001');
-    expect(r.session.template).toBeUndefined();
+  });
+
+  it('a new photo after delivery starts a new catalog', async () => {
+    const { deps } = fakeDeps();
+    const gen = await generated(deps);
+    const done = await handle(gen.session, { type: 'runFinished', runId: 'run-1', images: 2, failedPoseIds: [] }, CTX, deps);
+    const r = await handle(done.session, photo(5), CTX, deps);
+    expect(r.session).toMatchObject({ state: 'ASK_GENDER', picked: [] });
+    expect(r.session.garmentType).toBeUndefined();
+    expect(r.session.garmentKey).toContain('000000000005');
   });
 });
 ```
@@ -1926,44 +1772,455 @@ describe('engine: delivery', () => {
 - [ ] **Step 2: Run them**
 
 Run: `npx vitest run test/messaging-engine.test.ts`
-Expected: PASS, 29 tests.
+Expected: PASS, 36 tests. Fix `engine.ts` (not the tests) if a transition disagrees with spec section 8.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add apps/api/test/messaging-engine.test.ts apps/api/src/modules/messaging/engine/engine.ts
-git commit -m "test(api): WhatsApp engine confirm, credits and delivery steps"
+git commit -m "test(api): WhatsApp engine count, picks, extra photos and delivery"
 ```
 
 ---
 
-### Task 6: Extract the studio's option queries
+### Task 5: Garment recognition — the api side
 
-A behaviour-preserving refactor: the bot must offer exactly what the studio offers, so the queries move into functions both call. **No logic changes.** Existing integration tests are the safety net.
+The api half of spec 8a: a contract both processes share, two metrics, a kill switch, and `recognizeGarment`. The dispatcher half (plan 5) reads the stream and writes the result key; until it exists, the flag stays off. The tests below play the dispatcher's part by hand.
+
+**Files:**
+- Create: `packages/types/src/garment-recognition.ts`
+- Modify: `packages/types/src/index.ts`
+- Modify: `packages/observability/src/metrics.ts`
+- Modify: `apps/api/src/env.ts`, `.env.example`, `.env.production.example`
+- Create: `apps/api/src/modules/messaging/classify.ts`
+- Test: `apps/api/test/messaging-classify.test.ts`, `apps/api/test/integration/messaging-classify.test.ts`
+
+**Interfaces:**
+- Produces (plan 5 consumes the first three):
+  - `GARMENT_RECOGNITION_STREAM = 'classify:requests'`, `garmentRecognitionResultKey(requestId)`, `GARMENT_RECOGNITION_RESULT_TTL_SEC`
+  - `GarmentRecognitionRequest` `{ requestId, garmentKey, options: {slug,label}[], expiresAt }`, `GarmentRecognitionResult` `{ answer: string | null, error: 'no_worker' | 'failed' | 'expired' | null, ms }`
+  - `garmentClassifyOutcomeTotal{outcome}`, `garmentClassifyCorrectedTotal`
+  - `recognizeGarment(app, garmentKey, gender, opts?) → { garmentTypeId, label } | null`, `matchAnswer(answer, candidates)`, `recordRecognitionCorrected()`, `RECOGNITION_BUDGET_MS`
+
+- [ ] **Step 1: Write the contract**
+
+`packages/types/src/garment-recognition.ts`:
+
+```ts
+import { z } from 'zod';
+
+// The api ↔ dispatcher contract for garment recognition (WhatsApp bot spec,
+// section 8a). The api never talks to a GPU worker: it appends a request to
+// this stream and polls the result key; the dispatcher runs the classify-only
+// ComfyUI workflow and writes the answer.
+export const GARMENT_RECOGNITION_STREAM = 'classify:requests';
+export const garmentRecognitionResultKey = (requestId: string) => `classify:result:${requestId}`;
+// Long enough to inspect after the fact; the bot itself stops waiting after 8 s.
+export const GARMENT_RECOGNITION_RESULT_TTL_SEC = 3600;
+
+export const GarmentRecognitionRequest = z.object({
+  requestId: z.string().uuid(),
+  garmentKey: z.string().min(1),
+  // That gender's garment types with a public_api_slug; the model must answer
+  // with exactly one slug (or NONE).
+  options: z.array(z.object({ slug: z.string().min(1), label: z.string().min(1) })).min(1),
+  // Epoch ms. A request picked up after this is skipped with error 'expired':
+  // the seller has had the garment-type list since then, so GPU time is wasted.
+  expiresAt: z.number().int(),
+});
+export type GarmentRecognitionRequest = z.infer<typeof GarmentRecognitionRequest>;
+
+export const GarmentRecognitionResult = z.object({
+  // The model's raw text. The api decides whether it matches an option, so the
+  // matching rule lives in one place (apps/api/src/modules/messaging/classify.ts).
+  answer: z.string().nullable(),
+  error: z.enum(['no_worker', 'failed', 'expired']).nullable(),
+  // Pick-up to answer, as measured by the dispatcher.
+  ms: z.number().int().nonnegative(),
+});
+export type GarmentRecognitionResult = z.infer<typeof GarmentRecognitionResult>;
+```
+
+Add `export * from './garment-recognition.js';` to `packages/types/src/index.ts`, in alphabetical order (after `./demo-catalog.js` … `./dev.js`, before `./google-drive.js`).
+
+- [ ] **Step 2: Add the metrics**
+
+In `packages/observability/src/metrics.ts`, in the `API metrics` section after `shopifyPaymentCheckLastSuccess`:
+
+```ts
+// WhatsApp bot garment recognition (spec section 8a). The outcome mix and the
+// correction count are the evidence for keeping recognition on our GPU or moving
+// it to a hosted API; the dispatcher adds its own duration histogram (plan 5).
+export const garmentClassifyOutcomeTotal = new Counter({
+  name: 'garment_classify_outcome_total',
+  help: 'Garment recognitions requested by the WhatsApp bot, by outcome (matched/unmatched/timeout/no_worker/failed)',
+  labelNames: ['outcome'] as const,
+  registers: [register],
+});
+
+export const garmentClassifyCorrectedTotal = new Counter({
+  name: 'garment_classify_corrected_total',
+  help: 'Sellers who tapped "Change" after the WhatsApp bot recognised their garment type',
+  registers: [register],
+});
+```
+
+Run: `pnpm --filter @aivastra/types build && pnpm --filter @aivastra/observability build`
+Expected: exit 0.
+
+- [ ] **Step 3: Add the kill switch**
+
+In `apps/api/src/env.ts`, after plan 1's `WHATSAPP_DISPLAY_NUMBER`:
+
+```ts
+  // WhatsApp bot garment recognition on our own GPU (spec 8a). Off: the bot
+  // always shows the garment-type list — the state until the dispatcher's
+  // classify lane ships, and the way back if recognition isn't good enough.
+  // Same literal-'true' pattern as the flags above.
+  GARMENT_RECOGNITION_ENABLED: z.preprocess((v) => v === 'true', z.boolean()).default(false),
+```
+
+Add `GARMENT_RECOGNITION_ENABLED=` (empty) under the plan 1 messaging block in `.env.example` and `.env.production.example`, with the comment "literal 'true' to enable; needs the dispatcher classify lane (plan 5)".
+
+- [ ] **Step 4: Write the failing unit tests**
+
+`apps/api/test/messaging-classify.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { matchAnswer } from '../src/modules/messaging/classify';
+
+const C = [
+  { id: 'gt-1', slug: 'full-shirt', label: 'Full shirt' },
+  { id: 'gt-2', slug: 'kurti', label: 'Kurti' },
+];
+
+describe('matchAnswer', () => {
+  it('matches a slug exactly', () => {
+    expect(matchAnswer('kurti', C)?.id).toBe('gt-2');
+  });
+  it('ignores case, surrounding space, quotes and trailing punctuation', () => {
+    expect(matchAnswer('  Full-Shirt.\n', C)?.id).toBe('gt-1');
+    expect(matchAnswer('"kurti"', C)?.id).toBe('gt-2');
+  });
+  it('does not accept a label, NONE, a sentence or nothing', () => {
+    expect(matchAnswer('Full shirt', C)).toBeNull();
+    expect(matchAnswer('NONE', C)).toBeNull();
+    expect(matchAnswer('This is a kurti', C)).toBeNull();
+    expect(matchAnswer(null, C)).toBeNull();
+    expect(matchAnswer('', C)).toBeNull();
+  });
+});
+```
+
+Run: `npx vitest run test/messaging-classify.test.ts`
+Expected: FAIL — module not found.
+
+- [ ] **Step 5: Implement `classify.ts`**
+
+`apps/api/src/modules/messaging/classify.ts`:
+
+```ts
+import { randomUUID } from 'node:crypto';
+import {
+  garmentClassifyCorrectedTotal,
+  garmentClassifyOutcomeTotal,
+} from '@aivastra/observability';
+import {
+  GARMENT_RECOGNITION_STREAM,
+  type GarmentRecognitionRequest,
+  GarmentRecognitionResult,
+  garmentRecognitionResultKey,
+} from '@aivastra/types';
+import type { FastifyInstance } from 'fastify';
+import { getCatalogOptions } from '../../lib/catalog-options-cache.js';
+
+// Spec 8a: the seller waits at most this long after the gender tap.
+export const RECOGNITION_BUDGET_MS = 8_000;
+const POLL_MS = 200;
+// Only bounds the stream if no dispatcher is consuming it; a request is
+// worthless once its budget has passed anyway.
+const STREAM_MAXLEN = 1000;
+
+export interface RecognitionCandidate {
+  id: string;
+  slug: string;
+  label: string;
+}
+
+type Outcome = 'matched' | 'unmatched' | 'timeout' | 'no_worker' | 'failed';
+const count = (outcome: Outcome) => garmentClassifyOutcomeTotal.inc({ outcome });
+
+/**
+ * The model's answer → one option, or null. An exact slug match once case,
+ * surrounding whitespace, quotes and trailing punctuation are removed. Nothing
+ * looser: a fuzzy match that picks the wrong type costs the seller a wrong
+ * generation, while no match only costs them one tap on the list.
+ */
+export function matchAnswer(
+  answer: string | null,
+  candidates: RecognitionCandidate[],
+): RecognitionCandidate | null {
+  if (!answer) return null;
+  const a = answer
+    .trim()
+    .toLowerCase()
+    .replace(/^["'`]+/, '')
+    .replace(/["'`.!]+$/, '');
+  return candidates.find((c) => c.slug === a) ?? null;
+}
+
+async function waitForResult(
+  app: FastifyInstance,
+  requestId: string,
+  budgetMs: number,
+): Promise<GarmentRecognitionResult | null> {
+  const key = garmentRecognitionResultKey(requestId);
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
+    const raw = await app.redis.get(key);
+    if (raw) {
+      const parsed = GarmentRecognitionResult.safeParse(JSON.parse(raw));
+      return parsed.success ? parsed.data : { answer: null, error: 'failed', ms: 0 };
+    }
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+  return null;
+}
+
+/**
+ * Spec 8a. Asks the dispatcher to recognise the garment among this gender's
+ * types that have a public slug, and waits up to the budget. Returns null for
+ * every kind of failure — the bot then shows the garment-type list, so
+ * recognition can cost the seller a tap but never a run.
+ *
+ * The options are the dev API's cached list (catalog-options-cache.ts), whose
+ * `slug` is garment_subcategories.public_api_slug: unique table-wide, so the
+ * answer names exactly one row with no further matching.
+ */
+export async function recognizeGarment(
+  app: FastifyInstance,
+  garmentKey: string,
+  gender: string,
+  opts: { budgetMs?: number } = {},
+): Promise<{ garmentTypeId: string; label: string } | null> {
+  if (app.env.GARMENT_RECOGNITION_ENABLED !== true) return null;
+  const budgetMs = opts.budgetMs ?? RECOGNITION_BUDGET_MS;
+  try {
+    const { options } = await getCatalogOptions(app, { gender, publicOnly: true });
+    const candidates: RecognitionCandidate[] = options.garmentTypes.flatMap((t) =>
+      t.slug ? [{ id: t.id, slug: t.slug, label: t.label }] : [],
+    );
+    // Nothing this gender's types could be recognised as: straight to the list,
+    // without a request no one can answer usefully.
+    if (candidates.length === 0) return null;
+
+    const requestId = randomUUID();
+    const request: GarmentRecognitionRequest = {
+      requestId,
+      garmentKey,
+      options: candidates.map(({ slug, label }) => ({ slug, label })),
+      expiresAt: Date.now() + budgetMs,
+    };
+    await app.redis.xadd(
+      GARMENT_RECOGNITION_STREAM,
+      'MAXLEN',
+      '~',
+      String(STREAM_MAXLEN),
+      '*',
+      'payload',
+      JSON.stringify(request),
+    );
+
+    const result = await waitForResult(app, requestId, budgetMs);
+    if (!result || result.error === 'expired') {
+      count('timeout');
+      return null;
+    }
+    if (result.error) {
+      count(result.error);
+      return null;
+    }
+    const hit = matchAnswer(result.answer, candidates);
+    count(hit ? 'matched' : 'unmatched');
+    if (!hit) {
+      // The raw answer is model output about a garment photo, not personal data;
+      // capped so a runaway answer cannot flood the log.
+      app.log.info({ requestId, answer: result.answer?.slice(0, 40) }, 'garment recognition answer not in options');
+    }
+    return hit ? { garmentTypeId: hit.id, label: hit.label } : null;
+  } catch (err) {
+    count('failed');
+    app.log.warn({ err }, 'garment recognition failed; falling back to the list');
+    return null;
+  }
+}
+
+export function recordRecognitionCorrected(): void {
+  garmentClassifyCorrectedTotal.inc();
+}
+```
+
+Run: `npx vitest run test/messaging-classify.test.ts`
+Expected: PASS, 3 tests.
+
+- [ ] **Step 6: Write the integration test (playing the dispatcher)**
+
+Read `apps/api/test/integration/dev-catalog*.test.ts` (whichever file covers `/v1/dev/catalog/options`) for how it seeds `garment_subcategories` rows with `publicApiSlug`, and copy that seeding.
+
+`apps/api/test/integration/messaging-classify.test.ts`:
+
+```ts
+import { schema } from '@aivastra/db';
+import {
+  GARMENT_RECOGNITION_STREAM,
+  type GarmentRecognitionRequest,
+  garmentRecognitionResultKey,
+} from '@aivastra/types';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { recognizeGarment } from '../../src/modules/messaging/classify';
+import { buildTestApp, type TestApp } from '../helpers/api';
+import { type Containers, startContainers } from '../helpers/containers';
+
+describe('garment recognition (api side)', () => {
+  let c: Containers;
+  let app: TestApp;
+  let ids: { shirt: string; kurti: string };
+
+  beforeAll(async () => {
+    c = await startContainers();
+    app = await buildTestApp(c, { GARMENT_RECOGNITION_ENABLED: true });
+    const rows = await app.db
+      .insert(schema.garmentSubcategories)
+      .values([
+        { genderSlug: 'women', slug: 'fullshirt', label: 'Full shirt', publicApiSlug: 'wa-full-shirt' },
+        { genderSlug: 'women', slug: 'kurti', label: 'Kurti', publicApiSlug: 'wa-kurti' },
+        // No public slug: cannot be recognised, only picked from the list.
+        { genderSlug: 'women', slug: 'gown', label: 'Gown' },
+        // Another gender: never offered for 'women'.
+        { genderSlug: 'men', slug: 'kurta', label: 'Kurta', publicApiSlug: 'wa-kurta' },
+      ])
+      .returning({ id: schema.garmentSubcategories.id, slug: schema.garmentSubcategories.slug });
+    const by = Object.fromEntries(rows.map((r) => [r.slug, r.id]));
+    ids = { shirt: by.fullshirt, kurti: by.kurti };
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await c?.stop();
+  });
+
+  // Stands in for plan 5's dispatcher: waits for the next request after `since`
+  // and answers it. Returns the request so the test can inspect it.
+  async function answerNext(
+    since: string,
+    result: { answer: string | null; error: 'no_worker' | 'failed' | 'expired' | null },
+  ): Promise<GarmentRecognitionRequest> {
+    // Up to 5 s: the first call also builds the options cache for the gender.
+    for (let i = 0; i < 100; i++) {
+      const entries = await app.redis.xrange(GARMENT_RECOGNITION_STREAM, `(${since}`, '+');
+      if (entries.length > 0) {
+        const [, fields] = entries[0];
+        const request = JSON.parse(fields[1]) as GarmentRecognitionRequest;
+        await app.redis.set(
+          garmentRecognitionResultKey(request.requestId),
+          JSON.stringify({ ...result, ms: 900 }),
+          'EX',
+          60,
+        );
+        return request;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    throw new Error('no recognition request arrived');
+  }
+
+  const lastId = async () =>
+    (await app.redis.xrevrange(GARMENT_RECOGNITION_STREAM, '+', '-', 'COUNT', 1))[0]?.[0] ?? '0-0';
+
+  it("asks with that gender's slugged types and maps the answer to the row", async () => {
+    const since = await lastId();
+    const [hit, request] = await Promise.all([
+      recognizeGarment(app, 'inputs/x/garment.jpg', 'women'),
+      answerNext(since, { answer: 'WA-Kurti.', error: null }),
+    ]);
+    expect(request.garmentKey).toBe('inputs/x/garment.jpg');
+    expect(request.options.map((o) => o.slug).sort()).toEqual(['wa-full-shirt', 'wa-kurti']);
+    expect(hit).toEqual({ garmentTypeId: ids.kurti, label: 'Kurti' });
+  });
+
+  it('an answer outside the options is not recognised', async () => {
+    const since = await lastId();
+    const [hit] = await Promise.all([
+      recognizeGarment(app, 'inputs/x/garment.jpg', 'women'),
+      answerNext(since, { answer: 'wa-kurta', error: null }),
+    ]);
+    expect(hit).toBeNull();
+  });
+
+  it('a dispatcher error is not recognised', async () => {
+    const since = await lastId();
+    const [hit] = await Promise.all([
+      recognizeGarment(app, 'inputs/x/garment.jpg', 'women'),
+      answerNext(since, { answer: null, error: 'no_worker' }),
+    ]);
+    expect(hit).toBeNull();
+  });
+
+  it('no answer within the budget is not recognised', async () => {
+    const started = Date.now();
+    expect(await recognizeGarment(app, 'inputs/x/garment.jpg', 'women', { budgetMs: 300 })).toBeNull();
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('with the flag off nothing is requested', async () => {
+    const before = await app.redis.xlen(GARMENT_RECOGNITION_STREAM);
+    const off = { ...app, env: { ...app.env, GARMENT_RECOGNITION_ENABLED: false } } as TestApp;
+    expect(await recognizeGarment(off, 'inputs/x/garment.jpg', 'women')).toBeNull();
+    expect(await app.redis.xlen(GARMENT_RECOGNITION_STREAM)).toBe(before);
+  });
+});
+```
+
+If `buildTestApp` does not accept env overrides in that form, use whatever plan 1's `messaging-connect.test.ts` used to set `MESSAGING_WHATSAPP_ENABLED`. If `garment_subcategories` has other NOT NULL columns without defaults, fill them as the copied seeding does.
+
+Run (from `apps/api`): `npx vitest run --config vitest.integration.config.ts messaging-classify`
+Expected: PASS, 5 tests.
+
+- [ ] **Step 7: Typecheck, lint and commit**
+
+Run: `pnpm --filter @aivastra/api typecheck && pnpm --filter @aivastra/api lint`
+Expected: exit 0.
+
+```bash
+git add packages/types/src/garment-recognition.ts packages/types/src/index.ts packages/observability/src/metrics.ts apps/api/src/env.ts .env.example .env.production.example apps/api/src/modules/messaging/classify.ts apps/api/test/messaging-classify.test.ts apps/api/test/integration/messaging-classify.test.ts
+git commit -m "feat(api): WhatsApp garment recognition request, wait and fallback"
+```
+
+---
+
+### Task 6: Extract the studio's garment-type, face and template queries
+
+A behaviour-preserving refactor: the bot must offer exactly what the studio offers, so these three queries move into functions both call. **No logic changes.** Existing integration tests are the safety net. (The first version of this plan also extracted backgrounds, poses and the catalog tree; the five-step flow uses none of them.)
 
 **Files:**
 - Create: `apps/api/src/modules/models/queries.ts`
 - Modify: `apps/api/src/modules/models/routes.ts`
-- Create: `apps/api/src/modules/catalog/queries.ts`
-- Modify: `apps/api/src/modules/catalog/routes.ts`
 
 **Interfaces:**
 - Produces:
-  - `listGarmentTypes(app, gender: string)` → `{ items }` (current `/v1/models/garment-types` response)
+  - `listGarmentTypes(app, gender: string)` → `{ items }` (the current `/v1/models/garment-types` response)
   - `listFaces(app, q: { gender: string; garmentTypeId?: string })` → `{ items }`
-  - `listBackgrounds(app, q: { gender?: string })` → `{ items }`
-  - `listPoses(app, q: { gender: string; garmentTypeId?: string })` → `{ items }`
-  - `listCatalogueTemplates(app, q: { gender: string; garmentTypeId?: string })` → `{ items }`
-  - `listCatalogTree(app, type: string, q: { gender?: string; poseIds?: string; garmentTypeId?: string })` → `{ type, tree }`
+  - `listCatalogueTemplates(app, q: { gender: string; garmentTypeId?: string })` → `{ items }` — each item `{ id, mappingId, label, thumbnailUrl, looks: { id, poseId, poseLabel, poseThumbnailUrl, backgroundId, backgroundLabel, backgroundThumbnailUrl, hasUpper, hasLower, hasShoes, … }[] }`
 
 - [ ] **Step 1: Record the baseline**
 
-Run (from `apps/api`): `npx vitest run --config vitest.integration.config.ts catalogue-templates-public catalog garment-type poses faces backgrounds`
-Write down the pass count. (The filter matches existing files such as `catalogue-templates-public.test.ts`, `catalog.test.ts`, `catalog-accessory.test.ts`, `garment-type-third-upload.test.ts`; that is fine.)
+Run (from `apps/api`): `npx vitest run --config vitest.integration.config.ts catalogue-templates garment-type faces models`
+Write down the pass count.
 
 - [ ] **Step 2: Move each handler body into `models/queries.ts`**
 
-Create `apps/api/src/modules/models/queries.ts` with the imports `routes.ts` uses for these handlers (`schema` from `@aivastra/db`; `and, asc, eq, inArray, isNull, or` from `drizzle-orm`; `FastifyInstance`; `poseGarmentRoles` from `./garment-roles.js`).
+Create `apps/api/src/modules/models/queries.ts` with the imports `routes.ts` uses for these handlers (`schema` from `@aivastra/db`; the drizzle operators they use; `FastifyInstance`; `poseGarmentRoles` from `./garment-roles.js`).
 
 For each route below, cut the body of its `async (req) => { … }` handler and paste it, unchanged, into the named function. The only edit is the first line: replace the `req.query as …` destructuring with the function's parameters. Do not rename variables, reorder queries or change the returned object.
 
@@ -1980,17 +2237,6 @@ export async function listFaces(
   // body of GET /v1/models/faces, minus its req.query line
 }
 
-export async function listBackgrounds(app: FastifyInstance, { gender }: { gender?: string }) {
-  // body of GET /v1/models/backgrounds, minus its req.query line
-}
-
-export async function listPoses(
-  app: FastifyInstance,
-  { gender, garmentTypeId }: { gender: string; garmentTypeId?: string },
-) {
-  // body of GET /v1/models/poses, minus its req.query line
-}
-
 export async function listCatalogueTemplates(
   app: FastifyInstance,
   { gender, garmentTypeId }: { gender: string; garmentTypeId?: string },
@@ -1999,43 +2245,34 @@ export async function listCatalogueTemplates(
 }
 ```
 
-Then each handler in `routes.ts` becomes a one-liner, for example:
+Each handler in `routes.ts` becomes a one-liner:
+
+```ts
+    async (req) => listGarmentTypes(app, (req.query as { gender: string }).gender),
+```
 
 ```ts
     async (req) => listFaces(app, req.query as { gender: string; garmentTypeId?: string }),
 ```
 
 ```ts
-    async (req) => listGarmentTypes(app, (req.query as { gender: string }).gender),
+    async (req) => listCatalogueTemplates(app, req.query as { gender: string; garmentTypeId?: string }),
 ```
 
-Import the five functions at the top of `routes.ts` and delete imports that are now unused there (Biome will flag them).
+Import the three functions at the top of `routes.ts` and delete imports that are now unused there (Biome will flag them).
 
-- [ ] **Step 3: Same for the catalog tree**
-
-Create `apps/api/src/modules/catalog/queries.ts` with `listCatalogTree(app, type, { gender, poseIds, garmentTypeId })` containing the body of `GET /v1/catalog/:type` unchanged (minus its `req.params` / `req.query` lines). Move the helpers it uses (`buildTree` import, `resolveCategoryThumbUrls` if defined in `routes.ts`) with it, or import them. The handler becomes:
-
-```ts
-    async (req) =>
-      listCatalogTree(
-        app,
-        (req.params as { type: string }).type,
-        req.query as { gender?: string; poseIds?: string; garmentTypeId?: string },
-      ),
-```
-
-- [ ] **Step 4: Prove nothing changed**
+- [ ] **Step 3: Prove nothing changed**
 
 Run the Step 1 command again.
 Expected: the same pass count. Then `pnpm --filter @aivastra/api test && pnpm --filter @aivastra/api typecheck && pnpm --filter @aivastra/api lint`, all green.
 
-`git diff --stat` should show `routes.ts` files shrinking by about as many lines as `queries.ts` files gained. If any query text changed, revert that part.
+`git diff --stat` should show `routes.ts` shrinking by about as many lines as `queries.ts` gained. If any query text changed, revert that part.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add apps/api/src/modules/models/queries.ts apps/api/src/modules/models/routes.ts apps/api/src/modules/catalog/queries.ts apps/api/src/modules/catalog/routes.ts
-git commit -m "refactor(api): extract model and catalog option queries for reuse by the WhatsApp bot"
+git add apps/api/src/modules/models/queries.ts apps/api/src/modules/models/routes.ts
+git commit -m "refactor(api): extract garment-type, face and template queries for the WhatsApp bot"
 ```
 
 ---
@@ -2044,7 +2281,7 @@ git commit -m "refactor(api): extract model and catalog option queries for reuse
 
 **Files:**
 - Modify: `packages/db/src/schema/messaging.ts` (add `messagingRuns`)
-- Generated: `packages/db/src/migrations/0225_*.sql` + `meta/`
+- Generated: `packages/db/src/migrations/<next>_*.sql` + `meta/`
 - Create: `apps/api/src/modules/messaging/runs.ts`
 - Create: `apps/api/src/modules/messaging/photos.ts`
 - Create: `apps/api/src/modules/messaging/deps.ts`
@@ -2063,11 +2300,11 @@ git commit -m "refactor(api): extract model and catalog option queries for reuse
 
 - [ ] **Step 1: Add the runs table**
 
-Append to `packages/db/src/schema/messaging.ts` (add `index` is already imported; also import `jobs`? No — `job_ids` is a plain array, see the comment):
+Append to `packages/db/src/schema/messaging.ts` (`index` is already imported there by plan 1; `users` too):
 
 ```ts
 // One row per create call made from a chat (D34). A run is one catalogueId:
-// every job createJob makes in one call shares it. Plan 3's notifier finds a
+// every job createJob makes in one call shares it. Plan 3's delivery finds a
 // finished job's chat through this table, never through job_inputs.params —
 // the create request strips unknown params keys, and params feeds the workflow.
 // job_ids is an array, not a join table: a run is written once and read whole.
@@ -2091,7 +2328,7 @@ export const messagingRuns = pgTable(
 ```
 
 Run: `pnpm --filter @aivastra/db generate` then `pnpm db:migrate`.
-Expected: `0225_<name>.sql` with exactly one `CREATE TABLE "messaging_runs"`, two FKs with `ON DELETE cascade`, one index.
+Expected: one new migration with exactly one `CREATE TABLE "messaging_runs"`, two FKs with `ON DELETE cascade`, one index. Its number follows plan 1's migration; if `dev` gained migrations meanwhile, follow `docs/version-control.md` for renumbering.
 
 - [ ] **Step 2: Write `runs.ts`**
 
@@ -2130,7 +2367,7 @@ export async function quoteRun(app: FastifyInstance, userId: string, raw: TryonB
 
 /**
  * The /v1/jobs/tryon route, in process: same parse, same idempotency namespace
- * (keyed on the Meta message id of the Generate tap, so a redelivered webhook
+ * (keyed on the Meta message id of the last pick, so a redelivered webhook
  * cannot create a second run), same last-used pose tracking. Then records the
  * run so results can find their way back to the chat.
  */
@@ -2152,7 +2389,7 @@ export async function createRun(
       userId: ctx.userId,
       jobIds: result.jobIds,
     })
-    // A replayed Generate returns the same catalogueId from the idempotency cache.
+    // A replayed pick returns the same catalogueId from the idempotency cache.
     .onConflictDoNothing();
   return { runId: result.catalogueId, images: result.jobIds.length };
 }
@@ -2179,7 +2416,7 @@ export async function runProgress(
 }
 ```
 
-Before running: open `apps/api/src/modules/jobs/create.ts` and confirm `updateLastUsedPosePreset`'s parameter order matches the route's call at `jobs/routes.ts:135-141` (`app, userId, gender, garmentTypeId, poseIds`), and that terminal job statuses are spelled `COMPLETED` / `FAILED` (search `status:` in `packages/db/src/schema/jobs.ts`). Adjust if they differ; add any other terminal status (for example a cancelled state) to the `or(…)`.
+Before running: open `apps/api/src/modules/jobs/create.ts` and confirm `updateLastUsedPosePreset`'s parameter order matches the route's call in `jobs/routes.ts` (`app, userId, gender, garmentTypeId, poseIds`), that `createJob`'s result carries `catalogueId`, `jobIds`, `gender`, `garmentTypeId`, `poseIds`, and that terminal job statuses are spelled `COMPLETED` / `FAILED` (search `status:` in `packages/db/src/schema/jobs.ts`). Adjust if they differ; add any other terminal status (for example a cancelled state) to the `or(…)`.
 
 - [ ] **Step 3: Write `photos.ts`**
 
@@ -2196,10 +2433,10 @@ const UPLOAD_OWNER_TTL_SEC = 24 * 60 * 60;
 
 /**
  * Stores a photo received in the chat as an ordinary garment upload: the same
- * key shape the presign route issues (INPUT_GARMENT_KEY), the same
- * upload:owner binding, so createJob accepts it unchanged and the sweeper
- * removes it if the seller never generates. Size limits are enforced later by
- * createJob's own check (assertGarmentObjectValid), as for the web.
+ * key shape the presign route issues, the same upload:owner binding, so
+ * createJob accepts it unchanged, the dispatcher can read it for recognition,
+ * and the sweeper removes it if the seller never generates. Size limits are
+ * enforced later by createJob's own check, as for the web.
  */
 export async function storeGarmentPhoto(
   app: FastifyInstance,
@@ -2214,7 +2451,7 @@ export async function storeGarmentPhoto(
 }
 ```
 
-Check `@aivastra/storage` exports `keys` (it does per CLAUDE.md) and that `keys.inputGarment` produces `inputs/<uuid>/garment.jpg`.
+Check that `@aivastra/storage` exports `keys` and that `keys.inputGarment` produces `inputs/<uuid>/garment.jpg`; if the builder has another name, use the one `/v1/uploads/presign` uses.
 
 - [ ] **Step 4: Write `deps.ts`**
 
@@ -2223,41 +2460,15 @@ Check `@aivastra/storage` exports `keys` (it does per CLAUDE.md) and that `keys.
 ```ts
 import { randomBytes } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { listCatalogTree } from '../catalog/queries.js';
-import {
-  listBackgrounds,
-  listCatalogueTemplates,
-  listFaces,
-  listGarmentTypes,
-  listPoses,
-} from '../models/queries.js';
-import type {
-  AspectRatio,
-  EngineDeps,
-  GarmentTypeOption,
-  ImageOption,
-  Resolution,
-} from './engine/types.js';
+import { listCatalogueTemplates, listFaces, listGarmentTypes } from '../models/queries.js';
+import { recognizeGarment, recordRecognitionCorrected } from './classify.js';
+import type { AspectRatio, EngineDeps, GarmentTypeOption, Resolution, TemplateOption } from './engine/types.js';
 import { createRun, quoteRun, runProgress } from './runs.js';
 
 const ASPECTS = new Set(['1:1', '2:3', '3:4', '4:5']);
 const RESOLUTIONS = new Set(['HD', '2K', '4K']);
-
-type TreeNode = {
-  items?: { id: string; label: string; thumbnailUrl: string }[];
-  children?: TreeNode[];
-};
-
-function flatten(nodes: TreeNode[]): ImageOption[] {
-  const out: ImageOption[] = [];
-  for (const n of nodes) {
-    for (const i of n.items ?? []) out.push({ id: i.id, label: i.label, imageUrl: i.thumbnailUrl });
-    out.push(...flatten(n.children ?? []));
-  }
-  return out;
-}
 
 /** Real EngineDeps: every option list is the studio's own query (models/queries.ts). */
 export function createEngineDeps(app: FastifyInstance): EngineDeps {
@@ -2289,99 +2500,82 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
 
     async listGarmentTypes(gender) {
       const { items } = await listGarmentTypes(app, gender);
-      // D16/D31: the two-step saree flow is not in the bot.
-      return items
-        .filter((i) => !i.requiresMannequinStep)
-        .map(
-          (i): GarmentTypeOption => ({
-            id: i.id,
-            label: i.label,
-            requiresLowerUpload: i.requiresLowerUpload,
-            requiresThirdUpload: i.requiresThirdUpload,
-            allowsFourthUpload: i.allowsFourthUpload,
-            upperUploadLabel: i.upperUploadLabel,
-            lowerUploadLabel: i.lowerUploadLabel,
-            thirdUploadLabel: i.thirdUploadLabel,
-            fourthUploadLabel: i.fourthUploadLabel,
-            defaultLowerCatalogId: i.defaultLowerCatalogId,
-            defaultShoeCatalogId: i.defaultShoeCatalogId,
-          }),
-        );
+      if (items.length === 0) return [];
+      // Only types with an active template for this gender can produce a
+      // catalog in the chat (D47); listing the rest would be a dead end.
+      const mapped = await app.db
+        .selectDistinct({ id: schema.catalogueTemplateSubcategories.subcategoryId })
+        .from(schema.catalogueTemplateSubcategories)
+        .innerJoin(
+          schema.catalogueTemplates,
+          and(
+            eq(schema.catalogueTemplates.id, schema.catalogueTemplateSubcategories.templateId),
+            eq(schema.catalogueTemplates.genderSlug, gender),
+            eq(schema.catalogueTemplates.isActive, true),
+            isNull(schema.catalogueTemplates.deletedAt),
+          ),
+        )
+        .where(inArray(schema.catalogueTemplateSubcategories.subcategoryId, items.map((i) => i.id)));
+      const hasTemplate = new Set(mapped.map((m) => m.id));
+      return (
+        items
+          // D16/D31: the two-step saree flow is not in the bot.
+          .filter((i) => !i.requiresMannequinStep && hasTemplate.has(i.id))
+          .map(
+            (i): GarmentTypeOption => ({
+              id: i.id,
+              label: i.label,
+              requiresLowerUpload: i.requiresLowerUpload,
+              requiresThirdUpload: i.requiresThirdUpload,
+              lowerUploadLabel: i.lowerUploadLabel,
+              thirdUploadLabel: i.thirdUploadLabel,
+              defaultLowerCatalogId: i.defaultLowerCatalogId,
+              defaultShoeCatalogId: i.defaultShoeCatalogId,
+            }),
+          )
+      );
     },
 
-    async listFaces(gender, garmentTypeId) {
-      const { items } = await listFaces(app, { gender, garmentTypeId });
-      return items.map((i) => ({ id: i.id, label: i.label, imageUrl: i.thumbnailUrl }));
-    },
+    recognizeGarment: (garmentKey, gender) => recognizeGarment(app, garmentKey, gender),
+    recordRecognitionCorrected,
 
-    async listTemplates(gender, garmentTypeId) {
+    async getTemplate(gender, garmentTypeId): Promise<TemplateOption | null> {
+      // Already in admin sort order, and already without looks whose pose,
+      // background or workflow is inactive (the studio's query).
       const { items } = await listCatalogueTemplates(app, { gender, garmentTypeId });
-      return items.map((t) => ({
+      const t = items[0];
+      if (!t) return null;
+      return {
         id: t.id,
-        label: t.label,
-        imageUrl: t.thumbnailUrl ?? '',
         mappingId: t.mappingId,
         looks: t.looks.map((l) => ({
+          id: l.id,
           poseId: l.poseId,
           backgroundId: l.backgroundId,
+          label: l.poseLabel,
+          imageUrl: l.poseThumbnailUrl,
           hasUpper: l.hasUpper,
           hasLower: l.hasLower,
           hasShoes: l.hasShoes,
         })),
-      }));
+      };
     },
 
-    async listBackgrounds(gender) {
-      const { items } = await listBackgrounds(app, { gender });
-      return items.map((i) => ({ id: i.id, label: i.label, imageUrl: i.thumbnailUrl }));
-    },
-
-    async listPoses(gender, garmentTypeId) {
-      const { items } = await listPoses(app, { gender, garmentTypeId });
-      return items.map((p) => ({
-        id: p.id,
-        label: p.label,
-        imageUrl: p.thumbnailUrl,
-        hasUpper: p.hasUpper,
-        hasLower: p.hasLower,
-        hasShoes: p.hasShoes,
-        garmentView: p.garmentView === 'back' ? 'back' : 'front',
-      }));
-    },
-
-    async getLastPoseIds(userId, gender, garmentTypeId) {
-      const [row] = await app.db
-        .select({ poseIds: schema.userPosePresets.poseIds })
-        .from(schema.userPosePresets)
-        .where(
-          and(
-            eq(schema.userPosePresets.userId, userId),
-            eq(schema.userPosePresets.gender, gender),
-            eq(schema.userPosePresets.garmentTypeId, garmentTypeId),
-            eq(schema.userPosePresets.isLastUsed, true),
-          ),
-        );
-      return row?.poseIds ?? [];
-    },
-
-    async listCatalogItems(type, gender, garmentTypeId, poseIds) {
-      const res = (await listCatalogTree(app, type, {
-        gender,
-        garmentTypeId,
-        poseIds: poseIds.join(','),
-      })) as { tree: TreeNode[] };
-      return flatten(res.tree);
+    async getDefaultFaceId(gender, garmentTypeId) {
+      // The studio's own face list for this type, in admin order (D43).
+      const { items } = await listFaces(app, { gender, garmentTypeId });
+      return items[0]?.id ?? null;
     },
 
     quote: (userId, body) => quoteRun(app, userId, body),
     createRun: (ctx, body) => createRun(app, ctx, body),
     runProgress: (runId) => runProgress(app, runId),
-    links: { pricing: `${web}/pricing`, help: `${web}/contact-us` },
+    links: { pricing: `${web}/pricing`, help: `${web}/contact-us`, studio: `${web}/studio` },
   };
 }
 ```
 
-If TypeScript reports a field that does not exist on a query's item type (for example `label` on catalog items), read the query in `queries.ts` and map the real field name — the query is the source of truth.
+If TypeScript reports a field that does not exist on a query's item type, read the query in `queries.ts` and map the real field name — the query is the source of truth.
 
 - [ ] **Step 5: Write the session store and entry point**
 
@@ -2436,7 +2630,8 @@ export interface ConversationAccount {
  * engine, save, return what to send. The caller (plan 3's inbound consumer)
  * renders and sends the messages, and must process one sender's events one at
  * a time — two concurrent calls for one sender would overwrite each other's
- * session.
+ * session. A gender tap can take up to 8 s here (garment recognition, D48), so
+ * the caller must not make other senders wait behind it.
  */
 export async function runConversation(
   app: FastifyInstance,
@@ -2459,18 +2654,18 @@ export async function runConversation(
 
 - [ ] **Step 6: Write the integration test**
 
-`apps/api/test/integration/messaging-conversation.test.ts` drives the **real** deps end to end: seeded catalog → template run through `createJob`, plus the quote/charge parity check. Reuse the seeding helpers from `apps/api/test/integration/jobs-back-garment-view.test.ts` (`seedWorkflow`, `seedPose`, credit plan, resolution tier). Read that file's remaining helpers (after line 120) and its `beforeAll` first, and copy the minimum needed to create one face, one background, one pose with a front workflow mapped to one garment type, and one catalogue template + mapping + pose workflow for that type.
+`apps/api/test/integration/messaging-conversation.test.ts` drives the **real** deps end to end with recognition off (the list path): seeded catalog → template run through `createJob`, plus the idempotency check. Seed by following `apps/api/test/integration/catalogue-templates-public.test.ts` (template side: `catalogue_templates`, `catalogue_template_looks`, `catalogue_template_subcategories`, `catalogue_template_pose_workflows`) and `jobs-back-garment-view.test.ts` (pose, workflow, credit plan, resolution tier) rather than guessing column names. Read both files' `beforeAll` first.
 
 ```ts
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { connectAccount, CHANNEL_WHATSAPP } from '../../src/modules/messaging/identity';
 import { runConversation } from '../../src/modules/messaging/conversation';
 import { createEngineDeps } from '../../src/modules/messaging/deps';
 import { decodeReplyId } from '../../src/modules/messaging/engine/reply-id';
-import type { InboundEvent, OutboundMessage } from '../../src/modules/messaging/engine/types';
 import { buildTryonBody } from '../../src/modules/messaging/engine/rules';
+import type { InboundEvent, OutboundMessage } from '../../src/modules/messaging/engine/types';
+import { CHANNEL_WHATSAPP, connectAccount } from '../../src/modules/messaging/identity';
 import { storeGarmentPhoto } from '../../src/modules/messaging/photos';
 import { createRun } from '../../src/modules/messaging/runs';
 import { loadSession } from '../../src/modules/messaging/session-store';
@@ -2497,19 +2692,21 @@ describe('messaging conversation (real deps)', () => {
   let c: Containers;
   let app: TestApp;
   let realHeadObject: TestApp['storage']['headObject'];
-  // Fill in from your seeding: ids the steps below tap.
-  let seeded: { garmentTypeId: string; faceId: string; templateId: string };
+  // Fill in from your seeding: the ids the steps below tap.
+  let seeded: { garmentTypeId: string; lookId: string };
 
   beforeAll(async () => {
     c = await startContainers();
+    // Recognition off: this test walks the list path, which needs no dispatcher.
     app = await buildTestApp(c, { MESSAGING_WHATSAPP_ENABLED: true });
     realHeadObject = app.storage.headObject.bind(app.storage);
-    // seed: one 'women' garment type (no mannequin step), one face, one
-    // background, one front pose + workflow + pose_garment_configs row for the
-    // type, one catalogue template with that pose/background as its single look,
-    // its catalogue_template_subcategories mapping and catalogue_template_pose_workflows
-    // row, an enabled HD resolution tier with creditCost 5, and a credit plan.
-    // Assign seeded = { garmentTypeId, faceId, templateId }.
+    // Seed: one 'women' garment type (no mannequin step, no default lower/shoe
+    // needed), one active face, one background, one front pose whose workflow
+    // has an upper node only, one catalogue template (gender 'women') with that
+    // pose/background as its single look, its catalogue_template_subcategories
+    // mapping and catalogue_template_pose_workflows row, an enabled HD
+    // resolution tier with creditCost 5, and a credit plan.
+    // Assign seeded = { garmentTypeId, lookId } (lookId = the catalogue_template_looks.id).
   }, 60_000);
 
   // createJob's size check heads the object; the test photo is tiny but real.
@@ -2524,8 +2721,8 @@ describe('messaging conversation (real deps)', () => {
     await c?.stop();
   });
 
-  // A connected seller with 100 credits, walked to CONFIRM on the seeded template.
-  async function walkToConfirm(tag: string) {
+  // A connected seller with 100 credits, walked to the look carousel for 1 pose.
+  async function walkToPick(tag: string) {
     const { userId } = await createVerifiedUserToken(app, `wa-${tag}-${Date.now()}@example.com`);
     await app.db.insert(schema.userCredits).values({ userId, balance: 100 });
     const { account } = await connectAccount(app.db, {
@@ -2543,11 +2740,9 @@ describe('messaging conversation (real deps)', () => {
     let msgs = await send({ type: 'image', garmentKey: key });
     msgs = await send(tapIn(msgs, 'gender', 'women'));
     msgs = await send(tapIn(msgs, 'gt', seeded.garmentTypeId));
-    msgs = await send(tapIn(msgs, 'aspect_keep'));
-    msgs = await send(tapIn(msgs, 'face', seeded.faceId));
-    msgs = await send(tapIn(msgs, 'mode', 'template'));
-    msgs = await send(tapIn(msgs, 'tpl', seeded.templateId));
-    return { userId, account, acct, send, msgs };
+    const countMsgs = msgs;
+    msgs = await send(tapIn(msgs, 'count', '1'));
+    return { userId, account, acct, send, msgs, countMsgs };
   }
 
   const balanceOf = async (userId: string) =>
@@ -2558,14 +2753,13 @@ describe('messaging conversation (real deps)', () => {
         .where(eq(schema.userCredits.userId, userId))
     )[0]?.balance;
 
-  it('photo → template → generate creates one charged job and records the run', async () => {
-    const w = await walkToConfirm('conv');
+  it('photo → gender → type → count → pick creates one charged job and records the run', async () => {
+    const w = await walkToPick('conv');
     const { userId, account, acct, send } = w;
-    let msgs = w.msgs;
-    const confirm = msgs.at(-1);
-    expect(confirm && 'text' in confirm ? confirm.text : '').toContain('1 image, uses 5 credits. Your balance: 100.');
+    const count = w.countMsgs.find((m) => m.kind === 'list');
+    expect(count && count.kind === 'list' ? count.rows[0].title : '').toBe('1 pose · 5 credits');
 
-    msgs = await send(tapIn(msgs, 'generate'));
+    await send(tapIn(w.msgs, 'look', seeded.lookId));
     const session = await loadSession(app.redis, acct.channel, acct.externalId);
     expect(session?.state).toBe('GENERATING');
 
@@ -2580,16 +2774,16 @@ describe('messaging conversation (real deps)', () => {
     expect(await balanceOf(userId)).toBe(95);
   });
 
-  it('the same Generate message id never creates a second run', async () => {
-    const { userId, account, acct } = await walkToConfirm('dup');
+  it('the same message id never creates a second run', async () => {
+    const { userId, account, acct } = await walkToPick('dup');
     const session = await loadSession(app.redis, acct.channel, acct.externalId);
     if (!session) throw new Error('no session');
-    // Straight at createRun: after one Generate the session's nonce changes, so a
+    // Straight at createRun: after a run starts the session's nonce changes, so a
     // redelivered tap is already stale in the engine. This checks the second
     // guard — the idempotency key — that protects a crash between createJob and
     // the session save.
     const ctx = { userId, accountId: account.id, messageId: 'wamid.dup' };
-    const body = buildTryonBody(session);
+    const body = buildTryonBody(session, [seeded.lookId]);
     const first = await createRun(app, ctx, body);
     const second = await createRun(app, ctx, body);
     expect(second).toEqual(first);
@@ -2603,12 +2797,12 @@ describe('messaging conversation (real deps)', () => {
 });
 ```
 
-The seeding in `beforeAll` is the one step written as instructions rather than code: the catalogue-template tables (`catalogue_templates`, `catalogue_template_looks`, `catalogue_template_subcategories`, `catalogue_template_pose_workflows`) and the resolution-tier config were not read while writing this plan. Seed them by following `apps/api/test/integration/catalogue-templates-public.test.ts` (template side) and `jobs-back-garment-view.test.ts` (pose, workflow, credit plan, tier) rather than guessing column names.
+The seeding in `beforeAll` is the one step written as instructions rather than code: the catalogue-template tables and the resolution-tier config were not read while writing this plan. Follow the two named test files rather than guessing column names.
 
 - [ ] **Step 7: Run it**
 
 Run (from `apps/api`): `npx vitest run --config vitest.integration.config.ts messaging-conversation`
-Expected: PASS, 2 tests. Then the full unit suite, typecheck and lint as in Task 6 Step 4.
+Expected: PASS, 2 tests. Then the full unit suite, typecheck and lint as in Task 6 Step 3.
 
 If `createJob` fails on queue capacity (`assertQueueCapacity`), read how `jobs-back-garment-view.test.ts` satisfies it (worker registry seeding or an env override) and do the same.
 
@@ -2621,10 +2815,11 @@ git commit -m "feat(api): WhatsApp runs table, real engine deps and conversation
 
 ---
 
-### Task 8: Record the decisions and progress
+### Task 8: Record the decisions, flag plan 3, and progress
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md`
+- Modify: `docs/superpowers/plans/2026-10-13-whatsapp-bot-3-whatsapp-adapter.md`
 - Modify: `docs/progress.md`
 
 - [ ] **Step 1: Update the spec**
@@ -2634,27 +2829,37 @@ Add to the section 3 table:
 ```
 | D33 | Engine purity | Deterministic, not pure: `handle(session, event, ctx, deps)` awaits an injected `EngineDeps` for option lists and side effects but does no I/O of its own and takes randomness from `deps`. Tested with in-memory fakes. |
 | D34 | Run tracking | A `messaging_runs` table (one row per create call, keyed by `catalogue_id`, with the account and job ids), not `job_inputs.params.channel`: the create request strips unknown params keys, and params feed the workflow. |
-| D35 | Image shape, not platform | The bot asks only for the aspect ratio (the four values `PATCH /v1/me` accepts) and uses the user's saved resolution. No `platform` is ever sent (D23). |
-| D36 | Lower and shoes | `[Use default]` instead of `[Skip]`, offered only when the garment type has a default — the create path rejects a lower/shoe slot left empty. |
+| D48 | Waiting for recognition | Inside the conversation, polling the result key for at most 8 s after the gender tap, behind `GARMENT_RECOGNITION_ENABLED` (literal `'true'`; off = always the list). The request/result contract is `packages/types/src/garment-recognition.ts`. |
+| D49 | Looks needing a question | Not offered: a shoe look without a default shoe, a combined look without a default lower or lower photo, a lower-only look in a mixed template unless the type takes a lower photo. |
 ```
 
-In section 8, change step 3 to `ASK_ASPECT  [Keep <ratio>] [Change] ─▶ list of 4 shapes`, change `[Skip]` on steps 8–9 to `[Use default]`, and add `ASK_EXTRA_PHOTO` (one state, one slot at a time: back, lower, lower back, third, optional fourth). In section 12, replace `jobs.channel_delivered_at` and `job_inputs.params.channel` with the `messaging_runs` table (plan 3 adds per-job delivery tracking).
+In section 12, replace `jobs.channel_delivered_at` and `job_inputs.params.channel` with the `messaging_runs` table (plan 3 adds per-job delivery tracking), and add `GARMENT_RECOGNITION_ENABLED` to section 16's table.
 
-- [ ] **Step 2: Add the progress entry**
+- [ ] **Step 2: Flag the change plan 3 needs**
 
-Dated entry at the top of `docs/progress.md`: what shipped (engine, extracted queries, `messaging_runs`, real deps), the test commands and pass counts from Tasks 3–7, the migration number, and that nothing is reachable by users until plan 3 (no webhook yet).
+Plan 3's inbound consumer reads one message at a time and processes it before reading the next (`withSenderLock` inside a single loop). With D48, a gender tap holds that loop for up to 8 seconds, so every other seller would wait behind it. Add to the top of plan 3, under its decisions:
 
-- [ ] **Step 3: Commit**
+> **Required by plan 2 (D48):** the inbound consumer must not serialise different senders. Read up to 10 messages per `XREADGROUP`, group them by sender, and process the groups concurrently (each group in order, under `withSenderLock`); acknowledge each message after it is processed. The lock's waiter budget (50 × 200 ms) must exceed the 8-second recognition wait plus normal handling — raise it to 75 × 200 ms.
+
+Then update plan 3's renderer and parser tasks for the new message shapes: the gender question is a 4-row list, the count question a list whose last row is "Wrong garment? Change", and the look carousel uses card ids with action `look`.
+
+- [ ] **Step 3: Add the progress entry**
+
+Dated entry at the top of `docs/progress.md`: what shipped (five-step engine, look eligibility rules, recognition request/wait/fallback with the flag off, extracted queries, `messaging_runs`, real deps), the test commands and pass counts from Tasks 2–7, the migration number, that `GARMENT_RECOGNITION_ENABLED` stays off until plan 5, and that nothing is reachable by users until plan 3 (no webhook yet).
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md docs/progress.md
-git commit -m "docs: WhatsApp bot plan 2 decisions (D33-D36) and progress"
+git add docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md docs/superpowers/plans/2026-10-13-whatsapp-bot-3-whatsapp-adapter.md docs/progress.md
+git commit -m "docs: WhatsApp bot plan 2 decisions (D33, D34, D48, D49), plan 3 consumer note, progress"
 ```
 
 ---
 
 ## Self-review notes
 
-- **Spec section 8 coverage:** main menu + Credits + Help (Task 3); global `menu`/`restart`/`help` (Task 3); photo from main menu (Task 3); gender, garment type, shape, photo, face (Task 3); look fork, template, background, multi-pose, last poses (Task 4); back photo and extra uploads (Task 4); lower/shoes (Task 4); confirm with count/cost/balance, generate, no credits, credits added (Task 5); generating progress, delivery buttons, partial failure, retry failed, more looks (Task 5); stale buttons (Task 3); session expiry (Task 3); unexpected input (Task 3); duplicate Generate (Task 7).
-- **Deferred to plan 3, by design:** STOP / START, `CONNECT <code>`, the connect prompt for an unknown number (the engine is only ever called for a connected account), per-sender serialisation, downloading the photo and calling `storeGarmentPhoto`, sending `runFinished` and `creditsAdded`, sending each finished image, the 24-hour template message, and rendering `OutboundMessage` to WhatsApp JSON.
-- **Known gap left as in the studio:** a *mixed* custom selection that includes a front lower-only pose needs a separate lower upload the studio also doesn't collect (`lowerGarmentKeyForSubmit`); the create path rejects it with a clear message at CONFIRM, before charging.
+- **Spec section 8 coverage:** main menu + Credits + Help, global `menu`/`restart`/`help`, photo from the menu or after delivery, stale buttons, session expiry, unexpected input (Task 3); gender list of four in management's order (Task 3); recognised type with "Detected", list fallback, recognised-but-unavailable and no-template / no-face → web studio (Task 3); count list with cost, balance, cap of 9 and "Change", correction metric, NO_CREDITS before picking, credits added (Task 4); look carousel, duplicate taps, generation on the last pick, defaults for lower and shoes, lower-only, required third and lower photos (Task 4); BAD_CATALOG → pick again, insufficient credits at create (Task 4); progress, delivery buttons, partial failure, retry of failed looks, more poses (Task 4); duplicate create (Task 7).
+- **Spec 8a coverage:** options from the cached dev API list with public slugs only, per gender (Task 5 integration); exact slug matching (Task 5 unit); budget, timeout, dispatcher errors, flag off (Task 5 integration); outcome and correction metrics (Task 5, Task 4). The dispatcher lane, the workflow and the duration histogram are plan 5.
+- **Deferred to plan 3, by design:** STOP / START, `CONNECT <code>`, the connect prompt for an unknown number, per-sender serialisation and the concurrency change above, downloading the photo and calling `storeGarmentPhoto`, sending `runFinished` and `creditsAdded`, sending each finished image, the 24-hour template message, and rendering `OutboundMessage` to WhatsApp JSON.
+- **Type consistency:** `TemplateLook.id` is the catalogue_template_looks id (card ids carry it); `failedPoseIds` from plan 3 are pose ids, mapped back to look ids in the retry branch; `recognizeGarment` returns `{ garmentTypeId, label }` in both `EngineDeps` and `classify.ts`.
+- **Known limits, as in the studio:** a template's back-view looks cannot be detected (the templates query returns no garment view), so such a look would be rejected by the create path before charging; a lower-only look in a mixed template is hidden rather than asking for a lower photo the type doesn't declare.
