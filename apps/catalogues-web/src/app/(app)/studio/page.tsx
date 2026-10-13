@@ -16,6 +16,7 @@ import { TopBar } from '@/components/topbar';
 import { ErrorState } from '@/components/ui/error-state';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { Tooltip } from '@/components/ui/tooltip';
+import { WhatsappStatusChip } from '@/components/whatsapp-status-chip';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { api } from '@/lib/api';
 import { BREAKPOINTS } from '@/lib/breakpoints';
@@ -2266,6 +2267,7 @@ export default function StudioPage(): React.ReactElement {
       <TopBar
         title="Studio"
         subtitle="Create premium AI catalogue shoots from flat lay garments in minutes."
+        right={<WhatsappStatusChip />}
       />
       <div style={{ display: 'flex', gap: 8, margin: '0 28px', marginTop: 20 }}>
         {(['single', 'batch'] as const).map((m) => (
