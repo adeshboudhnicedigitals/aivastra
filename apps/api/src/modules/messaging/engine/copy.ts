@@ -57,4 +57,18 @@ export const COPY = {
   notNow: "I wasn't expecting a photo just now.",
   unsupported: 'Please send a photo (JPG or PNG), not a video or document.',
   nothingAvailable: 'Nothing is available for that choice right now.',
+
+  connectPrompt: (url: string) =>
+    `Welcome to Aivastra! To create catalog images here, connect your Aivastra account (or create one): ${url}\nThis link works for 30 minutes.`,
+  connected:
+    'Connected. You can now create catalog images here. Reply STOP at any time to stop messages from Aivastra, or MENU to see your options.',
+  connectedDifferentNumber: (last4: string) =>
+    `Note: this WhatsApp number is different from the mobile number on your account (ending ${last4}).`,
+  alreadyConnected: 'This number is already connected to your Aivastra account.',
+  connectCodeInvalid:
+    'That code has expired or was already used. Open Settings on the Aivastra website and tap Connect WhatsApp again.',
+  numberInUse: 'This number is connected to another Aivastra account. Disconnect it there first.',
+  stopped:
+    "You won't receive any more messages from Aivastra on WhatsApp. Your account and images are unchanged. Send START if you want to use the bot again.",
+  photoFailed: "Couldn't receive that photo. Please send it again.",
 } as const;
