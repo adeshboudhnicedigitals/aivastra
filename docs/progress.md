@@ -2,6 +2,46 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-13 — WhatsApp spike (T1–T3) on the Meta test number (manual, no code)
+
+- **Done:** ran plan 3 Task 1 against the test number (Phone Number ID `1331723183359956`,
+  recipient +91 91095 16207) from a scratch PowerShell script outside the repo
+  (`wa-spike-plan3.ps1` in the local temp dir — never committed; the token lived only in
+  the shell env and was regenerated afterwards since its value had been pasted into chat).
+- **Outbound:** reply buttons (1a), 4-row gender list (1b) and 10-row count list (9 + Change,
+  1c) all HTTP 200 and rendered on the phone. Carousel WITHOUT card-level `type`: REJECTED,
+  HTTP 400 `(#100) "violated JSON schema constraint 'required' for
+  interactive.action.cards.N ... missing: 'type'"`. Carousel WITH `"type": "cta_url"` on
+  each card (quick_reply buttons): HTTP 200, rendered with a "Select" button per card.
+  **Task 3 adjustment: the renderer must emit `type: 'cta_url'` on every carousel card.**
+  A production presigned link (`app.aivastra.com/minio/...`, 1h expiry) loaded in the
+  carousel — **T3 = YES: links work, no upload-by-id needed for carousels** (result images
+  still go by upload-to-Meta per D38). Media upload HTTP 200 with an id, and an image sent
+  by that id HTTP 200 and delivered.
+- **Inbound tap shapes** (Meta "Check test webhooks" panel): reply button =
+  `type: "interactive"`, `interactive.type: "button_reply"` with `button_reply.id`
+  (matches the plan); list row = `interactive.type: "list_reply"` with `list_reply.id`
+  (matches the plan); **carousel quick-reply tap = `type: "button"`,
+  `button: { payload: "n1|look|a", text: "Select" }` with `context.id` = the carousel's
+  wamid — NOT `interactive.quick_reply`**. Two taps in a row arrive as two separate
+  messages. **Task 4 adjustment (bug in the plan as written): `case 'button'` must return
+  `{ kind: 'reply', id: payload }` when the payload parses with the engine's reply-id
+  parser, else `{ kind: 'templateButton', payload }** — otherwise pose picks would read as
+  "Show images". The `interactive.quick_reply` branch can be dropped or kept as harmless.
+- **Noted, no change now:** payloads also carry `from_user_id` and `contacts[].user_id`
+  (business-scoped id, e.g. `IN.<digits>`) beside `wa_id`. Future identity risk: if Meta
+  stops sending `wa_id` for username-only users, identity has to key on `user_id`.
+- **Spike script bugs (scratch only, fixed there):** under Windows PowerShell 5.1 native-exe
+  arguments strip the JSON double quotes, so every send failed with "messaging_product is
+  required" (fixed by sending the body via `--data-binary @tempfile`); and `-match` on the
+  array upload output never set `$Matches` (fixed with `-join`). Local dev decision:
+  option A — a cloudflared tunnel in front of local MinIO via `R2_PUBLIC_PRESIGN_BASE`.
+- **Not done:** the `catalog_images_ready` utility template still needs submitting
+  (WhatsApp Manager → Message templates → Create: Utility, `catalog_images_ready`, `en`,
+  body `Your Aivastra catalog images are ready.`, one quick-reply button `Show images`);
+  can happen in parallel, Task 7 works without it until the window-closed path is tested.
+  Webhook callback URL / verify token not configured yet (Task 8).
+
 ## 2026-10-13 — WhatsApp catalog bot plan 2: conversation engine (implemented, not reachable)
 
 - **Done:** deterministic five-step conversation engine (`apps/api/src/modules/messaging/`,
