@@ -8,6 +8,7 @@ export * from './common.js';
 export * from './credits.js';
 export * from './demo-catalog.js';
 export * from './dev.js';
+export * from './garment-recognition.js';
 export * from './google-drive.js';
 export * from './image-compression.js';
 export * from './job-taxonomy.js';

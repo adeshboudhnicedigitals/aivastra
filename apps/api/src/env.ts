@@ -147,6 +147,11 @@ const Env = z.object({
       .regex(/^\d{8,15}$/)
       .optional(),
   ),
+  // WhatsApp bot garment recognition on our own GPU (spec 8a). Off: the bot
+  // always shows the garment-type list — the state until the dispatcher's
+  // classify lane ships, and the way back if recognition isn't good enough.
+  // Same literal-'true' pattern as the flags above.
+  GARMENT_RECOGNITION_ENABLED: z.preprocess((v) => v === 'true', z.boolean()).default(false),
   // Distribution bucket for the local-dev production snapshot
   // (scripts/local-sync/, docs/local-dev-snapshot-runbook.md) — a separate,
   // scoped-read-only bucket from the live R2_* one above, never the same
