@@ -10,6 +10,7 @@ export const COPY = {
   btnStartOver: 'Start over',
   btnMorePoses: 'More poses',
   btnRetryFailed: 'Retry failed',
+  btnSelect: 'Select',
   listChoose: 'Choose',
   moreOptions: 'More options:',
 
