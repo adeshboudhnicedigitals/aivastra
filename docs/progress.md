@@ -2,6 +2,24 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-13 — WhatsApp catalog bot: Meta developer app created (dashboard state, not in repo)
+
+- **Done:** Meta developer app **Aivastra Catalog Bot**, App ID `28674690505558878`, created
+  under business portfolio **Nice Interactive** (business ID `1086988227665738`, **unverified**).
+  Use case: "Connect with customers through WhatsApp" only (WhatsApp Cloud API). Contact email
+  `support@aivastra.com`. Meta rejects "WhatsApp" in app names, hence the name.
+- **Test number claimed:** `+1 555 658 5373`, Phone Number ID `1331723183359956`, WhatsApp
+  Business Account ID `1595318551521211`. Accepted on 2026-10-13: Meta Platform Terms, Facebook
+  Terms for WhatsApp Business, Meta Hosting Terms for Cloud API.
+- **Verified 2026-10-13:** one test recipient registered and verified (+91 91095 16207; up to 5
+  allowed). A temporary access token was generated in the console and the sample template message
+  was sent from the test number to that recipient (reported received by the user).
+- **Not done yet:** the temporary token expires in ~24h and is not stored anywhere in the repo or
+  any `.env`; a system-user permanent token is needed for anything lasting. Webhook URL / verify
+  token not configured. App secret not copied anywhere. Business verification of Nice
+  Interactive is owned by Ram Kumar (spec D25). Design spec:
+  `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md`.
+
 ## 2026-10-12 — Refund auto-approve toggle (implemented, off by default)
 
 - **Done:** admin panel toggle for auto-approving customer refund requests, on branch
