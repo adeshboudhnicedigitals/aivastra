@@ -36,3 +36,26 @@ export const messagingAccounts = pgTable(
     index('messaging_accounts_user_id_idx').on(t.userId),
   ],
 );
+
+// One row per create call made from a chat (D34). A run is one catalogueId:
+// every job createJob makes in one call shares it. Plan 3's delivery finds a
+// finished job's chat through this table, never through job_inputs.params —
+// the create request strips unknown params keys, and params feeds the workflow.
+// job_ids is an array, not a join table: a run is written once and read whole.
+export const messagingRuns = pgTable(
+  'messaging_runs',
+  {
+    catalogueId: uuid('catalogue_id').primaryKey(),
+    messagingAccountId: uuid('messaging_account_id')
+      .notNull()
+      .references(() => messagingAccounts.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    jobIds: uuid('job_ids').array().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // Set by plan 3 once the follow-up buttons for the whole run were sent.
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  (t) => [index('messaging_runs_account_created_idx').on(t.messagingAccountId, t.createdAt)],
+);
