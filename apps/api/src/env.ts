@@ -165,10 +165,15 @@ const Env = z.object({
     (v) => (v === '' ? undefined : v),
     z.string().min(16).optional(),
   ),
-  WHATSAPP_GRAPH_VERSION: z
-    .string()
-    .regex(/^v\d+\.\d+$/)
-    .default('v25.0'),
+  // Blank -> undefined so the default applies: .env.example ships this line empty,
+  // and '' would otherwise fail the regex and abort startup.
+  WHATSAPP_GRAPH_VERSION: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z
+      .string()
+      .regex(/^v\d+\.\d+$/)
+      .default('v25.0'),
+  ),
   // Approved utility template sent when results finish after the 24-hour window
   // closed (D26). Unset = such results simply wait for the seller's next message.
   WHATSAPP_RESULTS_TEMPLATE: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
