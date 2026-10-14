@@ -74,38 +74,32 @@ class AuthPageScaffold extends StatelessWidget {
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: maxWidth),
-                child: isTablet
-                    ? LayoutBuilder(
-                        builder: (context, constraints) {
-                          return SingleChildScrollView(
-                            padding: EdgeInsets.fromLTRB(
-                              outerPadding,
-                              topPadding,
-                              outerPadding,
-                              outerPadding + bottomInset,
-                            ),
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                minHeight:
-                                    constraints.maxHeight -
-                                    topPadding -
-                                    outerPadding -
-                                    bottomInset,
-                              ),
-                              child: Center(child: content),
-                            ),
-                          );
-                        },
-                      )
-                    : SingleChildScrollView(
-                        padding: EdgeInsets.fromLTRB(
-                          outerPadding,
-                          topPadding,
-                          outerPadding,
-                          outerPadding + bottomInset,
-                        ),
-                        child: content,
+                // Vertically centered on every size, not just tablet: a
+                // LayoutBuilder-driven minHeight keeps it scrollable instead
+                // of overflowing when the keyboard opens or content is
+                // taller than the viewport.
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    return SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(
+                        outerPadding,
+                        topPadding,
+                        outerPadding,
+                        outerPadding + bottomInset,
                       ),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight:
+                              constraints.maxHeight -
+                              topPadding -
+                              outerPadding -
+                              bottomInset,
+                        ),
+                        child: Center(child: content),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ),

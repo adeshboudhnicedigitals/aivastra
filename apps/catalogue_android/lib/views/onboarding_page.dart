@@ -291,13 +291,19 @@ class _NextButton extends StatelessWidget {
           width: size,
           height: size,
           decoration: const BoxDecoration(
-            gradient: AppColors.pinkGradient,
+            color: Colors.white,
             shape: BoxShape.circle,
           ),
-          child: Icon(
-            Icons.arrow_forward,
-            color: Colors.white,
-            size: AppDimens.sdp(context, '_20sdp'),
+          child: Center(
+            child: ShaderMask(
+              shaderCallback: (bounds) =>
+                  AppColors.pinkGradient.createShader(bounds),
+              child: Icon(
+                Icons.arrow_forward,
+                color: Colors.white,
+                size: AppDimens.sdp(context, '_20sdp'),
+              ),
+            ),
           ),
         ),
       ),
