@@ -3,6 +3,7 @@ import { keys } from '@aivastra/storage';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { WhatsappClient } from './channels/whatsapp/client.js';
+import { fitForWhatsapp } from './channels/whatsapp/media.js';
 import { runConversation } from './conversation.js';
 import { sendMessages, windowOpen } from './send.js';
 
@@ -71,9 +72,10 @@ export async function deliverRun(
         // png by default but webp when image compression is enabled, so the
         // stored content type (not a literal) goes to Meta.
         const resultKey = j.resultKey ?? keys.output(j.id);
-        const bytes = await app.storage.getObject(resultKey);
+        const original = await app.storage.getObject(resultKey);
         const { contentType } = await app.storage.headObject(resultKey);
-        const mediaId = await wa.uploadMedia(bytes, contentType ?? 'image/png');
+        const img = await fitForWhatsapp(original, contentType ?? 'image/png');
+        const mediaId = await wa.uploadMedia(img.bytes, img.mimeType);
         await wa.send(to, { type: 'image', image: { id: mediaId } });
       }
       // STOP: results stay on the web (/catalogs); the job counts as accounted for.
