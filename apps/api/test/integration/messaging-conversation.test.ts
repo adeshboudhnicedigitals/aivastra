@@ -38,7 +38,7 @@ describe('messaging conversation (real deps)', () => {
   let app: TestApp;
   let realHeadObject: TestApp['storage']['headObject'];
   // Fill in from your seeding: the ids the steps below tap.
-  let seeded: { garmentTypeId: string; lookId: string };
+  let seeded: { garmentTypeId: string; lookId: string; lookId2: string };
   // Suffixes keep this file's rows distinct from any other file's (integration
   // files share one Postgres process, though each gets a fresh database).
   let phoneCounter = 0;
@@ -134,9 +134,42 @@ describe('messaging conversation (real deps)', () => {
       poseAssetId: pose.id,
       workflowTemplateId: workflow.id,
     });
-    if (!garmentType || !look) throw new Error('seeding failed');
-    // Assign seeded = { garmentTypeId, lookId } (lookId = the catalogue_template_looks.id).
-    seeded = { garmentTypeId: garmentType.id, lookId: look.id };
+    // A second template for the same type, so a pick can span templates.
+    const [pose2] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: `WaPose2${sfx}`,
+        genderSlug: 'women',
+        r2Key: `wa-p2${sfx}.jpg`,
+        thumbnailKey: `wa-p2${sfx}.jpg`,
+        workflowTemplateId: workflow.id,
+      })
+      .returning();
+    const [template2] = await app.db
+      .insert(schema.catalogueTemplates)
+      .values({ genderSlug: 'women', label: `WaTemplate2${sfx}`, sortOrder: 1 })
+      .returning();
+    const [look2] = await app.db
+      .insert(schema.catalogueTemplateLooks)
+      .values({
+        templateId: template2.id,
+        poseAssetId: pose2.id,
+        backgroundId: background.id,
+        sortOrder: 0,
+      })
+      .returning();
+    const [mapping2] = await app.db
+      .insert(schema.catalogueTemplateSubcategories)
+      .values({ templateId: template2.id, subcategoryId: garmentType.id })
+      .returning();
+    await app.db.insert(schema.catalogueTemplatePoseWorkflows).values({
+      mappingId: mapping2.id,
+      poseAssetId: pose2.id,
+      workflowTemplateId: workflow.id,
+    });
+    if (!garmentType || !look || !look2) throw new Error('seeding failed');
+    // lookId / lookId2 = the catalogue_template_looks.id of each template's look.
+    seeded = { garmentTypeId: garmentType.id, lookId: look.id, lookId2: look2.id };
   }, 60_000);
 
   // createJob's size check heads the object; the test photo is tiny but real.
@@ -211,6 +244,29 @@ describe('messaging conversation (real deps)', () => {
 
     // D17: the bot is charged exactly what it quoted.
     expect(await balanceOf(userId)).toBe(95);
+  });
+
+  it('picks from two templates start one run per template, each charged once', async () => {
+    const w = await walkToPick('two');
+    const { userId, account, acct, send } = w;
+    // Both templates' looks are on the same cards.
+    await send(tapIn(w.msgs, 'look', seeded.lookId));
+    const selected = await send(tapIn(w.msgs, 'look', seeded.lookId2));
+    expect(selected[0].kind === 'buttons' ? selected[0].text : '').toBe('2 selected · 10 credits');
+    await send(tapIn(selected, 'generate'));
+
+    const session = await loadSession(app.redis, acct.channel, acct.externalId);
+    expect(session?.state).toBe('GENERATING');
+    expect(session?.runs).toHaveLength(2);
+    expect(session?.unstarted).toBeUndefined();
+
+    const runs = await app.db
+      .select()
+      .from(schema.messagingRuns)
+      .where(eq(schema.messagingRuns.messagingAccountId, account.id));
+    expect(runs).toHaveLength(2);
+    for (const r of runs) expect(r.jobIds).toHaveLength(1);
+    expect(await balanceOf(userId)).toBe(90);
   });
 
   it('the same message id never creates a second run', async () => {
