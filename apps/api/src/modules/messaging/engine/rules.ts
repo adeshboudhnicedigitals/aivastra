@@ -1,8 +1,18 @@
-import type { GarmentTypeOption, PhotoSlot, Session, TemplateLook, TryonBody } from './types.js';
+import type {
+  GarmentTypeOption,
+  PhotoSlot,
+  PickCard,
+  PoolTemplate,
+  Session,
+  TemplateLook,
+  TemplateOption,
+  TryonBody,
+} from './types.js';
 
-// 9 counts + the "Wrong garment? Change" row fill WhatsApp's 10-row list, and
-// stay under the create schema's 12-look cap.
-export const MAX_POSES = 9;
+// The most poses one Generate may start (spec 2026-10-14, P4). Keeps a request
+// inside the queue-capacity check in jobs/create.ts. A group is one template's
+// looks (at most a handful), far under the create schema's 12-look cap.
+export const MAX_PICKS = 20;
 
 const isLowerOnlyLook = (l: TemplateLook) => l.hasLower && !l.hasUpper;
 
@@ -34,6 +44,62 @@ export function eligibleLooks(
   };
 }
 
+/**
+ * Every template's eligible looks as one pool (spec 2026-10-14, P2), in template
+ * admin order then look order. A pose + background pair that appears in more than
+ * one template is kept once, under the first. `templates` is what the session
+ * stores (ids and flags); `cards` is what the carousel renders, read fresh.
+ */
+export function buildPool(
+  gt: GarmentTypeOption,
+  options: TemplateOption[],
+): { templates: PoolTemplate[]; cards: PickCard[] } {
+  const seen = new Set<string>();
+  const templates: PoolTemplate[] = [];
+  const cards: PickCard[] = [];
+  for (const t of options) {
+    const { lowerOnly, looks } = eligibleLooks(gt, t.looks);
+    const fresh = looks.filter((l) => {
+      const key = `${l.poseId}::${l.backgroundId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    if (fresh.length === 0) continue;
+    templates.push({
+      id: t.id,
+      mappingId: t.mappingId,
+      lowerOnly,
+      looks: fresh.map((l) => ({
+        id: l.id,
+        poseId: l.poseId,
+        backgroundId: l.backgroundId,
+        hasLower: l.hasLower,
+        hasShoes: l.hasShoes,
+      })),
+    });
+    for (const l of fresh) cards.push({ id: l.id, label: l.label, imageUrl: l.imageUrl });
+  }
+  return { templates, cards };
+}
+
+/**
+ * The picks split by template, because one catalogue belongs to exactly one
+ * template mapping (P6). Groups follow template order; ids keep tap order.
+ */
+export function groupByTemplate(
+  templates: PoolTemplate[],
+  lookIds: string[],
+): { template: PoolTemplate; lookIds: string[] }[] {
+  const groups: { template: PoolTemplate; lookIds: string[] }[] = [];
+  for (const template of templates) {
+    const mine = new Set(template.looks.map((l) => l.id));
+    const ids = lookIds.filter((id) => mine.has(id));
+    if (ids.length > 0) groups.push({ template, lookIds: ids });
+  }
+  return groups;
+}
+
 /** Uploads the type requires, in the order the bot asks for them (D46). */
 export function requiredPhotoSlots(gt: GarmentTypeOption): PhotoSlot[] {
   const slots: PhotoSlot[] = [];
@@ -47,18 +113,27 @@ export function firstMissingSlot(s: Session): PhotoSlot | null {
   return requiredPhotoSlots(s.garmentType).find((slot) => !s.photos[slot]) ?? null;
 }
 
-export function maxCount(s: Session): number {
-  return Math.min(s.template?.looks.length ?? 0, MAX_POSES);
+/**
+ * The looks to retry once every run has finished: picked looks whose pose
+ * failed (the dispatcher already refunded them) plus looks whose run could not
+ * be created at all. Matching is by pose id, which is all delivery reports.
+ */
+export function retryLookIds(s: Session): string[] {
+  const failed = new Set((s.runs ?? []).flatMap((r) => r.failedPoseIds ?? []));
+  const unstarted = new Set(s.unstarted ?? []);
+  const poseOf = new Map(
+    (s.templates ?? []).flatMap((t) => t.looks.map((l) => [l.id, l.poseId] as const)),
+  );
+  return s.picked.filter((id) => unstarted.has(id) || failed.has(poseOf.get(id) ?? ''));
 }
 
 /**
- * The /v1/jobs/tryon body for the picked looks (or `lookIds`, for a retry).
+ * The /v1/jobs/tryon body for one template group of the picks (or of a retry).
  * Template mode only (D42): looks + mapping id, never backgroundId/poseIds.
  */
-export function buildTryonBody(s: Session, lookIds: string[] = s.picked): TryonBody {
+export function buildTryonBody(s: Session, t: PoolTemplate, lookIds: string[]): TryonBody {
   const gt = s.garmentType;
-  const t = s.template;
-  if (!gt || !t || !s.garmentKey || !s.faceId) throw new Error('session incomplete');
+  if (!gt || !s.garmentKey || !s.faceId) throw new Error('session incomplete');
   const byId = new Map(t.looks.map((l) => [l.id, l]));
   const looks = lookIds.flatMap((id) => {
     const l = byId.get(id);

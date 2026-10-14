@@ -41,6 +41,13 @@ export const TEMPLATE: TemplateOption = {
   looks: [look('a'), look('b', { hasLower: true }), look('c'), look('d', { hasShoes: true })],
 };
 
+// 'a2' repeats look a's pose and background, so the pool shows it once.
+export const TEMPLATE_2: TemplateOption = {
+  id: 'tpl-2',
+  mappingId: 'map-2',
+  looks: [look('a2', { poseId: 'pose-a', backgroundId: 'bg-a' }), look('e'), look('f')],
+};
+
 const lookCount = (body: TryonBody) => body.inputs.looks?.length ?? 0;
 
 export function fakeDeps(over: Partial<EngineDeps> = {}) {
@@ -48,6 +55,8 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
   const calls = {
     quote: [] as TryonBody[],
     createRun: [] as TryonBody[],
+    // The idempotency key each createRun call was given (ctx.messageId).
+    createRunKeys: [] as string[],
     recognize: [] as { garmentKey: string; gender: string }[],
     corrected: 0,
     unavailable: [] as UnavailableReport[],
@@ -67,16 +76,17 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     reportUnavailable: (r) => {
       calls.unavailable.push(r);
     },
-    getTemplate: async () => TEMPLATE,
+    getTemplates: async () => [TEMPLATE],
     getDefaultFaceId: async () => 'face-1',
     quote: async (_u, body) => {
       calls.quote.push(body);
       const images = lookCount(body);
       return { images, perImage: 5, total: images * 5, balance: 50 };
     },
-    createRun: async (_ctx, body) => {
+    createRun: async (ctx, body) => {
       calls.createRun.push(body);
-      return { runId: 'run-1', images: lookCount(body) };
+      calls.createRunKeys.push(ctx.messageId);
+      return { runId: `run-${calls.createRun.length}`, images: lookCount(body) };
     },
     runProgress: async () => ({ finished: 1, total: 2 }),
     links: {

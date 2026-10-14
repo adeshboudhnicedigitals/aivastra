@@ -221,12 +221,12 @@ describe('whatsapp hooks', () => {
     expect(waOut.sent).toHaveLength(0);
   });
 
-  it('notifyCreditsAdded on a NO_CREDITS session sends credits-added + the pose-count list', async () => {
+  it('notifyCreditsAdded on a NO_CREDITS session sends credits-added + the pose cards', async () => {
     const { userId } = await createVerifiedUserToken(
       app,
       `wa-cred-${seq}-${Date.now()}@example.com`,
     );
-    // A balance below one image's price (5): tapping count 1 lands in NO_CREDITS.
+    // A balance below one image's price (5): picking a pose then Generate lands in NO_CREDITS.
     await app.db.insert(schema.userCredits).values({ userId, balance: 3 });
     const { account } = await connectAccount(app.db, {
       channel: CHANNEL_WHATSAPP,
@@ -262,7 +262,8 @@ describe('whatsapp hooks', () => {
       throw new Error('no garment type offered');
     })();
     msgs = await send(gtTap);
-    msgs = await send(tapIn(msgs, 'count', '1'));
+    msgs = await send(tapIn(msgs, 'look'));
+    msgs = await send(tapIn(msgs, 'generate'));
     expect(msgs.map((m) => ('text' in m ? m.text : '')).join('\n')).toMatch(/pricing/);
 
     const wa = fakeWhatsapp();
@@ -274,10 +275,12 @@ describe('whatsapp hooks', () => {
     }
     expect(wa.texts()).toContain('100 credits added.');
     expect(wa.sent.some((s) => payloadType(s.payload) === 'interactive')).toBe(true);
-    const list = wa.sent.find(
-      (s) => (s.payload as { interactive?: { type?: string } }).interactive?.type === 'list',
+    // Back at the pose cards: one pose becomes an image button message, several
+    // a carousel (render.ts). This seeding has one pose.
+    const cards = wa.sent.find(
+      (s) => (s.payload as { interactive?: { type?: string } }).interactive?.type === 'button',
     );
-    expect(list).toBeDefined();
+    expect(cards).toBeDefined();
   });
 
   it('notifyCreditsAdded sends nothing with the flag off', async () => {

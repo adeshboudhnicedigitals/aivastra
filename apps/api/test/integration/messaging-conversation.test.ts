@@ -55,7 +55,7 @@ describe('messaging conversation (real deps)', () => {
     realHeadObject = app.storage.headObject.bind(app.storage);
     const sfx = `${Date.now()}`;
     // An enabled 2K tier with creditCost 5: the bot always quotes and charges 2K,
-    // so the count row reads '1 pose · 5 credits' and one image costs exactly 5.
+    // so the prompt reads 'Each one is 5 credits' and one image costs exactly 5.
     // HD stays enabled for the fallback test below.
     await app.redis.set(
       'config:system',
@@ -153,7 +153,7 @@ describe('messaging conversation (real deps)', () => {
     await c?.stop();
   });
 
-  // A connected seller with 100 credits, walked to the look carousel for 1 pose.
+  // A connected seller with 100 credits, walked to the pose cards.
   async function walkToPick(tag: string) {
     const { userId } = await createVerifiedUserToken(app, `wa-${tag}-${Date.now()}@example.com`);
     await app.db.insert(schema.userCredits).values({ userId, balance: 100 });
@@ -177,9 +177,7 @@ describe('messaging conversation (real deps)', () => {
     let msgs = await send({ type: 'image', garmentKey: key });
     msgs = await send(tapIn(msgs, 'gender', 'women'));
     msgs = await send(tapIn(msgs, 'gt', seeded.garmentTypeId));
-    const countMsgs = msgs;
-    msgs = await send(tapIn(msgs, 'count', '1'));
-    return { userId, account, acct, send, msgs, countMsgs };
+    return { userId, account, acct, send, msgs };
   }
 
   const balanceOf = async (userId: string) =>
@@ -190,20 +188,24 @@ describe('messaging conversation (real deps)', () => {
         .where(eq(schema.userCredits.userId, userId))
     )[0]?.balance;
 
-  it('photo → gender → type → count → pick creates one charged job and records the run', async () => {
+  it('photo → gender → type → pick → generate creates one charged job and records the run', async () => {
     const w = await walkToPick('conv');
     const { userId, account, acct, send } = w;
-    const count = w.countMsgs.find((m) => m.kind === 'list');
-    expect(count && count.kind === 'list' ? count.rows[0].title : '').toBe('1 pose · 5 credits');
+    const prompt = w.msgs.find((m) => m.kind === 'buttons');
+    expect(prompt && prompt.kind === 'buttons' ? prompt.text : '').toContain(
+      'Each one is 5 credits',
+    );
 
-    await send(tapIn(w.msgs, 'look', seeded.lookId));
+    const selected = await send(tapIn(w.msgs, 'look', seeded.lookId));
+    await send(tapIn(selected, 'generate'));
     const session = await loadSession(app.redis, acct.channel, acct.externalId);
     expect(session?.state).toBe('GENERATING');
+    expect(session?.runs).toHaveLength(1);
 
     const [run] = await app.db
       .select()
       .from(schema.messagingRuns)
-      .where(eq(schema.messagingRuns.catalogueId, session?.runId as string));
+      .where(eq(schema.messagingRuns.catalogueId, session?.runs?.[0]?.runId as string));
     expect(run).toMatchObject({ messagingAccountId: account.id, userId });
     expect(run.jobIds).toHaveLength(1);
 
@@ -220,7 +222,9 @@ describe('messaging conversation (real deps)', () => {
     // guard — the idempotency key — that protects a crash between createJob and
     // the session save.
     const ctx = { userId, accountId: account.id, messageId: 'wamid.dup' };
-    const body = buildTryonBody(session, [seeded.lookId]);
+    const template = session.templates?.[0];
+    if (!template) throw new Error('no pool in the session');
+    const body = buildTryonBody(session, template, [seeded.lookId]);
     const first = await createRun(app, ctx, body);
     const second = await createRun(app, ctx, body);
     expect(second).toEqual(first);

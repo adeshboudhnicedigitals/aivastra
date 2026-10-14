@@ -120,8 +120,7 @@ describe('whatsapp delivery', () => {
       resolution: 'HD',
       photos: {},
       picked: [],
-      runId,
-      runImages: 2,
+      runs: [{ runId, images: 2 }],
     });
   }
 

@@ -1,7 +1,14 @@
 import { AppError } from '../../../lib/errors.js';
 import { COPY } from './copy.js';
 import { decodeReplyId, encodeReplyId } from './reply-id.js';
-import { buildTryonBody, eligibleLooks, firstMissingSlot, maxCount } from './rules.js';
+import {
+  buildPool,
+  buildTryonBody,
+  firstMissingSlot,
+  groupByTemplate,
+  MAX_PICKS,
+  retryLookIds,
+} from './rules.js';
 import type {
   EngineContext,
   EngineDeps,
@@ -10,6 +17,8 @@ import type {
   Gender,
   InboundEvent,
   OutboundMessage,
+  PickCard,
+  RunRef,
   Session,
   State,
 } from './types.js';
@@ -56,16 +65,9 @@ function garmentCleared(s: Session): Session {
   return { ...cleared(s), garmentKey: s.garmentKey, gender: s.gender };
 }
 
-/** Back to the count step; garment, type, extra photos, face and template kept. */
+/** Back to choosing poses; garment, type, extra photos, face and templates kept. */
 function picksCleared(s: Session): Session {
-  return {
-    ...s,
-    count: undefined,
-    picked: [],
-    runId: undefined,
-    runImages: undefined,
-    failedPoseIds: undefined,
-  };
+  return { ...s, picked: [], runs: undefined, unstarted: undefined };
 }
 
 const text = (t: string): OutboundMessage => ({ kind: 'text', text: t });
@@ -104,6 +106,7 @@ function cardsMsgs(
   action: string,
   items: { id: string; label: string; imageUrl: string }[],
   extra: [action: string, value: string, title: string][] = [],
+  footer: string = COPY.moreOptions,
 ): Out {
   const start = s.page * CARDS_PER_PAGE;
   const page = items.slice(start, start + CARDS_PER_PAGE);
@@ -121,39 +124,44 @@ function cardsMsgs(
   const more: [string, string, string][] =
     start + CARDS_PER_PAGE < items.length ? [['more', '', COPY.btnMore]] : [];
   const actions = [...more, ...extra];
-  if (actions.length > 0) out.push(buttons(s, COPY.moreOptions, actions));
+  if (actions.length > 0) out.push(buttons(s, footer, actions));
   return out;
 }
 
+interface Loaded {
+  session: Session;
+  cards: PickCard[];
+}
+
 /**
- * Re-reads the type's template and keeps only the looks the bot can generate
- * (D49). Re-read on every count / pick prompt, so a look an admin removed, or
- * a presigned image URL that expired, never reaches the seller. Null when
- * nothing is left — the type is then not available in the chat (D47).
+ * Re-reads every template of the type and keeps only the looks the bot can
+ * generate (D49), as one de-duplicated pool. Re-read on every pick prompt and
+ * on Generate, so a look an admin removed, or a presigned image URL that
+ * expired, never reaches the seller; picks no longer in the pool are dropped.
+ * Null when nothing is left — the type is then not available in the chat (D47).
  */
-async function loadTemplate(s: Session, deps: EngineDeps): Promise<Session | null> {
+async function loadPool(s: Session, deps: EngineDeps): Promise<Loaded | null> {
   if (!s.gender || !s.garmentType) return null;
   const at = { gender: s.gender as Gender, garmentTypeId: s.garmentType.id };
-  const t = await deps.getTemplate(at.gender, at.garmentTypeId);
-  if (!t) {
+  const options = await deps.getTemplates(at.gender, at.garmentTypeId);
+  if (options.length === 0) {
     deps.reportUnavailable({ ...at, reason: 'no_template' });
     return null;
   }
-  const { lowerOnly, looks } = eligibleLooks(s.garmentType, t.looks);
-  if (looks.length === 0) {
+  const { templates, cards } = buildPool(s.garmentType, options);
+  if (templates.length === 0) {
     deps.reportUnavailable({
       ...at,
       reason: 'no_eligible_looks',
-      templateId: t.id,
-      templateLooks: t.looks.length,
+      templateId: options[0].id,
+      templateLooks: options.reduce((n, t) => n + t.looks.length, 0),
     });
     return null;
   }
-  const ids = new Set(looks.map((l) => l.id));
+  const ids = new Set(cards.map((c) => c.id));
   return {
-    ...s,
-    template: { id: t.id, mappingId: t.mappingId, lowerOnly, looks },
-    picked: s.picked.filter((id) => ids.has(id)),
+    session: { ...s, templates, picked: s.picked.filter((id) => ids.has(id)) },
+    cards,
   };
 }
 
@@ -175,8 +183,8 @@ function notAvailable(s: Session, label: string, out: Out, ctx: EngineContext, d
 
 /**
  * The garment type is known, from recognition or the list. Fills the defaults
- * the chat no longer asks for (D43): face and template. Then the required
- * extra photos, then the count.
+ * the chat no longer asks for (D43): face and templates. Then the required
+ * extra photos, then the pose picks.
  */
 async function chooseGarmentType(
   s: Session,
@@ -196,19 +204,45 @@ async function chooseGarmentType(
   if (!faceId) {
     deps.reportUnavailable({ gender: s.gender as Gender, garmentTypeId: gt.id, reason: 'no_face' });
   }
-  const loaded = faceId ? await loadTemplate(withType, deps) : null;
+  const loaded = faceId ? await loadPool(withType, deps) : null;
   if (!loaded) return notAvailable(s, gt.label, out, ctx, deps);
   if (recognized) out.push(text(COPY.detected(gt.label)));
   return enter(
-    loaded,
-    firstMissingSlot(loaded) ? 'ASK_EXTRA_PHOTO' : 'ASK_POSE_COUNT',
+    loaded.session,
+    firstMissingSlot(loaded.session) ? 'ASK_EXTRA_PHOTO' : 'PICK_LOOKS',
     out,
     ctx,
     deps,
   );
 }
 
-/** Creates the run for `lookIds` (all picks, or the failed ones on retry). */
+/** What a rejected quote or create means for the seller (spec section 13). */
+async function createRejected(
+  err: unknown,
+  s: Session,
+  out: Out,
+  ctx: EngineContext,
+  deps: EngineDeps,
+): Promise<EngineResult> {
+  if (!(err instanceof AppError)) throw err;
+  if (err.code === 'INSUFFICIENT_CREDITS') return enter(s, 'NO_CREDITS', out, ctx, deps);
+  // A look deactivated or a mapping changed after the cards were shown.
+  if (err.code === 'BAD_CATALOG') {
+    out.push(text(COPY.posesChanged));
+    return enter({ ...s, picked: [] }, 'PICK_LOOKS', out, ctx, deps);
+  }
+  out.push(text(err.message));
+  return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
+}
+
+/**
+ * Starts the runs for `lookIds` (all picks, or the failed and unstarted ones on
+ * retry): one create call per template, because a catalogue belongs to one
+ * template mapping (P6). Every group is quoted first (read-only, raises what
+ * createJob would), so a look that is no longer valid is found before the first
+ * charge. A group that fails after an earlier one was charged leaves its looks
+ * in `unstarted`, for [Retry].
+ */
 async function generate(
   s: Session,
   lookIds: string[],
@@ -216,34 +250,64 @@ async function generate(
   ctx: EngineContext,
   deps: EngineDeps,
 ): Promise<EngineResult> {
-  try {
-    const { runId, images } = await deps.createRun(ctx, buildTryonBody(s, lookIds));
-    // Shown, not charged, from the count step's quote: the charge itself is
-    // createJob's own resolution of the same plan (D17).
-    out.push(text(COPY.generating(images, images * (s.perImage ?? 0))));
-    return {
-      session: {
-        ...s,
-        state: 'GENERATING',
-        nonce: deps.newNonce(),
-        page: 0,
-        runId,
-        runImages: images,
-        failedPoseIds: undefined,
-      },
-      messages: out,
-    };
-  } catch (err) {
-    if (!(err instanceof AppError)) throw err;
-    if (err.code === 'INSUFFICIENT_CREDITS') return enter(s, 'NO_CREDITS', out, ctx, deps);
-    // A look deactivated or a mapping changed after the list was shown (spec section 13).
-    if (err.code === 'BAD_CATALOG') {
-      out.push(text(COPY.posesChanged));
-      return enter(picksCleared(s), 'ASK_POSE_COUNT', out, ctx, deps);
-    }
-    out.push(text(err.message));
-    return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
+  const loaded = await loadPool(s, deps);
+  if (!loaded) return notAvailable(s, s.garmentType?.label ?? 'These', out, ctx, deps);
+  const ls = loaded.session;
+  const inPool = new Set(loaded.cards.map((c) => c.id));
+  if (lookIds.some((id) => !inPool.has(id))) {
+    // An admin removed a look since the cards were shown: nothing is charged and
+    // the seller reviews what is left (ls.picked is already pruned).
+    out.push(text(COPY.posesChanged));
+    return enter(ls, 'PICK_LOOKS', out, ctx, deps);
   }
+
+  const groups = groupByTemplate(ls.templates ?? [], lookIds);
+  const bodyOf = (g: (typeof groups)[number]) => buildTryonBody(ls, g.template, g.lookIds);
+  try {
+    for (const g of groups) await deps.quote(ctx.userId, bodyOf(g));
+  } catch (err) {
+    return createRejected(err, ls, out, ctx, deps);
+  }
+
+  const runs: RunRef[] = [];
+  let unstarted: string[] = [];
+  let reason = '';
+  for (const [i, g] of groups.entries()) {
+    try {
+      // One key per group: a redelivered tap returns the same catalogues.
+      const { runId, images } = await deps.createRun(
+        { ...ctx, messageId: `${ctx.messageId}:${i}` },
+        bodyOf(g),
+      );
+      runs.push({ runId, images });
+    } catch (err) {
+      if (runs.length === 0) return createRejected(err, ls, out, ctx, deps);
+      if (!(err instanceof AppError)) throw err;
+      unstarted = groups.slice(i).flatMap((rest) => rest.lookIds);
+      reason = err.message;
+      break;
+    }
+  }
+
+  // Shown, not charged, from the pick prompt's quote: the charge itself is
+  // createJob's own resolution of the same plan (D17).
+  const started = runs.reduce((n, r) => n + r.images, 0);
+  out.push(text(COPY.generating(started, started * (ls.perImage ?? 0))));
+  if (unstarted.length > 0) {
+    out.push(text(COPY.partlyStarted(started, lookIds.length, reason)));
+  }
+  return {
+    session: {
+      ...ls,
+      picked: lookIds,
+      state: 'GENERATING',
+      nonce: deps.newNonce(),
+      page: 0,
+      runs,
+      unstarted: unstarted.length > 0 ? unstarted : undefined,
+    },
+    messages: out,
+  };
 }
 
 /** Appends the current step's prompt. May redirect when a step has nothing to ask. */
@@ -299,7 +363,7 @@ async function render(
 
     case 'ASK_EXTRA_PHOTO': {
       const slot = firstMissingSlot(s);
-      if (!slot) return enter(s, 'ASK_POSE_COUNT', out, ctx, deps);
+      if (!slot) return enter(s, 'PICK_LOOKS', out, ctx, deps);
       const gt = s.garmentType;
       const label =
         slot === 'lowerFront' ? (gt?.lowerUploadLabel ?? null) : (gt?.thirdUploadLabel ?? null);
@@ -307,48 +371,53 @@ async function render(
       return done();
     }
 
-    case 'ASK_POSE_COUNT': {
-      const loaded = await loadTemplate(s, deps);
-      if (!loaded?.template)
-        return notAvailable(s, s.garmentType?.label ?? 'These', out, ctx, deps);
-      let perImage: number;
-      let balance: number;
-      try {
-        // One look prices one image: the cost per image comes from the same plan
-        // resolution the web uses (D17); the count rows multiply it.
-        const q = await deps.quote(
-          ctx.userId,
-          buildTryonBody(loaded, [loaded.template.looks[0].id]),
-        );
-        perImage = q.perImage;
-        balance = q.balance;
-      } catch (err) {
-        // Anything createJob would reject surfaces here, before any credits are taken.
-        if (!(err instanceof AppError)) throw err;
-        out.push(text(err.message));
-        return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
-      }
-      const rows: Row[] = Array.from({ length: maxCount(loaded) }, (_, i) => ({
-        action: 'count',
-        value: String(i + 1),
-        title: COPY.countRow(i + 1, (i + 1) * perImage),
-      }));
-      rows.push({ action: 'change', value: '', title: COPY.rowChangeGarment });
-      const next: Session = { ...loaded, perImage, balance };
-      out.push(listMsg(next, COPY.askCount(balance), rows));
-      return done(next);
-    }
-
     case 'PICK_LOOKS': {
-      const loaded = await loadTemplate(s, deps);
-      if (!loaded?.template)
+      const loaded = await loadPool(s, deps);
+      if (!loaded?.session.templates)
         return notAvailable(s, s.garmentType?.label ?? 'These', out, ctx, deps);
+      const ls = loaded.session;
+      let perImage = ls.perImage;
+      let balance = ls.balance;
+      // Priced once per visit to the step (page 0), not on every "More" page.
+      if (ls.page === 0 || perImage === undefined || balance === undefined) {
+        const first = ls.templates?.[0];
+        if (!first) return notAvailable(s, s.garmentType?.label ?? 'These', out, ctx, deps);
+        try {
+          // One look prices one image: the cost per image comes from the same plan
+          // resolution the web uses (D17); the selection multiplies it.
+          const q = await deps.quote(ctx.userId, buildTryonBody(ls, first, [first.looks[0].id]));
+          perImage = q.perImage;
+          balance = q.balance;
+        } catch (err) {
+          // Anything createJob would reject surfaces here, before any credits are taken.
+          if (!(err instanceof AppError)) throw err;
+          out.push(text(err.message));
+          return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
+        }
+      }
+      const next: Session = { ...ls, perImage, balance };
+      if (next.page === 0) {
+        out.push(
+          buttons(next, COPY.pickPrompt(perImage, balance), [
+            ['change', '', COPY.btnChangeGarment],
+          ]),
+        );
+      }
+      const n = next.picked.length;
       out.push(
-        ...cardsMsgs(loaded, COPY.pickLooks(loaded.count ?? 1), 'look', loaded.template.looks, [
-          ['restart', '', COPY.btnStartOver],
-        ]),
+        ...cardsMsgs(
+          next,
+          COPY.pickCards,
+          'look',
+          loaded.cards,
+          [
+            ['generate', '', COPY.btnGenerate],
+            ['clear', '', COPY.btnClear],
+          ],
+          n > 0 ? COPY.selected(n, n * perImage) : COPY.pickFooter,
+        ),
       );
-      return done(loaded);
+      return done(next);
     }
 
     case 'NO_CREDITS':
@@ -356,19 +425,19 @@ async function render(
       return done();
 
     case 'GENERATING': {
-      const p = s.runId
-        ? await deps.runProgress(s.runId)
-        : { finished: 0, total: s.runImages ?? 0 };
-      out.push(text(COPY.stillGenerating(p.finished, p.total)));
+      const progress = await Promise.all((s.runs ?? []).map((r) => deps.runProgress(r.runId)));
+      const finished = progress.reduce((n, p) => n + p.finished, 0);
+      const total = progress.reduce((n, p) => n + p.total, 0);
+      out.push(text(COPY.stillGenerating(finished, total)));
       return done();
     }
 
     case 'DELIVERED': {
-      const failed = s.failedPoseIds?.length ?? 0;
+      const retryable = retryLookIds(s).length > 0;
       const items: [string, string, string][] = [];
-      if (failed > 0) items.push(['retry', '', COPY.btnRetryFailed]);
+      if (retryable) items.push(['retry', '', COPY.btnRetryFailed]);
       items.push(['more_poses', '', COPY.btnMorePoses]);
-      items.push(failed > 0 ? ['menu', 'menu', COPY.btnMenu] : ['menu', 'new', COPY.btnNewCatalog]);
+      items.push(retryable ? ['menu', 'menu', COPY.btnMenu] : ['menu', 'new', COPY.btnNewCatalog]);
       out.push(buttons(s, COPY.delivered, items));
       return done();
     }
@@ -427,47 +496,55 @@ async function onReply(
       return chooseGarmentType(s, gt, false, out, ctx, deps);
     }
 
-    case 'ASK_POSE_COUNT': {
+    case 'PICK_LOOKS': {
       if (action === 'change') {
         if (s.recognized) deps.recordRecognitionCorrected();
         return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
       }
-      const n = Number(value);
-      if (action !== 'count' || !Number.isInteger(n) || n < 1 || n > maxCount(s)) return reprompt();
-      const next: Session = { ...s, count: n, picked: [] };
-      // Caught here, before the seller taps n poses (D45); createJob checks again.
-      const balance = await deps.getBalance(ctx.userId);
-      if (n * (s.perImage ?? 0) > balance) return enter(next, 'NO_CREDITS', out, ctx, deps);
-      return enter(next, 'PICK_LOOKS', out, ctx, deps);
-    }
-
-    case 'PICK_LOOKS': {
-      if (action !== 'look' || !s.template?.looks.some((l) => l.id === value)) return reprompt();
+      const perImage = s.perImage ?? 0;
+      // Not a re-render: re-sending the carousel after every tap would bury the
+      // chat. The nonce stays, so every earlier Generate button acts on the
+      // current selection.
+      const status = (picks: string[]): OutboundMessage =>
+        buttons(s, COPY.selected(picks.length, picks.length * perImage), [
+          ['generate', '', COPY.btnGenerate],
+          ['clear', '', COPY.btnClear],
+        ]);
+      if (action === 'clear') {
+        out.push(status([]));
+        return { session: { ...s, picked: [] }, messages: out };
+      }
+      if (action === 'generate') {
+        if (s.picked.length === 0) {
+          out.push(text(COPY.pickAtLeastOne));
+          return { session: s, messages: out };
+        }
+        // Tapping Generate is the agreement to spend (D45). Caught here, before
+        // any run exists; createJob checks again.
+        const balance = await deps.getBalance(ctx.userId);
+        if (s.picked.length * perImage > balance) return enter(s, 'NO_CREDITS', out, ctx, deps);
+        return generate(s, s.picked, out, ctx, deps);
+      }
+      const inPool = (s.templates ?? []).some((t) => t.looks.some((l) => l.id === value));
+      if (action !== 'look' || !inPool) return reprompt();
       if (s.picked.includes(value)) {
-        out.push(text(COPY.lookAlreadyAdded));
+        const without = s.picked.filter((id) => id !== value);
+        out.push(status(without));
+        return { session: { ...s, picked: without }, messages: out };
+      }
+      if (s.picked.length >= MAX_PICKS) {
+        out.push(text(COPY.pickCap(MAX_PICKS)));
         return { session: s, messages: out };
       }
-      const next: Session = { ...s, picked: [...s.picked, value] };
-      const count = s.count ?? 1;
-      // Choosing the count was the agreement to spend (D45): the last pick starts the run.
-      if (next.picked.length >= count) return generate(next, next.picked, out, ctx, deps);
-      // Not a re-render: re-sending the carousel after every tap would bury the chat.
-      out.push(
-        buttons(next, COPY.lookAdded(next.picked.length, count), [
-          ['restart', '', COPY.btnStartOver],
-        ]),
-      );
-      return { session: next, messages: out };
+      const next = [...s.picked, value];
+      out.push(status(next));
+      return { session: { ...s, picked: next }, messages: out };
     }
 
     case 'DELIVERED': {
-      if (action === 'more_poses') return enter(picksCleared(s), 'ASK_POSE_COUNT', out, ctx, deps);
+      if (action === 'more_poses') return enter(picksCleared(s), 'PICK_LOOKS', out, ctx, deps);
       if (action === 'retry') {
-        const failed = new Set(s.failedPoseIds ?? []);
-        const looks = s.template?.looks ?? [];
-        const ids = s.picked.filter((id) =>
-          failed.has(looks.find((l) => l.id === id)?.poseId ?? ''),
-        );
+        const ids = retryLookIds(s);
         if (ids.length === 0) return reprompt();
         // The dispatcher already refunded the failed images; this is a fresh,
         // priced run of only those looks.
@@ -491,6 +568,39 @@ const NEW_PHOTO_STATES: State[] = [
   'DELIVERED',
 ];
 
+// What a session saved before 2026-10-14 may still carry.
+type LegacySession = Session & {
+  template?: unknown;
+  count?: number;
+  runId?: string;
+  runImages?: number;
+  failedPoseIds?: string[];
+};
+
+/**
+ * A session saved by the single-template engine. One that was generating or
+ * delivered becomes a one-run list, so a seller mid-run at deploy still gets
+ * their closing message. One that was still picking has no pool to tap against;
+ * null starts it over like an expired session.
+ */
+function upgradeSession(prev: Session): Session | null {
+  const old = prev as LegacySession;
+  if (old.runId === undefined) {
+    return old.template === undefined && old.count === undefined ? prev : null;
+  }
+  const { template: _t, count: _c, runId, runImages, failedPoseIds, ...rest } = old;
+  return {
+    ...rest,
+    runs: [
+      {
+        runId,
+        images: runImages ?? 0,
+        ...(failedPoseIds ? { finished: true, failedPoseIds } : {}),
+      },
+    ],
+  };
+}
+
 /**
  * The whole conversation as one deterministic step: (session, event) → (session,
  * messages). No I/O of its own — everything goes through `deps` (D33), so it is
@@ -503,15 +613,15 @@ export async function handle(
   deps: EngineDeps,
 ): Promise<EngineResult> {
   const out: Out = [];
-  if (!prev) {
-    const s = await freshSession(ctx.userId, deps);
+  const s = prev ? upgradeSession(prev) : null;
+  if (!s) {
+    const fresh = await freshSession(ctx.userId, deps);
     if (event.type === 'reply') out.push(text(COPY.sessionExpired));
     // A first photo starts a catalog straight away (spec section 8).
     if (event.type === 'image')
-      return enter({ ...s, garmentKey: event.garmentKey }, 'ASK_GENDER', out, ctx, deps);
-    return render(s, out, ctx, deps);
+      return enter({ ...fresh, garmentKey: event.garmentKey }, 'ASK_GENDER', out, ctx, deps);
+    return render(fresh, out, ctx, deps);
   }
-  const s = prev;
 
   switch (event.type) {
     case 'text': {
@@ -546,7 +656,7 @@ export async function handle(
           const next = { ...s, photos: { ...s.photos, [slot]: event.garmentKey } };
           return enter(
             next,
-            firstMissingSlot(next) ? 'ASK_EXTRA_PHOTO' : 'ASK_POSE_COUNT',
+            firstMissingSlot(next) ? 'ASK_EXTRA_PHOTO' : 'PICK_LOOKS',
             out,
             ctx,
             deps,
@@ -567,15 +677,25 @@ export async function handle(
       // A run from an older session (the seller started another catalog
       // meanwhile) still gets its images (plan 3 sends them by run, not by
       // session), but no buttons here.
-      if (s.runId !== event.runId) return { session: s, messages: out };
-      if (event.failedPoseIds.length > 0)
-        out.push(text(COPY.partlyFailed(event.failedPoseIds.length, event.images)));
-      return enter({ ...s, failedPoseIds: event.failedPoseIds }, 'DELIVERED', out, ctx, deps);
+      const runs = s.runs ?? [];
+      const mine = runs.find((r) => r.runId === event.runId);
+      if (!mine || mine.finished) return { session: s, messages: out };
+      const updated = runs.map((r) =>
+        r.runId === event.runId ? { ...r, finished: true, failedPoseIds: event.failedPoseIds } : r,
+      );
+      const next: Session = { ...s, runs: updated };
+      // The closing message waits for the last run of the Generate (spec section 4).
+      if (!updated.every((r) => r.finished)) return { session: next, messages: out };
+      const failed = updated.reduce((n, r) => n + (r.failedPoseIds?.length ?? 0), 0);
+      const images = updated.reduce((n, r) => n + r.images, 0);
+      if (failed > 0) out.push(text(COPY.partlyFailed(failed, images)));
+      return enter(next, 'DELIVERED', out, ctx, deps);
     }
 
     case 'creditsAdded':
       out.push(text(COPY.creditsAdded(event.credits)));
-      if (s.state === 'NO_CREDITS') return enter(picksCleared(s), 'ASK_POSE_COUNT', out, ctx, deps);
+      // Back to the cards with the selection kept (spec section 6).
+      if (s.state === 'NO_CREDITS') return enter(s, 'PICK_LOOKS', out, ctx, deps);
       return { session: s, messages: out };
   }
 }

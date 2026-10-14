@@ -11,6 +11,9 @@ export const COPY = {
   btnMorePoses: 'More poses',
   btnRetryFailed: 'Retry failed',
   btnSelect: 'Select',
+  btnChangeGarment: 'Change garment',
+  btnGenerate: 'Generate',
+  btnClear: 'Clear',
   listChoose: 'Choose',
   moreOptions: 'More options:',
 
@@ -30,15 +33,15 @@ export const COPY = {
     lowerFront: (label: string | null) => `Now send a photo of the ${label ?? 'lower garment'}.`,
     third: (label: string | null) => `Now send a photo of the ${label ?? 'third garment'}.`,
   },
-  askCount: (balance: number) => `How many poses do you want? Your balance: ${balance} credits.`,
-  // At most "9 poses · 999 credits" (21 characters).
-  countRow: (n: number, credits: number) =>
-    `${n} ${n === 1 ? 'pose' : 'poses'} · ${credits} credits`,
-  rowChangeGarment: 'Wrong garment? Change',
-  pickLooks: (count: number) =>
-    `Tap ${count} ${count === 1 ? 'pose' : 'poses'}. Generation starts after the last one.`,
-  lookAdded: (k: number, n: number) => `Added, ${k} of ${n}.`,
-  lookAlreadyAdded: 'That pose is already added.',
+  pickPrompt: (perImage: number, balance: number) =>
+    `Pick the poses you want. Each one is ${perImage} credits. Your balance: ${balance} credits.`,
+  pickCards: 'Tap a pose to select it. Tap it again to remove it.',
+  pickFooter: 'Select poses above, then tap Generate.',
+  selected: (n: number, credits: number) => `${n} selected · ${credits} credits`,
+  pickAtLeastOne: 'Tap at least one pose first.',
+  pickCap: (max: number) => `You can generate up to ${max} poses at a time.`,
+  partlyStarted: (started: number, total: number, reason: string) =>
+    `Started ${started} of ${total} ${total === 1 ? 'image' : 'images'}. The rest couldn't start: ${reason}`,
   noCredits: (pricing: string) =>
     `You don't have enough credits for this. Buy more on the website, then come back: ${pricing}`,
   creditsAdded: (n: number) => `${n} credits added.`,

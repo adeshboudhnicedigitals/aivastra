@@ -100,26 +100,27 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
     // of why a seller was told a type "isn't available on WhatsApp yet".
     reportUnavailable: (report) => app.log.info(report, 'whatsapp: garment type not offered'),
 
-    async getTemplate(gender, garmentTypeId): Promise<TemplateOption | null> {
-      // Already in admin sort order, and already without looks whose pose,
-      // background or workflow is inactive (the studio's query).
+    async getTemplates(gender, garmentTypeId): Promise<TemplateOption[]> {
+      // Every active template for the type, already in admin sort order and
+      // already without looks whose pose, background or workflow is inactive
+      // (the studio's query). The engine pools them (spec 2026-10-14, P2).
       const { items } = await listCatalogueTemplates(app, { gender, garmentTypeId });
-      const t = items[0];
-      if (!t) return null;
-      return {
-        id: t.id,
-        mappingId: t.mappingId,
-        looks: t.looks.map((l) => ({
-          id: l.id,
-          poseId: l.poseId,
-          backgroundId: l.backgroundId,
-          label: l.poseLabel,
-          imageUrl: l.poseThumbnailUrl,
-          hasUpper: l.hasUpper,
-          hasLower: l.hasLower,
-          hasShoes: l.hasShoes,
-        })),
-      };
+      return items.map(
+        (t): TemplateOption => ({
+          id: t.id,
+          mappingId: t.mappingId,
+          looks: t.looks.map((l) => ({
+            id: l.id,
+            poseId: l.poseId,
+            backgroundId: l.backgroundId,
+            label: l.poseLabel,
+            imageUrl: l.poseThumbnailUrl,
+            hasUpper: l.hasUpper,
+            hasLower: l.hasLower,
+            hasShoes: l.hasShoes,
+          })),
+        }),
+      );
     },
 
     async getDefaultFaceId(gender, garmentTypeId) {
