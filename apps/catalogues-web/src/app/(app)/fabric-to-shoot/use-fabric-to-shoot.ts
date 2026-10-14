@@ -469,16 +469,25 @@ export function useFabricToShoot() {
           ? 'Select a background to continue'
           : hasGarmentType && poseIds.length === 0
             ? 'Select at least one pose to continue'
-            : insufficientCredits
-              ? `You need at least ${creditsCost} credits and have ${balance}. Top up to continue.`
-              : undefined;
+            : hasGarmentType &&
+                needsAccessory &&
+                accessoryCategories.length > 0 &&
+                visibleAccessoryIds.length === 0
+              ? 'Select at least one accessory to continue'
+              : insufficientCredits
+                ? `You need at least ${creditsCost} credits and have ${balance}. Top up to continue.`
+                : undefined;
 
   const canSubmit =
     !!r2Key &&
     !!presetId &&
     !pipelineRunning &&
     !insufficientCredits &&
-    (!hasGarmentType || (!!faceId && !!backgroundId && poseIds.length > 0));
+    (!hasGarmentType ||
+      (!!faceId &&
+        !!backgroundId &&
+        poseIds.length > 0 &&
+        (!needsAccessory || accessoryCategories.length === 0 || visibleAccessoryIds.length > 0)));
 
   async function submit() {
     if (!canSubmit) return;

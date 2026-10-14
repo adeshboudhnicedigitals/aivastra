@@ -1130,8 +1130,10 @@ export default function StudioPage(): React.ReactElement {
     catalogueTemplateId === 'custom'
       ? selectedPoses.some((p) => p.hasShoes)
       : selectedLooks.some((l) => l.hasShoes);
-  // Always optional: the step only appears when a selected pose's workflow maps an
-  // accessory node, and never gates submission.
+  // The step only appears when a selected pose's workflow maps an accessory node.
+  // Unlike lower/shoe there's no default to fall back on, so once the step is
+  // showing at least one category, canGenerate requires an actual pick (see below) —
+  // there's nothing sensible to auto-stack otherwise.
   const needsAccessory =
     catalogueTemplateId === 'custom'
       ? selectedPoses.some((p) => p.hasAccessory)
@@ -1904,6 +1906,7 @@ export default function StudioPage(): React.ReactElement {
     (!needsLowerBack || (lowerOnlyIsBack ? !!upperGarmentBackKey : !!lowerGarmentBackKey)) &&
     (!requiresThirdUpload || !!thirdGarmentKey) &&
     (!sareeTwoInputActive || !!palluGarmentKey) &&
+    (!needsAccessory || accessoryCategories.length === 0 || visibleAccessoryIds.length > 0) &&
     !!faceId &&
     (catalogueTemplateId === 'custom' ? !!backgroundId : true) &&
     customDimsReady &&
@@ -1940,13 +1943,17 @@ export default function StudioPage(): React.ReactElement {
                 ? 'Upload the third garment image first'
                 : sareeTwoInputActive && !palluGarmentKey
                   ? 'Upload the pallu image first'
-                  : selectedCount === 0
-                    ? catalogueTemplateId === 'custom'
-                      ? 'Select at least one pose'
-                      : 'Select at least one look'
-                    : !customDimsReady
-                      ? 'Enter a valid width and height'
-                      : '';
+                  : needsAccessory &&
+                      accessoryCategories.length > 0 &&
+                      visibleAccessoryIds.length === 0
+                    ? 'Select at least one accessory'
+                    : selectedCount === 0
+                      ? catalogueTemplateId === 'custom'
+                        ? 'Select at least one pose'
+                        : 'Select at least one look'
+                      : !customDimsReady
+                        ? 'Enter a valid width and height'
+                        : '';
 
   // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
   // are always visible and keep their static stepNumber. Everything after that is
