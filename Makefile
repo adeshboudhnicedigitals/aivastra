@@ -1,7 +1,7 @@
 # Aivastra — Makefile shortcuts
 # Requires: pnpm, docker, node >=20
 
-.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev shopify-deploy-staging shopify-dev shopify-dev-dev export-prod-snapshot sync-prod-snapshot wordpress-plugin-zip
+.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev shopify-deploy-staging shopify-dev shopify-dev-dev export-prod-snapshot sync-prod-snapshot whatsapp-tunnel-setup whatsapp-tunnel wordpress-plugin-zip
 
 setup:
 	cp .env.example .env
@@ -85,6 +85,17 @@ export-prod-snapshot:
 # -- see docs/local-dev-snapshot-runbook.md.
 sync-prod-snapshot:
 	bash scripts/local-sync/pull-prod-snapshot.sh
+
+# Fixed public URLs so Meta can reach a local stack for WhatsApp bot testing:
+# wa-dev-api.aivastra.com -> api :4000, wa-dev-minio.aivastra.com -> MinIO :9000.
+# Windows only (cloudflared under Program Files). whatsapp-tunnel-setup is
+# one-time and adds two DNS records to the aivastra.com zone; whatsapp-tunnel
+# runs it until Ctrl+C. See the header of scripts/local-sync/whatsapp-dev-tunnel.ps1.
+whatsapp-tunnel-setup:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-sync/whatsapp-dev-tunnel.ps1 -Setup
+
+whatsapp-tunnel:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-sync/whatsapp-dev-tunnel.ps1
 
 shopify-deploy:
 	cd apps/shopify-extension && npx shopify app deploy --allow-updates

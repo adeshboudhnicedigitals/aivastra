@@ -56,6 +56,9 @@ export function buildCsp(nonce: string): string {
       // tunnel host is random per run, so this allow-lists the wildcard
       // rather than one hardcoded hostname; dev-only, never shipped to prod.
       ...(isDev ? ['https://*.trycloudflare.com'] : []),
+      // Fixed-name tunnel to local MinIO for WhatsApp bot testing
+      // (make whatsapp-tunnel); dev-only, like the quick tunnel above.
+      ...(isDev ? ['https://wa-dev-minio.aivastra.com'] : []),
     ],
     // Catalog-video (PixVerse) job results are .mp4 — <video src> falls under
     // media-src, not img-src, and this directive was never added when that
@@ -71,6 +74,7 @@ export function buildCsp(nonce: string): string {
       'https://app.aivastra.com',
       ...(apiOrigin ? [apiOrigin] : []),
       ...(isDev ? ['https://*.trycloudflare.com'] : []),
+      ...(isDev ? ['https://wa-dev-minio.aivastra.com'] : []), // fixed tunnel — see img-src
     ],
     'font-src': ["'self'", 'data:'],
     'connect-src': [
@@ -92,6 +96,7 @@ export function buildCsp(nonce: string): string {
       ...(sentryOrigin ? [sentryOrigin] : []),
       ...(isDev ? ['ws://127.0.0.1:*', 'ws://localhost:*'] : []), // Next dev HMR websocket
       ...(isDev ? ['https://*.trycloudflare.com'] : []), // local cloudflared quick tunnel — see img-src
+      ...(isDev ? ['https://wa-dev-minio.aivastra.com'] : []), // fixed tunnel — see img-src
     ],
     // youtube.com (not youtube-nocookie.com) — matches the embed URL host used
     // by both the Tutorials page and the Try-On demo video.
