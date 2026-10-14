@@ -705,6 +705,7 @@ export default function StudioPage(): React.ReactElement {
   const poseVisibleCount = categoryVisibleCount;
   const lowerVisibleCount = categoryVisibleCount;
   const shoeVisibleCount = categoryVisibleCount;
+  const accessoryVisibleCount = categoryVisibleCount;
   const [modelModalOpen, setModelModalOpen] = useState(false);
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
   const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | string>('');
@@ -724,6 +725,7 @@ export default function StudioPage(): React.ReactElement {
   const [accessoryCatalogIds, setAccessoryCatalogIds] = useState<string[]>([]);
   const [lowerItemsOpen, setLowerItemsOpen] = useState(false);
   const [shoeItemsOpen, setShoeItemsOpen] = useState(false);
+  const [accessoryItemsOpen, setAccessoryItemsOpen] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -1301,6 +1303,7 @@ export default function StudioPage(): React.ReactElement {
   );
   const [lowerItemFilter, setLowerItemFilter] = useState<number | ''>('');
   const [shoeItemFilter, setShoeItemFilter] = useState<number | ''>('');
+  const [accessoryItemFilter, setAccessoryItemFilter] = useState<number | ''>('');
 
   async function handleGarmentUpload(file: File) {
     if (isUploading) return;
@@ -4686,7 +4689,12 @@ export default function StudioPage(): React.ReactElement {
                   categories={accessoryCategories}
                   selectedIds={accessoryCatalogIds}
                   stepNumber={stepNumberOf('accessory')}
+                  visibleCount={accessoryVisibleCount}
                   onToggle={toggleAccessory}
+                  onViewAll={() => {
+                    setAccessoryItemFilter('');
+                    setAccessoryItemsOpen(true);
+                  }}
                 />
               )}
 
@@ -5659,6 +5667,120 @@ export default function StudioPage(): React.ReactElement {
                         imageUrl={i.thumbnailUrl}
                         w="100%"
                         ratio={215.2 / 212.67}
+                        borderWidth={3}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+      {/* Accessory items modal — categories act as filters */}
+      {accessoryItemsOpen &&
+        (() => {
+          const filteredEntries =
+            accessoryItemFilter === ''
+              ? accessoryCategories.flatMap((c) =>
+                  c.items.map((item) => ({ item, categoryId: c.id })),
+                )
+              : (accessoryCategories.find((c) => c.id === accessoryItemFilter)?.items ?? []).map(
+                  (item) => ({ item, categoryId: accessoryItemFilter as number }),
+                );
+          return (
+            // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
+            <div
+              role="presentation"
+              style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(0,0,0,0.4)',
+                zIndex: 1000,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onClick={() => setAccessoryItemsOpen(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setAccessoryItemsOpen(false);
+              }}
+            >
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
+              <div
+                style={{
+                  background: C.white,
+                  borderRadius: 12,
+                  padding: 24,
+                  width: 1180,
+                  height: 857,
+                  maxWidth: '90vw',
+                  maxHeight: '90vh',
+                  overflowY: 'auto',
+                  boxSizing: 'border-box',
+                  boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={() => {}}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 16,
+                  }}
+                >
+                  <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+                    Accessories
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setAccessoryItemsOpen(false)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: C.mid,
+                    }}
+                  >
+                    <XIcon size={20} />
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                  <button
+                    type="button"
+                    onClick={() => setAccessoryItemFilter('')}
+                    style={pill(accessoryItemFilter === '')}
+                  >
+                    All
+                  </button>
+                  {accessoryCategories.map((category) => (
+                    <button
+                      type="button"
+                      key={category.id}
+                      onClick={() => setAccessoryItemFilter(category.id)}
+                      style={pill(accessoryItemFilter === category.id)}
+                    >
+                      {category.label}
+                    </button>
+                  ))}
+                </div>
+                {filteredEntries.length === 0 ? (
+                  <p style={{ fontSize: 14, color: C.mid }}>No items in this category yet.</p>
+                ) : (
+                  <div className="studio-5col-grid">
+                    {filteredEntries.map(({ item, categoryId }) => (
+                      <SelCard
+                        key={item.id}
+                        selected={accessoryCatalogIds.includes(item.id)}
+                        onClick={() => toggleAccessory(categoryId, item.id)}
+                        imageUrl={item.thumbnailUrl}
+                        w="100%"
+                        ratio={1}
                         borderWidth={3}
                       />
                     ))}
