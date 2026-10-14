@@ -127,6 +127,16 @@ export interface Quote {
   balance: number;
 }
 
+export interface UnavailableReport {
+  gender: Gender;
+  garmentTypeId: string;
+  // no_eligible_looks: the template exists, but every look needs a lower or
+  // shoe the type has no default for (D49), or needs an upper it lacks.
+  reason: 'no_face' | 'no_template' | 'no_eligible_looks';
+  templateId?: string;
+  templateLooks?: number;
+}
+
 export interface EngineDeps {
   newNonce(): string;
   getUserDefaults(userId: string): Promise<{ aspectRatio: AspectRatio; resolution: Resolution }>;
@@ -139,6 +149,9 @@ export interface EngineDeps {
     gender: Gender,
   ): Promise<{ garmentTypeId: string; label: string } | null>;
   recordRecognitionCorrected(): void;
+  // Why a garment type could not be offered. The seller only sees "not
+  // available"; this is the admin-facing reason (logged, never shown).
+  reportUnavailable(report: UnavailableReport): void;
   // The top-sorted active template for the type (D43), or null.
   getTemplate(gender: Gender, garmentTypeId: string): Promise<TemplateOption | null>;
   // The first active face for the gender and type in admin order (D43), or null.

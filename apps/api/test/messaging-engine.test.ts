@@ -172,16 +172,24 @@ describe('engine: photo, gender and garment type', () => {
     expect(r.session.state).toBe('MAIN_MENU');
   });
 
-  it('no template or no face for the type also gets the web-studio message', async () => {
-    for (const over of [
-      { getTemplate: async () => null },
-      { getDefaultFaceId: async () => null },
-    ]) {
-      const { deps } = fakeDeps(over);
+  it('no template, no face, or no eligible look gets the web-studio message, and the reason is reported', async () => {
+    // The seller only sees "not available"; the reason goes to the log, so an
+    // admin-data gap (no face, no template, every look needing a missing default
+    // lower/shoe under D49) is found without stepping through the engine.
+    const shoeOnly = { ...TEMPLATE, looks: [look('s', { hasShoes: true })] };
+    for (const [over, reason] of [
+      [{ getTemplate: async () => null }, 'no_template'],
+      [{ getDefaultFaceId: async () => null }, 'no_face'],
+      [{ getTemplate: async () => shoeOnly }, 'no_eligible_looks'],
+    ] as const) {
+      const { deps, calls } = fakeDeps(over);
       const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
       const r = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
       expect(texts(r.messages)[0]).toMatch(/^Shirt catalogs aren't available on WhatsApp yet/);
       expect(r.session.state).toBe('MAIN_MENU');
+      expect(calls.unavailable).toEqual([
+        expect.objectContaining({ gender: 'women', garmentTypeId: 'gt-shirt', reason }),
+      ]);
     }
   });
 

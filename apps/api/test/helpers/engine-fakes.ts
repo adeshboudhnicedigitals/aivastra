@@ -6,6 +6,7 @@ import type {
   TemplateLook,
   TemplateOption,
   TryonBody,
+  UnavailableReport,
 } from '../../src/modules/messaging/engine/types';
 
 export const CTX: EngineContext = { userId: 'user-1', accountId: 'acct-1', messageId: 'wamid.1' };
@@ -49,6 +50,7 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     createRun: [] as TryonBody[],
     recognize: [] as { garmentKey: string; gender: string }[],
     corrected: 0,
+    unavailable: [] as UnavailableReport[],
   };
   const deps: EngineDeps = {
     newNonce: () => `n${++n}`,
@@ -61,6 +63,9 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     },
     recordRecognitionCorrected: () => {
       calls.corrected++;
+    },
+    reportUnavailable: (r) => {
+      calls.unavailable.push(r);
     },
     getTemplate: async () => TEMPLATE,
     getDefaultFaceId: async () => 'face-1',

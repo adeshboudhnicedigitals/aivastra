@@ -133,10 +133,22 @@ function cardsMsgs(
  */
 async function loadTemplate(s: Session, deps: EngineDeps): Promise<Session | null> {
   if (!s.gender || !s.garmentType) return null;
-  const t = await deps.getTemplate(s.gender, s.garmentType.id);
-  if (!t) return null;
+  const at = { gender: s.gender as Gender, garmentTypeId: s.garmentType.id };
+  const t = await deps.getTemplate(at.gender, at.garmentTypeId);
+  if (!t) {
+    deps.reportUnavailable({ ...at, reason: 'no_template' });
+    return null;
+  }
   const { lowerOnly, looks } = eligibleLooks(s.garmentType, t.looks);
-  if (looks.length === 0) return null;
+  if (looks.length === 0) {
+    deps.reportUnavailable({
+      ...at,
+      reason: 'no_eligible_looks',
+      templateId: t.id,
+      templateLooks: t.looks.length,
+    });
+    return null;
+  }
   const ids = new Set(looks.map((l) => l.id));
   return {
     ...s,
@@ -181,6 +193,9 @@ async function chooseGarmentType(
     recognized,
     faceId: faceId ?? undefined,
   };
+  if (!faceId) {
+    deps.reportUnavailable({ gender: s.gender as Gender, garmentTypeId: gt.id, reason: 'no_face' });
+  }
   const loaded = faceId ? await loadTemplate(withType, deps) : null;
   if (!loaded) return notAvailable(s, gt.label, out, ctx, deps);
   if (recognized) out.push(text(COPY.detected(gt.label)));

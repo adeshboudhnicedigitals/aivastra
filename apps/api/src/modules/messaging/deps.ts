@@ -106,6 +106,9 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
 
     recognizeGarment: (garmentKey, gender) => recognizeGarment(app, garmentKey, gender),
     recordRecognitionCorrected,
+    // Info, not warn: it is admin data, not a fault, but it is the only trace
+    // of why a seller was told a type "isn't available on WhatsApp yet".
+    reportUnavailable: (report) => app.log.info(report, 'whatsapp: garment type not offered'),
 
     async getTemplate(gender, garmentTypeId): Promise<TemplateOption | null> {
       // Already in admin sort order, and already without looks whose pose,
