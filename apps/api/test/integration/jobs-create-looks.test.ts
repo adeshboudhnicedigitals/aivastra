@@ -891,7 +891,7 @@ describe('createJob — atomic multi-background looks[] form', () => {
     expect(inputsRow?.backgroundId).toBe(bgAId);
   });
 
-  it('legacy backgroundId+poseIds form still applies the Amazon white-bg override', async () => {
+  it('legacy backgroundId+poseIds form keeps the chosen background for Amazon (D30)', async () => {
     await seedCreditPlan('free', false);
     const { token, userId } = await registerUser('looks-legacy-amazon@x.com');
     await grantCredits(userId, 100);
@@ -927,7 +927,10 @@ describe('createJob — atomic multi-background looks[] form', () => {
       .select()
       .from(schema.jobInputs)
       .where(eq(schema.jobInputs.jobId, jobIds[0]));
-    expect(inputsRow?.backgroundId).toBe(whiteBg.id);
+    // The override is gone: Amazon gets the background the seller picked, even
+    // though a white background is configured.
+    expect(inputsRow?.backgroundId).toBe(bgAId);
+    expect(inputsRow?.backgroundId).not.toBe(whiteBg.id);
   });
 
   it('rolls back the whole batch (no partial charge) when one background is inactive', async () => {
