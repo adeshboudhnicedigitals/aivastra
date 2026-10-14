@@ -2,6 +2,40 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-14 — WhatsApp bot: fixed public dev URLs, 5 MB image fit, fixed 3:4 / 2K, Cloudflare state
+
+- **Done (code, `feat/whatsapp-catalog-bot`, each with a failing-first test):** results over
+  Meta's 5 MB image limit are re-encoded before upload (`channels/whatsapp/media.ts`; Meta
+  returned `(#100) Invalid parameter`, "File too large", and the delivery loop retried
+  forever); a single pose is one image-header button message (WhatsApp had reordered the
+  old two-message version); the engine logs why a garment type is "not available on
+  WhatsApp yet" (`no_face` / `no_template` / `no_eligible_looks`); every bot run is 3:4 at
+  2K, falling back to the cheapest enabled tier (`messaging/deps.ts`, spec D43); and the
+  engine now re-reads that shape on **every** message, because a session lives 24 h, every
+  message extends it, and a chat saved before the switch kept generating at `1:1`. Dev
+  tooling: `scripts/local-sync/whatsapp-dev-tunnel.ps1` plus `make whatsapp-tunnel-setup` /
+  `make whatsapp-tunnel` (named tunnel, fixed hostnames); the web studio CSP allows the
+  tunnel host in dev only.
+- **State outside the repo (Cloudflare, zone `aivastra.com`):** named tunnel `aivastra-wa-dev`
+  (id `70824fb8-0c97-4daa-8e65-f6540bb4090b`): `wa-dev-api.aivastra.com` → `127.0.0.1:4000`,
+  `wa-dev-minio.aivastra.com` → `127.0.0.1:9000` with `httpHostHeader 127.0.0.1:9000` (keeps
+  presigned signatures valid). The same account's `comfyui-w8` tunnel is unrelated. Hotlink
+  Protection (error 1011) blocked image paths on `wa-dev-minio` for foreign Referers; a custom
+  rule `wa-dev-minio: skip hotlink` (`http.host eq "wa-dev-minio.aivastra.com"`) fixes that and
+  must stay **above** the existing "options skip" rule (which skips the remaining custom
+  rules for OPTIONS/PUT `/minio/`).
+- **Verified:** first local end-to-end run delivered one image plus the closing message and
+  refunded the failed one; api typecheck clean; api unit 102 files / 934 passed
+  (`--no-file-parallelism`); messaging + whatsapp integration 7 files / 43 passed.
+- **Failed-Not-Done:** the new pose-selection flow has not been tapped through on a real
+  phone. Plan 5 Task 1's GPU spike kit is prepared but not run. Job `f6714104` failed because
+  workflow `two_piece_full_pose_10_09_2026` has a footwear node with no `shoe_node_id`
+  (local admin data: set the shoe node to `1280` and a default shoe on the garment type).
+- **Open Questions:** parallel vitest runs fail at random on the shared
+  `tryon_test_template` database (run the full api suite with `--no-file-parallelism`);
+  production read-only check: 99 active garment types all have a public slug, but none of the
+  141 catalogue templates is active.
+
 ## 2026-10-14 — WhatsApp pose selection across templates (docs)
 
 - **Done:** WhatsApp bot: the "how many poses" step is gone; the seller picks from every active

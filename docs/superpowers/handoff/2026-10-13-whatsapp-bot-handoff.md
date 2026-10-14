@@ -1,4 +1,4 @@
-# TEMPORARY handoff — WhatsApp catalog bot (2026-10-13)
+# TEMPORARY handoff — WhatsApp catalog bot (updated 2026-10-14)
 
 > Temporary. Exists only so the work can be resumed on another machine. Delete this
 > file once the branch is picked up again (the durable record is `docs/progress.md`,
@@ -6,12 +6,13 @@
 
 ## Where everything is
 
-- **Branch:** `feat/whatsapp-catalog-bot` — the single branch carrying all of it, a
-  straight line on top of `docs/whatsapp-catalog-bot-design` (spec + 5 plans).
-  The per-plan local branches (`feat/whatsapp-bot-1-…`, `-2-…`, `-3-…`) are its
-  ancestors and were not pushed; nothing is lost without them.
-- **Spec:** `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md`
-- **Plans:** `docs/superpowers/plans/2026-10-13-whatsapp-bot-{1..5}-*.md`
+- **Branch:** `feat/whatsapp-catalog-bot` — the single branch carrying all of it (plans
+  1–4, the pose-selection change, spec and plans). The per-plan local branches were
+  merged into it and deleted on 2026-10-14; nothing is lost without them.
+- **Specs:** `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md` (main) and
+  `docs/superpowers/specs/2026-10-14-whatsapp-pose-selection-design.md` (amends D43/D44/D45).
+- **Plans:** `docs/superpowers/plans/2026-10-13-whatsapp-bot-{1..5}-*.md` and
+  `docs/superpowers/plans/2026-10-14-whatsapp-pose-selection.md`.
 - **Latest status:** the top WhatsApp entries in `docs/progress.md`.
 
 ## Done (local verification only — nothing deployed)
@@ -19,18 +20,35 @@
 | Plan | State | Migration |
 |---|---|---|
 | 1 Connect and identity | implemented | `0224_wakeful_ink` (`messaging_accounts`) |
-| 2 Conversation engine (five-step flow, recognition client) | implemented | `0225_youthful_stingray` (`messaging_runs`) |
+| 2 Conversation engine | implemented | `0225_youthful_stingray` (`messaging_runs`) |
 | 3 WhatsApp adapter (webhook, renderer, inbound, delivery, hooks) | implemented up to Task 8's code; Task 8 manual staging steps NOT done | `0226_quick_pestilence` (two ADD COLUMNs) |
-| 4 Amazon white-background removal | **not started** (independent of the others) | — |
-| 5 Garment recognition on our GPU | **not started**; Task 1 is a manual GPU spike that gates the rest | — |
+| 4 Amazon white-background removal | implemented, merged into the branch | — |
+| Pose selection across templates (2026-10-14) | implemented (engine, tests, docs); **not yet tapped through on a real phone** | — |
+| 5 Garment recognition on our GPU | **Task 1 spike kit prepared, spike not run**; nothing else started | — |
 
-Last measured on this branch: api typecheck clean; api unit 99 files / 910 passed;
-api integration 168 files / 1271 passed. Lint: only the pre-existing
-`noNonNullAssertion` diagnostics in untouched `admin/*`.
+Last measured on this branch (2026-10-14): api typecheck clean; api unit 102 files / 934
+passed (run with `--no-file-parallelism`, see below); messaging + whatsapp integration
+7 files / 43 passed.
+
+**Test-run gotcha:** parallel vitest runs share one Postgres template database
+(`tryon_test_template`) and fail at random ("does not exist" / "being accessed by other
+users"). Never run two vitest processes at once; for the full api suite use
+`npx vitest run --no-file-parallelism`.
 
 Migration numbers: `origin/main` and `origin/dev` ended at `0223` when this was
 pushed. If either gains a `0224+` before this merges, renumber ours
 (`docs/version-control.md`).
+
+## What the bot does now (the flow changed on 2026-10-14)
+
+photo → gender → (garment type: list; recognition is off until plan 5) → required extra
+photos → **pose cards** → Generate. There is no "how many poses" step. The seller sees the
+poses of every active template for the garment type (10 cards per page, [More]), taps to
+select or un-select (max 20), every tap answers "N selected · X credits" with [Generate]
+[Clear]. A pick spanning templates starts one run per template (all groups quoted before
+the first charge). Every run is **3:4 at 2K** (falls back to the cheapest enabled tier if
+2K is off); the engine re-reads that on every message because a saved session otherwise
+kept the old shape for up to 24 h (found 2026-10-14: a chat still on 1:1).
 
 ## Meta spike results (plan 3 Task 1) — already applied in code
 
@@ -40,11 +58,10 @@ pushed. If either gains a `0224+` before this merges, renumber ours
   `interactive.quick_reply`). The parser treats a `button` payload that decodes as a
   reply id as a reply, else as a template button.
 - Production presigned MinIO links load in carousels (T3 = yes).
-- Upload-then-send-by-media-id works.
+- Upload-then-send-by-media-id works. Images over **5 MB** fail with `(#100) Invalid
+  parameter` ("File too large"); `channels/whatsapp/media.ts` re-encodes them.
 - Payloads now also carry `from_user_id` / `contacts[].user_id` beside `wa_id`.
   Future identity risk if Meta stops sending `wa_id` for username-only users.
-- Local dev: carousel images need a public URL — plan is a `cloudflared tunnel --url`
-  in front of local MinIO with `R2_PUBLIC_PRESIGN_BASE` pointed at it.
 - Meta's dashboard "Check test webhooks" panel (Use cases → Connect on WhatsApp →
   Step 1. Try it out) shows inbound payloads for the test number without any
   callback URL — easiest way to inspect tap shapes.
@@ -58,69 +75,76 @@ pushed. If either gains a `0224+` before this merges, renumber ours
 - Plan 2 spec loose end fixed in plan 3: delivery state lives in `messaging_runs`, not
   `job_inputs.params.channel`.
 
-## Local end-to-end test (2026-10-13/14) — where it stopped
+## Local end-to-end setup (works as of 2026-10-14)
 
-Local stack ran against the Meta test number with two `cloudflared` quick tunnels
-(api `:4000` for the webhook, MinIO `:9000` with `--http-host-header 127.0.0.1:9000` so
-presigned signatures still match; `R2_PUBLIC_PRESIGN_BASE` pointed at it). Quick-tunnel
-URLs change on every restart — update Meta's callback URL and `.env` each time, and put
-`R2_PUBLIC_PRESIGN_BASE` back to `http://127.0.0.1:9000` when done.
+- **Fixed public URLs** (named Cloudflare tunnel `aivastra-wa-dev`; do not touch the
+  other tunnel in that account, `comfyui-w8`): `wa-dev-api.aivastra.com` → api `:4000`
+  (Meta callback `https://wa-dev-api.aivastra.com/v1/whatsapp/webhook`),
+  `wa-dev-minio.aivastra.com` → MinIO `:9000` with `httpHostHeader 127.0.0.1:9000` so
+  presigned signatures stay valid. One-time `make whatsapp-tunnel-setup`, then
+  `make whatsapp-tunnel` each session (script `scripts/local-sync/whatsapp-dev-tunnel.ps1`).
+  `.env`: `R2_PUBLIC_PRESIGN_BASE=https://wa-dev-minio.aivastra.com`; put it back to
+  `http://127.0.0.1:9000` when not testing.
+- **Cloudflare (zone `aivastra.com`, state outside the repo):** Hotlink Protection
+  (error 1011) blocked image paths on `wa-dev-minio` when the Referer was another host
+  (the studio, Meta). Fixed with a custom rule `wa-dev-minio: skip hotlink`
+  (`http.host eq "wa-dev-minio.aivastra.com"`) that must sit **above** the existing
+  "options skip" rule, which skips the remaining custom rules for OPTIONS/PUT.
+- **Web studio CSP** (`apps/catalogues-web/src/lib/csp.ts`) allows the tunnel host in dev
+  only, so studio images load while the tunnel is the presign base.
+- **Meta:** the app must be subscribed to the WABA (`POST /{waba-id}/subscribed_apps`;
+  test WABA `1595318551521211`) — saving the callback URL is not enough. Temporary
+  tokens last ~1–2 h (a send failing with 401 = expired); a System User token is the fix.
+- **Local data:** the six local garment-type slugs were aligned to production's
+  (`full-sleeve-shirt-men`, …). Types with active templates locally: men
+  `full-sleeve-shirt-men`, women `full-sleeve-shirt-women` and `half-sleeve-shirt`, two
+  templates each.
+- A workflow that has a footwear node but no `shoe_node_id` fails the job
+  (`two_piece_full_pose_10_09_2026`, job `f6714104`): set the shoe node to `1280` in admin
+  and set a default shoe on the garment type.
 
-Reached: inbound webhook → stream → consumer → connect link → account linked → photo →
-gender → garment type → pose count → the 1-look pick message. **Stopped right before the
-"Select" tap**, so no job has been created or delivered locally yet.
+First local run (2026-10-14) delivered one image plus the closing message and refunded
+the failed one. Fixed during it, each with a test that failed first: log redaction of
+token-like query params, blank `WHATSAPP_GRAPH_VERSION`, template-editor `thumbnailUrl`
+and pose-label clashes, resolution fallback, single-look pick as one image-header message,
+the `reportUnavailable` log ("whatsapp: garment type not offered" with
+`no_face`/`no_template`/`no_eligible_looks`), the 5 MB image fit.
 
-What it took (none of this was in the plans):
+## Plan 5 spike kit (outside the repo)
 
-- **Meta: the app must be subscribed to the WABA.** Saving the callback URL in the
-  dashboard is not enough — only Meta's internal "WA DevX Webhook Events 1P App" was
-  subscribed, so nothing was delivered. Fixed with `POST /{waba-id}/subscribed_apps`
-  (test WABA `1595318551521211`). Staging/production need the same call.
-- **Meta: the developer account was blocked** ("unusual activity") mid-session; after
-  confirming it, the existing token could read but every send failed `#131005 Access
-  denied`. A freshly generated token fixed it. Temporary tokens last ~1–2 h here.
-- **Admin data the bot needs** (local DB was near-empty): a catalogue template for the
-  gender, mapped to the garment type, with a workflow per pose; and if that workflow has a
-  lower node, the garment type needs `default_lower_catalog_id` (D49 hides the look
-  otherwise and the bot says the type "isn't available on WhatsApp yet").
+`%LOCALAPPDATA%\Temp\opencode\whatsapp-plan5-spike\`: `garment_classify.json`,
+`run-spike.ps1`, `results-table.md`, `t20-production-readonly.sql`, plus per-gender
+`prompt-{boys,girls,men,women}.txt` built from the production slugs. Production read-only
+T20 result (2026-10-14): 99 active garment types (boys 16, girls 18, men 24, women 41), all
+with a public slug, **0 active catalogue templates** (141 exist, none active). The spike
+must run on a GPU worker that is not serving customers; gate is ≥17/20 correct and warm
+time ≤3 s. Not run yet.
 
-Fixed on this branch during the session (each with a test that failed first):
+## Open
 
-- Request logs no longer carry `hub.verify_token` or other token-like query values
-  (`@aivastra/logger` req serializer + `redactUrl`, also in the api error handler).
-- Blank `WHATSAPP_GRAPH_VERSION=` (as `.env.example` ships it) no longer aborts startup.
-- Catalogue-template editor: pose/background create responses now carry `thumbnailUrl`
-  (tiles stayed blank after a successful upload — production has the same bug), and a
-  template-scoped pose whose label is taken gets `-2`, `-3` … instead of a 409.
-- Bot resolution: falls back to the cheapest enabled tier when the seller's default is
-  disabled (HD is off by default; users default to HD).
-
-Open from the session:
-
-- ~~1-look pick UX~~ — fixed 2026-10-14: a single look is now one interactive button
-  message with the image as its header (`render.ts`), so it cannot arrive out of order.
-- Pick cards show the raw pose label (template uploads are named after the file, e.g. a
-  UUID); consider `displayName`.
-- ~~No reason logged when a type is "not available"~~ — fixed 2026-10-14: the engine calls
-  `deps.reportUnavailable` with `no_face` / `no_template` / `no_eligible_looks` (+ template
-  id and look count), logged at info as "whatsapp: garment type not offered".
+- Real-phone check of the pose-selection flow, including WhatsApp accepting the
+  [More]+[Generate]+[Clear] button message (three buttons, the maximum) on a type with
+  more than 10 poses.
+- Production has no active catalogue templates, so the bot cannot offer any type there
+  until admin activates some.
+- The paid "images are ready" template is sent per run when the 24 h window is closed (a
+  `batch_id` on `messaging_runs` would fix it).
+- A retry matches failed images by pose id, so a pose shared by two templates with
+  different backgrounds is retried in both.
+- Pick cards show the raw pose label (template uploads are named after the file); consider
+  `displayName`.
 - Admin copy in the pose "Map to garment types" dialog still says poses show on every
   garment type by default (stale since #523's opt-in change).
-
-- Pose selection across templates (2026-10-14 design): production has no active catalogue templates
-  yet, so the bot cannot offer any type there until admin activates some.
-- The paid "images are ready" template is sent per run when the 24 h window is closed (a `batch_id`
-  on `messaging_runs` would fix it).
-- A retry matches failed images by pose id, so a pose shared by two templates with different
-  backgrounds is retried in both.
+- `make sync-prod-snapshot` needs the operator to set up the `DEV_SNAPSHOT_*` variables.
+- Admin workflow-save check for unmapped LoadImage nodes (not requested yet).
 
 ## Next, in order
 
-1. **Manual, Meta side:** cancel the stray Facebook Login "Create a Configuration" wizard;
-   submit the `catalog_images_ready` template (Utility, `en`, body "Your Aivastra catalog
-   images are ready.", one quick-reply button "Show images") and record its approval.
-   (Access token and verify token were both rotated 2026-10-13.)
-2. Finish the local run: tap Select → job → dispatcher/worker → delivery back to WhatsApp.
+1. **Manual, Meta side:** submit the `catalog_images_ready` template (Utility, `en`, body
+   "Your Aivastra catalog images are ready.", one quick-reply button "Show images") and
+   record its approval. Consider a System User token.
+2. Real-phone walk-through of the new flow (see Open), then plan 5 Task 1 (the GPU spike) —
+   paste the filled results table into OpenCode.
 3. Review / PR `feat/whatsapp-catalog-bot` → `dev`; migrations ride CI/CD.
 4. Staging env on the VPS: `MESSAGING_WHATSAPP_ENABLED=true`, `WHATSAPP_DISPLAY_NUMBER`,
    `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET`,
@@ -128,12 +152,12 @@ Open from the session:
    default). Extend `scripts/staging/check-staging-env.sh` if needed. Secrets only on the
    VPS — never in chat or the repo.
 5. Point the Meta callback URL at staging (`/v1/whatsapp/webhook`), subscribe `messages`,
-   **and `POST /{waba-id}/subscribed_apps`** (see above), then run plan 3 Task 8 Step 6's
-   walkthrough; record results in `docs/progress.md`.
+   **and `POST /{waba-id}/subscribed_apps`**, then run plan 3 Task 8 Step 6's walkthrough;
+   record results in `docs/progress.md`.
 6. Not yet browser-checked: plan 1's Settings panel and studio chip. (The connect page
    worked in the 2026-10-13 local run.)
-7. Plan 4 (any time) and plan 5 (spike first) — same subagent-driven prompt pattern as
-   plans 1–3, each on its own branch from `feat/whatsapp-catalog-bot`.
+7. Plan 5 after its spike passes — same subagent-driven prompt pattern as plans 1–4, on its
+   own branch from `feat/whatsapp-catalog-bot`.
 8. Before production: production number + display-name approval, system-user permanent
    token, business verification of Nice Interactive.
 
