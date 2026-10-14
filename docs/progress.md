@@ -2,6 +2,29 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-14 — Amazon white-background override removed (D30)
+
+- **Done:** removed the Amazon white-background override in api (`apps/api/src/modules/jobs/create.ts`,
+  `resolveTryonPlan` no longer swaps the chosen background for the white-tagged one when `platform` is
+  `'Amazon'`). Simplified the two downstream `platform === 'Amazon'` branches: dispatcher log in
+  `apps/dispatcher/src/job/processor.ts` and admin job detail in
+  `apps/api/src/modules/admin/jobs.routes.ts` now use `model_backgrounds.r2Key` for every job. Removed
+  the dormant studio flow in `apps/catalogues-web/src/app/(app)/studio/page.tsx`; web Amazon jobs now
+  record `platform: 'Amazon'` instead of omitting it. Kept the `is_white_bg` tag, column, and admin
+  toggle/UI — no migration. Spec ref: D30 in
+  `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md`.
+- **User-visible change:** Android catalogue app and batch jobs — Amazon jobs now use the background the
+  seller chose.
+- **Verified 2026-10-14:** Task 1: `npx vitest run --config vitest.integration.config.ts jobs-create-looks`
+  (from apps/api) → 18/18 pass; api unit `pnpm --filter @aivastra/api test` → 91 files / 823 tests pass;
+  api typecheck clean. Task 2: dispatcher `pnpm --filter @aivastra/dispatcher test` → 14 files / 206 tests
+  pass; `npx vitest run --config vitest.integration.config.ts admin-job-detail-workflow admin-jobs` → 8
+  files / 40 tests pass; api typecheck + dispatcher tsc clean. Task 3:
+  `pnpm --filter @aivastra/web typecheck` clean, lint 0 diagnostics in `studio/page.tsx` (87 pre-existing
+  warnings elsewhere), `pnpm --filter @aivastra/web build` success (Next.js 15.5.18, 45 static pages).
+- **Rollout:** dispatcher and api must both deploy (Task 2 touches the dispatcher).
+- **Release note:** Android and batch Amazon jobs now keep the background the seller chose.
+
 ## 2026-10-12 — Refund auto-approve toggle (implemented, off by default)
 
 - **Done:** admin panel toggle for auto-approving customer refund requests, on branch
