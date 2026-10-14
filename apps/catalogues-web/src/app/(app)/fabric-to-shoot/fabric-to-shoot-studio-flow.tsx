@@ -75,6 +75,7 @@ export function FabricToShootStudioFlow({
   const [poseModalOpen, setPoseModalOpen] = useState(false);
   const [lowerModalOpen, setLowerModalOpen] = useState(false);
   const [shoeModalOpen, setShoeModalOpen] = useState(false);
+  const [accessoryModalOpen, setAccessoryModalOpen] = useState(false);
 
   // Lower/shoes are conditional — number them relative to the fixed steps
   // only when shown, same pattern as Studio's own stepNumberOf.
@@ -292,7 +293,9 @@ export function FabricToShootStudioFlow({
           categories={accessoryCategories}
           selectedIds={accessoryCatalogIds}
           stepNumber={accessoryStepNumber}
+          visibleCount={5}
           onToggle={onToggleAccessory}
+          onViewAll={() => setAccessoryModalOpen(true)}
         />
       )}
 
@@ -365,6 +368,38 @@ export function FabricToShootStudioFlow({
           onClose={() => setShoeModalOpen(false)}
         />
       )}
+      {accessoryModalOpen &&
+        (() => {
+          const accessoryItemCategory = new Map<string, number>();
+          const accessoryFlatItems = accessoryCategories.flatMap((category) =>
+            category.items.map((item) => {
+              accessoryItemCategory.set(item.id, category.id);
+              return { ...item, groupId: String(category.id) };
+            }),
+          );
+          return (
+            <SelectGridModal
+              title="Choose accessories"
+              items={accessoryFlatItems}
+              selectedIds={accessoryCatalogIds}
+              multiSelect
+              aspect={1}
+              hideLabels
+              continueLabel="Done"
+              groupOptions={accessoryCategories.map((category) => ({
+                id: String(category.id),
+                label: category.label,
+              }))}
+              groupOf={(item) => item.groupId}
+              allGroupsLabel="accessories"
+              onSelect={(id) => {
+                const categoryId = accessoryItemCategory.get(id);
+                if (categoryId !== undefined) onToggleAccessory(categoryId, id);
+              }}
+              onClose={() => setAccessoryModalOpen(false)}
+            />
+          );
+        })()}
     </>
   );
 }
