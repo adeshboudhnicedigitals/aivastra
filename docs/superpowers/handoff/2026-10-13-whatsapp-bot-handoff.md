@@ -97,13 +97,13 @@ Fixed on this branch during the session (each with a test that failed first):
 
 Open from the session:
 
-- **1-look pick UX:** with a single look the renderer sends an image and a separate
-  button message; WhatsApp delivered the button message first. Proposed: one interactive
-  button message with an image header. Not done.
+- ~~1-look pick UX~~ — fixed 2026-10-14: a single look is now one interactive button
+  message with the image as its header (`render.ts`), so it cannot arrive out of order.
 - Pick cards show the raw pose label (template uploads are named after the file, e.g. a
   UUID); consider `displayName`.
-- When no look survives the rules, the seller gets the generic "not available" text and
-  nothing is logged with the reason — a log line would have saved an hour here.
+- ~~No reason logged when a type is "not available"~~ — fixed 2026-10-14: the engine calls
+  `deps.reportUnavailable` with `no_face` / `no_template` / `no_eligible_looks` (+ template
+  id and look count), logged at info as "whatsapp: garment type not offered".
 - Admin copy in the pose "Map to garment types" dialog still says poses show on every
   garment type by default (stale since #523's opt-in change).
 
