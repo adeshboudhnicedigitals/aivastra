@@ -83,7 +83,13 @@ class _SignupPageState extends ConsumerState<SignupPage> {
     try {
       final account = await GoogleSignIn.instance.authenticate();
       final idToken = account.authentication.idToken;
-      if (idToken == null) return;
+      if (idToken == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Google sign-in failed.')),
+        );
+        return;
+      }
 
       final success = await ref
           .read(loginViewModelProvider.notifier)
@@ -96,6 +102,15 @@ class _SignupPageState extends ConsumerState<SignupPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.description ?? 'Google sign-in failed.')),
       );
+    } catch (e) {
+      // Credential Manager can throw outside GoogleSignInException (e.g. a
+      // platform/runtime error from the native layer) — surfacing it here
+      // instead of failing silently is what caught the release-build R8
+      // class-stripping bug (see proguard-rules.pro).
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Google sign-in failed.')));
     }
   }
 
