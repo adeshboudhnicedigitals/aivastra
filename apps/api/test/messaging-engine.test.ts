@@ -537,6 +537,20 @@ describe('engine: generating', () => {
     expect(calls.createRun).toHaveLength(0);
   });
 
+  it('a session saved with an older shape still generates at the bot shape', async () => {
+    // Sessions live 24 h and every message extends them, so one created before the
+    // switch to 3:4 / 2K must not keep its 1:1 / HD.
+    const { deps, calls } = fakeDeps({
+      getUserDefaults: async () => ({ aspectRatio: '3:4', resolution: '2K' }),
+    });
+    const { r } = await pickLooks(deps, ['a']);
+    const stale = { ...r.session, aspectRatio: '1:1' as const, resolution: 'HD' as const };
+    const out = await handle(stale, tap(r, 'generate'), CTX, deps);
+    expect(out.session.state).toBe('GENERATING');
+    expect(calls.createRun[0]).toMatchObject({ aspectRatio: '3:4', resolution: '2K' });
+    expect(out.session).toMatchObject({ aspectRatio: '3:4', resolution: '2K' });
+  });
+
   it('a look with a lower slot gets the type default lower', async () => {
     const { deps, calls } = fakeDeps();
     await generated(deps, ['b']);

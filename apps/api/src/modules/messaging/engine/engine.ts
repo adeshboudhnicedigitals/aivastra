@@ -613,8 +613,8 @@ export async function handle(
   deps: EngineDeps,
 ): Promise<EngineResult> {
   const out: Out = [];
-  const s = prev ? upgradeSession(prev) : null;
-  if (!s) {
+  const upgraded = prev ? upgradeSession(prev) : null;
+  if (!upgraded) {
     const fresh = await freshSession(ctx.userId, deps);
     if (event.type === 'reply') out.push(text(COPY.sessionExpired));
     // A first photo starts a catalog straight away (spec section 8).
@@ -622,6 +622,16 @@ export async function handle(
       return enter({ ...fresh, garmentKey: event.garmentKey }, 'ASK_GENDER', out, ctx, deps);
     return render(fresh, out, ctx, deps);
   }
+  // The shape is the bot's own fixed setting (D43), not a per-chat choice, so it is
+  // re-read on every event. A session lives 24 h and every message extends it, so
+  // one saved before the setting changed would otherwise keep generating at the old
+  // shape (seen 2026-10-14: a chat still on 1:1 after the switch to 3:4).
+  const defaults = await deps.getUserDefaults(ctx.userId);
+  const s: Session = {
+    ...upgraded,
+    aspectRatio: defaults.aspectRatio,
+    resolution: defaults.resolution,
+  };
 
   switch (event.type) {
     case 'text': {
