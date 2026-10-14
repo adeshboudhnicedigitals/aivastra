@@ -54,12 +54,17 @@ describe('messaging conversation (real deps)', () => {
     });
     realHeadObject = app.storage.headObject.bind(app.storage);
     const sfx = `${Date.now()}`;
-    // An enabled HD resolution tier with creditCost 5: the engine quotes and
-    // charges the seller's own default resolution (HD), so the count row reads
-    // '1 pose · 5 credits' and one image costs exactly 5.
+    // An enabled 2K tier with creditCost 5: the bot always quotes and charges 2K,
+    // so the count row reads '1 pose · 5 credits' and one image costs exactly 5.
+    // HD stays enabled for the fallback test below.
     await app.redis.set(
       'config:system',
-      JSON.stringify({ resolutions: { HD: { enabled: true, creditCost: 5, longEdgePx: 1536 } } }),
+      JSON.stringify({
+        resolutions: {
+          HD: { enabled: true, creditCost: 5, longEdgePx: 1536 },
+          '2K': { enabled: true, creditCost: 5, longEdgePx: 2048 },
+        },
+      }),
     );
     // users.tier defaults to 'free'; the routing join needs the matching plan row.
     await app.db
@@ -227,25 +232,40 @@ describe('messaging conversation (real deps)', () => {
     expect(await balanceOf(userId)).toBe(95);
   });
 
-  it("falls back to an enabled resolution when the seller's default tier is disabled", async () => {
-    // HD is off out of the box (DEFAULT_RESOLUTION_CONFIG) and users default to HD,
-    // so without the fallback every bot job failed with 'resolution "HD" is not
-    // currently enabled'. Restore this file's HD-on config afterwards.
+  it('uses 3:4 and 2K for every bot run, whatever the seller saved on the web', async () => {
+    // The chat has no picker for these; a fixed, known-good shape beats whatever
+    // the seller last chose in the studio (which may be 1:1 or a disabled tier).
+    const { userId } = await createVerifiedUserToken(app, `wa-fix-${Date.now()}@example.com`);
+    await app.db
+      .update(schema.users)
+      .set({ defaultResolution: 'HD', defaultAspectRatio: '1:1' })
+      .where(eq(schema.users.id, userId));
+    expect(await createEngineDeps(app).getUserDefaults(userId)).toEqual({
+      aspectRatio: '3:4',
+      resolution: '2K',
+    });
+  });
+
+  it('falls back to another enabled tier when 2K is disabled', async () => {
+    // Without the fallback every bot job would fail with 'resolution "2K" is
+    // not currently enabled'. Restore this file's config afterwards.
     const saved = await app.redis.get('config:system');
     await app.redis.set(
       'config:system',
-      JSON.stringify({ resolutions: { HD: { enabled: false, creditCost: 5, longEdgePx: 1536 } } }),
+      JSON.stringify({
+        resolutions: {
+          HD: { enabled: true, creditCost: 5, longEdgePx: 1536 },
+          '2K': { enabled: false, creditCost: 10, longEdgePx: 2048 },
+        },
+      }),
     );
     try {
       const { userId } = await createVerifiedUserToken(app, `wa-res-${Date.now()}@example.com`);
-      await app.db
-        .update(schema.users)
-        .set({ defaultResolution: 'HD' })
-        .where(eq(schema.users.id, userId));
       const defaults = await createEngineDeps(app).getUserDefaults(userId);
-      expect(defaults.resolution).toBe('2K');
+      expect(defaults).toEqual({ aspectRatio: '3:4', resolution: 'HD' });
     } finally {
       if (saved) await app.redis.set('config:system', saved);
+      else await app.redis.del('config:system');
     }
   });
 });

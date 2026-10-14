@@ -14,10 +14,10 @@ import type {
 } from './engine/types.js';
 import { createRun, quoteRun, runProgress } from './runs.js';
 
-const ASPECTS = new Set(['1:1', '2:3', '3:4', '4:5']);
-// Cheapest first: the fallback when the seller's own default tier is switched off.
+const BOT_ASPECT_RATIO: AspectRatio = '3:4';
+const BOT_RESOLUTION: Resolution = '2K';
+// Cheapest first: the fallback when BOT_RESOLUTION is switched off.
 const RESOLUTION_ORDER: Resolution[] = ['HD', '2K', '4K'];
-const RESOLUTIONS = new Set<string>(RESOLUTION_ORDER);
 
 /** Real EngineDeps: every option list is the studio's own query (models/queries.ts). */
 export function createEngineDeps(app: FastifyInstance): EngineDeps {
@@ -25,21 +25,14 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
   return {
     newNonce: () => randomBytes(4).toString('hex'),
 
-    async getUserDefaults(userId) {
-      const [u] = await app.db
-        .select({
-          aspect: schema.users.defaultAspectRatio,
-          resolution: schema.users.defaultResolution,
-        })
-        .from(schema.users)
-        .where(eq(schema.users.id, userId));
-      const preferred = (RESOLUTIONS.has(u?.resolution ?? '') ? u?.resolution : 'HD') as Resolution;
-      // The studio only offers enabled tiers; the bot has no picker, so it must not
-      // send one the create path will reject. HD is off out of the box
-      // (DEFAULT_RESOLUTION_CONFIG) while users default to HD — without this every
-      // bot job failed with 'resolution "HD" is not currently enabled'.
-      let resolution = preferred;
-      if (!(await getResolutionTierConfig(app, preferred)).enabled) {
+    // Every bot run is 3:4 at 2K, not the seller's saved studio defaults: the chat
+    // has no picker for either, so a fixed shape the templates are tuned for beats
+    // whatever the seller last chose on the web.
+    async getUserDefaults() {
+      // The create path rejects a disabled tier, so if an admin has switched 2K
+      // off, fall back to the cheapest enabled one rather than fail every run.
+      let resolution = BOT_RESOLUTION;
+      if (!(await getResolutionTierConfig(app, BOT_RESOLUTION)).enabled) {
         for (const r of RESOLUTION_ORDER) {
           if ((await getResolutionTierConfig(app, r)).enabled) {
             resolution = r;
@@ -47,10 +40,7 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
           }
         }
       }
-      return {
-        aspectRatio: (ASPECTS.has(u?.aspect ?? '') ? u?.aspect : '1:1') as AspectRatio,
-        resolution,
-      };
+      return { aspectRatio: BOT_ASPECT_RATIO, resolution };
     },
 
     async getBalance(userId) {
