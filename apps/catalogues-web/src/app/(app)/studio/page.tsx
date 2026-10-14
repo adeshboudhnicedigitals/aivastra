@@ -468,10 +468,6 @@ export default function StudioPage(): React.ReactElement {
   // fields just mirror the selected preset's computed dims for the current
   // tier, and no outputWidth/outputHeight override is sent to the server.
   const [customEdited, setCustomEdited] = useState(false);
-  const [amazonPoseModalOpen, setAmazonPoseModalOpen] = useState(false);
-  const [amazonMainPoseId, setAmazonMainPoseId] = useState('');
-  // Bypassed: Amazon no longer forces white bg. Logic kept dormant for future use.
-  const [amazonUseWhiteBg, _setAmazonUseWhiteBg] = useState(false);
 
   const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
 
@@ -706,6 +702,7 @@ export default function StudioPage(): React.ReactElement {
   const poseVisibleCount = categoryVisibleCount;
   const lowerVisibleCount = categoryVisibleCount;
   const shoeVisibleCount = categoryVisibleCount;
+  const accessoryVisibleCount = categoryVisibleCount;
   const [modelModalOpen, setModelModalOpen] = useState(false);
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
   const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | string>('');
@@ -725,6 +722,7 @@ export default function StudioPage(): React.ReactElement {
   const [accessoryCatalogIds, setAccessoryCatalogIds] = useState<string[]>([]);
   const [lowerItemsOpen, setLowerItemsOpen] = useState(false);
   const [shoeItemsOpen, setShoeItemsOpen] = useState(false);
+  const [accessoryItemsOpen, setAccessoryItemsOpen] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -1206,9 +1204,6 @@ export default function StudioPage(): React.ReactElement {
   const effectivePoseIds =
     catalogueTemplateId === 'custom' ? poseIds : selectedLooks.map((l) => l.poseId);
 
-  // Find the white background (tagged for Amazon) from loaded backgrounds
-  const whiteBg = backgrounds?.items.find((b) => b.isWhiteBg);
-
   const poseIdsParam = effectivePoseIds.length > 0 ? `poseIds=${effectivePoseIds.join(',')}` : '';
   const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
     queryKey: ['catalog', 'lower', gender, garmentTypeId, effectivePoseIds.join(',')],
@@ -1302,6 +1297,7 @@ export default function StudioPage(): React.ReactElement {
   );
   const [lowerItemFilter, setLowerItemFilter] = useState<number | ''>('');
   const [shoeItemFilter, setShoeItemFilter] = useState<number | ''>('');
+  const [accessoryItemFilter, setAccessoryItemFilter] = useState<number | ''>('');
 
   async function handleGarmentUpload(file: File) {
     if (isUploading) return;
@@ -1629,23 +1625,10 @@ export default function StudioPage(): React.ReactElement {
       if (selectedLooks.length === 0) return;
     }
 
-    // Amazon main listing + multiple poses → show picker modal to choose main image.
-    // Lifestyle mode or single pose → submit directly.
-    if (platform === 'Amazon' && amazonUseWhiteBg && poseIds.length > 1) {
-      setAmazonMainPoseId('');
-      setAmazonPoseModalOpen(true);
-      return;
-    }
-
     isSubmittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError('');
     try {
-      // Send platform:'Amazon' only when white bg override is wanted (main listing).
-      // Lifestyle mode: omit platform so the API doesn't force white bg.
-      // The aspectRatio (1:1) is already captured in `aspect` independently.
-      const effectivePlatform =
-        platform === 'Amazon' ? (amazonUseWhiteBg ? 'Amazon' : undefined) : platform;
       const effectiveLowerId = lowerOnly
         ? undefined
         : lowerCatalogId ||
@@ -1690,7 +1673,9 @@ export default function StudioPage(): React.ReactElement {
         aspectRatio: aspect,
         resolution,
         ...(Object.keys(customParams).length ? { params: customParams } : {}),
-        ...(effectivePlatform ? { platform: effectivePlatform } : {}),
+        // The api no longer changes anything based on platform (D30); it is
+        // recorded with the job so catalog previews know which marketplace it is for.
+        ...(platform ? { platform } : {}),
       };
 
       let catalogueId: string;
@@ -1752,126 +1737,6 @@ export default function StudioPage(): React.ReactElement {
           document.getElementById('studio-right-column')?.scrollIntoView({ behavior: 'smooth' });
         }, 100);
       }
-      isSubmittingRef.current = false;
-      setIsSubmitting(false);
-    } catch (e) {
-      setSubmitError((e as Error).message);
-      isSubmittingRef.current = false;
-      setIsSubmitting(false);
-    }
-  }
-
-  async function submitAmazonPose(mainPoseId: string) {
-    if (isSubmittingRef.current) return;
-    setAmazonPoseModalOpen(false);
-    isSubmittingRef.current = true;
-    setIsSubmitting(true);
-    setSubmitError('');
-    try {
-      const effectiveLowerId = lowerOnly
-        ? undefined
-        : lowerCatalogId ||
-          (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
-      const effectiveShoesId =
-        shoeCatalogId ||
-        (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
-      const effectiveAccessoryIds =
-        needsAccessory && visibleAccessoryIds.length > 0 ? visibleAccessoryIds : undefined;
-
-      // Main image: white Amazon-compliant background
-      const { catalogueId, jobIds: mainJobIds } = await api.post<{
-        catalogueId: string;
-        jobIds: string[];
-      }>('/v1/jobs/tryon', {
-        inputs: {
-          upperGarmentKey: garmentKey,
-          upperGarmentBackKey: needsUpperBack ? upperGarmentBackKey || undefined : undefined,
-          faceId,
-          backgroundId,
-          poseIds: [mainPoseId],
-          garmentTypeId: garmentTypeId || undefined,
-          lowerCatalogId: effectiveLowerId,
-          lowerGarmentKey: lowerGarmentKeyForSubmit || undefined,
-          lowerGarmentBackKey: lowerOnlyIsBack
-            ? upperGarmentBackKey || undefined
-            : needsLowerBack
-              ? lowerGarmentBackKey || undefined
-              : undefined,
-          shoeCatalogId: effectiveShoesId,
-          accessoryCatalogIds: effectiveAccessoryIds,
-          thirdGarmentKey: thirdGarmentKey || undefined,
-          fourthGarmentKey: allowsFourthUpload ? fourthGarmentKey || undefined : undefined,
-        },
-        aspectRatio: aspect,
-        resolution,
-        ...(Object.keys(customParams).length ? { params: customParams } : {}),
-        platform: 'Amazon',
-      });
-
-      // Remaining poses: same catalogue, original background, no Amazon override.
-      // NOTE (last-used pose preset tracking limitation): the API tracks
-      // "last used" poses per-request (delete+insert, last write wins) keyed off
-      // exactly the poseIds each /v1/jobs/tryon call resolves. Because this Amazon
-      // flow issues TWO sequential calls — mainPoseId alone, then remainingPoseIds —
-      // this second call's last-used write clobbers the first, so the "Last Used"
-      // chip ends up missing mainPoseId even though a job for it was created. Fixing
-      // this cleanly would need either a "merge" tracking mode on the pose-presets
-      // API or a tracking-only poseIds hint decoupled from job creation on the
-      // tryon request — both are new API surface beyond this fix wave's scope
-      // (Tasks 1-3 are already reviewed/closed), and passing the full poseIds array
-      // into this call's `inputs.poseIds` is not a safe workaround: that field
-      // drives actual job creation, so it would enqueue a duplicate job for
-      // mainPoseId. Left as a known limitation — see final-review-fix-report.md.
-      const remainingPoseIds = poseIds.filter((id) => id !== mainPoseId);
-      let remainingJobIds: string[] = [];
-      if (remainingPoseIds.length > 0) {
-        const remaining = await api.post<{ jobIds: string[] }>('/v1/jobs/tryon', {
-          catalogueId,
-          inputs: {
-            upperGarmentKey: garmentKey,
-            upperGarmentBackKey: needsUpperBack ? upperGarmentBackKey || undefined : undefined,
-            faceId,
-            backgroundId,
-            poseIds: remainingPoseIds,
-            garmentTypeId: garmentTypeId || undefined,
-            lowerCatalogId: effectiveLowerId,
-            lowerGarmentKey: lowerGarmentKeyForSubmit || undefined,
-            lowerGarmentBackKey: lowerOnlyIsBack
-              ? upperGarmentBackKey || undefined
-              : needsLowerBack
-                ? lowerGarmentBackKey || undefined
-                : undefined,
-            shoeCatalogId: effectiveShoesId,
-            accessoryCatalogIds: effectiveAccessoryIds,
-            thirdGarmentKey: thirdGarmentKey || undefined,
-            fourthGarmentKey: allowsFourthUpload ? fourthGarmentKey || undefined : undefined,
-          },
-          aspectRatio: aspect,
-          resolution,
-          ...(Object.keys(customParams).length ? { params: customParams } : {}),
-        });
-        remainingJobIds = remaining.jobIds;
-      }
-
-      qc.invalidateQueries({ queryKey: ['credits'] });
-      qc.invalidateQueries({ queryKey: ['catalogues'] });
-      qc.invalidateQueries({ queryKey: ['pose-presets'] });
-      const orderedPoseIds = [mainPoseId, ...remainingPoseIds];
-      const orderedJobIds = [...mainJobIds, ...remainingJobIds];
-      setActiveGeneration({
-        catalogueId,
-        jobs: orderedPoseIds.map((poseId, i) => {
-          const pose = poses?.items.find((p) => p.id === poseId);
-          return {
-            // biome-ignore lint/style/noNonNullAssertion: orderedJobIds and orderedPoseIds are the same length by construction
-            id: orderedJobIds[i]!,
-            poseId,
-            label: pose?.label ?? `Pose ${i + 1}`,
-            thumbnailUrl: pose?.thumbnailUrl ?? '',
-          };
-        }),
-      });
-      setGenerationInProgress(true);
       isSubmittingRef.current = false;
       setIsSubmitting(false);
     } catch (e) {
@@ -4688,7 +4553,12 @@ export default function StudioPage(): React.ReactElement {
                   categories={accessoryCategories}
                   selectedIds={accessoryCatalogIds}
                   stepNumber={stepNumberOf('accessory')}
+                  visibleCount={accessoryVisibleCount}
                   onToggle={toggleAccessory}
+                  onViewAll={() => {
+                    setAccessoryItemFilter('');
+                    setAccessoryItemsOpen(true);
+                  }}
                 />
               )}
 
@@ -5671,151 +5541,119 @@ export default function StudioPage(): React.ReactElement {
           );
         })()}
 
-      {/* Amazon Pose Picker Modal */}
-      {amazonPoseModalOpen && (
-        // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
-        <div
-          role="presentation"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.4)',
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-          onClick={() => setAmazonPoseModalOpen(false)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setAmazonPoseModalOpen(false);
-          }}
-        >
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
-          <div
-            style={{
-              background: C.white,
-              borderRadius: 16,
-              padding: 32,
-              maxWidth: 600,
-              width: 'calc(100vw - 40px)',
-              maxHeight: '80vh',
-              overflowY: 'auto',
-              boxShadow: '0 8px 40px rgba(0,0,0,0.15)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={() => {}}
-          >
-            <h2
-              style={{
-                fontSize: 18,
-                fontWeight: 700,
-                color: C.text,
-                marginBottom: 6,
-              }}
-            >
-              Select Amazon main image pose
-            </h2>
-            <p style={{ fontSize: 13, color: C.mid, marginBottom: 16 }}>
-              All {selectedPoses.length} poses will be generated. Pick which one gets the white
-              Amazon-compliant background as the main listing image.
-            </p>
-
-            {whiteBg && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '10px 14px',
-                  borderRadius: 10,
-                  border: `1px solid ${C.border2}`,
-                  background: '#fafafa',
-                  marginBottom: 20,
-                }}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
-                <img
-                  src={whiteBg.previewUrl}
-                  alt="White background"
-                  style={{
-                    width: 64,
-                    height: 48,
-                    objectFit: 'cover',
-                    borderRadius: 6,
-                    border: `1px solid ${C.border}`,
-                  }}
-                />
-                <div>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
-                    White background
-                  </span>
-                  <span style={{ fontSize: 11, color: C.light, display: 'block', marginTop: 2 }}>
-                    Replaces original background
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <p style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 12 }}>
-              Selected poses:
-            </p>
+      {/* Accessory items modal — categories act as filters */}
+      {accessoryItemsOpen &&
+        (() => {
+          const filteredEntries =
+            accessoryItemFilter === ''
+              ? accessoryCategories.flatMap((c) =>
+                  c.items.map((item) => ({ item, categoryId: c.id })),
+                )
+              : (accessoryCategories.find((c) => c.id === accessoryItemFilter)?.items ?? []).map(
+                  (item) => ({ item, categoryId: accessoryItemFilter as number }),
+                );
+          return (
+            // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
             <div
+              role="presentation"
               style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
-                gap: 12,
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(0,0,0,0.4)',
+                zIndex: 1000,
+                display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'center',
               }}
+              onClick={() => setAccessoryItemsOpen(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setAccessoryItemsOpen(false);
+              }}
             >
-              {selectedPoses.map((p) => (
-                <SelCard
-                  key={p.id}
-                  selected={amazonMainPoseId === p.id}
-                  onClick={() => setAmazonMainPoseId(p.id)}
-                  imageUrl={p.thumbnailUrl}
-                  w={152.57}
-                  h={200}
-                />
-              ))}
-            </div>
-            <div style={{ marginTop: 24, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={() => setAmazonPoseModalOpen(false)}
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
+              <div
                 style={{
-                  padding: '10px 24px',
-                  borderRadius: 8,
-                  border: `1px solid ${C.border2}`,
                   background: C.white,
-                  fontFamily: 'inherit',
-                  fontSize: 14,
-                  cursor: 'pointer',
-                  color: C.mid,
+                  borderRadius: 12,
+                  padding: 24,
+                  width: 1180,
+                  height: 857,
+                  maxWidth: '90vw',
+                  maxHeight: '90vh',
+                  overflowY: 'auto',
+                  boxSizing: 'border-box',
+                  boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
                 }}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={() => {}}
               >
-                Cancel
-              </button>
-              <GradBtn
-                final
-                onClick={() => submitAmazonPose(amazonMainPoseId)}
-                disabled={!amazonMainPoseId || isSubmitting}
-                style={{ padding: '10px 28px', gap: 8 }}
-              >
-                {isSubmitting ? (
-                  <>
-                    <SpinnerIcon size={16} /> Generating…
-                  </>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 16,
+                  }}
+                >
+                  <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+                    Accessories
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setAccessoryItemsOpen(false)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: C.mid,
+                    }}
+                  >
+                    <XIcon size={20} />
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                  <button
+                    type="button"
+                    onClick={() => setAccessoryItemFilter('')}
+                    style={pill(accessoryItemFilter === '')}
+                  >
+                    All
+                  </button>
+                  {accessoryCategories.map((category) => (
+                    <button
+                      type="button"
+                      key={category.id}
+                      onClick={() => setAccessoryItemFilter(category.id)}
+                      style={pill(accessoryItemFilter === category.id)}
+                    >
+                      {category.label}
+                    </button>
+                  ))}
+                </div>
+                {filteredEntries.length === 0 ? (
+                  <p style={{ fontSize: 14, color: C.mid }}>No items in this category yet.</p>
                 ) : (
-                  <>
-                    <SparkleIcon /> Generate
-                  </>
+                  <div className="studio-5col-grid">
+                    {filteredEntries.map(({ item, categoryId }) => (
+                      <SelCard
+                        key={item.id}
+                        selected={accessoryCatalogIds.includes(item.id)}
+                        onClick={() => toggleAccessory(categoryId, item.id)}
+                        imageUrl={item.thumbnailUrl}
+                        w="100%"
+                        ratio={1}
+                        borderWidth={3}
+                      />
+                    ))}
+                  </div>
                 )}
-              </GradBtn>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          );
+        })()}
 
       {toast && (
         <div
