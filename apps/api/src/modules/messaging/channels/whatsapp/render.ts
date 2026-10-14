@@ -61,12 +61,21 @@ export function renderMessage(m: OutboundMessage): Record<string, unknown>[] {
 
     case 'cards': {
       if (m.cards.length === 0) return [];
-      // A carousel needs 2–10 cards; one option becomes an image plus a button.
+      // A carousel needs 2–10 cards; one option becomes a single button message
+      // with the image as its header. Not an image followed by a button: those
+      // are two messages, and WhatsApp delivered the button first (local run,
+      // 2026-10-13), so the seller saw Select before the pose.
       if (m.cards.length === 1) {
         const [c] = m.cards;
+        const msg = replyButtons(`${c.title}\n\n${m.text}`, [{ id: c.id, title: COPY.btnSelect }]);
         return [
-          { type: 'image', image: { link: c.imageUrl, caption: clip(c.title, BODY_MAX) } },
-          replyButtons(m.text, [{ id: c.id, title: COPY.btnSelect }]),
+          {
+            ...msg,
+            interactive: {
+              header: { type: 'image', image: { link: c.imageUrl } },
+              ...msg.interactive,
+            },
+          },
         ];
       }
       return [

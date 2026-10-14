@@ -93,19 +93,22 @@ describe('renderMessage', () => {
     });
   });
 
-  it('1 card → an image then a Select button (carousels need at least 2)', () => {
+  it('1 card → one button message with the image as its header (carousels need at least 2)', () => {
+    // One message, not an image followed by a button: WhatsApp delivered the
+    // button first in the 2026-10-13 local run, so the seller saw Select
+    // before the pose it selects.
     const out = renderMessage({
       kind: 'cards',
       text: 'Tap 2 poses. Generation starts after the last one.',
       cards: [{ id: 'n|look|1', imageUrl: 'https://i/1.jpg', title: 'Pose 1' }],
     });
     expect(out).toEqual([
-      { type: 'image', image: { link: 'https://i/1.jpg', caption: 'Pose 1' } },
       {
         type: 'interactive',
         interactive: {
           type: 'button',
-          body: { text: 'Tap 2 poses. Generation starts after the last one.' },
+          header: { type: 'image', image: { link: 'https://i/1.jpg' } },
+          body: { text: 'Pose 1\n\nTap 2 poses. Generation starts after the last one.' },
           action: { buttons: [{ type: 'reply', reply: { id: 'n|look|1', title: 'Select' } }] },
         },
       },
