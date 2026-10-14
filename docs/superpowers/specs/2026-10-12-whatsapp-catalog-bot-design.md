@@ -15,10 +15,10 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 
 - A seller sends a garment photo to the Aivastra WhatsApp number. Our own vision model, on our
   GPUs, recognises the garment. The seller picks who the catalog is for (Women, Men, Boys, Girls),
-  how many poses they want, and which poses, by tapping image cards inside WhatsApp. Generation
-  starts on the last pick, and the images come back in the same chat. Five steps, no other
-  questions: face, background, aspect ratio, lower and shoes are filled in from defaults
-  (section 8).
+  and which poses, by tapping image cards inside WhatsApp, from every active template for the
+  garment type, as many as they like. Generation starts when they tap Generate, and the images
+  come back in the same chat. No other questions: face, background, aspect ratio, lower and shoes
+  are filled in from defaults (section 8).
 - It runs on the **same generation pipeline, credits and accounts** as the web app. Images made
   on WhatsApp show up in the seller's `/catalogs` page on the web, and credits are one shared
   balance.
@@ -429,7 +429,7 @@ What fills the steps the chat no longer asks (D43):
 |---|---|
 | Face | First active face for the gender and garment type, in admin sort order, using the same garment-type scoping as `GET /v1/models/faces` (`model_face_subcategories`). Admins choose the bot's face by ordering. |
 | Background | Each look carries its own. |
-| Template | The top-sorted active template mapped to the garment type (`catalogue_template_subcategories`), with its `catalogueTemplateMappingId`. |
+| Templates | Every active template mapped to the garment type (`catalogue_template_subcategories`), pooled in admin order (revised 2026-10-14, D44). A pick is sent as one create call per template, each with that template's `catalogueTemplateMappingId`. |
 | Aspect ratio | Always 3:4 (revised 2026-10-14; was `users.default_aspect_ratio`). |
 | Resolution | Always 2K; if an admin disables 2K, the cheapest enabled tier, so runs never fail on a disabled tier. |
 | Lower | The type's `default_lower_catalog_id`, sent only when a picked look has a lower slot. Not used for lower-only types or `requiresLowerUpload` types, whose lower is the seller's photo, as in the studio. |
@@ -815,8 +815,9 @@ Behaviour behind the wording:
 **Unit tests (Vitest, no network)**
 - The engine as a pure function: every transition, global commands, stale-button rejection, the
   "photo from main menu" shortcut, recognised vs fallback garment type, "Change" after a wrong
-  answer, the count limits, duplicate look taps, generation on the last pick, defaults for face,
-  lower and shoes, the required extra photos.
+  answer, selecting and un-selecting poses and the 20-pose cap, Generate, one run per template
+  (all groups quoted before the first charge, a later group failing after an earlier one was
+  charged), defaults for face, lower and shoes, the required extra photos.
 - Matching a recognised label to a gender's garment types.
 - WhatsApp rendering of each abstract message type, checked against fixture payloads.
 - Webhook signature verification.
