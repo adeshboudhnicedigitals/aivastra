@@ -107,6 +107,13 @@ Open from the session:
 - Admin copy in the pose "Map to garment types" dialog still says poses show on every
   garment type by default (stale since #523's opt-in change).
 
+- Pose selection across templates (2026-10-14 design): production has no active catalogue templates
+  yet, so the bot cannot offer any type there until admin activates some.
+- The paid "images are ready" template is sent per run when the 24 h window is closed (a `batch_id`
+  on `messaging_runs` would fix it).
+- A retry matches failed images by pose id, so a pose shared by two templates with different
+  backgrounds is retried in both.
+
 ## Next, in order
 
 1. **Manual, Meta side:** cancel the stray Facebook Login "Create a Configuration" wizard;

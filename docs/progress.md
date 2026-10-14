@@ -2,6 +2,22 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-14 — WhatsApp pose selection across templates (docs)
+
+- **Done:** WhatsApp bot: the "how many poses" step is gone; the seller picks from every active
+  template's poses (max 20, tap toggles, running [Generate] button); a pick spanning templates runs
+  as one run per template (all groups quoted before the first charge, one idempotency key per group);
+  main spec D43/D44/D45 and sections 8, 9, 10, 13 revised, delta spec
+  `2026-10-14-whatsapp-pose-selection-design.md` tidied ([More], `btnChangeGarment`, pose-id retry
+  note). Spec `docs/superpowers/specs/2026-10-14-whatsapp-pose-selection-design.md`, plan
+  `docs/superpowers/plans/2026-10-14-whatsapp-pose-selection.md`. Code was Task 1 (818156f1) + Task 2
+  (da1a0aab) on branch `feat/whatsapp-pose-selection`; this entry is docs only.
+- **Failed-Not-Done:** none — docs-only task, no code changed, no tests to run.
+- **Open Questions:** (1) production has no active catalogue templates yet, so the bot cannot offer
+  any type there until admin activates some; (2) the paid "images ready" template is sent per run when
+  the 24 h window is closed (a `batch_id` on `messaging_runs` would fix it); (3) a retry matches failed
+  images by pose id, so a pose shared by two templates with different backgrounds is retried in both.
+
 ## 2026-10-14 — Amazon white-background override removed (D30)
 
 - **Done:** removed the Amazon white-background override in api (`apps/api/src/modules/jobs/create.ts`,

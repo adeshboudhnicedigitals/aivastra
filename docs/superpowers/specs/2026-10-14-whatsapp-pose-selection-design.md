@@ -23,8 +23,8 @@ api or `createJob` change.
 |---|---|---|
 | P1 | No count step | `ASK_POSE_COUNT` is removed. After the garment type is known and any required extra photos are in, the bot goes straight to picking (`PICK_LOOKS`). |
 | P2 | Pool = every active template | All templates `listCatalogueTemplates` returns for the gender and garment type, in template admin order then look order, after the existing eligibility filter (D49, `rules.ts`). A pose + background pair that appears in more than one template is shown once, under the first template. |
-| P3 | Finish with a running Generate button | Each tap on a pose replies "N selected · X credits" with **[Generate]** and **[Clear]**. Tapping a selected pose again removes it. Each carousel page ends with the same buttons plus **[More poses]**. The nonce does not change while picking, so an older Generate button still acts on the current selection. |
-| P4 | Cap of 20 poses per Generate | A 21st tap is declined with a message and the selection is unchanged. Keeps one request inside the queue-capacity check (`assertQueueCapacity`). Replaces `MAX_POSES = 9`. |
+| P3 | Finish with a running Generate button | Each tap on a pose replies "N selected · X credits" with **[Generate]** and **[Clear]**. Tapping a selected pose again removes it. Each carousel page ends with the same buttons plus **[More]**. The nonce does not change while picking, so an older Generate button still acts on the current selection. |
+| P4 | Cap of 20 poses per Generate | A 21st tap is declined with a message and the selection is unchanged. Keeps one request inside the queue-capacity check (`assertQueueCapacity`). Replaces `MAX_POSES = 9`. The retry of a failed image is matched by pose id (all delivery reports), so a pose that appears in two templates with different backgrounds is retried in both. |
 | P5 | Generate is the agreement to spend | As the last pick was (D45). The cost per pose and the balance are shown in the picking prompt, and the total on every "N selected" reply. |
 | P6 | One run per template | Option A of the review. Option B (a catalogue spanning several mappings) was rejected: it changes `createJob` and the plan resolver, which web, Shopify and the widget share, and each mapping carries its own pose workflows. |
 | P7 | Free-text agent mode is out of scope | Recorded as a possible later option, section 9. |
@@ -36,7 +36,7 @@ api or `createJob` change.
         │
         ▼
  PICK_LOOKS   "Tap the poses you want. Each is X credits. Your balance: N."
-        │      carousel pages of 10 · [More poses] · tap = select / unselect
+        │      carousel pages of 10 · [More] · tap = select / unselect
         │      each tap → "N selected · X credits"  [Generate] [Clear]
         ▼
  [Generate]   re-read pool → drop removed picks (if any: "Those poses changed…", no charge)
@@ -113,7 +113,7 @@ already does so presigned URLs stay fresh.
 ## 7. Copy (`engine/copy.ts`)
 
 Removed: `askCount`, `countRow`, `pickLooks`. Added: the picking prompt (cost per pose and balance),
-"N selected · X credits", `btnGenerate`, `btnClear`, the cap message, "Tap at least one pose",
+"N selected · X credits", `btnGenerate`, `btnClear`, `btnChangeGarment`, the cap message, "Tap at least one pose",
 "Started X of Y images. The rest couldn't start: …".
 
 ## 8. Tests and documentation

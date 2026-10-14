@@ -104,9 +104,9 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D40 | Catalog flow (management, 2026-10-13) | Five steps: (1) garment photo, (2) the garment is recognised automatically, (3) "Create catalogue for" Women / Men / Boys / Girls, (4) how many poses, (5) pick the poses; generation starts on the last pick. Gender is asked first and recognition runs after it: garment types are defined per gender (`garment_subcategories.gender_slug` is NOT NULL), so the model chooses only among that gender's types, a much shorter list (section 8a). |
 | D41 | Garment recognition | Our own Qwen2.5-VL on our GPU workers, as a classify-only ComfyUI workflow run by the dispatcher (section 8a). The result is shown as "Detected: <type>" with a way to change it. If it is slow, fails, or names no type we have, the bot shows the garment-type list instead. If it causes problems or delay in production (thresholds in section 8a), it moves to a hosted vision API behind the same interface. |
 | D42 | What leaves the chat | "Create your own" (own background and poses), back-view poses and "use my last poses". Every image is a catalogue-template look. Replaces D14 and D22 in the chat; the web studio keeps everything. |
-| D43 | Defaults instead of questions | Face: the first active face for the gender and garment type in admin sort order (respecting the face's garment-type scoping). Background: carried by each look. Aspect ratio and resolution: fixed at 3:4 and 2K for every bot run (revised 2026-10-14; was the seller's web defaults), falling back to the cheapest enabled tier if an admin disables 2K. Lower and shoes: the garment type's `default_lower_catalog_id` / `default_shoe_catalog_id`, sent only when a chosen look has that slot. The create path rejects a look whose lower or shoe slot is left empty (`apps/api/src/modules/jobs/create.ts`, "lower garment required for this pose" / "shoe catalog item required for this pose"), so when the type has no default, the looks needing it are not shown. Template: the top-sorted active template mapped to the garment type. |
-| D44 | Choosing poses | "How many poses" is a list (1 up to the template's look count, at most 9) showing the cost per image and the balance. The seller then taps that many looks on a carousel. The create path already accepts any subset of a template's looks (`apps/api/src/modules/jobs/create.ts`, the `allowedLookKeys` check), so no api change. Replaces D24. |
-| D45 | Confirmation | No separate Confirm step. Choosing the count, with its cost and balance shown, is the seller's agreement to spend; the last pick starts generation, charged at the quote for the exact looks picked (D17). Too few credits is caught at the count step and again before creating the run. |
+| D43 | Defaults instead of questions | Face: the first active face for the gender and garment type in admin sort order (respecting the face's garment-type scoping). Background: carried by each look. Aspect ratio and resolution: fixed at 3:4 and 2K for every bot run (revised 2026-10-14; was the seller's web defaults), falling back to the cheapest enabled tier if an admin disables 2K. Lower and shoes: the garment type's `default_lower_catalog_id` / `default_shoe_catalog_id`, sent only when a chosen look has that slot. The create path rejects a look whose lower or shoe slot is left empty (`apps/api/src/modules/jobs/create.ts`, "lower garment required for this pose" / "shoe catalog item required for this pose"), so when the type has no default, the looks needing it are not shown. Templates: every active template mapped to the garment type (revised 2026-10-14, D44). |
+| D44 | Choosing poses | **Revised 2026-10-14** (`2026-10-14-whatsapp-pose-selection-design.md`; supersedes steps 4–5 of D40). There is no "how many poses" step. The seller sees the poses of **every** active template for the garment type (a pose + background pair in two templates shown once) as carousel pages of 10, taps any number up to 20, and taps again to remove one. Every tap answers "N selected · X credits" with [Generate] [Clear]. Because a catalogue belongs to one template mapping, a pick spanning templates is created as one run per template through the existing create path (no api change): all groups are quoted before the first charge, and each call has its own idempotency key. Replaces D24. |
+| D45 | Confirmation | **Revised 2026-10-14.** No separate Confirm step. The cost per pose and the balance are shown with the cards, and the running cost with every selection; tapping [Generate] is the seller's agreement to spend. Too few credits is caught at [Generate] and again by the create path. |
 | D46 | Extra uploads | A garment type that **requires** another photo (`requiresLowerUpload`, `requiresThirdUpload`) still gets its prompt, right after the type is known; it cannot be defaulted. The optional fourth photo is not asked for. |
 | D47 | Garment types with no template | A garment type with no active catalogue template for that gender is not available in the chat; the bot says so and points to the web studio. |
 | D33 | Engine purity | Deterministic, not pure: `handle(session, event, ctx, deps)` awaits an injected `EngineDeps` for option lists and side effects but does no I/O of its own and takes randomness from `deps`. Tested with in-memory fakes. |
@@ -405,16 +405,16 @@ picks more reliably from that gender's short list.
                         ─▶ no active template for the type: "not available on WhatsApp yet,
                            use the web studio" + link (D47), back to the menu
     ASK_EXTRA_PHOTOS?   only for types that require one: the lower photo, the third photo (D46)
-  4 ASK_POSE_COUNT      list: "1 pose · 5 credits" … up to the template's look count (max 9),
-                        header shows the balance; last row "Wrong garment? Change"
-                        ─▶ "Change" returns to ASK_GARMENT_TYPE
-                        ─▶ a count the balance cannot cover: NO_CREDITS
-  5 PICK_LOOKS          carousel of the template's looks; each tap adds one:
-                        "Added, 2 of 4". The tap that reaches the count starts generation.
-                        [Start over] is offered with every "Added" reply.
+   4 PICK_LOOKS            prompt with the cost per pose and the balance ([Change garment]),
+                         then carousel pages of every active template's poses (10 per page, [More]);
+                         a tap selects a pose, a second tap removes it; every tap answers
+                         "N selected · X credits" [Generate] [Clear] (max 20 poses)
+                         ─▶ "Change garment" returns to ASK_GARMENT_TYPE
+                         ─▶ [Generate] with a total the balance cannot cover: NO_CREDITS
+                            (the selection is kept)
         │  insufficient credits at create time ─▶ NO_CREDITS: link to /pricing
         ▼
-    GENERATING          one create call ➜ one job per image. "Working on N images, C credits,
+    GENERATING          one create call per template ➜ one job per image. "Working on N images, C credits,
                         about X min". Other messages: "Still generating, k of N done."
         ▼  (notifier or sweeper sees each job finish)
     DELIVERED           each image is sent as it finishes; after the last one:
@@ -480,7 +480,7 @@ Rules that apply in every state:
 - **A photo sent at any step outside the wizard** (the menu, after delivery) starts a new catalog
   with that photo; step 1 is skipped. This is how most sellers will start.
 - **"More poses, same garment"** returns to step 4 with the photo, gender and garment type kept.
-- **Picking the same look twice** replies "Already added" and does not count it.
+- **Tapping a selected pose again** removes it from the selection.
 - **Session expiry or api restart mid-wizard:** "Your last session expired, let's start again",
   back to the main menu. Jobs already generating are unaffected, because delivery is driven by
   the job, not the session.
@@ -611,7 +611,7 @@ not be retrieved during design, so these limits must be verified before implemen
 
 - **Reply buttons:** up to 3, text only. Used for the menu and after delivery.
 - **List message:** up to 10 text rows, no images. Used for gender (four options, one more than
-  reply buttons allow), the garment-type fallback and the pose count.
+  reply buttons allow) and the garment-type fallback.
 - **Interactive media carousel:** 2–10 horizontally swipeable cards, each with an image, up to
   160 characters of text, and buttons. Sendable without a template, but only inside the 24-hour
   window (always true while the seller is actively chatting). All cards must have the same button
@@ -626,18 +626,19 @@ not be retrieved during design, so these limits must be verified before implemen
 | C. WhatsApp Flows | Most work (Flow JSON, encrypted data endpoint, Meta review); image picking unconfirmed. | Polished but slower to open. |
 | D. Link to a web picker page | Reuses studio pickers. | Leaves WhatsApp, which defeats the purpose. |
 
-The carousel is used for one step only: picking looks (step 5). One card per look of the chosen
-template, showing the look's pose image. Paging: a carousel shows up to 10 cards; a separate
-reply-button message "More" follows it when the template has more looks.
+The carousel is used for one step only: picking poses (step 4). One card per eligible look of every
+active template for the type, showing the look's pose image. Paging: a carousel shows up to 10
+cards; a reply-button message with [More] follows it while more cards remain, together with
+[Generate] and [Clear] (reply buttons stop at three).
 
-A card tap selects one item, so picking several looks is one tap per look, each answered "Added,
-k of N". Because the seller chose N first (step 4), the last tap needs no `[Done]` button and
-starts generation. Whether this feels acceptable on a real device is checked in T1.
+A card tap selects or removes one item, so picking several poses is one tap per pose, each answered
+"N selected · X credits". The seller finishes with [Generate]. Whether this feels acceptable on a
+real device is checked in T1.
 
 ## 10. Credits and payments
 
 - One shared balance: `user_credits` / `credit_ledger`, deducted by the existing atomic
-  `createJob` path. The bot shows the cost per image and the balance at the pose-count step, before
+  `createJob` path. The bot shows the cost per image and the balance with the pose cards (step 4), before
   anything is deducted, and the total in the "Working on N images" message (D45).
   The cost per image is the same as on the web (D17).
 - **v1 purchase path:** the bot sends a plain link to `/pricing`; the seller logs in to the web
@@ -743,7 +744,7 @@ which user) asked to connect.
 | Message from a number that is not connected | Connect prompt with a fresh link. Nothing else is processed, and a garment photo sent at this point is not downloaded. |
 | Connect token expired or already used | Web page / bot says so and offers a fresh one. |
 | `CONNECT <code>` from a number already connected to another account | Refused: "This number is connected to another account. Disconnect it in Settings first." |
-| A template's look was deactivated after the seller picked it | The create call rejects; bot returns to step 4 with "Those poses changed, please pick again". |
+| A template's look was deactivated after the seller picked it | [Generate] re-reads the pool, drops it and says "Those poses changed. Please choose again."; nothing is charged. If the create call rejects it, the selection is cleared with the same message. |
 | Garment recognition slow, failed, no idle worker, or no matching type | Garment-type list instead (section 8a). The seller loses one tap, never the run. |
 | Recognised type has no template for that gender | "Not available on WhatsApp yet" with a link to the web studio (D47). |
 | User blocks the bot / number invalid | Set `opted_out_at`, stop sending. |
