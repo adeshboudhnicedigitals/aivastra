@@ -101,9 +101,9 @@ async function createCompletedJob(
     })
     .returning();
 
-  const garmentKey = `studio/${job.id}/garment.jpg`;
+  const garmentKey = `inputs/${job.id}/garment.jpg`;
   const resultKey = keys.output(job.id);
-  const thumbnailKey = `studio/${job.id}/thumb.jpg`;
+  const thumbnailKey = `outputs/${job.id}/thumb.jpg`;
 
   await Promise.all([
     app.storage.putObject(garmentKey, opts.garmentBody, 'image/jpeg'),

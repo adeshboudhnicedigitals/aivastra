@@ -47,6 +47,15 @@ esac
 [ "$(read_var R2_BUCKET)" = "virtual-tryon-dev" ] \
   || reject "R2_BUCKET is not 'virtual-tryon-dev' in $env_file"
 
+# Optional real-R2 user storage: a local stack runs the upload sweeper, which
+# deletes inputs/ objects this (local) database doesn't reference — aimed at
+# production's bucket it would delete production uploads. Bucket names follow
+# docs/r2-user-storage-runbook.md (aivastra-user-{dev,staging,prod}).
+user_bucket="$(read_var USER_STORAGE_BUCKET)"
+case "$user_bucket" in
+  *prod*) reject "USER_STORAGE_BUCKET looks like production's ($user_bucket); local dev needs its own R2 bucket" ;;
+esac
+
 if [ "$failed" -ne 0 ]; then
   echo "guardrail: local snapshot pull aborted; no container was touched" >&2
   exit 1

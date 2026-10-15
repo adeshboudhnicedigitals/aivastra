@@ -201,8 +201,8 @@ describe('shopify settings routes', () => {
     // future retry can find and finish the job — deleting the row here would
     // destroy the only remaining pointer to the still-orphaned object.
     const photoKey = `shopify-inputs/${storeId}/gdpr-fail/photo`;
-    const resultKey = `shopify-results/${storeId}/gdpr-fail/result`;
-    const thumbnailKey = `shopify-results/${storeId}/gdpr-fail/thumbnail`;
+    const resultKey = `outputs/${storeId}/gdpr-fail/result`;
+    const thumbnailKey = `outputs/${storeId}/gdpr-fail/thumbnail`;
     await app.storage.putObject(photoKey, Buffer.from('x'), 'image/jpeg');
     await app.storage.putObject(resultKey, Buffer.from('x'), 'image/jpeg');
     await app.storage.putObject(thumbnailKey, Buffer.from('x'), 'image/jpeg');
@@ -295,7 +295,7 @@ describe('shopify settings routes', () => {
 
   async function seedUnlinkedJob(otherStoreId: string, tag: string) {
     const photoKey = `shopify-inputs/${otherStoreId}/${tag}/photo`;
-    const resultKey = `shopify-results/${otherStoreId}/${tag}/result`;
+    const resultKey = `outputs/${otherStoreId}/${tag}/result`;
     await app.storage.putObject(photoKey, Buffer.from('x'), 'image/jpeg');
     await app.storage.putObject(resultKey, Buffer.from('x'), 'image/jpeg');
     const [job] = await app.db

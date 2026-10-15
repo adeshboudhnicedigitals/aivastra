@@ -279,8 +279,6 @@ describe('dispatcher shopify job routing', () => {
         redis,
         pub,
         storage: env.storage,
-        s3: env.s3,
-        r2Bucket: env.r2Bucket,
         log,
       },
       jobId,
@@ -304,8 +302,6 @@ describe('dispatcher shopify job routing', () => {
         redis,
         pub,
         storage: env.storage,
-        s3: env.s3,
-        r2Bucket: env.r2Bucket,
         log,
       },
       jobId,
@@ -330,8 +326,6 @@ describe('dispatcher shopify job routing', () => {
         redis,
         pub,
         storage: env.storage,
-        s3: env.s3,
-        r2Bucket: env.r2Bucket,
         log,
       },
       jobId,
@@ -380,8 +374,6 @@ describe('dispatcher shopify job routing', () => {
       redis,
       pub,
       storage: env.storage,
-      s3: env.s3,
-      r2Bucket: env.r2Bucket,
       log: createLogger('test'),
     } as Parameters<typeof processJob>[0];
 
@@ -441,8 +433,6 @@ describe('dispatcher shopify job routing', () => {
       redis,
       pub,
       storage: env.storage,
-      s3: env.s3,
-      r2Bucket: env.r2Bucket,
       log: createLogger('test'),
     } as Parameters<typeof processJob>[0];
 
@@ -487,8 +477,6 @@ describe('dispatcher shopify job routing', () => {
         redis,
         pub,
         storage: env.storage,
-        s3: env.s3,
-        r2Bucket: env.r2Bucket,
         log: createLogger('test'),
       },
       comfy,

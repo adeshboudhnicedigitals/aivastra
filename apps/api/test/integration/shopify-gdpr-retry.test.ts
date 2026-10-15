@@ -53,7 +53,7 @@ describe('gdpr redaction retry', () => {
       })
       .returning();
 
-    const photoKey = `widget-inputs/${store.id}/${nonce}.jpg`;
+    const photoKey = `shopify-inputs/${store.id}/${nonce}.jpg`;
     await app.storage.putObject(photoKey, Buffer.from('photo'), 'image/jpeg');
 
     // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs

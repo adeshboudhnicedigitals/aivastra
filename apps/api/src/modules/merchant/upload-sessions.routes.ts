@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { keys } from '@aivastra/storage';
 import { PublicUploadSessionPresignBody } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -20,7 +21,7 @@ export async function merchantUploadSessionRoutes(app: FastifyInstance) {
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
       const sessionId = randomUUID();
-      const r2Key = `merchant-inputs/${merchantId}/qr/${sessionId}/photo.jpg`;
+      const r2Key = keys.merchantQrUploadInput(merchantId, sessionId);
       const token = await createUploadSession(app, merchantId, r2Key);
 
       reply.code(201);

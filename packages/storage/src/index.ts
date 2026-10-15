@@ -11,7 +11,7 @@ export interface StorageProvider {
   ): Promise<PresignResult>;
   presignGet(key: string, expiresInSec?: number): Promise<PresignResult>;
   deleteObject(key: string): Promise<void>;
-  putObject(key: string, body: Buffer, contentType: string): Promise<void>;
+  putObject(key: string, body: Uint8Array, contentType: string): Promise<void>;
   getObject(key: string): Promise<Buffer>;
   /** Object metadata without downloading the body. Throws if the object is absent. */
   headObject(key: string): Promise<{ contentLength: number; contentType: string | null }>;
@@ -20,4 +20,12 @@ export interface StorageProvider {
   publicUrl(key: string): string;
 }
 export { keys } from './keys.js';
-export { createR2Provider } from './r2.js';
+export { createR2Provider, type R2Config } from './r2.js';
+export {
+  createRoutedStorage,
+  type FallbackOp,
+  isNotFoundError,
+  type RoutedStorageOptions,
+} from './routed.js';
+export { backendFor, type StorageBackend, UnroutableKeyError } from './routing.js';
+export { resolveUserStorageConfig, type UserStorageVars } from './user-storage-config.js';
