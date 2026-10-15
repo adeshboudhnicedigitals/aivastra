@@ -1,4 +1,4 @@
-# TEMPORARY handoff — WhatsApp catalog bot (updated 2026-10-14)
+# TEMPORARY handoff — WhatsApp catalog bot (updated 2026-10-15)
 
 > Temporary. Exists only so the work can be resumed on another machine. Delete this
 > file once the branch is picked up again (the durable record is `docs/progress.md`,
@@ -24,7 +24,7 @@
 | 3 WhatsApp adapter (webhook, renderer, inbound, delivery, hooks) | implemented up to Task 8's code; Task 8 manual staging steps NOT done | `0226_quick_pestilence` (two ADD COLUMNs) |
 | 4 Amazon white-background removal | implemented, merged into the branch | — |
 | Pose selection across templates (2026-10-14) | implemented (engine, tests, docs); **not yet tapped through on a real phone** | — |
-| 5 Garment recognition on our GPU | **Task 1 spike kit prepared, spike not run**; nothing else started | — |
+| 5 Garment recognition on our GPU | implemented (Tasks 2, 3, 4, 4b, 6) and merged into the branch; spike run on w4; **Task 5 (staging/production switch-on) not done**; works locally but misses its time budget on cold or busy workers | `0227_bizarre_namora` (`garment_recognitions`) |
 
 Last measured on this branch (2026-10-14): api typecheck clean; api unit 102 files / 934
 passed (run with `--no-file-parallelism`, see below); messaging + whatsapp integration
@@ -41,7 +41,7 @@ pushed. If either gains a `0224+` before this merges, renumber ours
 
 ## What the bot does now (the flow changed on 2026-10-14)
 
-photo → gender → (garment type: list; recognition is off until plan 5) → required extra
+photo → gender → garment type (recognised by Qwen on our GPU when `GARMENT_RECOGNITION_ENABLED=true`: "Looks like X. Is that right?" [Yes] [No, change]; any miss shows the list) → required extra
 photos → **pose cards** → Generate. There is no "how many poses" step. The seller sees the
 poses of every active template for the garment type (10 cards per page, [More]), taps to
 select or un-select (max 20), every tap answers "N selected · X credits" with [Generate]
@@ -110,15 +110,30 @@ and pose-label clashes, resolution fallback, single-look pick as one image-heade
 the `reportUnavailable` log ("whatsapp: garment type not offered" with
 `no_face`/`no_template`/`no_eligible_looks`), the 5 MB image fit.
 
-## Plan 5 spike kit (outside the repo)
+## Plan 5: garment recognition (2026-10-15)
 
-`%LOCALAPPDATA%\Temp\opencode\whatsapp-plan5-spike\`: `garment_classify.json`,
-`run-spike.ps1`, `results-table.md`, `t20-production-readonly.sql`, plus per-gender
-`prompt-{boys,girls,men,women}.txt` built from the production slugs. Production read-only
-T20 result (2026-10-14): 99 active garment types (boys 16, girls 18, men 24, women 41), all
-with a public slug, **0 active catalogue templates** (141 exist, none active). The spike
-must run on a GPU worker that is not serving customers; gate is ≥17/20 correct and warm
-time ≤3 s. Not run yet.
+- **Model/path:** Qwen2.5-VL-7B (4-bit, `keep_model_loaded`) through the `AILab_QwenVL` ComfyUI node;
+  api `classify.ts` → `classify:requests` stream → dispatcher classify lane → `classify:result:{id}`.
+  Not a job: no credits, no `jobs` row. Every request leaves a `garment_recognitions` row
+  (D54), shown in admin → Garment recognitions, deleted after 30 days.
+- **Spike (w4, 21 men's photos):** Qwen 15/21, CLIP B/32 12/21, CLIP L/14 10/21. Misses are the
+  confusable types (tanktop/vest, trouser/formal/track, jeans/baggyjeans, one-piece suit). Kit:
+  `%LOCALAPPDATA%\Temp\opencode\whatsapp-plan5-spike\`. `max_tokens` minimum is 64.
+- **Decisions changed since the plan:** the confirm step ("Looks like X?") replaced "Detected: X";
+  `classify` is an **ordinary worker pool** (D52 revised: an empty allowed list includes it; list only
+  `classify` to dedicate a worker); the api waits **12 s** (was 8 s, D48/D50/D53).
+- **Local test (2026-10-15):** 6 recognitions on w4/w7, all correct. Times: 31.8 s and 40.3 s cold,
+  6.6/7.0/8.8 s warm, 17.1 s on a half-loaded model, one `no_worker` while the dispatcher marked
+  workers unhealthy just after a restart. ComfyUI's history showed 11.5 s of GPU execution for the
+  17.1 s run; network is about 0.37 s per round trip, so the time is GPU/model state, not network.
+  w4 also runs real try-on jobs, which probably unload the model. Not proven.
+- **Local setup gotchas:** `GARMENT_RECOGNITION_ENABLED=true` in `.env` (it was found blank, then
+  reverted once; cause unknown); apply migration `0227` locally; upload the classify workflow in admin
+  → Workflows ("Garment recognition (WhatsApp)", API-format JSON); restart api and dispatcher. Worker
+  URLs with a trailing slash 404 if probed by hand (`//system_stats`); the dispatcher strips it.
+- **Not done:** Task 5 on staging/production; the idle-unload measurement (Step 1b); a dedicated
+  `classify` worker; the SSH install of the node on the extra GPU box (connection refused on the
+  given port, nothing installed).
 
 ## Open
 
@@ -143,8 +158,7 @@ time ≤3 s. Not run yet.
 1. **Manual, Meta side:** submit the `catalog_images_ready` template (Utility, `en`, body
    "Your Aivastra catalog images are ready.", one quick-reply button "Show images") and
    record its approval. Consider a System User token.
-2. Real-phone walk-through of the new flow (see Open), then plan 5 Task 1 (the GPU spike) —
-   paste the filled results table into OpenCode.
+2. Real-phone walk-through of the new flow (see Open), including the recognition confirm step.
 3. Review / PR `feat/whatsapp-catalog-bot` → `dev`; migrations ride CI/CD.
 4. Staging env on the VPS: `MESSAGING_WHATSAPP_ENABLED=true`, `WHATSAPP_DISPLAY_NUMBER`,
    `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET`,
@@ -156,8 +170,10 @@ time ≤3 s. Not run yet.
    record results in `docs/progress.md`.
 6. Not yet browser-checked: plan 1's Settings panel and studio chip. (The connect page
    worked in the 2026-10-13 local run.)
-7. Plan 5 after its spike passes — same subagent-driven prompt pattern as plans 1–4, on its
-   own branch from `feat/whatsapp-catalog-bot`.
+7. Plan 5 Task 5: dedicate a worker (`classify` only) or accept shared workers, measure the idle
+   unload time, and decide between a keep-warm ping, a longer budget, or an own always-loaded VLM
+   service on a separate box (tradeoff discussed 2026-10-15; the recommendation was the dedicated
+   worker first). Optionally merge the confusable garment types or add per-type prompt hints.
 8. Before production: production number + display-name approval, system-user permanent
    token, business verification of Nice Interactive.
 
