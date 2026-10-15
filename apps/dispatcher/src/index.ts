@@ -16,6 +16,7 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_TLS_REJECT_UNAUTHO
 import { schema } from '@aivastra/db';
 import type { WorkerPool } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
+import { runClassifyConsumer } from './classify/consumer.js';
 import { loadEnv } from './env.js';
 import { startHealthServer } from './health/server.js';
 import { promoteSareeStep2Jobs } from './job/saree-step2-promoter.js';
@@ -165,6 +166,10 @@ async function main(): Promise<void> {
   const stopVideoConsumer = await runVideoConsumer(redis, processorCfg, log, {
     concurrency: env.VIDEO_CONCURRENCY,
   });
+  // WhatsApp garment recognition (spec 8a): its own stream and cap, so it never
+  // waits behind try-on jobs. Harmless when unused — nothing is ever added to
+  // the stream while the api's GARMENT_RECOGNITION_ENABLED is off.
+  const stopClassifyConsumer = await runClassifyConsumer(redis, processorCfg, log);
   const stopWebhooks = await runWebhooksConsumer(db, redis, log);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);
 
@@ -202,6 +207,7 @@ async function main(): Promise<void> {
     clearInterval(shopifyRetentionInterval);
     stopConsumer();
     stopVideoConsumer();
+    stopClassifyConsumer();
     stopWebhooks();
     stopPerformanceRefresh();
     stopHealthMonitor();

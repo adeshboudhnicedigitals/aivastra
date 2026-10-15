@@ -24,6 +24,9 @@ export interface ComfyMockOptions {
   promptStatus?: number;
   /** Force GET /prompt to answer with this raw body (e.g. invalid JSON). */
   promptBody?: string;
+  /** Replaces the default SaveImage output in /history — e.g. { '4': { text: ['wa-kurti'] } }
+   *  for the classify lane's text answer. */
+  outputs?: Record<string, unknown>;
 }
 
 export interface ComfyMock {
@@ -152,7 +155,7 @@ export function startComfyMock(): Promise<ComfyMock> {
                   },
                 }
               : {
-                  outputs: {
+                  outputs: opts.outputs ?? {
                     '10': {
                       images: [
                         {
@@ -282,6 +285,12 @@ export function startComfyMock(): Promise<ComfyMock> {
           for (const id of Object.keys(histories)) delete histories[id];
           deleted.length = 0;
           interrupted.length = 0;
+          // The classify lane asserts a skipped request never touched the GPU
+          // via lastPrompt() === null, so a previous test's submission must
+          // not leak through beforeEach. Uploaded filenames stay cumulative:
+          // tests assert per-call order with .at(-1).
+          lastPromptId = null;
+          lastPrompt = null;
         },
         setOptions: (newOpts) => {
           opts = newOpts;

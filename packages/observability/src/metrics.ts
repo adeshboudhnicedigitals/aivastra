@@ -206,6 +206,16 @@ export const workerReleaseFailuresTotal = new Counter({
   registers: [register],
 });
 
+// Request pick-up to answer for WhatsApp garment recognition (spec 8a). Its
+// p95 against the bot's 8 s budget is one of the switch-to-hosted-API criteria.
+export const garmentClassifyDurationSeconds = new Histogram({
+  name: 'garment_classify_duration_seconds',
+  help: 'Garment recognition duration in the dispatcher, by outcome (answered/no_worker/failed/expired)',
+  labelNames: ['outcome'] as const,
+  buckets: [0.5, 1, 2, 3, 5, 8, 15, 30, 60, 90],
+  registers: [register],
+});
+
 // ── Chatbot metrics ──────────────────────────────────────────────────────────
 
 export const chatbotMessagesTotal = new Counter({
