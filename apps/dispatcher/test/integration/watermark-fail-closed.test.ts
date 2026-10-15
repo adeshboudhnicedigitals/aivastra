@@ -139,8 +139,6 @@ describe('finalizeOutput — fail-closed on watermark failure', () => {
         redis,
         pub,
         storage: env.storage,
-        s3: env.s3,
-        r2Bucket: env.r2Bucket,
         log,
       },
       jobId,
@@ -178,8 +176,6 @@ describe('finalizeOutput — fail-closed on watermark failure', () => {
       redis,
       pub,
       storage: env.storage,
-      s3: env.s3,
-      r2Bucket: env.r2Bucket,
       log,
     };
     const stream = `jobs:test-${jobId}`;

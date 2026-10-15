@@ -15,6 +15,8 @@ COMPOSE_PROJECT_NAME=aivastra-prod
 SHOPIFY_API_KEY=prodshopifykey123
 EMAIL_FROM=no-reply@aivastra.com
 RAZORPAY_KEY_ID=rzp_live_abc123
+USER_STORAGE_BUCKET=aivastra-user-prod
+USER_STORAGE_ACCESS_KEY_ID=prodr2key
 EOF
 
 # A staging env file that should pass every check.
@@ -25,6 +27,8 @@ COMPOSE_PROJECT_NAME=aivastra-staging
 SHOPIFY_API_KEY=stagingshopifykey456
 EMAIL_FROM=staging@staging.aivastra.com
 RAZORPAY_KEY_ID=rzp_test_abc123
+USER_STORAGE_BUCKET=aivastra-user-staging
+USER_STORAGE_ACCESS_KEY_ID=stagingr2key
 EOF
 }
 
@@ -74,6 +78,20 @@ check "Shopify key matching prod is rejected" 1
 good_env
 sed -i 's|^EMAIL_FROM=.*|EMAIL_FROM=no-reply@aivastra.com|' "$TMP/staging.env"
 check "EMAIL_FROM matching prod is rejected" 1
+
+# Staging's sweepers delete objects its own DB doesn't reference — aimed at
+# prod's bucket they would delete production uploads.
+good_env
+sed -i 's/^USER_STORAGE_BUCKET=.*/USER_STORAGE_BUCKET=aivastra-user-prod/' "$TMP/staging.env"
+check "R2 user bucket matching prod is rejected" 1
+
+good_env
+sed -i 's/^USER_STORAGE_ACCESS_KEY_ID=.*/USER_STORAGE_ACCESS_KEY_ID=prodr2key/' "$TMP/staging.env"
+check "R2 access key matching prod is rejected" 1
+
+good_env
+sed -i '/^USER_STORAGE_/d' "$TMP/staging.env"
+check "staging without R2 configured passes" 0
 
 echo
 echo "passed: $pass  failed: $fail"

@@ -242,8 +242,6 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
         redis,
         pub,
         storage: env.storage,
-        s3: env.s3,
-        r2Bucket: env.r2Bucket,
         log,
       },
       jobId,
@@ -288,8 +286,6 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
       redis,
       pub,
       storage: env.storage,
-      s3: env.s3,
-      r2Bucket: env.r2Bucket,
       log,
     };
 
@@ -350,8 +346,6 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
         redis,
         pub,
         storage: env.storage,
-        s3: env.s3,
-        r2Bucket: env.r2Bucket,
         log,
       },
       jobId,

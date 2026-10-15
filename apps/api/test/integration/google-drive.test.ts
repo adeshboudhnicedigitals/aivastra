@@ -313,7 +313,7 @@ describe('google-drive integration', () => {
         })
         .returning();
 
-      const resultKey = `results/${job.id}/image.jpg`;
+      const resultKey = `outputs/${job.id}/image.jpg`;
       await app.storage.putObject(resultKey, imageBuffer, 'image/jpeg');
 
       await app.db.insert(schema.jobOutputs).values({

@@ -12,7 +12,8 @@
     "test:unit": "vitest run --exclude 'test/integration/**'",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "biome check src/",
-    "postman:generate": "tsx --env-file=../../.env src/scripts/generate-postman.ts"
+    "postman:generate": "tsx --env-file=../../.env src/scripts/generate-postman.ts",
+    "check:storage": "tsx --env-file=../../.env scripts/check-user-storage.mts"
   },
   "dependencies": {
     "@aivastra/db": "workspace:*",

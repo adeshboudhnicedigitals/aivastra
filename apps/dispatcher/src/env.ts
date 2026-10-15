@@ -5,6 +5,7 @@ import { z } from 'zod';
 // optional URL var needs this to actually be skippable.
 const optionalUrl = () =>
   z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional());
+const optionalString = () => z.preprocess((v) => (v === '' ? undefined : v), z.string().optional());
 
 const Env = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -26,6 +27,14 @@ const Env = z.object({
    *  When set, the internal endpoint origin in the generated URL is replaced with
    *  this value. Same var api's storage plugin already uses. */
   R2_PUBLIC_PRESIGN_BASE: optionalUrl(),
+  // The real Cloudflare R2 bucket for end-user inputs/outputs (R2_* above is
+  // MinIO). Same vars and semantics as api's env.ts — see the comment there.
+  USER_STORAGE_ENDPOINT: optionalUrl(),
+  USER_STORAGE_ACCESS_KEY_ID: optionalString(),
+  USER_STORAGE_SECRET_ACCESS_KEY: optionalString(),
+  USER_STORAGE_BUCKET: optionalString(),
+  USER_STORAGE_PUBLIC_URL: optionalUrl(),
+  USER_STORAGE_READ_FALLBACK: z.preprocess((v) => v === 'true', z.boolean()).default(false),
   DISPATCHER_HEALTH_PORT: z.coerce.number().default(4100),
   // How long a pending stream entry must be idle before recovery claims it (ms)
   XPENDING_CLAIM_THRESHOLD_MS: z.coerce.number().default(60_000),

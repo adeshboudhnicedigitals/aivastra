@@ -197,8 +197,8 @@ describe('merchant catalog bulk-flat lifecycle (E2E)', () => {
 
     // 3. Simulate the dispatcher completing both jobs.
     for (const jobId of jobIds) {
-      const resultKey = `results/lifecycle/${jobId}.jpg`;
-      const thumbnailKey = `results/lifecycle/${jobId}.thumb.jpg`;
+      const resultKey = `outputs/lifecycle/${jobId}.jpg`;
+      const thumbnailKey = `outputs/lifecycle/${jobId}.thumb.jpg`;
       await app.storage.putObject(resultKey, Buffer.from('result'), 'image/jpeg');
       await app.storage.putObject(thumbnailKey, Buffer.from('thumb'), 'image/jpeg');
       await app.db
