@@ -43,6 +43,7 @@ export const keys = {
     `models/subcategories/${id}.tryon-library-instr.jpg`,
   shopifyBasketImage: (id: string) => `shopify/baskets/${id}.jpg`,
   catalogueTemplateThumb: (id: string) => `models/catalogue-templates/${id}.thumb.jpg`,
+  bodyTypeThumb: (id: string) => `models/body-types/${id}.thumb.jpg`,
   subcategoryTemplate: (id: string) => `models/templates/${id}.jpg`,
   subcategoryTemplateThumb: (id: string) => `models/templates/${id}.thumb.jpg`,
   tryonSample: (categoryId: string, sampleId: string) =>
