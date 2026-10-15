@@ -148,4 +148,78 @@ describe('classify lane', () => {
         .where(eq(schema.workflowTemplates.slug, 'garment_classify_test'));
     }
   });
+
+  // D54: one garment_recognitions row per request, best effort.
+  it('writes one garment_recognitions row per answered request', async () => {
+    const req = { ...request(), gender: 'women' };
+    const result = await processRecognitionRequest(cfg, req);
+    expect(result.error).toBeNull();
+
+    const rows = await env.db
+      .select()
+      .from(schema.garmentRecognitions)
+      .where(eq(schema.garmentRecognitions.id, req.requestId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: req.requestId,
+      gender: 'women',
+      garmentKey: GARMENT_KEY,
+      answer: 'wa-kurti',
+      outcome: 'answered',
+      workerId: WORKER_ID,
+    });
+    // The exact options as sent, so admin shows what the model chose from.
+    expect(rows[0]?.options).toEqual(req.options);
+    expect(rows[0]?.ms).toBeGreaterThanOrEqual(0);
+    expect(rows[0]?.workflowTemplateId).toEqual(expect.any(String));
+  });
+
+  it('records the outcome on paths that never reach the GPU', async () => {
+    const expired = request({ expiresAt: Date.now() - 1 });
+    expect((await processRecognitionRequest(cfg, expired)).error).toBe('expired');
+    const [expiredRow] = await env.db
+      .select()
+      .from(schema.garmentRecognitions)
+      .where(eq(schema.garmentRecognitions.id, expired.requestId));
+    expect(expiredRow?.outcome).toBe('expired');
+    expect(expiredRow?.workerId).toBeNull();
+
+    await worker([]);
+    const starved = request();
+    expect((await processRecognitionRequest(cfg, starved)).error).toBe('no_worker');
+    const [starvedRow] = await env.db
+      .select()
+      .from(schema.garmentRecognitions)
+      .where(eq(schema.garmentRecognitions.id, starved.requestId));
+    expect(starvedRow?.outcome).toBe('no_worker');
+    expect(starvedRow?.workerId).toBeNull();
+  });
+
+  it('still answers when the record insert fails (best effort, D54)', async () => {
+    const req = { ...request(), gender: 'women' };
+    // select works (the template must load); only the record insert throws.
+    const throwingDb = new Proxy(cfg.db, {
+      get(target, prop) {
+        if (prop === 'insert') {
+          return () => {
+            throw new Error('recognition record boom');
+          };
+        }
+        const value = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const result = await processRecognitionRequest({ ...cfg, db: throwingDb }, req);
+    expect(result).toMatchObject({ answer: 'wa-kurti', error: null });
+    const stored = JSON.parse(
+      (await redis.get(garmentRecognitionResultKey(req.requestId))) ?? '{}',
+    );
+    expect(stored).toMatchObject({ answer: 'wa-kurti', error: null });
+    expect(
+      await env.db
+        .select()
+        .from(schema.garmentRecognitions)
+        .where(eq(schema.garmentRecognitions.id, req.requestId)),
+    ).toHaveLength(0);
+  });
 });

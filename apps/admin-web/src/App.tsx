@@ -16,6 +16,7 @@ import DashboardPage from './pages/DashboardPage';
 import DemoCatalogPage from './pages/DemoCatalogPage';
 import DevApiPage from './pages/DevApiPage';
 import FlowApprovalsPage from './pages/FlowApprovalsPage';
+import GarmentRecognitionsPage from './pages/GarmentRecognitionsPage';
 import HeldBatchesPage from './pages/HeldBatchesPage';
 import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
@@ -44,6 +45,7 @@ const PATH_LABELS: Record<string, string> = {
   'demo-catalog': 'Kiosk Demo Data',
   users: 'Users',
   jobs: 'Jobs',
+  'garment-recognitions': 'Garment Recognitions',
   'held-batches': 'Held Batches',
   workflows: 'Workflows',
   'workflow-approvals': 'Flow Approvals',
@@ -259,6 +261,10 @@ export default function App() {
             <Route path="/pixverse" element={<PixversePage {...pageProps} />} />
             <Route path="/users" element={<UsersPage {...pageProps} />} />
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
+            <Route
+              path="/garment-recognitions"
+              element={<GarmentRecognitionsPage {...pageProps} />}
+            />
             <Route path="/held-batches" element={<HeldBatchesPage {...pageProps} />} />
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/workflow-approvals" element={<FlowApprovalsPage {...pageProps} />} />

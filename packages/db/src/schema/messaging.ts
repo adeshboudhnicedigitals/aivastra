@@ -1,5 +1,14 @@
-import { sql } from 'drizzle-orm';
-import { index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { desc, sql } from 'drizzle-orm';
+import {
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { users } from './users.js';
 
 // One row per (channel, sender): "this WhatsApp number belongs to that user".
@@ -63,4 +72,33 @@ export const messagingRuns = pgTable(
     finishedAt: timestamp('finished_at', { withTimezone: true }),
   },
   (t) => [index('messaging_runs_account_created_idx').on(t.messagingAccountId, t.createdAt)],
+);
+
+// One row per garment-recognition request (WhatsApp bot spec 8a, D54). Written
+// by the dispatcher's classify lane at the end of EVERY path (answered,
+// no_worker, failed, expired) and read by the admin list/detail. Best effort:
+// if the insert fails the answer is still returned, so this is an inspection
+// aid, not an audit trail. No foreign keys: a deleted worker or workflow must
+// not break history. Rows older than 30 days are deleted by the api's
+// recognition sweeper (apps/api/src/modules/messaging/recognition-sweeper.ts).
+export const garmentRecognitions = pgTable(
+  'garment_recognitions',
+  {
+    // The GarmentRecognitionRequest id — the lane owns it, so no default.
+    id: uuid('id').primaryKey(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    gender: text('gender'),
+    garmentKey: text('garment_key').notNull(),
+    // The exact options sent to the model, so admin shows what it chose from.
+    options: jsonb('options').notNull(),
+    // The model's raw text (null when there is no answer to record).
+    answer: text('answer'),
+    // 'answered' | 'no_worker' | 'failed' | 'expired'
+    outcome: text('outcome').notNull(),
+    // Pick-up to answer, as measured by the dispatcher.
+    ms: integer('ms').notNull(),
+    workerId: text('worker_id'),
+    workflowTemplateId: uuid('workflow_template_id'),
+  },
+  (t) => [index('garment_recognitions_created_at_idx').on(desc(t.createdAt))],
 );

@@ -10,6 +10,7 @@ import {
   startWhatsappDelivery,
   startWhatsappInboundConsumer,
 } from './modules/messaging/inbound-consumer.js';
+import { startRecognitionSweeper } from './modules/messaging/recognition-sweeper.js';
 import { startAlertScheduler } from './modules/shopify/alert-scheduler.js';
 import { startAutorefillReconciler } from './modules/shopify/autorefill-reconciler.js';
 import { startCollectionResyncScheduler } from './modules/shopify/collections-resync-scheduler.js';
@@ -37,6 +38,7 @@ startSyncConsumer(app);
 startCollectionResyncScheduler(app);
 startProductResyncScheduler(app);
 startUploadSweeper(app);
+startRecognitionSweeper(app);
 startAlertScheduler(app);
 startAutorefillReconciler(app);
 startPaymentSettlementScheduler(app);

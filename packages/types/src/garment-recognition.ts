@@ -18,6 +18,9 @@ export const GarmentRecognitionRequest = z.object({
   // Epoch ms. A request picked up after this is skipped with error 'expired':
   // the seller has had the garment-type list since then, so GPU time is wasted.
   expiresAt: z.number().int(),
+  // The gender whose option list was sent (plan 5 Task 4b, D54). Optional so a
+  // request already in the stream when this deploys still parses.
+  gender: z.string().min(1).optional(),
 });
 export type GarmentRecognitionRequest = z.infer<typeof GarmentRecognitionRequest>;
 

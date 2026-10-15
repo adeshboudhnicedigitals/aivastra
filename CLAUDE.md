@@ -527,6 +527,7 @@ test can drive one pass directly.
 | `startSyncConsumer` | continuous | Redis `shopify:sync` stream → product/collection sync |
 | `startCollectionResyncScheduler` | 1h | re-syncs collection membership |
 | `startUploadSweeper` | 1h | deletes uploads orphaned >24h |
+| `startRecognitionSweeper` | 6h | deletes `garment_recognitions` rows older than 30 days |
 | `startAlertScheduler` | 1h | low-store-credit merchant emails |
 | `startAutorefillReconciler` | 15m | settles auto-refill purchase rows stranded `PENDING` by a thrown charge |
 | `startPaymentSettlementScheduler` | 60s | grants credit packs held `AWAITING` once the Partner API shows the sale (hold-until-paid); fails closed |

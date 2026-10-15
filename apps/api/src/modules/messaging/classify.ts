@@ -30,21 +30,30 @@ const count = (outcome: Outcome) => garmentClassifyOutcomeTotal.inc({ outcome })
 
 /**
  * The model's answer → one option, or null. An exact slug match once case,
- * surrounding whitespace, quotes and trailing punctuation are removed. Nothing
- * looser: a fuzzy match that picks the wrong type costs the seller a wrong
- * generation, while no match only costs them one tap on the list.
+ * surrounding whitespace, quotes and trailing punctuation are removed — and so
+ * is an exact, unique label (D55: Qwen sometimes replies with the option's
+ * label though the prompt asks for the key). Nothing looser: a fuzzy match
+ * that picks the wrong type costs the seller a wrong generation, while no
+ * match only costs them one tap on the list.
  */
 export function matchAnswer(
   answer: string | null,
   candidates: RecognitionCandidate[],
 ): RecognitionCandidate | null {
   if (!answer) return null;
-  const a = answer
-    .trim()
-    .toLowerCase()
-    .replace(/^["'`]+/, '')
-    .replace(/["'`.!]+$/, '');
-  return candidates.find((c) => c.slug === a) ?? null;
+  const normalize = (s: string) =>
+    s
+      .trim()
+      .toLowerCase()
+      .replace(/^["'`]+/, '')
+      .replace(/["'`.!]+$/, '');
+  const a = normalize(answer);
+  // NONE is never an option, even if some label normalized to it.
+  if (a === 'none') return null;
+  const slugHit = candidates.find((c) => c.slug === a);
+  if (slugHit) return slugHit;
+  const labelHits = candidates.filter((c) => normalize(c.label) === a);
+  return labelHits.length === 1 ? (labelHits[0] as RecognitionCandidate) : null;
 }
 
 async function waitForResult(
@@ -98,6 +107,9 @@ export async function recognizeGarment(
       garmentKey,
       options: candidates.map(({ slug, label }) => ({ slug, label })),
       expiresAt: Date.now() + budgetMs,
+      // Recorded on the garment_recognitions row (D54); optional on the wire
+      // so in-stream requests from before this deploy still parse.
+      gender,
     };
     await app.redis.xadd(
       GARMENT_RECOGNITION_STREAM,

@@ -1583,6 +1583,13 @@
       "when": 1791897210360,
       "tag": "0226_quick_pestilence",
       "breakpoints": true
+    },
+    {
+      "idx": 227,
+      "version": "7",
+      "when": 1792063582119,
+      "tag": "0227_bizarre_namora",
+      "breakpoints": true
     }
   ]
 }
