@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
 import { and, count, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -260,7 +261,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
           );
         }
         const contentType = res.headers.get('content-type') ?? 'image/jpeg';
-        newR2Key = `shopify-garments/${store.id}/${shopifyProductId}/garment-${randomUUID()}.jpg`;
+        newR2Key = keys.shopifyProductGarmentOverride(store.id, shopifyProductId, randomUUID());
         await app.storage.putObject(newR2Key, Buffer.from(arrayBuffer), contentType);
       }
 

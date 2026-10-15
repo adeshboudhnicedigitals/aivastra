@@ -69,6 +69,14 @@ prod_node_env="$TMPDIR/prod_node_env.env"
 base_env | sed 's/NODE_ENV=development/NODE_ENV=production/' > "$prod_node_env"
 expect_fail "NODE_ENV=production rejected" "$prod_node_env"
 
+dev_user_bucket="$TMPDIR/dev_user_bucket.env"
+{ base_env; echo "USER_STORAGE_BUCKET=aivastra-user-dev"; } > "$dev_user_bucket"
+expect_pass "dev R2 user bucket passes" "$dev_user_bucket"
+
+prod_user_bucket="$TMPDIR/prod_user_bucket.env"
+{ base_env; echo "USER_STORAGE_BUCKET=aivastra-user-prod"; } > "$prod_user_bucket"
+expect_fail "production R2 user bucket rejected" "$prod_user_bucket"
+
 echo "---"
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

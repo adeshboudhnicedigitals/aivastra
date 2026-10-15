@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
 import { and, desc, eq, notInArray, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
@@ -229,7 +230,7 @@ async function upsertGarmentFailure(
   failedReason: string,
   status: 'failed' | 'deleted' = 'failed',
 ): Promise<void> {
-  const r2Key = `shopify-garments/${storeId}/${productId}/garment.jpg`;
+  const r2Key = keys.shopifyProductGarment(storeId, productId);
   await upsertGarment(
     app,
     storeId,
@@ -345,7 +346,7 @@ export async function syncProduct(
   product: ShopifyProduct,
   fetchFn: FetchLike = fetch as unknown as FetchLike,
 ): Promise<void> {
-  const r2Key = `shopify-garments/${storeId}/${product.id}/garment.jpg`;
+  const r2Key = keys.shopifyProductGarment(storeId, product.id);
   const productType = product.productType ?? null;
   const tags = product.tags ?? null;
   const vendor = product.vendor ?? null;

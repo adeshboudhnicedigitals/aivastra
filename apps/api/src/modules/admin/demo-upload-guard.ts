@@ -1,3 +1,4 @@
+import { keys } from '@aivastra/storage';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
@@ -16,7 +17,7 @@ export async function assertDemoUploadKey(
   key: string,
   label: string,
 ): Promise<void> {
-  if (!key.startsWith('demo-catalog/')) {
+  if (!key.startsWith(keys.demoCatalogPrefix())) {
     throw new AppError('FORBIDDEN', 403, `${label} key is not a demo catalog key`);
   }
 
