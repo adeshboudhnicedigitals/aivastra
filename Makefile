@@ -88,14 +88,23 @@ sync-prod-snapshot:
 
 # Fixed public URLs so Meta can reach a local stack for WhatsApp bot testing:
 # wa-dev-api.aivastra.com -> api :4000, wa-dev-minio.aivastra.com -> MinIO :9000.
-# Windows only (cloudflared under Program Files). whatsapp-tunnel-setup is
-# one-time and adds two DNS records to the aivastra.com zone; whatsapp-tunnel
-# runs it until Ctrl+C. See the header of scripts/local-sync/whatsapp-dev-tunnel.ps1.
+# whatsapp-tunnel-setup is one-time and adds two DNS records to the aivastra.com
+# zone; whatsapp-tunnel runs it until Ctrl+C. Windows uses the .ps1 (cloudflared
+# under Program Files), everything else the .sh twin (cloudflared + jq on PATH).
+# See the headers of scripts/local-sync/whatsapp-dev-tunnel.{ps1,sh}.
+ifeq ($(OS),Windows_NT)
 whatsapp-tunnel-setup:
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-sync/whatsapp-dev-tunnel.ps1 -Setup
 
 whatsapp-tunnel:
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-sync/whatsapp-dev-tunnel.ps1
+else
+whatsapp-tunnel-setup:
+	bash scripts/local-sync/whatsapp-dev-tunnel.sh --setup
+
+whatsapp-tunnel:
+	bash scripts/local-sync/whatsapp-dev-tunnel.sh
+endif
 
 shopify-deploy:
 	cd apps/shopify-extension && npx shopify app deploy --allow-updates
