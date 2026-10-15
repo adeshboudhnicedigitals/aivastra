@@ -569,7 +569,7 @@ LoadImage ─▶ ImageScaleToTotalPixels ─▶ AILab_QwenVL ─▶ PreviewAny
 |---|---|---|
 | `LoadImage` | patched with the file the dispatcher uploads via `uploadImageToComfy` | Same input path as try-on |
 | `ImageScaleToTotalPixels` | about 1 MP (try-on uses 2) | Fewer image tokens, faster answer; size settled in T18 |
-| `AILab_QwenVL` | `model_name` and `quantization` identical to the try-on node (Qwen2.5-VL-7B-Instruct, 4-bit); `max_tokens` 16; `keep_model_loaded` true; fixed seed; `custom_prompt` patched per request | Identical settings should let one loaded copy serve both workflows (checked in T18); the answer is one slug |
+| `AILab_QwenVL` | `model_name` and `quantization` identical to the try-on node (Qwen2.5-VL-7B-Instruct, 4-bit); `max_tokens` 64 (the node's minimum — 16 is rejected; T18); `keep_model_loaded` true; fixed seed; `custom_prompt` patched per request | Identical settings should let one loaded copy serve both workflows (checked in T18); the answer is one slug |
 | `PreviewAny` | — | An output node, so the answer appears in `/history` as `outputs[<id>].text`; exact shape recorded in T18 |
 
 The admin save finds the image, Qwen and output nodes by `class_type` and stores their ids in the columns the regeneration type reuses (D51); the dispatcher patches those ids. A `classify` workflow must have exactly one of each, and its prompt must contain `{{OPTIONS}}`.
