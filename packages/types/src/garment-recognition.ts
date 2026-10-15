@@ -30,3 +30,10 @@ export const GarmentRecognitionResult = z.object({
   ms: z.number().int().nonnegative(),
 });
 export type GarmentRecognitionResult = z.infer<typeof GarmentRecognitionResult>;
+// The classify workflow's Qwen prompt carries this placeholder; the dispatcher
+// replaces it with one "<slug> — <label>" line per option. Checked at upload.
+export const CLASSIFY_OPTIONS_PLACEHOLDER = '{{OPTIONS}}';
+// Node classes accepted as the text answer: core ComfyUI's PreviewAny, or the
+// pysssss ShowText node on boxes without it. Both put the text in /history
+// as outputs[<id>].text.
+export const CLASSIFY_OUTPUT_CLASS_TYPES = ['PreviewAny', 'ShowText|pysssss'] as const;

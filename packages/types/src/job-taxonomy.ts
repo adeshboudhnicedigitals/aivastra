@@ -48,6 +48,9 @@ export const WORKER_POOL = {
   SAREE: 'saree',
   SHOPIFY: 'shopify',
   MERCHANT: 'merchant',
+  // WhatsApp bot garment recognition (spec 8a). Opt-in only: a worker must list
+  // it explicitly — an empty allowedJobTypes does NOT include it (D52).
+  CLASSIFY: 'classify',
 } as const;
 export type WorkerPool = (typeof WORKER_POOL)[keyof typeof WORKER_POOL];
 export const workerPoolSchema = z.enum(Object.values(WORKER_POOL) as [WorkerPool, ...WorkerPool[]]);

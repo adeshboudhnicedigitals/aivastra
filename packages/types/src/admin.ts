@@ -439,6 +439,7 @@ export const CreateWorkflowBody = z
         'two_stage',
         'regeneration',
         'fabric_to_garment',
+        'classify',
       ])
       .default('regular'),
     // Only meaningful for workflowType='regular' — see garmentView on the
@@ -484,6 +485,13 @@ export const CreateWorkflowBody = z
     samSegmentationPromptNode: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
+    // WhatsApp garment recognition (spec 8a, D51): no admin-set node fields —
+    // the three nodes are detected by class_type in extractWorkflowInsertFields
+    // at upload time, so nothing is required here. The early return also keeps
+    // classify out of the regular-workflow checks below (poseNodeId etc.).
+    if (val.workflowType === 'classify') {
+      return;
+    }
     // Only the two prompt-node fields are Zod-required here — tryonPersonNodeId
     // and tryonOutputNodeId are auto-detected from the workflow JSON (with a
     // fallback-then-throw in extractWorkflowInsertFields), same as the tryon
@@ -615,6 +623,7 @@ export const ParseWorkflowBody = z.object({
       'two_stage',
       'regeneration',
       'fabric_to_garment',
+      'classify',
     ])
     .optional(),
 });
