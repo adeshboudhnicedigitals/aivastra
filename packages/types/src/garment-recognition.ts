@@ -6,7 +6,7 @@ import { z } from 'zod';
 // ComfyUI workflow and writes the answer.
 export const GARMENT_RECOGNITION_STREAM = 'classify:requests';
 export const garmentRecognitionResultKey = (requestId: string) => `classify:result:${requestId}`;
-// Long enough to inspect after the fact; the bot itself stops waiting after 8 s.
+// Long enough to inspect after the fact; the bot itself stops waiting after 12 s.
 export const GARMENT_RECOGNITION_RESULT_TTL_SEC = 3600;
 
 export const GarmentRecognitionRequest = z.object({

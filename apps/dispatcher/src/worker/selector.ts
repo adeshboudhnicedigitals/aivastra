@@ -21,10 +21,9 @@ const RR_CURSOR_KEY = 'worker:rr_cursor';
 // ARGV[3] = performance key (empty preserves round-robin).
 // ARGV[4] = reliable executable-node rule available.
 // ARGV[5..] = worker ids to skip this selection cycle (found externally busy).
-// Workers with an empty allowedJobTypes array accept any job type — except
-// 'classify', which a worker must list explicitly (D52): recognition keeps
-// Qwen loaded (~6 GB VRAM, ~37 s cold), so it must never land on a try-on
-// worker by default.
+// Workers with an empty allowedJobTypes array accept any job type, 'classify'
+// included (D52 revised: recognition is an ordinary pool; dedicate a worker by
+// listing only 'classify' on it).
 export const CLAIM_LUA = `
 local fields = redis.call('HGETALL', KEYS[1])
 local n = #fields / 2
@@ -42,9 +41,9 @@ local function candidateAt(i, id)
     if redis.call('EXISTS', KEYS[2] .. id) == 1 then
       local eligible = true
       local allowed = val.allowedJobTypes
-      if (allowed and #allowed > 0) or jobType == 'classify' then
+      if allowed and #allowed > 0 then
         eligible = false
-        for _, t in ipairs(allowed or {}) do
+        for _, t in ipairs(allowed) do
           if t == jobType then eligible = true break end
         end
       end

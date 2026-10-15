@@ -111,15 +111,15 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D47 | Garment types with no template | A garment type with no active catalogue template for that gender is not available in the chat; the bot says so and points to the web studio. |
 | D33 | Engine purity | Deterministic, not pure: `handle(session, event, ctx, deps)` awaits an injected `EngineDeps` for option lists and side effects but does no I/O of its own and takes randomness from `deps`. Tested with in-memory fakes. |
 | D34 | Run tracking | A `messaging_runs` table (one row per create call, keyed by `catalogue_id`, with the account and job ids), not `job_inputs.params.channel`: the create request strips unknown params keys, and params feed the workflow. |
-| D48 | Waiting for recognition | Inside the conversation, polling the result key for at most 8 s after the gender tap, behind `GARMENT_RECOGNITION_ENABLED` (literal `'true'`; off = always the list). The request/result contract is `packages/types/src/garment-recognition.ts`. |
+| D48 | Waiting for recognition | Inside the conversation, polling the result key for at most 12 s after the gender tap, behind `GARMENT_RECOGNITION_ENABLED` (literal `'true'`; off = always the list). The request/result contract is `packages/types/src/garment-recognition.ts`. |
 | D49 | Looks needing a question | Not offered: a shoe look without a default shoe, a combined look without a default lower or lower photo, a lower-only look in a mixed template unless the type takes a lower photo. |
 | D37 | Delivery by polling, not pub/sub | One polling loop over unfinished `messaging_runs` (indexed, a handful of rows) replaces the notifier on the dispatcher's `sse:events:admin` channel plus the sweeper. Cost: up to one poll interval (5 s) of extra latency on a multi-minute generation. |
 | D38 | Result images are uploaded to Meta, not linked | Uploading needs no public URL and no answer to whether Meta can fetch our presigned URLs (T3: it can, but delivery does not depend on it). |
 | D39 | The 24-hour window margin is 10 minutes | A free-form send is attempted only if the seller's last message is less than 23 h 50 min old, so a send in flight never crosses the 24-hour line. |
-| D50 | Senders are processed concurrently, each in order | The consumer chains each sender's messages on an in-process promise (one sender stays in order) and runs different senders in parallel, up to 20 in flight; the per-sender Redis lock still serialises one sender across api replicas. A gender tap's 8 s recognition wait (D48) never blocks other sellers. |
+| D50 | Senders are processed concurrently, each in order | The consumer chains each sender's messages on an in-process promise (one sender stays in order) and runs different senders in parallel, up to 20 in flight; the per-sender Redis lock still serialises one sender across api replicas. A gender tap's 12 s recognition wait (D48) never blocks other sellers. |
 | D51 | Classify workflow node ids | The admin save finds the image, Qwen and output nodes by `class_type` once and stores their ids in the columns the `regeneration` type reuses (`tryonPersonNodeId`, `garmentPhasePromptNode`, `tryonOutputNodeId`); the dispatcher patches those ids. Deviates from the draft (dispatcher finding nodes per request): a malformed workflow is rejected at upload, and no migration is needed. |
-| D52 | Which workers run recognition | The `classify` pool is opt-in: a worker must list it explicitly — an empty `allowedJobTypes` does not include it. Otherwise recognition would cold-load Qwen (~37 s, ~6 GB VRAM) on any try-on worker. |
-| D53 | Retries and late answers | Never retried: acked on read, no `XPENDING` recovery — the api stops waiting after 8 s, so a retry could only ever be late. The lane still waits up to 90 s and always writes the result with its duration, as evidence for the switch-to-API rule. |
+| D52 | Which workers run recognition | `classify` is an ordinary pool (revised 2026-10-15; first written as opt-in): an empty `allowedJobTypes` includes it, so any idle worker may run recognition. Cost: a try-on worker can cold-load Qwen (~37 s, ~6 GB VRAM) on its first recognition. To dedicate a worker, list only `classify` on it. |
+| D53 | Retries and late answers | Never retried: acked on read, no `XPENDING` recovery — the api stops waiting after 12 s, so a retry could only ever be late. The lane still waits up to 90 s and always writes the result with its duration, as evidence for the switch-to-API rule. |
 | D54 | Where a recognition is recorded | One `garment_recognitions` row per request (request id, gender, garment key, options sent, raw answer, outcome, ms, worker, workflow) with a read-only admin list — not a `jobs` row, which would drag in credits, retries and the seller's job history. Best-effort write; rows deleted after 30 days. |
 | D55 | What counts as an answer | An exact label match counts too, case-insensitively, only when it matches exactly one option — Qwen sometimes answers `Crop Top` instead of the slug. Still no fuzzy matching; anything else means "show the list". |
 
@@ -544,13 +544,13 @@ bot ─▶ waits for the key, up to the time budget ─▶ slug ─▶ garment-t
   `aivastra-gpu` repo under that repo's ComfyUI rules (design below).
 - **Workers.** A new worker pool value, `classify`, in `WORKER_POOL`
   (`packages/types/src/job-taxonomy.ts`). Admins enable it per worker in the Workers screen.
-  The pool is opt-in (D52): a worker must list `classify` explicitly — an empty allowed
-  list does not include it — so recognition never lands on a try-on worker by default.
+  The pool is ordinary (D52, revised): an empty allowed list includes it, so recognition
+  may land on any idle worker; list only `classify` on a worker to dedicate it.
   Finding 8's warning applies: keeping Qwen loaded holds about 6 GB of VRAM on that worker, and a
   cold load takes about 37 s. Which workers get the pool is an ops decision in `aivastra-gpu`.
 - **Time budget.** Recognition starts at the gender tap, so the seller does wait for it: about
   1 s of model time when Qwen is loaded, plus the image upload and `/history` polling. The bot
-  waits at most **8 seconds** from the tap. After that, or if no worker was idle, or the workflow
+  waits at most **12 seconds** from the tap. After that, or if no worker was idle, or the workflow
   failed, the seller gets the garment-type list. A late answer is ignored; nothing is retried. A
   worker that has to load Qwen first (about 37 s) always misses the budget, which is why the
   classify workers must keep it loaded.
@@ -963,7 +963,7 @@ numbers. If they do not, they need a line added before launch. No legal review w
   and L/14's 10 — Qwen is the choice; all six misses are confusable types. 15/21 is below
   the 17/20 gate, but the confirm step ("Looks like X. Is that right?", added 2026-10-15)
   makes a wrong guess cost one tap, so the owner chose to build. Warm time on the 41-option
-  women's list is 2.9–3.7 s, inside the 8 s budget.
+  women's list is 2.9–3.7 s, inside the 12 s budget.
 - **T19. Closed 2026-10-15 (with T18).** Slugs plus labels are enough, with one addition
   (D55): Qwen sometimes answers with the label, so an exact unique label match counts. No
   per-type descriptions needed; recognition stays on.

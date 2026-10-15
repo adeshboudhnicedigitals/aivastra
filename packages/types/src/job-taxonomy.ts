@@ -48,8 +48,8 @@ export const WORKER_POOL = {
   SAREE: 'saree',
   SHOPIFY: 'shopify',
   MERCHANT: 'merchant',
-  // WhatsApp bot garment recognition (spec 8a). Opt-in only: a worker must list
-  // it explicitly — an empty allowedJobTypes does NOT include it (D52).
+  // WhatsApp bot garment recognition (spec 8a). An ordinary pool: an empty
+  // allowedJobTypes includes it (D52 revised).
   CLASSIFY: 'classify',
 } as const;
 export type WorkerPool = (typeof WORKER_POOL)[keyof typeof WORKER_POOL];

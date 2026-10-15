@@ -296,7 +296,7 @@ To remove one: mark inactive in admin, then restart the dispatcher.
 | `job/` | `processor.ts` (`processTryonJob`, `processSareeJob`, `processWidgetJob`), status transitions |
 | `workflow/` | template clone + patch, aspect-ratio sizing, dual-size groups |
 | `comfyui/` | HTTP client, WebSocket progress, `/history` polling |
-| `classify/` | WhatsApp garment recognition lane: `classify:requests` stream → classify workflow on an opt-in `classify` worker → `classify:result:{id}` |
+| `classify/` | WhatsApp garment recognition lane: `classify:requests` stream → classify workflow on an idle worker allowing `classify` → `classify:result:{id}` |
 | `worker/` | Redis registry, IDLE selection, health probes |
 | `pixverse/` | image-to-video provider client for the `jobs:video` lane |
 | `health/` | HTTP health endpoint on `DISPATCHER_HEALTH_PORT` |

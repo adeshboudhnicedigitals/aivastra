@@ -120,12 +120,12 @@ describe('classify lane', () => {
     expect(comfy.lastPrompt()).toBeNull();
   });
 
-  it('a worker that does not list classify is never used, even with an empty list (D52)', async () => {
-    await worker([]);
-    expect((await processRecognitionRequest(cfg, request())).error).toBe('no_worker');
+  it('an empty allowed list includes classify; a list without it does not (D52)', async () => {
     await worker(['tryon']);
     expect((await processRecognitionRequest(cfg, request())).error).toBe('no_worker');
     expect(comfy.lastPrompt()).toBeNull();
+    await worker([]);
+    expect((await processRecognitionRequest(cfg, request())).error).toBeNull();
   });
 
   it('a ComfyUI error is failed, and the worker is still released', async () => {
@@ -184,7 +184,7 @@ describe('classify lane', () => {
     expect(expiredRow?.outcome).toBe('expired');
     expect(expiredRow?.workerId).toBeNull();
 
-    await worker([]);
+    await worker(['tryon']);
     const starved = request();
     expect((await processRecognitionRequest(cfg, starved)).error).toBe('no_worker');
     const [starvedRow] = await env.db

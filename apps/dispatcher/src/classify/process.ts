@@ -13,7 +13,7 @@ import { selectWorker } from '../worker/selector.js';
 import { recordRecognition } from './record.js';
 import { buildClassifyPrompt, loadClassifyTemplate, readAnswer } from './workflow.js';
 
-// Fast enough that a 1 s answer reaches the seller well inside the 8 s budget.
+// Fast enough that a 1 s answer reaches the seller well inside the 12 s budget.
 const POLL_MS = 250;
 // Long enough for a cold Qwen load (~37 s, Finding 8): the answer is late for
 // the seller but its duration is the evidence spec 8a's switch-to-API rule needs.

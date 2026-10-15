@@ -13,7 +13,7 @@ import type { FastifyInstance } from 'fastify';
 import { getCatalogOptions } from '../../lib/catalog-options-cache.js';
 
 // Spec 8a: the seller waits at most this long after the gender tap.
-export const RECOGNITION_BUDGET_MS = 8_000;
+export const RECOGNITION_BUDGET_MS = 12_000;
 const POLL_MS = 200;
 // Only bounds the stream if no dispatcher is consuming it; a request is
 // worthless once its budget has passed anyway.
