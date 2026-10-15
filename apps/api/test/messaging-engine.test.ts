@@ -137,12 +137,21 @@ describe('engine: photo, gender and garment type', () => {
     expect(r.session.garmentKey).toContain('000000000002');
   });
 
-  it('recognised: the type is announced and pose picking follows', async () => {
+  it('recognised: the guess is confirmed first; Yes goes on to pose picking', async () => {
     const { deps } = fakeDeps({
       recognizeGarment: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
     });
-    const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
-    expect(texts(r.messages)[0]).toBe('Detected: Shirt.');
+    const ask = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    expect(ask.session).toMatchObject({
+      state: 'CONFIRM_GARMENT_TYPE',
+      garmentType: { id: 'gt-shirt' },
+      recognized: true,
+    });
+    expect(ask.messages[0]).toMatchObject({
+      kind: 'buttons',
+      text: 'Looks like: Shirt. Is that right?',
+    });
+    const r = await handle(ask.session, tap(ask, 'confirm'), CTX, deps);
     expect(r.session).toMatchObject({
       state: 'PICK_LOOKS',
       gender: 'women',
@@ -150,6 +159,18 @@ describe('engine: photo, gender and garment type', () => {
       recognized: true,
       faceId: 'face-1',
     });
+  });
+
+  it('recognised: No sends the seller to the list and counts a correction', async () => {
+    const { deps, calls } = fakeDeps({
+      recognizeGarment: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
+    });
+    const ask = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    const r = await handle(ask.session, tap(ask, 'change'), CTX, deps);
+    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
+    expect(r.session.garmentType).toBeUndefined();
+    expect(r.session.garmentKey).toContain('000000000001');
+    expect(calls.corrected).toBe(1);
   });
 
   it('recognition is asked with the photo and the tapped gender', async () => {
@@ -167,7 +188,6 @@ describe('engine: photo, gender and garment type', () => {
     expect(listOf(list)?.text).toBe('Which garment is it?');
     const r = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
     expect(r.session).toMatchObject({ state: 'PICK_LOOKS', recognized: false });
-    expect(texts(r.messages)).not.toContain('Detected: Shirt.');
   });
 
   it('a recognised type the bot cannot offer gets the web-studio message (D47)', async () => {
@@ -315,6 +335,7 @@ describe('engine: pose cards', () => {
     const r1 = await run(recognised.deps, [
       () => photo(1),
       (x) => tap(x, 'gender', 'women'),
+      (x) => tap(x, 'confirm'),
       (x) => tap(x, 'change'),
     ]);
     expect(r1.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });

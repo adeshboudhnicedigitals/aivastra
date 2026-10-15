@@ -7,12 +7,13 @@ export type AspectRatio = '1:1' | '2:3' | '3:4' | '4:5';
 export type Resolution = 'HD' | '2K' | '4K';
 export type TryonBody = z.infer<typeof CreateTryOnJobRequest>;
 
-// Spec section 8 (amended 2026-10-14): photo → gender → (recognised or listed)
-// garment type → required extra photos → pose picks → generating → delivered.
+// Spec section 8 (amended 2026-10-14): photo → gender → (recognised and
+// confirmed, or listed) garment type → required extra photos → pose picks → generating → delivered.
 export type State =
   | 'MAIN_MENU'
   | 'ASK_GARMENT_PHOTO'
   | 'ASK_GENDER'
+  | 'CONFIRM_GARMENT_TYPE'
   | 'ASK_GARMENT_TYPE'
   | 'ASK_EXTRA_PHOTO'
   | 'PICK_LOOKS'

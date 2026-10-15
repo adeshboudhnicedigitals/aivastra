@@ -26,7 +26,9 @@ export const COPY = {
   askGender: 'Create catalogue for:',
   genders: { women: 'Women', men: 'Men', boys: 'Boys', girls: 'Girls' } as const,
   askGarmentType: 'Which garment is it?',
-  detected: (label: string) => `Detected: ${label}.`,
+  confirmGarment: (label: string) => `Looks like: ${label}. Is that right?`,
+  btnYes: 'Yes',
+  btnNo: 'No, change',
   notAvailable: (label: string, studio: string) =>
     `${label} catalogs aren't available on WhatsApp yet. You can create one in the web studio: ${studio}`,
   askPhoto: {

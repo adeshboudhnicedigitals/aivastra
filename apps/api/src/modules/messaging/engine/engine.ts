@@ -206,7 +206,6 @@ async function chooseGarmentType(
   }
   const loaded = faceId ? await loadPool(withType, deps) : null;
   if (!loaded) return notAvailable(s, gt.label, out, ctx, deps);
-  if (recognized) out.push(text(COPY.detected(gt.label)));
   return enter(
     loaded.session,
     firstMissingSlot(loaded.session) ? 'ASK_EXTRA_PHOTO' : 'PICK_LOOKS',
@@ -342,6 +341,16 @@ async function render(
           COPY.askGender,
           GENDERS.map((g) => ({ action: 'gender', value: g, title: COPY.genders[g] })),
         ),
+      );
+      return done();
+
+    case 'CONFIRM_GARMENT_TYPE':
+      if (!s.garmentType) return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
+      out.push(
+        buttons(s, COPY.confirmGarment(s.garmentType.label), [
+          ['confirm', '', COPY.btnYes],
+          ['change', '', COPY.btnNo],
+        ]),
       );
       return done();
 
@@ -485,9 +494,26 @@ async function onReply(
         // A correct answer for a type the bot cannot offer (a saree two-step
         // type, no template): say so, rather than pretending we didn't know.
         if (!gt) return notAvailable(withGender, hit.label, out, ctx, deps);
-        return chooseGarmentType(withGender, gt, true, out, ctx, deps);
+        // A guess is confirmed before anything is loaded: one tap on a hit,
+        // and a miss never reaches the credit prompt.
+        return enter(
+          { ...withGender, garmentType: gt, recognized: true },
+          'CONFIRM_GARMENT_TYPE',
+          out,
+          ctx,
+          deps,
+        );
       }
       return enter(withGender, 'ASK_GARMENT_TYPE', out, ctx, deps);
+    }
+
+    case 'CONFIRM_GARMENT_TYPE': {
+      if (action === 'confirm' && s.garmentType) {
+        return chooseGarmentType(s, s.garmentType, true, out, ctx, deps);
+      }
+      if (action !== 'change') return reprompt();
+      deps.recordRecognitionCorrected();
+      return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
     }
 
     case 'ASK_GARMENT_TYPE': {
