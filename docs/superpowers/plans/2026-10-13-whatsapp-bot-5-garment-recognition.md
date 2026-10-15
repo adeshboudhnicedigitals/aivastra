@@ -4,7 +4,7 @@
 
 **Goal:** Answer the WhatsApp bot's garment-recognition requests on our own GPU workers: a classify-only ComfyUI workflow running Qwen2.5-VL, a dispatcher lane that runs it within the bot's 8-second budget, and the admin pieces to install it — so `GARMENT_RECOGNITION_ENABLED` can be switched on.
 
-**Architecture:** Plan 2 made the api append `GarmentRecognitionRequest`s to the Redis stream `classify:requests` and poll `classify:result:{requestId}`. This plan adds the other half. A new dispatcher lane (`apps/dispatcher/src/classify/`) reads that stream with its own small concurrency cap, claims an IDLE worker from a new opt-in `classify` pool, uploads the garment photo, patches the single active `classify` workflow (the option list goes into the Qwen node's prompt), polls `/history` every 250 ms, and writes the model's raw answer to the result key. No `jobs` row, no credits, no retries. Admins upload the workflow as a new `classify` workflow type; its node ids are detected at save time.
+**Architecture:** Plan 2 made the api append `GarmentRecognitionRequest`s to the Redis stream `classify:requests` and poll `classify:result:{requestId}`. This plan adds the other half. A new dispatcher lane (`apps/dispatcher/src/classify/`) reads that stream with its own small concurrency cap, claims an IDLE worker from a new opt-in `classify` pool, uploads the garment photo, patches the single active `classify` workflow (the option list goes into the Qwen node's prompt), polls `/history` every 250 ms, and writes the model's raw answer to the result key. No `jobs` row, no credits, no retries; every request leaves one `garment_recognitions` record the admin can open (D54). Admins upload the workflow as a new `classify` workflow type; its node ids are detected at save time.
 
 **Tech Stack:** TypeScript (ESM), ioredis Streams, Drizzle, ComfyUI HTTP API, prom-client, Vitest; React (admin-web).
 
@@ -18,6 +18,9 @@
 - **D52 — the `classify` pool is opt-in.** Today a worker with an empty `allowedJobTypes` accepts every pool (`CLAIM_LUA`). For `classify` that would send recognition to any try-on worker, cold-loading Qwen there (about 37 s, about 6 GB of VRAM — `docs/progress.md` 2026-08-29, Finding 8). The claim script treats `classify` as eligible only on workers that list it explicitly.
 - **D53 — a request is never retried, and its result is always written.** Requests are acked when read and have no `XPENDING` recovery: the api stops waiting after 8 s, so a retry could only ever be late. The lane still waits up to 90 s for an answer that started late (covering a cold load) and writes it with its duration, because that duration is the evidence for the switch-to-API decision in spec 8a; the api ignores a result that arrives after its budget.
 
+- **D54 — a recognition is recorded, not made a job.** The question was whether to show what went into each recognition (the photo and the option list) in admin. A `jobs` row would give that page for free but drags in everything `jobs` exists for: the credit deduct and refund, the `jobs:*` streams, the 3 s `/history` poll (the bot's whole budget is 8 s), retries, and the stuck-job sweeper — and it would put every WhatsApp photo in the seller's job history. Instead the lane writes one `garment_recognitions` row per request (the request id, gender, the garment key, the exact options sent, the raw answer, the outcome, ms, worker, workflow) and admin gets a read-only list with the photo. The write is **best effort**: if it fails, the answer is still returned and the failure is logged. It is not the audit trail the admin-writes invariant protects. Rows are deleted after 30 days.
+- **D55 — an exact, unique label is accepted as an answer.** The spike (2026-10-15) showed Qwen sometimes replies with the option's label instead of its slug (`Crop Top`, `Two Piece Suit`) though the prompt asks for the key. `matchAnswer` (plan 2) accepts the label too, case-insensitively, only when it matches exactly one option. This is still not fuzzy matching, so a wrong match is no likelier. An answer that is neither, `NONE`, or a label shared by two options still means "show the list".
+
 ## Global Constraints
 
 - **Only the dispatcher talks to GPU workers** (CLAUDE.md). The api never calls ComfyUI.
@@ -25,7 +28,7 @@
 - **GPU authoring rules apply** (`aivastra-gpu/docs/comfyui-workflow-authoring.md`): never load a model for experiments on a GPU box that is serving customers; loading one evicts the production model and the next customer job pays a reload (measured 21 % of GPU time in one week). Task 1 runs on a worker taken out of routing, or on staging.
 - **Recognition never costs the seller anything.** No `jobs` row, no ledger entry, no `job_events`.
 - The request/result shapes are plan 2's `@aivastra/types` contract; this plan adds only `CLASSIFY_OPTIONS_PLACEHOLDER` to it.
-- No production schema work. This plan has no migration (`workflow_type` and `allowed_job_types` are plain `text` / `text[]`).
+- No production schema work by hand. The plan has one additive migration (`garment_recognitions`, Task 4b), shipped through push → CI/CD like any other; `workflow_type` and `allowed_job_types` are plain `text` / `text[]` and need none.
 - Secrets: worker URLs carry no secret, but worker API keys do — never print one; read it into the shell with `read -s`.
 - No `console.log`; comment the *why*; Biome clean.
 - `packages/types` and `packages/observability` publish from `dist/`: rebuild them after editing.
@@ -49,11 +52,17 @@
 | `apps/dispatcher/src/classify/consumer.ts` (create) | the stream lane |
 | `apps/dispatcher/src/index.ts` (modify) | start / stop the lane |
 | `apps/dispatcher/test/helpers/comfy-mock.ts` (modify) | configurable history outputs |
+| `packages/db/src/schema/messaging.ts` (modify) + generated migration | `garment_recognitions` (Task 4b) |
+| `apps/dispatcher/src/classify/record.ts` (create) | best-effort insert of the record |
+| `apps/api/src/modules/admin/garment-recognitions.routes.ts` (create) | admin list and detail |
+| `apps/admin-web/src/pages/GarmentRecognitionsPage.tsx` (create) | the list, with photo and options |
 | tests | `apps/dispatcher/src/classify/workflow.test.ts`, `apps/dispatcher/test/integration/classify-lane.test.ts`, `apps/api/test/integration/admin-workflows-classify.test.ts` |
 
 ---
 
 ### Task 1: Spike — the workflow on real photos (manual, T18 and T19)
+
+> **Status (2026-10-15): run on w4, decision made — go on, with the confirm step.** Done from a spike kit outside the repo (`%LOCALAPPDATA%\Temp\opencode\whatsapp-plan5-spike`), by Claude Code with the owner's agreement to use w4 (idle, empty queue). Findings that change this plan: (1) the `AILab_QwenVL` node's `max_tokens` has a **minimum of 64** — 16 is rejected with HTTP 400, so the workflow below uses 64 (the model still stops after the slug); (2) `PreviewAny` exists on w4 and returns `{"4": {"text": ["<answer>"]}}`; (3) Qwen sometimes answers with the label (D55); (4) **cold load 70-105 s** after the model had been unloaded, against 1.8-3.9 s warm — the bot's 8 s budget fails on any cold hit; (5) on 21 men's photos (one per active men's type, local DB) Qwen2.5-VL got **15/21**, identical on a rerun (fixed seed); CLIP B/32 got 12, CLIP L/14 got 10 — Qwen is the choice. All six misses are confusable types (tanktop/vest swapped, trouser/formal/track, jeans/baggyjeans, one-piece suit). 15/21 is below the 17/20 gate, but the bot confirms every guess ("Looks like X. Is that right?", 2026-10-15), so a wrong guess costs one tap; the owner chose to build it. Warm time is above 3 s on the 41-option women's list (2.9-3.7 s): acceptable inside the 8 s budget. Steps 1-4 below are the original instructions, kept for a repeat on staging.
 
 Decides whether the rest of this plan is worth building. No code in this repo is committed except notes.
 
@@ -82,7 +91,7 @@ order by g.gender_slug, g.sort_order;
 
 - [ ] **Step 2: Author the workflow**
 
-`aivastra-gpu/workflows/source/garment_classify.json` (ComfyUI API format). The Qwen node's settings are copied from node 26 of `allinonetryonv5_1_` so a worker running both can keep one loaded copy; only `max_tokens` and the prompt differ:
+`aivastra-gpu/workflows/source/garment_classify.json` (ComfyUI API format). The Qwen node's settings are copied from node 26 of `allinonetryonv5_1_` so a worker running both can keep one loaded copy; only `max_tokens` (64: the node's minimum) and the prompt differ:
 
 ```json
 {
@@ -102,7 +111,7 @@ order by g.gender_slug, g.sort_order;
       "preset_prompt": "🖼️ Tags",
       "keep_model_loaded": true,
       "seed": 12345,
-      "max_tokens": 16,
+      "max_tokens": 64,
       "custom_prompt": "You are a strict garment classification system. Look only at the garment in the image.\nChoose exactly ONE option below and reply with its key only, nothing else.\nIf none fits, reply NONE.\n\n{{OPTIONS}}\n\nRules:\n- A lehenga, lehenga choli or chaniya choli is never a saree.\n- A blazer with matching trousers or skirt is a suit, not a top.\n- Judge the garment, not the person wearing it or the background.\n\nReply with one key only."
     }
   },
@@ -973,6 +982,53 @@ git commit -m "feat(dispatcher): garment recognition lane for the WhatsApp bot"
 
 ---
 
+### Task 4b: The recognition record and its admin page
+
+Decision D54. Independent of the lane's behaviour: the lane returns the same answer whether or not the record is written.
+
+**Files:**
+- Modify: `packages/types/src/garment-recognition.ts` (request gets an optional `gender`), `packages/db/src/schema/messaging.ts`, the generated migration
+- Create: `apps/dispatcher/src/classify/record.ts`; modify `apps/dispatcher/src/classify/process.ts`
+- Modify: `apps/api/src/modules/messaging/classify.ts` (send `gender`; label matching, D55); a 30-day sweeper loop in the api
+- Create: `apps/api/src/modules/admin/garment-recognitions.routes.ts`, wire it in `apps/api/src/server.ts`
+- Create: `apps/admin-web/src/pages/GarmentRecognitionsPage.tsx`, its route and nav entry
+- Test: `apps/api/test/messaging-classify.test.ts` (label cases), `apps/dispatcher/test/integration/classify-lane.test.ts` (record written, and the answer still returned when the insert fails), `apps/api/test/integration/admin-garment-recognitions.test.ts`
+
+- [ ] **Step 1: Failing tests first**
+
+1. `matchAnswer`: accepts `Two Piece Suit` for the option `{slug: 'suit-women', label: 'Two Piece Suit'}`; accepts it case-insensitively and with the same quote/punctuation trimming; rejects a label that two options share; still rejects `NONE`, a sentence and `null`. Update the existing test that says labels are not accepted.
+2. Lane: after a request, one `garment_recognitions` row exists with the request id, gender, garment key, the options as sent, the raw answer, `outcome` (`answered` | `no_worker` | `failed` | `expired`), `ms` and the worker id; with the insert forced to throw, the result key still holds the answer.
+3. Admin route: the list is paginated newest first and filters by `outcome`; the detail returns a presigned GET url for the garment key; it needs the same permission as the admin Jobs list (check `apps/api/src/modules/admin/guard.ts` for the exact name); a caller without it gets 403.
+
+- [ ] **Step 2: The table**
+
+In `messaging.ts`: `garment_recognitions` — `id uuid pk` (the request id), `created_at`, `gender text null`, `garment_key text not null`, `options jsonb not null`, `answer text null`, `outcome text not null`, `ms integer not null`, `worker_id text null`, `workflow_template_id uuid null`; an index on `created_at desc`. No foreign keys: a deleted worker or workflow must not break history. Generate the migration locally (`pnpm db:generate`) and commit it with the schema; never against production.
+
+- [ ] **Step 3: Write it from the lane**
+
+`record.ts` exports `recordRecognition(db, row, log)`: one insert, catching and logging any error (pino child logger, no secrets). `process.ts` calls it once at the end of every path, including `no_worker`, `failed` and `expired`, with the outcome and the `ms` it already measures. The request carries the new optional `gender`; the api sends it. Keep the field optional so a request already in the stream when this deploys still parses.
+
+- [ ] **Step 4: Retention**
+
+A loop in the api (pattern: `startUploadSweeper`) deletes rows older than 30 days every 6 hours: an exported tick function, a re-entrancy guard, started in `main.ts` after `listen`. Add it to the loops table in `CLAUDE.md`. It deletes rows only; the photo's lifecycle belongs to the upload sweeper.
+
+- [ ] **Step 5: Admin API and page**
+
+`GET /admin/garment-recognitions?outcome=&cursor=` and `GET /admin/garment-recognitions/:id` (the detail adds the presigned photo url). The page follows `AuditLogsPage.tsx` (list, filter row, drawer): columns time, gender, outcome, answer, ms; the drawer shows the photo, the options as formatted JSON and the raw answer. No raw `<select>` (CLAUDE.md): the outcome filter is the existing button row or `SearchableSelect`. Add the route and the nav entry next to Jobs.
+
+- [ ] **Step 6: Run and commit**
+
+```bash
+pnpm --filter @aivastra/types build
+pnpm --filter @aivastra/api typecheck
+cd apps/api && npx vitest run --no-file-parallelism test/messaging-classify.test.ts test/integration/admin-garment-recognitions.test.ts
+cd ../dispatcher && npx vitest run --config vitest.integration.config.ts classify-lane
+pnpm --filter @aivastra/admin typecheck
+git add -A && git commit -m "feat(whatsapp): record every garment recognition and show it in admin (D54, D55)"
+```
+
+---
+
 ### Task 5: Switch it on — staging, then production
 
 Manual. Each environment is switched on only after the previous one passed.
@@ -982,12 +1038,16 @@ Manual. Each environment is switched on only after the previous one passed.
 
 - [ ] **Step 1: Staging**
 
-1. Deploy (CI/CD). No migration.
+1. Deploy (CI/CD); the `garment_recognitions` migration rides along.
 2. Admin (staging) → Workflows → Upload → **Garment recognition (WhatsApp)** → Task 1's `garment_classify.json`. It must save without errors and be the only active classify workflow.
 3. Admin → Workers: add `classify` to the allowed job types of the worker chosen in Task 1. If that worker had an empty list (accept all), list its other pools explicitly too, or it would stop taking them — an explicit list is exclusive. Restart the dispatcher.
 4. In `.env.staging` on the VPS, `GARMENT_RECOGNITION_ENABLED=true`; restart the staging api (a runtime var — no rebuild needed).
-5. From the registered phone (plan 3's staging setup): photo → gender → expect "Detected: …" within a few seconds for each of five garment types; tap "Wrong garment? Change" once and expect the list. Send one photo of something that is not a garment (a cup) and expect the list.
+5. From the registered phone (plan 3's staging setup): photo → gender → expect "Looks like: …. Is that right?" within a few seconds for each of five garment types; tap [Yes] once and expect the pose cards, [No, change] once and expect the list. Open admin → Garment recognitions and check the photo, options and answer for each. Send one photo of something that is not a garment (a cup) and expect the list.
 6. Check the staging metrics: `garment_classify_outcome_total` (api) and `garment_classify_duration_seconds` (dispatcher) moved as expected; the dispatcher log shows no `no active classify workflow`.
+
+- [ ] **Step 1b: Idle unload (measure, don't build yet)**
+
+The spike saw the model unloaded between runs a few minutes apart (cold 70-105 s). On staging, note how long the worker can idle before the first recognition goes cold. If real traffic can idle that long, add a keep-warm ping as its own small task; do not build it speculatively. Until then the first seller after a long idle gets the list (the 8 s budget expires).
 
 - [ ] **Step 2: Production**
 
@@ -1012,20 +1072,20 @@ git commit -m "docs(progress): garment recognition switched on (staging, product
 
 - [ ] **Step 1: Spec**
 
-Add D51, D52 and D53 to the section 3 table (text from the top of this plan). In section 8a, replace "The dispatcher finds the Qwen node and the output node by `class_type`, not by new node-ID columns … Saving a `classify` workflow is rejected unless it has exactly one of each." with: "The admin save finds the image, Qwen and output nodes by `class_type` and stores their ids in the columns the regeneration type reuses (D51); the dispatcher patches those ids. A `classify` workflow must have exactly one of each, and its prompt must contain `{{OPTIONS}}`." In section 8a's Workers bullet, add that the pool is opt-in (D52). Close T18 and T19 in section 18 with Task 1's results, and T20 with the per-gender list it produced.
+Add D51 to D55 to the section 3 table (text from the top of this plan). In section 8a, replace "The dispatcher finds the Qwen node and the output node by `class_type`, not by new node-ID columns … Saving a `classify` workflow is rejected unless it has exactly one of each." with: "The admin save finds the image, Qwen and output nodes by `class_type` and stores their ids in the columns the regeneration type reuses (D51); the dispatcher patches those ids. A `classify` workflow must have exactly one of each, and its prompt must contain `{{OPTIONS}}`." In section 8a's Workers bullet, add that the pool is opt-in (D52). Close T18 and T19 in section 18 with Task 1's results, and T20 with the per-gender list it produced.
 
 - [ ] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md docs/progress.md
-git commit -m "docs: WhatsApp bot plan 5 decisions (D51-D53), T18-T20 closed"
+git commit -m "docs: WhatsApp bot plan 5 decisions (D51-D55), T18-T20 closed"
 ```
 
 ---
 
 ## Self-review notes
 
-- **Spec 8a coverage:** dispatcher-only GPU access, its own lane, IDLE worker from a `classify` pool (Tasks 2, 4); classify-only workflow with the try-on Qwen node's settings, ~1 MP input, 16 tokens, kept loaded, text output node (Task 1); options filled per request, labels shown, exact-slug answer (Task 3; matching itself is plan 2's `matchAnswer`); no job or credits (Task 4 writes only the result key); 8 s budget honoured by skipping expired requests and polling at 250 ms (Task 4); duration metric (Task 4) next to plan 2's outcome and correction counters; switch-to-API thresholds measured (Task 5).
+- **Spec 8a coverage:** dispatcher-only GPU access, its own lane, IDLE worker from a `classify` pool (Tasks 2, 4); classify-only workflow with the try-on Qwen node's settings, ~1 MP input, 16 tokens, kept loaded, text output node (Task 1); options filled per request, labels shown, exact-slug answer (Task 3; matching itself is plan 2's `matchAnswer`); no job or credits (Task 4 writes the result key; Task 4b one record row, D54); 8 s budget honoured by skipping expired requests and polling at 250 ms (Task 4); duration metric (Task 4) next to plan 2's outcome and correction counters; switch-to-API thresholds measured (Task 5).
 - **Deliberate differences from spec 8a**, recorded as decisions: node ids stored at save (D51), opt-in pool (D52), no retries but late results recorded (D53).
 - **Written as instructions rather than full code, deliberately:** the admin route test (Task 2 Step 3) lists exact cases but borrows its auth setup from the existing regeneration test, and the `regeneration`-shaped return object in Task 2 Step 4 is copied rather than retyped, because its ~35 fields would drift from the source if duplicated here. The workflow_templates insert in Task 4's test may need further NOT NULL columns, copied from an existing dispatcher test.
 - **Type consistency:** `GarmentRecognitionResult.error` values (`no_worker`, `failed`, `expired`) are written only by `process.ts` and counted by plan 2's `classify.ts` (`expired` counted as `timeout`); the histogram's `outcome` uses the same values plus `answered`.
