@@ -721,7 +721,7 @@ export async function devRoutes(app: FastifyInstance) {
       // The dev/ key prefix embeds the owning merchant (keys.devUpload), so this
       // also rejects a photo key from a different merchant outright, before ever
       // touching Redis.
-      if (!personKey.startsWith(`dev/${merchantId}/`)) {
+      if (!personKey.startsWith(keys.devUploadPrefix(merchantId))) {
         throw new AppError('NOT_FOUND', 404, 'photo not available');
       }
       const owned = await app.redis.get(`dev:person-photo:${merchantId}:${personKey}`);
