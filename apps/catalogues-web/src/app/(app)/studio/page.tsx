@@ -1,7 +1,7 @@
 'use client';
 import { computeOutputDims, type Resolution } from '@aivastra/types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { X as CloseIcon } from 'lucide-react';
+import { X as CloseIcon, RotateCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckIcon,
@@ -639,10 +639,72 @@ export default function StudioPage(): React.ReactElement {
   }, [palluGarmentPreviewUrl]);
   const [palluGarmentKey, setPalluGarmentKey] = useState('');
   const [isUploadingPallu, setIsUploadingPallu] = useState(false);
+  // Single full-photo upload for the slider-split mode — the user crops this client-side
+  // into the same garmentKey/palluGarmentKey pair the two-upload mode produces, so nothing
+  // downstream (submission, validation, dispatcher) needs to know this mode exists.
+  const [sliderSplitFile, setSliderSplitFile] = useState<File | null>(null);
+  const sliderSplitPreviewUrl = useMemo(
+    () => (sliderSplitFile ? URL.createObjectURL(sliderSplitFile) : ''),
+    [sliderSplitFile],
+  );
+  useEffect(() => {
+    return () => {
+      if (sliderSplitPreviewUrl) URL.revokeObjectURL(sliderSplitPreviewUrl);
+    };
+  }, [sliderSplitPreviewUrl]);
+  // Fraction of the photo's height assigned to Body; the rest goes to Pallu.
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const [isSplitConfirmed, setIsSplitConfirmed] = useState(false);
+  const [isSplitting, setIsSplitting] = useState(false);
+  const [isRotatingSplit, setIsRotatingSplit] = useState(false);
+  const sliderSplitFileInputRef = useRef<HTMLInputElement>(null);
+  const sliderImageContainerRef = useRef<HTMLDivElement>(null);
+  const isDraggingSplitRef = useRef(false);
+
+  const updateSplitFromPointer = useCallback((clientY: number) => {
+    const el = sliderImageContainerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.height === 0) return;
+    const ratio = (clientY - rect.top) / rect.height;
+    setSplitRatio(Math.min(0.95, Math.max(0.05, ratio)));
+  }, []);
+  const handleSplitPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      isDraggingSplitRef.current = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      updateSplitFromPointer(e.clientY);
+    },
+    [updateSplitFromPointer],
+  );
+  const handleSplitPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isDraggingSplitRef.current) return;
+      updateSplitFromPointer(e.clientY);
+    },
+    [updateSplitFromPointer],
+  );
+  const handleSplitPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    isDraggingSplitRef.current = false;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  }, []);
+  const handleSplitKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setSplitRatio((r) => Math.max(0.05, r - 0.02));
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      setSplitRatio((r) => Math.min(0.95, r + 0.02));
+    }
+  }, []);
   // 'single' (Full Saree) is retained as a value only for garment types that never
   // reach two-input capability; saree defaults straight to Body & Pallu and the
   // Full Saree option is no longer user-selectable (see the removed dropdown below).
-  const [sareeUploadMode, setSareeUploadMode] = useState<'single' | 'two_input'>('two_input');
+  const [sareeUploadMode, setSareeUploadMode] = useState<'single' | 'two_input' | 'slider_split'>(
+    'two_input',
+  );
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1132,8 +1194,10 @@ export default function StudioPage(): React.ReactElement {
     catalogueTemplateId === 'custom'
       ? selectedPoses.some((p) => p.hasShoes)
       : selectedLooks.some((l) => l.hasShoes);
-  // Always optional: the step only appears when a selected pose's workflow maps an
-  // accessory node, and never gates submission.
+  // The step only appears when a selected pose's workflow maps an accessory node.
+  // Unlike lower/shoe there's no default to fall back on, so once the step is
+  // showing at least one category, canGenerate requires an actual pick (see below) —
+  // there's nothing sensible to auto-stack otherwise.
   const needsAccessory =
     catalogueTemplateId === 'custom'
       ? selectedPoses.some((p) => p.hasAccessory)
@@ -1564,6 +1628,144 @@ export default function StudioPage(): React.ReactElement {
     }
   }
 
+  async function handleSliderSplitFileSelect(file: File) {
+    if (file.size > 20 * 1024 * 1024) {
+      showToast('File exceeds 20 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      showToast('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    setSliderSplitFile(file);
+    setSplitRatio(0.5);
+    setIsSplitConfirmed(false);
+  }
+
+  // Rotates the uploaded photo itself (re-encodes via canvas) rather than just the preview,
+  // so the crop math in handleConfirmSplit never needs to know a rotation happened. Always
+  // clockwise — tapping it repeatedly cycles through all four orientations.
+  async function handleRotateSliderSplit() {
+    if (!sliderSplitFile || isRotatingSplit) return;
+    setIsRotatingSplit(true);
+    try {
+      const img = new Image();
+      const loaded = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Could not read the selected image.'));
+      });
+      img.src = sliderSplitPreviewUrl;
+      await loaded;
+
+      const { naturalWidth: w, naturalHeight: h } = img;
+      const canvas = document.createElement('canvas');
+      canvas.width = h;
+      canvas.height = w;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas is not supported in this browser.');
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(Math.PI / 2);
+      ctx.drawImage(img, -w / 2, -h / 2);
+
+      const mimeType = ['image/jpeg', 'image/png', 'image/webp'].includes(sliderSplitFile.type)
+        ? sliderSplitFile.type
+        : 'image/jpeg';
+      const rotatedFile = await new Promise<File>((resolve, reject) => {
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('Could not rotate the image.'));
+              return;
+            }
+            resolve(new File([blob], sliderSplitFile.name, { type: mimeType }));
+          },
+          mimeType,
+          0.95,
+        );
+      });
+      setSliderSplitFile(rotatedFile);
+    } catch (e) {
+      showToast((e as Error).message || 'Could not rotate the image. Please try again.');
+    } finally {
+      setIsRotatingSplit(false);
+    }
+  }
+
+  function resetSliderSplit() {
+    setSliderSplitFile(null);
+    setSplitRatio(0.5);
+    setIsSplitConfirmed(false);
+    setGarmentFile(null);
+    setGarmentKey('');
+    setPalluGarmentFile(null);
+    setPalluGarmentKey('');
+  }
+
+  // Crops the single uploaded photo into Body (top) + Pallu (bottom) at the slider
+  // position, then feeds the two crops through the exact same presign+upload path
+  // (handleGarmentUpload / handlePalluGarmentUpload) the two-upload mode already uses —
+  // so submission, validation, and the dispatcher never need to know this mode exists.
+  async function handleConfirmSplit() {
+    if (!sliderSplitFile || isSplitting) return;
+    setIsSplitting(true);
+    try {
+      const img = new Image();
+      const loaded = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Could not read the selected image.'));
+      });
+      img.src = sliderSplitPreviewUrl;
+      await loaded;
+
+      const naturalWidth = img.naturalWidth;
+      const naturalHeight = img.naturalHeight;
+      const bodyHeight = Math.min(
+        naturalHeight - 1,
+        Math.max(1, Math.round(naturalHeight * splitRatio)),
+      );
+      const palluHeight = naturalHeight - bodyHeight;
+      const mimeType = ['image/jpeg', 'image/png', 'image/webp'].includes(sliderSplitFile.type)
+        ? sliderSplitFile.type
+        : 'image/jpeg';
+      const extension =
+        mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+
+      const cropToFile = (sy: number, sh: number, name: string): Promise<File> => {
+        const canvas = document.createElement('canvas');
+        canvas.width = naturalWidth;
+        canvas.height = sh;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas is not supported in this browser.');
+        ctx.drawImage(img, 0, sy, naturalWidth, sh, 0, 0, naturalWidth, sh);
+        return new Promise((resolve, reject) => {
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error('Could not crop the image.'));
+                return;
+              }
+              resolve(new File([blob], name, { type: mimeType }));
+            },
+            mimeType,
+            0.92,
+          );
+        });
+      };
+
+      const [bodyFile, palluFile] = await Promise.all([
+        cropToFile(0, bodyHeight, `body.${extension}`),
+        cropToFile(bodyHeight, palluHeight, `pallu.${extension}`),
+      ]);
+
+      setIsSplitConfirmed(true);
+      await Promise.all([handleGarmentUpload(bodyFile), handlePalluGarmentUpload(palluFile)]);
+    } catch (e) {
+      showToast((e as Error).message || 'Could not process the image split. Please try again.');
+    } finally {
+      setIsSplitting(false);
+    }
+  }
+
   function handleFaceSelect(id: string) {
     setFaceId(id);
     setCatalogueTemplateId('custom');
@@ -1888,7 +2090,11 @@ export default function StudioPage(): React.ReactElement {
   const sareeTwoInputCapable =
     !!selectedGarmentType?.requiresMannequinStep &&
     !!selectedGarmentType?.mannequinTwoInputWorkflowTemplateId;
-  const sareeTwoInputActive = sareeTwoInputCapable && sareeUploadMode === 'two_input';
+  // Both 'two_input' (two separate upload boxes) and 'slider_split' (one photo cropped
+  // client-side into the same two keys) produce garmentKey + palluGarmentKey, so every
+  // downstream check (submission, canGenerate, generateBlocker) treats them identically.
+  const sareeTwoInputActive = sareeTwoInputCapable && sareeUploadMode !== 'single';
+  const sareeSliderSplitActive = sareeTwoInputCapable && sareeUploadMode === 'slider_split';
   // The blouse belongs to the one-step workflow; the two-step saree path (mannequin) has
   // no fourth node, so the box is never offered there.
   const allowsFourthUpload =
@@ -1907,6 +2113,7 @@ export default function StudioPage(): React.ReactElement {
     (!needsLowerBack || (lowerOnlyIsBack ? !!upperGarmentBackKey : !!lowerGarmentBackKey)) &&
     (!requiresThirdUpload || !!thirdGarmentKey) &&
     (!sareeTwoInputActive || !!palluGarmentKey) &&
+    (!needsAccessory || accessoryCategories.length === 0 || visibleAccessoryIds.length > 0) &&
     !!faceId &&
     (catalogueTemplateId === 'custom' ? !!backgroundId : true) &&
     customDimsReady &&
@@ -1943,13 +2150,17 @@ export default function StudioPage(): React.ReactElement {
                 ? 'Upload the third garment image first'
                 : sareeTwoInputActive && !palluGarmentKey
                   ? 'Upload the pallu image first'
-                  : selectedCount === 0
-                    ? catalogueTemplateId === 'custom'
-                      ? 'Select at least one pose'
-                      : 'Select at least one look'
-                    : !customDimsReady
-                      ? 'Enter a valid width and height'
-                      : '';
+                  : needsAccessory &&
+                      accessoryCategories.length > 0 &&
+                      visibleAccessoryIds.length === 0
+                    ? 'Select at least one accessory'
+                    : selectedCount === 0
+                      ? catalogueTemplateId === 'custom'
+                        ? 'Select at least one pose'
+                        : 'Select at least one look'
+                      : !customDimsReady
+                        ? 'Enter a valid width and height'
+                        : '';
 
   // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
   // are always visible and keep their static stepNumber. Everything after that is
@@ -2589,6 +2800,9 @@ export default function StudioPage(): React.ReactElement {
                                 setSareeUploadMode('two_input');
                                 setPalluGarmentFile(null);
                                 setPalluGarmentKey('');
+                                setSliderSplitFile(null);
+                                setSplitRatio(0.5);
+                                setIsSplitConfirmed(false);
                               }
                             }}
                           />
@@ -2628,15 +2842,72 @@ export default function StudioPage(): React.ReactElement {
                     )
                   }
                 />
+                {sareeTwoInputCapable && (
+                  <label
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      marginBottom: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sareeSliderSplitActive}
+                      onChange={(e) => {
+                        const mode = e.target.checked ? 'slider_split' : 'two_input';
+                        if (sareeUploadMode === mode) return;
+                        setSareeUploadMode(mode);
+                        setGarmentFile(null);
+                        setGarmentKey('');
+                        setPalluGarmentFile(null);
+                        setPalluGarmentKey('');
+                        setSliderSplitFile(null);
+                        setSplitRatio(0.5);
+                        setIsSplitConfirmed(false);
+                      }}
+                      style={{ display: 'none' }}
+                    />
+                    <span
+                      style={{
+                        position: 'relative',
+                        width: 32,
+                        height: 18,
+                        borderRadius: 999,
+                        background: sareeSliderSplitActive ? C.mint : C.border,
+                        transition: 'background .15s',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: 2,
+                          left: sareeSliderSplitActive ? 16 : 2,
+                          width: 14,
+                          height: 14,
+                          borderRadius: '50%',
+                          background: '#fff',
+                          transition: 'left .15s',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                        }}
+                      />
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>
+                      Single photo (slider split)
+                    </span>
+                  </label>
+                )}
                 <div
                   style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}
                 >
-                  {/* Dashed upload box — single zone or split into two */}
+                  {/* Dashed upload box — single zone, split into two, or the slider-split flow */}
                   <div
                     style={{
                       flex: 1,
                       minWidth: 260,
-                      height: 238,
+                      height: sareeSliderSplitActive ? undefined : 238,
                       display: 'flex',
                       alignItems: 'center',
                       gap: 12,
@@ -2654,218 +2925,220 @@ export default function StudioPage(): React.ReactElement {
                         display: 'flex',
                         flexDirection: hasMultipleUploadBoxes ? 'column' : 'row',
                         gap: hasMultipleUploadBoxes ? 8 : 0,
-                        height: 210,
+                        height: sareeSliderSplitActive ? undefined : 210,
                         minWidth: 0,
                       }}
                     >
                       {/* Upper garment label */}
-                      <label
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          height: hasMultipleUploadBoxes ? undefined : 210,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 12,
-                          background: C.card,
-                          border: `1px solid ${C.border}`,
-                          borderRadius: 8,
-                          padding: 12,
-                          cursor: 'pointer',
-                          boxSizing: 'border-box',
-                          overflow: 'hidden',
-                        }}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const f = e.dataTransfer.files?.[0];
-                          if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
-                            handleGarmentUpload(f);
-                        }}
-                      >
-                        {garmentFile ? (
-                          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
-                            <img
-                              src={garmentPreviewUrl}
-                              alt={garmentFile.name}
-                              style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover',
-                                borderRadius: 6,
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                setGarmentFile(null);
-                                setGarmentKey('');
-                              }}
-                              style={{
-                                position: 'absolute',
-                                top: 6,
-                                right: 6,
-                                width: 24,
-                                height: 24,
-                                borderRadius: '50%',
-                                background: 'rgba(0,0,0,0.5)',
-                                border: 'none',
-                                color: 'white',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
-                            >
-                              <XIcon size={14} />
-                            </button>
-                            {isUploading && (
-                              <div
+                      {!sareeSliderSplitActive && (
+                        <label
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            height: hasMultipleUploadBoxes ? undefined : 210,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 12,
+                            background: C.card,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 8,
+                            padding: 12,
+                            cursor: 'pointer',
+                            boxSizing: 'border-box',
+                            overflow: 'hidden',
+                          }}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const f = e.dataTransfer.files?.[0];
+                            if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                              handleGarmentUpload(f);
+                          }}
+                        >
+                          {garmentFile ? (
+                            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                              <img
+                                src={garmentPreviewUrl}
+                                alt={garmentFile.name}
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'cover',
+                                  borderRadius: 6,
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setGarmentFile(null);
+                                  setGarmentKey('');
+                                }}
                                 style={{
                                   position: 'absolute',
-                                  bottom: 8,
-                                  left: 8,
-                                  right: 8,
-                                  background: 'rgba(255,255,255,0.95)',
-                                  borderRadius: 8,
-                                  padding: '6px 10px',
+                                  top: 6,
+                                  right: 6,
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: '50%',
+                                  background: 'rgba(0,0,0,0.5)',
+                                  border: 'none',
+                                  color: 'white',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
                                 }}
                               >
+                                <XIcon size={14} />
+                              </button>
+                              {isUploading && (
                                 <div
                                   style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    fontSize: 12,
-                                    color: C.text,
-                                  }}
-                                >
-                                  <SpinnerIcon size={14} /> {uploadProgress}%
-                                </div>
-                                <div
-                                  style={{
-                                    marginTop: 4,
-                                    height: 4,
-                                    borderRadius: 99,
-                                    background: C.border,
-                                    overflow: 'hidden',
+                                    position: 'absolute',
+                                    bottom: 8,
+                                    left: 8,
+                                    right: 8,
+                                    background: 'rgba(255,255,255,0.95)',
+                                    borderRadius: 8,
+                                    padding: '6px 10px',
                                   }}
                                 >
                                   <div
                                     style={{
-                                      height: '100%',
-                                      width: `${uploadProgress}%`,
-                                      background: grad,
-                                      borderRadius: 99,
-                                      transition: 'width .3s',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 8,
+                                      fontSize: 12,
+                                      color: C.text,
                                     }}
-                                  />
+                                  >
+                                    <SpinnerIcon size={14} /> {uploadProgress}%
+                                  </div>
+                                  <div
+                                    style={{
+                                      marginTop: 4,
+                                      height: 4,
+                                      borderRadius: 99,
+                                      background: C.border,
+                                      overflow: 'hidden',
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        height: '100%',
+                                        width: `${uploadProgress}%`,
+                                        background: grad,
+                                        borderRadius: 99,
+                                        transition: 'width .3s',
+                                      }}
+                                    />
+                                  </div>
                                 </div>
-                              </div>
-                            )}
-                            {garmentKey && (
+                              )}
+                              {garmentKey && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: 8,
+                                    left: 8,
+                                    background: C.mint,
+                                    color: 'white',
+                                    borderRadius: 6,
+                                    padding: '3px 8px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                >
+                                  <CheckIcon color="#fff" size={10} /> Uploaded
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <>
                               <div
                                 style={{
-                                  position: 'absolute',
-                                  top: 8,
-                                  left: 8,
-                                  background: C.mint,
-                                  color: 'white',
-                                  borderRadius: 6,
-                                  padding: '3px 8px',
-                                  fontSize: 11,
-                                  fontWeight: 600,
                                   display: 'flex',
+                                  flexDirection: 'column',
                                   alignItems: 'center',
                                   gap: 4,
                                 }}
                               >
-                                <CheckIcon color="#fff" size={10} /> Uploaded
+                                <span
+                                  style={{
+                                    width: '100%',
+                                    fontSize: hasMultipleUploadBoxes ? 11 : 12,
+                                    fontWeight: 500,
+                                    lineHeight: '100%',
+                                    color: C.text,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  {sareeTwoInputActive
+                                    ? 'Body'
+                                    : hasMultipleUploadBoxes
+                                      ? selectedGarmentType?.upperUploadLabel ||
+                                        `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
+                                      : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
+                                </span>
+                                <span
+                                  style={{
+                                    width: '100%',
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                    lineHeight: '140%',
+                                    color: C.mid,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  {hasMultipleUploadBoxes
+                                    ? 'JPG, PNG · Max 20MB'
+                                    : 'Drag and drop an image here · JPG, PNG · Max 20MB'}
+                                </span>
                               </div>
-                            )}
-                          </div>
-                        ) : (
-                          <>
-                            <div
-                              style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
-                              <span
+                              <div
                                 style={{
-                                  width: '100%',
-                                  fontSize: hasMultipleUploadBoxes ? 11 : 12,
-                                  fontWeight: 500,
-                                  lineHeight: '100%',
-                                  color: C.text,
-                                  textAlign: 'center',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 6,
                                 }}
                               >
-                                {sareeTwoInputActive
-                                  ? 'Body'
-                                  : hasMultipleUploadBoxes
-                                    ? selectedGarmentType?.upperUploadLabel ||
-                                      `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
-                                    : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
-                              </span>
-                              <span
-                                style={{
-                                  width: '100%',
-                                  fontSize: 10,
-                                  fontWeight: 500,
-                                  lineHeight: '140%',
-                                  color: C.mid,
-                                  textAlign: 'center',
-                                }}
-                              >
-                                {hasMultipleUploadBoxes
-                                  ? 'JPG, PNG · Max 20MB'
-                                  : 'Drag and drop an image here · JPG, PNG · Max 20MB'}
-                              </span>
-                            </div>
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 6,
-                              }}
-                            >
-                              <ImagePlusIcon size={14} />
-                              <span
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: 500,
-                                  lineHeight: '18px',
-                                  color: C.text,
-                                }}
-                              >
-                                Browse
-                              </span>
-                            </div>
-                          </>
-                        )}
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          style={{ display: 'none' }}
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) handleGarmentUpload(f);
-                          }}
-                        />
-                      </label>
+                                <ImagePlusIcon size={14} />
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    lineHeight: '18px',
+                                    color: C.text,
+                                  }}
+                                >
+                                  Browse
+                                </span>
+                              </div>
+                            </>
+                          )}
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            style={{ display: 'none' }}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handleGarmentUpload(f);
+                            }}
+                          />
+                        </label>
+                      )}
 
-                      {sareeTwoInputActive && (
+                      {sareeTwoInputActive && !sareeSliderSplitActive && (
                         <label
                           style={{
                             flex: 1,
@@ -3044,6 +3317,461 @@ export default function StudioPage(): React.ReactElement {
                             }}
                           />
                         </label>
+                      )}
+
+                      {sareeSliderSplitActive && (
+                        <div
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 10,
+                            background: C.card,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 8,
+                            padding: 12,
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          {!sliderSplitFile ? (
+                            <label
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 12,
+                                minHeight: 180,
+                                cursor: 'pointer',
+                              }}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const f = e.dataTransfer.files?.[0];
+                                if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                                  handleSliderSplitFileSelect(f);
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    color: C.text,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  Upload Full Saree Photo
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                    color: C.mid,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  One photo — you&apos;ll crop it into Body + Pallu next · JPG, PNG
+                                  · Max 20MB
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 6,
+                                }}
+                              >
+                                <ImagePlusIcon size={14} />
+                                <span style={{ fontSize: 11, fontWeight: 500, color: C.text }}>
+                                  Browse
+                                </span>
+                              </div>
+                              <input
+                                ref={sliderSplitFileInputRef}
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                style={{ display: 'none' }}
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  if (f) handleSliderSplitFileSelect(f);
+                                }}
+                              />
+                            </label>
+                          ) : !isSplitConfirmed ? (
+                            <>
+                              <div
+                                style={{ display: 'flex', justifyContent: 'center', width: '100%' }}
+                              >
+                                <div
+                                  ref={sliderImageContainerRef}
+                                  role="slider"
+                                  tabIndex={0}
+                                  aria-label="Adjust where the photo is split into Body and Pallu"
+                                  aria-valuemin={5}
+                                  aria-valuemax={95}
+                                  aria-valuenow={Math.round(splitRatio * 100)}
+                                  onPointerDown={handleSplitPointerDown}
+                                  onPointerMove={handleSplitPointerMove}
+                                  onPointerUp={handleSplitPointerUp}
+                                  onPointerCancel={handleSplitPointerUp}
+                                  onKeyDown={handleSplitKeyDown}
+                                  style={{
+                                    position: 'relative',
+                                    display: 'inline-block',
+                                    maxWidth: '100%',
+                                    cursor: 'ns-resize',
+                                    touchAction: 'none',
+                                    userSelect: 'none',
+                                  }}
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  {/* biome-ignore lint/performance/noImgElement: dynamic client-side crop preview, Next Image not suitable */}
+                                  <img
+                                    src={sliderSplitPreviewUrl}
+                                    alt="Full saree, before splitting into Body and Pallu"
+                                    draggable={false}
+                                    style={{
+                                      display: 'block',
+                                      maxWidth: '100%',
+                                      maxHeight: 280,
+                                      borderRadius: 6,
+                                      pointerEvents: 'none',
+                                    }}
+                                  />
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      left: 0,
+                                      right: 0,
+                                      top: 0,
+                                      height: `${splitRatio * 100}%`,
+                                      background: 'rgba(0,0,0,0.15)',
+                                      pointerEvents: 'none',
+                                    }}
+                                  />
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      left: 0,
+                                      right: 0,
+                                      top: `${splitRatio * 100}%`,
+                                      borderTop: `2px dashed ${C.mint}`,
+                                      pointerEvents: 'none',
+                                    }}
+                                  />
+                                  {/* Grab handle on the split line — drag anywhere on the photo also works */}
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      left: '50%',
+                                      top: `${splitRatio * 100}%`,
+                                      transform: 'translate(-50%, -50%)',
+                                      width: 40,
+                                      height: 16,
+                                      borderRadius: 999,
+                                      background: C.mint,
+                                      border: '2px solid #fff',
+                                      boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+                                      pointerEvents: 'none',
+                                    }}
+                                  />
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      left: 8,
+                                      top: 8,
+                                      background: 'rgba(0,0,0,0.6)',
+                                      color: '#fff',
+                                      borderRadius: 6,
+                                      padding: '2px 8px',
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      pointerEvents: 'none',
+                                    }}
+                                  >
+                                    Body
+                                  </div>
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      left: 8,
+                                      bottom: 8,
+                                      background: 'rgba(0,0,0,0.6)',
+                                      color: '#fff',
+                                      borderRadius: 6,
+                                      padding: '2px 8px',
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      pointerEvents: 'none',
+                                    }}
+                                  >
+                                    Pallu
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleRotateSliderSplit();
+                                    }}
+                                    disabled={isRotatingSplit}
+                                    title="Rotate"
+                                    aria-label="Rotate photo 90 degrees"
+                                    style={{
+                                      position: 'absolute',
+                                      top: 6,
+                                      right: 36,
+                                      width: 24,
+                                      height: 24,
+                                      borderRadius: '50%',
+                                      background: 'rgba(0,0,0,0.5)',
+                                      border: 'none',
+                                      color: 'white',
+                                      cursor: isRotatingSplit ? 'default' : 'pointer',
+                                      opacity: isRotatingSplit ? 0.6 : 1,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <RotateCw size={14} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setSliderSplitFile(null);
+                                    }}
+                                    style={{
+                                      position: 'absolute',
+                                      top: 6,
+                                      right: 6,
+                                      width: 24,
+                                      height: 24,
+                                      borderRadius: '50%',
+                                      background: 'rgba(0,0,0,0.5)',
+                                      border: 'none',
+                                      color: 'white',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <XIcon size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                              <div
+                                style={{
+                                  textAlign: 'center',
+                                  fontSize: 10,
+                                  color: C.mid,
+                                }}
+                              >
+                                Drag the line on the photo to adjust the Body / Pallu split
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleConfirmSplit}
+                                disabled={isSplitting || isRotatingSplit}
+                                style={{
+                                  padding: '8px 12px',
+                                  borderRadius: 8,
+                                  border: 'none',
+                                  background: grad,
+                                  color: '#fff',
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  cursor: isSplitting || isRotatingSplit ? 'default' : 'pointer',
+                                  opacity: isSplitting || isRotatingSplit ? 0.7 : 1,
+                                }}
+                              >
+                                {isSplitting ? 'Processing…' : 'Confirm Split & Upload'}
+                              </button>
+                            </>
+                          ) : (
+                            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                              <div style={{ flex: 1, position: 'relative', minHeight: 140 }}>
+                                {garmentPreviewUrl && (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  // biome-ignore lint/performance/noImgElement: static image, Next Image not needed
+                                  <img
+                                    src={garmentPreviewUrl}
+                                    alt="Body crop"
+                                    style={{
+                                      width: '100%',
+                                      height: '100%',
+                                      objectFit: 'cover',
+                                      borderRadius: 6,
+                                    }}
+                                  />
+                                )}
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: 8,
+                                    left: 8,
+                                    background: 'rgba(0,0,0,0.6)',
+                                    color: '#fff',
+                                    borderRadius: 6,
+                                    padding: '2px 8px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  Body
+                                </div>
+                                {isUploading && (
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      bottom: 8,
+                                      left: 8,
+                                      right: 8,
+                                      background: 'rgba(255,255,255,0.95)',
+                                      borderRadius: 8,
+                                      padding: '6px 10px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 8,
+                                      fontSize: 12,
+                                      color: C.text,
+                                    }}
+                                  >
+                                    <SpinnerIcon size={14} /> {uploadProgress}%
+                                  </div>
+                                )}
+                                {garmentKey && !isUploading && (
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      top: 8,
+                                      right: 8,
+                                      background: C.mint,
+                                      color: 'white',
+                                      borderRadius: 6,
+                                      padding: '3px 8px',
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                    }}
+                                  >
+                                    <CheckIcon color="#fff" size={10} /> Uploaded
+                                  </div>
+                                )}
+                              </div>
+                              <div style={{ flex: 1, position: 'relative', minHeight: 140 }}>
+                                {palluGarmentPreviewUrl && (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  // biome-ignore lint/performance/noImgElement: static image, Next Image not needed
+                                  <img
+                                    src={palluGarmentPreviewUrl}
+                                    alt="Pallu crop"
+                                    style={{
+                                      width: '100%',
+                                      height: '100%',
+                                      objectFit: 'cover',
+                                      borderRadius: 6,
+                                    }}
+                                  />
+                                )}
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: 8,
+                                    left: 8,
+                                    background: 'rgba(0,0,0,0.6)',
+                                    color: '#fff',
+                                    borderRadius: 6,
+                                    padding: '2px 8px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  Pallu
+                                </div>
+                                {isUploadingPallu && (
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      bottom: 8,
+                                      left: 8,
+                                      right: 8,
+                                      background: 'rgba(255,255,255,0.95)',
+                                      borderRadius: 8,
+                                      padding: '6px 10px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 8,
+                                      fontSize: 12,
+                                      color: C.text,
+                                    }}
+                                  >
+                                    <SpinnerIcon size={14} /> Uploading…
+                                  </div>
+                                )}
+                                {palluGarmentKey && !isUploadingPallu && (
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      top: 8,
+                                      right: 8,
+                                      background: C.mint,
+                                      color: 'white',
+                                      borderRadius: 6,
+                                      padding: '3px 8px',
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                    }}
+                                  >
+                                    <CheckIcon color="#fff" size={10} /> Uploaded
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  resetSliderSplit();
+                                }}
+                                style={{
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: '50%',
+                                  background: 'rgba(0,0,0,0.5)',
+                                  border: 'none',
+                                  color: 'white',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                <XIcon size={14} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       )}
 
                       {requiresLowerUpload && (
