@@ -1180,7 +1180,13 @@ ${commonCss()}
   display: none; justify-content: center; align-items: center; cursor: zoom-out; backdrop-filter: blur(2px);
 }
 .lightbox.active { display: flex; overflow: hidden; }
-.lightbox img { max-width: 92vw; max-height: 92vh; border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); user-select: none; -webkit-user-drag: none; }
+/* No max-width/max-height here, unlike .lightbox video below — lbFit() already
+   fits the image to 92vw/92vh at scale 1 by computing lbBaseW/lbBaseH in JS, and
+   zooming (lbApply) intentionally grows the <img>'s actual width/height past the
+   viewport so transform: translate can pan around it. A CSS cap here would clamp
+   that resize silently, leaving the rendered box stuck at the fit size while the
+   pan math still assumes it grew — that mismatch is what broke zoom. */
+.lightbox img { border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); user-select: none; -webkit-user-drag: none; }
 .lightbox video { max-width: 92vw; max-height: 92vh; border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,0.6); cursor: default; }
 .lightbox-close {
   position: absolute; top: 20px; right: 24px; color: #fff; font-size: 32px; line-height: 1;
