@@ -17,6 +17,7 @@ import { schema } from '@aivastra/db';
 import type { WorkerPool } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { runClassifyConsumer } from './classify/consumer.js';
+import { createServiceResolver } from './classify/service-config.js';
 import { loadEnv } from './env.js';
 import { startHealthServer } from './health/server.js';
 import { promoteSareeStep2Jobs } from './job/saree-step2-promoter.js';
@@ -169,7 +170,9 @@ async function main(): Promise<void> {
   // WhatsApp garment recognition (spec 8a): its own stream and cap, so it never
   // waits behind try-on jobs. Harmless when unused — nothing is ever added to
   // the stream while the api's GARMENT_RECOGNITION_ENABLED is off.
-  const stopClassifyConsumer = await runClassifyConsumer(redis, processorCfg, log);
+  const stopClassifyConsumer = await runClassifyConsumer(redis, processorCfg, log, {
+    resolveService: createServiceResolver(db, env),
+  });
   const stopWebhooks = await runWebhooksConsumer(db, redis, log);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);
 

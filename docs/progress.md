@@ -2,6 +2,57 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-16 — WhatsApp garment recognition: always-resident VLM service on gpu8
+
+- **Why:** through ComfyUI the recognition model cold-started (32–40 s) and was evicted by try-on
+  jobs on shared workers (6–17 s warm), missing the api's 12 s budget.
+- **Done:** a standalone service, `aivastra-gpu/pipeline/classify-service/` (FastAPI +
+  transformers, Qwen2.5-VL-7B-Instruct bf16, loaded and warmed at boot, one inference at a time,
+  Bearer key). Installed on gpu8 (`ubuntu@50.35.188.73 -p 32152`) in its own venv
+  `/home/ubuntu/classify`, systemd unit `classify` on `127.0.0.1:8400`. Measured on the box:
+  load 11 s, 15.8 GB VRAM, **119–579 ms per request** over 9 requests on 3 garments, identical
+  answers on repeat, wrong key → 401. Dispatcher: `CLASSIFY_SERVICE_URL` +
+  `CLASSIFY_SERVICE_API_KEY` switch the classify lane to the service (unset = ComfyUI worker
+  path as before); the admin-edited classify workflow stays the single source of the prompt
+  (`promptFromWorkflow`). Dispatcher unit + `classify-lane` integration tests pass (10/10).
+- **Admin page (2026-10-16):** sidebar "Classify Service" (`/classify-service?tab=overview|requests|logs`)
+  replaces "Garment Recognitions" (the old path redirects; its list is now the Requests tab).
+  Overview = live health (model, uptime, VRAM, round trip) + 1 h / 24 h / 7 d stats (requests,
+  answered %, p50/p95 over answered, failed/expired); Logs = the service's in-memory ring buffer
+  (last 500 events, new authenticated `GET /logs`; a restart clears it, `journalctl -u classify` on
+  the box keeps the record). api routes `/admin/classify-service/{status,stats,logs}` need
+  `CLASSIFY_SERVICE_URL` + `CLASSIFY_SERVICE_API_KEY` on the **api** too (it only reads the
+  service; the dispatcher sends requests). api integration tests 5/5, typechecks clean.
+- **Connection form (2026-10-16):** the Overview tab has a Connection card (URL + API key, Test
+  connection, Save, Clear saved). New table `classify_service_config` (single row `default`, key
+  stored as-is like `workers.api_key`; migration `0228_dashing_yellowjacket`, applied to local
+  `tryon_dev` only, ships via CI/CD). The saved row wins over `CLASSIFY_SERVICE_URL/_API_KEY`
+  (now only a fallback). The dispatcher re-reads it every ~10 s (`classify/service-config.ts`), so
+  saving needs no restart; a DB blip keeps the last known value. Routes
+  `GET/PUT/DELETE /admin/classify-service/config` and `POST /test-connection` (`workers.write` /
+  `workers.read`); saves are audit-logged with the key hint only. Test connection checks `/health`
+  and then an authenticated route, so a wrong key is reported as rejected (`/health` is open).
+  api integration 9/9, dispatcher classify-lane 11/11. Checked in the browser (local admin):
+  page, tabs, form, and a wrong-key test showing "Reachable, but the API key was rejected". A
+  save with the real key was **not** run from the browser.
+- **Not done / open:** (1) [superseded by the Exposed entry below] the VPS cannot reach gpu8 yet — only the provider-mapped SSH port is
+  reachable (80/443 time out), so production needs a Cloudflare tunnel or a provider port map;
+  that adds a DNS record in `aivastra.com` and was not created. (2) Accuracy was not re-run on
+  the 21-photo set; the model is the spike's Qwen2.5-VL-7B but bf16 instead of 4-bit. (3) No
+  idle test yet (does latency hold after hours unused?). (4) The service does not survive a pod
+  replacement (gpu8 was re-provisioned 2026-10-15). (5) The key lives in
+  `/home/ubuntu/classify/env` on the box (mode 600); it is not recorded anywhere else.
+- **Exposed (2026-10-16):** Cloudflare named tunnel `aivastra-gpu8-classify` (id
+  `7f5f1ab4-bdbb-49a6-9f5b-3b7c1a3dc528`), DNS `gpu8-classify.aivastra.com` → `127.0.0.1:8400`
+  on the box. `cloudflared` runs there as systemd `classify-tunnel` (binary, config and
+  credentials in `/home/ubuntu/cloudflared`). Checked from outside: `/health` 200, wrong key 401,
+  `/classify` answers in 121–136 ms server side, ~1 s end to end from the dev machine. The
+  service's Bearer key is the only gate. This replaces open item (1) below. Dispatcher env:
+  `CLASSIFY_SERVICE_URL=https://gpu8-classify.aivastra.com`, `CLASSIFY_SERVICE_API_KEY=<the key>`.
+- **Local test needs (superseded by the public hostname above, no SSH forward needed):** `ssh -N -L 8400:127.0.0.1:8400 -i ~/.ssh/aivastra_gpu_dev -p 32152
+  ubuntu@50.35.188.73`, plus the two env vars in `.env` and an active classify workflow
+  uploaded in admin (the local `tryon_dev` has none).
+
 ## 2026-10-14 — WhatsApp bot: fixed public dev URLs, 5 MB image fit, fixed 3:4 / 2K, Cloudflare state
 
 - **Done (code, `feat/whatsapp-catalog-bot`, each with a failing-first test):** results over

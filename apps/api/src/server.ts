@@ -29,6 +29,7 @@ import { adminAuthRoutes } from './modules/admin/auth.routes.js';
 import { adminCatalogRoutes } from './modules/admin/catalog.routes.js';
 import { adminCatalogueTemplatesRoutes } from './modules/admin/catalogue-templates.routes.js';
 import { adminChatbotRoutes } from './modules/admin/chatbot.routes.js';
+import { adminClassifyServiceRoutes } from './modules/admin/classify-service.routes.js';
 import { adminConfigRoutes } from './modules/admin/config.routes.js';
 import { adminContactRoutes } from './modules/admin/contact.routes.js';
 import { adminCreditAnalysisRoutes } from './modules/admin/credit-analysis.routes.js';
@@ -454,6 +455,7 @@ export async function buildServer(env: Env) {
   await app.register(adminHeldJobsRoutes);
   await app.register(adminJobsRoutes);
   await app.register(adminGarmentRecognitionsRoutes);
+  await app.register(adminClassifyServiceRoutes);
   await app.register(adminMerchantCatalogRoutes);
   await app.register(adminDemoCatalogRoutes);
   await app.register(adminWorkersRoutes);

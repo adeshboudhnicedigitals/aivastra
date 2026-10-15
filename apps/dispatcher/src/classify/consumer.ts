@@ -4,7 +4,7 @@ import { GARMENT_RECOGNITION_STREAM, GarmentRecognitionRequest } from '@aivastra
 import type { Redis } from 'ioredis';
 import type { ProcessorConfig } from '../job/processor.js';
 import { DISPATCHER_GROUP, type XReadGroupResult } from '../stream/loop.js';
-import { processRecognitionRequest } from './process.js';
+import { type ClassifyService, processRecognitionRequest } from './process.js';
 
 const CONSUMER = `${hostname()}-classify`;
 // Recognition is ~1 s of GPU on the few workers that opt in; a handful in
@@ -23,6 +23,7 @@ export async function runClassifyConsumer(
   redis: Redis,
   cfg: ProcessorConfig,
   log: Logger,
+  opts: { resolveService?: () => Promise<ClassifyService | undefined> } = {},
 ): Promise<() => void> {
   const laneLog = log.child({ lane: 'classify' });
   // Dedicated connection: XREADGROUP BLOCK parks it (same reason as video-consumer.ts).
@@ -71,7 +72,10 @@ export async function runClassifyConsumer(
             continue;
           }
           inFlight++;
-          void processRecognitionRequest(cfg, parsed.data)
+          void (async () =>
+            processRecognitionRequest(cfg, parsed.data, {
+              service: await opts.resolveService?.(),
+            }))()
             .catch((err) => laneLog.error({ err, streamId: id }, 'garment recognition crashed'))
             .finally(() => {
               inFlight--;

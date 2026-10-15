@@ -76,3 +76,21 @@ export function readAnswer(
   const value = Array.isArray(text) ? text[0] : text;
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
+
+/**
+ * The prompt text and token budget of a built prompt, for the always-resident
+ * service: the admin-edited template stays the one place the wording lives, the
+ * service just runs it. Same node the ComfyUI path patches.
+ */
+export function promptFromWorkflow(
+  built: Record<string, unknown>,
+  promptNodeId: string,
+): { prompt: string; maxTokens: number } {
+  const inputs = (built[promptNodeId] as Node | undefined)?.inputs;
+  const prompt = inputs?.custom_prompt;
+  if (typeof prompt !== 'string') {
+    throw new Error(`classify workflow: node ${promptNodeId} has no custom_prompt`);
+  }
+  const max = inputs?.max_tokens;
+  return { prompt, maxTokens: typeof max === 'number' ? max : 64 };
+}

@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
 import { garmentRecognitionResultKey } from '@aivastra/types';
@@ -6,6 +8,7 @@ import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { processRecognitionRequest } from '../../src/classify/process.js';
+import { createServiceResolver } from '../../src/classify/service-config.js';
 import type { ProcessorConfig } from '../../src/job/processor.js';
 import { deregisterWorker, getWorkers, registerWorkers } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
@@ -112,6 +115,75 @@ describe('classify lane', () => {
       'Options:\nwa-kurti — Kurti\nwa-full-shirt — Full shirt\nKey only.',
     );
     expect((await getWorkers(redis)).get(WORKER_ID)?.status).toBe('IDLE');
+  });
+
+  // The always-resident service replaces the worker round trip entirely.
+  describe('always-resident service backend', () => {
+    let svc: Server;
+    let svcUrl: string;
+    let seen: { auth?: string; body: string }[];
+    let status = 200;
+
+    beforeAll(async () => {
+      seen = [];
+      svc = createServer((req, res) => {
+        const chunks: Buffer[] = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => {
+          seen.push({
+            auth: req.headers.authorization,
+            body: Buffer.concat(chunks).toString('utf8'),
+          });
+          res.writeHead(status, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ answer: 'wa-kurti', ms: 900 }));
+        });
+      });
+      await new Promise<void>((r) => svc.listen(0, '127.0.0.1', r));
+      svcUrl = `http://127.0.0.1:${(svc.address() as AddressInfo).port}/`;
+    });
+    afterAll(() => new Promise<void>((r) => svc.close(() => r())));
+
+    it('posts the filled prompt with the bearer key and never touches ComfyUI', async () => {
+      status = 200;
+      seen = [];
+      const result = await processRecognitionRequest(cfg, request(), {
+        service: { url: svcUrl, apiKey: 'svc-key' },
+      });
+      expect(result).toMatchObject({ answer: 'wa-kurti', error: null });
+      expect(seen[0]?.auth).toBe('Bearer svc-key');
+      // multipart form text carries CRLF; the service normalizes it back.
+      expect(seen[0]?.body).toContain('Options:\r\nwa-kurti — Kurti');
+      expect(comfy.lastPrompt()).toBeNull();
+    });
+
+    it('a service error is failed, not thrown', async () => {
+      status = 500;
+      const result = await processRecognitionRequest(cfg, request(), {
+        service: { url: svcUrl, apiKey: 'svc-key' },
+      });
+      expect(result.error).toBe('failed');
+    });
+  });
+
+  it('the service resolver prefers the saved row, falls back to env, and caches', async () => {
+    const envCfg = { CLASSIFY_SERVICE_URL: 'http://env-host', CLASSIFY_SERVICE_API_KEY: 'env-key' };
+    const resolve = createServiceResolver(env.db, envCfg, 0);
+    expect(await resolve()).toEqual({ url: 'http://env-host', apiKey: 'env-key' });
+    expect(await createServiceResolver(env.db, {}, 0)()).toBeUndefined();
+
+    await env.db
+      .insert(schema.classifyServiceConfig)
+      .values({ id: 'default', url: 'http://db-host', apiKey: 'db-key' });
+    try {
+      expect(await resolve()).toEqual({ url: 'http://db-host', apiKey: 'db-key' });
+      // a long ttl keeps the first answer even after the row is removed
+      const cached = createServiceResolver(env.db, envCfg, 60_000);
+      await cached();
+      await env.db.delete(schema.classifyServiceConfig);
+      expect(await cached()).toEqual({ url: 'http://db-host', apiKey: 'db-key' });
+    } finally {
+      await env.db.delete(schema.classifyServiceConfig);
+    }
   });
 
   it('a request past its deadline is skipped without touching a GPU', async () => {

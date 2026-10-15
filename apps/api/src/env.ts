@@ -181,6 +181,11 @@ const Env = z.object({
   // always shows the garment-type list — the state until the dispatcher's
   // classify lane ships, and the way back if recognition isn't good enough.
   // Same literal-'true' pattern as the flags above.
+  // The always-resident recognition service (aivastra-gpu pipeline/classify-service).
+  // The api only reads it for the admin "Classify Service" page (status + logs);
+  // the dispatcher is what sends recognition requests to it.
+  CLASSIFY_SERVICE_URL: optionalUrl(),
+  CLASSIFY_SERVICE_API_KEY: z.string().optional(),
   GARMENT_RECOGNITION_ENABLED: z.preprocess((v) => v === 'true', z.boolean()).default(false),
   // Distribution bucket for the local-dev production snapshot
   // (scripts/local-sync/, docs/local-dev-snapshot-runbook.md) — a separate,

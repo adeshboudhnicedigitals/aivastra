@@ -27,6 +27,8 @@ interface ListResponse {
 
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+  /** Rendered inside another page (the Classify Service tab): skip the page heading. */
+  embedded?: boolean;
 }
 
 const OUTCOME_OPTIONS = [
@@ -58,7 +60,7 @@ function formatTime(iso: string): string {
   }
 }
 
-export default function GarmentRecognitionsPage({ toast }: Props) {
+export default function GarmentRecognitionsPage({ toast, embedded = false }: Props) {
   const [items, setItems] = useState<RecognitionItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -133,15 +135,17 @@ export default function GarmentRecognitionsPage({ toast }: Props) {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1 style={{ marginBottom: 4 }}>Garment Recognitions</h1>
-          <p className="lede" style={{ margin: 0, fontSize: 13.5, color: 'var(--muted)' }}>
-            Every WhatsApp garment-recognition request the GPU answered — or didn&apos;t. Rows
-            expire after 30 days.
-          </p>
+      {!embedded && (
+        <div className="page-head">
+          <div>
+            <h1 style={{ marginBottom: 4 }}>Garment Recognitions</h1>
+            <p className="lede" style={{ margin: 0, fontSize: 13.5, color: 'var(--muted)' }}>
+              Every WhatsApp garment-recognition request the GPU answered — or didn&apos;t. Rows
+              expire after 30 days.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       <div
         style={{

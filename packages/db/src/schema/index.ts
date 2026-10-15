@@ -4,6 +4,7 @@ export * from './audit.js';
 export * from './campaigns.js';
 export * from './catalog.js';
 export * from './chatbot.js';
+export * from './classify-service.js';
 export * from './contact.js';
 export * from './credits.js';
 export * from './demo-catalog.js';

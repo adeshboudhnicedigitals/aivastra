@@ -11,13 +11,24 @@ import type { ProcessorConfig } from '../job/processor.js';
 import { releaseWorker } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 import { recordRecognition } from './record.js';
-import { buildClassifyPrompt, loadClassifyTemplate, readAnswer } from './workflow.js';
+import {
+  buildClassifyPrompt,
+  loadClassifyTemplate,
+  promptFromWorkflow,
+  readAnswer,
+} from './workflow.js';
 
 // Fast enough that a 1 s answer reaches the seller well inside the 12 s budget.
 const POLL_MS = 250;
 // Long enough for a cold Qwen load (~37 s, Finding 8): the answer is late for
 // the seller but its duration is the evidence spec 8a's switch-to-API rule needs.
 const HARD_CAP_MS = 90_000;
+
+/** The always-resident VLM service (aivastra-gpu pipeline/classify-service). */
+export interface ClassifyService {
+  url: string;
+  apiKey: string;
+}
 
 /**
  * One recognition request, end to end. Always writes a result (D53) and
@@ -27,7 +38,7 @@ const HARD_CAP_MS = 90_000;
 export async function processRecognitionRequest(
   cfg: ProcessorConfig,
   request: GarmentRecognitionRequest,
-  opts: { pollMs?: number; hardCapMs?: number } = {},
+  opts: { pollMs?: number; hardCapMs?: number; service?: ClassifyService } = {},
 ): Promise<GarmentRecognitionResult> {
   const log = cfg.log.child({ lane: 'classify', requestId: request.requestId });
   const startedAt = Date.now();
@@ -81,6 +92,39 @@ export async function processRecognitionRequest(
       'no active classify workflow — upload one in admin (Workflows → Garment recognition)',
     );
     return finish(null, 'failed');
+  }
+
+  if (opts.service) {
+    log.debug({ backend: 'service' }, 'classify via the resident service');
+    // The model is always loaded there, so there is no worker to pick or release
+    // and no cold start to wait out: one HTTP call, bounded by the hard cap.
+    try {
+      const { prompt, maxTokens } = promptFromWorkflow(
+        buildClassifyPrompt(template, '', request.options),
+        template.promptNodeId,
+      );
+      const bytes = await cfg.storage.getObject(request.garmentKey);
+      const form = new FormData();
+      form.set('image', new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }), 'garment.jpg');
+      form.set('prompt', prompt);
+      form.set('max_tokens', String(maxTokens));
+      const res = await fetch(`${opts.service.url.replace(/\/+$/, '')}/classify`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${opts.service.apiKey}` },
+        body: form,
+        signal: AbortSignal.timeout(opts.hardCapMs ?? HARD_CAP_MS),
+      });
+      if (!res.ok) {
+        log.warn({ status: res.status }, 'classify service returned an error');
+        return finish(null, 'failed', { workflowTemplateId: template.id });
+      }
+      const body = (await res.json()) as { answer?: unknown };
+      const answer = typeof body.answer === 'string' && body.answer ? body.answer : null;
+      return finish(answer, null, { workflowTemplateId: template.id });
+    } catch (err) {
+      log.warn({ err }, 'classify service request failed');
+      return finish(null, 'failed', { workflowTemplateId: template.id });
+    }
   }
 
   const worker = await selectWorker(cfg.redis, WORKER_POOL.CLASSIFY, undefined, { log }).catch(

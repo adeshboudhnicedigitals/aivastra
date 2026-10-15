@@ -1,4 +1,4 @@
-# TEMPORARY handoff — WhatsApp catalog bot (updated 2026-10-15)
+# TEMPORARY handoff — WhatsApp catalog bot (updated 2026-10-16)
 
 > Temporary. Exists only so the work can be resumed on another machine. Delete this
 > file once the branch is picked up again (the durable record is `docs/progress.md`,
@@ -134,6 +134,42 @@ the `reportUnavailable` log ("whatsapp: garment type not offered" with
 - **Not done:** Task 5 on staging/production; the idle-unload measurement (Step 1b); a dedicated
   `classify` worker; the SSH install of the node on the extra GPU box (connection refused on the
   given port, nothing installed).
+
+## Always-resident recognition service + admin page (2026-10-16, uncommitted)
+
+- **Service:** `aivastra-gpu/pipeline/classify-service/` on gpu8 (`ubuntu@50.35.188.73 -p 32152`,
+  key `~/.ssh/aivastra_gpu_dev`), systemd `classify` (127.0.0.1:8400) + `classify-tunnel`
+  → `https://gpu8-classify.aivastra.com`. Qwen2.5-VL-7B bf16, always loaded: 108–302 ms per
+  request (ComfyUI path was 6–40 s). Men's 23-image check: 17/23; misses are the confusable
+  pairs (tank top/vest, jeans/baggy, trouser/formal, one/two piece suit, shirt/t-shirt).
+  Details and open items: `docs/progress.md` 2026-10-16.
+- **Admin:** sidebar "Classify Service" (`/classify-service`: Overview with a Connection form,
+  Requests, Logs). URL + key are saved in the new table `classify_service_config` (migration
+  `0228_dashing_yellowjacket`, local only so far); the dispatcher re-reads it every ~10 s, env
+  vars are the fallback. Nothing from 2026-10-16 is committed (both repos).
+- **Decided:** no extra logging of rejected keys; the online/offline health badge is enough.
+
+### Pending decision (user confirms 2026-10-17): WhatsApp page + chat transcripts
+
+Idea: rename the page to **WhatsApp** (`/whatsapp`) with sub-views **Conversations** and
+**Recognition** (today's Overview / Requests / Logs move under Recognition; old
+`/classify-service` URLs redirect), so admins can read chats and see how the bot behaves.
+
+Blocker found: **the bot stores no conversation history.** Only `messaging_accounts`,
+`messaging_runs`, `garment_recognitions` (30 d) and a Redis session (24 h, current step only).
+Meta's API cannot return old messages. A Conversations view needs a new store.
+
+| Option | Cost |
+|---|---|
+| **A (recommended)** new `messaging_messages` table: direction, type, text/button id, media key, bot state before/after, timestamps; sweeper deletes after 30 days (like recognitions); writes in `inbound.ts` / `send.ts`, best-effort so a failed write never blocks a reply | 1 migration + writes + sweeper + admin view; message text kept 30 d and visible to staff |
+| B Redis log, last ~200 messages per number, 48–72 h TTL | no schema; lost on flush; too short to debug |
+| C no transcript, rebuild from runs + recognitions + session | no message text, cannot show mid-chat behaviour |
+
+Two things need the user's yes before any code: (1) storing message text for 30 days and showing
+it to admins; (2) a consent-copy line in `engine/copy.ts` and the connect page, because the
+approved 2026-10-13 wording covers number + photos only (suggested: "we keep your chat
+messages for 30 days to help with support and improve the bot"). Also decide the permission
+for the Conversations view (reuse `jobs.read` or add a new one).
 
 ## Open
 

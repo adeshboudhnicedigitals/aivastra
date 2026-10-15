@@ -127,9 +127,9 @@ const groups: NavGroup[] = [
         perm: 'jobs.write',
       },
       {
-        k: 'garment-recognitions',
-        label: 'Garment Recognitions',
-        icon: Icon.Jobs,
+        k: 'classify-service',
+        label: 'Classify Service',
+        icon: Icon.Server,
         perm: 'jobs.read',
       },
       {

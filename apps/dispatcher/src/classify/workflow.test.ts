@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildClassifyPrompt, type ClassifyTemplate, readAnswer } from './workflow.js';
+import {
+  buildClassifyPrompt,
+  type ClassifyTemplate,
+  promptFromWorkflow,
+  readAnswer,
+} from './workflow.js';
 
 const TEMPLATE: ClassifyTemplate = {
   id: 'wf-1',
@@ -59,5 +64,27 @@ describe('readAnswer', () => {
   it('is null when the node produced nothing', () => {
     expect(readAnswer({}, '4')).toBeNull();
     expect(readAnswer({ '4': { text: [] } }, '4')).toBeNull();
+  });
+});
+
+describe('promptFromWorkflow', () => {
+  it('returns the filled prompt and the node max_tokens', () => {
+    const built = buildClassifyPrompt(
+      {
+        ...TEMPLATE,
+        jsonContent: {
+          ...TEMPLATE.jsonContent,
+          '3': { inputs: { custom_prompt: '{{OPTIONS}}', max_tokens: 32 } },
+        },
+      },
+      'x.jpg',
+      [{ slug: 'wa-kurti', label: 'Kurti' }],
+    );
+    expect(promptFromWorkflow(built, '3')).toEqual({ prompt: 'wa-kurti — Kurti', maxTokens: 32 });
+  });
+
+  it('defaults max_tokens to 64 and throws without a custom_prompt', () => {
+    expect(promptFromWorkflow({ '3': { inputs: { custom_prompt: 'p' } } }, '3').maxTokens).toBe(64);
+    expect(() => promptFromWorkflow({ '3': { inputs: {} } }, '3')).toThrow(/no custom_prompt/);
   });
 });
