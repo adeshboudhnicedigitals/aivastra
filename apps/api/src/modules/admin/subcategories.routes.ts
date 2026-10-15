@@ -1417,6 +1417,64 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
     },
   );
 
+  // GET /admin/assets/faces/:id/garment-mappings
+  // The mirror of the GET above, viewed from a face: every garment type of this
+  // face's gender, flagged mapped:true/false for THIS face. Lets a face be mapped
+  // to garment types directly (e.g. from a body type's Faces section), instead of
+  // only via the per-garment-type panel. Writes still go through the existing PUT
+  // /admin/assets/garment-types/:id/faces/:faceId above — same table, same
+  // opt-out-narrows-to-opt-in semantics, no new write path needed.
+  app.get(
+    '/admin/assets/faces/:id/garment-mappings',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [face] = await app.db
+        .select({ gender: schema.modelFaces.gender })
+        .from(schema.modelFaces)
+        .where(and(eq(schema.modelFaces.id, id), isNull(schema.modelFaces.deletedAt)));
+      if (!face) throw new AppError('NOT_FOUND', 404, 'face not found');
+
+      const garmentTypes = await app.db
+        .select({
+          id: schema.garmentSubcategories.id,
+          label: schema.garmentSubcategories.label,
+          genderSlug: schema.garmentSubcategories.genderSlug,
+        })
+        .from(schema.garmentSubcategories)
+        .where(eq(schema.garmentSubcategories.genderSlug, face.gender))
+        .orderBy(
+          asc(schema.garmentSubcategories.sortOrder),
+          asc(schema.garmentSubcategories.label),
+        );
+
+      const garmentTypeIds = garmentTypes.map((g) => g.id);
+      const rowsForTypes =
+        garmentTypeIds.length > 0
+          ? await app.db
+              .select({
+                faceId: schema.modelFaceSubcategories.faceId,
+                subcategoryId: schema.modelFaceSubcategories.subcategoryId,
+              })
+              .from(schema.modelFaceSubcategories)
+              .where(inArray(schema.modelFaceSubcategories.subcategoryId, garmentTypeIds))
+          : [];
+      const explicitTypeIds = new Set(rowsForTypes.map((r) => r.subcategoryId));
+      const mappedTypeIds = new Set(
+        rowsForTypes.filter((r) => r.faceId === id).map((r) => r.subcategoryId),
+      );
+
+      return {
+        items: garmentTypes.map((g) => ({
+          ...g,
+          // No explicit rows for this type at all = opt-out, every active face of
+          // this gender shows by default; only an explicit row set narrows it.
+          mapped: explicitTypeIds.has(g.id) ? mappedTypeIds.has(g.id) : true,
+        })),
+      };
+    },
+  );
+
   // Look visibility is scoped to one concrete template-to-garment-type mapping.
   // No exclusion row means the look remains shown (the default).
   app.get(

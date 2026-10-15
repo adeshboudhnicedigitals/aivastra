@@ -10,7 +10,7 @@ import { poseGarmentRoles } from './garment-roles.js';
 
 export async function modelsRoutes(app: FastifyInstance) {
   app.get(
-    '/v1/models/garment-types',
+    '/v1/models/body-types',
     {
       preHandler: app.requireUserOrCatalogApp,
       schema: { querystring: z.object({ gender: z.enum(['men', 'women', 'boys', 'girls']) }) },
@@ -18,6 +18,47 @@ export async function modelsRoutes(app: FastifyInstance) {
     async (req) => {
       const { gender } = req.query as { gender: string };
       const items = await app.db
+        .select({
+          id: schema.bodyTypes.id,
+          label: schema.bodyTypes.label,
+          thumbnailKey: schema.bodyTypes.thumbnailKey,
+        })
+        .from(schema.bodyTypes)
+        .where(
+          and(
+            eq(schema.bodyTypes.genderSlug, gender),
+            eq(schema.bodyTypes.isActive, true),
+            isNull(schema.bodyTypes.deletedAt),
+          ),
+        )
+        .orderBy(asc(schema.bodyTypes.sortOrder), asc(schema.bodyTypes.label));
+      return {
+        items: await Promise.all(
+          items.map(async (i) => ({
+            ...i,
+            thumbnailUrl: i.thumbnailKey
+              ? (await app.storage.presignGet(i.thumbnailKey, 3600)).url
+              : null,
+          })),
+        ),
+      };
+    },
+  );
+
+  app.get(
+    '/v1/models/garment-types',
+    {
+      preHandler: app.requireUserOrCatalogApp,
+      schema: {
+        querystring: z.object({
+          gender: z.enum(['men', 'women', 'boys', 'girls']),
+          bodyTypeId: z.string().uuid().optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const { gender, bodyTypeId } = req.query as { gender: string; bodyTypeId?: string };
+      let items = await app.db
         .select({
           id: schema.garmentSubcategories.id,
           slug: schema.garmentSubcategories.slug,
@@ -50,6 +91,22 @@ export async function modelsRoutes(app: FastifyInstance) {
           asc(schema.garmentSubcategories.sortOrder),
           asc(schema.garmentSubcategories.label),
         );
+
+      // No mapping row for this body type at all = opt-out (every active garment type of
+      // this gender stays visible). Once any explicit mapping exists for the body type,
+      // only mapped garment types are shown. See modelFaceSubcategories's opt-out
+      // convention — same pattern, independent join.
+      if (bodyTypeId && items.length > 0) {
+        const mapped = await app.db
+          .select({ subcategoryId: schema.bodyTypeSubcategories.subcategoryId })
+          .from(schema.bodyTypeSubcategories)
+          .where(eq(schema.bodyTypeSubcategories.bodyTypeId, bodyTypeId));
+        if (mapped.length > 0) {
+          const mappedIds = new Set(mapped.map((m) => m.subcategoryId));
+          items = items.filter((i) => mappedIds.has(i.id));
+        }
+      }
+
       return {
         items: await Promise.all(
           items.map(async (i) => ({
@@ -132,11 +189,16 @@ export async function modelsRoutes(app: FastifyInstance) {
         querystring: z.object({
           gender: z.enum(['men', 'women', 'boys', 'girls']),
           garmentTypeId: z.string().uuid().optional(),
+          bodyTypeId: z.string().uuid().optional(),
         }),
       },
     },
     async (req) => {
-      const { gender, garmentTypeId } = req.query as { gender: string; garmentTypeId?: string };
+      const { gender, garmentTypeId, bodyTypeId } = req.query as {
+        gender: string;
+        garmentTypeId?: string;
+        bodyTypeId?: string;
+      };
 
       let items = await app.db
         .select({
@@ -166,6 +228,18 @@ export async function modelsRoutes(app: FastifyInstance) {
           .select({ faceId: schema.modelFaceSubcategories.faceId })
           .from(schema.modelFaceSubcategories)
           .where(eq(schema.modelFaceSubcategories.subcategoryId, garmentTypeId));
+        if (mapped.length > 0) {
+          const mappedIds = new Set(mapped.map((m) => m.faceId));
+          items = items.filter((i) => mappedIds.has(i.id));
+        }
+      }
+
+      // Independent opt-out join for body type — see bodyTypeSubcategories above.
+      if (bodyTypeId && items.length > 0) {
+        const mapped = await app.db
+          .select({ faceId: schema.bodyTypeFaces.faceId })
+          .from(schema.bodyTypeFaces)
+          .where(eq(schema.bodyTypeFaces.bodyTypeId, bodyTypeId));
         if (mapped.length > 0) {
           const mappedIds = new Set(mapped.map((m) => m.faceId));
           items = items.filter((i) => mappedIds.has(i.id));
@@ -311,20 +385,23 @@ export async function modelsRoutes(app: FastifyInstance) {
         querystring: z.object({
           gender: z.enum(['men', 'women', 'boys', 'girls']),
           garmentTypeId: z.string().uuid().optional(),
+          bodyTypeId: z.string().uuid().optional(),
         }),
       },
     },
     async (req) => {
-      const { gender, garmentTypeId } = req.query as {
+      const { gender, garmentTypeId, bodyTypeId } = req.query as {
         gender: string;
         garmentTypeId?: string;
+        bodyTypeId?: string;
       };
-      const items = await app.db
+      let items = await app.db
         .select({
           id: schema.modelPoseAssets.id,
           displayName: schema.modelPoseAssets.displayName,
           label: schema.modelPoseAssets.label,
           thumbnailUrl: schema.modelPoseAssets.thumbnailKey,
+          sortOrder: schema.modelPoseAssets.sortOrder,
           // Default workflow from pose asset
           upperNodeIds: schema.workflowTemplates.upperNodeIds,
           lowerNodeId: schema.workflowTemplates.lowerNodeId,
@@ -350,6 +427,18 @@ export async function modelsRoutes(app: FastifyInstance) {
         )
         .orderBy(asc(schema.modelPoseAssets.sortOrder), asc(schema.modelPoseAssets.label));
 
+      // Independent opt-out join for body type — see bodyTypeSubcategories above.
+      if (bodyTypeId && items.length > 0) {
+        const mapped = await app.db
+          .select({ poseAssetId: schema.bodyTypePoses.poseAssetId })
+          .from(schema.bodyTypePoses)
+          .where(eq(schema.bodyTypePoses.bodyTypeId, bodyTypeId));
+        if (mapped.length > 0) {
+          const mappedIds = new Set(mapped.map((m) => m.poseAssetId));
+          items = items.filter((i) => mappedIds.has(i.id));
+        }
+      }
+
       // If garmentTypeId given, overlay per-type workflow overrides for hasLower/hasShoes,
       // and apply strict opt-in visibility: a pose shows for a garment type only when a
       // pose_garment_configs row exists for it. isActive on that row is a *narrowing*
@@ -370,6 +459,7 @@ export async function modelsRoutes(app: FastifyInstance) {
         }
       >();
       let activeForType: Set<string> | null = null;
+      let orderMap = new Map<string, number>();
       if (garmentTypeId && items.length > 0) {
         const poseIds = items.map((i) => i.id);
         const configs = await app.db
@@ -377,6 +467,7 @@ export async function modelsRoutes(app: FastifyInstance) {
             poseAssetId: schema.poseGarmentConfigs.poseAssetId,
             workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
             isActive: schema.poseGarmentConfigs.isActive,
+            sortOrder: schema.poseGarmentConfigs.sortOrder,
             upperNodeIds: schema.workflowTemplates.upperNodeIds,
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
@@ -416,12 +507,25 @@ export async function modelsRoutes(app: FastifyInstance) {
         activeForType = new Set(
           configs.filter((c) => c.isActive !== false).map((c) => c.poseAssetId),
         );
+        // Per-type position override — same cfg-overrides-global formula as isActive
+        // above, just for order instead of visibility. Built from the unfiltered
+        // configs (not configMap), since a pose can be reordered for this garment
+        // type without also getting a workflow override.
+        orderMap = new Map(
+          configs.filter((c) => c.sortOrder != null).map((c) => [c.poseAssetId, c.sortOrder!]),
+        );
       }
 
       return {
         items: await Promise.all(
           items
             .filter((i) => activeForType === null || activeForType.has(i.id))
+            .sort((a, b) => {
+              const ea = orderMap.get(a.id) ?? a.sortOrder;
+              const eb = orderMap.get(b.id) ?? b.sortOrder;
+              if (ea !== eb) return ea - eb;
+              return a.label.localeCompare(b.label);
+            })
             .map(async (i) => {
               const cfg = configMap.get(i.id);
               const upperNodeIds = cfg !== undefined ? cfg.upperNodeIds : i.upperNodeIds;

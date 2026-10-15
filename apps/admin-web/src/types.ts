@@ -156,6 +156,19 @@ export interface CatalogueTemplate {
   updatedAt: string;
 }
 
+export interface BodyType {
+  id: string;
+  genderSlug: GenderSlug;
+  label: string;
+  thumbnailKey: string | null;
+  thumbnailUrl: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CatalogueTemplateLook {
   id: string;
   poseAssetId: string;
@@ -480,6 +493,17 @@ export interface PoseGarmentTypeConfig {
     promptFacePhase: string | null;
     isActive: boolean | null;
   } | null;
+}
+
+// Viewed from a face: one row per garment type of the face's gender, with whether
+// this face is currently mapped (shown) for it. Faces have no per-type override
+// data like poses do (no workflow/prompt fields) — model_face_subcategories is a
+// plain opt-out many-to-many join, so "mapped" is the only field.
+export interface FaceGarmentMapping {
+  id: string; // garment type (subcategory) id
+  label: string;
+  genderSlug: string | null;
+  mapped: boolean;
 }
 
 export type AdminRole = 'SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT';
