@@ -125,8 +125,8 @@ describe('shopify retention sweeper', () => {
 
   it('nulls only the key whose delete succeeded when its sibling delete fails', async () => {
     const store = await seedStoreWithRetention({ resultDays: 30 });
-    const resultKey = `shopify-results/${store.id}/old/result`;
-    const thumbnailKey = `shopify-results/${store.id}/old/thumbnail`;
+    const resultKey = `outputs/${store.id}/old/result`;
+    const thumbnailKey = `outputs/${store.id}/old/thumbnail`;
     await app.storage.putObject(resultKey, Buffer.from('x'), 'image/jpeg');
     await app.storage.putObject(thumbnailKey, Buffer.from('x'), 'image/jpeg');
 
@@ -171,8 +171,8 @@ describe('shopify retention sweeper', () => {
 
   it('keeps a row in scope across passes when one key clears and its sibling keeps failing', async () => {
     const store = await seedStoreWithRetention({ resultDays: 30 });
-    const resultKey = `shopify-results/${store.id}/old2/result`;
-    const thumbnailKey = `shopify-results/${store.id}/old2/thumbnail`;
+    const resultKey = `outputs/${store.id}/old2/result`;
+    const thumbnailKey = `outputs/${store.id}/old2/thumbnail`;
     await app.storage.putObject(resultKey, Buffer.from('x'), 'image/jpeg');
     await app.storage.putObject(thumbnailKey, Buffer.from('x'), 'image/jpeg');
 

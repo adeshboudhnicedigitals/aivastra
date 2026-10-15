@@ -25,8 +25,6 @@ describe('promoteSareeStep2Jobs', () => {
       redis,
       pub,
       storage: env.storage,
-      s3: env.s3,
-      r2Bucket: env.r2Bucket,
       log: createLogger('dispatcher-test'),
     };
   }, 60_000);

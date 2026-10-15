@@ -59,6 +59,23 @@ if [ -n "$prod_from" ] && [ "$staging_from" = "$prod_from" ]; then
   reject "EMAIL_FROM is identical to production's; staging must send from a non-production address"
 fi
 
+# Staging runs the same sweepers as production — the upload sweeper deletes
+# every inputs/ object its own (staging) database doesn't reference. Pointed at
+# production's R2 bucket, staging would delete production's live uploads. The
+# credential must differ too: a token scoped to prod's bucket is one config typo
+# away from the same outcome.
+staging_ubucket="$(read_var USER_STORAGE_BUCKET "$staging_file")"
+prod_ubucket="$(read_var USER_STORAGE_BUCKET "$prod_file")"
+if [ -n "$staging_ubucket" ] && [ "$staging_ubucket" = "$prod_ubucket" ]; then
+  reject "USER_STORAGE_BUCKET is identical to production's; staging needs its own R2 bucket"
+fi
+
+staging_ukey="$(read_var USER_STORAGE_ACCESS_KEY_ID "$staging_file")"
+prod_ukey="$(read_var USER_STORAGE_ACCESS_KEY_ID "$prod_file")"
+if [ -n "$staging_ukey" ] && [ "$staging_ukey" = "$prod_ukey" ]; then
+  reject "USER_STORAGE_ACCESS_KEY_ID is identical to production's; staging needs its own R2 API token scoped to its own bucket"
+fi
+
 if [ "$failed" -ne 0 ]; then
   echo "guardrail: staging deploy aborted; no container was touched" >&2
   exit 1

@@ -98,20 +98,20 @@ describe('/results thumbnails', () => {
         status: 'COMPLETED',
         creditsCharged: 5,
         source: 'tryon',
-        customerPhotoKey: opts.customerPhoto ? `test/${user.id}/customer.jpg` : null,
+        customerPhotoKey: opts.customerPhoto ? `merchant-inputs/${user.id}/customer.jpg` : null,
       })
       .returning();
     const jobId = job.id as string;
 
-    const upperGarmentKey = opts.upperGarment ? `test/${jobId}/upper.jpg` : null;
+    const upperGarmentKey = opts.upperGarment ? `inputs/${jobId}/upper.jpg` : null;
     if (upperGarmentKey) await app.storage.putObject(upperGarmentKey, bigJpeg, 'image/jpeg');
     if (opts.customerPhoto)
-      await app.storage.putObject(`test/${user.id}/customer.jpg`, bigJpeg, 'image/jpeg');
+      await app.storage.putObject(`merchant-inputs/${user.id}/customer.jpg`, bigJpeg, 'image/jpeg');
 
     let poseId: string | null = null;
     if (opts.poseAsset) {
-      const fullKey = `test/${jobId}/pose.jpg`;
-      const thumbKey = `test/${jobId}/pose.thumb.jpg`;
+      const fullKey = `models/poses/${jobId}/pose.jpg`;
+      const thumbKey = `models/poses/${jobId}/pose.thumb.jpg`;
       await app.storage.putObject(fullKey, bigJpeg, 'image/jpeg');
       await app.storage.putObject(thumbKey, smallJpeg, 'image/jpeg');
       const [pose] = await app.db
@@ -123,8 +123,8 @@ describe('/results thumbnails', () => {
 
     let backgroundId: string | null = null;
     if (opts.background) {
-      const fullKey = `test/${jobId}/bg.jpg`;
-      const thumbKey = `test/${jobId}/bg.thumb.jpg`;
+      const fullKey = `models/backgrounds/${jobId}/bg.jpg`;
+      const thumbKey = `models/backgrounds/${jobId}/bg.thumb.jpg`;
       await app.storage.putObject(fullKey, bigJpeg, 'image/jpeg');
       await app.storage.putObject(thumbKey, smallJpeg, 'image/jpeg');
       const [bg] = await app.db
@@ -136,15 +136,15 @@ describe('/results thumbnails', () => {
 
     let shoeCatalogId: string | null = null;
     if (opts.shoeCatalog) {
-      await app.storage.putObject(`test/${jobId}/shoe.jpg`, bigJpeg, 'image/jpeg');
-      await app.storage.putObject(`test/${jobId}/shoe.thumb.jpg`, smallJpeg, 'image/jpeg');
+      await app.storage.putObject(`catalog/shoe/${jobId}/shoe.jpg`, bigJpeg, 'image/jpeg');
+      await app.storage.putObject(`catalog/shoe/${jobId}/shoe.thumb.jpg`, smallJpeg, 'image/jpeg');
       const [shoe] = await app.db
         .insert(schema.catalogItems)
         .values({
           type: 'shoe',
           label: 'thumb-test-shoe',
-          r2Key: `test/${jobId}/shoe.jpg`,
-          thumbnailKey: `test/${jobId}/shoe.thumb.jpg`,
+          r2Key: `catalog/shoe/${jobId}/shoe.jpg`,
+          thumbnailKey: `catalog/shoe/${jobId}/shoe.thumb.jpg`,
         })
         .returning();
       shoeCatalogId = shoe.id as string;
@@ -159,11 +159,11 @@ describe('/results thumbnails', () => {
     });
 
     const resultKey = opts.videoResult
-      ? `test/${jobId}/result.mp4`
+      ? `outputs/${jobId}/result.mp4`
       : opts.result
-        ? `test/${jobId}/result.png`
+        ? `outputs/${jobId}/result.png`
         : null;
-    const thumbnailKey = opts.resultThumb ? `test/${jobId}/result.thumb.jpg` : null;
+    const thumbnailKey = opts.resultThumb ? `outputs/${jobId}/result.thumb.jpg` : null;
     if (resultKey)
       await app.storage.putObject(
         resultKey,

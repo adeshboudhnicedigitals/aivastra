@@ -157,12 +157,16 @@ export async function buildServer(env: Env) {
 
   app.decorate('env', env);
 
-  const r2Origin = new URL(env.R2_PUBLIC_URL).origin;
+  // MinIO (R2_*) plus, when configured, the real R2 bucket for user objects
+  // (USER_STORAGE_*) — presigned URLs for either can reach a browser.
+  const storageOrigins = [env.R2_PUBLIC_URL, env.USER_STORAGE_ENDPOINT]
+    .filter((u): u is string => !!u)
+    .map((u) => new URL(u).origin);
   await app.register(helmet, {
     contentSecurityPolicy: {
       directives: {
-        'img-src': ["'self'", 'data:', r2Origin],
-        'connect-src': ["'self'", r2Origin],
+        'img-src': ["'self'", 'data:', ...storageOrigins],
+        'connect-src': ["'self'", ...storageOrigins],
         // Scalar's docs page (/v1/dev/docs) inlines a static bootstrap script
         // (Scalar.createApiReference(...)) — hash-pin it rather than 'unsafe-inline'.
         'script-src': ["'self'", "'sha256-cWTMliztqFgvzhAh79uXn6mME2QZ5F1J5/jIafVbm1M='"],

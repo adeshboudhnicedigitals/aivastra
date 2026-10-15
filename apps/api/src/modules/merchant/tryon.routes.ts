@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
 import {
   MerchantTryonHistoryQuery,
   MerchantTryonJobCreateBody,
@@ -95,7 +96,7 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
 
       const { contentType, contentLength } = req.body as z.infer<typeof MerchantTryonPresignBody>;
       const ext = contentType.split('/')[1] ?? 'jpg';
-      const key = `merchant-inputs/${merchantId}/${randomUUID()}/photo.${ext}`;
+      const key = keys.merchantTryonInput(merchantId, randomUUID(), ext);
       const { url, expiresIn } = await app.storage.presignPut(key, contentType, contentLength, 600);
       await app.redis.set(`upload:owner:${key}`, merchantId, 'EX', 600);
 
@@ -113,7 +114,7 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
       const { r2Key } = req.query as { r2Key: string };
-      if (!r2Key.startsWith(`merchant-inputs/${merchantId}/`)) {
+      if (!r2Key.startsWith(keys.merchantInputPrefix(merchantId))) {
         throw new AppError('FORBIDDEN', 403, 'photo key does not belong to this merchant');
       }
       const { url } = await app.storage.presignGet(r2Key, 300);
@@ -139,7 +140,7 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
         async () => {
           const garment = await resolveTryonGarment(app, merchantId, merchantCatalogItemId);
 
-          if (!customerPhotoKey.startsWith(`merchant-inputs/${merchantId}/`)) {
+          if (!customerPhotoKey.startsWith(keys.merchantInputPrefix(merchantId))) {
             throw new AppError(
               'FORBIDDEN',
               403,

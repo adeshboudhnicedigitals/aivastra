@@ -15,8 +15,6 @@ import {
   PIXVERSE_QUALITIES,
   WORKER_POOL,
 } from '@aivastra/types';
-import type { S3Client } from '@aws-sdk/client-s3';
-import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import {
@@ -159,8 +157,6 @@ export interface ProcessorConfig {
   comfyRedis: Redis;
   pub: Redis;
   storage: StorageProvider;
-  s3: S3Client;
-  r2Bucket: string;
   log: Logger;
 }
 
@@ -172,7 +168,7 @@ export async function processJob(
   messageId: string,
   retryCount = 0,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket, log } = cfg;
+  const { db, redis, pub, storage, log } = cfg;
   const jobLog = log.child({ jobId, userId });
   const startedAt = Date.now();
 
@@ -717,9 +713,7 @@ export async function processJob(
   try {
     // 4. Download images from R2, upload to ComfyUI input folder
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -987,8 +981,7 @@ export async function processJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -1058,7 +1051,7 @@ async function processVideoJob(
   startedAt: number,
   jobType: string | null,
 ): Promise<void> {
-  const { db, redis, pub, storage, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const sourceImageKey = rawParams.sourceImageKey as string;
   const prompt = rawParams.prompt as string;
   // Fallback to today's previous hardcoded values for job_inputs rows written
@@ -1133,14 +1126,7 @@ async function processVideoJob(
     const videoBytes = new Uint8Array(await videoRes.arrayBuffer());
 
     const resultKey = keys.videoOutput(jobId);
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: r2Bucket,
-        Key: resultKey,
-        Body: videoBytes,
-        ContentType: 'video/mp4',
-      }),
-    );
+    await storage.putObject(resultKey, videoBytes, 'video/mp4');
 
     if (!(await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog))) {
       await redis.xack(stream, 'dispatcher-cg', messageId);
@@ -1175,7 +1161,7 @@ async function processTryonDirectJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
 
   const personKey = params.personKey as string;
@@ -1313,9 +1299,7 @@ async function processTryonDirectJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -1436,8 +1420,7 @@ async function processTryonDirectJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -1482,7 +1465,7 @@ async function processRegenerateJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
 
   const sourceImageKey = params.sourceImageKey as string;
@@ -1590,9 +1573,7 @@ async function processRegenerateJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -1716,8 +1697,7 @@ async function processRegenerateJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -1771,7 +1751,7 @@ async function processFabricToGarmentJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
 
   const productKey = inputs.upperGarmentKey;
@@ -1891,9 +1871,7 @@ async function processFabricToGarmentJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -2015,8 +1993,7 @@ async function processFabricToGarmentJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -2059,7 +2036,7 @@ async function processSareeMannequinJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
 
   const garmentKey = inputs.upperGarmentKey;
@@ -2279,9 +2256,7 @@ async function processSareeMannequinJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -2413,8 +2388,7 @@ async function processSareeMannequinJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -2460,7 +2434,7 @@ async function processSareeJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
 
   const modelKey = params.modelKey as string | undefined;
@@ -2565,9 +2539,7 @@ async function processSareeJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -2686,8 +2658,7 @@ async function processSareeJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -2733,7 +2704,7 @@ async function processWidgetJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
   // biome-ignore lint/style/noNonNullAssertion: merchantId is guaranteed non-null for widget jobs
   const merchantId = job.merchantId!;
@@ -2965,9 +2936,7 @@ async function processWidgetJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -3099,15 +3068,8 @@ async function processWidgetJob(
       format: outputFormat,
       contentType,
     } = await encodeCompressedImage(imageBytes, compression);
-    const resultKey = `widget-outputs/${jobId}/result.${outputFormat}`;
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: r2Bucket,
-        Key: resultKey,
-        Body: encodedBuffer,
-        ContentType: contentType,
-      }),
-    );
+    const resultKey = keys.widgetOutput(jobId, outputFormat);
+    await storage.putObject(resultKey, encodedBuffer, contentType);
 
     // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
     if (!(await transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog))) {
@@ -3183,7 +3145,7 @@ async function processShopifyJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
   // biome-ignore lint/style/noNonNullAssertion: shopifyStoreId guaranteed non-null for shopify jobs routed through this path
   const shopifyStoreId = job.shopifyStoreId!;
@@ -3309,9 +3271,7 @@ async function processShopifyJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -3439,8 +3399,7 @@ async function processShopifyJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {

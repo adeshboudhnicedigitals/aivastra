@@ -2,10 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { comfyRequestDuration } from '@aivastra/observability';
-import { keys } from '@aivastra/storage';
+import { isNotFoundError, keys, type StorageProvider } from '@aivastra/storage';
 import { WORKER_POOL } from '@aivastra/types';
-import type { S3Client } from '@aws-sdk/client-s3';
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import {
@@ -28,8 +26,7 @@ export interface MannequinPhaseConfig {
   db: DB;
   redis: Redis;
   comfyRedis: Redis;
-  s3: S3Client;
-  r2Bucket: string;
+  storage: StorageProvider;
 }
 export interface MannequinPhaseParams {
   jobId: string;
@@ -51,7 +48,7 @@ export async function runMannequinPhase(
   cfg: MannequinPhaseConfig,
   params: MannequinPhaseParams,
 ): Promise<MannequinPhaseResult> {
-  const { db, redis, s3, r2Bucket } = cfg;
+  const { db, redis, storage } = cfg;
   const { jobId, garmentKey, faceId, mannequinWorkflowTemplateId, jobLog, jobType } = params;
 
   // The intermediate is written by one PutObject after the image has fully
@@ -61,12 +58,11 @@ export async function runMannequinPhase(
   // falls through to regenerate.
   const intermediateKey = keys.mannequinIntermediate(jobId);
   try {
-    await s3.send(new HeadObjectCommand({ Bucket: r2Bucket, Key: intermediateKey }));
+    await storage.headObject(intermediateKey);
     jobLog.info({ intermediateKey }, 'mannequin intermediate already exists — skipping GPU phase');
     return { status: 'completed', key: intermediateKey };
   } catch (err) {
-    const name = (err as { name?: string }).name;
-    if (name !== 'NotFound' && name !== 'NoSuchKey') {
+    if (!isNotFoundError(err)) {
       jobLog.warn({ err }, 'mannequin intermediate HEAD failed — regenerating');
     }
   }
@@ -109,9 +105,7 @@ export async function runMannequinPhase(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
       const bytes = await r2Download(key);
@@ -203,14 +197,7 @@ export async function runMannequinPhase(
       firstImage.filename,
       firstImage.subfolder,
     );
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: r2Bucket,
-        Key: intermediateKey,
-        Body: imageBytes,
-        ContentType: 'image/png',
-      }),
-    );
+    await storage.putObject(intermediateKey, imageBytes, 'image/png');
     settlePerformanceSample(w, 'success');
     jobLog.info({ intermediateKey }, 'mannequin phase complete');
     return { status: 'completed', key: intermediateKey };

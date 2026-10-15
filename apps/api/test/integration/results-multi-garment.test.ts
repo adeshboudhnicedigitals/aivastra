@@ -76,9 +76,9 @@ describe('/results shows and bundles every uploaded garment, not just one', () =
       })
       .returning();
 
-    const upperGarmentKey = opts.upper ? `test/${job.id}/upper.jpg` : null;
-    const lowerGarmentKey = opts.lower ? `test/${job.id}/lower.jpg` : null;
-    const thirdGarmentKey = opts.third ? `test/${job.id}/third.jpg` : null;
+    const upperGarmentKey = opts.upper ? `inputs/${job.id}/upper.jpg` : null;
+    const lowerGarmentKey = opts.lower ? `inputs/${job.id}/lower.jpg` : null;
+    const thirdGarmentKey = opts.third ? `inputs/${job.id}/third.jpg` : null;
 
     for (const key of [upperGarmentKey, lowerGarmentKey, thirdGarmentKey]) {
       if (key) await app.storage.putObject(key, Buffer.from(`bytes-${key}`), 'image/jpeg');

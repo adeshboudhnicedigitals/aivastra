@@ -1,3 +1,4 @@
+import { keys } from '@aivastra/storage';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
@@ -10,7 +11,7 @@ export async function assertMerchantUploadKey(
   key: string,
   label: string,
 ) {
-  if (!key.startsWith(`merchant-catalog/${merchantId}/`)) {
+  if (!key.startsWith(keys.merchantCatalogPrefix(merchantId))) {
     throw new AppError('FORBIDDEN', 403, `${label} key does not belong to this merchant`);
   }
 
