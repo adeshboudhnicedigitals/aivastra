@@ -117,6 +117,11 @@ Messenger and Instagram DMs can be added later without a rewrite, but only Whats
 | D38 | Result images are uploaded to Meta, not linked | Uploading needs no public URL and no answer to whether Meta can fetch our presigned URLs (T3: it can, but delivery does not depend on it). |
 | D39 | The 24-hour window margin is 10 minutes | A free-form send is attempted only if the seller's last message is less than 23 h 50 min old, so a send in flight never crosses the 24-hour line. |
 | D50 | Senders are processed concurrently, each in order | The consumer chains each sender's messages on an in-process promise (one sender stays in order) and runs different senders in parallel, up to 20 in flight; the per-sender Redis lock still serialises one sender across api replicas. A gender tap's 8 s recognition wait (D48) never blocks other sellers. |
+| D51 | Classify workflow node ids | The admin save finds the image, Qwen and output nodes by `class_type` once and stores their ids in the columns the `regeneration` type reuses (`tryonPersonNodeId`, `garmentPhasePromptNode`, `tryonOutputNodeId`); the dispatcher patches those ids. Deviates from the draft (dispatcher finding nodes per request): a malformed workflow is rejected at upload, and no migration is needed. |
+| D52 | Which workers run recognition | The `classify` pool is opt-in: a worker must list it explicitly — an empty `allowedJobTypes` does not include it. Otherwise recognition would cold-load Qwen (~37 s, ~6 GB VRAM) on any try-on worker. |
+| D53 | Retries and late answers | Never retried: acked on read, no `XPENDING` recovery — the api stops waiting after 8 s, so a retry could only ever be late. The lane still waits up to 90 s and always writes the result with its duration, as evidence for the switch-to-API rule. |
+| D54 | Where a recognition is recorded | One `garment_recognitions` row per request (request id, gender, garment key, options sent, raw answer, outcome, ms, worker, workflow) with a read-only admin list — not a `jobs` row, which would drag in credits, retries and the seller's job history. Best-effort write; rows deleted after 30 days. |
+| D55 | What counts as an answer | An exact label match counts too, case-insensitively, only when it matches exactly one option — Qwen sometimes answers `Crop Top` instead of the slug. Still no fuzzy matching; anything else means "show the list". |
 
 ## 4. Meta platform setup
 
@@ -539,7 +544,8 @@ bot ─▶ waits for the key, up to the time budget ─▶ slug ─▶ garment-t
   `aivastra-gpu` repo under that repo's ComfyUI rules (design below).
 - **Workers.** A new worker pool value, `classify`, in `WORKER_POOL`
   (`packages/types/src/job-taxonomy.ts`). Admins enable it per worker in the Workers screen.
-  A worker with an empty allowed list already accepts every pool, so it would accept this one too.
+  The pool is opt-in (D52): a worker must list `classify` explicitly — an empty allowed
+  list does not include it — so recognition never lands on a try-on worker by default.
   Finding 8's warning applies: keeping Qwen loaded holds about 6 GB of VRAM on that worker, and a
   cold load takes about 37 s. Which workers get the pool is an ops decision in `aivastra-gpu`.
 - **Time budget.** Recognition starts at the gender tap, so the seller does wait for it: about
@@ -566,9 +572,7 @@ LoadImage ─▶ ImageScaleToTotalPixels ─▶ AILab_QwenVL ─▶ PreviewAny
 | `AILab_QwenVL` | `model_name` and `quantization` identical to the try-on node (Qwen2.5-VL-7B-Instruct, 4-bit); `max_tokens` 16; `keep_model_loaded` true; fixed seed; `custom_prompt` patched per request | Identical settings should let one loaded copy serve both workflows (checked in T18); the answer is one slug |
 | `PreviewAny` | — | An output node, so the answer appears in `/history` as `outputs[<id>].text`; exact shape recorded in T18 |
 
-The dispatcher finds the Qwen node and the output node by `class_type`, not by new node-ID
-columns: no migration, and re-authoring the workflow cannot break the mapping. Saving a
-`classify` workflow is rejected unless it has exactly one of each.
+The admin save finds the image, Qwen and output nodes by `class_type` and stores their ids in the columns the regeneration type reuses (D51); the dispatcher patches those ids. A `classify` workflow must have exactly one of each, and its prompt must contain `{{OPTIONS}}`.
 
 The prompt (the option lines are filled in per request):
 
@@ -951,18 +955,19 @@ numbers. If they do not, they need a line added before launch. No legal review w
   upload check found fires when a third photo *is* sent but the workflow has no node for it.
   Confirm whether a request with no third photo is rejected elsewhere; if it is not, the bot's
   own step is the only guard and should be tested as such.
-- **T18. Classify workflow spike.** Before building the lane: author the classify-only workflow
-  (Qwen2.5-VL node + text output) in `aivastra-gpu`, run it by hand on a worker with 20 real
-  seller photos, and record per photo the label returned, the time warm and cold, and how the text
-  appears in `/history` (which node, which field). The lane is built against that recorded
-  output shape, and the accuracy figure decides whether the 8-second budget and the "Change" row
-  are enough or the list should be shown more often.
-- **T19. Are slug and label enough for the model?** Labels are admin-written for sellers, and the
-  slugs were generated from them, sometimes with a gender or id suffix. Check during T18 whether
-  the model picks reliably; if not, first try a one-line admin-maintained description per garment
-  type rather than prompt-tuning in code, and if that fails, drop recognition and keep the list.
-- **T20. Templates and public slugs per garment type.** List, per gender, which active garment
-  types have an active catalogue template and which have a `public_api_slug` (a production read).
-  Types without a template are not offered in the chat (D47); types without a public slug cannot
-  be recognised and need the list. If either leaves common types out, admins fix the data before
-  launch.
+- **T18. Closed 2026-10-15 (spike on w4, idle and out of routing).** The `AILab_QwenVL`
+  node's `max_tokens` has a minimum of 64 (16 is rejected with HTTP 400); `PreviewAny`
+  exists and returns `{"4": {"text": ["<answer>"]}}`. Cold load 70–105 s after the model
+  had been unloaded, against 1.8–3.9 s warm. On 21 men's photos (one per active men's
+  type) Qwen2.5-VL scored 15/21, identical on a rerun (fixed seed), against CLIP B/32's 12
+  and L/14's 10 — Qwen is the choice; all six misses are confusable types. 15/21 is below
+  the 17/20 gate, but the confirm step ("Looks like X. Is that right?", added 2026-10-15)
+  makes a wrong guess cost one tap, so the owner chose to build. Warm time on the 41-option
+  women's list is 2.9–3.7 s, inside the 8 s budget.
+- **T19. Closed 2026-10-15 (with T18).** Slugs plus labels are enough, with one addition
+  (D55): Qwen sometimes answers with the label, so an exact unique label match counts. No
+  per-type descriptions needed; recognition stays on.
+- **T20. Closed 2026-10-14 (production read-only).** 99 active garment types (boys 16, girls
+  18, men 24, women 41), all with a public slug — but 0 active catalogue templates (141
+  exist, none active). Recognition can name any type; no type can be offered in the chat
+  until admins activate templates.
