@@ -415,7 +415,12 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         });
         return inserted;
       });
-      return row;
+      // Presigned like the list route: the catalogue-template editor renders its
+      // upload tile straight from this response, and a bare row left it blank.
+      return {
+        ...row,
+        thumbnailUrl: (await app.storage.presignGet(thumbnailKey, 3600)).url,
+      };
     },
   );
 
@@ -916,27 +921,41 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         subcategoryId?: string;
       };
 
-      const [existingLabel] = await app.db
-        .select({ id: schema.modelPoseAssets.id })
-        .from(schema.modelPoseAssets)
-        .where(
-          and(
-            ilike(schema.modelPoseAssets.label, body.label),
-            isNull(schema.modelPoseAssets.deletedAt),
-            body.genderSlug
-              ? eq(schema.modelPoseAssets.genderSlug, body.genderSlug)
-              : isNull(schema.modelPoseAssets.genderSlug),
-          ),
-        );
-      if (existingLabel) {
-        throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
+      const labelTaken = async (label: string) => {
+        const [existing] = await app.db
+          .select({ id: schema.modelPoseAssets.id })
+          .from(schema.modelPoseAssets)
+          .where(
+            and(
+              ilike(schema.modelPoseAssets.label, label),
+              isNull(schema.modelPoseAssets.deletedAt),
+              body.genderSlug
+                ? eq(schema.modelPoseAssets.genderSlug, body.genderSlug)
+                : isNull(schema.modelPoseAssets.genderSlug),
+            ),
+          );
+        return existing !== undefined;
+      };
+
+      // Template-scoped poses come from the catalogue-template editor's upload tile,
+      // which labels them with the file name — a clash there means nothing, so take
+      // the next free "name-N" instead of failing the upload. General-scope labels
+      // are typed by hand in the Pose Assets tab and keep the 409.
+      let label = body.label;
+      if (await labelTaken(label)) {
+        if (body.scope !== 'template') {
+          throw new AppError('CONFLICT', 409, `label "${body.label}" already exists`);
+        }
+        let n = 2;
+        while (await labelTaken(`${body.label}-${n}`)) n++;
+        label = `${body.label}-${n}`;
       }
 
       const inserted = await app.db.transaction(async (tx) => {
         const [row] = await tx
           .insert(schema.modelPoseAssets)
           .values({
-            label: body.label,
+            label,
             displayName: body.displayName ?? null,
             genderSlug: body.genderSlug ?? null,
             r2Key: body.r2Key,
@@ -977,7 +996,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         return row;
       });
 
-      return inserted;
+      // Same shape as GET /admin/assets/pose-assets: the catalogue-template editor's
+      // upload tile renders from thumbnailUrl, and without it a successful upload
+      // looked like nothing happened.
+      return {
+        ...inserted,
+        thumbnailUrl: inserted.thumbnailKey
+          ? (await app.storage.presignGet(inserted.thumbnailKey, 3600)).url
+          : null,
+      };
     },
   );
 

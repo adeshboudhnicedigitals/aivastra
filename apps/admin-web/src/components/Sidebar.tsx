@@ -127,6 +127,12 @@ const groups: NavGroup[] = [
         perm: 'jobs.write',
       },
       {
+        k: 'classify-service',
+        label: 'Classify Service',
+        icon: Icon.Server,
+        perm: 'jobs.read',
+      },
+      {
         k: 'held-batches',
         label: 'Held Batches',
         icon: Icon.Jobs,

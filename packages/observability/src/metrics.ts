@@ -70,6 +70,22 @@ export const shopifyPaymentCheckLastSuccess = new Gauge({
   registers: [register],
 });
 
+// WhatsApp bot garment recognition (spec section 8a). The outcome mix and the
+// correction count are the evidence for keeping recognition on our GPU or moving
+// it to a hosted API; the dispatcher adds its own duration histogram (plan 5).
+export const garmentClassifyOutcomeTotal = new Counter({
+  name: 'garment_classify_outcome_total',
+  help: 'Garment recognitions requested by the WhatsApp bot, by outcome (matched/unmatched/timeout/no_worker/failed)',
+  labelNames: ['outcome'] as const,
+  registers: [register],
+});
+
+export const garmentClassifyCorrectedTotal = new Counter({
+  name: 'garment_classify_corrected_total',
+  help: 'Sellers who tapped "Change" after the WhatsApp bot recognised their garment type',
+  registers: [register],
+});
+
 export const shopifyPurchasesAwaitingPayment = new Gauge({
   name: 'shopify_purchases_awaiting_payment',
   help: 'Credit-pack purchases ACTIVE at Shopify but not yet seen as paid',
@@ -197,6 +213,16 @@ export const workerExternalBusyRejectionsTotal = new Counter({
 export const workerReleaseFailuresTotal = new Counter({
   name: 'dispatcher_worker_release_failures_total',
   help: 'Count of failed attempts to release a claimed-but-unused worker back to IDLE (lost capacity until restart)',
+  registers: [register],
+});
+
+// Request pick-up to answer for WhatsApp garment recognition (spec 8a). Its
+// p95 against the bot's 8 s budget is one of the switch-to-hosted-API criteria.
+export const garmentClassifyDurationSeconds = new Histogram({
+  name: 'garment_classify_duration_seconds',
+  help: 'Garment recognition duration in the dispatcher, by outcome (answered/no_worker/failed/expired)',
+  labelNames: ['outcome'] as const,
+  buckets: [0.5, 1, 2, 3, 5, 8, 15, 30, 60, 90],
   registers: [register],
 });
 

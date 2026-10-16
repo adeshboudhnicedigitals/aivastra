@@ -296,6 +296,7 @@ To remove one: mark inactive in admin, then restart the dispatcher.
 | `job/` | `processor.ts` (`processTryonJob`, `processSareeJob`, `processWidgetJob`), status transitions |
 | `workflow/` | template clone + patch, aspect-ratio sizing, dual-size groups |
 | `comfyui/` | HTTP client, WebSocket progress, `/history` polling |
+| `classify/` | WhatsApp garment recognition lane: `classify:requests` stream → classify workflow on an idle worker allowing `classify` → `classify:result:{id}` |
 | `worker/` | Redis registry, IDLE selection, health probes |
 | `pixverse/` | image-to-video provider client for the `jobs:video` lane |
 | `health/` | HTTP health endpoint on `DISPATCHER_HEALTH_PORT` |
@@ -526,11 +527,14 @@ test can drive one pass directly.
 | `startSyncConsumer` | continuous | Redis `shopify:sync` stream → product/collection sync |
 | `startCollectionResyncScheduler` | 1h | re-syncs collection membership |
 | `startUploadSweeper` | 1h | deletes uploads orphaned >24h |
+| `startRecognitionSweeper` | 6h | deletes `garment_recognitions` rows older than 30 days |
 | `startAlertScheduler` | 1h | low-store-credit merchant emails |
 | `startAutorefillReconciler` | 15m | settles auto-refill purchase rows stranded `PENDING` by a thrown charge |
 | `startPaymentSettlementScheduler` | 60s | grants credit packs held `AWAITING` once the Partner API shows the sale (hold-until-paid); fails closed |
 | `startRedactionRetryScheduler` | 30m | finishes GDPR erasures whose object deletes failed |
 | `startUserLowCreditAlertScheduler` | 1h | low-credit emails for platform users |
+| `startWhatsappInboundConsumer` | continuous | `messaging:inbound` stream → `processInbound` (per-sender chains, 20 in flight) |
+| `startWhatsappDelivery` | 5s | sends finished runs; the paid template goes out once when the window is closed |
 
 The dispatcher runs its own, separately: the stuck-job sweeper and the
 `XPENDING` recovery pass (`apps/dispatcher/src/stream/`).
