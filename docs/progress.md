@@ -2,6 +2,73 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-16 — catalogue_android: Crashlytics build verified, accessory step, saree slider-split, motion duration range
+
+- **Done:** verified the 2026-10-14 Crashlytics wiring actually builds — a real
+  `google-services.json` for `com.nice.aivastracatalogue` is now present locally
+  (`android/app/google-services.json`, gitignored); debug and release (R8) builds both succeed
+  with the Google Services + Crashlytics Gradle plugins applied. `CAT_GOOGLE_SERVICES_JSON_BASE64`
+  is still **not set** as a GitHub secret, so the next `cat-v*` tag release build will still fail
+  at the "Restore google-services.json" CI step until someone sets it (see the 2026-10-14 entry
+  below for how to get the file).
+- **Done:** ported the web app's accessory studio step (`2026-10-02` entry below) and single-photo
+  slider-split saree upload (`feat(catalogues-web): single-photo slider-split upload for saree
+  body/pallu`, commit `2e6f92a0` on `origin/dev`) to `catalogue_android` — `accessoryCatalogItemIds`
+  single-select-per-category state in `CatalogueSelectionController`, `accessoryCatalogProvider`,
+  and a new `SareeSliderSplitUpload` widget (drag-to-split crop via the `image` package, isolate-
+  side via `compute()` so a ~20MB photo doesn't jank the UI) wired into `catalogue_studio_form.dart`
+  behind the same `sareeTwoInputCapable` gate the web app uses. Both verified with
+  `flutter analyze`/`flutter test`/`flutter build apk --debug`.
+- **Done:** Motion Studio's duration picker now offers every integer 5–15 seconds instead of just
+  5/10/15 — backend (`PIXVERSE_DURATION_MIN/MAX`) and the web app's stepper already supported the
+  full range; only the Android picker's fixed option list was narrower. Also fixed
+  `PixversePricing.perSecondRate` in `lib/features/studio/data/models/sample_video.dart`: it was
+  typed as a bare `num` with a lenient-number parser, so the server's actual per-quality-tier map
+  (`Record<PixverseQuality, number>`) always fell through to `0` and the per-second cost
+  contribution was silently dropped from every computed estimate.
+
+## 2026-10-14 — catalogue_android: release-build Google Sign-In fix, manual versioning, in-app updates, Crashlytics
+
+- **Done (shipped, cat-v1.0.1):** Google Sign-In silently failed on Play Store release builds
+  (no crash, no snackbar) — R8 was stripping Credential Manager classes it only reaches via
+  reflection, so the failure threw outside the catchable `GoogleSignInException` and was
+  swallowed. Fixed with keep rules in `android/app/proguard-rules.pro` for
+  `androidx.credentials`, `com.google.android.gms.auth.api.identity`, and
+  `com.google.android.libraries.identity.googleid`; verified on a real signed release build
+  on-device (full sign-in flow completed). Also widened the Google Sign-In catch block on
+  login/signup to a catch-all with a snackbar, so this class of failure can't go silent again.
+  PR #527, merged into `dev`, released via the `cat-v1.0.1` tag to the Play internal testing
+  track (versionCode 15 — see below for why).
+- **Done:** `catalogue-android.yml`'s release build no longer overrides versionCode with the
+  Actions run number — both `versionName`/`versionCode` now come straight from `pubspec.yaml`'s
+  `version: X.Y.Z+N`, manual from here on. `pubspec.yaml` bumped to `1.0.1+16` (above the `15`
+  already shipped under the old run-number scheme) so the next release doesn't get silently
+  rejected by Play for a non-increasing versionCode. **Whoever ships a release must bump `+N`
+  by hand before every `cat-v*` tag.**
+- **Done:** Phase 1 of in-app updates — Play's In-App Update API (`in_app_update` package,
+  Flexible flow): downloads a newer Play-published version in the background on launch with no
+  UI, then shows a custom dismissible banner (`lib/widgets/update_banner.dart`, mirrors
+  `OfflineBanner`'s shape) once the download finishes, with a "Restart" button. No forced/blocking
+  update yet — that would be a separate backend-driven minimum-version gate for emergency cases,
+  not implemented.
+- **Done, code-side only — blocked on an external step:** Firebase Crashlytics wired in
+  (`firebase_core`, `firebase_crashlytics`, `package_info_plus`; `lib/core/crash/crash_reporter.dart`
+  mirrors `apps/virtual_tryon_android`'s `CrashReporter.kt`; `FlutterError.onError` +
+  `PlatformDispatcher.instance.onError` both wired in `main.dart`; user id synced from
+  `authControllerProvider`). Gradle plugins (`com.google.gms.google-services` 4.5.0,
+  `com.google.firebase.crashlytics` 3.0.7 — same pins as virtual_tryon_android) applied in
+  `android/app/build.gradle.kts`. CI (`catalogue-android.yml`) restores
+  `android/app/google-services.json` from a new secret, `CAT_GOOGLE_SERVICES_JSON_BASE64`
+  (same pattern as the existing keystore restore), before the `build` job — **not yet set**.
+  `flutter analyze`/`flutter test` pass (pure Dart, no Gradle involved), but nothing has
+  actually built or run on a device yet: the Google Services Gradle plugin hard-fails
+  configuration without a real `google-services.json`, even for a debug build. **Blocked on:**
+  someone with Firebase Console access downloading `google-services.json` for the
+  already-registered `com.nice.aivastracatalogue` Android app (it exists — that's where
+  `CAT_FIREBASE_APP_ID`, used by App Distribution, came from) and placing it at
+  `android/app/google-services.json` (gitignored) locally, **and** base64-encoding it into the
+  `CAT_GOOGLE_SERVICES_JSON_BASE64` GitHub secret for CI.
+
 ## 2026-10-12 — Refund auto-approve toggle (implemented, off by default)
 
 - **Done:** admin panel toggle for auto-approving customer refund requests, on branch
