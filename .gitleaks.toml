@@ -21,4 +21,11 @@ useDefault = true
     # generic-api-key rule matches it. It sits in commit 533bea7b, so editing the
     # test later would not clear the finding in the scanned history.
     '''shpat_1234567890abcdef''',
+    # Not a secret — a made-up WhatsApp accessToken fixture in
+    # apps/api/test/whatsapp-client.test.ts, pasted into its plan doc
+    # (docs/superpowers/plans/2026-10-13-whatsapp-bot-3-whatsapp-adapter.md).
+    # The generic-api-key rule matches the "accessToken: '<token>'" shape. It sits
+    # in commits on feat/whatsapp-catalog-bot, which the scheduled full-history
+    # scan covers, so editing the test later would not clear the finding.
+    '''tok-0123456789abcdefghij''',
   ]
