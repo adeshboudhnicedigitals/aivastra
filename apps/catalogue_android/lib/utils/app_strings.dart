@@ -389,11 +389,6 @@ class AppStrings {
   static const catalogueReadyTitle = 'Your Catalogue is Ready!';
   static const motionReadyTitle = 'Your Motion Video is Ready!';
   static const downloadAll = 'Download All';
-  static const saveLookAsPreset = 'Save this look as a preset';
-  static const saveLookAsPresetSubtitle =
-      'Save the model, background and poses to reuse this look for future '
-      'catalogues.';
-  static const saveAsPreset = 'Save as Preset';
   static const tryMotion = 'Try Motion';
   static const generateAgain = 'Generate Again';
   static const downloadVideo = 'Download Video';
