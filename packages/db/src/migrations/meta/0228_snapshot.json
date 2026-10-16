@@ -1,6 +1,6 @@
 {
-  "id": "cfef0cee-f138-4baa-a163-2e9b0b9f356b",
-  "prevId": "f48e3060-2650-4c80-ba88-418940f9ee6a",
+  "id": "f48e3060-2650-4c80-ba88-418940f9ee6a",
+  "prevId": "fbf64bde-a113-4219-a8db-ad70244beb86",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -9333,45 +9333,6 @@
           "value": "\"users\".\"username\" IS NULL OR \"users\".\"username\" ~ '^[a-z0-9_.]{3,32}$'"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.classify_service_config": {
-      "name": "classify_service_config",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "'default'"
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "api_key": {
-          "name": "api_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.workers": {

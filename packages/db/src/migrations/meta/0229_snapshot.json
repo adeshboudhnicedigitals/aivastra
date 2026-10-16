@@ -1,6 +1,6 @@
 {
-  "id": "99858aab-e8fb-426f-a7d8-dd4057fe9dc9",
-  "prevId": "50a09641-2acb-43a9-bbf1-376b93ca4033",
+  "id": "cfef0cee-f138-4baa-a163-2e9b0b9f356b",
+  "prevId": "f48e3060-2650-4c80-ba88-418940f9ee6a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4144,6 +4144,96 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.garment_recognitions": {
+      "name": "garment_recognitions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "gender": {
+          "name": "gender",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "garment_key": {
+          "name": "garment_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "options": {
+          "name": "options",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "answer": {
+          "name": "answer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ms": {
+          "name": "ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "worker_id": {
+          "name": "worker_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "workflow_template_id": {
+          "name": "workflow_template_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "garment_recognitions_created_at_idx": {
+          "name": "garment_recognitions_created_at_idx",
+          "columns": [
+            {
+              "expression": "\"created_at\" desc",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.messaging_accounts": {
       "name": "messaging_accounts",
       "schema": "",
@@ -4255,6 +4345,110 @@
         "messaging_accounts_user_id_users_id_fk": {
           "name": "messaging_accounts_user_id_users_id_fk",
           "tableFrom": "messaging_accounts",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.messaging_runs": {
+      "name": "messaging_runs",
+      "schema": "",
+      "columns": {
+        "catalogue_id": {
+          "name": "catalogue_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "messaging_account_id": {
+          "name": "messaging_account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "job_ids": {
+          "name": "job_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "delivered_job_ids": {
+          "name": "delivered_job_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::uuid[]"
+        },
+        "ready_notice_sent_at": {
+          "name": "ready_notice_sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "messaging_runs_account_created_idx": {
+          "name": "messaging_runs_account_created_idx",
+          "columns": [
+            {
+              "expression": "messaging_account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "messaging_runs_messaging_account_id_messaging_accounts_id_fk": {
+          "name": "messaging_runs_messaging_account_id_messaging_accounts_id_fk",
+          "tableFrom": "messaging_runs",
+          "tableTo": "messaging_accounts",
+          "columnsFrom": ["messaging_account_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "messaging_runs_user_id_users_id_fk": {
+          "name": "messaging_runs_user_id_users_id_fk",
+          "tableFrom": "messaging_runs",
           "tableTo": "users",
           "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
@@ -9139,6 +9333,45 @@
           "value": "\"users\".\"username\" IS NULL OR \"users\".\"username\" ~ '^[a-z0-9_.]{3,32}$'"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.classify_service_config": {
+      "name": "classify_service_config",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "'default'"
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "api_key": {
+          "name": "api_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.workers": {

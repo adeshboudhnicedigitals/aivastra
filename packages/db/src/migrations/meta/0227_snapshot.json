@@ -1,6 +1,6 @@
 {
-  "id": "f48e3060-2650-4c80-ba88-418940f9ee6a",
-  "prevId": "fbf64bde-a113-4219-a8db-ad70244beb86",
+  "id": "fbf64bde-a113-4219-a8db-ad70244beb86",
+  "prevId": "8588352a-0b61-4a6d-a1ea-72545128fabc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4140,96 +4140,6 @@
           "columns": ["user_id"]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.garment_recognitions": {
-      "name": "garment_recognitions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "gender": {
-          "name": "gender",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "garment_key": {
-          "name": "garment_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "options": {
-          "name": "options",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "answer": {
-          "name": "answer",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ms": {
-          "name": "ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "worker_id": {
-          "name": "worker_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "workflow_template_id": {
-          "name": "workflow_template_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "garment_recognitions_created_at_idx": {
-          "name": "garment_recognitions_created_at_idx",
-          "columns": [
-            {
-              "expression": "\"created_at\" desc",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

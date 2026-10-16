@@ -1,6 +1,6 @@
 {
-  "id": "fbf64bde-a113-4219-a8db-ad70244beb86",
-  "prevId": "8588352a-0b61-4a6d-a1ea-72545128fabc",
+  "id": "8588352a-0b61-4a6d-a1ea-72545128fabc",
+  "prevId": "99858aab-e8fb-426f-a7d8-dd4057fe9dc9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4295,19 +4295,6 @@
           "type": "uuid[]",
           "primaryKey": false,
           "notNull": true
-        },
-        "delivered_job_ids": {
-          "name": "delivered_job_ids",
-          "type": "uuid[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::uuid[]"
-        },
-        "ready_notice_sent_at": {
-          "name": "ready_notice_sent_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
