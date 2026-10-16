@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { schema } from '@aivastra/db';
-import { createLogger } from '@aivastra/logger';
+import { createLogger, redactUrl } from '@aivastra/logger';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -30,6 +30,7 @@ import { adminBodyTypesRoutes } from './modules/admin/body-types.routes.js';
 import { adminCatalogRoutes } from './modules/admin/catalog.routes.js';
 import { adminCatalogueTemplatesRoutes } from './modules/admin/catalogue-templates.routes.js';
 import { adminChatbotRoutes } from './modules/admin/chatbot.routes.js';
+import { adminClassifyServiceRoutes } from './modules/admin/classify-service.routes.js';
 import { adminConfigRoutes } from './modules/admin/config.routes.js';
 import { adminContactRoutes } from './modules/admin/contact.routes.js';
 import { adminCreditAnalysisRoutes } from './modules/admin/credit-analysis.routes.js';
@@ -38,6 +39,7 @@ import { adminCreditsRoutes } from './modules/admin/credits.routes.js';
 import { adminDemoCatalogRoutes } from './modules/admin/demo-catalog.routes.js';
 import { adminDevApiRoutes } from './modules/admin/dev-api.routes.js';
 import { adminFabricGarmentTypesRoutes } from './modules/admin/fabric-garment-types.routes.js';
+import { adminGarmentRecognitionsRoutes } from './modules/admin/garment-recognitions.routes.js';
 import { adminHeldJobsRoutes } from './modules/admin/held-jobs.routes.js';
 import { adminImageCompressionRoutes } from './modules/admin/image-compression.routes.js';
 import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
@@ -89,6 +91,8 @@ import { merchantTryonResultsRoutes } from './modules/merchant/tryon-results.rou
 import { merchantUploadSessionRoutes } from './modules/merchant/upload-sessions.routes.js';
 import { wordpressConnectRoutes } from './modules/merchant/wordpress-connect.routes.js';
 import { wordpressLoginRoutes } from './modules/merchant/wordpress-login.routes.js';
+import { messagingConnectRoutes } from './modules/messaging/connect.routes.js';
+import { whatsappWebhookRoutes } from './modules/messaging/webhook.routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
 import { paymentsRoutes } from './modules/payments/routes.js';
 import { posePresetsRoutes } from './modules/pose-presets/routes.js';
@@ -363,7 +367,7 @@ export async function buildServer(env: Env) {
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof AppError) {
       app.log.warn(
-        { code: err.code, statusCode: err.statusCode, msg: err.message, url: _req.url },
+        { code: err.code, statusCode: err.statusCode, msg: err.message, url: redactUrl(_req.url) },
         'app error',
       );
       return reply
@@ -371,7 +375,7 @@ export async function buildServer(env: Env) {
         .send({ error: { code: err.code, message: err.message, ...(err.details ?? {}) } });
     }
     if ((err as { validation?: unknown }).validation) {
-      app.log.warn({ err, url: _req.url, body: _req.body }, 'validation error');
+      app.log.warn({ err, url: redactUrl(_req.url), body: _req.body }, 'validation error');
       return reply
         .code(400)
         .send({ error: { code: 'VALIDATION', message: (err as Error).message } });
@@ -382,7 +386,7 @@ export async function buildServer(env: Env) {
     // constraint they hit rather than seeing "internal error".
     if ((err as { code?: unknown }).code === '23505') {
       const constraint = (err as { constraint_name?: string }).constraint_name;
-      app.log.warn({ err, constraint, url: _req.url }, 'unique violation');
+      app.log.warn({ err, constraint, url: redactUrl(_req.url) }, 'unique violation');
       return reply.code(409).send({
         error: {
           code: 'CONFLICT',
@@ -394,7 +398,7 @@ export async function buildServer(env: Env) {
     // validation branch, which also carries statusCode 400 but has its own contract.
     const statusCode = (err as { statusCode?: unknown }).statusCode;
     if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
-      app.log.warn({ err, statusCode, url: _req.url }, 'client error');
+      app.log.warn({ err, statusCode, url: redactUrl(_req.url) }, 'client error');
       return reply.code(statusCode).send({
         error: {
           code: statusCode === 429 ? 'RATE_LIMIT' : 'HTTP_ERROR',
@@ -417,6 +421,8 @@ export async function buildServer(env: Env) {
   await app.register(backgroundsRoutes);
   await app.register(jobsRoutes);
   await app.register(refundRequestsRoutes);
+  await app.register(messagingConnectRoutes);
+  await app.register(whatsappWebhookRoutes);
   await app.register(googleDriveRoutes);
   await app.register(posePresetsRoutes);
   await app.register(merchantCatalogRoutes);
@@ -453,6 +459,8 @@ export async function buildServer(env: Env) {
   await app.register(adminChatbotRoutes);
   await app.register(adminHeldJobsRoutes);
   await app.register(adminJobsRoutes);
+  await app.register(adminGarmentRecognitionsRoutes);
+  await app.register(adminClassifyServiceRoutes);
   await app.register(adminMerchantCatalogRoutes);
   await app.register(adminDemoCatalogRoutes);
   await app.register(adminWorkersRoutes);

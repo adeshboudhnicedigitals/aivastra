@@ -339,11 +339,11 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           userHint: schema.jobInputs.userHint,
           outputKey: schema.jobOutputs.resultKey,
           customerPhotoKey: schema.jobs.customerPhotoKey,
-          // ComfyUI-actual inputs — mirrors dispatcher's key resolution exactly
-          // faceSideKey lives on model_faces, bgComfyKey lives on model_backgrounds
+          // ComfyUI-actual inputs — mirrors dispatcher's key resolution exactly.
+          // faceSideKey lives on model_faces; the bg is model_backgrounds.r2Key
+          // (the legacy separate bgComfyR2Key column is no longer used).
           faceSideKey: schema.modelFaces.faceSideR2Key,
           faceDisplayKey: schema.modelFaces.r2Key,
-          bgComfyKey: schema.modelBackgrounds.bgComfyR2Key,
           bgFallbackKey: schema.modelBackgrounds.r2Key,
           poseKey: schema.modelPoseAssets.r2Key,
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
@@ -409,12 +409,10 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       const lowerKey = row.lowerGarmentKey ?? row.lowerCatalogKey;
       const shoeKey = row.shoeCatalogKey;
 
-      // Mirror dispatcher's bg key logic exactly:
-      // Amazon always uses the white BG (bgFallbackKey = modelBackgrounds.r2Key, already overridden to white BG at job creation)
-      // Non-Amazon uses pose's ComfyUI-specific bg key, falling back to display bg
+      // Mirror the dispatcher exactly: it sends model_backgrounds.r2Key for every
+      // job (processor.ts — the separate ComfyUI bg column is no longer used).
       const params = (row.jobParams ?? {}) as Record<string, unknown>;
-      const isAmazon = params.platform === 'Amazon';
-      const bgKey = isAmazon ? row.bgFallbackKey : (row.bgComfyKey ?? row.bgFallbackKey);
+      const bgKey = row.bgFallbackKey;
 
       // For tryon-direct jobs, person image is stored in params.personKey.
       // Merchant/Shopify tryon jobs instead store it on jobs.customerPhotoKey.
@@ -509,7 +507,6 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         outputKey: undefined,
         faceSideKey: undefined,
         faceDisplayKey: undefined,
-        bgComfyKey: undefined,
         bgFallbackKey: undefined,
         poseKey: undefined,
         upperGarmentKey: undefined,

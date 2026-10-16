@@ -1,5 +1,7 @@
 import { type DbTransaction, schema } from '@aivastra/db';
 import {
+  CLASSIFY_OPTIONS_PLACEHOLDER,
+  CLASSIFY_OUTPUT_CLASS_TYPES,
   CreateWorkflowBody,
   DEFAULT_REGENERATION_REASON_PROMPTS,
   ParseWorkflowBody,
@@ -516,6 +518,77 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
     };
   }
 
+  if (workflowType === 'classify') {
+    // WhatsApp garment recognition (spec 8a, D51). No admin-set node fields:
+    // the three nodes are found by class_type here, once, and stored in the
+    // columns the regeneration type already reuses, so the dispatcher patches
+    // stored ids like every other template and a malformed upload is rejected
+    // now rather than on a seller's request.
+    const nodes = Object.entries(
+      body.jsonContent as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>,
+    );
+    const only = (types: readonly string[], what: string) => {
+      const ids = nodes.filter(([, n]) => types.includes(n?.class_type ?? '')).map(([id]) => id);
+      if (ids.length !== 1) {
+        throw new AppError(
+          'VALIDATION',
+          400,
+          `A classify workflow needs exactly one ${what} node (${types.join(' or ')}); found ${ids.length}`,
+        );
+      }
+      return ids[0] as string;
+    };
+    const imageNodeId = only(['LoadImage'], 'image input');
+    const qwenNodeId = only(['AILab_QwenVL'], 'Qwen');
+    const outputNodeId = only(CLASSIFY_OUTPUT_CLASS_TYPES, 'text output');
+    const prompt = nodes.find(([id]) => id === qwenNodeId)?.[1]?.inputs?.custom_prompt;
+    if (typeof prompt !== 'string' || !prompt.includes(CLASSIFY_OPTIONS_PLACEHOLDER)) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        `The AILab_QwenVL node's custom_prompt must contain ${CLASSIFY_OPTIONS_PLACEHOLDER}, where the garment options go`,
+      );
+    }
+    return {
+      slug: body.slug,
+      label: body.label,
+      jsonContent: body.jsonContent,
+      workflowType,
+      faceNodeId: '',
+      poseNodeId: '',
+      bgNodeId: '',
+      upperNodeIds: [],
+      lowerNodeId: null,
+      shoeNodeId: null,
+      garmentView: 'front',
+      thirdNodeId: null,
+      fourthNodeId: null,
+      accessoryNodeId: null,
+      sizeNodeIds: [],
+      latentSizeNodeIds: [],
+      latentMaxPx: 4096,
+      outputSizeNodeIds: [],
+      outputMaxPx: 4096,
+      resultNodeId: null,
+      // Unused by the classify lane — null like the regeneration branch's
+      // unused tryonGarmentNodeId (facePhasePromptNode is a nullable column).
+      facePhasePromptNode: null,
+      garmentPhasePromptNode: qwenNodeId,
+      defaultFacePhasePrompt: '',
+      defaultGarmentPhasePrompt: prompt,
+      stage1PositivePromptNode: null,
+      stage1NegativePromptNode: null,
+      defaultStage1PositivePrompt: '',
+      defaultStage1NegativePrompt: '',
+      tryonPersonNodeId: imageNodeId,
+      tryonGarmentNodeId: null,
+      tryonGarmentNodeId2: null,
+      tryonOutputNodeId: outputNodeId,
+      samSegmentationPromptNode,
+      defaultSamSegmentationPrompt,
+    };
+  }
+
   if (workflowType === 'regeneration') {
     // Only the source-image and output nodes are auto-detected (fallback +
     // throw) — the prompt nodes are Zod-required admin-set inputs (superRefine
@@ -804,16 +877,16 @@ export async function createWorkflowRow(
       body.workflowType === 'regeneration' ? DEFAULT_REGENERATION_REASON_PROMPTS : [],
   };
 
-  // Single-active invariant: only one 'regeneration' template is ever live —
-  // every regenerate click uses whichever one is active, with no per-job
-  // selection. Mirrors admin/saree.routes.ts's demote-on-create.
-  if (values.workflowType === 'regeneration') {
+  // Single-active invariant: only one 'regeneration' and one 'classify'
+  // template is ever live — each has exactly one caller that uses "the active
+  // one", with no per-job selection. Mirrors admin/saree.routes.ts's demote-on-create.
+  if (values.workflowType === 'regeneration' || values.workflowType === 'classify') {
     await tx
       .update(schema.workflowTemplates)
       .set({ isActive: false, updatedAt: new Date() })
       .where(
         and(
-          eq(schema.workflowTemplates.workflowType, 'regeneration'),
+          eq(schema.workflowTemplates.workflowType, values.workflowType),
           eq(schema.workflowTemplates.isActive, true),
         ),
       );
@@ -1172,13 +1245,16 @@ export async function updateWorkflowRow(
       .filter((p) => p.reason.length > 0);
   }
 
-  if (existing.workflowType === 'regeneration' && body.isActive === true) {
+  if (
+    (existing.workflowType === 'regeneration' || existing.workflowType === 'classify') &&
+    body.isActive === true
+  ) {
     await tx
       .update(schema.workflowTemplates)
       .set({ isActive: false, updatedAt: new Date() })
       .where(
         and(
-          eq(schema.workflowTemplates.workflowType, 'regeneration'),
+          eq(schema.workflowTemplates.workflowType, existing.workflowType),
           eq(schema.workflowTemplates.isActive, true),
           ne(schema.workflowTemplates.id, id),
         ),
