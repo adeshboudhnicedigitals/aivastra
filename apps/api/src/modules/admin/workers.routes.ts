@@ -159,8 +159,11 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
     return results;
   });
 
+  // 'classify' is not offered: garment recognition runs on the resident classify
+  // service (CLASSIFY_SERVICE_URL), not on a tagged GPU worker. The pool stays in
+  // WORKER_POOL because the dispatcher's no-service fallback still selects on it.
   app.get('/admin/workers/job-types', { preHandler: requirePermission('workers.read') }, async () =>
-    Object.values(WORKER_POOL),
+    Object.values(WORKER_POOL).filter((p) => p !== WORKER_POOL.CLASSIFY),
   );
 
   /** Probe a worker URL + API key without saving anything.
