@@ -67,7 +67,8 @@ describe('admin asset create responses carry a presigned thumbnailUrl', () => {
   });
 
   it('POST /admin/assets/backgrounds/confirm', async () => {
-    const r2Key = `thumb-url-bg-${Date.now()}.jpg`;
+    // Under models/ so storage routing has a backend for it (main's key routing).
+    const r2Key = `models/backgrounds/thumb-url-bg-${Date.now()}.jpg`;
     const jpeg = await sharp({
       create: { width: 40, height: 40, channels: 3, background: { r: 200, g: 200, b: 200 } },
     })
