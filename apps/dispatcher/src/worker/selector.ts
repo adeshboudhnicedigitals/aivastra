@@ -22,7 +22,8 @@ const RR_CURSOR_KEY = 'worker:rr_cursor';
 // ARGV[4] = reliable executable-node rule available.
 // ARGV[5..] = worker ids to skip this selection cycle (found externally busy).
 // Workers with an empty allowedJobTypes array accept any job type EXCEPT 'inhouse',
-// which only workers that list it explicitly may take.
+// which only workers that list it explicitly may take. 'classify' is an ordinary pool
+// (D52 revised): dedicate a worker by listing only 'classify' on it.
 export const CLAIM_LUA = `
 local fields = redis.call('HGETALL', KEYS[1])
 local n = #fields / 2

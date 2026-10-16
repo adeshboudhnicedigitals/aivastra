@@ -230,3 +230,41 @@ export async function fetchPromptQueueState(
   if (queue.queue_pending.some((item) => item[1] === promptId)) return 'pending';
   return 'absent';
 }
+
+export type PromptOutcome =
+  | { state: 'pending' }
+  | { state: 'error'; message: string }
+  | { state: 'done'; outputs: Record<string, Record<string, unknown>> };
+
+/**
+ * One /history read for a prompt, returning every output node as-is. Unlike
+ * fetchHistory (which keeps only SaveImage images) this suits the classify
+ * lane, whose answer is a text output; and unlike waitForCompletion's 3 s poll
+ * it lets the caller poll fast enough for the WhatsApp bot's 8 s budget.
+ */
+export async function fetchPromptOutcome(
+  workerUrl: string,
+  apiKey: string,
+  promptId: string,
+): Promise<PromptOutcome> {
+  const res = await fetch(`${workerUrl.replace(/\/$/, '')}/history/${promptId}`, {
+    headers: { 'X-Api-Key': apiKey },
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!res.ok) throw new Error(`ComfyUI /history failed: ${res.status}`);
+  const history = (await res.json()) as Record<
+    string,
+    {
+      status?: { status_str?: string; messages?: [string, Record<string, unknown>][] };
+      outputs?: Record<string, Record<string, unknown>>;
+    }
+  >;
+  const entry = history[promptId];
+  if (!entry) return { state: 'pending' };
+  if (entry.status?.status_str === 'error') {
+    // Same place waitForCompletion finds the real cause (comfyui/progress.ts).
+    const detail = entry.status.messages?.find(([type]) => type === 'execution_error')?.[1];
+    return { state: 'error', message: String(detail?.exception_message ?? 'execution_error') };
+  }
+  return entry.outputs ? { state: 'done', outputs: entry.outputs } : { state: 'pending' };
+}

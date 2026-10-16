@@ -155,6 +155,7 @@ export function WorkflowUploadModal({
     | 'two_stage'
     | 'regeneration'
     | 'fabric_to_garment'
+    | 'classify'
   >('regular');
   const [slug, setSlug] = useState('');
   const [label, setLabel] = useState('');
@@ -242,6 +243,12 @@ export function WorkflowUploadModal({
         { method: 'POST', body: JSON.stringify({ jsonContent, workflowType }) },
       );
       setParsed(result);
+
+      if (workflowType === 'classify') {
+        // No admin-set node mappings — the server detects the LoadImage,
+        // AILab_QwenVL and output nodes by class_type at upload time.
+        return;
+      }
 
       if (
         workflowType === 'tryon' ||
@@ -415,6 +422,9 @@ export function WorkflowUploadModal({
         setError('Stage 2 positive and negative prompt nodes are required');
         return;
       }
+    } else if (workflowType === 'classify') {
+      // The server detects the three nodes by class_type — nothing to check.
+      if (!parsed) return;
     } else {
       if (!parsed) return;
       if (!poseNodeId || !positivePromptNode) {
@@ -497,6 +507,15 @@ export function WorkflowUploadModal({
           ...(samSegmentationPromptNode.trim()
             ? { samSegmentationPromptNode: samSegmentationPromptNode.trim() }
             : {}),
+        };
+      } else if (workflowType === 'classify') {
+        // The server detects the image, Qwen and output nodes by class_type —
+        // no node ids are sent.
+        payload = {
+          slug: slug.trim(),
+          label: label.trim(),
+          jsonContent,
+          workflowType: 'classify',
         };
       } else {
         const validUpperIds = upperNodeIds.filter(Boolean);
@@ -606,38 +625,44 @@ export function WorkflowUploadModal({
     jsonFile &&
     slug.trim() &&
     label.trim() &&
-    (workflowType === 'regeneration'
-      ? parsed && tryonPersonNodeId && tryonOutputNodeId && positivePromptNode && negativePromptNode
-      : workflowType === 'fabric_to_garment'
-        ? parsed && tryonPersonNodeId && positivePromptNode
-        : workflowType === 'tryon' || workflowType === 'saree_step1'
-          ? parsed &&
-            tryonGarmentNodeId &&
-            tryonOutputNodeId &&
-            positivePromptNode &&
-            negativePromptNode
-          : workflowType === 'saree_step1_two_input'
+    (workflowType === 'classify'
+      ? parsed
+      : workflowType === 'regeneration'
+        ? parsed &&
+          tryonPersonNodeId &&
+          tryonOutputNodeId &&
+          positivePromptNode &&
+          negativePromptNode
+        : workflowType === 'fabric_to_garment'
+          ? parsed && tryonPersonNodeId && positivePromptNode
+          : workflowType === 'tryon' || workflowType === 'saree_step1'
             ? parsed &&
               tryonGarmentNodeId &&
-              tryonGarmentNodeId2 &&
               tryonOutputNodeId &&
               positivePromptNode &&
               negativePromptNode
-            : workflowType === 'two_stage'
+            : workflowType === 'saree_step1_two_input'
               ? parsed &&
-                faceNodeId &&
-                poseNodeId &&
-                bgNodeId &&
-                twoStageGarmentNodeId &&
-                stage1PositivePromptNode &&
-                stage1NegativePromptNode &&
+                tryonGarmentNodeId &&
+                tryonGarmentNodeId2 &&
+                tryonOutputNodeId &&
                 positivePromptNode &&
                 negativePromptNode
-              : parsed &&
-                poseNodeId &&
-                positivePromptNode &&
-                (!faceNodeId || negativePromptNode) &&
-                (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId)) &&
+              : workflowType === 'two_stage'
+                ? parsed &&
+                  faceNodeId &&
+                  poseNodeId &&
+                  bgNodeId &&
+                  twoStageGarmentNodeId &&
+                  stage1PositivePromptNode &&
+                  stage1NegativePromptNode &&
+                  positivePromptNode &&
+                  negativePromptNode
+                : parsed &&
+                  poseNodeId &&
+                  positivePromptNode &&
+                  (!faceNodeId || negativePromptNode) &&
+                  (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId)) &&
     (!proposeMode ||
       (proposeReason.trim() &&
         (proposalKind === 'new' || (targetWorkflowId && previousLimitations.trim()))));
@@ -664,6 +689,7 @@ export function WorkflowUploadModal({
               'two_stage',
               'regeneration',
               'fabric_to_garment',
+              'classify',
             ] as const
           ).map((t) => (
             <button
@@ -688,7 +714,9 @@ export function WorkflowUploadModal({
                         ? 'Regeneration (single-image edit)'
                         : t === 'fabric_to_garment'
                           ? 'Fabric to Garment (single-image edit)'
-                          : 'Catalogue workflows (pose-based)'}
+                          : t === 'classify'
+                            ? 'Garment recognition (WhatsApp)'
+                            : 'Catalogue workflows (pose-based)'}
             </button>
           ))}
         </div>
@@ -893,7 +921,8 @@ export function WorkflowUploadModal({
               workflowType === 'saree_step1_two_input' ||
               workflowType === 'two_stage' ||
               workflowType === 'regeneration' ||
-              workflowType === 'fabric_to_garment') && (
+              workflowType === 'fabric_to_garment' ||
+              workflowType === 'classify') && (
               <button
                 className="btn sm primary"
                 onClick={handleParse}
@@ -1092,6 +1121,52 @@ export function WorkflowUploadModal({
               )}
             </>
           )}
+
+        {parsed && workflowType === 'classify' && (
+          <>
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div className="field">
+                <label>
+                  Slug <span style={{ color: 'var(--danger)' }}>*</span>
+                </label>
+                <input
+                  className="input"
+                  value={slug}
+                  disabled={saving}
+                  onChange={(e) =>
+                    setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>
+                  Label <span style={{ color: 'var(--danger)' }}>*</span>
+                </label>
+                <input
+                  className="input"
+                  value={label}
+                  disabled={saving}
+                  onChange={(e) => setLabel(e.target.value)}
+                />
+              </div>
+            </div>
+            <div
+              style={{
+                background: 'var(--subtle)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                padding: '8px 12px',
+                fontSize: 12,
+                color: 'var(--muted)',
+              }}
+            >
+              Needs one LoadImage, one AILab_QwenVL whose prompt contains {'{{OPTIONS}}'}, and one
+              PreviewAny (or ShowText) node. The three nodes are detected automatically — uploading
+              activates it and deactivates the previous one.
+            </div>
+          </>
+        )}
 
         {parsed && nodes && workflowType === 'two_stage' && (
           <>

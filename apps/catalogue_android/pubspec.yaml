@@ -16,7 +16,13 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.1+1
+#
+# Both halves are manual from here on — CI no longer overrides the build
+# number with the Actions run number (catalogue-android.yml). Bump the +N by
+# hand before every release tag; Play rejects a versionCode it's already
+# seen, and 1.0.1 already shipped as versionCode 15 (from the old run-number
+# scheme), so the next release must start above that.
+version: 1.0.1+16
 
 environment:
   sdk: ^3.13.3
@@ -50,6 +56,7 @@ dependencies:
   device_info_plus: ^13.2.0
   uuid: ^4.6.0
   image_picker: ^1.2.3
+  image: ^4.10.1
   video_player: ^2.14.0
   url_launcher: ^6.3.2
   share_plus: ^13.3.0
@@ -60,6 +67,10 @@ dependencies:
   webview_flutter_wkwebview: ^3.27.0
   cached_network_image: ^4.0.4
   flutter_cache_manager: ^3.4.5
+  in_app_update: ^5.0.0
+  firebase_core: ^4.15.0
+  firebase_crashlytics: ^5.4.0
+  package_info_plus: ^10.2.2
 
 dev_dependencies:
   flutter_test:

@@ -5,6 +5,10 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    // Reads android/app/google-services.json (gitignored — restored from
+    // CAT_GOOGLE_SERVICES_JSON_BASE64 in CI, same pattern as key.properties).
+    id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 // Real release signing (android/key.properties, gitignored — see

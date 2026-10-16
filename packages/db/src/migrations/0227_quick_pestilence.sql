@@ -1,0 +1,2 @@
+ALTER TABLE "messaging_runs" ADD COLUMN "delivered_job_ids" uuid[] DEFAULT '{}'::uuid[] NOT NULL;--> statement-breakpoint
+ALTER TABLE "messaging_runs" ADD COLUMN "ready_notice_sent_at" timestamp with time zone;

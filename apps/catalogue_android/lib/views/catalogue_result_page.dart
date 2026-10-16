@@ -25,9 +25,8 @@ class CatalogueResultPage extends ConsumerStatefulWidget {
 
   final String catalogueId;
 
-  /// Carried over from the tryon submit response so "Save as Preset" doesn't
-  /// need a second fetch — the catalogue-detail endpoint doesn't return
-  /// garmentTypeId/poseIds on its own.
+  /// Carried over from the tryon submit response — the catalogue-detail
+  /// endpoint doesn't return gender/garmentTypeId/poseIds on its own.
   final String? gender;
   final String? garmentTypeId;
   final List<String>? poseIds;
@@ -278,63 +277,6 @@ class _CatalogueResultPageState extends ConsumerState<CatalogueResultPage>
                           },
                         ),
                       ],
-                    ],
-                  ),
-                ),
-                SizedBox(height: AppDimens.sdp(context, '_16sdp')),
-                BorderedCard(
-                  padding: EdgeInsets.all(AppDimens.sdp(context, '_12sdp')),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: AppDimens.sdp(context, '_40sdp'),
-                        height: AppDimens.sdp(context, '_40sdp'),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.35),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: AppColors.fieldBorder),
-                        ),
-                        alignment: Alignment.center,
-                        child: Icon(
-                          Icons.bookmark_border_rounded,
-                          color: AppColors.pinkGradientStart,
-                          size: AppDimens.sdp(context, '_18sdp'),
-                        ),
-                      ),
-                      SizedBox(width: AppDimens.sdp(context, '_10sdp')),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              AppStrings.saveLookAsPreset,
-                              style: AppTextStyles.semiBold.copyWith(
-                                color: Colors.white,
-                                fontSize: AppDimens.ssp(context, '_12ssp'),
-                              ),
-                            ),
-                            SizedBox(height: AppDimens.sdp(context, '_4sdp')),
-                            Text(
-                              AppStrings.saveLookAsPresetSubtitle,
-                              style: AppTextStyles.regular.copyWith(
-                                color: AppColors.textSecondary,
-                                fontSize: AppDimens.ssp(context, '_10ssp'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(width: AppDimens.sdp(context, '_8sdp')),
-                      AppPillButton(
-                        label: AppStrings.saveAsPreset,
-                        icon: Icons.bookmark_border_rounded,
-                        style: AppPillButtonStyle.outline,
-                        onTap: () => saveAsPreset(
-                          widget.gender ?? detail.gender,
-                          widget.garmentTypeId,
-                          widget.poseIds,
-                        ),
-                      ),
                     ],
                   ),
                 ),

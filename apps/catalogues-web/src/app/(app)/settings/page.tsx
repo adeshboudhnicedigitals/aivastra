@@ -10,9 +10,11 @@ import { PremiumSelect } from '@/components/ui/premium-select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useGoogleDriveStatus } from '@/hooks/use-google-drive-status';
 import { useMediaQuery } from '@/hooks/use-media-query';
+import { useWhatsappStatus } from '@/hooks/use-whatsapp-status';
 import { api } from '@/lib/api';
 import { BREAKPOINTS } from '@/lib/breakpoints';
 import { GOOGLE_DRIVE_ENABLED } from '@/lib/feature-flags';
+import { WhatsappPanel } from './whatsapp-panel';
 
 type Tab = 'Profile Details' | 'Billing' | 'Credit History' | 'Invoices';
 const TABS: Tab[] = ['Profile Details', 'Billing', 'Credit History', 'Invoices'];
@@ -302,6 +304,7 @@ export default function SettingsPage(): React.ReactElement {
   const [pwdError, setPwdError] = useState('');
   const [pwdSaved, setPwdSaved] = useState(false);
   const driveStatus = useGoogleDriveStatus();
+  const whatsappStatus = useWhatsappStatus();
   const [disconnectingDrive, setDisconnectingDrive] = useState(false);
 
   async function handleDisconnectDrive() {
@@ -882,6 +885,13 @@ export default function SettingsPage(): React.ReactElement {
               )}
             </Section>
 
+            {/* WhatsApp catalog bot — rendered only when the api reports it
+                enabled for this environment (MESSAGING_WHATSAPP_ENABLED). */}
+            {whatsappStatus.data?.enabled && (
+              <Section title="WhatsApp" noBorder={!GOOGLE_DRIVE_ENABLED}>
+                <WhatsappPanel accounts={whatsappStatus.data.accounts} onToast={setToast} />
+              </Section>
+            )}
             {/* ── Part 3: Integrations (Google Drive) — hidden while the OAuth
                 consent screen is unverified; see lib/feature-flags.ts ── */}
             {GOOGLE_DRIVE_ENABLED && (

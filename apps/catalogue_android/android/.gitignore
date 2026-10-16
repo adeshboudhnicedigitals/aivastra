@@ -12,3 +12,7 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Per-environment Firebase config (Crashlytics) — restored from
+# CAT_GOOGLE_SERVICES_JSON_BASE64 in CI, same as key.properties above.
+app/google-services.json
