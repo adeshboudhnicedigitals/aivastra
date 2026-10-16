@@ -5,6 +5,7 @@ import { z } from 'zod';
 // optional URL var needs this to actually be skippable.
 const optionalUrl = () =>
   z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional());
+const optionalString = () => z.preprocess((v) => (v === '' ? undefined : v), z.string().optional());
 
 const Env = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -27,6 +28,18 @@ const Env = z.object({
   R2_SIGN_ENDPOINT: optionalUrl(),
   /** Public-facing base URL for browser-side presigned uploads, e.g. https://rankplex.cloud/minio */
   R2_PUBLIC_PRESIGN_BASE: optionalUrl(),
+  // Despite the R2_ prefix above, that backend is self-hosted MinIO. These are
+  // the actual Cloudflare R2 bucket for end-user inputs/outputs — routing by
+  // key prefix lives in packages/storage/src/routing.ts. All unset = every key
+  // stays on MinIO; partially set fails startup (resolveUserStorageConfig).
+  USER_STORAGE_ENDPOINT: optionalUrl(),
+  USER_STORAGE_ACCESS_KEY_ID: optionalString(),
+  USER_STORAGE_SECRET_ACCESS_KEY: optionalString(),
+  USER_STORAGE_BUCKET: optionalString(),
+  USER_STORAGE_PUBLIC_URL: optionalUrl(),
+  // Migration window: serve a user key from MinIO when R2 doesn't have it yet.
+  // Literal-'true' only, same reasoning as SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS below.
+  USER_STORAGE_READ_FALLBACK: z.preprocess((v) => v === 'true', z.boolean()).default(false),
   ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
   ADMIN_BOOTSTRAP_PASSWORD: z.string().min(8).optional(),
   CORS_ORIGIN: z
@@ -96,6 +109,18 @@ const Env = z.object({
   // SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS: it gates revenue, so anything but the
   // exact string stays off. See docs/superpowers/specs/2026-10-09-shopify-hold-until-paid-design.md.
   SHOPIFY_HOLD_UNTIL_PAID: z.preprocess((v) => v === 'true', z.boolean()).default(false),
+  // Comma-separated user ids allowed to send /v1/dev/tryon jobs to the dedicated
+  // 'inhouse' worker lane. Empty = nobody, so a stray flag from an outside API key
+  // can never reach those workers.
+  INHOUSE_USER_IDS: z
+    .string()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
   // Partner API client token ("View financials" only) — org-scoped, a secret.
   // Use a separate client per environment: the 4 req/s limit is per client.
   // Blank placeholders in .env.example (FOO=) must not crash startup; use z.preprocess to treat '' as undefined.

@@ -492,6 +492,7 @@ export async function devRoutes(app: FastifyInstance) {
       let categorySlug: string | undefined;
       let primaryWorkerIds: string[] | undefined;
       let fallbackWorkerIds: string[] | undefined;
+      let inhouse = false;
       const files: Record<string, { buf: Buffer; mime: string }> = {};
 
       const isJson = (req.headers['content-type'] ?? '').startsWith('application/json');
@@ -508,6 +509,7 @@ export async function devRoutes(app: FastifyInstance) {
         categorySlug = parsed.data.category;
         primaryWorkerIds = parsed.data.primaryWorkerIds;
         fallbackWorkerIds = parsed.data.fallbackWorkerIds;
+        inhouse = parsed.data.inhouse === true;
         for (const fieldname of ['person', 'garment'] as const) {
           const raw = parsed.data[fieldname].replace(/^data:[^;]+;base64,/, '');
           const buf = Buffer.from(raw, 'base64');
@@ -548,6 +550,10 @@ export async function devRoutes(app: FastifyInstance) {
               .filter(Boolean);
             continue;
           }
+          if (part.type === 'field' && part.fieldname === 'inhouse') {
+            inhouse = String(part.value) === 'true';
+            continue;
+          }
           if (part.type === 'field' && part.fieldname === 'fallbackWorkerIds') {
             fallbackWorkerIds = String(part.value)
               .split(',')
@@ -586,6 +592,9 @@ export async function devRoutes(app: FastifyInstance) {
         }
       }
 
+      if (inhouse && !app.env.INHOUSE_USER_IDS?.includes(merchantUserId)) {
+        throw new AppError('FORBIDDEN', 403, 'this account cannot use the inhouse lane');
+      }
       if (!categorySlug) throw new AppError('VALIDATION', 400, 'category is required');
       if (!files.person) throw new AppError('VALIDATION', 400, 'person image is required');
       if (!files.garment) throw new AppError('VALIDATION', 400, 'garment image is required');
@@ -617,6 +626,7 @@ export async function devRoutes(app: FastifyInstance) {
         garmentKey,
         primaryWorkerIds,
         fallbackWorkerIds,
+        inhouse,
       });
 
       // Lets a later /v1/dev/photo/preview call offer "reuse this photo"
@@ -721,7 +731,7 @@ export async function devRoutes(app: FastifyInstance) {
       // The dev/ key prefix embeds the owning merchant (keys.devUpload), so this
       // also rejects a photo key from a different merchant outright, before ever
       // touching Redis.
-      if (!personKey.startsWith(`dev/${merchantId}/`)) {
+      if (!personKey.startsWith(keys.devUploadPrefix(merchantId))) {
         throw new AppError('NOT_FOUND', 404, 'photo not available');
       }
       const owned = await app.redis.get(`dev:person-photo:${merchantId}:${personKey}`);

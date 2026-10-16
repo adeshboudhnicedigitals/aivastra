@@ -179,8 +179,6 @@ describe('dispatcher — pose_garment_configs workflow override (non-snapshot st
         redis,
         pub,
         storage: env.storage,
-        s3: env.s3,
-        r2Bucket: env.r2Bucket,
         log,
       },
       jobId,

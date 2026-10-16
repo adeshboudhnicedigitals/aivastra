@@ -89,8 +89,6 @@ describe('merchant/kiosk widget job refund — markWidgetFailed', () => {
         redis,
         pub,
         storage: env.storage,
-        s3: env.s3,
-        r2Bucket: env.r2Bucket,
         log,
       },
       jobId,
@@ -132,8 +130,6 @@ describe('merchant/kiosk widget job refund — markWidgetFailed', () => {
       redis,
       pub,
       storage: env.storage,
-      s3: env.s3,
-      r2Bucket: env.r2Bucket,
       log,
     };
 

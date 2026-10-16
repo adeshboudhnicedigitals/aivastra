@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
 import {
   JOB_SOURCE,
   ShopifyCustomerJobRequest,
@@ -188,7 +189,7 @@ async function isCustomerPhotoOwnedByStore(
   storeId: string,
   r2Key: string,
 ): Promise<boolean> {
-  if (!r2Key.startsWith(`shopify-inputs/${storeId}/`)) return false;
+  if (!r2Key.startsWith(keys.shopifyCustomerPhotoPrefix(storeId))) return false;
   const owner = await app.redis.get(`shopify:upload:${r2Key}`);
   return owner === storeId;
 }
@@ -240,11 +241,9 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       const { contentType, contentLength } = req.body as ShopifyCustomerPresignRequest;
       // contentType is validated against AssetContentType by the route schema —
       // no manual check needed here.
-      // No image extension on the key — Cloudflare's Hotlink Protection pattern-matches
-      // image extensions in the path regardless of method and false-positives this
-      // presigned PUT/OPTIONS as an image hotlink. Content-Type is passed separately
-      // to presignPut and stored as the object's actual Content-Type header.
-      const key = `shopify-inputs/${storeId}/${randomUUID()}/photo`;
+      // Extensionless key (see keys.shopifyCustomerPhoto) — Content-Type is passed
+      // separately to presignPut and stored as the object's Content-Type header.
+      const key = keys.shopifyCustomerPhoto(storeId, randomUUID());
       const { url, expiresIn } = await app.storage.presignPut(key, contentType, contentLength, 600);
       await app.redis.set(`shopify:upload:${key}`, storeId, 'EX', 600);
       return { uploadUrl: url, r2Key: key, expiresIn };

@@ -15,10 +15,8 @@
  */
 import type { DB } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
-import { keys } from '@aivastra/storage';
+import { keys, type StorageProvider } from '@aivastra/storage';
 import type { ImageCompressionJobConfig } from '@aivastra/types';
-import type { S3Client } from '@aws-sdk/client-s3';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
 import type { Redis } from 'ioredis';
 import sharp from 'sharp';
 import { loadEnv } from '../env.js';
@@ -71,8 +69,7 @@ export interface FinalizeOutputOpts {
   compression?: ImageCompressionJobConfig;
   db: DB;
   pub: Redis;
-  s3: S3Client;
-  r2Bucket: string;
+  storage: StorageProvider;
   jobLog: Logger;
 }
 
@@ -86,7 +83,7 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
   thumbnailKey: string | undefined;
   completed: boolean;
 }> {
-  const { imageBytes, jobId, userId, db, pub, s3, r2Bucket, jobLog } = opts;
+  const { imageBytes, jobId, userId, db, pub, storage, jobLog } = opts;
   const finalizeStartedAt = Date.now();
 
   const env = loadEnv();
@@ -121,14 +118,7 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
     contentType,
   } = await encodeCompressedImage(finalBuffer, opts.compression);
   const resultKey = keys.output(jobId, outputFormat);
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: r2Bucket,
-      Key: resultKey,
-      Body: resultBuffer,
-      ContentType: contentType,
-    }),
-  );
+  await storage.putObject(resultKey, resultBuffer, contentType);
 
   // Generate and upload thumbnail (512px, JPEG) from the final buffer.
   // Thumbnail is always generated from the final buffer — not the pre-watermark original.
@@ -141,14 +131,7 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
       .jpeg({ quality: 80 })
       .toBuffer();
     thumbnailKey = keys.outputThumb(jobId);
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: r2Bucket,
-        Key: thumbnailKey,
-        Body: thumbBytes,
-        ContentType: 'image/jpeg',
-      }),
-    );
+    await storage.putObject(thumbnailKey, thumbBytes, 'image/jpeg');
     jobLog.info(
       {
         stage: 'watermark',

@@ -19,12 +19,12 @@
 
 | Plan | State | Migration |
 |---|---|---|
-| 1 Connect and identity | implemented | `0224_wakeful_ink` (`messaging_accounts`) |
-| 2 Conversation engine | implemented | `0225_youthful_stingray` (`messaging_runs`) |
-| 3 WhatsApp adapter (webhook, renderer, inbound, delivery, hooks) | implemented up to Task 8's code; Task 8 manual staging steps NOT done | `0226_quick_pestilence` (two ADD COLUMNs) |
+| 1 Connect and identity | implemented | `0225_wakeful_ink` (`messaging_accounts`) |
+| 2 Conversation engine | implemented | `0226_youthful_stingray` (`messaging_runs`) |
+| 3 WhatsApp adapter (webhook, renderer, inbound, delivery, hooks) | implemented up to Task 8's code; Task 8 manual staging steps NOT done | `0227_quick_pestilence` (two ADD COLUMNs) |
 | 4 Amazon white-background removal | implemented, merged into the branch | — |
 | Pose selection across templates (2026-10-14) | implemented (engine, tests, docs); **not yet tapped through on a real phone** | — |
-| 5 Garment recognition on our GPU | implemented (Tasks 2, 3, 4, 4b, 6) and merged into the branch; spike run on w4; **Task 5 (staging/production switch-on) not done**; works locally but misses its time budget on cold or busy workers | `0227_bizarre_namora` (`garment_recognitions`) |
+| 5 Garment recognition on our GPU | implemented (Tasks 2, 3, 4, 4b, 6) and merged into the branch; spike run on w4; **Task 5 (staging/production switch-on) not done**; works locally but misses its time budget on cold or busy workers | `0228_bizarre_namora` (`garment_recognitions`) |
 
 Last measured on this branch (2026-10-14): api typecheck clean; api unit 102 files / 934
 passed (run with `--no-file-parallelism`, see below); messaging + whatsapp integration
@@ -145,7 +145,7 @@ the `reportUnavailable` log ("whatsapp: garment type not offered" with
   Details and open items: `docs/progress.md` 2026-10-16.
 - **Admin:** sidebar "Classify Service" (`/classify-service`: Overview with a Connection form,
   Requests, Logs). URL + key are saved in the new table `classify_service_config` (migration
-  `0228_dashing_yellowjacket`, local only so far); the dispatcher re-reads it every ~10 s, env
+  `0229_dashing_yellowjacket`, local only so far); the dispatcher re-reads it every ~10 s, env
   vars are the fallback. Nothing from 2026-10-16 is committed (both repos).
 - **Decided:** no extra logging of rejected keys; the online/offline health badge is enough.
 

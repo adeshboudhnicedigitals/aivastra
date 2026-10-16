@@ -47,6 +47,16 @@ export const auditLogWriteFailuresTotal = new Counter({
   registers: [register],
 });
 
+// Reads of a user-backend key that R2 didn't have and MinIO served instead
+// (createRoutedStorage's readFallback). Should trend to zero once pre-cutover
+// objects are copied across — that's the signal to turn the fallback off.
+export const storageReadFallbackTotal = new Counter({
+  name: 'storage_read_fallback_total',
+  help: 'User-storage reads served from the legacy MinIO backend after an R2 miss',
+  labelNames: ['service', 'op'] as const,
+  registers: [register],
+});
+
 export const shopifyPaymentCheckFailuresTotal = new Counter({
   name: 'shopify_payment_check_failures_total',
   help: 'Partner API payment checks that failed, by reason (missing_config/http/graphql/rate_limited)',

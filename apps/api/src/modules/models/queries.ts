@@ -3,8 +3,8 @@ import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { poseGarmentRoles } from './garment-roles.js';
 
-export async function listGarmentTypes(app: FastifyInstance, gender: string) {
-  const items = await app.db
+export async function listGarmentTypes(app: FastifyInstance, gender: string, bodyTypeId?: string) {
+  let items = await app.db
     .select({
       id: schema.garmentSubcategories.id,
       slug: schema.garmentSubcategories.slug,
@@ -34,6 +34,22 @@ export async function listGarmentTypes(app: FastifyInstance, gender: string) {
       ),
     )
     .orderBy(asc(schema.garmentSubcategories.sortOrder), asc(schema.garmentSubcategories.label));
+
+  // No mapping row for this body type at all = opt-out (every active garment type of
+  // this gender stays visible). Once any explicit mapping exists for the body type,
+  // only mapped garment types are shown. See modelFaceSubcategories's opt-out
+  // convention — same pattern, independent join.
+  if (bodyTypeId && items.length > 0) {
+    const mapped = await app.db
+      .select({ subcategoryId: schema.bodyTypeSubcategories.subcategoryId })
+      .from(schema.bodyTypeSubcategories)
+      .where(eq(schema.bodyTypeSubcategories.bodyTypeId, bodyTypeId));
+    if (mapped.length > 0) {
+      const mappedIds = new Set(mapped.map((m) => m.subcategoryId));
+      items = items.filter((i) => mappedIds.has(i.id));
+    }
+  }
+
   return {
     items: await Promise.all(
       items.map(async (i) => ({
@@ -51,7 +67,11 @@ export async function listGarmentTypes(app: FastifyInstance, gender: string) {
 
 export async function listFaces(
   app: FastifyInstance,
-  { gender, garmentTypeId }: { gender: string; garmentTypeId?: string },
+  {
+    gender,
+    garmentTypeId,
+    bodyTypeId,
+  }: { gender: string; garmentTypeId?: string; bodyTypeId?: string },
 ) {
   let items = await app.db
     .select({
@@ -81,6 +101,18 @@ export async function listFaces(
       .select({ faceId: schema.modelFaceSubcategories.faceId })
       .from(schema.modelFaceSubcategories)
       .where(eq(schema.modelFaceSubcategories.subcategoryId, garmentTypeId));
+    if (mapped.length > 0) {
+      const mappedIds = new Set(mapped.map((m) => m.faceId));
+      items = items.filter((i) => mappedIds.has(i.id));
+    }
+  }
+
+  // Independent opt-out join for body type — see bodyTypeSubcategories above.
+  if (bodyTypeId && items.length > 0) {
+    const mapped = await app.db
+      .select({ faceId: schema.bodyTypeFaces.faceId })
+      .from(schema.bodyTypeFaces)
+      .where(eq(schema.bodyTypeFaces.bodyTypeId, bodyTypeId));
     if (mapped.length > 0) {
       const mappedIds = new Set(mapped.map((m) => m.faceId));
       items = items.filter((i) => mappedIds.has(i.id));

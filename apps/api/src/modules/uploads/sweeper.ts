@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
 import { inArray, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
@@ -8,7 +9,6 @@ import type { FastifyInstance } from 'fastify';
 // natural cutoff for treating an unreferenced object as abandoned rather than
 // "job creation just hasn't happened yet".
 const ORPHAN_AGE_MS = 24 * 60 * 60 * 1000;
-const INPUT_GARMENT_PREFIX = 'inputs/';
 
 /**
  * Deletes objects under inputs/ that are older than 24h and are not referenced
@@ -22,14 +22,14 @@ export async function runUploadSweepTick(
   app: FastifyInstance,
   opts: { maxAgeMs?: number } = {},
 ): Promise<{ scanned: number; deleted: number }> {
-  const objects = await app.storage.listObjects(INPUT_GARMENT_PREFIX);
+  const objects = await app.storage.listObjects(keys.inputGarmentPrefix());
   const cutoff = Date.now() - (opts.maxAgeMs ?? ORPHAN_AGE_MS);
   const candidates = objects.filter((o) => (o.lastModified?.getTime() ?? 0) < cutoff);
   if (candidates.length === 0) {
     return { scanned: objects.length, deleted: 0 };
   }
 
-  const keys = candidates.map((c) => c.key);
+  const candidateKeys = candidates.map((c) => c.key);
   const referenced = await app.db
     .select({
       upperGarmentKey: schema.jobInputs.upperGarmentKey,
@@ -40,10 +40,10 @@ export async function runUploadSweepTick(
     .from(schema.jobInputs)
     .where(
       or(
-        inArray(schema.jobInputs.upperGarmentKey, keys),
-        inArray(schema.jobInputs.lowerGarmentKey, keys),
-        inArray(schema.jobInputs.thirdGarmentKey, keys),
-        inArray(schema.jobInputs.fourthGarmentKey, keys),
+        inArray(schema.jobInputs.upperGarmentKey, candidateKeys),
+        inArray(schema.jobInputs.lowerGarmentKey, candidateKeys),
+        inArray(schema.jobInputs.thirdGarmentKey, candidateKeys),
+        inArray(schema.jobInputs.fourthGarmentKey, candidateKeys),
       ),
     );
   // Not a garment column: video jobs (params.kind = 'video') snapshot the image they
@@ -53,7 +53,7 @@ export async function runUploadSweepTick(
   const referencedAsSource = await app.db
     .select({ key: sourceImageKey })
     .from(schema.jobInputs)
-    .where(inArray(sourceImageKey, keys));
+    .where(inArray(sourceImageKey, candidateKeys));
   const referencedKeys = new Set<string | null>([
     ...referenced.flatMap((r) => [
       r.upperGarmentKey,
@@ -65,7 +65,7 @@ export async function runUploadSweepTick(
   ]);
 
   let deleted = 0;
-  for (const key of keys) {
+  for (const key of candidateKeys) {
     if (referencedKeys.has(key)) continue;
     try {
       await app.storage.deleteObject(key);

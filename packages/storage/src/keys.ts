@@ -1,6 +1,14 @@
+// Every object key and every key-prefix ownership check is built here, never
+// inline at a call site: which storage backend an object lives on is decided by
+// its prefix, so a key shape that exists only at a call site is invisible to that
+// routing. The *Prefix builders exist for the same reason — an ownership guard's
+// `startsWith` must match exactly what its key builder produces.
 export const keys = {
   inputGarment: (jobId: string) => `inputs/${jobId}/garment.jpg`,
+  inputGarmentPrefix: () => 'inputs/',
   output: (jobId: string, format: 'png' | 'webp' = 'png') => `outputs/${jobId}/result.${format}`,
+  widgetOutput: (jobId: string, format: 'png' | 'webp' = 'png') =>
+    `widget-outputs/${jobId}/result.${format}`,
   outputThumb: (jobId: string) => `outputs/${jobId}/result.thumb.jpg`,
   mannequinIntermediate: (jobId: string) => `outputs/${jobId}/mannequin-intermediate.png`,
   merchantCatalogItem: (merchantId: string, id: string, format: 'png' | 'webp' | 'jpg' = 'jpg') =>
@@ -12,12 +20,34 @@ export const keys = {
   ) => `merchant-catalog/${merchantId}/${id}/thumb.${format}`,
   merchantCatalogFlatGarment: (merchantId: string, id: string) =>
     `merchant-catalog/${merchantId}/flat/${id}/garment.jpg`,
+  merchantCatalogPrefix: (merchantId: string) => `merchant-catalog/${merchantId}/`,
+  // Shopper photos taken at a merchant's kiosk — distinct from merchant-catalog/,
+  // which is the merchant's own try-on library content.
+  merchantTryonInput: (merchantId: string, id: string, ext: string) =>
+    `merchant-inputs/${merchantId}/${id}/photo.${ext}`,
+  merchantQrUploadInput: (merchantId: string, sessionId: string) =>
+    `merchant-inputs/${merchantId}/qr/${sessionId}/photo.jpg`,
+  merchantInputPrefix: (merchantId: string) => `merchant-inputs/${merchantId}/`,
   // Not merchant-scoped: one demo object is shared by every assigned merchant.
   demoCatalogItem: (id: string) => `demo-catalog/${id}/image.jpg`,
   demoCatalogItemThumb: (id: string) => `demo-catalog/${id}/thumb.jpg`,
+  demoCatalogPrefix: () => 'demo-catalog/',
   merchantLogo: (merchantId: string) => `merchant-logo/${merchantId}/logo.jpg`,
   merchantLoadingVideo: (merchantId: string) => `merchant-loading-video/${merchantId}/video.mp4`,
   devUpload: (merchantId: string, id: string, ext: string) => `dev/${merchantId}/${id}.${ext}`,
+  devUploadPrefix: (merchantId: string) => `dev/${merchantId}/`,
+  // No image extension on the key — Cloudflare's Hotlink Protection pattern-matches
+  // image extensions in the path regardless of method and false-positives the
+  // presigned PUT/OPTIONS as an image hotlink. Content-Type travels separately.
+  shopifyCustomerPhoto: (storeId: string, id: string) => `shopify-inputs/${storeId}/${id}/photo`,
+  shopifyCustomerPhotoPrefix: (storeId: string) => `shopify-inputs/${storeId}/`,
+  // The synced product image, overwritten in place on every re-sync.
+  shopifyProductGarment: (storeId: string, productId: string | number) =>
+    `shopify-garments/${storeId}/${productId}/garment.jpg`,
+  // The merchant picked a different one of the product's images as the garment —
+  // a fresh key per selection, alongside the synced garment.jpg.
+  shopifyProductGarmentOverride: (storeId: string, productId: string | number, id: string) =>
+    `shopify-garments/${storeId}/${productId}/garment-${id}.jpg`,
   // Chrome extension try-on uploads — keyed by the shopper's own user id, not
   // a merchant (no API key is involved on this path, see
   // apps/api/src/modules/extension/routes.ts).
@@ -43,6 +73,7 @@ export const keys = {
     `models/subcategories/${id}.tryon-library-instr.jpg`,
   shopifyBasketImage: (id: string) => `shopify/baskets/${id}.jpg`,
   catalogueTemplateThumb: (id: string) => `models/catalogue-templates/${id}.thumb.jpg`,
+  bodyTypeThumb: (id: string) => `models/body-types/${id}.thumb.jpg`,
   subcategoryTemplate: (id: string) => `models/templates/${id}.jpg`,
   subcategoryTemplateThumb: (id: string) => `models/templates/${id}.thumb.jpg`,
   tryonSample: (categoryId: string, sampleId: string) =>

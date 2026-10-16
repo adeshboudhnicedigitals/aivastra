@@ -118,7 +118,7 @@ describe('POST /admin/jobs/:id/delete-assets', () => {
   it('deletes only the result image + thumbnail, leaving person data and job_inputs alone', async () => {
     const job = await seedJob('COMPLETED');
     const { resultKey, thumbnailKey } = await seedOutput(job.id);
-    const customerPhotoKey = `test-photos/${job.id}-customer.jpg`;
+    const customerPhotoKey = `merchant-inputs/${job.id}-customer.jpg`;
     await app.storage.putObject(customerPhotoKey, Buffer.from('stub-photo'), 'image/jpeg');
     await app.db.update(schema.jobs).set({ customerPhotoKey }).where(eq(schema.jobs.id, job.id));
     await app.db
@@ -161,7 +161,7 @@ describe('POST /admin/jobs/:id/delete-assets', () => {
 
   it('deletes the customerPhotoKey person image on a merchant-style job', async () => {
     const job = await seedJob('COMPLETED', 'merchant_tryon');
-    const customerPhotoKey = `test-photos/${job.id}-customer.jpg`;
+    const customerPhotoKey = `merchant-inputs/${job.id}-customer.jpg`;
     await app.storage.putObject(customerPhotoKey, Buffer.from('stub-photo'), 'image/jpeg');
     await app.db.update(schema.jobs).set({ customerPhotoKey }).where(eq(schema.jobs.id, job.id));
 
@@ -184,7 +184,7 @@ describe('POST /admin/jobs/:id/delete-assets', () => {
 
   it('deletes the params.personKey person image on a tryon-direct-style job, keeping other params keys', async () => {
     const job = await seedJob('COMPLETED', 'tryon');
-    const personKey = `test-photos/${job.id}-person.jpg`;
+    const personKey = `dev/${job.id}-person.jpg`;
     await app.storage.putObject(personKey, Buffer.from('stub-photo'), 'image/jpeg');
     await app.db
       .insert(schema.jobInputs)
@@ -210,7 +210,7 @@ describe('POST /admin/jobs/:id/delete-assets', () => {
   it('deletes both result and person in one call and writes an audit row', async () => {
     const job = await seedJob('FAILED', 'merchant_tryon');
     const { resultKey } = await seedOutput(job.id);
-    const customerPhotoKey = `test-photos/${job.id}-customer.jpg`;
+    const customerPhotoKey = `merchant-inputs/${job.id}-customer.jpg`;
     await app.storage.putObject(customerPhotoKey, Buffer.from('stub-photo'), 'image/jpeg');
     await app.db.update(schema.jobs).set({ customerPhotoKey }).where(eq(schema.jobs.id, job.id));
 

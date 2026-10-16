@@ -519,6 +519,77 @@ export const modelFaceSubcategories = pgTable(
   }),
 );
 
+// Admin-curated body-type categories (Slim/Regular/Muscular/Plus Size, etc). Each body
+// type is admin-mapped to a set of garment types/faces/poses (see bodyTypeSubcategories,
+// bodyTypeFaces, bodyTypePoses below); selecting one in the studio wizard filters those
+// three pickers down to only what's mapped. Gender-specific row per body type, mirroring
+// catalogueTemplates/modelFaces/garmentSubcategories's established pattern rather than a
+// shared row with a nullable gender.
+export const bodyTypes = pgTable('body_types', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  genderSlug: text('gender_slug').notNull(), // 'men' | 'women' | 'boys' | 'girls'
+  label: text('label').notNull(),
+  thumbnailKey: text('thumbnail_key'),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Many-to-many: which garment subcategories a body type is mapped to. No rows for a body
+// type = opt-out (every active garment type of that gender is shown) — mirrors
+// modelFaceSubcategories's opt-out convention, direction reversed (scoped by bodyTypeId,
+// not subcategoryId) since here the body type is the side the admin maps outward from.
+export const bodyTypeSubcategories = pgTable(
+  'body_type_subcategories',
+  {
+    bodyTypeId: uuid('body_type_id')
+      .notNull()
+      .references(() => bodyTypes.id, { onDelete: 'cascade' }),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.bodyTypeId, table.subcategoryId] }),
+  }),
+);
+
+// Many-to-many: which model faces a body type is mapped to. No rows for a body type =
+// opt-out (every active face of that gender is shown). See bodyTypeSubcategories above.
+export const bodyTypeFaces = pgTable(
+  'body_type_faces',
+  {
+    bodyTypeId: uuid('body_type_id')
+      .notNull()
+      .references(() => bodyTypes.id, { onDelete: 'cascade' }),
+    faceId: uuid('face_id')
+      .notNull()
+      .references(() => modelFaces.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.bodyTypeId, table.faceId] }),
+  }),
+);
+
+// Many-to-many: which pose assets a body type is mapped to. No rows for a body type =
+// opt-out (every active pose of that gender is shown). See bodyTypeSubcategories above.
+export const bodyTypePoses = pgTable(
+  'body_type_poses',
+  {
+    bodyTypeId: uuid('body_type_id')
+      .notNull()
+      .references(() => bodyTypes.id, { onDelete: 'cascade' }),
+    poseAssetId: uuid('pose_asset_id')
+      .notNull()
+      .references(() => modelPoseAssets.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.bodyTypeId, table.poseAssetId] }),
+  }),
+);
+
 export const catalogueTemplates = pgTable('catalogue_templates', {
   id: uuid('id').primaryKey().defaultRandom(),
   genderSlug: text('gender_slug').notNull(), // 'men' | 'women' | 'boys' | 'girls'

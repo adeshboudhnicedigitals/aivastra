@@ -84,7 +84,7 @@ describe('merchant catalog reconcile-held', () => {
       .returning();
 
     // A completed, released, held job with a real object in storage.
-    const resultKey = `results/${randomUUID()}.jpg`;
+    const resultKey = `outputs/${randomUUID()}.jpg`;
     await app.storage.putObject(resultKey, Buffer.from('result'), 'image/jpeg');
 
     const [job] = await app.db
@@ -223,7 +223,7 @@ describe('merchant catalog reconcile-held', () => {
     // subcategoryId — e.g. a data bug upstream. This can never be fixed by
     // retrying, so it must be visible in `failed` on every call, not silently
     // re-selected forever.
-    const resultKey = `results/${randomUUID()}.jpg`;
+    const resultKey = `outputs/${randomUUID()}.jpg`;
     await app.storage.putObject(resultKey, Buffer.from('result'), 'image/jpeg');
     const [job] = await app.db
       .insert(schema.jobs)

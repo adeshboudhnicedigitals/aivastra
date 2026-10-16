@@ -986,6 +986,22 @@ export const PresignCatalogueTemplateThumbnailBody = z.object({
   contentType: AssetContentType,
 });
 
+export const CreateBodyTypeBody = z.object({
+  genderSlug: GenderEnum,
+  label: z.string().min(1).max(120),
+  thumbnailKey: z.string().optional(),
+  sortOrder: z.number().int().default(0),
+});
+export const PatchBodyTypeBody = z.object({
+  label: z.string().min(1).max(120).optional(),
+  thumbnailKey: z.string().nullable().optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+export const PresignBodyTypeThumbnailBody = z.object({
+  contentType: AssetContentType,
+});
+
 export const AdminHeldJobsResponse = z.object({
   total: z.number().int(),
   byUser: z.array(

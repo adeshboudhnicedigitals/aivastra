@@ -25,10 +25,11 @@ interface AccessoryStepProps {
 }
 
 /**
- * One row per accessory category, each a single-select grid. Unlike lower/
- * shoe, every selection here is optional — clicking an already-selected item
- * clears it, and the whole step can be skipped entirely. Reuses the studio's
- * SelCard/SectionHead so it matches the lower/shoe pickers visually.
+ * One row per accessory category, each a single-select grid. Clicking an
+ * already-selected item clears it, but at least one item across any category
+ * must stay selected for Generate to enable once this step is showing — see
+ * canGenerate in studio/page.tsx. Reuses the studio's SelCard/SectionHead so
+ * it matches the lower/shoe pickers visually.
  *
  * Each category is capped to visibleCount (same tiered count as every other
  * studio grid) with the selected item pinned into view if it'd otherwise fall
@@ -52,7 +53,6 @@ export function AccessoryStep({
     <section className="studio-section-card" style={sectionCardStyle}>
       <SectionHead
         title="Accessories"
-        subtitle="Optional"
         stepNumber={stepNumber}
         right={
           totalItems > visibleCount && (

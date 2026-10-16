@@ -5,7 +5,13 @@ import { requirePermission } from './guard.js';
 
 // Mirrors JOB_STREAMS in apps/dispatcher/src/worker/health-monitor.ts — the same
 // four Redis Streams the dispatcher's queue_depth gauge reports via XLEN.
-const JOB_STREAMS = ['jobs:priority', 'jobs:normal', 'jobs:low', 'jobs:video'] as const;
+const JOB_STREAMS = [
+  'jobs:priority',
+  'jobs:normal',
+  'jobs:low',
+  'jobs:video',
+  'jobs:inhouse',
+] as const;
 
 interface TelemetryRow {
   [key: string]: unknown;

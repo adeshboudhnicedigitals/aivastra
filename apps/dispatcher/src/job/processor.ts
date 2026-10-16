@@ -15,8 +15,6 @@ import {
   PIXVERSE_QUALITIES,
   WORKER_POOL,
 } from '@aivastra/types';
-import type { S3Client } from '@aws-sdk/client-s3';
-import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import {
@@ -58,6 +56,9 @@ const MAX_QUEUE_WAIT_MS = 3 * 60 * 60 * 1000; // 3 h — dead-letter if no worke
 // common case of a brief worker-busy moment.
 const PROMOTE_TO_PRIORITY_AFTER_RETRIES = 18;
 const PRIORITY_STREAM = 'jobs:priority';
+// Never promoted to priority: that stream is read by the shared GPU consumer, which has
+// no inhouse workers in its cap, so a promoted inhouse job would just keep requeueing.
+const INHOUSE_STREAM = 'jobs:inhouse';
 const REQUEUE_BACKOFF_MS = 10_000;
 
 type JobOutcome = 'success' | 'failed' | 'retried' | 'cancelled';
@@ -125,7 +126,9 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
   } = args;
   const nextRetryCount = retryCount + 1;
   const targetStream =
-    stream !== PRIORITY_STREAM && nextRetryCount >= PROMOTE_TO_PRIORITY_AFTER_RETRIES
+    stream !== PRIORITY_STREAM &&
+    stream !== INHOUSE_STREAM &&
+    nextRetryCount >= PROMOTE_TO_PRIORITY_AFTER_RETRIES
       ? PRIORITY_STREAM
       : stream;
   if (targetStream !== stream) {
@@ -159,8 +162,6 @@ export interface ProcessorConfig {
   comfyRedis: Redis;
   pub: Redis;
   storage: StorageProvider;
-  s3: S3Client;
-  r2Bucket: string;
   log: Logger;
 }
 
@@ -172,7 +173,7 @@ export async function processJob(
   messageId: string,
   retryCount = 0,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket, log } = cfg;
+  const { db, redis, pub, storage, log } = cfg;
   const jobLog = log.child({ jobId, userId });
   const startedAt = Date.now();
 
@@ -708,9 +709,7 @@ export async function processJob(
   try {
     // 4. Download images from R2, upload to ComfyUI input folder
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -977,8 +976,7 @@ export async function processJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -1048,7 +1046,7 @@ async function processVideoJob(
   startedAt: number,
   jobType: string | null,
 ): Promise<void> {
-  const { db, redis, pub, storage, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const sourceImageKey = rawParams.sourceImageKey as string;
   const prompt = rawParams.prompt as string;
   // Fallback to today's previous hardcoded values for job_inputs rows written
@@ -1123,14 +1121,7 @@ async function processVideoJob(
     const videoBytes = new Uint8Array(await videoRes.arrayBuffer());
 
     const resultKey = keys.videoOutput(jobId);
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: r2Bucket,
-        Key: resultKey,
-        Body: videoBytes,
-        ContentType: 'video/mp4',
-      }),
-    );
+    await storage.putObject(resultKey, videoBytes, 'video/mp4');
 
     if (!(await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog))) {
       await redis.xack(stream, 'dispatcher-cg', messageId);
@@ -1165,7 +1156,7 @@ async function processTryonDirectJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
 
   const personKey = params.personKey as string;
@@ -1235,12 +1226,15 @@ async function processTryonDirectJob(
     ? params.fallbackWorkerIds.filter((v): v is string => typeof v === 'string')
     : [];
   const hasPinnedWorkers = primaryWorkerIds.length > 0;
+  // Set by the dev API only for allowlisted accounts; claims then require a worker that
+  // lists 'inhouse', and production pools can never take these jobs in return.
+  const pool = params.inhouse === true ? WORKER_POOL.INHOUSE : WORKER_POOL.TRYON;
   const worker = hasPinnedWorkers
-    ? await selectPreferredWorker(redis, WORKER_POOL.TRYON, primaryWorkerIds, fallbackWorkerIds, {
+    ? await selectPreferredWorker(redis, pool, primaryWorkerIds, fallbackWorkerIds, {
         jobId,
         log: jobLog,
       })
-    : await selectWorker(redis, WORKER_POOL.TRYON, performanceKey, {
+    : await selectWorker(redis, pool, performanceKey, {
         jobId,
         log: jobLog,
       });
@@ -1303,9 +1297,7 @@ async function processTryonDirectJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -1356,11 +1348,11 @@ async function processTryonDirectJob(
       },
     });
 
-    logSelection(cfg.comfyRedis, w, WORKER_POOL.TRYON, performanceKey ?? '', jobLog);
+    logSelection(cfg.comfyRedis, w, pool, performanceKey ?? '', jobLog);
     const completion = await observeCompletion(
       cfg.comfyRedis,
       w,
-      WORKER_POOL.TRYON,
+      pool,
       performanceKey ?? '',
       workflow,
       jobLog,
@@ -1426,8 +1418,7 @@ async function processTryonDirectJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -1472,7 +1463,7 @@ async function processRegenerateJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
 
   const sourceImageKey = params.sourceImageKey as string;
@@ -1580,9 +1571,7 @@ async function processRegenerateJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -1706,8 +1695,7 @@ async function processRegenerateJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -1761,7 +1749,7 @@ async function processFabricToGarmentJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
 
   const productKey = inputs.upperGarmentKey;
@@ -1881,9 +1869,7 @@ async function processFabricToGarmentJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -2005,8 +1991,7 @@ async function processFabricToGarmentJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -2049,7 +2034,7 @@ async function processSareeMannequinJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
 
   const garmentKey = inputs.upperGarmentKey;
@@ -2269,9 +2254,7 @@ async function processSareeMannequinJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -2403,8 +2386,7 @@ async function processSareeMannequinJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -2450,7 +2432,7 @@ async function processSareeJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
 
   const modelKey = params.modelKey as string | undefined;
@@ -2555,9 +2537,7 @@ async function processSareeJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -2676,8 +2656,7 @@ async function processSareeJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {
@@ -2723,7 +2702,7 @@ async function processWidgetJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
   // biome-ignore lint/style/noNonNullAssertion: merchantId is guaranteed non-null for widget jobs
   const merchantId = job.merchantId!;
@@ -2955,9 +2934,7 @@ async function processWidgetJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -3089,15 +3066,8 @@ async function processWidgetJob(
       format: outputFormat,
       contentType,
     } = await encodeCompressedImage(imageBytes, compression);
-    const resultKey = `widget-outputs/${jobId}/result.${outputFormat}`;
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: r2Bucket,
-        Key: resultKey,
-        Body: encodedBuffer,
-        ContentType: contentType,
-      }),
-    );
+    const resultKey = keys.widgetOutput(jobId, outputFormat);
+    await storage.putObject(resultKey, encodedBuffer, contentType);
 
     // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
     if (!(await transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog))) {
@@ -3173,7 +3143,7 @@ async function processShopifyJob(
   startedAt: number,
   retryCount: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const { db, redis, pub, storage } = cfg;
   const jobId = job.id;
   // biome-ignore lint/style/noNonNullAssertion: shopifyStoreId guaranteed non-null for shopify jobs routed through this path
   const shopifyStoreId = job.shopifyStoreId!;
@@ -3299,9 +3269,7 @@ async function processShopifyJob(
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
-      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
-      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
-      return res.Body.transformToByteArray();
+      return storage.getObject(key);
     }
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
@@ -3429,8 +3397,7 @@ async function processShopifyJob(
       compression,
       db,
       pub,
-      s3,
-      r2Bucket,
+      storage,
       jobLog,
     });
     if (!completed) {

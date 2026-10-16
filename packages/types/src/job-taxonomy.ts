@@ -51,6 +51,10 @@ export const WORKER_POOL = {
   // WhatsApp bot garment recognition (spec 8a). An ordinary pool: an empty
   // allowedJobTypes includes it (D52 revised).
   CLASSIFY: 'classify',
+  // Workers dedicated to the team's own testing (bulk try-on runs of new workflows).
+  // A worker tagged ONLY ['inhouse'] is skipped by every other pool's claim, so
+  // production traffic can never reach it — never leave its list empty (= accepts all).
+  INHOUSE: 'inhouse',
 } as const;
 export type WorkerPool = (typeof WORKER_POOL)[keyof typeof WORKER_POOL];
 export const workerPoolSchema = z.enum(Object.values(WORKER_POOL) as [WorkerPool, ...WorkerPool[]]);

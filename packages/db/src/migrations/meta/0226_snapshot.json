@@ -9600,6 +9600,225 @@
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
+    },
+    "public.body_type_faces": {
+      "name": "body_type_faces",
+      "schema": "",
+      "columns": {
+        "body_type_id": {
+          "name": "body_type_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "face_id": {
+          "name": "face_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "body_type_faces_body_type_id_body_types_id_fk": {
+          "name": "body_type_faces_body_type_id_body_types_id_fk",
+          "tableFrom": "body_type_faces",
+          "tableTo": "body_types",
+          "columnsFrom": ["body_type_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "body_type_faces_face_id_model_faces_id_fk": {
+          "name": "body_type_faces_face_id_model_faces_id_fk",
+          "tableFrom": "body_type_faces",
+          "tableTo": "model_faces",
+          "columnsFrom": ["face_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "body_type_faces_body_type_id_face_id_pk": {
+          "name": "body_type_faces_body_type_id_face_id_pk",
+          "columns": ["body_type_id", "face_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.body_type_poses": {
+      "name": "body_type_poses",
+      "schema": "",
+      "columns": {
+        "body_type_id": {
+          "name": "body_type_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pose_asset_id": {
+          "name": "pose_asset_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "body_type_poses_body_type_id_body_types_id_fk": {
+          "name": "body_type_poses_body_type_id_body_types_id_fk",
+          "tableFrom": "body_type_poses",
+          "tableTo": "body_types",
+          "columnsFrom": ["body_type_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "body_type_poses_pose_asset_id_model_pose_assets_id_fk": {
+          "name": "body_type_poses_pose_asset_id_model_pose_assets_id_fk",
+          "tableFrom": "body_type_poses",
+          "tableTo": "model_pose_assets",
+          "columnsFrom": ["pose_asset_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "body_type_poses_body_type_id_pose_asset_id_pk": {
+          "name": "body_type_poses_body_type_id_pose_asset_id_pk",
+          "columns": ["body_type_id", "pose_asset_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.body_type_subcategories": {
+      "name": "body_type_subcategories",
+      "schema": "",
+      "columns": {
+        "body_type_id": {
+          "name": "body_type_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subcategory_id": {
+          "name": "subcategory_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "body_type_subcategories_body_type_id_body_types_id_fk": {
+          "name": "body_type_subcategories_body_type_id_body_types_id_fk",
+          "tableFrom": "body_type_subcategories",
+          "tableTo": "body_types",
+          "columnsFrom": ["body_type_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "body_type_subcategories_subcategory_id_garment_subcategories_id_fk": {
+          "name": "body_type_subcategories_subcategory_id_garment_subcategories_id_fk",
+          "tableFrom": "body_type_subcategories",
+          "tableTo": "garment_subcategories",
+          "columnsFrom": ["subcategory_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "body_type_subcategories_body_type_id_subcategory_id_pk": {
+          "name": "body_type_subcategories_body_type_id_subcategory_id_pk",
+          "columns": ["body_type_id", "subcategory_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.body_types": {
+      "name": "body_types",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "gender_slug": {
+          "name": "gender_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "thumbnail_key": {
+          "name": "thumbnail_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     }
   },
   "enums": {},

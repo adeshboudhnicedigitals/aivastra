@@ -25,7 +25,7 @@
   service; the dispatcher sends requests). api integration tests 5/5, typechecks clean.
 - **Connection form (2026-10-16):** the Overview tab has a Connection card (URL + API key, Test
   connection, Save, Clear saved). New table `classify_service_config` (single row `default`, key
-  stored as-is like `workers.api_key`; migration `0228_dashing_yellowjacket`, applied to local
+  stored as-is like `workers.api_key`; migration `0229_dashing_yellowjacket`, applied to local
   `tryon_dev` only, ships via CI/CD). The saved row wins over `CLASSIFY_SERVICE_URL/_API_KEY`
   (now only a fallback). The dispatcher re-reads it every ~10 s (`classify/service-config.ts`), so
   saving needs no restart; a DB blip keeps the last known value. Routes
@@ -160,7 +160,7 @@
   `send.ts` (23h50m window, stop-at-first-failure) + `inbound.ts` (unknown→connect link,
   `CONNECT <code>`, STOP/START per D21, 30/min rate limit, photo download with 2 retries);
   Task 7 `delivery.ts` (per-run lock, `delivered_job_ids` once-only, one ready template per
-  run, D38 upload-not-link) + migration `0226_quick_pestilence` (exactly two ADD COLUMNs on
+  run, D38 upload-not-link) + migration `0227_quick_pestilence` (exactly two ADD COLUMNs on
   `messaging_runs`); Task 8 `inbound-consumer.ts` (D50: per-sender chains, 20 in flight,
   75×200 ms sender lock; 5 s delivery loop), `main.ts` startup, `notify.ts` +
   `notifyConnected` (chat-confirm) and `notifyCreditsAdded` (`/verify` + payment webhook,
@@ -265,7 +265,7 @@
   most 8 s after the gender tap; flag off = always the list), extracted
   garment-type/face/template queries (Task 6 refactor; models-pattern integration
   11 files / 31 tests unchanged), and real engine deps + conversation entry point
-  with the `messaging_runs` table (migration `0225_youthful_stingray`: one row per
+  with the `messaging_runs` table (migration `0226_youthful_stingray`: one row per
   create call keyed by `catalogue_id`, with the account and job ids — D34, not
   `job_inputs.params.channel`). Spec decisions recorded in the spec itself
   (D33 engine purity, D34 run tracking, D48 recognition wait, D49 look rules;
@@ -293,7 +293,7 @@
 
 - **Done:** seller can connect a WhatsApp number to their web account from either direction,
   on branch `feat/whatsapp-bot-1-connect-identity` (unmerged). `messaging_accounts` table
-  (migration `0224_wakeful_ink`: `(channel, external_id)` unique, FK to `users` with
+  (migration `0225_wakeful_ink`: `(channel, external_id)` unique, FK to `users` with
   `ON DELETE CASCADE`) plus `@aivastra/types` messaging shapes; `apps/api` identity helpers
   (E.164/mask/profile-hint helpers, chat tokens TTL 30 min + web codes TTL 10 min as
   SHA-256-hashed Redis keys redeemed with `GETDEL`, `connectAccount` insert-first for

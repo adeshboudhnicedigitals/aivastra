@@ -152,8 +152,6 @@ describe('merchant widget job — result uploaded as WebP q90', () => {
         redis,
         pub,
         storage: env.storage,
-        s3: env.s3,
-        r2Bucket: env.r2Bucket,
         log,
       },
       jobId,

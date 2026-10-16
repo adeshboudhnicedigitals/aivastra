@@ -1,7 +1,6 @@
 import { setDefaultResultOrder } from 'node:dns';
 import { hostname } from 'node:os';
 import { createLogger } from '@aivastra/logger';
-import { S3Client } from '@aws-sdk/client-s3';
 import * as Sentry from '@sentry/node';
 import { Agent, setGlobalDispatcher } from 'undici';
 import { startPerformanceRefresh } from './perf/record-sample.js';
@@ -26,6 +25,7 @@ import { makeComfyRedis, makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
 import { runShopifyRetention } from './shopify/retention.js';
 import { runConsumer } from './stream/consumer.js';
+import { runInhouseConsumer } from './stream/inhouse-consumer.js';
 import { recoverPendingJobs } from './stream/recovery.js';
 import { runSweeper } from './stream/sweeper.js';
 import { runVideoConsumer } from './stream/video-consumer.js';
@@ -80,26 +80,7 @@ async function main(): Promise<void> {
   // Capability deadlines must not queue behind the main connection's blocking consumers.
   const comfyRedis = makeComfyRedis(redis);
   await comfyRedis.connect();
-  const storage = makeStorage(env);
-  const s3 = new S3Client({
-    endpoint: env.R2_ENDPOINT,
-    region: 'auto',
-    credentials: {
-      accessKeyId: env.R2_ACCESS_KEY_ID,
-      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    },
-    forcePathStyle: env.R2_FORCE_PATH_STYLE,
-    // Default NodeHttpHandler timeouts are 0 (disabled) — a stalled R2 connection would
-    // otherwise hang r2Download() forever, parking the job in PREPROCESSING with no error
-    // and no retry until the 15-min sweeper SLA. Mirror the bounded timeouts already used
-    // for every ComfyUI HTTP call (comfyui/client.ts).
-    requestHandler: {
-      connectionTimeout: 10_000,
-      requestTimeout: 60_000,
-      throwOnRequestTimeout: true,
-      socketTimeout: 60_000,
-    },
-  });
+  const storage = makeStorage(env, log);
 
   // Load workers from DB (source of truth — managed via admin panel)
   const dbWorkers = await db.select().from(schema.workers).where(eq(schema.workers.isActive, true));
@@ -150,8 +131,6 @@ async function main(): Promise<void> {
     comfyRedis,
     pub,
     storage,
-    s3,
-    r2Bucket: env.R2_BUCKET,
     log,
   };
 
@@ -173,6 +152,9 @@ async function main(): Promise<void> {
   const stopClassifyConsumer = await runClassifyConsumer(redis, processorCfg, log, {
     resolveService: createServiceResolver(db, env),
   });
+  // Dedicated lane for the team's own bulk try-on test runs; only workers tagged
+  // 'inhouse' serve it, and production lanes never see it.
+  const stopInhouseConsumer = await runInhouseConsumer(redis, processorCfg, log);
   const stopWebhooks = await runWebhooksConsumer(db, redis, log);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);
 
@@ -211,6 +193,7 @@ async function main(): Promise<void> {
     stopConsumer();
     stopVideoConsumer();
     stopClassifyConsumer();
+    stopInhouseConsumer();
     stopWebhooks();
     stopPerformanceRefresh();
     stopHealthMonitor();

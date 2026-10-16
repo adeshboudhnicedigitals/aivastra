@@ -8,7 +8,13 @@ import { getWorkers, healthKey } from './registry.js';
 
 const PROBE_INTERVAL_MS = 15_000;
 const HEALTH_TTL_SEC = 30;
-const JOB_STREAMS = ['jobs:priority', 'jobs:normal', 'jobs:low', 'jobs:video'] as const;
+const JOB_STREAMS = [
+  'jobs:priority',
+  'jobs:normal',
+  'jobs:low',
+  'jobs:video',
+  'jobs:inhouse',
+] as const;
 
 async function probeWorker(
   redis: Redis,
