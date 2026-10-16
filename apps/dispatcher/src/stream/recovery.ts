@@ -9,7 +9,13 @@ const CONSUMER = hostname();
 // jobs:video comes last deliberately: this loop awaits each processJob serially, and a
 // recovered video job runs for minutes (PixVerse poll + mp4 download), so putting it
 // first would stall recovery of the GPU streams behind it.
-const DEFAULT_STREAMS = ['jobs:priority', 'jobs:normal', 'jobs:low', 'jobs:video'] as const;
+const DEFAULT_STREAMS = [
+  'jobs:priority',
+  'jobs:normal',
+  'jobs:low',
+  'jobs:video',
+  'jobs:inhouse',
+] as const;
 
 type PendingEntry = [string, string, number, number]; // [id, consumer, idleMs, deliveries]
 

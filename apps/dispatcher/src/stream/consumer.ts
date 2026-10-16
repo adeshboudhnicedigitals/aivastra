@@ -2,7 +2,7 @@ import { hostname } from 'node:os';
 import type { Logger } from '@aivastra/logger';
 import type { Redis } from 'ioredis';
 import type { ProcessorConfig } from '../job/processor.js';
-import { getWorkers } from '../worker/registry.js';
+import { getWorkers, servesSharedPools } from '../worker/registry.js';
 import {
   DISPATCHER_GROUP,
   parseMessage,
@@ -15,7 +15,7 @@ const GROUP = DISPATCHER_GROUP;
 const CONSUMER = hostname();
 
 // How often the consumer re-reads the worker registry to recompute its in-flight
-// cap. Short enough that adding/removing a worker via the admin panel takes effect
+// cap (inhouse-only workers excluded — they have their own lane). Short enough that adding/removing a worker via the admin panel takes effect
 // within seconds (no dispatcher restart), long enough to avoid hammering Redis.
 const CONCURRENCY_REFRESH_MS = 5_000;
 
@@ -99,7 +99,7 @@ export async function runConsumer(
     if (now - lastConcurrencyRefresh >= CONCURRENCY_REFRESH_MS) {
       lastConcurrencyRefresh = now;
       try {
-        const next = (await getWorkers(redis)).size;
+        const next = [...(await getWorkers(redis)).values()].filter(servesSharedPools).length;
         if (next !== concurrency) {
           log.info({ from: concurrency, to: next }, 'consumer concurrency updated from registry');
           concurrency = next;

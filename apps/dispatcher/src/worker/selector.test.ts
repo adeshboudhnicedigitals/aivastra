@@ -213,7 +213,7 @@ describe('selector logging context', () => {
       const source = readFileSync(new URL(path, import.meta.url), 'utf8');
       expect(
         source.match(
-          /selectWorker\(redis, WORKER_POOL\.\w+, performanceKey, \{\s*jobId,\s*log: jobLog,?\s*\}\)/g,
+          /selectWorker\(redis, (?:WORKER_POOL\.\w+|pool), performanceKey, \{\s*jobId,\s*log: jobLog,?\s*\}\)/g,
         ),
       ).toHaveLength(expected);
     }

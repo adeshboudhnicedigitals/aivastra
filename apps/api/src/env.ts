@@ -109,6 +109,18 @@ const Env = z.object({
   // SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS: it gates revenue, so anything but the
   // exact string stays off. See docs/superpowers/specs/2026-10-09-shopify-hold-until-paid-design.md.
   SHOPIFY_HOLD_UNTIL_PAID: z.preprocess((v) => v === 'true', z.boolean()).default(false),
+  // Comma-separated user ids allowed to send /v1/dev/tryon jobs to the dedicated
+  // 'inhouse' worker lane. Empty = nobody, so a stray flag from an outside API key
+  // can never reach those workers.
+  INHOUSE_USER_IDS: z
+    .string()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
   // Partner API client token ("View financials" only) — org-scoped, a secret.
   // Use a separate client per environment: the 4 req/s limit is per client.
   // Blank placeholders in .env.example (FOO=) must not crash startup; use z.preprocess to treat '' as undefined.

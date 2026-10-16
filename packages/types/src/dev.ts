@@ -45,6 +45,9 @@ export const DevTryonJsonBody = z.object({
   garment: z.string().min(1),
   primaryWorkerIds: z.array(z.string().min(1)).optional(),
   fallbackWorkerIds: z.array(z.string().min(1)).optional(),
+  // Routes the job to the dedicated in-house lane/workers. Honored only for the
+  // accounts listed in the API's INHOUSE_USER_IDS; anyone else gets a 403.
+  inhouse: z.boolean().optional(),
 });
 
 export const DevWorkerListItem = z.object({

@@ -48,6 +48,10 @@ export const WORKER_POOL = {
   SAREE: 'saree',
   SHOPIFY: 'shopify',
   MERCHANT: 'merchant',
+  // Workers dedicated to the team's own testing (bulk try-on runs of new workflows).
+  // A worker tagged ONLY ['inhouse'] is skipped by every other pool's claim, so
+  // production traffic can never reach it — never leave its list empty (= accepts all).
+  INHOUSE: 'inhouse',
 } as const;
 export type WorkerPool = (typeof WORKER_POOL)[keyof typeof WORKER_POOL];
 export const workerPoolSchema = z.enum(Object.values(WORKER_POOL) as [WorkerPool, ...WorkerPool[]]);

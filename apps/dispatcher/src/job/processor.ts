@@ -56,6 +56,9 @@ const MAX_QUEUE_WAIT_MS = 3 * 60 * 60 * 1000; // 3 h — dead-letter if no worke
 // common case of a brief worker-busy moment.
 const PROMOTE_TO_PRIORITY_AFTER_RETRIES = 18;
 const PRIORITY_STREAM = 'jobs:priority';
+// Never promoted to priority: that stream is read by the shared GPU consumer, which has
+// no inhouse workers in its cap, so a promoted inhouse job would just keep requeueing.
+const INHOUSE_STREAM = 'jobs:inhouse';
 const REQUEUE_BACKOFF_MS = 10_000;
 
 type JobOutcome = 'success' | 'failed' | 'retried' | 'cancelled';
@@ -123,7 +126,9 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
   } = args;
   const nextRetryCount = retryCount + 1;
   const targetStream =
-    stream !== PRIORITY_STREAM && nextRetryCount >= PROMOTE_TO_PRIORITY_AFTER_RETRIES
+    stream !== PRIORITY_STREAM &&
+    stream !== INHOUSE_STREAM &&
+    nextRetryCount >= PROMOTE_TO_PRIORITY_AFTER_RETRIES
       ? PRIORITY_STREAM
       : stream;
   if (targetStream !== stream) {
@@ -1231,12 +1236,15 @@ async function processTryonDirectJob(
     ? params.fallbackWorkerIds.filter((v): v is string => typeof v === 'string')
     : [];
   const hasPinnedWorkers = primaryWorkerIds.length > 0;
+  // Set by the dev API only for allowlisted accounts; claims then require a worker that
+  // lists 'inhouse', and production pools can never take these jobs in return.
+  const pool = params.inhouse === true ? WORKER_POOL.INHOUSE : WORKER_POOL.TRYON;
   const worker = hasPinnedWorkers
-    ? await selectPreferredWorker(redis, WORKER_POOL.TRYON, primaryWorkerIds, fallbackWorkerIds, {
+    ? await selectPreferredWorker(redis, pool, primaryWorkerIds, fallbackWorkerIds, {
         jobId,
         log: jobLog,
       })
-    : await selectWorker(redis, WORKER_POOL.TRYON, performanceKey, {
+    : await selectWorker(redis, pool, performanceKey, {
         jobId,
         log: jobLog,
       });
@@ -1350,11 +1358,11 @@ async function processTryonDirectJob(
       },
     });
 
-    logSelection(cfg.comfyRedis, w, WORKER_POOL.TRYON, performanceKey ?? '', jobLog);
+    logSelection(cfg.comfyRedis, w, pool, performanceKey ?? '', jobLog);
     const completion = await observeCompletion(
       cfg.comfyRedis,
       w,
-      WORKER_POOL.TRYON,
+      pool,
       performanceKey ?? '',
       workflow,
       jobLog,

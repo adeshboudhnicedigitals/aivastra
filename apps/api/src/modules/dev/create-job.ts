@@ -26,11 +26,15 @@ export async function createDevJobCore(
     cost: number;
     watermark: boolean;
     source: JobSource;
+    // 'inhouse' = the dedicated lane (jobs:inhouse) consumed only by workers tagged
+    // 'inhouse'; everything else rides the shared jobs:normal.
+    lane?: 'normal' | 'inhouse';
     buildJobInputs: () => Omit<typeof schema.jobInputs.$inferInsert, 'jobId'>;
   },
 ): Promise<{ jobId: string }> {
   await assertMerchantJobRateLimit(app, params.merchantUserId);
 
+  const lane = params.lane ?? 'normal';
   const catalogueId = randomUUID();
   const [job] = await app.db.transaction(async (tx) => {
     const [newJob] = await tx
@@ -41,7 +45,7 @@ export async function createDevJobCore(
         catalogueId,
         status: 'QUEUED',
         priority: false,
-        queueStream: 'normal',
+        queueStream: lane,
         watermark: params.watermark,
         creditsCharged: params.cost,
         source: params.source,
@@ -65,7 +69,7 @@ export async function createDevJobCore(
 
   try {
     await app.redis.xadd(
-      'jobs:normal',
+      `jobs:${lane}`,
       'MAXLEN',
       '~',
       10000,
@@ -130,26 +134,51 @@ export async function createDevTryonJob(
     // dispatch time after credits are already charged.
     primaryWorkerIds?: string[];
     fallbackWorkerIds?: string[];
+    // Sends the job to the dedicated 'inhouse' workers instead of the shared tryon
+    // pool. The caller must already have checked the account is allowed to.
+    inhouse?: boolean;
   },
 ): Promise<{ jobId: string }> {
   const cost = await getTryonCreditCost(app);
 
+  const pool = params.inhouse ? WORKER_POOL.INHOUSE : WORKER_POOL.TRYON;
   const pinnedWorkerIds = [...(params.primaryWorkerIds ?? []), ...(params.fallbackWorkerIds ?? [])];
   if (pinnedWorkerIds.length > 0) {
     const rows = await app.db
       .select({ id: schema.workers.id, allowedJobTypes: schema.workers.allowedJobTypes })
       .from(schema.workers)
       .where(and(inArray(schema.workers.id, pinnedWorkerIds), eq(schema.workers.isActive, true)));
+    // An empty allowedJobTypes means "accepts anything" for the shared pools, but never
+    // for inhouse: that lane is opt-in per worker, and a pinned production job must not
+    // land on a dedicated inhouse worker (the dispatcher's claim enforces the same).
     const eligible = new Set(
       rows
-        .filter(
-          (w) => w.allowedJobTypes.length === 0 || w.allowedJobTypes.includes(WORKER_POOL.TRYON),
+        .filter((w) =>
+          params.inhouse
+            ? w.allowedJobTypes.includes(pool)
+            : w.allowedJobTypes.length === 0 || w.allowedJobTypes.includes(pool),
         )
         .map((w) => w.id),
     );
     const badId = pinnedWorkerIds.find((id) => !eligible.has(id));
     if (badId) {
-      throw new AppError('BAD_WORKER_ID', 400, `worker "${badId}" is not an active try-on worker`);
+      throw new AppError(
+        'BAD_WORKER_ID',
+        400,
+        `worker "${badId}" is not an active ${params.inhouse ? 'inhouse' : 'try-on'} worker`,
+      );
+    }
+  }
+
+  // Without a dedicated worker the job would requeue until the sweeper refunds it —
+  // fail fast, before any credit moves.
+  if (params.inhouse) {
+    const rows = await app.db
+      .select({ allowedJobTypes: schema.workers.allowedJobTypes })
+      .from(schema.workers)
+      .where(eq(schema.workers.isActive, true));
+    if (!rows.some((w) => w.allowedJobTypes.includes(pool))) {
+      throw new AppError('NO_INHOUSE_WORKER', 503, 'no active inhouse worker is configured');
     }
   }
 
@@ -196,12 +225,15 @@ export async function createDevTryonJob(
     // server-side by dev-api-auth.ts from the authenticated key row, the same
     // place merchantId/merchantUserId are already resolved.
     source: params.integration === 'wordpress' ? JOB_SOURCE.WORDPRESS_TRYON : JOB_SOURCE.API_TRYON,
+    lane: params.inhouse ? 'inhouse' : 'normal',
     buildJobInputs: () => ({
       upperGarmentKey: params.garmentKey,
       params: {
         personKey: params.personKey,
         workflowTemplateId: category.workflowTemplateId,
         dispatchTemplateVersion: category.templateVersion ?? null,
+        // The dispatcher picks the worker pool off this flag (processTryonDirectJob).
+        ...(params.inhouse ? { inhouse: true } : {}),
         ...(params.primaryWorkerIds?.length ? { primaryWorkerIds: params.primaryWorkerIds } : {}),
         ...(params.fallbackWorkerIds?.length
           ? { fallbackWorkerIds: params.fallbackWorkerIds }
