@@ -1847,11 +1847,7 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                                                 withSelectedFirst(
                                                   categoryItems,
                                                   (ci) => ci.id,
-                                                  {
-                                                    if (selectedInCategory !=
-                                                        null)
-                                                      selectedInCategory,
-                                                  },
+                                                  {?selectedInCategory},
                                                 );
                                             final PickableCategory
                                             categoryPicker = (
