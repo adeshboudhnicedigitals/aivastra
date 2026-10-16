@@ -1,6 +1,6 @@
 'use client';
 import { computeOutputDims, type Resolution } from '@aivastra/types';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X as CloseIcon, RotateCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -862,6 +862,9 @@ export default function StudioPage(): React.ReactElement {
         `/v1/models/garment-types?gender=${gender}${bodyTypeId ? `&bodyTypeId=${bodyTypeId}` : ''}`,
       ),
     enabled: !!gender,
+    // Keep showing the previous body type's garment types while the new ones load,
+    // instead of clearing the grid to a spinner on every body-type click.
+    placeholderData: keepPreviousData,
   });
   const selectedGarmentType = garmentTypes?.items.find((g) => g.id === garmentTypeId);
   // Saree and Saree-on-mannequin don't support batch mode yet (the batch endpoint has no
@@ -916,6 +919,7 @@ export default function StudioPage(): React.ReactElement {
         `/v1/models/faces?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}${bodyTypeId ? `&bodyTypeId=${bodyTypeId}` : ''}`,
       ),
     enabled: !!gender,
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
   });
@@ -1186,6 +1190,7 @@ export default function StudioPage(): React.ReactElement {
     enabled: !!gender,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
+    placeholderData: keepPreviousData,
   });
 
   // Scoped to gender+garmentTypeId — poses are gender-partitioned and have

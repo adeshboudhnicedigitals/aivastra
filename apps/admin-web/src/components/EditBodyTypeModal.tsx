@@ -25,7 +25,30 @@ export function EditBodyTypeModal({ bodyType, defaultGenderSlug, onSaved, onClos
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(bodyType?.thumbnailUrl ?? null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [seedFromGarmentTypes, setSeedFromGarmentTypes] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const seedMappedAssets = async (bodyTypeId: string) => {
+    const { faceIds, poseAssetIds } = await apiFetch<{
+      faceIds: string[];
+      poseAssetIds: string[];
+    }>(`/admin/assets/body-types/garment-mapped-assets?genderSlug=${genderSlug}`);
+    await Promise.all([
+      ...faceIds.map((faceId) =>
+        apiFetch(`/admin/assets/body-types/${bodyTypeId}/faces/${faceId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ mapped: true }),
+        }),
+      ),
+      ...poseAssetIds.map((poseAssetId) =>
+        apiFetch(`/admin/assets/body-types/${bodyTypeId}/poses/${poseAssetId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ mapped: true }),
+        }),
+      ),
+    ]);
+    return { faceCount: faceIds.length, poseCount: poseAssetIds.length };
+  };
 
   const handleUpload = async () => {
     if (!uploadFile) return;
@@ -62,6 +85,7 @@ export function EditBodyTypeModal({ bodyType, defaultGenderSlug, onSaved, onClos
   const handleSave = async () => {
     setSaving(true);
     try {
+      let savedId: string;
       if (isNew) {
         const created = await apiFetch<BodyType>('/admin/assets/body-types', {
           method: 'POST',
@@ -72,17 +96,34 @@ export function EditBodyTypeModal({ bodyType, defaultGenderSlug, onSaved, onClos
             sortOrder,
           }),
         });
+        savedId = created.id;
         onSaved(created);
-        toast({ title: `${label} created` });
       } else {
         await apiFetch(`/admin/assets/body-types/${bodyType.id}`, {
           method: 'PATCH',
           body: JSON.stringify({ label, thumbnailKey, sortOrder }),
         });
+        savedId = bodyType.id;
         onSaved({ ...bodyType, label, thumbnailKey, thumbnailUrl, sortOrder });
-        toast({ title: `${label} updated` });
       }
       onClose();
+      if (!seedFromGarmentTypes) {
+        toast({ title: `${label} ${isNew ? 'created' : 'updated'}` });
+        return;
+      }
+      try {
+        const { faceCount, poseCount } = await seedMappedAssets(savedId);
+        toast({
+          title: `${label} ${isNew ? 'created' : 'updated'}`,
+          body: `Seeded ${faceCount} face${faceCount !== 1 ? 's' : ''} and ${poseCount} pose${poseCount !== 1 ? 's' : ''} already mapped to garment types.`,
+        });
+      } catch (e) {
+        toast({
+          kind: 'error',
+          title: `${label} ${isNew ? 'created' : 'updated'}, but seeding failed`,
+          body: apiErrorMessage(e, 'Map faces/poses manually from their own tabs.'),
+        });
+      }
     } catch (e) {
       toast({
         kind: 'error',
@@ -198,6 +239,25 @@ export function EditBodyTypeModal({ bodyType, defaultGenderSlug, onSaved, onClos
               )}
             </div>
           </div>
+        </div>
+        <div className="field">
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={seedFromGarmentTypes}
+              disabled={saving}
+              onChange={(e) => setSeedFromGarmentTypes(e.target.checked)}
+              style={{ marginTop: 2, accentColor: 'var(--accent)' }}
+            />
+            <span>
+              Seed with garment-type-mapped assets
+              <br />
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                On save, maps every face and pose already assigned to any {genderSlug} garment type
+                onto this body type.
+              </span>
+            </span>
+          </label>
         </div>
       </div>
     </EditDrawer>
