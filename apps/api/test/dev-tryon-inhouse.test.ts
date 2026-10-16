@@ -125,3 +125,32 @@ describe('POST /v1/dev/tryon with inhouse: true', () => {
     expect((inputs?.params as Record<string, unknown>).inhouse).toBeUndefined();
   });
 });
+
+describe('GET /v1/dev/workers pool filter', () => {
+  const list = async (query = '') => {
+    const res = await fetch(`${base}/v1/dev/workers${query}`, {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { workers: { id: string }[] }).workers.map((w) => w.id);
+  };
+
+  it('default listing keeps accept-all workers and hides inhouse-only ones', async () => {
+    const ids = await list();
+    expect(ids).toContain('open-worker');
+    expect(ids).not.toContain('inhouse-a');
+  });
+
+  it('?pool=inhouse lists only workers that opted in', async () => {
+    const ids = await list('?pool=inhouse');
+    expect(ids).toContain('inhouse-a');
+    expect(ids).not.toContain('open-worker');
+  });
+
+  it('rejects an unknown pool', async () => {
+    const res = await fetch(`${base}/v1/dev/workers?pool=bogus`, {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    expect(res.status).toBe(400);
+  });
+});

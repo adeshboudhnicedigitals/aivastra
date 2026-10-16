@@ -22,6 +22,7 @@ import {
   DevTryonResponse,
   DevWidgetEventBody,
   DevWidgetEventResponse,
+  DevWorkersQuery,
   DevWorkersResponse,
   JOB_SOURCE,
   LEGACY_JOB_SOURCE,
@@ -650,16 +651,27 @@ export async function devRoutes(app: FastifyInstance) {
       config: rateLimitConfig,
       schema: {
         tags: ['dev'],
-        summary: 'List GPU workers eligible for try-on jobs',
+        summary:
+          'List GPU workers eligible for try-on jobs (or the inhouse lane via ?pool=inhouse)',
         response: {
           200: DevWorkersResponse,
+          400: DevErrorResponse,
           401: DevErrorResponse,
           403: DevErrorResponse,
           429: DevErrorResponse,
         },
       },
     },
-    async () => {
+    async (req) => {
+      const parsedQuery = DevWorkersQuery.safeParse(req.query);
+      if (!parsedQuery.success) {
+        throw new AppError(
+          'VALIDATION',
+          400,
+          parsedQuery.error.issues[0]?.message ?? 'invalid query',
+        );
+      }
+      const { pool } = parsedQuery.data;
       const rows = await app.db
         .select({
           id: schema.workers.id,
@@ -668,8 +680,12 @@ export async function devRoutes(app: FastifyInstance) {
         })
         .from(schema.workers)
         .where(eq(schema.workers.isActive, true));
-      const eligible = rows.filter(
-        (w) => w.allowedJobTypes.length === 0 || w.allowedJobTypes.includes(WORKER_POOL.TRYON),
+      // Mirrors create-job.ts's pin validation: an empty list means "accepts anything"
+      // for the shared try-on pool but never qualifies for inhouse.
+      const eligible = rows.filter((w) =>
+        pool === 'inhouse'
+          ? w.allowedJobTypes.includes(WORKER_POOL.INHOUSE)
+          : w.allowedJobTypes.length === 0 || w.allowedJobTypes.includes(WORKER_POOL.TRYON),
       );
 
       // Best-effort live status overlay — the dispatcher owns 'worker:registry',

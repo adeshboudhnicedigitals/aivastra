@@ -56,6 +56,12 @@ export const DevWorkerListItem = z.object({
   status: z.enum(['IDLE', 'BUSY', 'DRAINING', 'UNKNOWN']),
 });
 
+// Which pool's workers to list. 'inhouse' is the dedicated lane's workers, which the
+// default 'tryon' listing never includes (they're opt-in, not "accepts anything").
+export const DevWorkersQuery = z.object({
+  pool: z.enum(['tryon', 'inhouse']).default('tryon'),
+});
+
 export const DevWorkersResponse = z.object({
   workers: z.array(DevWorkerListItem),
 });
