@@ -887,17 +887,16 @@ export default function StudioPage(): React.ReactElement {
     if (batchGarmentItems.some((g) => g.id === garmentTypeId)) return;
     setGarmentTypeId(batchGarmentItems[0]?.id ?? '');
   }, [mode, batchGarmentItems, selectedGarmentType, garmentTypeId]);
-  const didAutoGarment = useRef('');
+  // Re-validates on every garmentTypes change (not just once per gender/bodyTypeId) so a
+  // selection that was auto-picked from stale placeholder data — e.g. the previous body
+  // type's list, shown instantly via keepPreviousData right after a body-type click — gets
+  // corrected once the real list for the new body type arrives, instead of sticking to a
+  // garmentTypeId that list doesn't contain at all (which crashed the render below).
   useEffect(() => {
-    // Keyed on gender+bodyTypeId (not just gender) so picking/clearing a body
-    // type — which re-filters garmentTypes via the query above — re-triggers
-    // auto-selection instead of leaving garmentTypeId stuck empty.
-    const autoKey = `${gender}:${bodyTypeId}`;
-    if (garmentTypes?.items?.length && !garmentTypeId && didAutoGarment.current !== autoKey) {
-      setGarmentTypeId(garmentTypes.items[0]?.id ?? '');
-      didAutoGarment.current = autoKey;
-    }
-  }, [garmentTypes, garmentTypeId, gender, bodyTypeId]);
+    if (!garmentTypes?.items?.length) return;
+    if (garmentTypeId && garmentTypes.items.some((g) => g.id === garmentTypeId)) return;
+    setGarmentTypeId(garmentTypes.items[0]?.id ?? '');
+  }, [garmentTypes, garmentTypeId]);
   const defaultsAppliedForGarmentType = useRef('');
   useEffect(() => {
     if (!garmentTypeId || defaultsAppliedForGarmentType.current === garmentTypeId) return;
@@ -2831,16 +2830,23 @@ export default function StudioPage(): React.ReactElement {
                       const inFirstN = all
                         .slice(0, garmentVisibleCount)
                         .some((s) => s.id === garmentTypeId);
-                      const visible =
+                      // garmentTypeId can briefly reference a garment type absent from `all`
+                      // entirely — not just outside the first N — right after a body-type
+                      // click, while the auto-select effect's stale pick from the previous
+                      // body type's placeholder data hasn't been corrected yet. Fall back to
+                      // the plain slice rather than asserting `find` succeeded.
+                      const selected =
                         garmentTypeId && !inFirstN
-                          ? [
-                              // biome-ignore lint/style/noNonNullAssertion: inFirstN is false here, so the find returns a value
-                              all.find((s) => s.id === garmentTypeId)!,
-                              ...all
-                                .filter((s) => s.id !== garmentTypeId)
-                                .slice(0, garmentVisibleCount - 1),
-                            ]
-                          : all.slice(0, garmentVisibleCount);
+                          ? all.find((s) => s.id === garmentTypeId)
+                          : undefined;
+                      const visible = selected
+                        ? [
+                            selected,
+                            ...all
+                              .filter((s) => s.id !== garmentTypeId)
+                              .slice(0, garmentVisibleCount - 1),
+                          ]
+                        : all.slice(0, garmentVisibleCount);
                       return visible.map((s) => {
                         const fallbackKey = Object.keys(OUTFIT_IMG).find(
                           (k) =>
