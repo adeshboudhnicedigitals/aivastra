@@ -180,6 +180,42 @@ export async function adminBodyTypesRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── Seed source: faces/poses already mapped to any garment type of a gender ─
+  // Backs the "include all garment-type-mapped assets" toggle on the create/edit
+  // body-type modal — the union of every face/pose with at least one explicit
+  // model_face_subcategories/pose_garment_configs row for a garment type of that
+  // gender, not simply every active face/pose of that gender.
+  app.get(
+    '/admin/assets/body-types/garment-mapped-assets',
+    { preHandler: RW, schema: { querystring: z.object({ genderSlug: z.string() }) } },
+    async (req) => {
+      const { genderSlug } = req.query as { genderSlug: string };
+
+      const faceRows = await app.db
+        .select({ faceId: schema.modelFaceSubcategories.faceId })
+        .from(schema.modelFaceSubcategories)
+        .innerJoin(
+          schema.garmentSubcategories,
+          eq(schema.garmentSubcategories.id, schema.modelFaceSubcategories.subcategoryId),
+        )
+        .where(eq(schema.garmentSubcategories.genderSlug, genderSlug));
+
+      const poseRows = await app.db
+        .select({ poseAssetId: schema.poseGarmentConfigs.poseAssetId })
+        .from(schema.poseGarmentConfigs)
+        .innerJoin(
+          schema.garmentSubcategories,
+          eq(schema.garmentSubcategories.id, schema.poseGarmentConfigs.subcategoryId),
+        )
+        .where(eq(schema.garmentSubcategories.genderSlug, genderSlug));
+
+      return {
+        faceIds: [...new Set(faceRows.map((r) => r.faceId))],
+        poseAssetIds: [...new Set(poseRows.map((r) => r.poseAssetId))],
+      };
+    },
+  );
+
   // ── Body type -> garment type mapping ───────────────────────────────────────
   // No rows for a body type = opt-out (every active garment type of that gender is
   // shown). Once any explicit mapping exists for the body type, only mapped garment

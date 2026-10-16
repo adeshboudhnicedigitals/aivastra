@@ -61,12 +61,14 @@ function UploadedGrid({
           <div
             key={item.id}
             className="card"
+            onClick={() => onToggleSelect(item.id)}
             style={{
               padding: 0,
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
               outline: selected ? '2px solid var(--pink)' : undefined,
+              cursor: 'pointer',
             }}
           >
             <div
@@ -84,6 +86,7 @@ function UploadedGrid({
                 type="checkbox"
                 checked={selected}
                 onChange={() => onToggleSelect(item.id)}
+                onClick={(e) => e.stopPropagation()}
                 style={{
                   position: 'absolute',
                   top: 6,
@@ -112,7 +115,10 @@ function UploadedGrid({
                 type="button"
                 className="btn danger"
                 style={{ width: '100%', marginTop: 8, fontSize: 11, padding: '3px 0' }}
-                onClick={() => onRemove(item.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(item.id);
+                }}
               >
                 <Icon.Trash /> Remove
               </button>
