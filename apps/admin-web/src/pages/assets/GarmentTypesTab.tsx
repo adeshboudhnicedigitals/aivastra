@@ -13,6 +13,7 @@ import { useUrlState, useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type {
+  BodyType,
   CatalogItem,
   GarmentType,
   GenderSlug,
@@ -142,6 +143,19 @@ export function GarmentTypesTab() {
             .map((g) => ({ id: g.id, label: g.label }))
         : [],
     [garmentTypes, subView],
+  );
+  // Body types a pose can be mapped onto directly from this garment type's own
+  // "Custom look poses" panel — same gender scoping as garment types, since
+  // body_type_poses rows are gender-scoped too.
+  const [bodyTypes, setBodyTypes] = useState<BodyType[]>([]);
+  const otherBodyTypeOptions = useMemo(
+    () =>
+      subView.kind === 'configs'
+        ? bodyTypes
+            .filter((b) => b.genderSlug === subView.sub.genderSlug)
+            .map((b) => ({ id: b.id, label: b.label }))
+        : [],
+    [bodyTypes, subView],
   );
   const closeConfigs = useCloseOverlay(['view', 'gtId']);
   // Breadcrumb depth slots for this tab (numbers are offsets into the app-wide
@@ -313,6 +327,12 @@ export function GarmentTypesTab() {
   useEffect(() => {
     apiFetch<TryonCategory[]>('/admin/tryon-categories')
       .then(setTryonCategories)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    apiFetch<{ items: BodyType[] }>('/admin/assets/body-types')
+      .then((res) => setBodyTypes(res.items))
       .catch(() => {});
   }, []);
 
@@ -594,6 +614,7 @@ export function GarmentTypesTab() {
             onSaveDefaultPose={saveDefaultPose}
             savingDefaultPose={savingDefaultPose}
             garmentTypeOptions={otherGarmentTypeOptions}
+            bodyTypeOptions={otherBodyTypeOptions}
             toast={toast}
             setPreviewUrl={setPreviewUrl}
           />
@@ -2098,6 +2119,7 @@ interface PoseConfigsPanelProps {
   onSaveDefaultPose: (garmentTypeId: string, poseAssetId: string | null) => Promise<void>;
   savingDefaultPose: boolean;
   garmentTypeOptions: { id: string; label: string }[];
+  bodyTypeOptions: { id: string; label: string }[];
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
   setPreviewUrl: (url: string | null) => void;
 }
@@ -2115,6 +2137,7 @@ function PoseConfigsPanel({
   onSaveDefaultPose,
   savingDefaultPose,
   garmentTypeOptions,
+  bodyTypeOptions,
   toast,
   setPreviewUrl,
 }: PoseConfigsPanelProps) {
@@ -2135,6 +2158,8 @@ function PoseConfigsPanel({
   const [multiSortSaving, setMultiSortSaving] = useState(false);
   const [mapTargetId, setMapTargetId] = useState('');
   const [mapSaving, setMapSaving] = useState(false);
+  const [mapBodyTypeId, setMapBodyTypeId] = useState('');
+  const [mapBodyTypeSaving, setMapBodyTypeSaving] = useState(false);
   // '' = all workflows, 'none' = poses with no workflow assigned (override or default), else a workflow id
   const [workflowFilter, setWorkflowFilter] = useState('');
 
@@ -2312,6 +2337,39 @@ function PoseConfigsPanel({
       });
     } finally {
       setMapSaving(false);
+    }
+  };
+
+  // Body types are the opt-out body_type_poses join, not the per-garment-type
+  // config pose_garment_configs is — no workflow/prompt override to preserve,
+  // just a plain membership flag (see PUT /body-types/:id/poses/:poseId).
+  const applyMapToBodyType = async () => {
+    if (!mapBodyTypeId || selectedIds.length === 0) return;
+    setMapBodyTypeSaving(true);
+    try {
+      await Promise.all(
+        selectedIds.map((poseId) =>
+          apiFetch(`/admin/assets/body-types/${mapBodyTypeId}/poses/${poseId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ mapped: true }),
+          }),
+        ),
+      );
+      toast({
+        title: `${selectedIds.length} pose${selectedIds.length !== 1 ? 's' : ''} mapped to ${
+          bodyTypeOptions.find((b) => b.id === mapBodyTypeId)?.label ?? 'body type'
+        }`,
+      });
+      clearSelection();
+      setMapBodyTypeId('');
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Mapping failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setMapBodyTypeSaving(false);
     }
   };
 
@@ -2525,6 +2583,26 @@ function PoseConfigsPanel({
                     onClick={() => void applyMapToGarmentType()}
                   >
                     {mapSaving ? 'Mapping…' : 'Map to garment type'}
+                  </button>
+                </>
+              )}
+              {bodyTypeOptions.length > 0 && (
+                <>
+                  <SearchableSelect
+                    options={bodyTypeOptions}
+                    value={mapBodyTypeId}
+                    disabled={mapBodyTypeSaving}
+                    onChange={setMapBodyTypeId}
+                    emptyLabel="Map to body type…"
+                    placeholder="— search body type —"
+                    style={{ fontSize: 12, padding: '3px 8px', height: 30 }}
+                  />
+                  <button
+                    className="btn sm ghost"
+                    disabled={!mapBodyTypeId || mapBodyTypeSaving}
+                    onClick={() => void applyMapToBodyType()}
+                  >
+                    {mapBodyTypeSaving ? 'Mapping…' : 'Map to body type'}
                   </button>
                 </>
               )}
