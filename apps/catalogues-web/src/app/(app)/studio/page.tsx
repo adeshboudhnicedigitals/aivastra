@@ -60,6 +60,11 @@ interface FaceItem {
   continent?: string | null;
   tags: string[];
 }
+interface BodyType {
+  id: string;
+  label: string;
+  thumbnailUrl: string | null;
+}
 const CONTINENT_LABELS: Record<string, string> = {
   asia: 'Asia',
   africa: 'Africa',
@@ -456,6 +461,7 @@ export default function StudioPage(): React.ReactElement {
   const [batchDirty, setBatchDirty] = useState(false);
   const [gender, setGender] = useState('women');
   const [garmentTypeId, setGarmentTypeId] = useState('');
+  const [bodyTypeId, setBodyTypeId] = useState('');
   const [garmentModalOpen, setGarmentModalOpen] = useState(false);
   const [batchGarmentModalOpen, setBatchGarmentModalOpen] = useState(false);
   const [platform, setPlatform] = useState('Amazon');
@@ -846,9 +852,18 @@ export default function StudioPage(): React.ReactElement {
     creditsData?.unlimitedPlan?.status === 'active' ||
     creditsData?.unlimitedPlan?.status === 'expiring_soon';
 
+  const { data: bodyTypes } = useQuery<{ items: BodyType[] }>({
+    queryKey: ['bodyTypes', gender],
+    queryFn: () => api.get(`/v1/models/body-types?gender=${gender}`),
+    enabled: !!gender,
+  });
+
   const { data: garmentTypes } = useQuery<{ items: GarmentType[] }>({
-    queryKey: ['garmentTypes', gender],
-    queryFn: () => api.get(`/v1/models/garment-types?gender=${gender}`),
+    queryKey: ['garmentTypes', gender, bodyTypeId],
+    queryFn: () =>
+      api.get(
+        `/v1/models/garment-types?gender=${gender}${bodyTypeId ? `&bodyTypeId=${bodyTypeId}` : ''}`,
+      ),
     enabled: !!gender,
   });
   const selectedGarmentType = garmentTypes?.items.find((g) => g.id === garmentTypeId);
@@ -871,11 +886,15 @@ export default function StudioPage(): React.ReactElement {
   }, [mode, batchGarmentItems, selectedGarmentType, garmentTypeId]);
   const didAutoGarment = useRef('');
   useEffect(() => {
-    if (garmentTypes?.items?.length && !garmentTypeId && didAutoGarment.current !== gender) {
+    // Keyed on gender+bodyTypeId (not just gender) so picking/clearing a body
+    // type — which re-filters garmentTypes via the query above — re-triggers
+    // auto-selection instead of leaving garmentTypeId stuck empty.
+    const autoKey = `${gender}:${bodyTypeId}`;
+    if (garmentTypes?.items?.length && !garmentTypeId && didAutoGarment.current !== autoKey) {
       setGarmentTypeId(garmentTypes.items[0]?.id ?? '');
-      didAutoGarment.current = gender;
+      didAutoGarment.current = autoKey;
     }
-  }, [garmentTypes, garmentTypeId, gender]);
+  }, [garmentTypes, garmentTypeId, gender, bodyTypeId]);
   const defaultsAppliedForGarmentType = useRef('');
   useEffect(() => {
     if (!garmentTypeId || defaultsAppliedForGarmentType.current === garmentTypeId) return;
@@ -894,10 +913,10 @@ export default function StudioPage(): React.ReactElement {
     isError: facesError,
     refetch: refetchFaces,
   } = useQuery<{ items: FaceItem[] }>({
-    queryKey: ['faces', gender, garmentTypeId],
+    queryKey: ['faces', gender, garmentTypeId, bodyTypeId],
     queryFn: () =>
       api.get(
-        `/v1/models/faces?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}`,
+        `/v1/models/faces?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}${bodyTypeId ? `&bodyTypeId=${bodyTypeId}` : ''}`,
       ),
     enabled: !!gender,
     staleTime: 60_000,
@@ -1162,10 +1181,10 @@ export default function StudioPage(): React.ReactElement {
     isError: posesError,
     refetch: refetchPoses,
   } = useQuery<{ items: PoseItem[] }>({
-    queryKey: ['poses', gender, garmentTypeId],
+    queryKey: ['poses', gender, garmentTypeId, bodyTypeId],
     queryFn: () =>
       api.get(
-        `/v1/models/poses?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}`,
+        `/v1/models/poses?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}${bodyTypeId ? `&bodyTypeId=${bodyTypeId}` : ''}`,
       ),
     enabled: !!gender,
     staleTime: 60_000,
@@ -2533,11 +2552,34 @@ export default function StudioPage(): React.ReactElement {
                     // garment type for the new gender, same as switching gender
                     // in single mode.
                     setGarmentTypeId('');
+                    setBodyTypeId('');
                     setAccessoryCatalogIds([]);
                   }}
                 />
               ))}
             </div>
+            {bodyTypes && bodyTypes.items.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: C.mid }}>
+                  Body type (optional)
+                </span>
+                <div className="studio-5col-grid" style={{ marginTop: 8 }}>
+                  {bodyTypes.items.map((b) => (
+                    <VisualCard
+                      key={b.id}
+                      img={b.thumbnailUrl}
+                      label={b.label}
+                      width="100%"
+                      selected={bodyTypeId === b.id}
+                      onClick={() => {
+                        setBodyTypeId((prev) => (prev === b.id ? '' : b.id));
+                        setGarmentTypeId('');
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="studio-section-card" style={sectionCardStyle}>
@@ -2693,6 +2735,7 @@ export default function StudioPage(): React.ReactElement {
                       onClick={() => {
                         setGender(g.value);
                         setGarmentTypeId('');
+                        setBodyTypeId('');
                         setAccessoryCatalogIds([]);
                         setCatalogueTemplateId('custom');
                         setGarmentModalOpen(false);
@@ -2700,6 +2743,28 @@ export default function StudioPage(): React.ReactElement {
                     />
                   ))}
                 </div>
+                {bodyTypes && bodyTypes.items.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.mid }}>
+                      Body type (optional)
+                    </span>
+                    <div className="studio-5col-grid" style={{ marginTop: 8 }}>
+                      {bodyTypes.items.map((b) => (
+                        <VisualCard
+                          key={b.id}
+                          img={b.thumbnailUrl}
+                          label={b.label}
+                          width="100%"
+                          selected={bodyTypeId === b.id}
+                          onClick={() => {
+                            setBodyTypeId((prev) => (prev === b.id ? '' : b.id));
+                            setGarmentTypeId('');
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </section>
 
               <section className="studio-section-card" style={sectionCardStyle}>

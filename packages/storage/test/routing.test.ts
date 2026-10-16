@@ -55,6 +55,7 @@ const EXPECTED: Record<keyof typeof keys, StorageBackend> = {
   subcategoryTryonLibraryInstruction: 'asset',
   shopifyBasketImage: 'asset',
   catalogueTemplateThumb: 'asset',
+  bodyTypeThumb: 'asset',
   subcategoryTemplate: 'asset',
   subcategoryTemplateThumb: 'asset',
   tryonSample: 'asset',
