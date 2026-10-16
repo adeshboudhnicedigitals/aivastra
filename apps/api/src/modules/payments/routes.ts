@@ -11,6 +11,7 @@ import {
   applyUnlimitedPlanRenewalPayment,
   markUnlimitedPlanChargeFailed,
 } from '../credits/unlimited-plan-renewal.js';
+import { notifyCreditsAdded } from '../messaging/notify.js';
 import { issueInvoiceIfNeeded } from './issue-invoice.js';
 
 const GST_RATE = 0.18;
@@ -348,6 +349,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
       });
 
       if (!credited) return { ok: true, alreadyCredited: true };
+      void notifyCreditsAdded(app, req.userId, creditsGranted);
 
       const [bal] = await app.db
         .select({ balance: schema.userCredits.balance })
@@ -490,6 +492,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         });
 
         if (webhookCredited) {
+          void notifyCreditsAdded(app, payment.userId, payment.credits);
           app.log.info(
             {
               razorpayOrderId,

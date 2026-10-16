@@ -307,7 +307,7 @@ as int,
 /// @nodoc
 mixin _$PixversePricing {
 
-@JsonKey(fromJson: _lenientNum) num get perSecondRate;@JsonKey(fromJson: _lenientNumMap) Map<String, num> get qualityBase;
+@JsonKey(fromJson: _lenientNumMap) Map<String, num> get perSecondRate;@JsonKey(fromJson: _lenientNumMap) Map<String, num> get qualityBase;
 /// Create a copy of PixversePricing
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -321,14 +321,14 @@ $PixversePricingCopyWith<PixversePricing> get copyWith => _$PixversePricingCopyW
 @override
 bool operator ==(Object other) {
   final _this = this as PixversePricing;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PixversePricing&&(identical(other.perSecondRate, _this.perSecondRate) || other.perSecondRate == _this.perSecondRate)&&const DeepCollectionEquality().equals(other.qualityBase, _this.qualityBase));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PixversePricing&&const DeepCollectionEquality().equals(other.perSecondRate, _this.perSecondRate)&&const DeepCollectionEquality().equals(other.qualityBase, _this.qualityBase));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
   final _this = this as PixversePricing;
-  return Object.hash(runtimeType,_this.perSecondRate,const DeepCollectionEquality().hash(_this.qualityBase));
+  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.perSecondRate),const DeepCollectionEquality().hash(_this.qualityBase));
 }
 
 @override
@@ -345,7 +345,7 @@ abstract mixin class $PixversePricingCopyWith<$Res>  {
   factory $PixversePricingCopyWith(PixversePricing value, $Res Function(PixversePricing) _then) = _$PixversePricingCopyWithImpl;
 @useResult
 $Res call({
-@JsonKey(fromJson: _lenientNum) num perSecondRate,@JsonKey(fromJson: _lenientNumMap) Map<String, num> qualityBase
+@JsonKey(fromJson: _lenientNumMap) Map<String, num> perSecondRate,@JsonKey(fromJson: _lenientNumMap) Map<String, num> qualityBase
 });
 
 
@@ -365,7 +365,7 @@ class _$PixversePricingCopyWithImpl<$Res>
 @pragma('vm:prefer-inline') @override $Res call({Object? perSecondRate = null,Object? qualityBase = null,}) {
   return _then(PixversePricing(
 perSecondRate: null == perSecondRate ? _self.perSecondRate : perSecondRate // ignore: cast_nullable_to_non_nullable
-as num,qualityBase: null == qualityBase ? _self.qualityBase : qualityBase // ignore: cast_nullable_to_non_nullable
+as Map<String, num>,qualityBase: null == qualityBase ? _self.qualityBase : qualityBase // ignore: cast_nullable_to_non_nullable
 as Map<String, num>,
   ));
 }
@@ -451,7 +451,7 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function(@JsonKey(fromJson: _lenientNum)  num perSecondRate, @JsonKey(fromJson: _lenientNumMap)  Map<String, num> qualityBase)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function(@JsonKey(fromJson: _lenientNumMap)  Map<String, num> perSecondRate, @JsonKey(fromJson: _lenientNumMap)  Map<String, num> qualityBase)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _PixversePricing() when $default != null:
 return $default(_that.perSecondRate,_that.qualityBase);case _:
@@ -472,7 +472,7 @@ return $default(_that.perSecondRate,_that.qualityBase);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function(@JsonKey(fromJson: _lenientNum)  num perSecondRate, @JsonKey(fromJson: _lenientNumMap)  Map<String, num> qualityBase)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function(@JsonKey(fromJson: _lenientNumMap)  Map<String, num> perSecondRate, @JsonKey(fromJson: _lenientNumMap)  Map<String, num> qualityBase)  $default,) {final _that = this;
 switch (_that) {
 case _PixversePricing():
 return $default(_that.perSecondRate,_that.qualityBase);case _:
@@ -492,7 +492,7 @@ return $default(_that.perSecondRate,_that.qualityBase);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function(@JsonKey(fromJson: _lenientNum)  num perSecondRate, @JsonKey(fromJson: _lenientNumMap)  Map<String, num> qualityBase)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function(@JsonKey(fromJson: _lenientNumMap)  Map<String, num> perSecondRate, @JsonKey(fromJson: _lenientNumMap)  Map<String, num> qualityBase)?  $default,) {final _that = this;
 switch (_that) {
 case _PixversePricing() when $default != null:
 return $default(_that.perSecondRate,_that.qualityBase);case _:
@@ -507,10 +507,16 @@ return $default(_that.perSecondRate,_that.qualityBase);case _:
 @JsonSerializable()
 
 class _PixversePricing implements PixversePricing {
-  const _PixversePricing({@JsonKey(fromJson: _lenientNum) this.perSecondRate = 0, @JsonKey(fromJson: _lenientNumMap)  Map<String, num> qualityBase = const {}}): _qualityBase = qualityBase;
+  const _PixversePricing({@JsonKey(fromJson: _lenientNumMap)  Map<String, num> perSecondRate = const {}, @JsonKey(fromJson: _lenientNumMap)  Map<String, num> qualityBase = const {}}): _perSecondRate = perSecondRate,_qualityBase = qualityBase;
   factory _PixversePricing.fromJson(Map<String, dynamic> json) => _$PixversePricingFromJson(json);
 
-@override@JsonKey(fromJson: _lenientNum) final  num perSecondRate;
+ final  Map<String, num> _perSecondRate;
+@override@JsonKey(fromJson: _lenientNumMap) Map<String, num> get perSecondRate {
+  if (_perSecondRate is EqualUnmodifiableMapView) return _perSecondRate;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableMapView(_perSecondRate);
+}
+
  final  Map<String, num> _qualityBase;
 @override@JsonKey(fromJson: _lenientNumMap) Map<String, num> get qualityBase {
   if (_qualityBase is EqualUnmodifiableMapView) return _qualityBase;
@@ -532,13 +538,13 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PixversePricing&&(identical(other.perSecondRate, perSecondRate) || other.perSecondRate == perSecondRate)&&const DeepCollectionEquality().equals(other.qualityBase, _qualityBase));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PixversePricing&&const DeepCollectionEquality().equals(other.perSecondRate, _perSecondRate)&&const DeepCollectionEquality().equals(other.qualityBase, _qualityBase));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
-    return Object.hash(runtimeType,perSecondRate,const DeepCollectionEquality().hash(_qualityBase));
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(_perSecondRate),const DeepCollectionEquality().hash(_qualityBase));
 }
 
 @override
@@ -554,7 +560,7 @@ abstract mixin class _$PixversePricingCopyWith<$Res> implements $PixversePricing
   factory _$PixversePricingCopyWith(_PixversePricing value, $Res Function(_PixversePricing) _then) = __$PixversePricingCopyWithImpl;
 @override @useResult
 $Res call({
-@JsonKey(fromJson: _lenientNum) num perSecondRate,@JsonKey(fromJson: _lenientNumMap) Map<String, num> qualityBase
+@JsonKey(fromJson: _lenientNumMap) Map<String, num> perSecondRate,@JsonKey(fromJson: _lenientNumMap) Map<String, num> qualityBase
 });
 
 
@@ -573,8 +579,8 @@ class __$PixversePricingCopyWithImpl<$Res>
 /// with the given fields replaced by the non-null parameter values.
 @override @pragma('vm:prefer-inline') $Res call({Object? perSecondRate = null,Object? qualityBase = null,}) {
   return _then(_PixversePricing(
-perSecondRate: null == perSecondRate ? _self.perSecondRate : perSecondRate // ignore: cast_nullable_to_non_nullable
-as num,qualityBase: null == qualityBase ? _self._qualityBase : qualityBase // ignore: cast_nullable_to_non_nullable
+perSecondRate: null == perSecondRate ? _self._perSecondRate : perSecondRate // ignore: cast_nullable_to_non_nullable
+as Map<String, num>,qualityBase: null == qualityBase ? _self._qualityBase : qualityBase // ignore: cast_nullable_to_non_nullable
 as Map<String, num>,
   ));
 }

@@ -17,6 +17,7 @@ _TemplateLook _$TemplateLookFromJson(Map<String, dynamic> json) =>
       backgroundThumbnailUrl: json['backgroundThumbnailUrl'] as String,
       hasLower: json['hasLower'] as bool? ?? false,
       hasShoes: json['hasShoes'] as bool? ?? false,
+      hasAccessory: json['hasAccessory'] as bool? ?? false,
     );
 
 Map<String, dynamic> _$TemplateLookToJson(_TemplateLook instance) =>
@@ -30,6 +31,7 @@ Map<String, dynamic> _$TemplateLookToJson(_TemplateLook instance) =>
       'backgroundThumbnailUrl': instance.backgroundThumbnailUrl,
       'hasLower': instance.hasLower,
       'hasShoes': instance.hasShoes,
+      'hasAccessory': instance.hasAccessory,
     };
 
 _CatalogueTemplate _$CatalogueTemplateFromJson(Map<String, dynamic> json) =>

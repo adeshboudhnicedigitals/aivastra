@@ -18,3 +18,11 @@
 -dontwarn androidx.credentials.**
 -dontwarn com.google.android.gms.auth.api.identity.**
 -dontwarn com.google.android.libraries.identity.googleid.**
+
+# Firebase Crashlytics — keep line numbers for readable stack traces; the
+# Crashlytics Gradle plugin uploads mapping.txt on release builds to
+# deobfuscate class/method names. Matches
+# apps/virtual_tryon_android's proguard-rules.pro.
+-keepattributes SourceFile,LineNumberTable
+-keep public class * extends java.lang.Exception
+-renamesourcefileattribute SourceFile

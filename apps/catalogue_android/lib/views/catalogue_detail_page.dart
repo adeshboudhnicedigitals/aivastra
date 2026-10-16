@@ -185,65 +185,6 @@ class _CatalogueDetailPageState extends ConsumerState<CatalogueDetailPage>
                   ],
                 ),
                 SizedBox(height: gap),
-                BorderedCard(
-                  padding: EdgeInsets.all(AppDimens.sdp(context, '_12sdp')),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: AppDimens.sdp(context, '_40sdp'),
-                        height: AppDimens.sdp(context, '_40sdp'),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.35),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: AppColors.fieldBorder),
-                        ),
-                        alignment: Alignment.center,
-                        child: Icon(
-                          Icons.bookmark_border_rounded,
-                          color: AppColors.pinkGradientStart,
-                          size: AppDimens.sdp(context, '_18sdp'),
-                        ),
-                      ),
-                      SizedBox(width: AppDimens.sdp(context, '_10sdp')),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              AppStrings.saveLookAsPreset,
-                              style: AppTextStyles.semiBold.copyWith(
-                                color: Colors.white,
-                                fontSize: AppDimens.ssp(context, '_12ssp'),
-                              ),
-                            ),
-                            SizedBox(height: AppDimens.sdp(context, '_4sdp')),
-                            Text(
-                              AppStrings.saveLookAsPresetSubtitle,
-                              style: AppTextStyles.regular.copyWith(
-                                color: AppColors.textSecondary,
-                                fontSize: AppDimens.ssp(context, '_10ssp'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(width: AppDimens.sdp(context, '_8sdp')),
-                      // A catalogue opened from My Creations doesn't carry the
-                      // garment type / poses it was made with (the detail
-                      // endpoint doesn't return them), so the preset can only
-                      // be saved right after generating.
-                      AppPillButton(
-                        label: AppStrings.saveAsPreset,
-                        icon: Icons.bookmark_border_rounded,
-                        style: AppPillButtonStyle.outline,
-                        onTap: () => toast(
-                          'Save a look as a preset right after generating it.',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: gap),
                 _RecentCreations(excludeCatalogueId: catalogueId),
               ],
             );

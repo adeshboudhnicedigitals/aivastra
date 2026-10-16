@@ -9,7 +9,6 @@ import '../core/network/app_exception.dart';
 import '../core/utils/save_media.dart';
 import '../core/utils/share_media.dart';
 import '../features/studio/application/catalogue_result_controller.dart';
-import '../features/studio/application/studio_providers.dart';
 import '../features/studio/application/studio_reference_providers.dart';
 import '../features/studio/data/models/job_row.dart';
 import '../utils/app_strings.dart';
@@ -18,11 +17,10 @@ import '../widgets/detail_page_widgets.dart';
 import '../widgets/generating_animation.dart';
 
 /// Everything a catalogue page can DO to one of its images - download,
-/// share, regenerate, delete, save the look as a preset - shared by the two
-/// separate screens that show a catalogue: the generation result page
-/// (`CatalogueResultPage`) and the My Creations detail page
-/// (`CatalogueDetailPage`). Each owns its own layout; this owns the behaviour
-/// so the two can't drift apart.
+/// share, regenerate, delete - shared by the two separate screens that show
+/// a catalogue: the generation result page (`CatalogueResultPage`) and the
+/// My Creations detail page (`CatalogueDetailPage`). Each owns its own
+/// layout; this owns the behaviour so the two can't drift apart.
 mixin CatalogueActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   String get catalogueId;
 
@@ -191,63 +189,6 @@ mixin CatalogueActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     } catch (_) {
       toast('Could not delete this image. Please try again.');
     }
-  }
-
-  Future<void> saveAsPreset(
-    String? gender,
-    String? garmentTypeId,
-    List<String>? poseIds,
-  ) async {
-    if (gender == null ||
-        garmentTypeId == null ||
-        poseIds == null ||
-        poseIds.isEmpty) {
-      return;
-    }
-    final name = await promptForName();
-    if (name == null || name.isEmpty) return;
-    await ref
-        .read(studioRepositoryProvider)
-        .savePosePreset(
-          name: name,
-          gender: gender,
-          garmentTypeId: garmentTypeId,
-          poseIds: poseIds,
-        );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Preset saved.')));
-  }
-
-  Future<String?> promptForName() {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.sheetBackground,
-        title: const Text(
-          'Save look as preset',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(hintText: 'Preset name'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
   }
 
   /// Opens [jobs] starting at [initialIndex] in the fullscreen viewer, which

@@ -602,19 +602,10 @@ export async function processJob(
     jobLog.warn({ faceId: inputs.faceId }, 'faceSideR2Key not set — falling back to display r2Key');
   }
 
-  // Backgrounds now use a single image (r2Key) for both display and ComfyUI.
+  // Backgrounds use a single image (r2Key) for both display and ComfyUI — one
+  // background per job, as chosen at creation (no platform overrides — D30).
   // (The legacy separate bgComfyR2Key column is no longer used.)
-  let params: Record<string, unknown> = {};
-  if (inputs.params) {
-    params =
-      typeof inputs.params === 'string'
-        ? JSON.parse(inputs.params)
-        : (inputs.params as Record<string, unknown>);
-  }
-  const isAmazon = params.platform === 'Amazon';
-  jobLog.info({ platform: params.platform, isAmazon }, 'platform check');
   const bgKey = bgRow.r2Key;
-  const bgSource = isAmazon ? 'amazon-override' : 'single-image';
   const poseKey = poseRow.r2Key;
   const workflowTemplateId = effectiveWorkflowTemplateId;
   if (!workflowTemplateId) {
@@ -630,7 +621,7 @@ export async function processJob(
   const needsBg = !!tmplRoles?.bgNodeId;
   const needsUpper = (tmplRoles?.upperNodeIds.length ?? 0) > 0;
   jobLog.info(
-    { faceSideKey, bgKeyResolved: bgKey, bgSource, poseKey, workflowTemplateId },
+    { faceSideKey, bgKeyResolved: bgKey, poseKey, workflowTemplateId },
     'resolved R2 keys for ComfyUI upload',
   );
 
@@ -895,7 +886,6 @@ export async function processJob(
             faceSideKey,
             poseKey,
             bgKey,
-            bgSource,
             lowerKey,
             shoeKey,
             thirdGarmentKey: inputs.thirdGarmentKey,

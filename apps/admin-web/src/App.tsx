@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { ToastStack } from './components/ToastStack';
 import { Topbar } from './components/Topbar';
@@ -10,6 +10,7 @@ import AssetsPage from './pages/AssetsPage';
 import AuditLogsPage from './pages/AuditLogsPage';
 import ChatbotQnaPage from './pages/ChatbotQnaPage';
 import ChatInboxPage from './pages/ChatInboxPage';
+import ClassifyServicePage from './pages/ClassifyServicePage';
 import ContactRequestsPage from './pages/ContactRequestsPage';
 import CreditAnalysisPage from './pages/CreditAnalysisPage';
 import DashboardPage from './pages/DashboardPage';
@@ -44,6 +45,7 @@ const PATH_LABELS: Record<string, string> = {
   'demo-catalog': 'Kiosk Demo Data',
   users: 'Users',
   jobs: 'Jobs',
+  'classify-service': 'Classify Service',
   'held-batches': 'Held Batches',
   workflows: 'Workflows',
   'workflow-approvals': 'Flow Approvals',
@@ -259,6 +261,12 @@ export default function App() {
             <Route path="/pixverse" element={<PixversePage {...pageProps} />} />
             <Route path="/users" element={<UsersPage {...pageProps} />} />
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
+            <Route path="/classify-service" element={<ClassifyServicePage {...pageProps} />} />
+            {/* The old list lives on as the Requests tab. */}
+            <Route
+              path="/garment-recognitions"
+              element={<Navigate to="/classify-service?tab=requests" replace />}
+            />
             <Route path="/held-batches" element={<HeldBatchesPage {...pageProps} />} />
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/workflow-approvals" element={<FlowApprovalsPage {...pageProps} />} />

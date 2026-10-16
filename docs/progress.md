@@ -2,6 +2,409 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-16 — catalogue_android: Crashlytics build verified, accessory step, saree slider-split, motion duration range
+
+- **Done:** verified the 2026-10-14 Crashlytics wiring actually builds — a real
+  `google-services.json` for `com.nice.aivastracatalogue` is now present locally
+  (`android/app/google-services.json`, gitignored); debug and release (R8) builds both succeed
+  with the Google Services + Crashlytics Gradle plugins applied. `CAT_GOOGLE_SERVICES_JSON_BASE64`
+  is still **not set** as a GitHub secret, so the next `cat-v*` tag release build will still fail
+  at the "Restore google-services.json" CI step until someone sets it (see the 2026-10-14 entry
+  below for how to get the file).
+- **Done:** ported the web app's accessory studio step (`2026-10-02` entry below) and single-photo
+  slider-split saree upload (`feat(catalogues-web): single-photo slider-split upload for saree
+  body/pallu`, commit `2e6f92a0` on `origin/dev`) to `catalogue_android` — `accessoryCatalogItemIds`
+  single-select-per-category state in `CatalogueSelectionController`, `accessoryCatalogProvider`,
+  and a new `SareeSliderSplitUpload` widget (drag-to-split crop via the `image` package, isolate-
+  side via `compute()` so a ~20MB photo doesn't jank the UI) wired into `catalogue_studio_form.dart`
+  behind the same `sareeTwoInputCapable` gate the web app uses. Both verified with
+  `flutter analyze`/`flutter test`/`flutter build apk --debug`.
+- **Done:** Motion Studio's duration picker now offers every integer 5–15 seconds instead of just
+  5/10/15 — backend (`PIXVERSE_DURATION_MIN/MAX`) and the web app's stepper already supported the
+  full range; only the Android picker's fixed option list was narrower. Also fixed
+  `PixversePricing.perSecondRate` in `lib/features/studio/data/models/sample_video.dart`: it was
+  typed as a bare `num` with a lenient-number parser, so the server's actual per-quality-tier map
+  (`Record<PixverseQuality, number>`) always fell through to `0` and the per-second cost
+  contribution was silently dropped from every computed estimate.
+
+## 2026-10-14 — catalogue_android: release-build Google Sign-In fix, manual versioning, in-app updates, Crashlytics
+
+- **Done (shipped, cat-v1.0.1):** Google Sign-In silently failed on Play Store release builds
+  (no crash, no snackbar) — R8 was stripping Credential Manager classes it only reaches via
+  reflection, so the failure threw outside the catchable `GoogleSignInException` and was
+  swallowed. Fixed with keep rules in `android/app/proguard-rules.pro` for
+  `androidx.credentials`, `com.google.android.gms.auth.api.identity`, and
+  `com.google.android.libraries.identity.googleid`; verified on a real signed release build
+  on-device (full sign-in flow completed). Also widened the Google Sign-In catch block on
+  login/signup to a catch-all with a snackbar, so this class of failure can't go silent again.
+  PR #527, merged into `dev`, released via the `cat-v1.0.1` tag to the Play internal testing
+  track (versionCode 15 — see below for why).
+- **Done:** `catalogue-android.yml`'s release build no longer overrides versionCode with the
+  Actions run number — both `versionName`/`versionCode` now come straight from `pubspec.yaml`'s
+  `version: X.Y.Z+N`, manual from here on. `pubspec.yaml` bumped to `1.0.1+16` (above the `15`
+  already shipped under the old run-number scheme) so the next release doesn't get silently
+  rejected by Play for a non-increasing versionCode. **Whoever ships a release must bump `+N`
+  by hand before every `cat-v*` tag.**
+- **Done:** Phase 1 of in-app updates — Play's In-App Update API (`in_app_update` package,
+  Flexible flow): downloads a newer Play-published version in the background on launch with no
+  UI, then shows a custom dismissible banner (`lib/widgets/update_banner.dart`, mirrors
+  `OfflineBanner`'s shape) once the download finishes, with a "Restart" button. No forced/blocking
+  update yet — that would be a separate backend-driven minimum-version gate for emergency cases,
+  not implemented.
+- **Done, code-side only — blocked on an external step:** Firebase Crashlytics wired in
+  (`firebase_core`, `firebase_crashlytics`, `package_info_plus`; `lib/core/crash/crash_reporter.dart`
+  mirrors `apps/virtual_tryon_android`'s `CrashReporter.kt`; `FlutterError.onError` +
+  `PlatformDispatcher.instance.onError` both wired in `main.dart`; user id synced from
+  `authControllerProvider`). Gradle plugins (`com.google.gms.google-services` 4.5.0,
+  `com.google.firebase.crashlytics` 3.0.7 — same pins as virtual_tryon_android) applied in
+  `android/app/build.gradle.kts`. CI (`catalogue-android.yml`) restores
+  `android/app/google-services.json` from a new secret, `CAT_GOOGLE_SERVICES_JSON_BASE64`
+  (same pattern as the existing keystore restore), before the `build` job — **not yet set**.
+  `flutter analyze`/`flutter test` pass (pure Dart, no Gradle involved), but nothing has
+  actually built or run on a device yet: the Google Services Gradle plugin hard-fails
+  configuration without a real `google-services.json`, even for a debug build. **Blocked on:**
+  someone with Firebase Console access downloading `google-services.json` for the
+  already-registered `com.nice.aivastracatalogue` Android app (it exists — that's where
+  `CAT_FIREBASE_APP_ID`, used by App Distribution, came from) and placing it at
+  `android/app/google-services.json` (gitignored) locally, **and** base64-encoding it into the
+  `CAT_GOOGLE_SERVICES_JSON_BASE64` GitHub secret for CI.
+
+## 2026-10-16 — WhatsApp garment recognition: always-resident VLM service on gpu8
+
+- **Why:** through ComfyUI the recognition model cold-started (32–40 s) and was evicted by try-on
+  jobs on shared workers (6–17 s warm), missing the api's 12 s budget.
+- **Done:** a standalone service, `aivastra-gpu/pipeline/classify-service/` (FastAPI +
+  transformers, Qwen2.5-VL-7B-Instruct bf16, loaded and warmed at boot, one inference at a time,
+  Bearer key). Installed on gpu8 (`ubuntu@50.35.188.73 -p 32152`) in its own venv
+  `/home/ubuntu/classify`, systemd unit `classify` on `127.0.0.1:8400`. Measured on the box:
+  load 11 s, 15.8 GB VRAM, **119–579 ms per request** over 9 requests on 3 garments, identical
+  answers on repeat, wrong key → 401. Dispatcher: `CLASSIFY_SERVICE_URL` +
+  `CLASSIFY_SERVICE_API_KEY` switch the classify lane to the service (unset = ComfyUI worker
+  path as before); the admin-edited classify workflow stays the single source of the prompt
+  (`promptFromWorkflow`). Dispatcher unit + `classify-lane` integration tests pass (10/10).
+- **Admin page (2026-10-16):** sidebar "Classify Service" (`/classify-service?tab=overview|requests|logs`)
+  replaces "Garment Recognitions" (the old path redirects; its list is now the Requests tab).
+  Overview = live health (model, uptime, VRAM, round trip) + 1 h / 24 h / 7 d stats (requests,
+  answered %, p50/p95 over answered, failed/expired); Logs = the service's in-memory ring buffer
+  (last 500 events, new authenticated `GET /logs`; a restart clears it, `journalctl -u classify` on
+  the box keeps the record). api routes `/admin/classify-service/{status,stats,logs}` need
+  `CLASSIFY_SERVICE_URL` + `CLASSIFY_SERVICE_API_KEY` on the **api** too (it only reads the
+  service; the dispatcher sends requests). api integration tests 5/5, typechecks clean.
+- **Connection form (2026-10-16):** the Overview tab has a Connection card (URL + API key, Test
+  connection, Save, Clear saved). New table `classify_service_config` (single row `default`, key
+  stored as-is like `workers.api_key`; migration `0229_dashing_yellowjacket`, applied to local
+  `tryon_dev` only, ships via CI/CD). The saved row wins over `CLASSIFY_SERVICE_URL/_API_KEY`
+  (now only a fallback). The dispatcher re-reads it every ~10 s (`classify/service-config.ts`), so
+  saving needs no restart; a DB blip keeps the last known value. Routes
+  `GET/PUT/DELETE /admin/classify-service/config` and `POST /test-connection` (`workers.write` /
+  `workers.read`); saves are audit-logged with the key hint only. Test connection checks `/health`
+  and then an authenticated route, so a wrong key is reported as rejected (`/health` is open).
+  api integration 9/9, dispatcher classify-lane 11/11. Checked in the browser (local admin):
+  page, tabs, form, and a wrong-key test showing "Reachable, but the API key was rejected". A
+  save with the real key was **not** run from the browser.
+- **Not done / open:** (1) [superseded by the Exposed entry below] the VPS cannot reach gpu8 yet — only the provider-mapped SSH port is
+  reachable (80/443 time out), so production needs a Cloudflare tunnel or a provider port map;
+  that adds a DNS record in `aivastra.com` and was not created. (2) Accuracy was not re-run on
+  the 21-photo set; the model is the spike's Qwen2.5-VL-7B but bf16 instead of 4-bit. (3) No
+  idle test yet (does latency hold after hours unused?). (4) The service does not survive a pod
+  replacement (gpu8 was re-provisioned 2026-10-15). (5) The key lives in
+  `/home/ubuntu/classify/env` on the box (mode 600); it is not recorded anywhere else.
+- **Exposed (2026-10-16):** Cloudflare named tunnel `aivastra-gpu8-classify` (id
+  `7f5f1ab4-bdbb-49a6-9f5b-3b7c1a3dc528`), DNS `gpu8-classify.aivastra.com` → `127.0.0.1:8400`
+  on the box. `cloudflared` runs there as systemd `classify-tunnel` (binary, config and
+  credentials in `/home/ubuntu/cloudflared`). Checked from outside: `/health` 200, wrong key 401,
+  `/classify` answers in 121–136 ms server side, ~1 s end to end from the dev machine. The
+  service's Bearer key is the only gate. This replaces open item (1) below. Dispatcher env:
+  `CLASSIFY_SERVICE_URL=https://gpu8-classify.aivastra.com`, `CLASSIFY_SERVICE_API_KEY=<the key>`.
+- **Local test needs (superseded by the public hostname above, no SSH forward needed):** `ssh -N -L 8400:127.0.0.1:8400 -i ~/.ssh/aivastra_gpu_dev -p 32152
+  ubuntu@50.35.188.73`, plus the two env vars in `.env` and an active classify workflow
+  uploaded in admin (the local `tryon_dev` has none).
+
+## 2026-10-14 — WhatsApp bot: fixed public dev URLs, 5 MB image fit, fixed 3:4 / 2K, Cloudflare state
+
+- **Done (code, `feat/whatsapp-catalog-bot`, each with a failing-first test):** results over
+  Meta's 5 MB image limit are re-encoded before upload (`channels/whatsapp/media.ts`; Meta
+  returned `(#100) Invalid parameter`, "File too large", and the delivery loop retried
+  forever); a single pose is one image-header button message (WhatsApp had reordered the
+  old two-message version); the engine logs why a garment type is "not available on
+  WhatsApp yet" (`no_face` / `no_template` / `no_eligible_looks`); every bot run is 3:4 at
+  2K, falling back to the cheapest enabled tier (`messaging/deps.ts`, spec D43); and the
+  engine now re-reads that shape on **every** message, because a session lives 24 h, every
+  message extends it, and a chat saved before the switch kept generating at `1:1`. Dev
+  tooling: `scripts/local-sync/whatsapp-dev-tunnel.ps1` plus `make whatsapp-tunnel-setup` /
+  `make whatsapp-tunnel` (named tunnel, fixed hostnames); the web studio CSP allows the
+  tunnel host in dev only.
+- **State outside the repo (Cloudflare, zone `aivastra.com`):** named tunnel `aivastra-wa-dev`
+  (id `70824fb8-0c97-4daa-8e65-f6540bb4090b`): `wa-dev-api.aivastra.com` → `127.0.0.1:4000`,
+  `wa-dev-minio.aivastra.com` → `127.0.0.1:9000` with `httpHostHeader 127.0.0.1:9000` (keeps
+  presigned signatures valid). The same account's `comfyui-w8` tunnel is unrelated. Hotlink
+  Protection (error 1011) blocked image paths on `wa-dev-minio` for foreign Referers; a custom
+  rule `wa-dev-minio: skip hotlink` (`http.host eq "wa-dev-minio.aivastra.com"`) fixes that and
+  must stay **above** the existing "options skip" rule (which skips the remaining custom
+  rules for OPTIONS/PUT `/minio/`).
+- **Verified:** first local end-to-end run delivered one image plus the closing message and
+  refunded the failed one; api typecheck clean; api unit 102 files / 934 passed
+  (`--no-file-parallelism`); messaging + whatsapp integration 7 files / 43 passed.
+- **Failed-Not-Done:** the new pose-selection flow has not been tapped through on a real
+  phone. Plan 5 Task 1's GPU spike kit is prepared but not run. Job `f6714104` failed because
+  workflow `two_piece_full_pose_10_09_2026` has a footwear node with no `shoe_node_id`
+  (local admin data: set the shoe node to `1280` and a default shoe on the garment type).
+- **Open Questions:** parallel vitest runs fail at random on the shared
+  `tryon_test_template` database (run the full api suite with `--no-file-parallelism`);
+  production read-only check: 99 active garment types all have a public slug, but none of the
+  141 catalogue templates is active.
+
+## 2026-10-14 — WhatsApp pose selection across templates (docs)
+
+- **Done:** WhatsApp bot: the "how many poses" step is gone; the seller picks from every active
+  template's poses (max 20, tap toggles, running [Generate] button); a pick spanning templates runs
+  as one run per template (all groups quoted before the first charge, one idempotency key per group);
+  main spec D43/D44/D45 and sections 8, 9, 10, 13 revised, delta spec
+  `2026-10-14-whatsapp-pose-selection-design.md` tidied ([More], `btnChangeGarment`, pose-id retry
+  note). Spec `docs/superpowers/specs/2026-10-14-whatsapp-pose-selection-design.md`, plan
+  `docs/superpowers/plans/2026-10-14-whatsapp-pose-selection.md`. Code was Task 1 (818156f1) + Task 2
+  (da1a0aab) on branch `feat/whatsapp-pose-selection`; this entry is docs only.
+- **Failed-Not-Done:** none — docs-only task, no code changed, no tests to run.
+- **Open Questions:** (1) production has no active catalogue templates yet, so the bot cannot offer
+  any type there until admin activates some; (2) the paid "images ready" template is sent per run when
+  the 24 h window is closed (a `batch_id` on `messaging_runs` would fix it); (3) a retry matches failed
+  images by pose id, so a pose shared by two templates with different backgrounds is retried in both.
+
+## 2026-10-14 — Amazon white-background override removed (D30)
+
+- **Done:** removed the Amazon white-background override in api (`apps/api/src/modules/jobs/create.ts`,
+  `resolveTryonPlan` no longer swaps the chosen background for the white-tagged one when `platform` is
+  `'Amazon'`). Simplified the two downstream `platform === 'Amazon'` branches: dispatcher log in
+  `apps/dispatcher/src/job/processor.ts` and admin job detail in
+  `apps/api/src/modules/admin/jobs.routes.ts` now use `model_backgrounds.r2Key` for every job. Removed
+  the dormant studio flow in `apps/catalogues-web/src/app/(app)/studio/page.tsx`; web Amazon jobs now
+  record `platform: 'Amazon'` instead of omitting it. Kept the `is_white_bg` tag, column, and admin
+  toggle/UI — no migration. Spec ref: D30 in
+  `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md`.
+- **User-visible change:** Android catalogue app and batch jobs — Amazon jobs now use the background the
+  seller chose.
+- **Verified 2026-10-14:** Task 1: `npx vitest run --config vitest.integration.config.ts jobs-create-looks`
+  (from apps/api) → 18/18 pass; api unit `pnpm --filter @aivastra/api test` → 91 files / 823 tests pass;
+  api typecheck clean. Task 2: dispatcher `pnpm --filter @aivastra/dispatcher test` → 14 files / 206 tests
+  pass; `npx vitest run --config vitest.integration.config.ts admin-job-detail-workflow admin-jobs` → 8
+  files / 40 tests pass; api typecheck + dispatcher tsc clean. Task 3:
+  `pnpm --filter @aivastra/web typecheck` clean, lint 0 diagnostics in `studio/page.tsx` (87 pre-existing
+  warnings elsewhere), `pnpm --filter @aivastra/web build` success (Next.js 15.5.18, 45 static pages).
+- **Rollout:** dispatcher and api must both deploy (Task 2 touches the dispatcher).
+- **Release note:** Android and batch Amazon jobs now keep the background the seller chose.
+
+## 2026-10-14 — WhatsApp catalog bot: first local end-to-end run, four fixes, Meta-side state
+
+- **Done:** local run against the Meta test number reached the pose-pick step (inbound →
+  connect → photo → gender → type → count → pick message); stopped before the tap, so no
+  bot job ran yet. Fixes on `feat/whatsapp-catalog-bot`, each with a failing-first test:
+  request-log redaction of token-like query params (`@aivastra/logger` `redactUrl` + req
+  serializer — Meta's `hub.verify_token` was being logged); blank `WHATSAPP_GRAPH_VERSION`
+  falls back to `v25.0`; catalogue-template editor create responses carry `thumbnailUrl`
+  and template-scoped pose labels auto-suffix on clash; bot resolution falls back to the
+  cheapest enabled tier.
+- **State outside the repo (Meta, test app "Aivastra Catalog Bot" `28674690505558878`):**
+  the app is now subscribed to test WABA `1595318551521211` via
+  `POST /{waba}/subscribed_apps` — the dashboard's webhook save alone did **not** do this,
+  and no messages were delivered until it was done; staging/production need the same call.
+  The developer account was blocked for "unusual activity" and re-confirmed on
+  2026-10-13; the access token and `WHATSAPP_VERIFY_TOKEN` were both rotated afterwards
+  (the old token returned `#131005` on every send even after the unblock).
+- **Failed / not done:** the 1-look pick sends image + button as two messages and WhatsApp
+  reordered them (button first) — single-message fix proposed, not made. Production very
+  likely has the template-editor blank-tile bug too (same code). Details and open items:
+  `docs/superpowers/handoff/2026-10-13-whatsapp-bot-handoff.md`.
+
+## 2026-10-13 — WhatsApp catalog bot plan 3: WhatsApp adapter, inbound consumer, delivery (implemented, not yet live)
+
+- **Done:** plan 3 Tasks 1–8 (code) on branch `feat/whatsapp-bot-3-whatsapp-adapter`
+  (unmerged, 9 commits, nothing pushed, no PR): Task 1 spike notes; Task 2 Graph API
+  client (`channels/whatsapp/client.ts`: send/upload/download, `META_ERROR_OUTSIDE_WINDOW`
+  131047) + 6 env vars + logger redaction; Task 3 renderer (`render.ts`: text/buttons/list/
+  carousel + 1-card image+button fallback); Task 4 parser (`parse.ts`) + `signature.ts`
+  (HMAC-SHA256 over the raw body, timingSafeEqual, before parse); Task 5 webhook routes
+  (GET handshake, POST verify → `SET NX` dedupe → `XADD messaging:inbound`); Task 6
+  `send.ts` (23h50m window, stop-at-first-failure) + `inbound.ts` (unknown→connect link,
+  `CONNECT <code>`, STOP/START per D21, 30/min rate limit, photo download with 2 retries);
+  Task 7 `delivery.ts` (per-run lock, `delivered_job_ids` once-only, one ready template per
+  run, D38 upload-not-link) + migration `0227_quick_pestilence` (exactly two ADD COLUMNs on
+  `messaging_runs`); Task 8 `inbound-consumer.ts` (D50: per-sender chains, 20 in flight,
+  75×200 ms sender lock; 5 s delivery loop), `main.ts` startup, `notify.ts` +
+  `notifyConnected` (chat-confirm) and `notifyCreditsAdded` (`/verify` + payment webhook,
+  post-commit, fire-and-forget). Spec decisions D37 (polling delivery), D38 (upload
+  results), D39 (10-min window margin), D50 (per-sender concurrency) recorded in the spec;
+  T1/T3/T6/T8 closed there (T2 pricing unanswered by the spike, still open). Spec
+  back-corrected to plan 2's `messaging_runs`: sections 5/11/13/15 + D28 no longer mention
+  `job_inputs.params.channel` / `channel_delivered_at` (wording only).
+- **Spike-driven adjustments (spike = source of truth):** renderer emits `type: 'cta_url'`
+  on every carousel card (Meta 400s without it); `case 'button'` returns reply when the
+  payload parses as an engine reply id (carousel taps arrive as `type: "button"`, not
+  `interactive.quick_reply`) else templateButton; T3 = YES (presigned links render).
+  Payloads also carry business-scoped `user_id` beside `wa_id` — future identity risk if
+  Meta ever drops `wa_id` (noted 2026-10-13 spike entry).
+- **Rule-over-plan departure:** bad/missing webhook signatures get **401**, not the plan's
+  200-ack (operator rule: raw-body HMAC before parse; proven by tests: bad-signature on a
+  garbage body → 401, signed-but-unusable → 200, nothing reaches the stream). Other
+  departures: `uploadMedia` copies Buffer into a fresh Uint8Array (DOM BlobPart typing);
+  delivery reads `headObject(...).contentType` (results can be webp) instead of literal
+  `image/png`; inbound photo test asserts plan 2's real `'Create catalogue for:'` copy;
+  webhook/inbound/delivery/hook tests use per-run ids + delta stream asserts (pooled test
+  Redis is not flushed; seen-keys TTL 3 days); `decodeReplyId(...) !== null` is the
+  reply-vs-template discriminator; NO_CREDITS hook test walks the engine instead of raw
+  `saveSession`; commit authors vary per subagent (local only).
+- **Verified 2026-10-13 (final full re-run, this entry):**
+  `pnpm --filter @aivastra/api test` — 99 files / 910 passed (baseline 96/893:
+  +client 4, +render 6, +parse 7);
+  `pnpm --filter @aivastra/api test:integration` — 168 files / 1271 passed (baseline
+  164/1248: +webhook 6, +inbound 7, +delivery 5, +hooks 5);
+  `pnpm --filter @aivastra/api typecheck` exit 0. Ordering test proves real concurrency
+  (B1 ends while A1 sleeps; A2 starts after A1 ends; XPENDING 0). `pnpm lint` still shows
+  the pre-existing `noNonNullAssertion` errors in untouched `admin/*` (baseline state).
+  Migration applied to the local docker DB only; production change only via push → CI/CD →
+  `db:migrate:prod`. No production commands run.
+- **NOT done (manual, needs push/staging deploy/Meta dashboard — checklist for the operator):**
+  1. `catalog_images_ready` template submit + approval (Utility, `en`, approved body +
+     `Show images` button) — Task 7 works without it until the window-closed path is tested.
+  2. Push the branch, get it reviewed/merged, deploy through the normal pipeline (plans
+     1–3 migrations via CI/CD). 3. Staging `.env.staging`: `MESSAGING_WHATSAPP_ENABLED=true`,
+     `WHATSAPP_DISPLAY_NUMBER=15556585373`, `WHATSAPP_PHONE_NUMBER_ID=1331723183359956`,
+     `WHATSAPP_ACCESS_TOKEN` (system-user token before anything lasting),
+     `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN` (32+ chars),
+     `WHATSAPP_RESULTS_TEMPLATE=catalog_images_ready` once approved (values via the VPS,
+     never chat/repo); extend `check-staging-env.sh` if it lists required vars.
+  4. Console → WhatsApp → Configuration: callback `https://<staging-admin-host>/v1/whatsapp/webhook`
+     + verify token, subscribe `messages`; run the plan's 5-step staging walkthrough (connect
+     both directions, photo→gender→type→count→carousel→generation, Change row, NO_CREDITS,
+     image + buttons arrival, `/catalogs` + credits, STOP/START). 5. Regenerate the Meta
+     access token (its value was pasted into chat during the spike) and close the console's
+     "Create a Configuration" tab. 6. Before production: production number + display-name
+     approval, system-user permanent token, business verification of Nice Interactive
+     (Ram Kumar).
+
+## 2026-10-13 — WhatsApp spike (T1–T3) on the Meta test number (manual, no code)
+
+- **Done:** ran plan 3 Task 1 against the test number (Phone Number ID `1331723183359956`,
+  recipient +91 91095 16207) from a scratch PowerShell script outside the repo
+  (`wa-spike-plan3.ps1` in the local temp dir — never committed; the token lived only in
+  the shell env and was regenerated afterwards since its value had been pasted into chat).
+- **Outbound:** reply buttons (1a), 4-row gender list (1b) and 10-row count list (9 + Change,
+  1c) all HTTP 200 and rendered on the phone. Carousel WITHOUT card-level `type`: REJECTED,
+  HTTP 400 `(#100) "violated JSON schema constraint 'required' for
+  interactive.action.cards.N ... missing: 'type'"`. Carousel WITH `"type": "cta_url"` on
+  each card (quick_reply buttons): HTTP 200, rendered with a "Select" button per card.
+  **Task 3 adjustment: the renderer must emit `type: 'cta_url'` on every carousel card.**
+  A production presigned link (`app.aivastra.com/minio/...`, 1h expiry) loaded in the
+  carousel — **T3 = YES: links work, no upload-by-id needed for carousels** (result images
+  still go by upload-to-Meta per D38). Media upload HTTP 200 with an id, and an image sent
+  by that id HTTP 200 and delivered.
+- **Inbound tap shapes** (Meta "Check test webhooks" panel): reply button =
+  `type: "interactive"`, `interactive.type: "button_reply"` with `button_reply.id`
+  (matches the plan); list row = `interactive.type: "list_reply"` with `list_reply.id`
+  (matches the plan); **carousel quick-reply tap = `type: "button"`,
+  `button: { payload: "n1|look|a", text: "Select" }` with `context.id` = the carousel's
+  wamid — NOT `interactive.quick_reply`**. Two taps in a row arrive as two separate
+  messages. **Task 4 adjustment (bug in the plan as written): `case 'button'` must return
+  `{ kind: 'reply', id: payload }` when the payload parses with the engine's reply-id
+  parser, else `{ kind: 'templateButton', payload }** — otherwise pose picks would read as
+  "Show images". The `interactive.quick_reply` branch can be dropped or kept as harmless.
+- **Noted, no change now:** payloads also carry `from_user_id` and `contacts[].user_id`
+  (business-scoped id, e.g. `IN.<digits>`) beside `wa_id`. Future identity risk: if Meta
+  stops sending `wa_id` for username-only users, identity has to key on `user_id`.
+- **Spike script bugs (scratch only, fixed there):** under Windows PowerShell 5.1 native-exe
+  arguments strip the JSON double quotes, so every send failed with "messaging_product is
+  required" (fixed by sending the body via `--data-binary @tempfile`); and `-match` on the
+  array upload output never set `$Matches` (fixed with `-join`). Local dev decision:
+  option A — a cloudflared tunnel in front of local MinIO via `R2_PUBLIC_PRESIGN_BASE`.
+- **Not done:** the `catalog_images_ready` utility template still needs submitting
+  (WhatsApp Manager → Message templates → Create: Utility, `catalog_images_ready`, `en`,
+  body `Your Aivastra catalog images are ready.`, one quick-reply button `Show images`);
+  can happen in parallel, Task 7 works without it until the window-closed path is tested.
+  Webhook callback URL / verify token not configured yet (Task 8).
+
+## 2026-10-13 — WhatsApp catalog bot plan 2: conversation engine (implemented, not reachable)
+
+- **Done:** deterministic five-step conversation engine (`apps/api/src/modules/messaging/`,
+  branch `feat/whatsapp-bot-2-conversation-engine`, 7 commits Tasks 1–7, unmerged):
+  engine types/copy/reply ids, look eligibility + create-body rules (D49: looks needing
+  a question are not offered), the five-step engine (photo → recognition → gender →
+  count → looks, generation on the last pick), count/picks/extra-photos/delivery
+  branches, garment recognition request/wait/fallback (D48: polls the result key at
+  most 8 s after the gender tap; flag off = always the list), extracted
+  garment-type/face/template queries (Task 6 refactor; models-pattern integration
+  11 files / 31 tests unchanged), and real engine deps + conversation entry point
+  with the `messaging_runs` table (migration `0226_youthful_stingray`: one row per
+  create call keyed by `catalogue_id`, with the account and job ids — D34, not
+  `job_inputs.params.channel`). Spec decisions recorded in the spec itself
+  (D33 engine purity, D34 run tracking, D48 recognition wait, D49 look rules;
+  section 12 now shows `messaging_runs`, plan 3 adds per-job delivery tracking).
+- **Verified 2026-10-13 (all re-run for this entry):**
+  `pnpm --filter @aivastra/api test` — 96 files / 893 passed (baseline 836; +4 new
+  test files: `messaging-reply-id` 3, `messaging-rules` 15, `messaging-engine` 36,
+  `messaging-classify` 3);
+  `pnpm --filter @aivastra/api test:integration` — baseline 1241 passed plus new
+  files `messaging-classify` 5 + `messaging-conversation` 2;
+  `pnpm --filter @aivastra/api typecheck` exit 0; `pnpm --filter @aivastra/api lint`
+  has pre-existing `noNonNullAssertion` errors in untouched `src/modules/admin/*`
+  files (identical code on the base branch — not from this work).
+- **Rollout:** `GARMENT_RECOGNITION_ENABLED` stays OFF until plan 5 (dispatcher
+  classify lane). Nothing is reachable by users until plan 3 (no webhook yet:
+  no inbound consumer, no delivery). Plan 3 check done: its
+  `startWhatsappInboundConsumer` still reads per-sender promise chains with
+  20 messages in flight and a 75 × 200 ms sender-lock wait (D50), so a gender
+  tap's 8 s recognition wait never blocks other senders. Migration is additive;
+  production change only via push → CI/CD → `db:migrate:prod`.
+- **Not run:** no production commands run; no user-reachable flow to click through
+  until plan 3 ships the webhook.
+
+## 2026-10-13 — WhatsApp catalog bot plan 1: connect and identity (implemented, off everywhere)
+
+- **Done:** seller can connect a WhatsApp number to their web account from either direction,
+  on branch `feat/whatsapp-bot-1-connect-identity` (unmerged). `messaging_accounts` table
+  (migration `0225_wakeful_ink`: `(channel, external_id)` unique, FK to `users` with
+  `ON DELETE CASCADE`) plus `@aivastra/types` messaging shapes; `apps/api` identity helpers
+  (E.164/mask/profile-hint helpers, chat tokens TTL 30 min + web codes TTL 10 min as
+  SHA-256-hashed Redis keys redeemed with `GETDEL`, `connectAccount` insert-first for
+  `NUMBER_IN_USE`) and authenticated routes `GET /v1/messaging/accounts`,
+  `DELETE /v1/messaging/accounts/:id`, `POST /v1/messaging/connect/web-code`,
+  `POST /v1/messaging/connect/chat/preview|confirm`; catalogues-web `/connect/whatsapp`
+  confirm page with the approved consent wording (spec section 14, verbatim), WhatsApp
+  section in Settings (connect via `wa.me` + `CONNECT <code>`, list, disconnect) and a
+  studio status chip. Spec deviation recorded in the spec itself (D32, section 12, T4):
+  connect tokens live in Redis, not the spec's `messaging_connect_tokens` Postgres table.
+- **Verified 2026-10-13 (all re-run for this entry):**
+  `npx vitest run test/messaging-identity.test.ts` (from `apps/api`) — 13 passed;
+  `npx vitest run --config vitest.integration.config.ts messaging-connect` — 10 passed;
+  `pnpm --filter @aivastra/api test` — 92 files / 836 passed;
+  `pnpm --filter @aivastra/api typecheck` exit 0, `pnpm --filter @aivastra/api lint`
+  40 warnings / 0 errors; `pnpm --filter @aivastra/web typecheck` exit 0,
+  `pnpm --filter @aivastra/web lint` exit 0 (87 warnings, none in the new WhatsApp files);
+  root `pnpm typecheck` exit 0.
+- **Rollout:** both env vars (`MESSAGING_WHATSAPP_ENABLED`, `WHATSAPP_DISPLAY_NUMBER`) must
+  be set per environment and are **off** everywhere until plan 3 ships (inbound consumer,
+  `CONNECT <code>` redemption, STOP/START, delivery). Migration is additive; production
+  change only via push → CI/CD → `db:migrate:prod`.
+- **Not run:** browser pixel checks for the connect page / Settings panel / studio chip
+  (no browser automation available); manual flows per plan Tasks 4–5 Step 7 still to be
+  done by hand. No production commands run.
+
+## 2026-10-13 — WhatsApp catalog bot: Meta developer app created (dashboard state, not in repo)
+
+- **Done:** Meta developer app **Aivastra Catalog Bot**, App ID `28674690505558878`, created
+  under business portfolio **Nice Interactive** (business ID `1086988227665738`, **unverified**).
+  Use case: "Connect with customers through WhatsApp" only (WhatsApp Cloud API). Contact email
+  `support@aivastra.com`. Meta rejects "WhatsApp" in app names, hence the name.
+- **Test number claimed:** `+1 555 658 5373`, Phone Number ID `1331723183359956`, WhatsApp
+  Business Account ID `1595318551521211`. Accepted on 2026-10-13: Meta Platform Terms, Facebook
+  Terms for WhatsApp Business, Meta Hosting Terms for Cloud API.
+- **Verified 2026-10-13:** one test recipient registered and verified (+91 91095 16207; up to 5
+  allowed). A temporary access token was generated in the console and the sample template message
+  was sent from the test number to that recipient (reported received by the user).
+- **Not done yet:** the temporary token expires in ~24h and is not stored anywhere in the repo or
+  any `.env`; a system-user permanent token is needed for anything lasting. Webhook URL / verify
+  token not configured. App secret not copied anywhere. Business verification of Nice
+  Interactive is owned by Ram Kumar (spec D25). Design spec:
+  `docs/superpowers/specs/2026-10-12-whatsapp-catalog-bot-design.md`.
+
 ## 2026-10-12 — Refund auto-approve toggle (implemented, off by default)
 
 - **Done:** admin panel toggle for auto-approving customer refund requests, on branch

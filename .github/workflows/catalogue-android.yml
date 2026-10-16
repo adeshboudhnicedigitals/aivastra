@@ -112,14 +112,27 @@ jobs:
           test -s android/app/upload-keystore.jks
           test -s android/key.properties
 
+      # Crashlytics' Gradle plugin fails configuration without this file, even
+      # on a debug build — same restore-from-secret pattern as the keystore
+      # above, and the same pattern android-release.yml (virtual_tryon_android)
+      # already uses for VTA_GOOGLE_SERVICES_JSON_BASE64.
+      - name: Restore google-services.json
+        env:
+          GOOGLE_SERVICES_B64: ${{ secrets.CAT_GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          echo "$GOOGLE_SERVICES_B64" | base64 -d > android/app/google-services.json
+          test -s android/app/google-services.json
+
       - run: flutter pub get
 
-      # Play rejects a repeated versionCode, so the run number is the build
-      # number; the user-facing name still comes from pubspec.yaml.
+      # versionName and versionCode both come straight from pubspec.yaml's
+      # `version: X.Y.Z+N` — no --build-number override. Play rejects a
+      # repeated versionCode, so the `+N` must be bumped by hand before every
+      # release tag, same commit as the versionName bump.
       - name: Build release APK + AAB
         run: |
-          flutter build apk --release --build-number=${{ github.run_number }}
-          flutter build appbundle --release --build-number=${{ github.run_number }}
+          flutter build apk --release
+          flutter build appbundle --release
 
       - name: Verify APK is signed
         run: |
@@ -137,9 +150,11 @@ jobs:
 
       # Tags only: a manual run builds the artifact without notifying testers.
       # Runs after the artifact upload so a Firebase failure still leaves the
-      # signed APK + AAB downloadable from the run. No google-services.json is
-      # needed: the app has no Firebase SDK, App Distribution only needs the
-      # app id + service account.
+      # signed APK + AAB downloadable from the run. This step itself only
+      # needs the app id + service account, not google-services.json — that
+      # file is restored earlier in the job purely for Crashlytics (Gradle's
+      # google-services plugin requires it at build time), unrelated to this
+      # distribute step's own auth.
       # CAT_FIREBASE_TESTER_GROUPS is a repo *variable* (comma-separated group
       # aliases). Unset means the release is uploaded but nobody is notified.
       - name: Distribute APK to Firebase App Distribution
@@ -175,6 +190,7 @@ jobs:
         if: always()
         run: |
           rm -f android/app/upload-keystore.jks android/key.properties
+          rm -f android/app/google-services.json
           rm -f "$RUNNER_TEMP/firebase-sa.json"
 
   # Play upload is gated by the `play-store-catalogue` environment: the run

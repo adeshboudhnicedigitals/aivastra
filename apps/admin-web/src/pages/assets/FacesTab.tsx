@@ -11,7 +11,7 @@ import { useCloseOverlay } from '../../hooks/use-close-overlay';
 import { useUrlStateMulti } from '../../hooks/use-url-state';
 import { CONTINENTS, continentLabel } from '../../lib/continents';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
-import type { Continent, ModelFace } from '../../types';
+import type { BodyType, Continent, ModelFace } from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
 const GENDER_TABS = [
@@ -69,6 +69,7 @@ export function FacesTab() {
   const [{ modal: modalParam, editId }, setModalParams] = useUrlStateMulti(['modal', 'editId']);
   const closeModal = useCloseOverlay(['modal', 'editId']);
   const showFaceUpload = modalParam === 'upload-face';
+  const showBulkBodyTypeMap = modalParam === 'bulk-body-type-map';
   const editingFace: ModelFace | null =
     modalParam === 'edit-face' && editId ? (faces.find((f) => f.id === editId) ?? null) : null;
 
@@ -92,7 +93,9 @@ export function FacesTab() {
             label: 'Edit face',
             href: `${tabHref}&modal=edit-face&editId=${encodeURIComponent(editingFace.id)}`,
           }
-        : null,
+        : showBulkBodyTypeMap
+          ? { label: 'Map to body types', href: `${tabHref}&modal=bulk-body-type-map` }
+          : null,
   );
   useCrumb(
     2,
@@ -113,6 +116,13 @@ export function FacesTab() {
   const [continentFilter, setContinentFilter] = useState<ContinentFilter>('all');
   const [bulkContinent, setBulkContinent] = useState<Continent | ''>('');
   const [bulkContinentSaving, setBulkContinentSaving] = useState(false);
+
+  // Bulk body-type mapping — body_type_faces is a plain opt-out join (no
+  // per-face override to preserve), so there's no per-face config fetch
+  // before opening the modal, unlike pose/garment-type configs.
+  const [bodyTypes, setBodyTypes] = useState<BodyType[]>([]);
+  const [bulkBodyTypeIds, setBulkBodyTypeIds] = useState<string[]>([]);
+  const [bulkBodyTypeSaving, setBulkBodyTypeSaving] = useState(false);
 
   // Presets plus any continent an admin has already typed in — so custom
   // continents show up as filter tabs / dropdown options everywhere too.
@@ -137,6 +147,12 @@ export function FacesTab() {
   useEffect(() => {
     loadFaces();
   }, [loadFaces]);
+
+  useEffect(() => {
+    apiFetch<{ items: BodyType[] }>('/admin/assets/body-types')
+      .then((res) => setBodyTypes(res.items))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const onVisible = () => {
@@ -258,6 +274,42 @@ export function FacesTab() {
     }
   };
 
+  const doBulkBodyTypeMap = async (mapped: boolean) => {
+    if (selectedFaceIds.length === 0 || bulkBodyTypeIds.length === 0) return;
+    setBulkBodyTypeSaving(true);
+    try {
+      const selectedFaces = faces.filter((f) => selectedFaceIds.includes(f.id));
+      await Promise.all(
+        selectedFaces.flatMap((face) =>
+          bulkBodyTypeIds.map((bodyTypeId) => {
+            const bodyType = bodyTypes.find((b) => b.id === bodyTypeId);
+            // Skip cross-gender combos from a mixed-gender selection — body_type_faces
+            // rows are gender-scoped, same as body_type_poses.
+            if (!bodyType || bodyType.genderSlug !== face.gender) return Promise.resolve();
+            return apiFetch(`/admin/assets/body-types/${bodyTypeId}/faces/${face.id}`, {
+              method: 'PUT',
+              body: JSON.stringify({ mapped }),
+            });
+          }),
+        ),
+      );
+      toast({
+        title: `${mapped ? 'Mapped' : 'Unmapped'} ${selectedFaceIds.length} face${selectedFaceIds.length !== 1 ? 's' : ''} to ${bulkBodyTypeIds.length} body type${bulkBodyTypeIds.length !== 1 ? 's' : ''}`,
+      });
+      closeModal();
+      setBulkBodyTypeIds([]);
+      setSelectedFaceIds([]);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update body type mapping',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkBodyTypeSaving(false);
+    }
+  };
+
   const filteredFaces = faces
     .filter((f) => genderFilter === 'all' || f.gender === genderFilter)
     .filter((f) => {
@@ -283,6 +335,15 @@ export function FacesTab() {
   const pagedFaces = filteredFaces.slice(
     (facesClampedPage - 1) * FACES_PAGE_SIZE,
     facesClampedPage * FACES_PAGE_SIZE,
+  );
+
+  const selectedFaceGenders = useMemo(
+    () => new Set(faces.filter((f) => selectedFaceIds.includes(f.id)).map((f) => f.gender)),
+    [faces, selectedFaceIds],
+  );
+  const bulkBodyTypeOptions = useMemo(
+    () => bodyTypes.filter((b) => selectedFaceGenders.has(b.genderSlug)),
+    [bodyTypes, selectedFaceGenders],
   );
 
   return (
@@ -425,6 +486,12 @@ export function FacesTab() {
                     {bulkSortSaving ? 'Saving…' : `Apply (${selectedFaceIds.length})`}
                   </button>
                 </div>
+                <button
+                  className="btn sm ghost"
+                  onClick={() => setModalParams({ modal: 'bulk-body-type-map', editId: null })}
+                >
+                  Map to body types ({selectedFaceIds.length})
+                </button>
                 <button
                   className="btn sm danger"
                   onClick={() => {
@@ -659,6 +726,109 @@ export function FacesTab() {
                 disabled={deleteFaceConfirmText !== 'move to recycle bin'}
               >
                 <Icon.Trash /> Move to recycle bin ({confirmBulkDeleteFaceIds.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBulkBodyTypeMap && (
+        <div className="modal-overlay" onClick={() => !bulkBodyTypeSaving && closeModal()}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+            <div className="modal-head">
+              <h3>
+                Map {selectedFaceIds.length} face{selectedFaceIds.length !== 1 ? 's' : ''} to body
+                types
+              </h3>
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Select body types, then show or hide the selected faces on them. A face already
+                shows on every body type of its gender by default.
+              </p>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            >
+              {bulkBodyTypeOptions.length === 0 ? (
+                <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  No body types found for the selected faces.
+                </p>
+              ) : (
+                <>
+                  <button
+                    className="btn sm ghost"
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() =>
+                      setBulkBodyTypeIds((prev) =>
+                        prev.length === bulkBodyTypeOptions.length
+                          ? []
+                          : bulkBodyTypeOptions.map((b) => b.id),
+                      )
+                    }
+                  >
+                    {bulkBodyTypeIds.length === bulkBodyTypeOptions.length
+                      ? 'Deselect all'
+                      : 'Select all'}
+                  </button>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                      maxHeight: 280,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {bulkBodyTypeOptions.map((b) => (
+                      <label
+                        key={b.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '4px 8px',
+                          borderRadius: 6,
+                          background: 'var(--surface-2)',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={bulkBodyTypeIds.includes(b.id)}
+                          onChange={(e) =>
+                            setBulkBodyTypeIds((prev) =>
+                              e.target.checked ? [...prev, b.id] : prev.filter((id) => id !== b.id),
+                            )
+                          }
+                        />
+                        {b.label}
+                        <span className="badge dot accent" style={{ fontSize: 10 }}>
+                          {b.genderSlug}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" disabled={bulkBodyTypeSaving} onClick={closeModal}>
+                Cancel
+              </button>
+              <button
+                className="btn ghost"
+                disabled={bulkBodyTypeSaving || bulkBodyTypeIds.length === 0}
+                onClick={() => void doBulkBodyTypeMap(false)}
+              >
+                {bulkBodyTypeSaving ? 'Saving…' : `Unmap from ${bulkBodyTypeIds.length}`}
+              </button>
+              <button
+                className="btn"
+                disabled={bulkBodyTypeSaving || bulkBodyTypeIds.length === 0}
+                onClick={() => void doBulkBodyTypeMap(true)}
+              >
+                {bulkBodyTypeSaving ? 'Saving…' : `Map to ${bulkBodyTypeIds.length}`}
               </button>
             </div>
           </div>

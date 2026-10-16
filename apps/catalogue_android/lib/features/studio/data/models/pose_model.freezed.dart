@@ -16,7 +16,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$PoseModel {
 
- String get id; String get label; String get thumbnailUrl; bool get hasLower; bool get hasShoes; bool get hasAspectRatio;
+ String get id; String get label; String get thumbnailUrl; bool get hasLower; bool get hasShoes; bool get hasAccessory; bool get hasAspectRatio;
 /// Create a copy of PoseModel
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -30,20 +30,20 @@ $PoseModelCopyWith<PoseModel> get copyWith => _$PoseModelCopyWithImpl<PoseModel>
 @override
 bool operator ==(Object other) {
   final _this = this as PoseModel;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PoseModel&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.label, _this.label) || other.label == _this.label)&&(identical(other.thumbnailUrl, _this.thumbnailUrl) || other.thumbnailUrl == _this.thumbnailUrl)&&(identical(other.hasLower, _this.hasLower) || other.hasLower == _this.hasLower)&&(identical(other.hasShoes, _this.hasShoes) || other.hasShoes == _this.hasShoes)&&(identical(other.hasAspectRatio, _this.hasAspectRatio) || other.hasAspectRatio == _this.hasAspectRatio));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PoseModel&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.label, _this.label) || other.label == _this.label)&&(identical(other.thumbnailUrl, _this.thumbnailUrl) || other.thumbnailUrl == _this.thumbnailUrl)&&(identical(other.hasLower, _this.hasLower) || other.hasLower == _this.hasLower)&&(identical(other.hasShoes, _this.hasShoes) || other.hasShoes == _this.hasShoes)&&(identical(other.hasAccessory, _this.hasAccessory) || other.hasAccessory == _this.hasAccessory)&&(identical(other.hasAspectRatio, _this.hasAspectRatio) || other.hasAspectRatio == _this.hasAspectRatio));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
   final _this = this as PoseModel;
-  return Object.hash(runtimeType,_this.id,_this.label,_this.thumbnailUrl,_this.hasLower,_this.hasShoes,_this.hasAspectRatio);
+  return Object.hash(runtimeType,_this.id,_this.label,_this.thumbnailUrl,_this.hasLower,_this.hasShoes,_this.hasAccessory,_this.hasAspectRatio);
 }
 
 @override
 String toString() {
   final _this = this as PoseModel;
-  return 'PoseModel(id: ${_this.id}, label: ${_this.label}, thumbnailUrl: ${_this.thumbnailUrl}, hasLower: ${_this.hasLower}, hasShoes: ${_this.hasShoes}, hasAspectRatio: ${_this.hasAspectRatio})';
+  return 'PoseModel(id: ${_this.id}, label: ${_this.label}, thumbnailUrl: ${_this.thumbnailUrl}, hasLower: ${_this.hasLower}, hasShoes: ${_this.hasShoes}, hasAccessory: ${_this.hasAccessory}, hasAspectRatio: ${_this.hasAspectRatio})';
 }
 
 
@@ -54,7 +54,7 @@ abstract mixin class $PoseModelCopyWith<$Res>  {
   factory $PoseModelCopyWith(PoseModel value, $Res Function(PoseModel) _then) = _$PoseModelCopyWithImpl;
 @useResult
 $Res call({
- String id, String label, String thumbnailUrl, bool hasLower, bool hasShoes, bool hasAspectRatio
+ String id, String label, String thumbnailUrl, bool hasLower, bool hasShoes, bool hasAccessory, bool hasAspectRatio
 });
 
 
@@ -71,13 +71,14 @@ class _$PoseModelCopyWithImpl<$Res>
 
 /// Create a copy of PoseModel
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? label = null,Object? thumbnailUrl = null,Object? hasLower = null,Object? hasShoes = null,Object? hasAspectRatio = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? label = null,Object? thumbnailUrl = null,Object? hasLower = null,Object? hasShoes = null,Object? hasAccessory = null,Object? hasAspectRatio = null,}) {
   return _then(PoseModel(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,label: null == label ? _self.label : label // ignore: cast_nullable_to_non_nullable
 as String,thumbnailUrl: null == thumbnailUrl ? _self.thumbnailUrl : thumbnailUrl // ignore: cast_nullable_to_non_nullable
 as String,hasLower: null == hasLower ? _self.hasLower : hasLower // ignore: cast_nullable_to_non_nullable
 as bool,hasShoes: null == hasShoes ? _self.hasShoes : hasShoes // ignore: cast_nullable_to_non_nullable
+as bool,hasAccessory: null == hasAccessory ? _self.hasAccessory : hasAccessory // ignore: cast_nullable_to_non_nullable
 as bool,hasAspectRatio: null == hasAspectRatio ? _self.hasAspectRatio : hasAspectRatio // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
@@ -164,10 +165,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String label,  String thumbnailUrl,  bool hasLower,  bool hasShoes,  bool hasAspectRatio)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String label,  String thumbnailUrl,  bool hasLower,  bool hasShoes,  bool hasAccessory,  bool hasAspectRatio)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _PoseModel() when $default != null:
-return $default(_that.id,_that.label,_that.thumbnailUrl,_that.hasLower,_that.hasShoes,_that.hasAspectRatio);case _:
+return $default(_that.id,_that.label,_that.thumbnailUrl,_that.hasLower,_that.hasShoes,_that.hasAccessory,_that.hasAspectRatio);case _:
   return orElse();
 
 }
@@ -185,10 +186,10 @@ return $default(_that.id,_that.label,_that.thumbnailUrl,_that.hasLower,_that.has
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String label,  String thumbnailUrl,  bool hasLower,  bool hasShoes,  bool hasAspectRatio)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String label,  String thumbnailUrl,  bool hasLower,  bool hasShoes,  bool hasAccessory,  bool hasAspectRatio)  $default,) {final _that = this;
 switch (_that) {
 case _PoseModel():
-return $default(_that.id,_that.label,_that.thumbnailUrl,_that.hasLower,_that.hasShoes,_that.hasAspectRatio);case _:
+return $default(_that.id,_that.label,_that.thumbnailUrl,_that.hasLower,_that.hasShoes,_that.hasAccessory,_that.hasAspectRatio);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -205,10 +206,10 @@ return $default(_that.id,_that.label,_that.thumbnailUrl,_that.hasLower,_that.has
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String label,  String thumbnailUrl,  bool hasLower,  bool hasShoes,  bool hasAspectRatio)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String label,  String thumbnailUrl,  bool hasLower,  bool hasShoes,  bool hasAccessory,  bool hasAspectRatio)?  $default,) {final _that = this;
 switch (_that) {
 case _PoseModel() when $default != null:
-return $default(_that.id,_that.label,_that.thumbnailUrl,_that.hasLower,_that.hasShoes,_that.hasAspectRatio);case _:
+return $default(_that.id,_that.label,_that.thumbnailUrl,_that.hasLower,_that.hasShoes,_that.hasAccessory,_that.hasAspectRatio);case _:
   return null;
 
 }
@@ -220,7 +221,7 @@ return $default(_that.id,_that.label,_that.thumbnailUrl,_that.hasLower,_that.has
 @JsonSerializable()
 
 class _PoseModel implements PoseModel {
-  const _PoseModel({required this.id, required this.label, required this.thumbnailUrl, this.hasLower = false, this.hasShoes = false, this.hasAspectRatio = false});
+  const _PoseModel({required this.id, required this.label, required this.thumbnailUrl, this.hasLower = false, this.hasShoes = false, this.hasAccessory = false, this.hasAspectRatio = false});
   factory _PoseModel.fromJson(Map<String, dynamic> json) => _$PoseModelFromJson(json);
 
 @override final  String id;
@@ -228,6 +229,7 @@ class _PoseModel implements PoseModel {
 @override final  String thumbnailUrl;
 @override@JsonKey() final  bool hasLower;
 @override@JsonKey() final  bool hasShoes;
+@override@JsonKey() final  bool hasAccessory;
 @override@JsonKey() final  bool hasAspectRatio;
 
 /// Create a copy of PoseModel
@@ -243,18 +245,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PoseModel&&(identical(other.id, id) || other.id == id)&&(identical(other.label, label) || other.label == label)&&(identical(other.thumbnailUrl, thumbnailUrl) || other.thumbnailUrl == thumbnailUrl)&&(identical(other.hasLower, hasLower) || other.hasLower == hasLower)&&(identical(other.hasShoes, hasShoes) || other.hasShoes == hasShoes)&&(identical(other.hasAspectRatio, hasAspectRatio) || other.hasAspectRatio == hasAspectRatio));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PoseModel&&(identical(other.id, id) || other.id == id)&&(identical(other.label, label) || other.label == label)&&(identical(other.thumbnailUrl, thumbnailUrl) || other.thumbnailUrl == thumbnailUrl)&&(identical(other.hasLower, hasLower) || other.hasLower == hasLower)&&(identical(other.hasShoes, hasShoes) || other.hasShoes == hasShoes)&&(identical(other.hasAccessory, hasAccessory) || other.hasAccessory == hasAccessory)&&(identical(other.hasAspectRatio, hasAspectRatio) || other.hasAspectRatio == hasAspectRatio));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
-    return Object.hash(runtimeType,id,label,thumbnailUrl,hasLower,hasShoes,hasAspectRatio);
+    return Object.hash(runtimeType,id,label,thumbnailUrl,hasLower,hasShoes,hasAccessory,hasAspectRatio);
 }
 
 @override
 String toString() {
-    return 'PoseModel(id: $id, label: $label, thumbnailUrl: $thumbnailUrl, hasLower: $hasLower, hasShoes: $hasShoes, hasAspectRatio: $hasAspectRatio)';
+    return 'PoseModel(id: $id, label: $label, thumbnailUrl: $thumbnailUrl, hasLower: $hasLower, hasShoes: $hasShoes, hasAccessory: $hasAccessory, hasAspectRatio: $hasAspectRatio)';
 }
 
 
@@ -265,7 +267,7 @@ abstract mixin class _$PoseModelCopyWith<$Res> implements $PoseModelCopyWith<$Re
   factory _$PoseModelCopyWith(_PoseModel value, $Res Function(_PoseModel) _then) = __$PoseModelCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String label, String thumbnailUrl, bool hasLower, bool hasShoes, bool hasAspectRatio
+ String id, String label, String thumbnailUrl, bool hasLower, bool hasShoes, bool hasAccessory, bool hasAspectRatio
 });
 
 
@@ -282,13 +284,14 @@ class __$PoseModelCopyWithImpl<$Res>
 
 /// Create a copy of PoseModel
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? label = null,Object? thumbnailUrl = null,Object? hasLower = null,Object? hasShoes = null,Object? hasAspectRatio = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? label = null,Object? thumbnailUrl = null,Object? hasLower = null,Object? hasShoes = null,Object? hasAccessory = null,Object? hasAspectRatio = null,}) {
   return _then(_PoseModel(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,label: null == label ? _self.label : label // ignore: cast_nullable_to_non_nullable
 as String,thumbnailUrl: null == thumbnailUrl ? _self.thumbnailUrl : thumbnailUrl // ignore: cast_nullable_to_non_nullable
 as String,hasLower: null == hasLower ? _self.hasLower : hasLower // ignore: cast_nullable_to_non_nullable
 as bool,hasShoes: null == hasShoes ? _self.hasShoes : hasShoes // ignore: cast_nullable_to_non_nullable
+as bool,hasAccessory: null == hasAccessory ? _self.hasAccessory : hasAccessory // ignore: cast_nullable_to_non_nullable
 as bool,hasAspectRatio: null == hasAspectRatio ? _self.hasAspectRatio : hasAspectRatio // ignore: cast_nullable_to_non_nullable
 as bool,
   ));

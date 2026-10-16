@@ -428,45 +428,15 @@ export async function resolveTryonPlan(
     );
   }
 
-  let looks: Array<{ poseId: string; backgroundId: string }>;
-  if (templateLooks) {
-    // Per-look backgrounds are authoritative for templates — the Amazon white-bg
-    // override below must never run for this form.
-    looks = templateLooks;
-  } else {
-    // Amazon platform requires a white background — override the single shared
-    // background with the one tagged isWhiteBg in the admin panel. Only applies
-    // to the legacy form; template backgrounds are never overridden.
-    let effectiveBackgroundId = legacyBackgroundId as string;
-    if (platform === 'Amazon') {
-      const [whiteBg] = await app.db
-        .select({ id: schema.modelBackgrounds.id })
-        .from(schema.modelBackgrounds)
-        .where(
-          and(
-            eq(schema.modelBackgrounds.isActive, true),
-            eq(schema.modelBackgrounds.isWhiteBg, true),
-          ),
-        )
-        .limit(1);
-      if (!whiteBg) {
-        throw new AppError(
-          'VALIDATION',
-          400,
-          'Amazon platform requires a white background to be configured',
-        );
-      }
-      effectiveBackgroundId = whiteBg.id;
-      app.log.info(
-        { originalBg: legacyBackgroundId, amazonBg: effectiveBackgroundId, platform },
-        'amazon bg override',
-      );
-    }
-    looks = (legacyPoseIds as string[]).map((poseId) => ({
-      poseId,
-      backgroundId: effectiveBackgroundId,
-    }));
-  }
+  // Templates carry a background per look; the legacy form shares one. The
+  // chosen background is always used — the Amazon white-background override was
+  // removed on purpose (spec 2026-10-12-whatsapp-catalog-bot-design.md, D30).
+  const looks: Array<{ poseId: string; backgroundId: string }> = templateLooks
+    ? templateLooks
+    : (legacyPoseIds as string[]).map((poseId) => ({
+        poseId,
+        backgroundId: legacyBackgroundId as string,
+      }));
 
   // Only exact (poseId, backgroundId) duplicates are rejected. Same pose with two
   // DIFFERENT backgrounds is allowed by design — a template can legitimately offer
@@ -1324,8 +1294,7 @@ export async function createJob(
     // track "last used" pose presets — can call updateLastUsedPosePreset with
     // exactly the poseIds resolveTryonPlan actually resolved, without
     // re-deriving them from the request body (which isn't a 1:1 match with
-    // what actually got used; see resolveTryonPlan's Amazon-background-override
-    // and template-looks handling above).
+    // what actually got used; see resolveTryonPlan's template-looks handling above).
     poseIds: plan.looks.map((l) => l.poseId),
     gender: firstPoseRow?.genderSlug ?? null,
     garmentTypeId: garmentTypeId ?? null,

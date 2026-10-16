@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../utils/app_strings.dart';
 import '../widgets/offline_banner.dart';
+import '../widgets/update_banner.dart';
 import 'router/app_router.dart';
 import 'theme/app_theme.dart';
 
@@ -28,11 +29,23 @@ class App extends ConsumerWidget {
         // Stacked once here, over whatever screen/route is showing, so every
         // screen gets the offline banner for free instead of each one having
         // to add it.
-        child: Stack(
-          children: [
-            child ?? const SizedBox.shrink(),
-            const OfflineBanner(),
-          ],
+        //
+        // Wrapped in a transparent Material: this Stack sits in MaterialApp's
+        // own `builder`, which is a sibling of the routed content (`child`),
+        // not a descendant of it — the app's real Material/Scaffold only
+        // exists inside `child`. Without this, UpdateBanner's dismiss InkWell
+        // throws "No Material widget found" building the very first frame,
+        // on every screen, since InkWell always needs a Material ancestor to
+        // paint its splash regardless of whether it's currently visible.
+        child: Material(
+          type: MaterialType.transparency,
+          child: Stack(
+            children: [
+              child ?? const SizedBox.shrink(),
+              const UpdateBanner(),
+              const OfflineBanner(),
+            ],
+          ),
         ),
       ),
     );

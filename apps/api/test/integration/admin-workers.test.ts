@@ -75,6 +75,23 @@ describe('PATCH /admin/workers/:id — registry status sync', () => {
     expect(await registryStatus(id)).toBe('IDLE');
   });
 
+  it('an edit that recreates a missing registry entry leaves it IDLE, not status-less', async () => {
+    const id = 'test-worker-missing-entry';
+    await createWorker(id);
+    // Redis reset / dispatcher not booted: the entry is gone but the DB row stays.
+    await app.redis.hdel(REGISTRY_KEY, id);
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workers/${id}`,
+      headers: authHeader,
+      payload: { url: 'https://example.org/' },
+    });
+    expect(res.statusCode).toBe(200);
+    // The dispatcher's claim script only takes status === 'IDLE'.
+    expect(await registryStatus(id)).toBe('IDLE');
+  });
+
   it('does not overwrite a BUSY worker back to IDLE when reactivated (isActive:true)', async () => {
     // A worker can't legitimately be BUSY while DRAINING today (selector.ts only claims
     // IDLE workers), but the reactivate branch stays defensive and must never stomp BUSY.

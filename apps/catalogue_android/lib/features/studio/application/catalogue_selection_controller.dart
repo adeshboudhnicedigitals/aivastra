@@ -64,6 +64,7 @@ class CatalogueSelectionController extends Notifier<CatalogueSelectionState> {
       poseIds: {},
       lowerCatalogItemId: null,
       shoeCatalogItemId: null,
+      accessoryCatalogItemIds: {},
       upperGarmentKey: null,
       lowerGarmentKey: null,
       thirdGarmentKey: null,
@@ -258,11 +259,13 @@ class CatalogueSelectionController extends Notifier<CatalogueSelectionState> {
 
     final bool needsLower;
     final bool needsShoes;
+    final bool needsAccessory;
     final List<String> effectivePoseIds;
     if (state.lookMode == LookMode.readyMade) {
       final looks = selectedLooks;
       needsLower = looks.any((l) => l.hasLower);
       needsShoes = looks.any((l) => l.hasShoes);
+      needsAccessory = looks.any((l) => l.hasAccessory);
       effectivePoseIds = looks.map((l) => l.poseId).toList();
     } else {
       final poses =
@@ -278,7 +281,16 @@ class CatalogueSelectionController extends Notifier<CatalogueSelectionState> {
       final selected = poses.where((p) => state.poseIds.contains(p.id));
       needsLower = selected.any((p) => p.hasLower);
       needsShoes = selected.any((p) => p.hasShoes);
+      needsAccessory = selected.any((p) => p.hasAccessory);
       effectivePoseIds = state.poseIds.toList();
+    }
+
+    // Always optional, with no garment-type default to fall back on — unlike
+    // lower/shoe, the only thing that happens here is clearing a stale pick
+    // once the selected poses/looks no longer map an accessory node at all
+    // (mirrors the web app's studio/page.tsx `needsAccessory` reset effect).
+    if (!needsAccessory && state.accessoryCatalogItemIds.isNotEmpty) {
+      state = state.copyWith(accessoryCatalogItemIds: {});
     }
 
     var lowerCatalogItemId = state.lowerCatalogItemId;
@@ -489,6 +501,21 @@ class CatalogueSelectionController extends Notifier<CatalogueSelectionState> {
       state = state.copyWith(lowerCatalogItemId: id);
   void selectShoeCatalogItem(String? id) =>
       state = state.copyWith(shoeCatalogItemId: id);
+
+  /// Single-select per category: picking an item replaces that category's
+  /// previous pick (if any); tapping the already-selected item clears it.
+  /// [categoryItemIds] is the full set of catalog-item ids under the tapped
+  /// item's category — mirrors the web app's toggleAccessory, which looks up
+  /// the category from `accessoryCategories` to clear only that category's
+  /// prior pick rather than every accessory selection.
+  void toggleAccessoryCatalogItem(Set<String> categoryItemIds, String itemId) {
+    final ids = {...state.accessoryCatalogItemIds};
+    if (!ids.remove(itemId)) {
+      ids.removeWhere(categoryItemIds.contains);
+      ids.add(itemId);
+    }
+    state = state.copyWith(accessoryCatalogItemIds: ids);
+  }
   void selectPlatform(String platform) =>
       state = state.copyWith(platform: platform);
   void selectAspectRatio(String aspectRatio) =>
@@ -623,6 +650,8 @@ class CatalogueSelectionController extends Notifier<CatalogueSelectionState> {
       'lowerGarmentKey': ?state.lowerGarmentKey,
       'thirdGarmentKey': ?state.thirdGarmentKey,
       'shoeCatalogId': ?state.shoeCatalogItemId,
+      if (state.accessoryCatalogItemIds.isNotEmpty)
+        'accessoryCatalogIds': state.accessoryCatalogItemIds.toList(),
     };
   }
 
