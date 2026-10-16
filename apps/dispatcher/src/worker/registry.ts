@@ -62,6 +62,18 @@ export async function releaseWorkerIfBusy(redis: Redis, workerId: string): Promi
   await redis.eval(RELEASE_IF_BUSY_LUA, 1, REGISTRY_KEY, workerId, String(Date.now()));
 }
 
+// Lane capacity. The shared GPU lanes and the dedicated inhouse lane each cap
+// in-flight jobs at the number of workers that can actually serve them, so a worker
+// dedicated to inhouse never inflates the shared lanes' cap (their consumers would
+// hold slots no eligible worker can fill) and vice versa.
+export function servesSharedPools(w: WorkerEntry): boolean {
+  return w.allowedJobTypes.length === 0 || w.allowedJobTypes.some((t) => t !== 'inhouse');
+}
+
+export function servesInhouse(w: WorkerEntry): boolean {
+  return w.allowedJobTypes.includes('inhouse');
+}
+
 export async function getWorkers(redis: Redis): Promise<Map<string, WorkerEntry>> {
   const raw = await redis.hgetall(REGISTRY_KEY);
   const map = new Map<string, WorkerEntry>();

@@ -23,6 +23,7 @@ import { makeComfyRedis, makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
 import { runShopifyRetention } from './shopify/retention.js';
 import { runConsumer } from './stream/consumer.js';
+import { runInhouseConsumer } from './stream/inhouse-consumer.js';
 import { recoverPendingJobs } from './stream/recovery.js';
 import { runSweeper } from './stream/sweeper.js';
 import { runVideoConsumer } from './stream/video-consumer.js';
@@ -143,6 +144,9 @@ async function main(): Promise<void> {
   const stopVideoConsumer = await runVideoConsumer(redis, processorCfg, log, {
     concurrency: env.VIDEO_CONCURRENCY,
   });
+  // Dedicated lane for the team's own bulk try-on test runs; only workers tagged
+  // 'inhouse' serve it, and production lanes never see it.
+  const stopInhouseConsumer = await runInhouseConsumer(redis, processorCfg, log);
   const stopWebhooks = await runWebhooksConsumer(db, redis, log);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);
 
@@ -180,6 +184,7 @@ async function main(): Promise<void> {
     clearInterval(shopifyRetentionInterval);
     stopConsumer();
     stopVideoConsumer();
+    stopInhouseConsumer();
     stopWebhooks();
     stopPerformanceRefresh();
     stopHealthMonitor();
