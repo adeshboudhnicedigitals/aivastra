@@ -7,6 +7,7 @@ import {
   firstMissingSlot,
   groupByTemplate,
   MAX_PICKS,
+  requiredPhotoSlots,
   retryLookIds,
 } from './rules.js';
 import type {
@@ -377,7 +378,9 @@ async function render(
       const gt = s.garmentType;
       const label =
         slot === 'lowerFront' ? (gt?.lowerUploadLabel ?? null) : (gt?.thirdUploadLabel ?? null);
-      out.push(buttons(s, COPY.askPhoto[slot](label), [['menu', 'menu', COPY.btnMenu]]));
+      // Said once, with the first extra photo, while the seller can still fix the order.
+      const main = gt && slot === requiredPhotoSlots(gt)[0] ? gt.upperUploadLabel : null;
+      out.push(buttons(s, COPY.askPhoto[slot](label, main), [['menu', 'menu', COPY.btnMenu]]));
       return done();
     }
 

@@ -677,6 +677,40 @@ describe('engine: required extra photos', () => {
   });
 });
 
+describe('engine: extra photo wording', () => {
+  const SET = {
+    ...GT_SHIRT,
+    requiresLowerUpload: true,
+    requiresThirdUpload: true,
+    upperUploadLabel: 'Upload Shirt',
+    lowerUploadLabel: 'Upload Trouser',
+    thirdUploadLabel: 'Scarf',
+  };
+
+  it('drops the studio "Upload" prefix and names the first photo once', async () => {
+    const { deps } = fakeDeps({ listGarmentTypes: async () => [SET] });
+    const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'men')]);
+    const first = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
+    expect(texts(first.messages)[0]).toBe(
+      "I'll use the photo you sent as the shirt. Now send a photo of the trouser.",
+    );
+    const second = await handle(first.session, photo(2), CTX, deps);
+    expect(second.session.state).toBe('ASK_EXTRA_PHOTO');
+    expect(texts(second.messages)[0]).toBe('Now send a photo of the scarf.');
+  });
+
+  it('says nothing about the first photo when the type has no upper label', async () => {
+    const { deps } = fakeDeps({
+      listGarmentTypes: async () => [
+        { ...SET, upperUploadLabel: null, requiresThirdUpload: false },
+      ],
+    });
+    const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'men')]);
+    const first = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
+    expect(texts(first.messages)[0]).toBe('Now send a photo of the trouser.');
+  });
+});
+
 describe('engine: progress and delivery', () => {
   const finished = (runId: string, images: number, failedPoseIds: string[] = []): InboundEvent => ({
     type: 'runFinished',

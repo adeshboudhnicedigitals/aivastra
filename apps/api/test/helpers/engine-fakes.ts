@@ -16,6 +16,7 @@ export const GT_SHIRT: GarmentTypeOption = {
   label: 'Shirt',
   requiresLowerUpload: false,
   requiresThirdUpload: false,
+  upperUploadLabel: null,
   lowerUploadLabel: null,
   thirdUploadLabel: null,
   defaultLowerCatalogId: 'lower-default',

@@ -85,6 +85,7 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
               label: i.label,
               requiresLowerUpload: i.requiresLowerUpload,
               requiresThirdUpload: i.requiresThirdUpload,
+              upperUploadLabel: i.upperUploadLabel,
               lowerUploadLabel: i.lowerUploadLabel,
               thirdUploadLabel: i.thirdUploadLabel,
               defaultLowerCatalogId: i.defaultLowerCatalogId,

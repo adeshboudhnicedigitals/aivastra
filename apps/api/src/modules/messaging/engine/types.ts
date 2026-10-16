@@ -29,6 +29,7 @@ export interface GarmentTypeOption {
   label: string;
   requiresLowerUpload: boolean;
   requiresThirdUpload: boolean;
+  upperUploadLabel: string | null;
   lowerUploadLabel: string | null;
   thirdUploadLabel: string | null;
   defaultLowerCatalogId: string | null;

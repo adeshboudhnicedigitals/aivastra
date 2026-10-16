@@ -1,4 +1,20 @@
 // Every user-visible string the bot sends (D8: English only, one file).
+
+// Admin writes these labels for the web studio's upload boxes ("Upload Pyjama");
+// mid-sentence in chat they read as "the pyjama".
+function photoName(label: string | null): string | null {
+  const name = label
+    ?.replace(/^upload\s+/i, '')
+    .trim()
+    .toLowerCase();
+  return name || null;
+}
+
+function askMain(main: string | null): string {
+  const name = photoName(main);
+  return name ? `I'll use the photo you sent as the ${name}. ` : '';
+}
+
 // Button titles are capped at 20 characters by WhatsApp; list row titles at 24.
 export const COPY = {
   menu: 'What would you like to do?',
@@ -31,9 +47,13 @@ export const COPY = {
   btnNo: 'No, change',
   notAvailable: (label: string, studio: string) =>
     `${label} catalogs aren't available on WhatsApp yet. You can create one in the web studio: ${studio}`,
+  // `main` names what the first photo is taken as, so a seller sending a set
+  // knows the order matters. Only said before the first extra photo.
   askPhoto: {
-    lowerFront: (label: string | null) => `Now send a photo of the ${label ?? 'lower garment'}.`,
-    third: (label: string | null) => `Now send a photo of the ${label ?? 'third garment'}.`,
+    lowerFront: (label: string | null, main: string | null) =>
+      `${askMain(main)}Now send a photo of the ${photoName(label) ?? 'lower garment'}.`,
+    third: (label: string | null, main: string | null) =>
+      `${askMain(main)}Now send a photo of the ${photoName(label) ?? 'third garment'}.`,
   },
   pickPrompt: (perImage: number, balance: number) =>
     `Pick the poses you want. Each one is ${perImage} credits. Your balance: ${balance} credits.`,
