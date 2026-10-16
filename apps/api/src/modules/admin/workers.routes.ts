@@ -45,6 +45,8 @@ interface QueueSnapshot {
   pending: number | null;
   probedAt: number;
   error?: string;
+  runningPromptIds?: string[];
+  pendingPromptIds?: string[];
 }
 
 async function readQueueSnapshot(
@@ -109,55 +111,65 @@ async function syncToRedis(
   );
 }
 
-export async function adminWorkersRoutes(app: FastifyInstance) {
-  app.get('/admin/workers', { preHandler: requirePermission('workers.read') }, async () => {
-    const dbWorkers = await app.db
-      .select()
-      .from(schema.workers)
-      .orderBy(asc(schema.workers.createdAt));
-    const results = await Promise.all(
-      dbWorkers.map(async (w) => {
-        const raw = await app.redis.hget(REGISTRY_KEY, w.id);
-        const registry = raw ? (JSON.parse(raw) as { status?: string; lastSeen?: number }) : {};
-        const healthy = (await app.redis.get(healthKey(w.id))) === '1';
-        const queueGateEnabled = await readQueueGate(app.redis, w.id);
-        const queue = await readQueueSnapshot(app.redis, w.id);
-        const capabilities = await readWorkerCapabilities(app, w.id);
-        const capabilityGateDrift =
-          capabilities.status === 'configured' && queueGateEnabled !== true;
-        return {
-          id: w.id,
-          label: w.label,
-          url: w.url,
-          apiKeyHint: maskApiKey(w.apiKey),
-          isActive: w.isActive,
-          allowedJobTypes: w.allowedJobTypes ?? [],
-          status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
+/**
+ * The per-worker view behind GET /admin/workers. Exported so the fleet read API composes the
+ * same registry/health/queue reads instead of re-deriving them. `apiKeyHint` is the only form
+ * of the key that may leave this function.
+ */
+export async function listAdminWorkers(app: FastifyInstance) {
+  const dbWorkers = await app.db
+    .select()
+    .from(schema.workers)
+    .orderBy(asc(schema.workers.createdAt));
+  const results = await Promise.all(
+    dbWorkers.map(async (w) => {
+      const raw = await app.redis.hget(REGISTRY_KEY, w.id);
+      const registry = raw ? (JSON.parse(raw) as { status?: string; lastSeen?: number }) : {};
+      const healthy = (await app.redis.get(healthKey(w.id))) === '1';
+      const queueGateEnabled = await readQueueGate(app.redis, w.id);
+      const queue = await readQueueSnapshot(app.redis, w.id);
+      const capabilities = await readWorkerCapabilities(app, w.id);
+      const capabilityGateDrift = capabilities.status === 'configured' && queueGateEnabled !== true;
+      return {
+        id: w.id,
+        label: w.label,
+        url: w.url,
+        apiKeyHint: maskApiKey(w.apiKey),
+        isActive: w.isActive,
+        allowedJobTypes: w.allowedJobTypes ?? [],
+        status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
+        // `status` above is a guess when there is no registry entry; this says which it is.
+        inRegistry: raw !== null,
+        healthy,
+        queueGateEnabled,
+        capabilities,
+        comfyVersion: await app.redis.get(comfyVersionKey(w.id)),
+        capabilityWarning:
+          capabilities.status === 'unreadable'
+            ? 'Capabilities unreadable — drain before repair'
+            : capabilityGateDrift
+              ? 'Validated worker has no queue gate protection'
+              : null,
+        queue,
+        routing: routingState({
           healthy,
-          queueGateEnabled,
-          capabilities,
-          comfyVersion: await app.redis.get(comfyVersionKey(w.id)),
-          capabilityWarning:
-            capabilities.status === 'unreadable'
-              ? 'Capabilities unreadable — drain before repair'
-              : capabilityGateDrift
-                ? 'Validated worker has no queue gate protection'
-                : null,
+          status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
+          gateOn: queueGateEnabled,
           queue,
-          routing: routingState({
-            healthy,
-            status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
-            gateOn: queueGateEnabled,
-            queue,
-          }),
-          lastSeen: registry.lastSeen ?? null,
-          createdAt: w.createdAt,
-          updatedAt: w.updatedAt,
-        };
-      }),
-    );
-    return results;
-  });
+        }),
+        lastSeen: registry.lastSeen ?? null,
+        createdAt: w.createdAt,
+        updatedAt: w.updatedAt,
+      };
+    }),
+  );
+  return results;
+}
+
+export async function adminWorkersRoutes(app: FastifyInstance) {
+  app.get('/admin/workers', { preHandler: requirePermission('workers.read') }, async () =>
+    listAdminWorkers(app),
+  );
 
   // 'classify' is not offered: garment recognition runs on the resident classify
   // service (CLASSIFY_SERVICE_URL), not on a tagged GPU worker. The pool stays in

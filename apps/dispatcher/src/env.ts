@@ -36,6 +36,12 @@ const Env = z.object({
   USER_STORAGE_PUBLIC_URL: optionalUrl(),
   USER_STORAGE_READ_FALLBACK: z.preprocess((v) => v === 'true', z.boolean()).default(false),
   DISPATCHER_HEALTH_PORT: z.coerce.number().default(4100),
+  /** `monitor` keeps the worker registry and read-only health/queue probes running and
+   *  nothing else: no stream consumers, recovery, sweeper, webhooks or retention. For a dev
+   *  machine whose DB snapshot still points at production GPUs and only wants to *see*
+   *  them. Anything other than the literal `monitor` is the normal full dispatcher, and an
+   *  unrecognised value fails at boot rather than silently running full. */
+  DISPATCHER_MODE: z.enum(['full', 'monitor']).default('full'),
   // How long a pending stream entry must be idle before recovery claims it (ms)
   XPENDING_CLAIM_THRESHOLD_MS: z.coerce.number().default(60_000),
   // Bounds the boot-time read of pending entries that are counted as lane occupancy.

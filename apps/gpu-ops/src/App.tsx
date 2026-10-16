@@ -1,0 +1,1082 @@
+import { Fragment, useEffect, useRef, useState } from 'react';
+import { ActivityPage } from './ActivityPage';
+import { ConfigurationPage } from './ConfigurationPage';
+import { ConnectForm } from './Connect';
+import type { FleetSnapshot, FleetWorkerView, IncidentView } from './contracts';
+import { EvidencePage } from './EvidencePage';
+import { fixtureRepository } from './fixtures';
+import { HostResources } from './HostResources';
+import { InventoryEditor } from './InventoryEditor';
+import { createLiveRepository, FleetLoadError } from './live';
+import { display, fleetCounts, freshness, grafanaLink, reconciliation, signals } from './model';
+import type { OperationsManager } from './OperationsControls';
+import { IncidentActions, OperationsControls, useOperationsDemo } from './OperationsControls';
+import { incidentPreview } from './operations-demo';
+import type { ProcessManager } from './ProcessControls';
+import { ProcessControls, useProcessDemo } from './ProcessControls';
+import { QueuePage } from './QueuePage';
+import { useWorkspaceDemo } from './Workspace';
+
+type Page =
+  | 'fleet'
+  | 'inventory'
+  | 'incidents'
+  | 'operations'
+  | 'queue'
+  | 'configuration'
+  | 'evidence'
+  | 'activity';
+const pages: { id: Page; label: string; icon: string }[] = [
+  { id: 'fleet', label: 'Fleet overview', icon: '◫' },
+  { id: 'inventory', label: 'Inventory', icon: '▤' },
+  { id: 'incidents', label: 'Incidents', icon: '◇' },
+  { id: 'operations', label: 'Operations', icon: '◎' },
+  { id: 'queue', label: 'Job queue', icon: '≋' },
+  { id: 'configuration', label: 'Instance config', icon: '⚙' },
+  { id: 'evidence', label: 'Evidence', icon: '▧' },
+  { id: 'activity', label: 'Activity log', icon: '↺' },
+];
+function tone(text: string) {
+  if (['UNREACHABLE', 'CRITICAL', 'HIGH', 'FOREIGN', 'OPEN', 'ERROR'].includes(text))
+    return 'danger';
+  if (['DEGRADED', 'DRAINING', 'UNATTRIBUTED', 'ACK', 'STALE', 'MEDIUM', 'PARTIAL'].includes(text))
+    return 'warning';
+  if (
+    ['HEALTHY', 'FRESH', 'PRODUCTION', 'RECOVERED', 'AVAILABLE', 'IDLE', 'SUCCEEDED'].includes(text)
+  )
+    return 'good';
+  if (text === 'BUSY') return 'blue';
+  return 'neutral';
+}
+function Badge({ value }: { value: string }) {
+  return (
+    <span className={`badge ${tone(value)}`}>
+      <span className="dot" />
+      {value.replaceAll('_', ' ')}
+    </span>
+  );
+}
+function utc(at: string | null) {
+  return at ? `${new Date(at).toISOString().slice(11, 19)} UTC` : 'Not observed';
+}
+function Exporter({ value }: { value: boolean | null }) {
+  return (
+    <span className={value === true ? 'text-good' : value === false ? 'text-danger' : 'muted'}>
+      {value === null ? 'Not monitored' : value ? 'Up' : 'Down'}
+    </span>
+  );
+}
+function Metric({ label, value, note }: { label: string; value: string | number; note: string }) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{note}</small>
+    </div>
+  );
+}
+function GpuSummary({ worker, asOf }: { worker: FleetWorkerView; asOf: string }) {
+  const state = freshness(worker.monitoring.lastSeenAt, asOf);
+  const pct = worker.gpu.utilizationPct;
+  return (
+    <div className="gpu-summary">
+      <div>
+        <strong>{display(pct, '%')}</strong>
+        <span className="muted"> GPU</span>
+      </div>
+      <div className="meter" aria-hidden="true">
+        {pct !== null && (
+          <i
+            className={state === 'FRESH' ? '' : 'stale'}
+            style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+          />
+        )}
+      </div>
+      <small>
+        {worker.gpu.vramUsedMb === null
+          ? 'VRAM not observed'
+          : `${display(worker.gpu.vramUsedMb)} / ${display(worker.gpu.vramTotalMb)} MB`}
+      </small>
+      {state !== 'FRESH' && (
+        <small className="text-warning">
+          {state === 'STALE' ? 'Historical observation' : 'No telemetry'}
+        </small>
+      )}
+    </div>
+  );
+}
+// Build-time (VITE_*): set => read the live fleet API, unset => the synthetic fixtures.
+const FLEET_API_URL = (import.meta.env.VITE_FLEET_API_URL as string | undefined) || null;
+const TOKEN_KEY = 'gpu-ops.fleet-token';
+const REFRESH_MS = 15_000;
+
+export function App() {
+  const processes = useProcessDemo();
+  const operations = useOperationsDemo();
+  const workspace = useWorkspaceDemo();
+  const [snapshot, setSnapshot] = useState<FleetSnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(() =>
+    FLEET_API_URL ? sessionStorage.getItem(TOKEN_KEY) : null,
+  );
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const hasData = useRef(false);
+  const [page, setPage] = useState<Page>('fleet');
+  const [workerId, setWorkerId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState('ALL');
+  const [incidentId, setIncidentId] = useState<string | null>(null);
+  useEffect(() => {
+    if (FLEET_API_URL && !token) return;
+    let current = true;
+    const repository = FLEET_API_URL
+      ? createLiveRepository(FLEET_API_URL, () => token)
+      : fixtureRepository;
+    const load = () =>
+      repository
+        .load()
+        .then((value) => {
+          if (!current) return;
+          hasData.current = true;
+          setSnapshot(value);
+          setError(null);
+          setRefreshFailed(false);
+        })
+        .catch((err: unknown) => {
+          if (!current) return;
+          if (err instanceof FleetLoadError && err.kind === 'UNAUTHORIZED') {
+            sessionStorage.removeItem(TOKEN_KEY);
+            hasData.current = false;
+            setSnapshot(null);
+            setToken(null);
+            setAuthMessage('That token was rejected or has expired. Paste a fresh one.');
+            return;
+          }
+          // Keep the last good snapshot on screen: its asOf is unchanged, so freshness ages
+          // it to STALE on its own, and the banner says why.
+          if (hasData.current) setRefreshFailed(true);
+          else setError(err instanceof Error ? err.message : 'Fleet data unavailable');
+        });
+    void load();
+    const timer = FLEET_API_URL ? setInterval(load, REFRESH_MS) : undefined;
+    return () => {
+      current = false;
+      clearInterval(timer);
+    };
+  }, [token]);
+  if (FLEET_API_URL && !token)
+    return (
+      <ConnectForm
+        apiUrl={FLEET_API_URL}
+        message={authMessage}
+        onToken={(value) => {
+          sessionStorage.setItem(TOKEN_KEY, value);
+          setAuthMessage(null);
+          setToken(value);
+        }}
+      />
+    );
+  if (error)
+    return (
+      <main className="load-state">
+        <h1>Fleet data unavailable</h1>
+        <p>No healthy state can be inferred. Reload to try again.</p>
+        <p className="muted">{error}</p>
+        <button type="button" onClick={() => window.location.reload()}>
+          Reload
+        </button>
+      </main>
+    );
+  if (!snapshot)
+    return (
+      <main className="load-state" aria-live="polite">
+        Loading operations workspace…
+      </main>
+    );
+  const data = {
+    ...snapshot,
+    incidents: snapshot.incidents.map((incident) => incidentPreview(incident, operations.state)),
+    workers: snapshot.workers.map((worker) =>
+      worker.activeIncident && operations.state.incidents[worker.activeIncident.id]?.acknowledged
+        ? { ...worker, activeIncident: { ...worker.activeIncident, state: 'ACK' as const } }
+        : worker,
+    ),
+  };
+  const counts = fleetCounts(data);
+  // Live mode shows only what the fleet API actually observed. Every other page, and every
+  // control, is still a browser-only demo, so none of them are reachable from a live snapshot.
+  const live = data.source === 'LIVE';
+  const visiblePages = live ? pages.filter((item) => item.id === 'fleet') : pages;
+  const selected = data.workers.find((worker) => worker.workerId === workerId);
+  const nav = (next: Page) => {
+    setPage(next);
+    setWorkerId(null);
+    setQuery('');
+    setFilter('ALL');
+    setIncidentId(null);
+  };
+  const openWorker = (id: string) => {
+    setPage('fleet');
+    setWorkerId(id);
+  };
+  const openIncident = (id: string) => {
+    setPage('incidents');
+    setWorkerId(null);
+    setIncidentId(id);
+    setFilter('ALL');
+  };
+  const title = selected
+    ? selected.workerId
+    : {
+        fleet: 'Fleet overview',
+        inventory: 'Inventory & reconciliation',
+        incidents: 'Incident workspace',
+        operations: 'Operations status',
+        queue: 'Job queue',
+        configuration: 'Instance configuration',
+        evidence: 'Evidence workspace',
+        activity: 'Activity log',
+      }[page];
+  const filtered = data.workers.filter(
+    (worker) =>
+      `${worker.workerId} ${worker.hostId} ${worker.gpuId} ${worker.ownership}`
+        .toLowerCase()
+        .includes(query.toLowerCase()) &&
+      (filter === 'ALL' ||
+        (filter === 'ATTENTION'
+          ? signals(worker).length > 0 || Boolean(worker.activeIncident)
+          : filter === 'NO DATA'
+            ? freshness(worker.monitoring.lastSeenAt, data.asOf) !== 'FRESH'
+            : worker.dispatcherState === filter)),
+  );
+  return (
+    <div className="shell">
+      <aside className="sidebar">
+        <button type="button" className="brand" onClick={() => nav('fleet')}>
+          <span className="brand-mark">A</span>
+          <span>
+            AIVASTRA<small>FLEET OPERATIONS</small>
+          </span>
+        </button>
+        <div className="workspace">
+          <span className="dot" />
+          Operations workspace<small>{live ? 'Live · read-only' : 'Preview environment'}</small>
+        </div>
+        <nav aria-label="Primary">
+          {visiblePages.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              className={page === item.id ? 'nav-item active' : 'nav-item'}
+              onClick={() => nav(item.id)}
+              aria-current={page === item.id ? 'page' : undefined}
+            >
+              <span aria-hidden="true">{item.icon}</span>
+              {item.label}
+              {item.id === 'incidents' && <b>{counts.incidents}</b>}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <span className="eyebrow">OBSERVE · RECONCILE · RESPOND</span>
+          <p>
+            Detailed telemetry lives in Grafana.
+            <br />
+            Operational context lives here.
+          </p>
+          <span className="read-only">
+            {live ? 'Observe only · no commands' : 'Mock controls · no live access'}
+          </span>
+        </div>
+      </aside>
+      <div className="main">
+        <header className="topbar">
+          <span>
+            Infrastructure <span className="crumb">/</span> GPU fleet
+          </span>
+          <span className="environment">{live ? '● Live fleet API' : '● Synthetic preview'}</span>
+        </header>
+        <main id="content">
+          <div className="page-heading">
+            <div>
+              <span className="eyebrow">AIVASTRA INFRASTRUCTURE</span>
+              <h1>{title}</h1>
+              <p>
+                {selected
+                  ? 'Identity, ownership and evidence in one place.'
+                  : 'A clear picture of your workers. An honest picture of what is unknown.'}
+              </p>
+            </div>
+            <div className="snapshot-time">
+              <span className="dot" />
+              {live ? 'Live snapshot' : 'Fixture snapshot'}
+              <small>{data.asOf.replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC')}</small>
+            </div>
+          </div>
+          {live ? (
+            <>
+              {refreshFailed && (
+                <div className="preview-notice" role="alert">
+                  <strong>REFRESH FAILED</strong>
+                  <span>
+                    Showing the last good snapshot. Values age to stale until the API responds
+                    again.
+                  </span>
+                </div>
+              )}
+              <div className="preview-notice">
+                <strong>LIVE · READ-ONLY</strong>
+                <span>
+                  Worker state, health and queue come from the dispatcher registry; VRAM, host RAM
+                  and queued prompts from each worker's ComfyUI. Ownership matches those prompts to
+                  dispatched jobs, so "unattributed" means no dispatch record, not a known outsider.
+                  Host and GPU mapping, utilisation, temperature, disk, incidents and jobs are not
+                  connected yet and show as unknown. Last activity is the registry's last job or
+                  status change, not a liveness signal.
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="preview-notice">
+              <strong>DEMO DATA</strong>
+              <span>
+                All hosts, observations and incidents are synthetic. No live collectors or commands
+                are connected.
+              </span>
+            </div>
+          )}
+          {selected ? (
+            <WorkerDetail
+              operations={operations}
+              manager={processes}
+              worker={selected}
+              data={data}
+              onBack={() => setWorkerId(null)}
+              openWorker={openWorker}
+              openIncident={openIncident}
+            />
+          ) : (
+            <>
+              {page === 'fleet' && (
+                <>
+                  <section className="metrics" aria-label="Fleet summary">
+                    {live ? (
+                      <>
+                        <Metric
+                          label="Workers"
+                          value={counts.workers}
+                          note="In the workers table · host and GPU mapping not built yet"
+                        />
+                        <Metric
+                          label="Healthy"
+                          value={data.workers.filter((w) => w.health === 'HEALTHY').length}
+                          note="Health key renewed within 30 s"
+                        />
+                        <Metric
+                          label="Unreachable"
+                          value={data.workers.filter((w) => w.health === 'UNREACHABLE').length}
+                          note="Registered, health key expired"
+                        />
+                        <Metric
+                          label="Draining / unknown"
+                          value={
+                            data.workers.filter(
+                              (w) =>
+                                w.dispatcherState === 'DRAINING' || w.dispatcherState === 'UNKNOWN',
+                            ).length
+                          }
+                          note="Not routable, or not in the registry"
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Metric
+                          label="Physical hosts"
+                          value={counts.hosts}
+                          note={`${counts.gpus} physical GPUs · ${counts.workers} logical workers`}
+                        />
+                        <Metric
+                          label="Fresh monitoring"
+                          value={`${counts.monitoredHosts} / ${counts.hosts}`}
+                          note="Both exporters up · observed within 2 min"
+                        />
+                        <Metric
+                          label="Active incidents"
+                          value={counts.incidents}
+                          note="Open and acknowledged"
+                        />
+                        <Metric
+                          label="Needs reconciliation"
+                          value={
+                            data.hosts.filter((host) => reconciliation(host, data).length > 0)
+                              .length
+                          }
+                          note="Hosts with inventory or coverage gaps"
+                        />
+                      </>
+                    )}
+                  </section>
+                  {live && data.queues && (
+                    <section className="panel" aria-label="Dispatch queue">
+                      <h2>Dispatch queue</h2>
+                      <p className="muted">
+                        Jobs in the shared Redis streams, not per worker. Waiting = not yet handed
+                        to a dispatcher; in flight = handed out, not finished.
+                      </p>
+                      <dl>
+                        {data.queues.map((queue) => (
+                          <Fragment key={queue.stream}>
+                            <dt>{queue.stream.replace('jobs:', '')}</dt>
+                            <dd>
+                              {queue.waiting === null
+                                ? 'Not observed'
+                                : `${queue.waiting.toLocaleString()}${queue.capped ? '+' : ''} waiting`}
+                              {' · '}
+                              {queue.inFlight === null
+                                ? 'in flight unknown'
+                                : `${queue.inFlight.toLocaleString()} in flight`}
+                            </dd>
+                          </Fragment>
+                        ))}
+                      </dl>
+                    </section>
+                  )}
+                  <div className="section-title">
+                    <div>
+                      <h2>
+                        Logical workers <span>{counts.workers}</span>
+                      </h2>
+                      <p>Shared physical GPUs are identified explicitly.</p>
+                    </div>
+                    <label className="search">
+                      <span aria-hidden="true">⌕</span>
+                      <input
+                        aria-label="Search workers"
+                        placeholder="Search worker, host or ownership…"
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <div className="filter-row">
+                    {['ALL', 'ATTENTION', 'BUSY', 'DRAINING', 'NO DATA'].map((item) => (
+                      <button
+                        type="button"
+                        key={item}
+                        aria-pressed={filter === item}
+                        className={filter === item ? 'filter selected' : 'filter'}
+                        onClick={() => setFilter(item)}
+                      >
+                        {item === 'ALL'
+                          ? 'All workers'
+                          : item === 'ATTENTION'
+                            ? 'Needs attention'
+                            : item === 'NO DATA'
+                              ? 'Monitoring gaps'
+                              : item[0] + item.slice(1).toLowerCase()}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Worker / identity</th>
+                          <th>Dispatcher / health</th>
+                          <th>ComfyUI / ownership</th>
+                          <th>GPU observation</th>
+                          <th>Monitoring</th>
+                          <th>{live ? 'Incident / last job activity' : 'Incident / last seen'}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.map((worker) => (
+                          <tr key={worker.workerId}>
+                            <td data-label="Worker / identity">
+                              <button
+                                type="button"
+                                className="worker-link"
+                                onClick={() => openWorker(worker.workerId)}
+                              >
+                                {worker.workerId}
+                                <span aria-hidden="true">↗</span>
+                              </button>
+                              <small>
+                                {live
+                                  ? 'Host / GPU not mapped'
+                                  : `${worker.hostId} → ${worker.gpuId}`}
+                              </small>
+                              {data.workers.filter((other) => other.gpuId === worker.gpuId).length >
+                                1 && <span className="shared">Shared GPU</span>}
+                            </td>
+                            <td data-label="Dispatcher / health">
+                              <Badge value={worker.dispatcherState} />
+                              <small>
+                                <Badge value={worker.health} />
+                              </small>
+                              {signals(worker).map((signal) => (
+                                <small key={signal} className="text-warning">
+                                  {signal}
+                                </small>
+                              ))}
+                            </td>
+                            <td data-label="ComfyUI / ownership">
+                              <span>
+                                {worker.comfy.reachable === false
+                                  ? 'Unreachable'
+                                  : worker.comfy.reachable === null
+                                    ? 'Reachability unknown'
+                                    : `${display(worker.comfy.running)} running · ${display(worker.comfy.pending)} pending`}
+                              </span>
+                              <small>
+                                <Badge value={worker.ownership} />
+                              </small>
+                            </td>
+                            <td data-label="GPU observation">
+                              <GpuSummary worker={worker} asOf={data.asOf} />
+                            </td>
+                            <td data-label="Monitoring">
+                              <Badge value={freshness(worker.monitoring.lastSeenAt, data.asOf)} />
+                              <small>
+                                GPU <Exporter value={worker.monitoring.gpuExporterUp} />
+                              </small>
+                              <small>
+                                Host <Exporter value={worker.monitoring.nodeExporterUp} />
+                              </small>
+                            </td>
+                            <td data-label="Incident / last seen">
+                              {worker.activeIncident ? (
+                                <button
+                                  type="button"
+                                  className="text-link"
+                                  onClick={() => openIncident(worker.activeIncident?.id ?? '')}
+                                >
+                                  {worker.activeIncident.id} · {worker.activeIncident.state}
+                                </button>
+                              ) : (
+                                <span className="muted">No active incident</span>
+                              )}
+                              <small>{utc(worker.lastSeenAt)}</small>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {filtered.length === 0 && (
+                      <div className="empty">
+                        No workers match these filters.
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuery('');
+                            setFilter('ALL');
+                          }}
+                        >
+                          Clear filters
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <p className="footnote">
+                    Unknown values remain unknown. GPU observations are shared physical resources,
+                    not per-worker capacity.
+                  </p>
+                </>
+              )}
+              {page === 'inventory' && (
+                <InventoryEditor
+                  manager={workspace}
+                  data={data}
+                  renderPreview={(draft) => <Inventory data={draft} openWorker={openWorker} />}
+                />
+              )}
+              {page === 'queue' && (
+                <QueuePage
+                  manager={workspace}
+                  operations={operations}
+                  data={data}
+                  openWorker={openWorker}
+                />
+              )}
+              {page === 'configuration' && <ConfigurationPage manager={processes} data={data} />}
+              {page === 'evidence' && (
+                <EvidencePage manager={workspace} data={data} openIncident={openIncident} />
+              )}
+              {page === 'activity' && (
+                <ActivityPage workspace={workspace} operations={operations} processes={processes} />
+              )}
+              {page === 'incidents' && (
+                <>
+                  <div className="section-title">
+                    <div>
+                      <h2>Evidence before conclusions</h2>
+                      <p>
+                        Existing OPEN / ACK / RECOVERED semantics. Classification remains
+                        evidence-based.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="filter-row">
+                    {['ALL', 'OPEN', 'ACK', 'RECOVERED'].map((state) => (
+                      <button
+                        type="button"
+                        key={state}
+                        className={filter === state ? 'filter selected' : 'filter'}
+                        aria-pressed={filter === state}
+                        onClick={() => {
+                          setFilter(state);
+                          setIncidentId(null);
+                        }}
+                      >
+                        {state === 'ALL' ? 'All incidents' : state}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="incident-layout">
+                    <div className="incident-list">
+                      {data.incidents
+                        .filter((incident) => filter === 'ALL' || incident.state === filter)
+                        .map((incident) => (
+                          <button
+                            type="button"
+                            key={incident.id}
+                            className={`incident-card ${incidentId === incident.id ? 'chosen' : ''}`}
+                            onClick={() => setIncidentId(incident.id)}
+                          >
+                            <div>
+                              <span className="mono">{incident.id}</span>
+                              <Badge value={incident.state} />
+                            </div>
+                            <h3>{incident.title}</h3>
+                            <div>
+                              <Badge value={incident.severity} />
+                              <span>
+                                {incident.workerIds.length} worker
+                                {incident.workerIds.length === 1 ? '' : 's'}
+                              </span>
+                            </div>
+                            <small>{utc(incident.updatedAt)}</small>
+                          </button>
+                        ))}
+                    </div>
+                    {data.incidents.find((incident) => incident.id === incidentId) ? (
+                      <IncidentDetail
+                        operations={operations}
+                        incident={
+                          data.incidents.find(
+                            (incident) => incident.id === incidentId,
+                          ) as IncidentView
+                        }
+                        openWorker={openWorker}
+                      />
+                    ) : (
+                      <div className="panel empty">
+                        <span className="empty-icon">◇</span>
+                        <h3>Select an incident</h3>
+                        <p>Review classification, evidence coverage and the audit trail.</p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+              {page === 'operations' && (
+                <>
+                  <ProcessControls manager={processes} data={data} />
+                  <OperationsControls manager={operations} data={data} />
+                  <section className="panel safety">
+                    <span className="eyebrow">OPERATIONS BOUNDARY</span>
+                    <h2>Observe now. Authorize actions separately.</h2>
+                    <p>
+                      ComfyUI lifecycle controls simulate actions in this browser only. SSH,
+                      firewall changes, process management and rebuild are not connected.
+                      Reservations, routing, maintenance, incident acknowledgment and notes are
+                      local simulations. Original observations remain unchanged.
+                    </p>
+                    <p>
+                      Containment requires evidence, recorded authorization and the verified
+                      operational procedure.
+                    </p>
+                  </section>
+                </>
+              )}
+            </>
+          )}
+          <footer>
+            <span>AIVASTRA Operations · v0.1</span>
+            <span>{live ? 'Live fleet API · Read-only' : 'Fixture mode · No live commands'}</span>
+          </footer>
+        </main>
+      </div>
+    </div>
+  );
+}
+function WorkerDetail({
+  operations,
+  manager,
+  worker,
+  data,
+  onBack,
+  openWorker,
+  openIncident,
+}: {
+  operations: OperationsManager;
+  manager: ProcessManager;
+  worker: FleetWorkerView;
+  data: FleetSnapshot;
+  onBack: () => void;
+  openWorker: (id: string) => void;
+  openIncident: (id: string) => void;
+}) {
+  const host = data.hosts.find((item) => item.id === worker.hostId);
+  const gpu = data.gpus.find((item) => item.id === worker.gpuId);
+  const siblings = data.workers.filter(
+    (item) => item.gpuId === worker.gpuId && item.workerId !== worker.workerId,
+  );
+  const jobs = data.jobs.filter((job) => job.workerId === worker.workerId);
+  const incidents = data.incidents.filter((item) => item.workerIds.includes(worker.workerId));
+  return (
+    <>
+      <button type="button" className="back" onClick={onBack}>
+        ← All workers
+      </button>
+      <section className="identity panel">
+        <div>
+          <span className="eyebrow">VPS HOST</span>
+          <h3>{host?.label ?? worker.hostId}</h3>
+          <small>{host?.provider ?? 'Provider unknown'}</small>
+        </div>
+        <span aria-hidden="true">→</span>
+        <div>
+          <span className="eyebrow">PHYSICAL GPU</span>
+          <h3>{gpu?.model ?? 'Model unknown'}</h3>
+          <small>
+            {worker.gpuId} · {display(gpu?.vramTotalMb ?? null, ' MB')}
+          </small>
+        </div>
+        <span aria-hidden="true">→</span>
+        <div>
+          <span className="eyebrow">LOGICAL WORKER</span>
+          <h3>{worker.workerId}</h3>
+          <small>{worker.jobTypes.join(' · ')}</small>
+        </div>
+      </section>
+      {siblings.length > 0 && (
+        <div className="notice">
+          Shared physical GPU with{' '}
+          {siblings.map((sibling) => (
+            <button
+              type="button"
+              className="text-link"
+              key={sibling.workerId}
+              onClick={() => openWorker(sibling.workerId)}
+            >
+              {sibling.workerId}
+            </button>
+          ))}
+          . Utilization and VRAM describe the whole GPU.
+        </div>
+      )}
+      {data.source !== 'LIVE' && (
+        <>
+          <ProcessControls manager={manager} data={data} workerId={worker.workerId} />
+          <OperationsControls manager={operations} data={data} workerId={worker.workerId} />
+        </>
+      )}
+      <div className="detail-grid">
+        <section className="panel">
+          <div className="panel-heading">
+            <h2>Reconciled state</h2>
+            <Badge value={worker.health} />
+          </div>
+          <dl>
+            <dt>Dispatcher</dt>
+            <dd>
+              <Badge value={worker.dispatcherState} />
+            </dd>
+            <dt>Endpoint</dt>
+            <dd>
+              {worker.comfy.reachable === null
+                ? 'Unknown'
+                : worker.comfy.reachable
+                  ? 'Reachable'
+                  : 'Unreachable'}
+            </dd>
+            <dt>Queue</dt>
+            <dd>
+              {display(worker.comfy.running)} running / {display(worker.comfy.pending)} pending
+            </dd>
+            <dt>Ownership</dt>
+            <dd>
+              <Badge value={worker.ownership} />
+            </dd>
+            <dt>Current prompt</dt>
+            <dd>{worker.prompt?.id ?? 'No prompt observed'}</dd>
+            <dt>Prompt owner</dt>
+            <dd>{worker.prompt?.owner ?? 'Unknown / no prompt'}</dd>
+            <dt>Prompt observation</dt>
+            <dd>{utc(worker.prompt?.observedAt ?? null)}</dd>
+          </dl>
+          {signals(worker).map((signal) => (
+            <div className="notice" key={signal}>
+              {signal}
+            </div>
+          ))}
+        </section>
+        <section className="panel">
+          <div className="panel-heading">
+            <h2>Telemetry snapshot</h2>
+            <Badge value={freshness(worker.monitoring.lastSeenAt, data.asOf)} />
+          </div>
+          <GpuSummary worker={worker} asOf={data.asOf} />
+          <dl>
+            <dt>Temperature</dt>
+            <dd>{display(worker.gpu.temperatureC, ' °C')}</dd>
+            <dt>GPU exporter</dt>
+            <dd>
+              <Exporter value={worker.monitoring.gpuExporterUp} />
+            </dd>
+            <dt>Host exporter</dt>
+            <dd>
+              <Exporter value={worker.monitoring.nodeExporterUp} />
+            </dd>
+            <dt>Observed at</dt>
+            <dd>{utc(worker.monitoring.lastSeenAt)}</dd>
+            <dt>Storage used / total</dt>
+            <dd>
+              {display(host?.storage.usedGb ?? null)} / {display(host?.storage.totalGb ?? null)} GB
+            </dd>
+            <dt>Storage observation</dt>
+            <dd>{utc(host?.storage.observedAt ?? null)}</dd>
+            <dt>Storage freshness</dt>
+            <dd>
+              <Badge value={freshness(host?.storage.observedAt ?? null, data.asOf)} />
+            </dd>
+          </dl>
+        </section>
+        <HostResources host={host} asOf={data.asOf} live={data.source === 'LIVE'} />
+        <section className="panel">
+          <h2>Recent jobs</h2>
+          {jobs.length ? (
+            jobs.map((job) => (
+              <div className="job" key={job.id}>
+                <div>
+                  <span className="mono">{job.id}</span>
+                  <small>
+                    {job.type} · {utc(job.at)}
+                  </small>
+                </div>
+                <div>
+                  <Badge value={job.outcome} />
+                  <small>
+                    {job.executionMs === null
+                      ? 'Execution time unavailable'
+                      : `${(job.executionMs / 1000).toFixed(1)}s execution`}
+                  </small>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="empty compact">No recent jobs in this snapshot.</div>
+          )}
+        </section>
+        <section className="panel">
+          <h2>Recent anomalies</h2>
+          {incidents.length ? (
+            incidents.map((incident) => (
+              <div className="anomaly" key={incident.id}>
+                <button
+                  type="button"
+                  className="text-link"
+                  onClick={() => openIncident(incident.id)}
+                >
+                  {incident.id} · {incident.title}
+                </button>
+                <small>{incident.classification.replaceAll('_', ' ')}</small>
+                <Badge value={incident.state} />
+              </div>
+            ))
+          ) : (
+            <div className="empty compact">No recorded anomalies in this snapshot.</div>
+          )}
+        </section>
+      </div>
+      <section className="panel">
+        <h2>Explore in Grafana</h2>
+        <p className="muted">
+          GPU, host and performance history stays in Grafana. Links carry host, GPU and worker
+          context.
+        </p>
+        <div className="grafana-links">
+          {(['gpu', 'host', 'performance'] as const).map((kind) => {
+            const href = grafanaLink(kind, worker);
+            return href ? (
+              <a key={kind} href={href} target="_blank" rel="noreferrer">
+                {kind} dashboard ↗
+              </a>
+            ) : (
+              <div key={kind}>
+                <strong>{kind} dashboard</strong>
+                <small>Not configured</small>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </>
+  );
+}
+function Inventory({
+  data,
+  openWorker,
+}: {
+  data: FleetSnapshot;
+  openWorker: (id: string) => void;
+}) {
+  return (
+    <>
+      <div className="notice">
+        Three identities, one reconciliation view. Host and GPU capacity are counted once—even when
+        workers share them. All counts below are synthetic.
+      </div>
+      <div className="inventory-grid">
+        {data.hosts.map((host) => {
+          const issues = reconciliation(host, data);
+          return (
+            <section className="panel inventory-card" key={host.id}>
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">VPS HOST · {host.id}</span>
+                  <h2>{host.label}</h2>
+                </div>
+                <span className="host-icon" aria-hidden="true">
+                  ▤
+                </span>
+              </div>
+              <p className="muted">
+                {host.provider ?? 'Provider unknown'} ·{' '}
+                {host.rented === null ? 'Rental unknown' : host.rented ? 'Rented' : 'Not rented'} ·{' '}
+                {host.monthlyCostUsd === null ? 'Cost unknown' : `$${host.monthlyCostUsd}/mo`}
+              </p>
+              {data.gpus
+                .filter((gpu) => gpu.hostId === host.id)
+                .map((gpu) => (
+                  <div className="gpu-tree" key={gpu.id}>
+                    <strong>
+                      {gpu.id} <span className="muted">/ {gpu.model ?? 'GPU model unknown'}</span>
+                    </strong>
+                    {data.workers
+                      .filter((worker) => worker.gpuId === gpu.id)
+                      .map((worker) => (
+                        <div className="tree-worker" key={worker.workerId}>
+                          <button
+                            type="button"
+                            className="text-link"
+                            onClick={() => openWorker(worker.workerId)}
+                          >
+                            {worker.workerId} ↗
+                          </button>
+                          <small>
+                            {worker.inRegistry ? 'In registry' : 'Not in registry'} ·{' '}
+                            {worker.active ? 'Active' : 'Inactive'}
+                          </small>
+                        </div>
+                      ))}
+                  </div>
+                ))}
+              <div className="issue-list">
+                {issues.length ? (
+                  issues.map((issue) => (
+                    <span className="issue" key={issue}>
+                      {issue}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-good">✓ Inventory reconciled</span>
+                )}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+      <p className="footnote">
+        Registry-only / monitored-only describe observed coverage, not proof that an exporter is
+        uninstalled. Unverified inventory requires operator reconciliation.
+      </p>
+    </>
+  );
+}
+function IncidentDetail({
+  operations,
+  incident,
+  openWorker,
+}: {
+  operations: OperationsManager;
+  incident: IncidentView;
+  openWorker: (id: string) => void;
+}) {
+  return (
+    <section className="panel incident-detail">
+      <span className="eyebrow">{incident.id} · INCIDENT RECORD</span>
+      <h2>{incident.title}</h2>
+      <div className="badges">
+        <Badge value={incident.severity} />
+        <Badge value={incident.state} />
+      </div>
+      <IncidentActions key={incident.id} incident={incident} manager={operations} />
+      <div className="classification">
+        <span className="eyebrow">CLASSIFICATION</span>
+        <strong>{incident.classification.replaceAll('_', ' ')}</strong>
+      </div>
+      <dl>
+        <dt>Opened</dt>
+        <dd>{utc(incident.openedAt)}</dd>
+        <dt>Updated</dt>
+        <dd>{utc(incident.updatedAt)}</dd>
+        <dt>Recovered</dt>
+        <dd>{utc(incident.recoveredAt)}</dd>
+        <dt>Job types impacted</dt>
+        <dd>{incident.jobTypes.join(' · ')}</dd>
+      </dl>
+      <div className="badges">
+        {incident.workerIds.map((id) => (
+          <button type="button" className="text-link" key={id} onClick={() => openWorker(id)}>
+            {id} ↗
+          </button>
+        ))}
+      </div>
+      <h3>Evidence availability</h3>
+      <div className="evidence">
+        {Object.entries(incident.evidence).map(([source, state]) => (
+          <div key={source}>
+            <span>
+              {source === 'passA' ? 'Pass A' : source === 'passB' ? 'Pass B' : 'External'}
+            </span>
+            <Badge value={state} />
+          </div>
+        ))}
+      </div>
+      <h3>Operator notes</h3>
+      {incident.notes.map((note) => (
+        <p className="note" key={note}>
+          {note}
+        </p>
+      ))}
+      <h3>Audit trail</h3>
+      <ol className="audit">
+        {incident.audit.map((entry) => (
+          <li key={`${entry.at}-${entry.action}`}>
+            <small>
+              {utc(entry.at)} · {entry.actor}
+            </small>
+            <p>{entry.action}</p>
+          </li>
+        ))}
+      </ol>
+      <p className="footnote">
+        Fixture record with browser-only acknowledgment and notes. No containment or live incident
+        transitions are executed here.
+      </p>
+    </section>
+  );
+}

@@ -1674,6 +1674,13 @@
       "when": 1793352642868,
       "tag": "0239_solid_mephistopheles",
       "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "7",
+      "when": 1793352643868,
+      "tag": "0240_fleet_permissions",
+      "breakpoints": true
     }
   ]
 }
