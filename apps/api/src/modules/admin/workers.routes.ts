@@ -97,6 +97,11 @@ async function syncToRedis(
     REGISTRY_KEY,
     id,
     JSON.stringify({
+      // An entry created here (none existed: Redis reset, dispatcher not yet booted)
+      // must start IDLE. The dispatcher's claim script only takes status === 'IDLE',
+      // so a status-less entry is skipped forever while the admin list, which falls
+      // back to 'IDLE', shows the worker free.
+      status: 'IDLE',
       ...cur,
       ...fields,
       allowedJobTypes: fields.allowedJobTypes ?? cur.allowedJobTypes ?? [],
