@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { useUrlState } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import GarmentRecognitionsPage from './GarmentRecognitionsPage';
@@ -274,6 +275,198 @@ function ConnectionCard({ toast, onChanged }: Props & { onChanged: () => void })
   );
 }
 
+interface ClassifyWorkflow {
+  id: string;
+  slug: string;
+  label: string;
+  version: number;
+  isActive: boolean;
+}
+
+// The dispatcher runs the single active `classify` workflow; the admin save keeps it to one
+// (activating one deactivates the rest, server side). This shows which one that is and lets
+// an admin switch, so "is it active?" is answered on the page that needs it.
+function WorkflowCard({ toast, onChanged }: Props & { onChanged: () => void }) {
+  const [items, setItems] = useState<ClassifyWorkflow[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const all =
+        await apiFetch<(ClassifyWorkflow & { workflowType: string })[]>('/admin/workflows');
+      setItems(all.filter((w) => w.workflowType === 'classify'));
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load recognition workflows',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const active = items?.find((w) => w.isActive) ?? null;
+
+  const activate = async (id: string) => {
+    if (!id || id === active?.id) return;
+    setBusy(true);
+    try {
+      await apiFetch(`/admin/workflows/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: true }),
+      });
+      await load();
+      onChanged();
+      toast({ title: 'Recognition workflow updated' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to activate workflow',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Recognition workflow</div>
+      <div style={{ color: 'var(--muted)', fontSize: 12.5, marginBottom: 12 }}>
+        The prompt template the dispatcher runs for every recognition. Upload one under Workflows →
+        Garment recognition.
+      </div>
+      {items === null ? (
+        <span style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</span>
+      ) : items.length === 0 ? (
+        <span style={{ color: 'var(--danger-ink, #ef4444)', fontSize: 13 }}>
+          No recognition workflow uploaded — every recognition fails until one is.
+        </span>
+      ) : (
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 280 }}>
+            <SearchableSelect
+              ariaLabel="Active recognition workflow"
+              options={items.map((w) => ({
+                id: w.id,
+                label: `${w.label} (v${w.version})${w.isActive ? ' — active' : ''}`,
+              }))}
+              value={active?.id ?? ''}
+              placeholder="Select a workflow…"
+              disabled={busy}
+              onChange={(id) => void activate(id)}
+            />
+          </div>
+          <span
+            style={{
+              fontSize: 13,
+              color: active ? 'var(--success-ink, #22c55e)' : 'var(--danger-ink, #ef4444)',
+            }}
+          >
+            {active ? `Active: ${active.label}` : 'None active — recognitions fail'}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const BACKFILL_LABELS: Record<string, string> = {
+  modelFaces: 'faces',
+  modelBackgrounds: 'backgrounds',
+  modelPoseAssets: 'poses',
+  catalogItems: 'catalog items',
+  garmentSubcategories: 'garment types',
+};
+
+// Recognition only offers garment types that carry a public_api_slug (the slug is the
+// answer key), so a type without one is invisible to it. This is the same bulk backfill
+// the Dev API page has — it publishes every active, unslugged asset, not just garment
+// types, and never touches a slug that already exists.
+function SlugBackfillCard({ toast }: Props) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    setConfirming(false);
+    setBusy(true);
+    try {
+      const res = await apiFetch<{ total: number; counts: Record<string, number> }>(
+        '/admin/dev-api/catalog/backfill-slugs',
+        { method: 'POST' },
+      );
+      if (res.total === 0) {
+        toast({ title: 'Nothing to publish', body: 'Every eligible asset already has a slug.' });
+      } else {
+        const breakdown = Object.keys(BACKFILL_LABELS)
+          .filter((k) => (res.counts[k] ?? 0) > 0)
+          .map((k) => `${res.counts[k]} ${BACKFILL_LABELS[k]}`)
+          .join(', ');
+        toast({ title: `Published ${res.total} assets`, body: breakdown });
+      }
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Backfill failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Public slugs</div>
+      <div style={{ color: 'var(--muted)', fontSize: 12.5, marginBottom: 12 }}>
+        Recognition can only answer with garment types that have a public API slug. Backfill fills
+        the gaps for every active asset without one (faces, backgrounds, poses, catalog items and
+        garment types) and never renames an existing slug.
+      </div>
+      <button
+        type="button"
+        className="btn primary"
+        disabled={busy}
+        onClick={() => setConfirming(true)}
+      >
+        {busy ? 'Publishing…' : 'Backfill public slugs'}
+      </button>
+
+      {confirming && (
+        <div className="modal-overlay" onClick={() => setConfirming(false)}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(440px, calc(100vw - 40px))' }}
+          >
+            <div className="modal-head">
+              <h3>Backfill public slugs</h3>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: 0 }}>
+                This publishes every currently active, unpublished asset to{' '}
+                <code>/v1/dev/catalog/*</code> under an auto-generated slug — potentially hundreds
+                of rows at once. Assets that already have a slug are left untouched. Continue?
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button type="button" className="btn ghost" onClick={() => setConfirming(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn primary" onClick={() => void run()}>
+                Publish all
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Overview({ toast }: Props) {
   const [status, setStatus] = useState<Status | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -365,7 +558,9 @@ function Overview({ toast }: Props) {
         )}
       </div>
 
+      <WorkflowCard toast={toast} onChanged={() => void loadStatus()} />
       <ConnectionCard toast={toast} onChanged={() => void loadStatus()} />
+      <SlugBackfillCard toast={toast} />
 
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         <span style={{ color: 'var(--muted)', fontSize: 12.5 }}>Last</span>
