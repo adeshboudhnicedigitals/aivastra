@@ -11,6 +11,7 @@ abstract class PoseModel with _$PoseModel {
     required String thumbnailUrl,
     @Default(false) bool hasLower,
     @Default(false) bool hasShoes,
+    @Default(false) bool hasAccessory,
     @Default(false) bool hasAspectRatio,
   }) = _PoseModel;
 

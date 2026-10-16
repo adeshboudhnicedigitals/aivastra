@@ -44,6 +44,9 @@ abstract class CatalogueSelectionState with _$CatalogueSelectionState {
     @Default(<String>{}) Set<String> poseIds,
     String? lowerCatalogItemId,
     String? shoeCatalogItemId,
+    // At most one item per accessory category, zero or more categories —
+    // always optional, mirrors the web app's accessoryCatalogIds.
+    @Default(<String>{}) Set<String> accessoryCatalogItemIds,
     @Default('Amazon') String platform,
     @Default('1:1') String aspectRatio,
     // 'HD' is disabled by default server-side (DEFAULT_RESOLUTION_CONFIG in

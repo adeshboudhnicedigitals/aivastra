@@ -98,8 +98,9 @@ class _TutorialPlayerDialogState extends State<_TutorialPlayerDialog> {
 </head>
 <body>
 <iframe
-  src="https://www.youtube.com/embed/${widget.tutorial.videoId}?autoplay=1&playsinline=1&rel=0&fs=0"
-  allow="autoplay; encrypted-media; picture-in-picture"
+  src="https://www.youtube.com/embed/${widget.tutorial.videoId}?autoplay=1&playsinline=1&rel=0&fs=1"
+  allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+  allowfullscreen
   referrerpolicy="strict-origin-when-cross-origin"></iframe>
 </body>
 </html>

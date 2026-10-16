@@ -45,7 +45,16 @@ Map<String, num> _lenientNumMap(Object? value) {
 @freezed
 abstract class PixversePricing with _$PixversePricing {
   const factory PixversePricing({
-    @JsonKey(fromJson: _lenientNum) @Default(0) num perSecondRate,
+    // Per-quality-tier, same shape as qualityBase — the server's
+    // PixverseVideoPricingConfig.perSecondRate is `Record<PixverseQuality,
+    // number>` (apps/api/src/lib/resolution-config.ts), not one number
+    // shared by every tier. This was previously typed as a bare `num`,
+    // which made `_lenientNum` silently read every response as 0 (a Map
+    // isn't a num or a String, so it fell through to the `_ => 0` branch)
+    // — the per-second contribution was always dropped from the computed
+    // cost, same family of bug as the hardcoded "10 Credits" label this
+    // was meant to feed.
+    @JsonKey(fromJson: _lenientNumMap) @Default({}) Map<String, num> perSecondRate,
     @JsonKey(fromJson: _lenientNumMap) @Default({}) Map<String, num> qualityBase,
   }) = _PixversePricing;
 

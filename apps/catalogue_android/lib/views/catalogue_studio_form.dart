@@ -27,6 +27,7 @@ import '../widgets/auth_widgets.dart';
 import '../widgets/detail_page_widgets.dart';
 import '../widgets/filter_sheet_widgets.dart';
 import '../widgets/gradient_button.dart';
+import '../widgets/saree_slider_split_upload.dart';
 import '../widgets/spotlight_tutorial.dart';
 import 'batch_studio_page.dart';
 import 'catalogue_result_page.dart';
@@ -118,6 +119,10 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
   File? _lowerFile;
   File? _thirdFile;
   File? _palluFile;
+  // Mirrors the web app's sareeUploadMode: off (default) keeps the existing
+  // two-box Body + Pallu upload; on swaps it for [SareeSliderSplitUpload],
+  // which produces the exact same two files via one photo split client-side.
+  bool _sareeSliderSplitActive = false;
   String? _submitError;
   bool _isSubmitting = false;
 
@@ -219,6 +224,7 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
       _lowerFile = null;
       _thirdFile = null;
       _palluFile = null;
+      _sareeSliderSplitActive = false;
     });
   }
 
@@ -600,24 +606,32 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                           VoidCallback onRemove,
                         })
                       >[
-                        (
-                          label: garmentType.sareeTwoInputCapable
-                              ? 'Body'
-                              : garmentType.upperUploadLabel ??
-                                    garmentType.label,
-                          file: _upperFile,
-                          uploading: selection.isUploadingUpper,
-                          uploaded: selection.upperGarmentKey != null,
-                          onUpload: () => _pickUpload((file) async {
-                            setState(() => _upperFile = file);
-                            await controller.pickAndUploadUpper(file);
-                          }),
-                          onRemove: () {
-                            setState(() => _upperFile = null);
-                            controller.removeUpperUpload();
-                          },
-                        ),
-                        if (garmentType.sareeTwoInputCapable)
+                        // Single-photo slider-split mode replaces Body +
+                        // Pallu with SareeSliderSplitUpload below instead of
+                        // a box here — it still ends up calling
+                        // pickAndUploadUpper/Pallu, just from one split photo
+                        // rather than two separate picks.
+                        if (!garmentType.sareeTwoInputCapable ||
+                            !_sareeSliderSplitActive)
+                          (
+                            label: garmentType.sareeTwoInputCapable
+                                ? 'Body'
+                                : garmentType.upperUploadLabel ??
+                                      garmentType.label,
+                            file: _upperFile,
+                            uploading: selection.isUploadingUpper,
+                            uploaded: selection.upperGarmentKey != null,
+                            onUpload: () => _pickUpload((file) async {
+                              setState(() => _upperFile = file);
+                              await controller.pickAndUploadUpper(file);
+                            }),
+                            onRemove: () {
+                              setState(() => _upperFile = null);
+                              controller.removeUpperUpload();
+                            },
+                          ),
+                        if (garmentType.sareeTwoInputCapable &&
+                            !_sareeSliderSplitActive)
                           (
                             label: 'Pallu',
                             file: _palluFile,
@@ -668,6 +682,7 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                   final isMulti = boxes.length > 1;
 
                   return Column(
+                    key: _uploadKey,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _labelWithInfoRow(
@@ -681,56 +696,133 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                         ),
                       ),
                       SizedBox(height: AppDimens.sdp(context, '_14sdp')),
-                      if (isMulti)
-                        // Each box is at least its width / 1.05 tall, but the
-                        // row grows past that when a box's own content needs
-                        // more: three across on a phone are too narrow for a
-                        // fixed aspect — a two-line label ("Upload Suit
-                        // Blazer") plus the file hint overflowed it.
-                        // IntrinsicHeight + stretch keeps all boxes level.
-                        LayoutBuilder(
-                          key: _uploadKey,
-                          builder: (context, constraints) {
-                            final boxWidth =
-                                (constraints.maxWidth -
-                                    fieldGap * (boxes.length - 1)) /
-                                boxes.length;
-                            return IntrinsicHeight(
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  for (var i = 0; i < boxes.length; i++) ...[
-                                    if (i > 0) SizedBox(width: fieldGap),
-                                    Expanded(
-                                      child: _UploadGarmentBox(
-                                        label: boxes[i].label,
-                                        file: boxes[i].file,
-                                        uploading: boxes[i].uploading,
-                                        uploaded: boxes[i].uploaded,
-                                        tint: AppColors.pinkGradientStart,
-                                        largeThumbnail: true,
-                                        rowBoxHeight: boxWidth / 1.05,
-                                        onUpload: boxes[i].onUpload,
-                                        onRemove: boxes[i].onRemove,
-                                      ),
+                      // Only a sareeTwoInputCapable garment type (Body +
+                      // Pallu) ever offers this — mirrors the web app's
+                      // sareeUploadMode toggle exactly.
+                      if (garmentType.sareeTwoInputCapable) ...[
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Transform.scale(
+                              scale: 0.8,
+                              child: Switch(
+                                value: _sareeSliderSplitActive,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _sareeSliderSplitActive = value;
+                                    _upperFile = null;
+                                    _palluFile = null;
+                                  });
+                                  controller.removeUpperUpload();
+                                  controller.removePalluUpload();
+                                },
+                                activeThumbColor: Colors.white,
+                                activeTrackColor: AppColors.pinkGradientStart,
+                                inactiveThumbColor: Colors.white.withValues(
+                                  alpha: 0.8,
+                                ),
+                                inactiveTrackColor: AppColors.fieldBorder,
+                                trackOutlineColor:
+                                    const WidgetStatePropertyAll(
+                                      Colors.transparent,
                                     ),
-                                  ],
-                                ],
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
                               ),
-                            );
-                          },
-                        )
-                      else
-                        _UploadGarmentBox(
-                          key: _uploadKey,
-                          label: boxes.single.label,
-                          file: boxes.single.file,
-                          uploading: boxes.single.uploading,
-                          uploaded: boxes.single.uploaded,
-                          tint: AppColors.pinkGradientStart,
-                          onUpload: boxes.single.onUpload,
-                          onRemove: boxes.single.onRemove,
+                            ),
+                            SizedBox(width: AppDimens.sdp(context, '_6sdp')),
+                            Text(
+                              AppStrings.sareeSliderSplitToggleLabel,
+                              style: AppTextStyles.medium.copyWith(
+                                color: Colors.white,
+                                fontSize: AppDimens.ssp(context, '_12ssp'),
+                              ),
+                            ),
+                          ],
                         ),
+                        SizedBox(height: AppDimens.sdp(context, '_12sdp')),
+                      ],
+                      if (garmentType.sareeTwoInputCapable &&
+                          _sareeSliderSplitActive) ...[
+                        SareeSliderSplitUpload(
+                          isUploadingUpper: selection.isUploadingUpper,
+                          upperUploaded: selection.upperGarmentKey != null,
+                          isUploadingPallu: selection.isUploadingPallu,
+                          palluUploaded: selection.palluGarmentKey != null,
+                          onConfirm: (body, pallu) async {
+                            setState(() {
+                              _upperFile = body;
+                              _palluFile = pallu;
+                            });
+                            await Future.wait([
+                              controller.pickAndUploadUpper(body),
+                              controller.pickAndUploadPallu(pallu),
+                            ]);
+                          },
+                          onReset: () {
+                            setState(() {
+                              _upperFile = null;
+                              _palluFile = null;
+                            });
+                            controller.removeUpperUpload();
+                            controller.removePalluUpload();
+                          },
+                        ),
+                        if (boxes.isNotEmpty)
+                          SizedBox(height: fieldGap),
+                      ],
+                      if (boxes.isNotEmpty)
+                        if (isMulti)
+                          // Each box is at least its width / 1.05 tall, but
+                          // the row grows past that when a box's own content
+                          // needs more: three across on a phone are too
+                          // narrow for a fixed aspect — a two-line label
+                          // ("Upload Suit Blazer") plus the file hint
+                          // overflowed it. IntrinsicHeight + stretch keeps
+                          // all boxes level.
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final boxWidth =
+                                  (constraints.maxWidth -
+                                      fieldGap * (boxes.length - 1)) /
+                                  boxes.length;
+                              return IntrinsicHeight(
+                                child: Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    for (var i = 0; i < boxes.length; i++) ...[
+                                      if (i > 0) SizedBox(width: fieldGap),
+                                      Expanded(
+                                        child: _UploadGarmentBox(
+                                          key: ValueKey(boxes[i].label),
+                                          label: boxes[i].label,
+                                          file: boxes[i].file,
+                                          uploading: boxes[i].uploading,
+                                          uploaded: boxes[i].uploaded,
+                                          tint: AppColors.pinkGradientStart,
+                                          largeThumbnail: true,
+                                          rowBoxHeight: boxWidth / 1.05,
+                                          onUpload: boxes[i].onUpload,
+                                          onRemove: boxes[i].onRemove,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              );
+                            },
+                          )
+                        else
+                          _UploadGarmentBox(
+                            label: boxes.single.label,
+                            file: boxes.single.file,
+                            uploading: boxes.single.uploading,
+                            uploaded: boxes.single.uploaded,
+                            tint: AppColors.pinkGradientStart,
+                            onUpload: boxes.single.onUpload,
+                            onRemove: boxes.single.onRemove,
+                          ),
                     ],
                   );
                 }(),
@@ -1415,7 +1507,32 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                               !garmentType.requiresLowerUpload &&
                               !garmentType.isBottomWearOnly;
 
-                          if (!showLower && !needsShoes) {
+                          final needsAccessoryPreview =
+                              selection.lookMode == LookMode.readyMade
+                              ? (template?.looks ?? const [])
+                                    .where(
+                                      (l) => selection.selectedLookIds
+                                          .contains(l.id),
+                                    )
+                                    .any((l) => l.hasAccessory)
+                              : ref
+                                    .watch(
+                                      posesProvider((
+                                        gender: selection.gender,
+                                        garmentTypeId: garmentType.id,
+                                      )),
+                                    )
+                                    .value
+                                    ?.where(
+                                      (p) =>
+                                          selection.poseIds.contains(p.id),
+                                    )
+                                    .any((p) => p.hasAccessory) ??
+                                  false;
+
+                          if (!showLower &&
+                              !needsShoes &&
+                              !needsAccessoryPreview) {
                             return const SizedBox.shrink();
                           }
 
@@ -1625,6 +1742,221 @@ class _CatalogueStudioFormState extends ConsumerState<CatalogueStudioForm> {
                                   },
                                 ),
                               ],
+                              if (showLower || needsShoes)
+                                SizedBox(height: sectionGap),
+                              // Accessories: unlike lower/shoe, every selected
+                              // pose's workflow is checked via hasAccessory
+                              // alone (no requiresLowerUpload-style carve-out
+                              // — an accessory never substitutes for an
+                              // upload) and the step renders one row *per
+                              // catalog category* (e.g. "Jewellery Set"),
+                              // single-select within each, any number of
+                              // categories picked at once — mirrors the web
+                              // app's AccessoryStep (studio/accessory-step.tsx).
+                              Builder(
+                                builder: (context) {
+                                  final needsAccessory =
+                                      selection.lookMode == LookMode.readyMade
+                                      ? (template?.looks ?? const [])
+                                            .where(
+                                              (l) => selection.selectedLookIds
+                                                  .contains(l.id),
+                                            )
+                                            .any((l) => l.hasAccessory)
+                                      : (ref
+                                                .watch(
+                                                  posesProvider((
+                                                    gender: selection.gender,
+                                                    garmentTypeId:
+                                                        garmentType.id,
+                                                  )),
+                                                )
+                                                .value ??
+                                            const [])
+                                            .where(
+                                              (p) => selection.poseIds
+                                                  .contains(p.id),
+                                            )
+                                            .any((p) => p.hasAccessory);
+                                  if (!needsAccessory) {
+                                    return const SizedBox.shrink();
+                                  }
+
+                                  final accessoryNodes =
+                                      ref
+                                          .watch(
+                                            accessoryCatalogProvider((
+                                              gender: selection.gender,
+                                              garmentTypeId: garmentType.id,
+                                              poseIdsKey: poseIdsKey,
+                                            )),
+                                          )
+                                          .value
+                                          ?.tree
+                                          .where((n) => n.slug != 'other')
+                                          .toList() ??
+                                      const <CatalogNode>[];
+                                  if (accessoryNodes.isEmpty) {
+                                    return const SizedBox.shrink();
+                                  }
+
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        AppStrings.accessoriesLabel,
+                                        style: _labelStyle(context),
+                                      ),
+                                      SizedBox(
+                                        height: AppDimens.sdp(
+                                          context,
+                                          '_14sdp',
+                                        ),
+                                      ),
+                                      for (
+                                        var i = 0;
+                                        i < accessoryNodes.length;
+                                        i++
+                                      ) ...[
+                                        if (i > 0)
+                                          SizedBox(
+                                            height: AppDimens.sdp(
+                                              context,
+                                              '_14sdp',
+                                            ),
+                                          ),
+                                        Builder(
+                                          builder: (context) {
+                                            final node = accessoryNodes[i];
+                                            final categoryItems = _flattenNode(
+                                              node,
+                                            ).toList();
+                                            final categoryItemIds = {
+                                              for (final item in categoryItems)
+                                                item.id,
+                                            };
+                                            final selectedInCategory =
+                                                selection
+                                                    .accessoryCatalogItemIds
+                                                    .where(
+                                                      categoryItemIds.contains,
+                                                    )
+                                                    .firstOrNull;
+                                            final orderedItems =
+                                                withSelectedFirst(
+                                                  categoryItems,
+                                                  (ci) => ci.id,
+                                                  {?selectedInCategory},
+                                                );
+                                            final PickableCategory
+                                            categoryPicker = (
+                                              id: node.slug,
+                                              label: node.label,
+                                              items: [
+                                                for (final item
+                                                    in categoryItems)
+                                                  (
+                                                    id: item.id,
+                                                    label: item.label,
+                                                    imageUrl:
+                                                        item.thumbnailUrl,
+                                                    tint: AppColors
+                                                        .pinkGradientStart,
+                                                  ),
+                                              ],
+                                            );
+                                            return Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  node.label,
+                                                  style: AppTextStyles.regular
+                                                      .copyWith(
+                                                        color: AppColors
+                                                            .textSecondary,
+                                                        fontSize:
+                                                            AppDimens.ssp(
+                                                              context,
+                                                              '_12ssp',
+                                                            ),
+                                                      ),
+                                                ),
+                                                SizedBox(
+                                                  height: AppDimens.sdp(
+                                                    context,
+                                                    '_8sdp',
+                                                  ),
+                                                ),
+                                                LimitedThumbnailRow(
+                                                  itemCount:
+                                                      orderedItems.length,
+                                                  aspectRatio: 1,
+                                                  spacing: tileGap,
+                                                  itemBuilder:
+                                                      (
+                                                        context,
+                                                        index,
+                                                        tileWidth,
+                                                        tileHeight,
+                                                      ) {
+                                                        final item =
+                                                            orderedItems[index];
+                                                        return SelectableThumbnailTile(
+                                                          icon: Icons
+                                                              .diamond_rounded,
+                                                          imageUrl:
+                                                              item.thumbnailUrl,
+                                                          tint: AppColors
+                                                              .pinkGradientStart,
+                                                          width: tileWidth,
+                                                          height: tileHeight,
+                                                          radius:
+                                                              AppDimens.sdp(
+                                                                context,
+                                                                '_6sdp',
+                                                              ),
+                                                          selected:
+                                                              item.id ==
+                                                              selectedInCategory,
+                                                          onTap: () =>
+                                                              controller.toggleAccessoryCatalogItem(
+                                                                categoryItemIds,
+                                                                item.id,
+                                                              ),
+                                                        );
+                                                      },
+                                                  onMore: () async {
+                                                    final picked =
+                                                        await showFilterableThumbnailPickerSheet(
+                                                          context,
+                                                          title: node.label,
+                                                          tileAspectRatio: 1,
+                                                          categories: [
+                                                            categoryPicker,
+                                                          ],
+                                                          selectedId:
+                                                              selectedInCategory,
+                                                        );
+                                                    if (picked != null) {
+                                                      controller
+                                                          .toggleAccessoryCatalogItem(
+                                                            categoryItemIds,
+                                                            picked,
+                                                          );
+                                                    }
+                                                  },
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        ),
+                                      ],
+                                    ],
+                                  );
+                                },
+                              ),
                             ],
                           );
                         },

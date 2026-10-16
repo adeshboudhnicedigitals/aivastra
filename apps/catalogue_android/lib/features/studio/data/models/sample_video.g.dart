@@ -32,8 +32,8 @@ Map<String, dynamic> _$SampleVideoToJson(_SampleVideo instance) =>
 _PixversePricing _$PixversePricingFromJson(Map<String, dynamic> json) =>
     _PixversePricing(
       perSecondRate: json['perSecondRate'] == null
-          ? 0
-          : _lenientNum(json['perSecondRate']),
+          ? const {}
+          : _lenientNumMap(json['perSecondRate']),
       qualityBase: json['qualityBase'] == null
           ? const {}
           : _lenientNumMap(json['qualityBase']),
