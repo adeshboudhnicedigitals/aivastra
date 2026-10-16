@@ -9,6 +9,7 @@ import '../app/theme/app_colors.dart';
 import '../app/theme/app_dimens.dart';
 import '../app/theme/app_text_styles.dart';
 import '../core/network/app_exception.dart';
+import '../features/studio/application/motion_cost.dart';
 import '../features/studio/application/motion_selection_controller.dart';
 import '../features/studio/application/studio_reference_providers.dart';
 import '../utils/app_strings.dart';
@@ -308,10 +309,8 @@ class _MotionStudioFormState extends ConsumerState<MotionStudioForm> {
                         final result = await pickOptionSheet(
                           context,
                           title: AppStrings.durationLabel,
-                          options: const [
-                            '5 Seconds',
-                            '10 Seconds',
-                            '15 Seconds',
+                          options: [
+                            for (var s = 5; s <= 15; s++) '$s Seconds',
                           ],
                           selected: '${selection.duration} Seconds',
                         );
@@ -363,7 +362,17 @@ class _MotionStudioFormState extends ConsumerState<MotionStudioForm> {
           SizedBox(height: sectionGap),
         ],
         GradientButton(
-          label: '${AppStrings.generateVideo} ${AppStrings.creditsSuffix(10)}',
+          label: () {
+            final credits = creditsForMotionVideo(
+              duration: selection.duration,
+              quality: selection.quality,
+              pricing: sampleVideosAsync.value?.pixverseVideoPricing,
+              selectedSampleCreditCost: selection.selectedSample?.creditCost,
+            );
+            return credits == null
+                ? AppStrings.generateVideo
+                : '${AppStrings.generateVideo} ${AppStrings.creditsSuffix(credits)}';
+          }(),
           isLoading: _isSubmitting,
           onPressed:
               (selection.sourceImageKey == null &&
