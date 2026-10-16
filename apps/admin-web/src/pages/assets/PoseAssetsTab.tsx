@@ -11,7 +11,7 @@ import { useCrumb } from '../../context/BreadcrumbContext';
 import { useCloseOverlay } from '../../hooks/use-close-overlay';
 import { useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
-import type { ModelPoseAsset, PoseGarmentTypeConfig, WorkflowOption } from '../../types';
+import type { BodyType, ModelPoseAsset, PoseGarmentTypeConfig, WorkflowOption } from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
 const GENDER_TABS = [
@@ -65,6 +65,7 @@ export function PoseAssetsTab() {
   const showBulkWorkflow = modalParam === 'bulk-workflow';
   const showBulkImport = modalParam === 'bulk-import';
   const showBulkGarmentMap = modalParam === 'bulk-garment-map';
+  const showBulkBodyTypeMap = modalParam === 'bulk-body-type-map';
 
   const [{ confirm: confirmParam, confirmId }, setConfirmParams] = useUrlStateMulti([
     'confirm',
@@ -91,7 +92,9 @@ export function PoseAssetsTab() {
               ? { label: 'Bulk import', href: `${tabHref}&modal=bulk-import` }
               : showBulkGarmentMap
                 ? { label: 'Map to garment types', href: `${tabHref}&modal=bulk-garment-map` }
-                : null,
+                : showBulkBodyTypeMap
+                  ? { label: 'Map to body types', href: `${tabHref}&modal=bulk-body-type-map` }
+                  : null,
   );
   useCrumb(
     2,
@@ -129,6 +132,13 @@ export function PoseAssetsTab() {
   const [bulkGarmentLoading, setBulkGarmentLoading] = useState(false);
   const [bulkGarmentTypeIds, setBulkGarmentTypeIds] = useState<string[]>([]);
   const [bulkGarmentSaving, setBulkGarmentSaving] = useState(false);
+
+  // Bulk body-type mapping — body_type_poses is a plain opt-out join (no
+  // per-pose override to preserve), so unlike garment types there's no
+  // per-pose config fetch before opening the modal.
+  const [bodyTypes, setBodyTypes] = useState<BodyType[]>([]);
+  const [bulkBodyTypeIds, setBulkBodyTypeIds] = useState<string[]>([]);
+  const [bulkBodyTypeSaving, setBulkBodyTypeSaving] = useState(false);
 
   const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -182,6 +192,12 @@ export function PoseAssetsTab() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [loadPoseAssets]);
+
+  useEffect(() => {
+    apiFetch<{ items: BodyType[] }>('/admin/assets/body-types')
+      .then((res) => setBodyTypes(res.items))
+      .catch(() => {});
+  }, []);
 
   const toggleActive = async (id: string) => {
     const item = poseAssets.find((a) => a.id === id);
@@ -422,6 +438,44 @@ export function PoseAssetsTab() {
     }
   };
 
+  const doBulkBodyTypeMap = async (mapped: boolean) => {
+    if (bulkBodyTypeIds.length === 0 || selectedPoseAssetIds.length === 0) return;
+    setBulkBodyTypeSaving(true);
+    try {
+      const patches: Promise<unknown>[] = [];
+      for (const poseId of selectedPoseAssetIds) {
+        const pose = poseAssets.find((a) => a.id === poseId);
+        if (!pose) continue;
+        for (const bodyTypeId of bulkBodyTypeIds) {
+          const bodyType = bodyTypes.find((b) => b.id === bodyTypeId);
+          // Skip cross-gender combos from a mixed-gender selection — body_type_poses
+          // rows are gender-scoped, same as pose_garment_configs.
+          if (!bodyType || bodyType.genderSlug !== pose.genderSlug) continue;
+          patches.push(
+            apiFetch(`/admin/assets/body-types/${bodyTypeId}/poses/${poseId}`, {
+              method: 'PUT',
+              body: JSON.stringify({ mapped }),
+            }),
+          );
+        }
+      }
+      await Promise.all(patches);
+      toast({
+        title: `${selectedPoseAssetIds.length} pose${selectedPoseAssetIds.length !== 1 ? 's' : ''} ${mapped ? 'mapped to' : 'unmapped from'} ${bulkBodyTypeIds.length} body type${bulkBodyTypeIds.length !== 1 ? 's' : ''}`,
+      });
+      closeModal();
+      setSelectedPoseAssetIds([]);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk body type mapping failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkBodyTypeSaving(false);
+    }
+  };
+
   const doBulkDeletePoseAssets = async () => {
     if (deleteConfirmText !== 'move to recycle bin') return;
     const ids = confirmBulkDeletePoseAssetIds;
@@ -499,6 +553,15 @@ export function PoseAssetsTab() {
         .map((g) => [g.id, g] as const),
     ).values(),
   ).sort((a, b) => a.label.localeCompare(b.label));
+
+  // Body types matching any selected pose's gender — a mixed-gender selection
+  // just shows more rows, same as bulkGarmentTypeOptions above.
+  const selectedPoseGenders = new Set(
+    poseAssets.filter((a) => selectedPoseAssetIds.includes(a.id)).map((a) => a.genderSlug),
+  );
+  const bulkBodyTypeOptions = bodyTypes
+    .filter((b) => selectedPoseGenders.has(b.genderSlug))
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   return (
     <>
@@ -662,6 +725,15 @@ export function PoseAssetsTab() {
                 </button>
                 <button className="btn sm" onClick={() => void openBulkGarmentMap()}>
                   <Icon.Catalog /> Map to garment types ({selectedPoseAssetIds.length})
+                </button>
+                <button
+                  className="btn sm"
+                  onClick={() => {
+                    setBulkBodyTypeIds([]);
+                    setModalParams({ modal: 'bulk-body-type-map', editId: null });
+                  }}
+                >
+                  <Icon.Catalog /> Map to body types ({selectedPoseAssetIds.length})
                 </button>
                 <button
                   className="btn sm ghost"
@@ -1138,6 +1210,110 @@ export function PoseAssetsTab() {
                 onClick={() => void doBulkGarmentMap(true)}
               >
                 {bulkGarmentSaving ? 'Saving…' : `Map to ${bulkGarmentTypeIds.length}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk map to body types */}
+      {showBulkBodyTypeMap && (
+        <div className="modal-overlay" onClick={() => !bulkBodyTypeSaving && closeModal()}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+            <div className="modal-head">
+              <h3>
+                Map {selectedPoseAssetIds.length} pose{selectedPoseAssetIds.length !== 1 ? 's' : ''}{' '}
+                to body types
+              </h3>
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Select body types, then show or hide the selected poses on them. A pose already
+                shows on every body type of its gender by default.
+              </p>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            >
+              {bulkBodyTypeOptions.length === 0 ? (
+                <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  No body types found for the selected poses.
+                </p>
+              ) : (
+                <>
+                  <button
+                    className="btn sm ghost"
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() =>
+                      setBulkBodyTypeIds((prev) =>
+                        prev.length === bulkBodyTypeOptions.length
+                          ? []
+                          : bulkBodyTypeOptions.map((b) => b.id),
+                      )
+                    }
+                  >
+                    {bulkBodyTypeIds.length === bulkBodyTypeOptions.length
+                      ? 'Deselect all'
+                      : 'Select all'}
+                  </button>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                      maxHeight: 280,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {bulkBodyTypeOptions.map((b) => (
+                      <label
+                        key={b.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '4px 8px',
+                          borderRadius: 6,
+                          background: 'var(--surface-2)',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={bulkBodyTypeIds.includes(b.id)}
+                          onChange={(e) =>
+                            setBulkBodyTypeIds((prev) =>
+                              e.target.checked ? [...prev, b.id] : prev.filter((id) => id !== b.id),
+                            )
+                          }
+                        />
+                        {b.label}
+                        <span className="badge dot accent" style={{ fontSize: 10 }}>
+                          {b.genderSlug}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" disabled={bulkBodyTypeSaving} onClick={closeModal}>
+                Cancel
+              </button>
+              <button
+                className="btn ghost"
+                disabled={bulkBodyTypeSaving || bulkBodyTypeIds.length === 0}
+                onClick={() => void doBulkBodyTypeMap(false)}
+              >
+                {bulkBodyTypeSaving ? 'Saving…' : `Unmap from ${bulkBodyTypeIds.length}`}
+              </button>
+              <button
+                className="btn"
+                disabled={bulkBodyTypeSaving || bulkBodyTypeIds.length === 0}
+                onClick={() => void doBulkBodyTypeMap(true)}
+              >
+                {bulkBodyTypeSaving ? 'Saving…' : `Map to ${bulkBodyTypeIds.length}`}
               </button>
             </div>
           </div>
