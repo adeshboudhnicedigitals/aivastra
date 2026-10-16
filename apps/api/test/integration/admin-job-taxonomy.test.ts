@@ -21,7 +21,7 @@ describe('GET /admin/workers/job-types', () => {
     await c?.stop();
   });
 
-  it('returns all 5 worker pools', async () => {
+  it('returns all 6 worker pools', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/admin/workers/job-types',
@@ -29,7 +29,7 @@ describe('GET /admin/workers/job-types', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().sort()).toEqual(
-      ['catalogue', 'merchant', 'saree', 'shopify', 'tryon'].sort(),
+      ['catalogue', 'inhouse', 'merchant', 'saree', 'shopify', 'tryon'].sort(),
     );
   });
 });
