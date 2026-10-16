@@ -15,6 +15,7 @@ abstract class TemplateLook with _$TemplateLook {
     required String backgroundThumbnailUrl,
     @Default(false) bool hasLower,
     @Default(false) bool hasShoes,
+    @Default(false) bool hasAccessory,
   }) = _TemplateLook;
 
   factory TemplateLook.fromJson(Map<String, dynamic> json) =>

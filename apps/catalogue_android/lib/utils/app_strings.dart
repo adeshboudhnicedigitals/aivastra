@@ -3,6 +3,8 @@ class AppStrings {
 
   static const appName = 'Ai Vastra';
   static const noInternetMessage = 'No internet connection';
+  static const updateReadyMessage = 'Update downloaded';
+  static const updateNowLabel = 'Restart';
   static const splashTagline = 'ONE PRODUCT. ENDLESS LOOKS.';
 
   // Onboarding
@@ -273,6 +275,21 @@ class AppStrings {
   static const uploadFileTypeHint = 'PNG, JPG, WEBP up to 10MB';
   static const garmentUploaded = 'Garment Uploaded';
 
+  // Saree "single photo, slider split" upload — a toggle (only shown for a
+  // sareeTwoInputCapable garment type) that lets the user upload one full
+  // saree photo and split it into Body + Pallu by dragging a line across it,
+  // instead of photographing the two parts separately. Mirrors the web
+  // app's studio page exactly (handleConfirmSplit in studio/page.tsx).
+  static const sareeSliderSplitToggleLabel = 'Single photo (slider split)';
+  static const sareeSliderSplitUploadLabel = 'Upload Full Saree Photo';
+  static const sareeSliderSplitUploadHint =
+      "One photo — you'll crop it into Body + Pallu next · JPG, PNG, WEBP "
+      'up to 20MB';
+  static const sareeSliderSplitDragHint =
+      'Drag the line on the photo to adjust the Body / Pallu split';
+  static const sareeSliderSplitConfirmLabel = 'Confirm Split & Upload';
+  static const sareeSliderSplitProcessingLabel = 'Processing…';
+
   // Garment upload tips sheet (opened via the info icon next to "Upload
   // Your Garment")
   static const uploadTipsTitle = 'Tips for Uploading Garment';
@@ -298,6 +315,7 @@ class AppStrings {
   static const selectAnyPreset = 'Select any preset';
   static const bottomWearLabel = 'Lower Garment';
   static const footWearLabel = 'Foot Wear';
+  static const accessoriesLabel = 'Accessories (Optional)';
   static const backgroundLabel = 'Background';
   static const poseLabel = 'Pose';
   static const platformLabel = 'Platform';

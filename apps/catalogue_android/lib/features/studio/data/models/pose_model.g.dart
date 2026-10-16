@@ -12,6 +12,7 @@ _PoseModel _$PoseModelFromJson(Map<String, dynamic> json) => _PoseModel(
   thumbnailUrl: json['thumbnailUrl'] as String,
   hasLower: json['hasLower'] as bool? ?? false,
   hasShoes: json['hasShoes'] as bool? ?? false,
+  hasAccessory: json['hasAccessory'] as bool? ?? false,
   hasAspectRatio: json['hasAspectRatio'] as bool? ?? false,
 );
 
@@ -22,5 +23,6 @@ Map<String, dynamic> _$PoseModelToJson(_PoseModel instance) =>
       'thumbnailUrl': instance.thumbnailUrl,
       'hasLower': instance.hasLower,
       'hasShoes': instance.hasShoes,
+      'hasAccessory': instance.hasAccessory,
       'hasAspectRatio': instance.hasAspectRatio,
     };

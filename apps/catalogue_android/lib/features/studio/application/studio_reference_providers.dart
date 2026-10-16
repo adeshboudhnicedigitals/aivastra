@@ -115,6 +115,18 @@ final shoeCatalogProvider =
           ),
     );
 
+final accessoryCatalogProvider =
+    FutureProvider.family<CatalogTree, GenderGarmentTypeAndPoses>(
+      (ref, key) => ref
+          .watch(studioRepositoryProvider)
+          .catalogTree(
+            type: 'accessory',
+            gender: key.gender.apiValue,
+            garmentTypeId: key.garmentTypeId,
+            poseIds: key.poseIdsKey.isEmpty ? null : key.poseIdsKey.split(','),
+          ),
+    );
+
 final posePresetsProvider =
     FutureProvider.family<PosePresetsResponse, GenderAndGarmentType>(
       (ref, key) => ref

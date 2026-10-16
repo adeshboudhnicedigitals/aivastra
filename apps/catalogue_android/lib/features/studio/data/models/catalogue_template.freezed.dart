@@ -16,7 +16,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$TemplateLook {
 
- String get id; String get poseId; String get poseLabel; String get poseThumbnailUrl; String get backgroundId; String get backgroundLabel; String get backgroundThumbnailUrl; bool get hasLower; bool get hasShoes;
+ String get id; String get poseId; String get poseLabel; String get poseThumbnailUrl; String get backgroundId; String get backgroundLabel; String get backgroundThumbnailUrl; bool get hasLower; bool get hasShoes; bool get hasAccessory;
 /// Create a copy of TemplateLook
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -30,20 +30,20 @@ $TemplateLookCopyWith<TemplateLook> get copyWith => _$TemplateLookCopyWithImpl<T
 @override
 bool operator ==(Object other) {
   final _this = this as TemplateLook;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is TemplateLook&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.poseId, _this.poseId) || other.poseId == _this.poseId)&&(identical(other.poseLabel, _this.poseLabel) || other.poseLabel == _this.poseLabel)&&(identical(other.poseThumbnailUrl, _this.poseThumbnailUrl) || other.poseThumbnailUrl == _this.poseThumbnailUrl)&&(identical(other.backgroundId, _this.backgroundId) || other.backgroundId == _this.backgroundId)&&(identical(other.backgroundLabel, _this.backgroundLabel) || other.backgroundLabel == _this.backgroundLabel)&&(identical(other.backgroundThumbnailUrl, _this.backgroundThumbnailUrl) || other.backgroundThumbnailUrl == _this.backgroundThumbnailUrl)&&(identical(other.hasLower, _this.hasLower) || other.hasLower == _this.hasLower)&&(identical(other.hasShoes, _this.hasShoes) || other.hasShoes == _this.hasShoes));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is TemplateLook&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.poseId, _this.poseId) || other.poseId == _this.poseId)&&(identical(other.poseLabel, _this.poseLabel) || other.poseLabel == _this.poseLabel)&&(identical(other.poseThumbnailUrl, _this.poseThumbnailUrl) || other.poseThumbnailUrl == _this.poseThumbnailUrl)&&(identical(other.backgroundId, _this.backgroundId) || other.backgroundId == _this.backgroundId)&&(identical(other.backgroundLabel, _this.backgroundLabel) || other.backgroundLabel == _this.backgroundLabel)&&(identical(other.backgroundThumbnailUrl, _this.backgroundThumbnailUrl) || other.backgroundThumbnailUrl == _this.backgroundThumbnailUrl)&&(identical(other.hasLower, _this.hasLower) || other.hasLower == _this.hasLower)&&(identical(other.hasShoes, _this.hasShoes) || other.hasShoes == _this.hasShoes)&&(identical(other.hasAccessory, _this.hasAccessory) || other.hasAccessory == _this.hasAccessory));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
   final _this = this as TemplateLook;
-  return Object.hash(runtimeType,_this.id,_this.poseId,_this.poseLabel,_this.poseThumbnailUrl,_this.backgroundId,_this.backgroundLabel,_this.backgroundThumbnailUrl,_this.hasLower,_this.hasShoes);
+  return Object.hash(runtimeType,_this.id,_this.poseId,_this.poseLabel,_this.poseThumbnailUrl,_this.backgroundId,_this.backgroundLabel,_this.backgroundThumbnailUrl,_this.hasLower,_this.hasShoes,_this.hasAccessory);
 }
 
 @override
 String toString() {
   final _this = this as TemplateLook;
-  return 'TemplateLook(id: ${_this.id}, poseId: ${_this.poseId}, poseLabel: ${_this.poseLabel}, poseThumbnailUrl: ${_this.poseThumbnailUrl}, backgroundId: ${_this.backgroundId}, backgroundLabel: ${_this.backgroundLabel}, backgroundThumbnailUrl: ${_this.backgroundThumbnailUrl}, hasLower: ${_this.hasLower}, hasShoes: ${_this.hasShoes})';
+  return 'TemplateLook(id: ${_this.id}, poseId: ${_this.poseId}, poseLabel: ${_this.poseLabel}, poseThumbnailUrl: ${_this.poseThumbnailUrl}, backgroundId: ${_this.backgroundId}, backgroundLabel: ${_this.backgroundLabel}, backgroundThumbnailUrl: ${_this.backgroundThumbnailUrl}, hasLower: ${_this.hasLower}, hasShoes: ${_this.hasShoes}, hasAccessory: ${_this.hasAccessory})';
 }
 
 
@@ -54,7 +54,7 @@ abstract mixin class $TemplateLookCopyWith<$Res>  {
   factory $TemplateLookCopyWith(TemplateLook value, $Res Function(TemplateLook) _then) = _$TemplateLookCopyWithImpl;
 @useResult
 $Res call({
- String id, String poseId, String poseLabel, String poseThumbnailUrl, String backgroundId, String backgroundLabel, String backgroundThumbnailUrl, bool hasLower, bool hasShoes
+ String id, String poseId, String poseLabel, String poseThumbnailUrl, String backgroundId, String backgroundLabel, String backgroundThumbnailUrl, bool hasLower, bool hasShoes, bool hasAccessory
 });
 
 
@@ -71,7 +71,7 @@ class _$TemplateLookCopyWithImpl<$Res>
 
 /// Create a copy of TemplateLook
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? poseId = null,Object? poseLabel = null,Object? poseThumbnailUrl = null,Object? backgroundId = null,Object? backgroundLabel = null,Object? backgroundThumbnailUrl = null,Object? hasLower = null,Object? hasShoes = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? poseId = null,Object? poseLabel = null,Object? poseThumbnailUrl = null,Object? backgroundId = null,Object? backgroundLabel = null,Object? backgroundThumbnailUrl = null,Object? hasLower = null,Object? hasShoes = null,Object? hasAccessory = null,}) {
   return _then(TemplateLook(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,poseId: null == poseId ? _self.poseId : poseId // ignore: cast_nullable_to_non_nullable
@@ -82,6 +82,7 @@ as String,backgroundLabel: null == backgroundLabel ? _self.backgroundLabel : bac
 as String,backgroundThumbnailUrl: null == backgroundThumbnailUrl ? _self.backgroundThumbnailUrl : backgroundThumbnailUrl // ignore: cast_nullable_to_non_nullable
 as String,hasLower: null == hasLower ? _self.hasLower : hasLower // ignore: cast_nullable_to_non_nullable
 as bool,hasShoes: null == hasShoes ? _self.hasShoes : hasShoes // ignore: cast_nullable_to_non_nullable
+as bool,hasAccessory: null == hasAccessory ? _self.hasAccessory : hasAccessory // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }
@@ -167,10 +168,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String poseId,  String poseLabel,  String poseThumbnailUrl,  String backgroundId,  String backgroundLabel,  String backgroundThumbnailUrl,  bool hasLower,  bool hasShoes)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String poseId,  String poseLabel,  String poseThumbnailUrl,  String backgroundId,  String backgroundLabel,  String backgroundThumbnailUrl,  bool hasLower,  bool hasShoes,  bool hasAccessory)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _TemplateLook() when $default != null:
-return $default(_that.id,_that.poseId,_that.poseLabel,_that.poseThumbnailUrl,_that.backgroundId,_that.backgroundLabel,_that.backgroundThumbnailUrl,_that.hasLower,_that.hasShoes);case _:
+return $default(_that.id,_that.poseId,_that.poseLabel,_that.poseThumbnailUrl,_that.backgroundId,_that.backgroundLabel,_that.backgroundThumbnailUrl,_that.hasLower,_that.hasShoes,_that.hasAccessory);case _:
   return orElse();
 
 }
@@ -188,10 +189,10 @@ return $default(_that.id,_that.poseId,_that.poseLabel,_that.poseThumbnailUrl,_th
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String poseId,  String poseLabel,  String poseThumbnailUrl,  String backgroundId,  String backgroundLabel,  String backgroundThumbnailUrl,  bool hasLower,  bool hasShoes)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String poseId,  String poseLabel,  String poseThumbnailUrl,  String backgroundId,  String backgroundLabel,  String backgroundThumbnailUrl,  bool hasLower,  bool hasShoes,  bool hasAccessory)  $default,) {final _that = this;
 switch (_that) {
 case _TemplateLook():
-return $default(_that.id,_that.poseId,_that.poseLabel,_that.poseThumbnailUrl,_that.backgroundId,_that.backgroundLabel,_that.backgroundThumbnailUrl,_that.hasLower,_that.hasShoes);case _:
+return $default(_that.id,_that.poseId,_that.poseLabel,_that.poseThumbnailUrl,_that.backgroundId,_that.backgroundLabel,_that.backgroundThumbnailUrl,_that.hasLower,_that.hasShoes,_that.hasAccessory);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -208,10 +209,10 @@ return $default(_that.id,_that.poseId,_that.poseLabel,_that.poseThumbnailUrl,_th
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String poseId,  String poseLabel,  String poseThumbnailUrl,  String backgroundId,  String backgroundLabel,  String backgroundThumbnailUrl,  bool hasLower,  bool hasShoes)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String poseId,  String poseLabel,  String poseThumbnailUrl,  String backgroundId,  String backgroundLabel,  String backgroundThumbnailUrl,  bool hasLower,  bool hasShoes,  bool hasAccessory)?  $default,) {final _that = this;
 switch (_that) {
 case _TemplateLook() when $default != null:
-return $default(_that.id,_that.poseId,_that.poseLabel,_that.poseThumbnailUrl,_that.backgroundId,_that.backgroundLabel,_that.backgroundThumbnailUrl,_that.hasLower,_that.hasShoes);case _:
+return $default(_that.id,_that.poseId,_that.poseLabel,_that.poseThumbnailUrl,_that.backgroundId,_that.backgroundLabel,_that.backgroundThumbnailUrl,_that.hasLower,_that.hasShoes,_that.hasAccessory);case _:
   return null;
 
 }
@@ -223,7 +224,7 @@ return $default(_that.id,_that.poseId,_that.poseLabel,_that.poseThumbnailUrl,_th
 @JsonSerializable()
 
 class _TemplateLook implements TemplateLook {
-  const _TemplateLook({required this.id, required this.poseId, required this.poseLabel, required this.poseThumbnailUrl, required this.backgroundId, required this.backgroundLabel, required this.backgroundThumbnailUrl, this.hasLower = false, this.hasShoes = false});
+  const _TemplateLook({required this.id, required this.poseId, required this.poseLabel, required this.poseThumbnailUrl, required this.backgroundId, required this.backgroundLabel, required this.backgroundThumbnailUrl, this.hasLower = false, this.hasShoes = false, this.hasAccessory = false});
   factory _TemplateLook.fromJson(Map<String, dynamic> json) => _$TemplateLookFromJson(json);
 
 @override final  String id;
@@ -235,6 +236,7 @@ class _TemplateLook implements TemplateLook {
 @override final  String backgroundThumbnailUrl;
 @override@JsonKey() final  bool hasLower;
 @override@JsonKey() final  bool hasShoes;
+@override@JsonKey() final  bool hasAccessory;
 
 /// Create a copy of TemplateLook
 /// with the given fields replaced by the non-null parameter values.
@@ -249,18 +251,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _TemplateLook&&(identical(other.id, id) || other.id == id)&&(identical(other.poseId, poseId) || other.poseId == poseId)&&(identical(other.poseLabel, poseLabel) || other.poseLabel == poseLabel)&&(identical(other.poseThumbnailUrl, poseThumbnailUrl) || other.poseThumbnailUrl == poseThumbnailUrl)&&(identical(other.backgroundId, backgroundId) || other.backgroundId == backgroundId)&&(identical(other.backgroundLabel, backgroundLabel) || other.backgroundLabel == backgroundLabel)&&(identical(other.backgroundThumbnailUrl, backgroundThumbnailUrl) || other.backgroundThumbnailUrl == backgroundThumbnailUrl)&&(identical(other.hasLower, hasLower) || other.hasLower == hasLower)&&(identical(other.hasShoes, hasShoes) || other.hasShoes == hasShoes));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _TemplateLook&&(identical(other.id, id) || other.id == id)&&(identical(other.poseId, poseId) || other.poseId == poseId)&&(identical(other.poseLabel, poseLabel) || other.poseLabel == poseLabel)&&(identical(other.poseThumbnailUrl, poseThumbnailUrl) || other.poseThumbnailUrl == poseThumbnailUrl)&&(identical(other.backgroundId, backgroundId) || other.backgroundId == backgroundId)&&(identical(other.backgroundLabel, backgroundLabel) || other.backgroundLabel == backgroundLabel)&&(identical(other.backgroundThumbnailUrl, backgroundThumbnailUrl) || other.backgroundThumbnailUrl == backgroundThumbnailUrl)&&(identical(other.hasLower, hasLower) || other.hasLower == hasLower)&&(identical(other.hasShoes, hasShoes) || other.hasShoes == hasShoes)&&(identical(other.hasAccessory, hasAccessory) || other.hasAccessory == hasAccessory));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
-    return Object.hash(runtimeType,id,poseId,poseLabel,poseThumbnailUrl,backgroundId,backgroundLabel,backgroundThumbnailUrl,hasLower,hasShoes);
+    return Object.hash(runtimeType,id,poseId,poseLabel,poseThumbnailUrl,backgroundId,backgroundLabel,backgroundThumbnailUrl,hasLower,hasShoes,hasAccessory);
 }
 
 @override
 String toString() {
-    return 'TemplateLook(id: $id, poseId: $poseId, poseLabel: $poseLabel, poseThumbnailUrl: $poseThumbnailUrl, backgroundId: $backgroundId, backgroundLabel: $backgroundLabel, backgroundThumbnailUrl: $backgroundThumbnailUrl, hasLower: $hasLower, hasShoes: $hasShoes)';
+    return 'TemplateLook(id: $id, poseId: $poseId, poseLabel: $poseLabel, poseThumbnailUrl: $poseThumbnailUrl, backgroundId: $backgroundId, backgroundLabel: $backgroundLabel, backgroundThumbnailUrl: $backgroundThumbnailUrl, hasLower: $hasLower, hasShoes: $hasShoes, hasAccessory: $hasAccessory)';
 }
 
 
@@ -271,7 +273,7 @@ abstract mixin class _$TemplateLookCopyWith<$Res> implements $TemplateLookCopyWi
   factory _$TemplateLookCopyWith(_TemplateLook value, $Res Function(_TemplateLook) _then) = __$TemplateLookCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String poseId, String poseLabel, String poseThumbnailUrl, String backgroundId, String backgroundLabel, String backgroundThumbnailUrl, bool hasLower, bool hasShoes
+ String id, String poseId, String poseLabel, String poseThumbnailUrl, String backgroundId, String backgroundLabel, String backgroundThumbnailUrl, bool hasLower, bool hasShoes, bool hasAccessory
 });
 
 
@@ -288,7 +290,7 @@ class __$TemplateLookCopyWithImpl<$Res>
 
 /// Create a copy of TemplateLook
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? poseId = null,Object? poseLabel = null,Object? poseThumbnailUrl = null,Object? backgroundId = null,Object? backgroundLabel = null,Object? backgroundThumbnailUrl = null,Object? hasLower = null,Object? hasShoes = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? poseId = null,Object? poseLabel = null,Object? poseThumbnailUrl = null,Object? backgroundId = null,Object? backgroundLabel = null,Object? backgroundThumbnailUrl = null,Object? hasLower = null,Object? hasShoes = null,Object? hasAccessory = null,}) {
   return _then(_TemplateLook(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,poseId: null == poseId ? _self.poseId : poseId // ignore: cast_nullable_to_non_nullable
@@ -299,6 +301,7 @@ as String,backgroundLabel: null == backgroundLabel ? _self.backgroundLabel : bac
 as String,backgroundThumbnailUrl: null == backgroundThumbnailUrl ? _self.backgroundThumbnailUrl : backgroundThumbnailUrl // ignore: cast_nullable_to_non_nullable
 as String,hasLower: null == hasLower ? _self.hasLower : hasLower // ignore: cast_nullable_to_non_nullable
 as bool,hasShoes: null == hasShoes ? _self.hasShoes : hasShoes // ignore: cast_nullable_to_non_nullable
+as bool,hasAccessory: null == hasAccessory ? _self.hasAccessory : hasAccessory // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }
