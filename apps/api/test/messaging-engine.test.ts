@@ -112,8 +112,53 @@ describe('engine: menu and global commands', () => {
     const staleTap = tap(menu, 'menu', 'new');
     const next = await handle(menu.session, staleTap, CTX, deps);
     const again = await handle(next.session, staleTap, CTX, deps);
-    expect(texts(again.messages)).toEqual(['That option is from an earlier step.']);
+    // The step is shown again with live buttons, so the seller is never left at a dead end.
+    expect(texts(again.messages)[0]).toBe('That option is from an earlier step.');
+    expect(texts(again.messages)[1]).toMatch(/Send a photo of your garment/);
     expect(again.session).toEqual(next.session);
+    expect(buttonTitles(again.messages[1])).toEqual(['Menu']);
+  });
+
+  it.each([
+    'cancel',
+    'exit',
+    'QUIT',
+    'back',
+    'hi',
+    'Hello',
+  ])('the exit word %s returns to the main menu from mid-flow', async (word) => {
+    const { deps } = fakeDeps();
+    const deep = await run(deps, [(r) => tap(r, 'menu', 'new'), () => photo(1)]);
+    expect(deep.session.state).toBe('ASK_GENDER');
+    const r = await handle(deep.session, { type: 'text', text: word }, CTX, deps);
+    expect(r.session.state).toBe('MAIN_MENU');
+    expect(r.session.garmentKey).toBeUndefined();
+  });
+
+  it('stop is not an exit word: the engine treats it as stray text', async () => {
+    const { deps } = fakeDeps();
+    const deep = await run(deps, [(r) => tap(r, 'menu', 'new'), () => photo(1)]);
+    const r = await handle(deep.session, { type: 'text', text: 'stop' }, CTX, deps);
+    expect(r.session.state).toBe('ASK_GENDER');
+  });
+
+  it('a Menu button on each photo request and on the confirm step leaves the flow', async () => {
+    const { deps } = fakeDeps();
+    const ask = await run(deps, [(r) => tap(r, 'menu', 'new')]);
+    expect(buttonTitles(ask.messages.at(-1))).toEqual(['Menu']);
+    const out = await handle(ask.session, tap(ask, 'menu', 'menu'), CTX, deps);
+    expect(out.session.state).toBe('MAIN_MENU');
+  });
+
+  it('stray text on an idle step shows that step again instead of a reprompt', async () => {
+    const { deps } = fakeDeps({ getBalance: async () => 8 });
+    const { r } = await pickLooks(deps, ['a', 'b']);
+    const no = await handle(r.session, tap(r, 'generate'), CTX, deps);
+    expect(no.session.state).toBe('NO_CREDITS');
+    const again = await handle(no.session, { type: 'text', text: 'ok' }, CTX, deps);
+    expect(again.session.state).toBe('NO_CREDITS');
+    expect(buttonTitles(again.messages.at(-1))).toEqual(['Menu']);
+    expect(texts(again.messages)).not.toContain('Please use the options above, or type MENU.');
   });
 });
 
@@ -283,7 +328,7 @@ describe('engine: pose cards', () => {
     expect('text' in prompt && prompt.text).toBe(
       'Pick the poses you want. Each one is 5 credits. Your balance: 50 credits.',
     );
-    expect(buttonTitles(prompt)).toEqual(['Change garment']);
+    expect(buttonTitles(prompt)).toEqual(['Change garment', 'Menu']);
     // Look 'd' needs shoes and GT_SHIRT has no default shoe (D49): 3 looks, not 4.
     expect(cards.kind === 'cards' ? cards.cards.map((c) => c.title) : []).toEqual([
       'Pose a',

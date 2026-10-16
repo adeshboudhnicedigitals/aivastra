@@ -330,7 +330,7 @@ async function render(
       return done();
 
     case 'ASK_GARMENT_PHOTO':
-      out.push(text(COPY.askGarmentPhoto));
+      out.push(buttons(s, COPY.askGarmentPhoto, [['menu', 'menu', COPY.btnMenu]]));
       return done();
 
     case 'ASK_GENDER':
@@ -350,6 +350,7 @@ async function render(
         buttons(s, COPY.confirmGarment(s.garmentType.label), [
           ['confirm', '', COPY.btnYes],
           ['change', '', COPY.btnNo],
+          ['menu', 'menu', COPY.btnMenu],
         ]),
       );
       return done();
@@ -376,7 +377,7 @@ async function render(
       const gt = s.garmentType;
       const label =
         slot === 'lowerFront' ? (gt?.lowerUploadLabel ?? null) : (gt?.thirdUploadLabel ?? null);
-      out.push(text(COPY.askPhoto[slot](label)));
+      out.push(buttons(s, COPY.askPhoto[slot](label), [['menu', 'menu', COPY.btnMenu]]));
       return done();
     }
 
@@ -409,6 +410,7 @@ async function render(
         out.push(
           buttons(next, COPY.pickPrompt(perImage, balance), [
             ['change', '', COPY.btnChangeGarment],
+            ['menu', 'menu', COPY.btnMenu],
           ]),
         );
       }
@@ -584,6 +586,12 @@ async function onReply(
   }
 }
 
+// Typed words that mean "get me out". Never 'stop': that is the opt-out (inbound.ts).
+const EXIT_WORDS = new Set(['cancel', 'exit', 'quit', 'back', 'hi', 'hello']);
+
+// Steps with no question pending: stray text shows the step again, not a reprompt.
+const IDLE_STATES: State[] = ['MAIN_MENU', 'GENERATING', 'DELIVERED', 'NO_CREDITS'];
+
 // States where a new photo starts a new catalog (spec section 8): outside the
 // question steps, a photo can only mean "do this one".
 const NEW_PHOTO_STATES: State[] = [
@@ -662,13 +670,13 @@ export async function handle(
   switch (event.type) {
     case 'text': {
       const cmd = event.text.trim().toLowerCase();
-      if (cmd === 'menu' || cmd === 'restart')
+      if (cmd === 'menu' || cmd === 'restart' || EXIT_WORDS.has(cmd))
         return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
       if (cmd === 'help') {
         out.push(text(COPY.help(deps.links.help)));
         return render(s, out, ctx, deps);
       }
-      if (s.state === 'MAIN_MENU' || s.state === 'GENERATING') return render(s, out, ctx, deps);
+      if (IDLE_STATES.includes(s.state)) return render(s, out, ctx, deps);
       out.push(text(COPY.reprompt));
       return { session: s, messages: out };
     }
@@ -677,7 +685,7 @@ export async function handle(
       const d = decodeReplyId(event.id);
       if (!d || d.nonce !== s.nonce) {
         out.push(text(COPY.stale));
-        return { session: s, messages: out };
+        return render(s, out, ctx, deps);
       }
       return onReply(s, d.action, d.value, out, ctx, deps);
     }
