@@ -6,7 +6,7 @@ import {
   PatchBodyTypeBody,
   PresignBodyTypeThumbnailBody,
 } from '@aivastra/types';
-import { and, asc, eq, ilike, isNull, ne } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -180,39 +180,82 @@ export async function adminBodyTypesRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── Seed source: faces/poses already mapped to any garment type of a gender ─
-  // Backs the "include all garment-type-mapped assets" toggle on the create/edit
-  // body-type modal — the union of every face/pose with at least one explicit
-  // model_face_subcategories/pose_garment_configs row for a garment type of that
-  // gender, not simply every active face/pose of that gender.
+  // ── Seed source: faces/poses already visible for any garment type of a gender ─
+  // Backs the "seed with garment-type-mapped assets" toggle on the create/edit
+  // body-type modal. Must mirror the actual visibility rule each table uses in
+  // GET /v1/models/faces and /v1/models/poses (apps/api/src/modules/models/routes.ts),
+  // not just "has an explicit row" — otherwise seeding drops faces/poses that are
+  // universally visible by omission and the body type narrows wrongly once seeded.
   app.get(
     '/admin/assets/body-types/garment-mapped-assets',
     { preHandler: RW, schema: { querystring: z.object({ genderSlug: z.string() }) } },
     async (req) => {
       const { genderSlug } = req.query as { genderSlug: string };
 
-      const faceRows = await app.db
-        .select({ faceId: schema.modelFaceSubcategories.faceId })
-        .from(schema.modelFaceSubcategories)
-        .innerJoin(
-          schema.garmentSubcategories,
-          eq(schema.garmentSubcategories.id, schema.modelFaceSubcategories.subcategoryId),
-        )
-        .where(eq(schema.garmentSubcategories.genderSlug, genderSlug));
+      const garmentTypes = await app.db
+        .select({ id: schema.garmentSubcategories.id })
+        .from(schema.garmentSubcategories)
+        .where(
+          and(
+            eq(schema.garmentSubcategories.genderSlug, genderSlug),
+            eq(schema.garmentSubcategories.isActive, true),
+          ),
+        );
+      const garmentTypeIds = garmentTypes.map((g) => g.id);
+      if (garmentTypeIds.length === 0) {
+        return { faceIds: [], poseAssetIds: [] };
+      }
 
+      // model_face_subcategories is opt-out per garment type: a type with zero
+      // explicit rows shows every active face of the gender. So if any garment type
+      // of this gender is still "open" (no explicit rows), every active face of the
+      // gender is reachable through it, not just the explicitly-mapped ones.
+      const faceMappings = await app.db
+        .select({
+          faceId: schema.modelFaceSubcategories.faceId,
+          subcategoryId: schema.modelFaceSubcategories.subcategoryId,
+        })
+        .from(schema.modelFaceSubcategories)
+        .where(inArray(schema.modelFaceSubcategories.subcategoryId, garmentTypeIds));
+      const restrictedTypeIds = new Set(faceMappings.map((m) => m.subcategoryId));
+      const hasOpenGarmentType = garmentTypeIds.some((id) => !restrictedTypeIds.has(id));
+
+      let faceIds: string[];
+      if (hasOpenGarmentType) {
+        const allFaces = await app.db
+          .select({ id: schema.modelFaces.id })
+          .from(schema.modelFaces)
+          .where(
+            and(
+              eq(schema.modelFaces.gender, genderSlug),
+              eq(schema.modelFaces.isActive, true),
+              isNull(schema.modelFaces.deletedAt),
+            ),
+          );
+        faceIds = allFaces.map((f) => f.id);
+      } else {
+        faceIds = [...new Set(faceMappings.map((m) => m.faceId))];
+      }
+
+      // pose_garment_configs is strict opt-in (unlike faces): a pose shows for a
+      // garment type only when an explicit row exists and isn't narrowed to inactive
+      // for that type — see the 2026-10-05 opt-in pose mapping change referenced in
+      // GET /v1/models/poses.
       const poseRows = await app.db
         .select({ poseAssetId: schema.poseGarmentConfigs.poseAssetId })
         .from(schema.poseGarmentConfigs)
-        .innerJoin(
-          schema.garmentSubcategories,
-          eq(schema.garmentSubcategories.id, schema.poseGarmentConfigs.subcategoryId),
-        )
-        .where(eq(schema.garmentSubcategories.genderSlug, genderSlug));
+        .where(
+          and(
+            inArray(schema.poseGarmentConfigs.subcategoryId, garmentTypeIds),
+            or(
+              isNull(schema.poseGarmentConfigs.isActive),
+              eq(schema.poseGarmentConfigs.isActive, true),
+            ),
+          ),
+        );
+      const poseAssetIds = [...new Set(poseRows.map((r) => r.poseAssetId))];
 
-      return {
-        faceIds: [...new Set(faceRows.map((r) => r.faceId))],
-        poseAssetIds: [...new Set(poseRows.map((r) => r.poseAssetId))],
-      };
+      return { faceIds, poseAssetIds };
     },
   );
 

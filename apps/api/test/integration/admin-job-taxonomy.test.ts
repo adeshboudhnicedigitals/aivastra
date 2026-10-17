@@ -21,7 +21,7 @@ describe('GET /admin/workers/job-types', () => {
     await c?.stop();
   });
 
-  it('returns all 7 worker pools', async () => {
+  it('returns the selectable worker pools (classify is service-backed, not offered)', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/admin/workers/job-types',
@@ -29,7 +29,7 @@ describe('GET /admin/workers/job-types', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().sort()).toEqual(
-      ['catalogue', 'classify', 'inhouse', 'merchant', 'saree', 'shopify', 'tryon'].sort(),
+      ['catalogue', 'inhouse', 'merchant', 'saree', 'shopify', 'tryon'].sort(),
     );
   });
 });

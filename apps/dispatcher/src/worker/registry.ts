@@ -79,7 +79,11 @@ export async function getWorkers(redis: Redis): Promise<Map<string, WorkerEntry>
   const map = new Map<string, WorkerEntry>();
   for (const [id, json] of Object.entries(raw)) {
     try {
-      map.set(id, JSON.parse(json) as WorkerEntry);
+      const entry = JSON.parse(json) as WorkerEntry;
+      // The Lua scripts round-trip the entry through cjson, which re-encodes an
+      // empty array as `{}` — normalise so `.some`/`.includes` stay callable.
+      if (!Array.isArray(entry.allowedJobTypes)) entry.allowedJobTypes = [];
+      map.set(id, entry);
     } catch {
       /* skip malformed */
     }
