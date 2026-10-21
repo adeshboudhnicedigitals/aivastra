@@ -86,6 +86,16 @@ export const garmentClassifyCorrectedTotal = new Counter({
   registers: [register],
 });
 
+// One increment per reason a garment type was not offered to a WhatsApp seller.
+// A sudden rise in template_inactive / no_mapping is the signal the October
+// incident (all 140 catalogue templates inactive) lacked.
+export const whatsappGarmentUnavailableTotal = new Counter({
+  name: 'whatsapp_garment_unavailable_total',
+  help: 'Garment types the WhatsApp bot could not offer, by reason',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
 export const shopifyPurchasesAwaitingPayment = new Gauge({
   name: 'shopify_purchases_awaiting_payment',
   help: 'Credit-pack purchases ACTIVE at Shopify but not yet seen as paid',

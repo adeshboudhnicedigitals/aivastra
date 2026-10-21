@@ -1,10 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { whatsappGarmentUnavailableTotal } from '@aivastra/observability';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getResolutionTierConfig } from '../../lib/resolution-config.js';
 import { listCatalogueTemplates, listFaces, listGarmentTypes } from '../models/queries.js';
 import { recognizeGarment, recordRecognitionCorrected } from './classify.js';
+import { buildPool } from './engine/rules.js';
 import type {
   AspectRatio,
   EngineDeps,
@@ -12,17 +14,33 @@ import type {
   Resolution,
   TemplateOption,
 } from './engine/types.js';
+import { decideReadiness } from './readiness.js';
 import { createRun, quoteRun, runProgress } from './runs.js';
+import { createStudioDraftToken } from './studio-draft.js';
 
 const BOT_ASPECT_RATIO: AspectRatio = '3:4';
 const BOT_RESOLUTION: Resolution = '2K';
 // Cheapest first: the fallback when BOT_RESOLUTION is switched off.
 const RESOLUTION_ORDER: Resolution[] = ['HD', '2K', '4K'];
 
+type GarmentTypeRow = Awaited<ReturnType<typeof listGarmentTypes>>['items'][number];
+
+const toGarmentTypeOption = (i: GarmentTypeRow): GarmentTypeOption => ({
+  id: i.id,
+  label: i.label,
+  requiresLowerUpload: i.requiresLowerUpload,
+  requiresThirdUpload: i.requiresThirdUpload,
+  upperUploadLabel: i.upperUploadLabel,
+  lowerUploadLabel: i.lowerUploadLabel,
+  thirdUploadLabel: i.thirdUploadLabel,
+  defaultLowerCatalogId: i.defaultLowerCatalogId,
+  defaultShoeCatalogId: i.defaultShoeCatalogId,
+});
+
 /** Real EngineDeps: every option list is the studio's own query (models/queries.ts). */
 export function createEngineDeps(app: FastifyInstance): EngineDeps {
   const web = app.env.WEB_URL.replace(/\/+$/, '');
-  return {
+  const deps: EngineDeps = {
     newNonce: () => randomBytes(4).toString('hex'),
 
     // Every bot run is 3:4 at 2K, not the seller's saved studio defaults: the chat
@@ -79,19 +97,7 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
         items
           // D16/D31: the two-step saree flow is not in the bot.
           .filter((i) => !i.requiresMannequinStep && hasTemplate.has(i.id))
-          .map(
-            (i): GarmentTypeOption => ({
-              id: i.id,
-              label: i.label,
-              requiresLowerUpload: i.requiresLowerUpload,
-              requiresThirdUpload: i.requiresThirdUpload,
-              upperUploadLabel: i.upperUploadLabel,
-              lowerUploadLabel: i.lowerUploadLabel,
-              thirdUploadLabel: i.thirdUploadLabel,
-              defaultLowerCatalogId: i.defaultLowerCatalogId,
-              defaultShoeCatalogId: i.defaultShoeCatalogId,
-            }),
-          )
+          .map(toGarmentTypeOption)
       );
     },
 
@@ -99,7 +105,10 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
     recordRecognitionCorrected,
     // Info, not warn: it is admin data, not a fault, but it is the only trace
     // of why a seller was told a type "isn't available on WhatsApp yet".
-    reportUnavailable: (report) => app.log.info(report, 'whatsapp: garment type not offered'),
+    reportUnavailable: (report) => {
+      whatsappGarmentUnavailableTotal.inc({ reason: report.reason });
+      app.log.info(report, 'whatsapp: garment type not offered');
+    },
 
     async getTemplates(gender, garmentTypeId): Promise<TemplateOption[]> {
       // Every active template for the type, already in admin sort order and
@@ -130,9 +139,65 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
       return items[0]?.id ?? null;
     },
 
+    async getReadiness(gender, garmentTypeId) {
+      // listGarmentTypes returns active types only, so a miss is "inactive".
+      const { items } = await listGarmentTypes(app, gender);
+      const gt = items.find((i) => i.id === garmentTypeId);
+      if (!gt) {
+        return decideReadiness({
+          active: false,
+          requiresMannequinStep: false,
+          mappedTemplates: 0,
+          activeTemplates: 0,
+          hasFace: false,
+          looksTotal: 0,
+          looksUsable: 0,
+        });
+      }
+      // Mapping rows regardless of the template's own switch, so "mapped but
+      // template off" is told apart from "never mapped".
+      const mapped = await app.db
+        .select({ isActive: schema.catalogueTemplates.isActive })
+        .from(schema.catalogueTemplateSubcategories)
+        .innerJoin(
+          schema.catalogueTemplates,
+          and(
+            eq(schema.catalogueTemplates.id, schema.catalogueTemplateSubcategories.templateId),
+            eq(schema.catalogueTemplates.genderSlug, gender),
+            isNull(schema.catalogueTemplates.deletedAt),
+          ),
+        )
+        .where(eq(schema.catalogueTemplateSubcategories.subcategoryId, garmentTypeId));
+      const options = await deps.getTemplates(gender, garmentTypeId);
+      const distinct = new Set(
+        options.flatMap((t) => t.looks.map((l) => `${l.poseId}:${l.backgroundId}`)),
+      );
+      return decideReadiness({
+        active: true,
+        requiresMannequinStep: gt.requiresMannequinStep,
+        mappedTemplates: mapped.length,
+        activeTemplates: mapped.filter((m) => m.isActive).length,
+        hasFace: (await deps.getDefaultFaceId(gender, garmentTypeId)) !== null,
+        looksTotal: distinct.size,
+        looksUsable: buildPool(toGarmentTypeOption(gt), options).cards.length,
+      });
+    },
+
+    async createStudioDraft(d) {
+      try {
+        const token = await createStudioDraftToken(app.redis, d);
+        return `${web}/studio?draft=${token}`;
+      } catch (err) {
+        // The hand-off still works without the photo; never fail the chat on it.
+        app.log.warn({ err }, 'whatsapp: studio draft not stored');
+        return `${web}/studio`;
+      }
+    },
+
     quote: (userId, body) => quoteRun(app, userId, body),
     createRun: (ctx, body) => createRun(app, ctx, body),
     runProgress: (runId) => runProgress(app, runId),
     links: { pricing: `${web}/pricing`, help: `${web}/contact-us`, studio: `${web}/studio` },
   };
+  return deps;
 }
