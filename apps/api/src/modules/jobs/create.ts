@@ -249,6 +249,12 @@ export async function resolveTryonPlan(
      *  prompt — see the params-merge at the end of the looks_ map below. Never
      *  derived from client input. */
     paramsOverride?: Record<string, unknown>;
+    /** Set by createJob when the request names a garment type that does not take a
+     *  lower upload: a lowerGarmentKey is then honoured only for a lower-only pose
+     *  (no upper node), so a stale upload left in a client's form can't override the
+     *  catalog lower on a combined upper+lower pose. Callers that can't tell what the
+     *  garment type takes (no garmentTypeId, merchant, WhatsApp) leave it unset. */
+    dropUnusedLowerUpload?: boolean;
   },
 ): Promise<TryonPlan> {
   const {
@@ -392,7 +398,9 @@ export async function resolveTryonPlan(
     throw new AppError('VALIDATION', 400, 'mannequinJobId required for this garment type');
   }
 
-  if (lowerGarmentKey) {
+  // Under dropUnusedLowerUpload the key may be discarded per pose below, so ownership
+  // is verified only once a pose actually uses it — a stale expired key must not 4xx.
+  if (lowerGarmentKey && !opts.dropUnusedLowerUpload) {
     await verifyGarmentKey(app, userId, lowerGarmentKey, opts.trustedGarmentKeys);
   }
   if (lowerGarmentBackKey) {
@@ -871,7 +879,24 @@ export async function resolveTryonPlan(
   // Build map for O(1) lookup below.
   const poseWorkflowMap = new Map(poseWorkflows.map((pw) => [pw.poseId, pw]));
 
+  // The uploaded lower this pose may use. A garment type without requiresLowerUpload
+  // takes its lower from the catalog, so an upload there is only valid for a
+  // lower-only role (jeans, baggy — no upper node), where the single upload box
+  // doubles as the lower garment.
+  const lowerKeyFor = (pw: { upperNodeIds: string[] } | undefined) =>
+    lowerGarmentKey && opts.dropUnusedLowerUpload && pw && pw.upperNodeIds.length > 0
+      ? undefined
+      : lowerGarmentKey;
+  if (
+    opts.dropUnusedLowerUpload &&
+    lowerGarmentKey &&
+    poseWorkflows.some((pw) => lowerKeyFor(pw))
+  ) {
+    await verifyGarmentKey(app, userId, lowerGarmentKey, opts.trustedGarmentKeys);
+  }
+
   for (const pw of poseWorkflows) {
+    const poseLowerGarmentKey = lowerKeyFor(pw);
     // pose_garment_configs.isActive (checked above) only covers an explicit
     // override row being disabled. A pose with no override still resolves to
     // its own modelPoseAssets.workflowTemplateId default, and that template
@@ -913,10 +938,10 @@ export async function resolveTryonPlan(
               'back-view lower garment upload required for this pose',
             );
           }
-        } else if (!lowerGarmentKey) {
+        } else if (!poseLowerGarmentKey) {
           throw new AppError('VALIDATION', 400, 'lower garment upload required for this pose');
         }
-      } else if (!lowerCatalogId && !lowerGarmentKey) {
+      } else if (!lowerCatalogId && !poseLowerGarmentKey) {
         // A combined upper+lower pose's lower role always uses the normal
         // front/catalog resolution, even when the pose itself is back-facing —
         // only a genuinely lower-only garment type (jeans, baggy) gets a
@@ -934,7 +959,7 @@ export async function resolveTryonPlan(
     // drops the upload below (see effectiveLowerGarmentKey) instead of failing —
     // that gap is what let sherwani-pyjama etc. accept uploads, charge credits,
     // and run jobs that never showed the second piece.
-    if (requiresLowerUpload && lowerGarmentKey && !pw.lowerNodeId) {
+    if (requiresLowerUpload && poseLowerGarmentKey && !pw.lowerNodeId) {
       throw new AppError(
         'VALIDATION',
         400,
@@ -967,6 +992,7 @@ export async function resolveTryonPlan(
   const looks_: TryonPlanLook[] = looks.map((look) => {
     const pw = poseWorkflowMap.get(look.poseId);
     const isBackView = pw?.garmentView === 'back';
+    const lookLowerGarmentKey = lowerKeyFor(pw);
     // Only store inputs the workflow actually supports — strips irrelevant fields
     // so the dispatcher never receives/resolves data it won't use. For a
     // back-view pose, the back photo is selected instead of the front one —
@@ -984,12 +1010,14 @@ export async function resolveTryonPlan(
     // the pose itself is back-facing — matches the validation loop above.
     const isLowerOnlyBackView = isBackView && (pw?.upperNodeIds?.length ?? 0) === 0;
     const effectiveLowerCatalogId =
-      pw?.lowerNodeId && !isLowerOnlyBackView && !lowerGarmentKey ? (lowerCatalogId ?? null) : null;
+      pw?.lowerNodeId && !isLowerOnlyBackView && !lookLowerGarmentKey
+        ? (lowerCatalogId ?? null)
+        : null;
     const effectiveLowerGarmentKey = pw?.lowerNodeId
       ? isLowerOnlyBackView
         ? (lowerGarmentBackKey ?? null)
-        : lowerGarmentKey
-          ? lowerGarmentKey
+        : lookLowerGarmentKey
+          ? lookLowerGarmentKey
           : null
       : null;
     const effectiveShoeCatalogId = pw?.shoeNodeId ? (shoeCatalogId ?? null) : null;
@@ -1128,7 +1156,7 @@ export async function createJob(
     mannequinJobId,
     lowerGarmentKey,
     lowerGarmentBackKey,
-    thirdGarmentKey,
+    thirdGarmentKey: requestedThirdGarmentKey,
     fourthGarmentKey,
   } = body.inputs;
 
@@ -1139,12 +1167,26 @@ export async function createJob(
   // — not the raw mannequinJobId/upperGarmentKey fields — so this specific
   // cross-check has to live here, where both are still in scope.
   let requiresMannequinStep = false;
+  // Uploads a client form may still carry from a previously selected garment type.
+  // Both are dropped only when this request names a garment type that doesn't take
+  // them: with no garmentTypeId we can't tell, and a mannequin-step type (saree)
+  // legitimately carries the pallu in thirdGarmentKey.
+  let dropUnusedLowerUpload = false;
+  let thirdGarmentKey = requestedThirdGarmentKey;
   if (garmentTypeId) {
     const [gtRow] = await app.db
-      .select({ requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep })
+      .select({
+        requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+        requiresLowerUpload: schema.garmentSubcategories.requiresLowerUpload,
+        requiresThirdUpload: schema.garmentSubcategories.requiresThirdUpload,
+      })
       .from(schema.garmentSubcategories)
       .where(eq(schema.garmentSubcategories.id, garmentTypeId));
     requiresMannequinStep = gtRow?.requiresMannequinStep ?? false;
+    if (gtRow && !requiresMannequinStep) {
+      dropUnusedLowerUpload = !gtRow.requiresLowerUpload;
+      if (!gtRow.requiresThirdUpload) thirdGarmentKey = undefined;
+    }
   }
   if (requiresMannequinStep && !mannequinJobId) {
     throw new AppError('VALIDATION', 400, 'mannequinJobId required for this garment type');
@@ -1165,7 +1207,9 @@ export async function createJob(
     await verifyGarmentKey(app, userId, upperGarmentKey, opts?.trustedGarmentKeys);
     resolvedUpperGarmentKey = upperGarmentKey;
   }
-  if (lowerGarmentKey)
+  // With dropUnusedLowerUpload the lower key is verified inside resolveTryonPlan, only
+  // if a pose actually uses it.
+  if (lowerGarmentKey && !dropUnusedLowerUpload)
     await verifyGarmentKey(app, userId, lowerGarmentKey, opts?.trustedGarmentKeys);
   if (lowerGarmentBackKey)
     await verifyGarmentKey(app, userId, lowerGarmentBackKey, opts?.trustedGarmentKeys);
@@ -1176,11 +1220,18 @@ export async function createJob(
   // The garment-type opt-in and node checks for the fourth key live in resolveTryonPlan,
   // which also verifies ownership — it is persisted below only after that passes.
 
-  const plan = await resolveTryonPlan(app, userId, body, {
-    resolvedUpperGarmentKey: resolvedUpperGarmentKey ?? null,
-    trustedGarmentKeys: opts?.trustedGarmentKeys,
-    paramsOverride: opts?.paramsOverride,
-  });
+  const plan = await resolveTryonPlan(
+    app,
+    userId,
+    // resolveTryonPlan reads thirdGarmentKey off the body, so hand it the sanitized one.
+    { ...body, inputs: { ...body.inputs, thirdGarmentKey } },
+    {
+      resolvedUpperGarmentKey: resolvedUpperGarmentKey ?? null,
+      trustedGarmentKeys: opts?.trustedGarmentKeys,
+      paramsOverride: opts?.paramsOverride,
+      dropUnusedLowerUpload,
+    },
+  );
 
   await assertQueueCapacity(app, plan.looks.length);
 
