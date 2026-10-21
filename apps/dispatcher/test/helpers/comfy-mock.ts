@@ -27,6 +27,10 @@ export interface ComfyMockOptions {
   /** Replaces the default SaveImage output in /history — e.g. { '4': { text: ['wa-kurti'] } }
    *  for the classify lane's text answer. */
   outputs?: Record<string, unknown>;
+  /** Replaces the whole /history entry for a successful run, given the prompt id and the
+   *  workflow graph that was submitted — e.g. a `status: success` run whose output node was
+   *  withheld by a gate. Ignored when `fail` is set. */
+  history?: (promptId: string, graph: Record<string, unknown>) => unknown;
 }
 
 export interface ComfyMock {
@@ -154,19 +158,21 @@ export function startComfyMock(): Promise<ComfyMock> {
                     ],
                   },
                 }
-              : {
-                  outputs: opts.outputs ?? {
-                    '10': {
-                      images: [
-                        {
-                          filename: opts.outputFilename ?? 'result.png',
-                          subfolder: '',
-                          type: 'output',
-                        },
-                      ],
+              : opts.history
+                ? opts.history(promptId, lastPrompt?.prompt ?? {})
+                : {
+                    outputs: opts.outputs ?? {
+                      '10': {
+                        images: [
+                          {
+                            filename: opts.outputFilename ?? 'result.png',
+                            subfolder: '',
+                            type: 'output',
+                          },
+                        ],
+                      },
                     },
-                  },
-                };
+                  };
             wss.clients.forEach((ws) => {
               const event = opts.fail
                 ? {

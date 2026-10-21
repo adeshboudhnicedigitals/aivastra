@@ -24,6 +24,7 @@ import {
   uploadImageToComfy,
 } from '../comfyui/client.js';
 import { handleCompletionResult } from '../comfyui/completion-result.js';
+import { isTerminalJobError } from '../comfyui/output-withheld.js';
 import { JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
 import { getImageCompressionConfig } from '../config/image-compression.js';
 import { loadEnv } from '../env.js';
@@ -3684,7 +3685,9 @@ async function handleFailure(
   const newAttempts = current.attempts + 1;
   await db.update(schema.jobs).set({ attempts: newAttempts }).where(eq(schema.jobs.id, jobId));
 
-  if (newAttempts >= MAX_ATTEMPTS) {
+  // A deterministic failure (output withheld by the workflow's gate, result node missing from
+  // the workflow) would just repeat on the same inputs, so skip the retry and refund now.
+  if (newAttempts >= MAX_ATTEMPTS || isTerminalJobError(errorMessage)) {
     const errorCode = errorMessage ? errorMessage.slice(0, 1000) : 'MAX_RETRIES';
     await terminateJob(
       cfg,
@@ -3698,10 +3701,7 @@ async function handleFailure(
       startedAt,
       current.source,
     );
-    log.warn(
-      { jobId, attempts: newAttempts, errorCode },
-      'job FAILED after max retries — credits refunded',
-    );
+    log.warn({ jobId, attempts: newAttempts, errorCode }, 'job FAILED — credits refunded');
   } else {
     // Re-enqueue for retry
     await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
