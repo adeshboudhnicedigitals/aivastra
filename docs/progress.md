@@ -2,6 +2,31 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-21 — WhatsApp bot v2 P0: no dead ends, readiness reasons, studio draft hand-off
+
+- **Done:** pure `decideReadiness` in `apps/api/src/modules/messaging/readiness.ts` (commit
+  `e2dbc97f`). The WhatsApp engine now hands off to a studio draft link and re-lists garment types
+  instead of clearing the session on the four "not available" paths (commit `eaccd2da`).
+- **Done:** owner-bound `GET /v1/studio/drafts/:token` (commit `9dbe6f78`). Drafts are stored in
+  Redis under `studio:draft:<token>` with a 24h TTL, the route requires login, and foreign or
+  unknown tokens return 404.
+- **Done:** `whatsapp_garment_unavailable_total{reason}` Prometheus counter, and the bot now counts
+  and explains unavailable garment types (commit `f954d342`).
+- **Done:** spec `docs/superpowers/specs/2026-10-21-whatsapp-bot-v2-design.md` and plan
+  `docs/superpowers/plans/2026-10-21-whatsapp-bot-v2-p0.md`.
+- **Failed-Not-Done:** none of the P0 items was skipped, but the studio hand-off is not complete
+  end to end (see Open).
+- **Open:**
+  - The studio page (`apps/catalogues-web/src/app/(app)/studio/page.tsx`) does not read `?draft=`
+    yet, so the hand-off link currently opens the plain studio. It needs its own plan.
+  - The Grafana alert on `whatsapp_garment_unavailable_total{reason=~"template_inactive|no_mapping"}`
+    must be created in Grafana. It lives outside this repo and has **not** been created.
+  - Admin readiness matrix (spec P1) and parallel recognition plus top-3 (spec P2) are not started.
+  - `getReadiness`'s database lookup has no dedicated integration test for the "mapped but template
+    off" and soft-deleted-template cases.
+  - The api typecheck needs `pnpm --filter @aivastra/observability build` run first, because the
+    package is consumed from its gitignored `dist`.
+
 ## 2026-10-16 — catalogue_android: Crashlytics build verified, accessory step, saree slider-split, motion duration range
 
 - **Done:** verified the 2026-10-14 Crashlytics wiring actually builds — a real
