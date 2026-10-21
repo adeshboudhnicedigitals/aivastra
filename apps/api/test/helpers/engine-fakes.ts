@@ -77,6 +77,8 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     reportUnavailable: (r) => {
       calls.unavailable.push(r);
     },
+    getReadiness: async () => ({ status: 'ready', reasons: [] }),
+    createStudioDraft: async (d) => `https://app.test/studio?draft=${d.garmentKey}`,
     getTemplates: async () => [TEMPLATE],
     getDefaultFaceId: async () => 'face-1',
     quote: async (_u, body) => {
