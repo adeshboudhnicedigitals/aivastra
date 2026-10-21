@@ -4,6 +4,12 @@ import type { Readiness, ReadinessReason } from '../readiness.js';
 
 export type { Readiness, ReadinessReason };
 
+/** A recognition request in flight: id to find the answer, deadline for the wait. */
+export interface RecognitionTicket {
+  requestId: string;
+  expiresAt: number;
+}
+
 export type Gender = 'women' | 'men' | 'boys' | 'girls';
 // The four values PATCH /v1/me accepts as users.default_aspect_ratio.
 export type AspectRatio = '1:1' | '2:3' | '3:4' | '4:5';
@@ -106,6 +112,8 @@ export interface Session {
   garmentKey?: string;
   gender?: Gender;
   garmentType?: GarmentTypeOption;
+  // The recognition request sent with the photo; resolved once the gender is known.
+  recognition?: RecognitionTicket;
   // The type came from recognition, not the list: a later "Change" is counted
   // as a correction (spec 8a metrics).
   recognized?: boolean;
@@ -151,7 +159,7 @@ export type OutboundMessage =
       buttonLabel: string;
       rows: { id: string; title: string; description?: string }[];
     }
-  | { kind: 'cards'; text: string; cards: { id: string; imageUrl: string; title: string }[] };
+  | { kind: 'cards'; text: string; cards: { id: string; imageUrl: string }[] };
 
 export interface EngineContext {
   userId: string;
@@ -185,9 +193,11 @@ export interface EngineDeps {
   getBalance(userId: string): Promise<number>;
   // Types the bot can offer: standard try-on with at least one template mapping.
   listGarmentTypes(gender: Gender): Promise<GarmentTypeOption[]>;
-  // Spec 8a. Null means "show the list" — for every failure, never an error.
-  recognizeGarment(
-    garmentKey: string,
+  // Spec 8a. Started with the photo, resolved after the gender tap. Null means
+  // "show the list" — for every failure, never an error.
+  startRecognition(garmentKey: string): Promise<RecognitionTicket | null>;
+  resolveRecognition(
+    ticket: RecognitionTicket,
     gender: Gender,
   ): Promise<{ garmentTypeId: string; label: string } | null>;
   recordRecognitionCorrected(): void;

@@ -118,7 +118,6 @@ function cardsMsgs(
       cards: page.map((i) => ({
         id: encodeReplyId(s.nonce, action, i.id),
         imageUrl: i.imageUrl,
-        title: i.label,
       })),
     },
   ];
@@ -516,10 +515,11 @@ async function onReply(
     case 'ASK_GENDER': {
       if (action !== 'gender' || !GENDERS.includes(value as Gender)) return reprompt();
       const gender = value as Gender;
-      const withGender: Session = { ...s, gender };
-      // Spec 8a: recognition runs now, against that gender's types only, and
-      // returns null on every failure — the list is always the way out.
-      const hit = s.garmentKey ? await deps.recognizeGarment(s.garmentKey, gender) : null;
+      const withGender: Session = { ...s, gender, recognition: undefined };
+      // Spec 8a: recognition was started with the photo (the image event) and
+      // has been running while the seller answered; collect it for this
+      // gender. Null on every failure — the list is always the way out.
+      const hit = s.recognition ? await deps.resolveRecognition(s.recognition, gender) : null;
       if (hit) {
         const gt = (await deps.listGarmentTypes(gender)).find((t) => t.id === hit.garmentTypeId);
         // A correct answer for a type the bot cannot offer (a saree two-step
@@ -729,7 +729,16 @@ export async function handle(
 
     case 'image': {
       if (NEW_PHOTO_STATES.includes(s.state)) {
-        return enter({ ...cleared(s), garmentKey: event.garmentKey }, 'ASK_GENDER', out, ctx, deps);
+        // Spec 8a: recognition starts now and runs while the seller answers the
+        // gender question; it is collected at the gender tap.
+        const recognition = (await deps.startRecognition(event.garmentKey)) ?? undefined;
+        return enter(
+          { ...cleared(s), garmentKey: event.garmentKey, recognition },
+          'ASK_GENDER',
+          out,
+          ctx,
+          deps,
+        );
       }
       if (s.state === 'ASK_EXTRA_PHOTO') {
         const slot = firstMissingSlot(s);

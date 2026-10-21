@@ -58,7 +58,8 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     createRun: [] as TryonBody[],
     // The idempotency key each createRun call was given (ctx.messageId).
     createRunKeys: [] as string[],
-    recognize: [] as { garmentKey: string; gender: string }[],
+    recognize: [] as { garmentKey: string }[],
+    resolved: [] as string[],
     corrected: 0,
     unavailable: [] as UnavailableReport[],
   };
@@ -67,8 +68,12 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     getUserDefaults: async () => ({ aspectRatio: '3:4', resolution: 'HD' }),
     getBalance: async () => 50,
     listGarmentTypes: async () => [GT_SHIRT],
-    recognizeGarment: async (garmentKey, gender) => {
-      calls.recognize.push({ garmentKey, gender });
+    startRecognition: async (garmentKey) => {
+      calls.recognize.push({ garmentKey });
+      return { requestId: `r${calls.recognize.length}`, expiresAt: 0 };
+    },
+    resolveRecognition: async (_ticket, gender) => {
+      calls.resolved.push(gender);
       return null;
     },
     recordRecognitionCorrected: () => {

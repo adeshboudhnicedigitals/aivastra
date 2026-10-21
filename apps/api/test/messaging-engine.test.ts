@@ -184,7 +184,7 @@ describe('engine: photo, gender and garment type', () => {
 
   it('recognised: the guess is confirmed first; Yes goes on to pose picking', async () => {
     const { deps } = fakeDeps({
-      recognizeGarment: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
+      resolveRecognition: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
     });
     const ask = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
     expect(ask.session).toMatchObject({
@@ -208,7 +208,7 @@ describe('engine: photo, gender and garment type', () => {
 
   it('recognised: No sends the seller to the list and counts a correction', async () => {
     const { deps, calls } = fakeDeps({
-      recognizeGarment: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
+      resolveRecognition: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
     });
     const ask = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
     const r = await handle(ask.session, tap(ask, 'change'), CTX, deps);
@@ -218,12 +218,18 @@ describe('engine: photo, gender and garment type', () => {
     expect(calls.corrected).toBe(1);
   });
 
-  it('recognition is asked with the photo and the tapped gender', async () => {
+  it('recognition starts with the upload and is collected at the gender tap', async () => {
     const { deps, calls } = fakeDeps();
-    await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'boys')]);
+    const asked = await run(deps, [() => photo(1)]);
+    expect(asked.session.state).toBe('ASK_GENDER');
+    expect(asked.session.recognition).toBeDefined();
     expect(calls.recognize).toEqual([
-      { garmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg', gender: 'boys' },
+      { garmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg' },
     ]);
+    expect(calls.resolved).toEqual([]);
+    const r = await handle(asked.session, tap(asked, 'gender', 'boys'), CTX, deps);
+    expect(calls.resolved).toEqual(['boys']);
+    expect(r.session.recognition).toBeUndefined();
   });
 
   it('not recognised: the garment-type list, then a pick goes to pose picking', async () => {
@@ -237,7 +243,7 @@ describe('engine: photo, gender and garment type', () => {
 
   it('a recognised type the bot cannot offer hands off to the studio, keeps the session and reports why', async () => {
     const { deps, calls } = fakeDeps({
-      recognizeGarment: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
+      resolveRecognition: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
       getReadiness: async () => ({ status: 'blocked', reasons: ['mannequin_flow'] }),
     });
     const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
@@ -258,7 +264,7 @@ describe('engine: photo, gender and garment type', () => {
 
   it('a hand-off with no type list to offer ends at the menu without "choose another type"', async () => {
     const { deps } = fakeDeps({
-      recognizeGarment: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
+      resolveRecognition: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
       getReadiness: async () => ({ status: 'blocked', reasons: ['mannequin_flow'] }),
       listGarmentTypes: async () => [],
     });
@@ -354,10 +360,10 @@ describe('engine: pose cards', () => {
     );
     expect(buttonTitles(prompt)).toEqual(['Change garment', 'Menu']);
     // Look 'd' needs shoes and GT_SHIRT has no default shoe (D49): 3 looks, not 4.
-    expect(cards.kind === 'cards' ? cards.cards.map((c) => c.title) : []).toEqual([
-      'Pose a',
-      'Pose b',
-      'Pose c',
+    expect(cards.kind === 'cards' ? cards.cards.map((c) => c.imageUrl) : []).toEqual([
+      'https://img/a.jpg',
+      'https://img/b.jpg',
+      'https://img/c.jpg',
     ]);
     expect('text' in footer && footer.text).toBe('Select poses above, then tap Generate.');
     expect(buttonTitles(footer)).toEqual(['Generate', 'Clear']);
@@ -369,12 +375,12 @@ describe('engine: pose cards', () => {
     const { deps } = fakeDeps({ getTemplates: async () => [TEMPLATE, TEMPLATE_2] });
     const r = await atPick(deps);
     const cards = r.messages.find((m) => m.kind === 'cards');
-    expect(cards && cards.kind === 'cards' ? cards.cards.map((c) => c.title) : []).toEqual([
-      'Pose a',
-      'Pose b',
-      'Pose c',
-      'Pose e',
-      'Pose f',
+    expect(cards && cards.kind === 'cards' ? cards.cards.map((c) => c.imageUrl) : []).toEqual([
+      'https://img/a.jpg',
+      'https://img/b.jpg',
+      'https://img/c.jpg',
+      'https://img/e.jpg',
+      'https://img/f.jpg',
     ]);
   });
 
@@ -387,9 +393,9 @@ describe('engine: pose cards', () => {
     expect(buttonTitles(at.messages.at(-1))).toEqual(['More', 'Generate', 'Clear']);
     const second = await handle(at.session, tap(at, 'more'), CTX, deps);
     const rest = second.messages.find((m) => m.kind === 'cards');
-    expect(rest && rest.kind === 'cards' ? rest.cards.map((c) => c.title) : []).toEqual([
-      'Pose l10',
-      'Pose l11',
+    expect(rest && rest.kind === 'cards' ? rest.cards.map((c) => c.imageUrl) : []).toEqual([
+      'https://img/l10.jpg',
+      'https://img/l11.jpg',
     ]);
     // Page 2 does not repeat the price prompt, and the nonce is unchanged.
     expect(second.messages[0].kind).toBe('cards');
@@ -399,7 +405,7 @@ describe('engine: pose cards', () => {
 
   it('Change after a recognised type counts a correction; after a list pick it does not', async () => {
     const recognised = fakeDeps({
-      recognizeGarment: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
+      resolveRecognition: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
     });
     const r1 = await run(recognised.deps, [
       () => photo(1),

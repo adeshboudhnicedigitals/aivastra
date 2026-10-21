@@ -54,8 +54,8 @@ describe('renderMessage', () => {
       kind: 'cards',
       text: 'Tap 2 poses. Generation starts after the last one.',
       cards: [
-        { id: 'n|look|1', imageUrl: 'https://i/1.jpg', title: 'Pose 1' },
-        { id: 'n|look|2', imageUrl: 'https://i/2.jpg', title: 'Pose 2' },
+        { id: 'n|look|1', imageUrl: 'https://i/1.jpg' },
+        { id: 'n|look|2', imageUrl: 'https://i/2.jpg' },
       ],
     });
     expect(p).toEqual({
@@ -69,7 +69,6 @@ describe('renderMessage', () => {
               card_index: 0,
               type: 'cta_url',
               header: { type: 'image', image: { link: 'https://i/1.jpg' } },
-              body: { text: 'Pose 1' },
               action: {
                 buttons: [
                   { type: 'quick_reply', quick_reply: { id: 'n|look|1', title: 'Select' } },
@@ -80,7 +79,6 @@ describe('renderMessage', () => {
               card_index: 1,
               type: 'cta_url',
               header: { type: 'image', image: { link: 'https://i/2.jpg' } },
-              body: { text: 'Pose 2' },
               action: {
                 buttons: [
                   { type: 'quick_reply', quick_reply: { id: 'n|look|2', title: 'Select' } },
@@ -100,7 +98,7 @@ describe('renderMessage', () => {
     const out = renderMessage({
       kind: 'cards',
       text: 'Tap 2 poses. Generation starts after the last one.',
-      cards: [{ id: 'n|look|1', imageUrl: 'https://i/1.jpg', title: 'Pose 1' }],
+      cards: [{ id: 'n|look|1', imageUrl: 'https://i/1.jpg' }],
     });
     expect(out).toEqual([
       {
@@ -108,7 +106,7 @@ describe('renderMessage', () => {
         interactive: {
           type: 'button',
           header: { type: 'image', image: { link: 'https://i/1.jpg' } },
-          body: { text: 'Pose 1\n\nTap 2 poses. Generation starts after the last one.' },
+          body: { text: 'Tap 2 poses. Generation starts after the last one.' },
           action: { buttons: [{ type: 'reply', reply: { id: 'n|look|1', title: 'Select' } }] },
         },
       },

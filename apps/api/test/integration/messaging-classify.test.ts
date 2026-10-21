@@ -5,14 +5,15 @@ import {
   garmentRecognitionResultKey,
 } from '@aivastra/types';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { recognizeGarment } from '../../src/modules/messaging/classify';
+import { resolveRecognition, startRecognition } from '../../src/modules/messaging/classify';
+import type { Gender } from '../../src/modules/messaging/engine/types';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
 
 describe('garment recognition (api side)', () => {
   let c: Containers;
   let app: TestApp;
-  let ids: { shirt: string; kurti: string };
+  let ids: { shirt: string; kurti: string; kurtiMen: string };
 
   beforeAll(async () => {
     c = await startContainers();
@@ -31,10 +32,12 @@ describe('garment recognition (api side)', () => {
         { genderSlug: 'women', slug: 'gown', label: 'Gown' },
         // Another gender: never offered for 'women'.
         { genderSlug: 'men', slug: 'kurta', label: 'Kurta', publicApiSlug: 'wa-kurta' },
+        // Same kind as the women's Kurti: one option for the model, a row per gender.
+        { genderSlug: 'men', slug: 'kurti-m', label: 'Kurti', publicApiSlug: 'wa-kurti-men' },
       ])
       .returning({ id: schema.garmentSubcategories.id, slug: schema.garmentSubcategories.slug });
     const by = Object.fromEntries(rows.map((r) => [r.slug, r.id]));
-    ids = { shirt: by.fullshirt, kurti: by.kurti };
+    ids = { shirt: by.fullshirt, kurti: by.kurti, kurtiMen: by['kurti-m'] };
   }, 60_000);
 
   afterAll(async () => {
@@ -67,25 +70,54 @@ describe('garment recognition (api side)', () => {
     throw new Error('no recognition request arrived');
   }
 
+  // Both halves back to back, as the engine does across the gender question.
+  async function recognize(key: string, gender: Gender, opts: { budgetMs?: number } = {}) {
+    const ticket = await startRecognition(app, key, opts);
+    return ticket ? resolveRecognition(app, ticket, gender) : null;
+  }
+
   const lastId = async () =>
     (await app.redis.xrevrange(GARMENT_RECOGNITION_STREAM, '+', '-', 'COUNT', 1))[0]?.[0] ?? '0-0';
 
-  it("asks with that gender's slugged types and maps the answer to the row", async () => {
+  it('asks with one option per kind across genders and maps the answer to the tapped gender', async () => {
     const since = await lastId();
     const [hit, request] = await Promise.all([
-      recognizeGarment(app, 'inputs/x/garment.jpg', 'women'),
+      recognize('inputs/x/garment.jpg', 'women'),
       answerNext(since, { answer: 'WA-Kurti.', error: null }),
     ]);
     expect(request.garmentKey).toBe('inputs/x/garment.jpg');
-    expect(request.options.map((o) => o.slug).sort()).toEqual(['wa-full-shirt', 'wa-kurti']);
+    // The men's Kurti shares the women's label: one option, not two.
+    expect(request.options.map((o) => o.slug).sort()).toEqual([
+      'wa-full-shirt',
+      'wa-kurta',
+      'wa-kurti',
+    ]);
     expect(hit).toEqual({ garmentTypeId: ids.kurti, label: 'Kurti' });
+  });
+
+  it("the same answer resolves to the other gender's own row", async () => {
+    const since = await lastId();
+    const [hit] = await Promise.all([
+      recognize('inputs/x/garment.jpg', 'men'),
+      answerNext(since, { answer: 'wa-kurti', error: null }),
+    ]);
+    expect(hit).toEqual({ garmentTypeId: ids.kurtiMen, label: 'Kurti' });
+  });
+
+  it('a kind the tapped gender does not have is not recognised', async () => {
+    const since = await lastId();
+    const [hit] = await Promise.all([
+      recognize('inputs/x/garment.jpg', 'women'),
+      answerNext(since, { answer: 'wa-kurta', error: null }),
+    ]);
+    expect(hit).toBeNull();
   });
 
   it('an answer outside the options is not recognised', async () => {
     const since = await lastId();
     const [hit] = await Promise.all([
-      recognizeGarment(app, 'inputs/x/garment.jpg', 'women'),
-      answerNext(since, { answer: 'wa-kurta', error: null }),
+      recognize('inputs/x/garment.jpg', 'women'),
+      answerNext(since, { answer: 'wa-nonsense', error: null }),
     ]);
     expect(hit).toBeNull();
   });
@@ -93,7 +125,7 @@ describe('garment recognition (api side)', () => {
   it('a dispatcher error is not recognised', async () => {
     const since = await lastId();
     const [hit] = await Promise.all([
-      recognizeGarment(app, 'inputs/x/garment.jpg', 'women'),
+      recognize('inputs/x/garment.jpg', 'women'),
       answerNext(since, { answer: null, error: 'no_worker' }),
     ]);
     expect(hit).toBeNull();
@@ -101,16 +133,14 @@ describe('garment recognition (api side)', () => {
 
   it('no answer within the budget is not recognised', async () => {
     const started = Date.now();
-    expect(
-      await recognizeGarment(app, 'inputs/x/garment.jpg', 'women', { budgetMs: 300 }),
-    ).toBeNull();
+    expect(await recognize('inputs/x/garment.jpg', 'women', { budgetMs: 300 })).toBeNull();
     expect(Date.now() - started).toBeLessThan(2000);
   });
 
   it('with the flag off nothing is requested', async () => {
     const before = await app.redis.xlen(GARMENT_RECOGNITION_STREAM);
     const off = { ...app, env: { ...app.env, GARMENT_RECOGNITION_ENABLED: false } } as TestApp;
-    expect(await recognizeGarment(off, 'inputs/x/garment.jpg', 'women')).toBeNull();
+    expect(await startRecognition(off, 'inputs/x/garment.jpg')).toBeNull();
     expect(await app.redis.xlen(GARMENT_RECOGNITION_STREAM)).toBe(before);
   });
 });

@@ -11,10 +11,13 @@ import {
 } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
 import { getCatalogOptions } from '../../lib/catalog-options-cache.js';
+import type { Gender, RecognitionTicket } from './engine/types.js';
 
-// Spec 8a: the seller waits at most this long after the gender tap.
+// Spec 8a: counted from the photo upload; whatever the gender question leaves
+// of it is the most the seller waits after the gender tap.
 export const RECOGNITION_BUDGET_MS = 12_000;
 const POLL_MS = 200;
+const GENDERS: Gender[] = ['women', 'men', 'boys', 'girls'];
 // Only bounds the stream if no dispatcher is consuming it; a request is
 // worthless once its budget has passed anyway.
 const STREAM_MAXLEN = 1000;
@@ -63,53 +66,69 @@ async function waitForResult(
 ): Promise<GarmentRecognitionResult | null> {
   const key = garmentRecognitionResultKey(requestId);
   const deadline = Date.now() + budgetMs;
-  while (Date.now() < deadline) {
+  // Checked once even with the budget spent: the gender answer may have taken
+  // longer than the dispatcher.
+  for (;;) {
     const raw = await app.redis.get(key);
     if (raw) {
       const parsed = GarmentRecognitionResult.safeParse(JSON.parse(raw));
       return parsed.success ? parsed.data : { answer: null, error: 'failed', ms: 0 };
     }
+    if (Date.now() >= deadline) return null;
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
-  return null;
+}
+
+const norm = (s: string) => s.trim().toLowerCase();
+
+async function publicTypes(app: FastifyInstance, gender: Gender): Promise<RecognitionCandidate[]> {
+  const { options } = await getCatalogOptions(app, { gender, publicOnly: true });
+  return options.garmentTypes.flatMap((t) =>
+    t.slug ? [{ id: t.id, slug: t.slug, label: t.label }] : [],
+  );
 }
 
 /**
- * Spec 8a. Asks the dispatcher to recognise the garment among this gender's
- * types that have a public slug, and waits up to the budget. Returns null for
- * every kind of failure — the bot then shows the garment-type list, so
- * recognition can cost the seller a tap but never a run.
- *
- * The options are the dev API's cached list (catalog-options-cache.ts), whose
- * `slug` is garment_subcategories.public_api_slug: unique table-wide, so the
- * answer names exactly one row with no further matching.
+ * What the model chooses among: one option per label across every gender, so
+ * the prompt grows by the genuinely different kinds only, never by "Shirt"
+ * four times. Types are per-gender rows, and a photo carries no gender, so the
+ * answer is a kind; resolveRecognition maps it to the tapped gender's row.
  */
-export async function recognizeGarment(
+async function kindCandidates(app: FastifyInstance): Promise<RecognitionCandidate[]> {
+  const byLabel = new Map<string, RecognitionCandidate>();
+  for (const gender of GENDERS) {
+    for (const c of await publicTypes(app, gender)) {
+      if (!byLabel.has(norm(c.label))) byLabel.set(norm(c.label), c);
+    }
+  }
+  return [...byLabel.values()];
+}
+
+/**
+ * Spec 8a, first half: sent the moment the photo arrives, before the gender
+ * question, so the dispatcher works while the seller answers it. Only queues
+ * the request. Null when recognition is off or there is nothing to recognise
+ * (the bot then shows the list); never throws.
+ */
+export async function startRecognition(
   app: FastifyInstance,
   garmentKey: string,
-  gender: string,
   opts: { budgetMs?: number } = {},
-): Promise<{ garmentTypeId: string; label: string } | null> {
+): Promise<RecognitionTicket | null> {
   if (app.env.GARMENT_RECOGNITION_ENABLED !== true) return null;
   const budgetMs = opts.budgetMs ?? RECOGNITION_BUDGET_MS;
   try {
-    const { options } = await getCatalogOptions(app, { gender, publicOnly: true });
-    const candidates: RecognitionCandidate[] = options.garmentTypes.flatMap((t) =>
-      t.slug ? [{ id: t.id, slug: t.slug, label: t.label }] : [],
-    );
-    // Nothing this gender's types could be recognised as: straight to the list,
-    // without a request no one can answer usefully.
+    const candidates = await kindCandidates(app);
+    // Nothing a photo could be recognised as: straight to the list, without a
+    // request no one can answer usefully.
     if (candidates.length === 0) return null;
-
     const requestId = randomUUID();
+    const expiresAt = Date.now() + budgetMs;
     const request: GarmentRecognitionRequest = {
       requestId,
       garmentKey,
       options: candidates.map(({ slug, label }) => ({ slug, label })),
-      expiresAt: Date.now() + budgetMs,
-      // Recorded on the garment_recognitions row (D54); optional on the wire
-      // so in-stream requests from before this deploy still parse.
-      gender,
+      expiresAt,
     };
     await app.redis.xadd(
       GARMENT_RECOGNITION_STREAM,
@@ -120,8 +139,28 @@ export async function recognizeGarment(
       'payload',
       JSON.stringify(request),
     );
+    return { requestId, expiresAt };
+  } catch (err) {
+    count('failed');
+    app.log.warn({ err }, 'garment recognition not started; falling back to the list');
+    return null;
+  }
+}
 
-    const result = await waitForResult(app, requestId, budgetMs);
+/**
+ * Spec 8a, second half: waits out what is left of the budget (the seller's
+ * gender answer already used part of it) and maps the recognised kind to the
+ * tapped gender's own type. Null for every failure, and for a kind that gender
+ * does not have — the list is then the way out, so recognition can cost a tap
+ * but never a run.
+ */
+export async function resolveRecognition(
+  app: FastifyInstance,
+  ticket: RecognitionTicket,
+  gender: Gender,
+): Promise<{ garmentTypeId: string; label: string } | null> {
+  try {
+    const result = await waitForResult(app, ticket.requestId, ticket.expiresAt - Date.now());
     if (!result || result.error === 'expired') {
       count('timeout');
       return null;
@@ -130,17 +169,20 @@ export async function recognizeGarment(
       count(result.error);
       return null;
     }
-    const hit = matchAnswer(result.answer, candidates);
-    count(hit ? 'matched' : 'unmatched');
-    if (!hit) {
+    const kind = matchAnswer(result.answer, await kindCandidates(app));
+    const own = kind
+      ? (await publicTypes(app, gender)).find((c) => norm(c.label) === norm(kind.label))
+      : undefined;
+    count(own ? 'matched' : 'unmatched');
+    if (!kind) {
       // The raw answer is model output about a garment photo, not personal data;
       // capped so a runaway answer cannot flood the log.
       app.log.info(
-        { requestId, answer: result.answer?.slice(0, 40) },
+        { requestId: ticket.requestId, answer: result.answer?.slice(0, 40) },
         'garment recognition answer not in options',
       );
     }
-    return hit ? { garmentTypeId: hit.id, label: hit.label } : null;
+    return own ? { garmentTypeId: own.id, label: own.label } : null;
   } catch (err) {
     count('failed');
     app.log.warn({ err }, 'garment recognition failed; falling back to the list');
