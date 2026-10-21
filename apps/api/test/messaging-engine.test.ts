@@ -235,21 +235,44 @@ describe('engine: photo, gender and garment type', () => {
     expect(r.session).toMatchObject({ state: 'PICK_LOOKS', recognized: false });
   });
 
-  it('a recognised type the bot cannot offer gets the web-studio message (D47)', async () => {
-    const { deps } = fakeDeps({
+  it('a recognised type the bot cannot offer hands off to the studio, keeps the session and reports why', async () => {
+    const { deps, calls } = fakeDeps({
       recognizeGarment: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
+      getReadiness: async () => ({ status: 'blocked', reasons: ['mannequin_flow'] }),
     });
     const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
-    expect(texts(r.messages)[0]).toBe(
-      "Saree catalogs aren't available on WhatsApp yet. You can create one in the web studio: https://app.test/studio",
+    expect(texts(r.messages)[0]).toMatch(
+      /^Saree catalogs can't be made on WhatsApp yet\. You can create one in the web studio: https:\/\/app\.test\/studio\?draft=/,
     );
+    // The seller keeps their photo and gender and gets the type list.
+    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
+    expect(r.session.garmentKey).toBeDefined();
+    expect(calls.unavailable).toEqual([
+      expect.objectContaining({
+        gender: 'women',
+        garmentTypeId: 'gt-saree',
+        reason: 'mannequin_flow',
+      }),
+    ]);
+  });
+
+  it('a hand-off with no type list to offer ends at the menu without "choose another type"', async () => {
+    const { deps } = fakeDeps({
+      recognizeGarment: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
+      getReadiness: async () => ({ status: 'blocked', reasons: ['mannequin_flow'] }),
+      listGarmentTypes: async () => [],
+    });
+    const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    const sent = texts(r.messages);
+    expect(sent[0]).toMatch(/^Saree catalogs can't be made .*https:\/\/app\.test\/studio\?draft=/);
+    expect(sent.join('\n')).not.toContain('Or choose another type.');
     expect(r.session.state).toBe('MAIN_MENU');
   });
 
-  it('no template, no face, or no eligible look gets the web-studio message, and the reason is reported', async () => {
-    // The seller only sees "not available"; the reason goes to the log, so an
-    // admin-data gap (no face, no template, every look needing a missing default
-    // lower/shoe under D49) is found without stepping through the engine.
+  it('no template, no face, or no eligible look hands off and the reason is reported', async () => {
+    // The seller only sees the hand-off; the reason goes to the log and counter,
+    // so an admin-data gap (no face, no template, every look needing a missing
+    // default lower/shoe under D49) is found without stepping through the engine.
     const shoeOnly = { ...TEMPLATE, looks: [look('s', { hasShoes: true })] };
     for (const [over, reason] of [
       [{ getTemplates: async () => [] }, 'no_template'],
@@ -259,8 +282,9 @@ describe('engine: photo, gender and garment type', () => {
       const { deps, calls } = fakeDeps(over);
       const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
       const r = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
-      expect(texts(r.messages)[0]).toMatch(/^Shirt catalogs aren't available on WhatsApp yet/);
-      expect(r.session.state).toBe('MAIN_MENU');
+      expect(texts(r.messages)[0]).toMatch(/^Shirt catalogs can't be made on WhatsApp yet/);
+      expect(r.session.state).toBe('ASK_GARMENT_TYPE');
+      expect(r.session.gender).toBe('women');
       expect(calls.unavailable).toEqual([
         expect.objectContaining({ gender: 'women', garmentTypeId: 'gt-shirt', reason }),
       ]);

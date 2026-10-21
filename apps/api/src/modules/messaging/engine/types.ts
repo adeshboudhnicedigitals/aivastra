@@ -1,5 +1,8 @@
 import type { CreateTryOnJobRequest } from '@aivastra/types';
 import type { z } from 'zod';
+import type { Readiness, ReadinessReason } from '../readiness.js';
+
+export type { Readiness, ReadinessReason };
 
 export type Gender = 'women' | 'men' | 'boys' | 'girls';
 // The four values PATCH /v1/me accepts as users.default_aspect_ratio.
@@ -168,9 +171,10 @@ export interface Quote {
 export interface UnavailableReport {
   gender: Gender;
   garmentTypeId: string;
-  // no_eligible_looks: the template exists, but every look needs a lower or
-  // shoe the type has no default for (D49), or needs an upper it lacks.
-  reason: 'no_face' | 'no_template' | 'no_eligible_looks';
+  // 'no_template' is the engine's own: getTemplates returned nothing. The rest
+  // are readiness reasons (readiness.ts), reported for a recognised type the
+  // list does not offer.
+  reason: ReadinessReason | 'no_template';
   templateId?: string;
   templateLooks?: number;
 }
@@ -190,6 +194,17 @@ export interface EngineDeps {
   // Why a garment type could not be offered. The seller only sees "not
   // available"; this is the admin-facing reason (logged, never shown).
   reportUnavailable(report: UnavailableReport): void;
+  // Why a type is not offered, from the same facts the studio reads. Only the
+  // recognised-but-not-listed path needs it; the other dead ends already know.
+  getReadiness(gender: Gender, garmentTypeId: string): Promise<Readiness>;
+  // A studio link that opens with this photo, gender and type loaded. Never
+  // throws: on any failure it returns the plain studio link.
+  createStudioDraft(d: {
+    userId: string;
+    gender: Gender;
+    garmentTypeId: string;
+    garmentKey: string;
+  }): Promise<string>;
   // Every active template for the type, in admin order (spec 2026-10-14, P2).
   getTemplates(gender: Gender, garmentTypeId: string): Promise<TemplateOption[]>;
   // The first active face for the gender and type in admin order (D43), or null.

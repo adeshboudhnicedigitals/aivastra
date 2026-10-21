@@ -92,6 +92,7 @@ import { merchantUploadSessionRoutes } from './modules/merchant/upload-sessions.
 import { wordpressConnectRoutes } from './modules/merchant/wordpress-connect.routes.js';
 import { wordpressLoginRoutes } from './modules/merchant/wordpress-login.routes.js';
 import { messagingConnectRoutes } from './modules/messaging/connect.routes.js';
+import { studioDraftRoutes } from './modules/messaging/studio-draft.routes.js';
 import { whatsappWebhookRoutes } from './modules/messaging/webhook.routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
 import { paymentsRoutes } from './modules/payments/routes.js';
@@ -422,6 +423,7 @@ export async function buildServer(env: Env) {
   await app.register(jobsRoutes);
   await app.register(refundRequestsRoutes);
   await app.register(messagingConnectRoutes);
+  await app.register(studioDraftRoutes);
   await app.register(whatsappWebhookRoutes);
   await app.register(googleDriveRoutes);
   await app.register(posePresetsRoutes);
