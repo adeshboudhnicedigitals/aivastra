@@ -45,12 +45,13 @@ export const COPY = {
   confirmGarment: (label: string) => `Looks like: ${label}. Is that right?`,
   btnYes: 'Yes',
   btnNo: 'No, change',
-  // The photo is already saved server-side (draft link), so the seller loses
-  // nothing by leaving the chat; the type list follows for those who stay.
-  handoff: (label: string, url: string) =>
-    `${label} catalogs can't be made on WhatsApp yet. Your photo is saved — continue in the web studio: ${url}
-
-Or choose another type.`,
+  // The draft link carries the photo once the studio page reads `?draft=`, so
+  // until then this wording must not claim the photo is saved. `offerList` is
+  // false when there is no type list to follow, so the text does not point at one.
+  handoff: (label: string, url: string, offerList = true) =>
+    `${label} catalogs can't be made on WhatsApp yet. You can create one in the web studio: ${url}${
+      offerList ? '\n\nOr choose another type.' : ''
+    }`,
   // `main` names what the first photo is taken as, so a seller sending a set
   // knows the order matters. Only said before the first extra photo.
   askPhoto: {

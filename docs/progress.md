@@ -24,6 +24,17 @@
   - Admin readiness matrix (spec P1) and parallel recognition plus top-3 (spec P2) are not started.
   - `getReadiness`'s database lookup has no dedicated integration test for the "mapped but template
     off" and soft-deleted-template cases.
+  - Deviations from the spec: `missing_default_lower` / `missing_default_shoe` are folded into
+    `no_eligible_looks` / `looks_dropped`; the ~1 min readiness cache and admin-write invalidation
+    are not built; the resolver does not yet replace the three scattered checks (it is used only
+    for the recognised-but-unlisted path); `degraded` is computed but unused; the second and third
+    photos are not carried into the draft.
+  - The counter only sees an unavailable type when recognition names one or the seller taps one
+    (an empty type list for an unrecognised photo increments nothing), so the spec V4 "ready types
+    drop to zero" alert needs a different signal. Add the `getReadiness` join integration test
+    BEFORE creating the Grafana alert on the counter.
+  - Hand-off wording must not claim the photo is saved until the studio reads `?draft=`; the copy
+    says "You can create one in the web studio" for that reason.
   - The api typecheck needs `pnpm --filter @aivastra/observability build` run first, because the
     package is consumed from its gitignored `dist`.
 

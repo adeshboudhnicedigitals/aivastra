@@ -198,6 +198,12 @@ async function handoff(
           garmentKey: s.garmentKey,
         })
       : deps.links.studio;
+  // An empty list would make ASK_GARMENT_TYPE say "nothing available" right
+  // after "choose another type", so end at the menu with no list offer.
+  if (s.gender && (await deps.listGarmentTypes(s.gender as Gender)).length === 0) {
+    out.push(text(COPY.handoff(gt.label, url, false)));
+    return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
+  }
   out.push(text(COPY.handoff(gt.label, url)));
   return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
 }

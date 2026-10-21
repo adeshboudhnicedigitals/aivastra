@@ -242,7 +242,7 @@ describe('engine: photo, gender and garment type', () => {
     });
     const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
     expect(texts(r.messages)[0]).toMatch(
-      /^Saree catalogs can't be made on WhatsApp yet\. Your photo is saved .*https:\/\/app\.test\/studio\?draft=/,
+      /^Saree catalogs can't be made on WhatsApp yet\. You can create one in the web studio: https:\/\/app\.test\/studio\?draft=/,
     );
     // The seller keeps their photo and gender and gets the type list.
     expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
@@ -254,6 +254,19 @@ describe('engine: photo, gender and garment type', () => {
         reason: 'mannequin_flow',
       }),
     ]);
+  });
+
+  it('a hand-off with no type list to offer ends at the menu without "choose another type"', async () => {
+    const { deps } = fakeDeps({
+      recognizeGarment: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
+      getReadiness: async () => ({ status: 'blocked', reasons: ['mannequin_flow'] }),
+      listGarmentTypes: async () => [],
+    });
+    const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    const sent = texts(r.messages);
+    expect(sent[0]).toMatch(/^Saree catalogs can't be made .*https:\/\/app\.test\/studio\?draft=/);
+    expect(sent.join('\n')).not.toContain('Or choose another type.');
+    expect(r.session.state).toBe('MAIN_MENU');
   });
 
   it('no template, no face, or no eligible look hands off and the reason is reported', async () => {
