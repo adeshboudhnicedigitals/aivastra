@@ -164,7 +164,13 @@ export async function waitForCompletion(
       throw new Error(`ComfyUI execution error for prompt ${promptId}: ${detail}`);
     }
 
-    if (entry?.outputs && Object.keys(entry.outputs).length > 0) {
+    // A history entry only exists once the run has finished. status_str 'success' with no outputs
+    // at all is a workflow whose gate withheld every output node — finished, nothing to wait for;
+    // fetchHistory then classifies it instead of this loop polling until the timeout.
+    if (
+      (entry?.outputs && Object.keys(entry.outputs).length > 0) ||
+      entry?.status?.status_str === 'success'
+    ) {
       log?.info({ promptId }, 'ComfyUI generation complete');
       const timing = executionTiming(entry, totalNodeCount);
       return { status: 'completed', ...(timing ? { executionTiming: timing } : {}) };
