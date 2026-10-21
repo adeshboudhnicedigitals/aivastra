@@ -3,6 +3,7 @@ import { AddFaceModal } from '../../components/AddFaceModal';
 import { AssetThumb } from '../../components/AssetThumb';
 import { EditFaceModal } from '../../components/EditFaceModal';
 import { Icon } from '../../components/Icons';
+import { BodyTypesChip, MappedBadge } from '../../components/MappedBadge';
 import { Pager } from '../../components/Pager';
 import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
@@ -123,6 +124,37 @@ export function FacesTab() {
   const [bodyTypes, setBodyTypes] = useState<BodyType[]>([]);
   const [bulkBodyTypeIds, setBulkBodyTypeIds] = useState<string[]>([]);
   const [bulkBodyTypeSaving, setBulkBodyTypeSaving] = useState(false);
+  // Body type id -> its current face mappings, loaded when the picker opens so each row
+  // can show what is already mapped. A body type with none shows every face of its
+  // gender; the first mapping flips it to "only mapped ones", so the picker warns on those.
+  const [bodyTypeMappings, setBodyTypeMappings] = useState<
+    Record<string, { explicit: boolean; ids: Set<string> }>
+  >({});
+  useEffect(() => {
+    if (!showBulkBodyTypeMap) return;
+    let cancelled = false;
+    void Promise.all(
+      bodyTypes.map((b) =>
+        apiFetch<{ mappedFaceIds: string[]; hasExplicitFaceMappings: boolean }>(
+          `/admin/assets/body-types/${b.id}/face-mappings`,
+        )
+          .then(
+            (r) =>
+              [
+                b.id,
+                { explicit: r.hasExplicitFaceMappings, ids: new Set(r.mappedFaceIds) },
+              ] as const,
+          )
+          .catch(() => null),
+      ),
+    ).then((entries) => {
+      if (cancelled) return;
+      setBodyTypeMappings(Object.fromEntries(entries.filter((e) => e !== null)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showBulkBodyTypeMap, bodyTypes]);
 
   // Presets plus any continent an admin has already typed in — so custom
   // continents show up as filter tabs / dropdown options everywhere too.
@@ -279,6 +311,8 @@ export function FacesTab() {
     setBulkBodyTypeSaving(true);
     try {
       const selectedFaces = faces.filter((f) => selectedFaceIds.includes(f.id));
+      const touchedFaces = new Set<string>();
+      const touchedBodyTypes = new Set<string>();
       await Promise.all(
         selectedFaces.flatMap((face) =>
           bulkBodyTypeIds.map((bodyTypeId) => {
@@ -286,6 +320,8 @@ export function FacesTab() {
             // Skip cross-gender combos from a mixed-gender selection — body_type_faces
             // rows are gender-scoped, same as body_type_poses.
             if (!bodyType || bodyType.genderSlug !== face.gender) return Promise.resolve();
+            touchedFaces.add(face.id);
+            touchedBodyTypes.add(bodyTypeId);
             return apiFetch(`/admin/assets/body-types/${bodyTypeId}/faces/${face.id}`, {
               method: 'PUT',
               body: JSON.stringify({ mapped }),
@@ -294,11 +330,17 @@ export function FacesTab() {
         ),
       );
       toast({
-        title: `${mapped ? 'Mapped' : 'Unmapped'} ${selectedFaceIds.length} face${selectedFaceIds.length !== 1 ? 's' : ''} to ${bulkBodyTypeIds.length} body type${bulkBodyTypeIds.length !== 1 ? 's' : ''}`,
+        title: `${mapped ? 'Mapped' : 'Unmapped'} ${touchedFaces.size} face${touchedFaces.size !== 1 ? 's' : ''} ${mapped ? 'to' : 'from'} ${touchedBodyTypes.size} body type${touchedBodyTypes.size !== 1 ? 's' : ''}`,
+        ...(touchedFaces.size < selectedFaceIds.length
+          ? {
+              body: `${selectedFaceIds.length - touchedFaces.size} selected face(s) skipped — no ticked body type matches their gender.`,
+            }
+          : {}),
       });
       closeModal();
       setBulkBodyTypeIds([]);
       setSelectedFaceIds([]);
+      loadFaces();
     } catch (e) {
       toast({
         kind: 'error',
@@ -557,6 +599,7 @@ export function FacesTab() {
                       <span className="badge dot">
                         {face.continent ? continentLabel(face.continent) : 'Unassigned'}
                       </span>
+                      <BodyTypesChip labels={face.bodyTypeLabels} />
                     </div>
                   </div>
                 </div>
@@ -806,9 +849,22 @@ export function FacesTab() {
                         <span className="badge dot accent" style={{ fontSize: 10 }}>
                           {b.genderSlug}
                         </span>
+                        <MappedBadge
+                          mapping={bodyTypeMappings[b.id]}
+                          selectedIds={selectedFaceIds.filter(
+                            (id) => faces.find((x) => x.id === id)?.gender === b.genderSlug,
+                          )}
+                          noun="face"
+                        />
                       </label>
                     ))}
                   </div>
+                  {bulkBodyTypeIds.some((id) => bodyTypeMappings[id]?.explicit === false) && (
+                    <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
+                      Body types marked "shows all faces" have nothing mapped yet. Mapping to them
+                      limits each to only its mapped faces.
+                    </p>
+                  )}
                 </>
               )}
             </div>
