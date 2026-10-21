@@ -23,6 +23,8 @@ export interface ModelFace {
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Body types explicitly mapped to this face; absent on freshly-created rows. */
+  bodyTypeLabels?: string[];
 }
 
 export interface ModelBackground {
@@ -444,6 +446,8 @@ export interface ModelPoseAsset {
   createdAt: string;
   visibleGarmentTypeCount?: number;
   totalGarmentTypeCount?: number;
+  /** Body types explicitly mapped to this pose; absent on freshly-created rows. */
+  bodyTypeLabels?: string[];
 }
 
 export interface SareeMannequinStyle {
