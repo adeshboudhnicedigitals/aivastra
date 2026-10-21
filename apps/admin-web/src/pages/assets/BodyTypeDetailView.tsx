@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
-import { BatchFaceUploadModal } from '../../components/BatchFaceUploadModal';
-import { BatchPoseUploadModal } from '../../components/BatchPoseUploadModal';
 import { Icon } from '../../components/Icons';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type {
   BodyType,
   FaceGarmentMapping,
-  ModelFace,
   ModelPoseAsset,
   PoseGarmentTypeConfig,
 } from '../../types';
@@ -34,12 +31,14 @@ function UploadedGrid({
   selectedIds,
   onToggleSelect,
   onRemove,
+  hideRemove,
 }: {
   items: UploadedItem[];
   emptyLabel: string;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onRemove: (id: string) => void;
+  hideRemove?: boolean;
 }) {
   if (items.length === 0) {
     return (
@@ -111,17 +110,19 @@ function UploadedGrid({
               >
                 {item.label}
               </p>
-              <button
-                type="button"
-                className="btn danger"
-                style={{ width: '100%', marginTop: 8, fontSize: 11, padding: '3px 0' }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove(item.id);
-                }}
-              >
-                <Icon.Trash /> Remove
-              </button>
+              {!hideRemove && (
+                <button
+                  type="button"
+                  className="btn danger"
+                  style={{ width: '100%', marginTop: 8, fontSize: 11, padding: '3px 0' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove(item.id);
+                  }}
+                >
+                  <Icon.Trash /> Remove
+                </button>
+              )}
             </div>
           </div>
         );
@@ -139,8 +140,11 @@ export function BodyTypeDetailView({ bodyType }: { bodyType: BodyType }) {
     poses: EMPTY_MAPPING,
   });
   const [loadingMappings, setLoadingMappings] = useState(true);
-  const [showFaceUpload, setShowFaceUpload] = useState(false);
-  const [showPoseUpload, setShowPoseUpload] = useState(false);
+  // Import picker: faces and poses are authored once in their own asset tabs and a
+  // body type just opts them in (body_type_faces / body_type_poses), so there is
+  // no per-body-type upload.
+  const [importKind, setImportKind] = useState<MappingKind | null>(null);
+  const [importIds, setImportIds] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Record<MappingKind, Set<string>>>({
     faces: new Set(),
     poses: new Set(),
@@ -481,38 +485,17 @@ export function BodyTypeDetailView({ bodyType }: { bodyType: BodyType }) {
     }
   };
 
-  const mapNewUploads = async (kind: MappingKind, ids: string[]) => {
-    setMappings((prev) => ({
-      ...prev,
-      [kind]: { mappedIds: new Set([...prev[kind].mappedIds, ...ids]), hasExplicit: true },
-    }));
-    try {
-      await Promise.all(ids.map((id) => putMapping(kind, id, true)));
-    } catch (e) {
-      toast({
-        kind: 'error',
-        title: 'Uploaded but failed to map to this body type',
-        body: apiErrorMessage(e, 'Please try again.'),
-      });
-    }
-  };
-
-  const onFacesUploaded = (added: ModelFace[]) => {
-    setFaces((prev) => [...prev, ...added]);
-    setShowFaceUpload(false);
-    void mapNewUploads(
-      'faces',
-      added.map((f) => f.id),
-    );
-  };
-
-  const onPosesUploaded = (added: ModelPoseAsset[]) => {
-    setPoseAssets((prev) => [...prev, ...added]);
-    setShowPoseUpload(false);
-    void mapNewUploads(
-      'poses',
-      added.map((p) => p.id),
-    );
+  const doImport = () => {
+    if (!importKind) return;
+    const ids = [...importIds];
+    if (ids.length === 0) return;
+    bulkSetMapped(importKind, ids, true);
+    const noun = importKind === 'faces' ? 'face' : 'pose';
+    toast({
+      title: `Imported ${ids.length} ${noun}${ids.length !== 1 ? 's' : ''} into ${bodyType.label}`,
+    });
+    setImportKind(null);
+    setImportIds(new Set());
   };
 
   if (loadingMappings) {
@@ -530,6 +513,9 @@ export function BodyTypeDetailView({ bodyType }: { bodyType: BodyType }) {
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((p) => ({ id: p.id, label: p.displayName ?? p.label, thumbnailUrl: p.thumbnailUrl }));
   const mappedPoseItems = poseItems.filter((i) => mappings.poses.mappedIds.has(i.id));
+  const importableItems = (importKind === 'faces' ? faceItems : poseItems).filter(
+    (i) => importKind && !mappings[importKind].mappedIds.has(i.id),
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginTop: 12 }}>
@@ -647,15 +633,18 @@ export function BodyTypeDetailView({ bodyType }: { bodyType: BodyType }) {
               type="button"
               className="btn ghost"
               style={{ fontSize: 12, whiteSpace: 'nowrap' }}
-              onClick={() => setShowFaceUpload(true)}
+              onClick={() => {
+                setImportIds(new Set());
+                setImportKind('faces');
+              }}
             >
-              <Icon.Add /> Bulk upload face
+              <Icon.Add /> Import from Faces
             </button>
           </div>
         </div>
         <UploadedGrid
           items={mappedFaceItems}
-          emptyLabel="No faces uploaded yet for this body type."
+          emptyLabel="No faces imported yet for this body type. Use Import from Faces."
           selectedIds={selected.faces}
           onToggleSelect={(id) => toggleSelected('faces', id)}
           onRemove={(id) => toggleMapped('faces', id)}
@@ -776,36 +765,95 @@ export function BodyTypeDetailView({ bodyType }: { bodyType: BodyType }) {
               type="button"
               className="btn ghost"
               style={{ fontSize: 12, whiteSpace: 'nowrap' }}
-              onClick={() => setShowPoseUpload(true)}
+              onClick={() => {
+                setImportIds(new Set());
+                setImportKind('poses');
+              }}
             >
-              <Icon.Add /> Bulk upload pose
+              <Icon.Add /> Import from Pose Assets
             </button>
           </div>
         </div>
         <UploadedGrid
           items={mappedPoseItems}
-          emptyLabel="No poses uploaded yet for this body type."
+          emptyLabel="No poses imported yet for this body type. Use Import from Pose Assets."
           selectedIds={selected.poses}
           onToggleSelect={(id) => toggleSelected('poses', id)}
           onRemove={(id) => toggleMapped('poses', id)}
         />
       </div>
 
-      {showFaceUpload && (
-        <BatchFaceUploadModal
-          genderSlug={bodyType.genderSlug}
-          onDone={onFacesUploaded}
-          onClose={() => setShowFaceUpload(false)}
-          toast={toast}
-        />
-      )}
-      {showPoseUpload && (
-        <BatchPoseUploadModal
-          genderSlug={bodyType.genderSlug}
-          onDone={onPosesUploaded}
-          onClose={() => setShowPoseUpload(false)}
-          toast={toast}
-        />
+      {importKind && (
+        <div className="modal-overlay" onClick={() => setImportKind(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+            <div className="modal-head">
+              <h3>
+                Import {importKind} into {bodyType.label}
+              </h3>
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Active {bodyType.genderSlug} {importKind} from{' '}
+                {importKind === 'faces' ? 'Faces' : 'Pose Assets'} that are not yet on this body
+                type. Importing the first one switches this body type from "all {importKind}" to
+                only its imported {importKind}.
+              </p>
+            </div>
+            <div className="modal-body">
+              {importableItems.length === 0 ? (
+                <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Every active {importKind === 'faces' ? 'face' : 'pose'} of this gender is already
+                  on this body type.
+                </p>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    style={{ marginBottom: 8 }}
+                    onClick={() =>
+                      setImportIds(
+                        importableItems.every((i) => importIds.has(i.id))
+                          ? new Set()
+                          : new Set(importableItems.map((i) => i.id)),
+                      )
+                    }
+                  >
+                    {importableItems.every((i) => importIds.has(i.id))
+                      ? 'Deselect all'
+                      : 'Select all'}
+                  </button>
+                  <UploadedGrid
+                    items={importableItems}
+                    emptyLabel=""
+                    selectedIds={importIds}
+                    onToggleSelect={(id) =>
+                      setImportIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        return next;
+                      })
+                    }
+                    onRemove={() => undefined}
+                    hideRemove
+                  />
+                </>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button type="button" className="btn ghost" onClick={() => setImportKind(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={importIds.size === 0}
+                onClick={doImport}
+              >
+                Import {importIds.size}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showGarmentMap && (

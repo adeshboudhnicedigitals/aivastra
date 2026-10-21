@@ -26,6 +26,40 @@ import { requirePermission } from './guard.js';
 
 export async function adminAssetsRoutes(app: FastifyInstance) {
   const RW = requirePermission('assets.write');
+
+  // Labels of the body types each item is explicitly mapped to, for the grid badge —
+  // one join per list rather than an N+1 per card. Deleted body types are excluded.
+  const bodyTypeLabelsByItem = async (
+    kind: 'faces' | 'poses',
+    itemIds: string[],
+  ): Promise<Map<string, string[]>> => {
+    const out = new Map<string, string[]>();
+    if (itemIds.length === 0) return out;
+    const j =
+      kind === 'faces'
+        ? {
+            itemId: schema.bodyTypeFaces.faceId,
+            bodyTypeId: schema.bodyTypeFaces.bodyTypeId,
+            table: schema.bodyTypeFaces,
+          }
+        : {
+            itemId: schema.bodyTypePoses.poseAssetId,
+            bodyTypeId: schema.bodyTypePoses.bodyTypeId,
+            table: schema.bodyTypePoses,
+          };
+    const rows = await app.db
+      .select({ itemId: j.itemId, label: schema.bodyTypes.label })
+      .from(j.table)
+      .innerJoin(schema.bodyTypes, eq(schema.bodyTypes.id, j.bodyTypeId))
+      .where(and(inArray(j.itemId, itemIds), isNull(schema.bodyTypes.deletedAt)))
+      .orderBy(asc(schema.bodyTypes.sortOrder), asc(schema.bodyTypes.label));
+    for (const r of rows) {
+      const list = out.get(r.itemId) ?? [];
+      list.push(r.label);
+      out.set(r.itemId, list);
+    }
+    return out;
+  };
   const D = requirePermission('assets.delete');
   const uuidParam = z.object({ id: z.string().uuid() });
 
@@ -37,9 +71,14 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       .from(schema.modelFaces)
       .where(isNull(schema.modelFaces.deletedAt))
       .orderBy(schema.modelFaces.sortOrder);
+    const labelsByFace = await bodyTypeLabelsByItem(
+      'faces',
+      rows.map((r) => r.id),
+    );
     const items = await Promise.all(
       rows.map(async (r) => ({
         ...r,
+        bodyTypeLabels: labelsByFace.get(r.id) ?? [],
         thumbnailUrl: r.thumbnailKey
           ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
           : null,
@@ -822,6 +861,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         overridesByPose.set(row.poseAssetId, entry);
       }
 
+      const labelsByPose = await bodyTypeLabelsByItem('poses', poseIds);
       const items = await Promise.all(
         rows.map(async (r) => {
           const totalGarmentTypeCount = r.genderSlug ? (totalByGender.get(r.genderSlug) ?? 0) : 0;
@@ -837,6 +877,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             r2Url: r.r2Key ? (await app.storage.presignGet(r.r2Key, 3600)).url : null,
             visibleGarmentTypeCount,
             totalGarmentTypeCount,
+            bodyTypeLabels: labelsByPose.get(r.id) ?? [],
           };
         }),
       );

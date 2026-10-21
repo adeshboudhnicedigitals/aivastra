@@ -3,6 +3,7 @@ import { AssetThumb } from '../../components/AssetThumb';
 import { BulkImportPosesModal } from '../../components/BulkImportPosesModal';
 import { EditPoseAssetModal } from '../../components/EditPoseAssetModal';
 import { Icon } from '../../components/Icons';
+import { BodyTypesChip, MappedBadge } from '../../components/MappedBadge';
 import { Pager } from '../../components/Pager';
 import { PoseUploadModal } from '../../components/PoseUploadModal';
 import { SearchableSelect } from '../../components/SearchableSelect';
@@ -139,6 +140,37 @@ export function PoseAssetsTab() {
   const [bodyTypes, setBodyTypes] = useState<BodyType[]>([]);
   const [bulkBodyTypeIds, setBulkBodyTypeIds] = useState<string[]>([]);
   const [bulkBodyTypeSaving, setBulkBodyTypeSaving] = useState(false);
+  // Body type id -> its current pose mappings, loaded when the picker opens so each row
+  // can show what is already mapped. A body type with none shows every pose of its
+  // gender; the first mapping flips it to "only mapped ones", so the picker warns on those.
+  const [bodyTypeMappings, setBodyTypeMappings] = useState<
+    Record<string, { explicit: boolean; ids: Set<string> }>
+  >({});
+  useEffect(() => {
+    if (!showBulkBodyTypeMap) return;
+    let cancelled = false;
+    void Promise.all(
+      bodyTypes.map((b) =>
+        apiFetch<{ mappedPoseAssetIds: string[]; hasExplicitPoseMappings: boolean }>(
+          `/admin/assets/body-types/${b.id}/pose-mappings`,
+        )
+          .then(
+            (r) =>
+              [
+                b.id,
+                { explicit: r.hasExplicitPoseMappings, ids: new Set(r.mappedPoseAssetIds) },
+              ] as const,
+          )
+          .catch(() => null),
+      ),
+    ).then((entries) => {
+      if (cancelled) return;
+      setBodyTypeMappings(Object.fromEntries(entries.filter((e) => e !== null)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showBulkBodyTypeMap, bodyTypes]);
 
   const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -443,6 +475,8 @@ export function PoseAssetsTab() {
     setBulkBodyTypeSaving(true);
     try {
       const patches: Promise<unknown>[] = [];
+      const touchedPoses = new Set<string>();
+      const touchedBodyTypes = new Set<string>();
       for (const poseId of selectedPoseAssetIds) {
         const pose = poseAssets.find((a) => a.id === poseId);
         if (!pose) continue;
@@ -451,6 +485,8 @@ export function PoseAssetsTab() {
           // Skip cross-gender combos from a mixed-gender selection — body_type_poses
           // rows are gender-scoped, same as pose_garment_configs.
           if (!bodyType || bodyType.genderSlug !== pose.genderSlug) continue;
+          touchedPoses.add(poseId);
+          touchedBodyTypes.add(bodyTypeId);
           patches.push(
             apiFetch(`/admin/assets/body-types/${bodyTypeId}/poses/${poseId}`, {
               method: 'PUT',
@@ -461,10 +497,16 @@ export function PoseAssetsTab() {
       }
       await Promise.all(patches);
       toast({
-        title: `${selectedPoseAssetIds.length} pose${selectedPoseAssetIds.length !== 1 ? 's' : ''} ${mapped ? 'mapped to' : 'unmapped from'} ${bulkBodyTypeIds.length} body type${bulkBodyTypeIds.length !== 1 ? 's' : ''}`,
+        title: `${touchedPoses.size} pose${touchedPoses.size !== 1 ? 's' : ''} ${mapped ? 'mapped to' : 'unmapped from'} ${touchedBodyTypes.size} body type${touchedBodyTypes.size !== 1 ? 's' : ''}`,
+        ...(touchedPoses.size < selectedPoseAssetIds.length
+          ? {
+              body: `${selectedPoseAssetIds.length - touchedPoses.size} selected pose(s) skipped — no ticked body type matches their gender.`,
+            }
+          : {}),
       });
       closeModal();
       setSelectedPoseAssetIds([]);
+      void loadPoseAssets();
     } catch (e) {
       toast({
         kind: 'error',
@@ -875,6 +917,7 @@ export function PoseAssetsTab() {
                           {workflows.find((w) => w.id === a.workflowTemplateId)?.label ?? '?'}
                         </span>
                       )}
+                      <BodyTypesChip labels={a.bodyTypeLabels} />
                       {a.totalGarmentTypeCount !== undefined && (
                         <span
                           className="badge dot accent"
@@ -1291,9 +1334,23 @@ export function PoseAssetsTab() {
                         <span className="badge dot accent" style={{ fontSize: 10 }}>
                           {b.genderSlug}
                         </span>
+                        <MappedBadge
+                          mapping={bodyTypeMappings[b.id]}
+                          selectedIds={selectedPoseAssetIds.filter(
+                            (id) =>
+                              poseAssets.find((x) => x.id === id)?.genderSlug === b.genderSlug,
+                          )}
+                          noun="pose"
+                        />
                       </label>
                     ))}
                   </div>
+                  {bulkBodyTypeIds.some((id) => bodyTypeMappings[id]?.explicit === false) && (
+                    <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
+                      Body types marked "shows all poses" have nothing mapped yet. Mapping to them
+                      limits each to only its mapped poses.
+                    </p>
+                  )}
                 </>
               )}
             </div>

@@ -264,9 +264,14 @@ export function EmbedStudioWizard() {
             poseIds,
             garmentTypeId: garmentTypeId || undefined,
             lowerCatalogId: effectiveLowerId,
-            lowerGarmentKey: lowerGarmentKey || undefined,
+            // Gated by type so an upload left from a previously selected type isn't sent.
+            lowerGarmentKey: selectedGarmentType?.requiresLowerUpload
+              ? lowerGarmentKey || undefined
+              : undefined,
             shoeCatalogId: effectiveShoesId,
-            thirdGarmentKey: thirdGarmentKey || undefined,
+            thirdGarmentKey: selectedGarmentType?.requiresThirdUpload
+              ? thirdGarmentKey || undefined
+              : undefined,
           },
           aspectRatio: '1:1',
           resolution: '2K',

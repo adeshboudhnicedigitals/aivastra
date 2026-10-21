@@ -1260,7 +1260,12 @@ export default function StudioPage(): React.ReactElement {
     ? lowerOnlyIsBack
       ? undefined // sent as lowerGarmentBackKey instead, from upperGarmentBackKey — see handleSubmit
       : garmentKey
-    : lowerGarmentKey;
+    : // A garment type that takes its lower from the catalog must not carry an upload
+      // left in the form from a previously selected type — the server would prefer it.
+      // Read the flag off the type here: requiresLowerUpload is declared further down.
+      selectedGarmentType?.requiresLowerUpload
+      ? lowerGarmentKey
+      : '';
   // A lower-only pose has no upper role at all, so needsUpperBack (which
   // requires hasUpper) stays false for it — but a lower-only *back* pose still
   // needs exactly one back-view photo from the customer. The "Garment — Back
@@ -1882,7 +1887,9 @@ export default function StudioPage(): React.ReactElement {
             : undefined,
         shoeCatalogId: effectiveShoesId,
         accessoryCatalogIds: effectiveAccessoryIds,
-        thirdGarmentKey: thirdGarmentKey || undefined,
+        thirdGarmentKey: selectedGarmentType?.requiresThirdUpload
+          ? thirdGarmentKey || undefined
+          : undefined,
         fourthGarmentKey: allowsFourthUpload ? fourthGarmentKey || undefined : undefined,
       };
       const step2Inputs =
