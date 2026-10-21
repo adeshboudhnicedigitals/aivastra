@@ -177,9 +177,29 @@ async function enter(
   return render({ ...s, state, nonce: deps.newNonce(), page: 0 }, out, ctx, deps);
 }
 
-function notAvailable(s: Session, label: string, out: Out, ctx: EngineContext, deps: EngineDeps) {
-  out.push(text(COPY.notAvailable(label, deps.links.studio)));
-  return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
+/**
+ * The type cannot be made in the chat. Instead of clearing the session (and the
+ * seller's photo), send a studio draft link and show the type list again, so
+ * they can continue on the web or pick another type here.
+ */
+async function handoff(
+  s: Session,
+  gt: { id: string; label: string },
+  out: Out,
+  ctx: EngineContext,
+  deps: EngineDeps,
+) {
+  const url =
+    s.gender && s.garmentKey
+      ? await deps.createStudioDraft({
+          userId: ctx.userId,
+          gender: s.gender as Gender,
+          garmentTypeId: gt.id,
+          garmentKey: s.garmentKey,
+        })
+      : deps.links.studio;
+  out.push(text(COPY.handoff(gt.label, url)));
+  return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
 }
 
 /**
@@ -206,7 +226,7 @@ async function chooseGarmentType(
     deps.reportUnavailable({ gender: s.gender as Gender, garmentTypeId: gt.id, reason: 'no_face' });
   }
   const loaded = faceId ? await loadPool(withType, deps) : null;
-  if (!loaded) return notAvailable(s, gt.label, out, ctx, deps);
+  if (!loaded) return handoff(s, gt, out, ctx, deps);
   return enter(
     loaded.session,
     firstMissingSlot(loaded.session) ? 'ASK_EXTRA_PHOTO' : 'PICK_LOOKS',
@@ -251,7 +271,7 @@ async function generate(
   deps: EngineDeps,
 ): Promise<EngineResult> {
   const loaded = await loadPool(s, deps);
-  if (!loaded) return notAvailable(s, s.garmentType?.label ?? 'These', out, ctx, deps);
+  if (!loaded) return handoff(s, s.garmentType ?? { id: '', label: 'These' }, out, ctx, deps);
   const ls = loaded.session;
   const inPool = new Set(loaded.cards.map((c) => c.id));
   if (lookIds.some((id) => !inPool.has(id))) {
@@ -387,14 +407,14 @@ async function render(
     case 'PICK_LOOKS': {
       const loaded = await loadPool(s, deps);
       if (!loaded?.session.templates)
-        return notAvailable(s, s.garmentType?.label ?? 'These', out, ctx, deps);
+        return handoff(s, s.garmentType ?? { id: '', label: 'These' }, out, ctx, deps);
       const ls = loaded.session;
       let perImage = ls.perImage;
       let balance = ls.balance;
       // Priced once per visit to the step (page 0), not on every "More" page.
       if (ls.page === 0 || perImage === undefined || balance === undefined) {
         const first = ls.templates?.[0];
-        if (!first) return notAvailable(s, s.garmentType?.label ?? 'These', out, ctx, deps);
+        if (!first) return handoff(s, s.garmentType ?? { id: '', label: 'These' }, out, ctx, deps);
         try {
           // One look prices one image: the cost per image comes from the same plan
           // resolution the web uses (D17); the selection multiplies it.
@@ -497,8 +517,16 @@ async function onReply(
       if (hit) {
         const gt = (await deps.listGarmentTypes(gender)).find((t) => t.id === hit.garmentTypeId);
         // A correct answer for a type the bot cannot offer (a saree two-step
-        // type, no template): say so, rather than pretending we didn't know.
-        if (!gt) return notAvailable(withGender, hit.label, out, ctx, deps);
+        // type, no template): hand the seller to the studio rather than pretend we didn't know.
+        if (!gt) {
+          // Report why, from the same facts the studio reads, so an admin sees
+          // "template_inactive" rather than a bare "not offered".
+          const { reasons } = await deps.getReadiness(gender, hit.garmentTypeId);
+          for (const reason of reasons) {
+            deps.reportUnavailable({ gender, garmentTypeId: hit.garmentTypeId, reason });
+          }
+          return handoff(withGender, { id: hit.garmentTypeId, label: hit.label }, out, ctx, deps);
+        }
         // A guess is confirmed before anything is loaded: one tap on a hit,
         // and a miss never reaches the credit prompt.
         return enter(

@@ -45,8 +45,12 @@ export const COPY = {
   confirmGarment: (label: string) => `Looks like: ${label}. Is that right?`,
   btnYes: 'Yes',
   btnNo: 'No, change',
-  notAvailable: (label: string, studio: string) =>
-    `${label} catalogs aren't available on WhatsApp yet. You can create one in the web studio: ${studio}`,
+  // The photo is already saved server-side (draft link), so the seller loses
+  // nothing by leaving the chat; the type list follows for those who stay.
+  handoff: (label: string, url: string) =>
+    `${label} catalogs can't be made on WhatsApp yet. Your photo is saved — continue in the web studio: ${url}
+
+Or choose another type.`,
   // `main` names what the first photo is taken as, so a seller sending a set
   // knows the order matters. Only said before the first extra photo.
   askPhoto: {
