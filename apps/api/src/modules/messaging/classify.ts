@@ -13,8 +13,8 @@ import type { FastifyInstance } from 'fastify';
 import { getCatalogOptions } from '../../lib/catalog-options-cache.js';
 import type { Gender } from './engine/types.js';
 
-// Spec 8a: counted from the photo upload; whatever the gender question leaves
-// of it is the most the seller waits after the gender tap.
+// Spec 8a: the most the seller waits at the photo step, before any question is
+// asked; it does not overlap with the gender question.
 export const RECOGNITION_BUDGET_MS = 12_000;
 const POLL_MS = 200;
 const GENDERS: Gender[] = ['women', 'men', 'boys', 'girls'];
@@ -66,8 +66,8 @@ async function waitForResult(
 ): Promise<GarmentRecognitionResult | null> {
   const key = garmentRecognitionResultKey(requestId);
   const deadline = Date.now() + budgetMs;
-  // Checked once even with the budget spent: the gender answer may have taken
-  // longer than the dispatcher.
+  // Checked once even with the budget spent, so a result that landed just as
+  // the budget ran out is still used.
   for (;;) {
     const raw = await app.redis.get(key);
     if (raw) {
@@ -179,6 +179,7 @@ export async function typeForKind(
 ): Promise<{ garmentTypeId: string; label: string } | null> {
   try {
     const own = (await publicTypes(app, gender)).find((c) => norm(c.label) === norm(label));
+    if (!own) app.log.info({ label, gender }, 'garment kind has no type for this gender');
     return own ? { garmentTypeId: own.id, label: own.label } : null;
   } catch (err) {
     app.log.warn({ err }, 'garment kind could not be mapped; falling back to the list');

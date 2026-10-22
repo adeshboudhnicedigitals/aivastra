@@ -418,6 +418,8 @@ async function render(
         return enter(s, 'ASK_POSE_COUNT', out, ctx, deps);
       }
       const remaining = (await deps.getBalance(ctx.userId)) - n * perImage;
+      // Balance fell since the count was chosen: don't show a negative remainder.
+      if (remaining < 0) return enter(s, 'NO_CREDITS', out, ctx, deps);
       out.push(
         buttons(
           s,
@@ -642,6 +644,19 @@ function upgradeSession(prev: Session): Session | null {
   };
 }
 
+/** A new garment photo: recognise the kind first, else go straight to the gender. */
+async function startFromPhoto(
+  fresh: Session,
+  out: Out,
+  ctx: EngineContext,
+  deps: EngineDeps,
+): Promise<EngineResult> {
+  const hit = await deps.recognizeKind(fresh.garmentKey as string);
+  return hit
+    ? enter({ ...fresh, kind: hit.label }, 'CONFIRM_KIND', out, ctx, deps)
+    : enter(fresh, 'ASK_GENDER', out, ctx, deps);
+}
+
 /**
  * The whole conversation as one deterministic step: (session, event) → (session,
  * messages). No I/O of its own — everything goes through `deps` (D33), so it is
@@ -660,7 +675,7 @@ export async function handle(
     if (event.type === 'reply') out.push(text(COPY.sessionExpired));
     // A first photo starts a catalog straight away (spec section 8).
     if (event.type === 'image')
-      return enter({ ...fresh, garmentKey: event.garmentKey }, 'ASK_GENDER', out, ctx, deps);
+      return startFromPhoto({ ...fresh, garmentKey: event.garmentKey }, out, ctx, deps);
     return render(fresh, out, ctx, deps);
   }
   // The shape is the bot's own fixed setting (D43), not a per-chat choice, so it is
@@ -702,11 +717,7 @@ export async function handle(
         // Spec 8a: recognised right after the upload and before any question,
         // so the seller confirms the kind while the photo is fresh. Awaited:
         // the seller waits once, up to the budget (spec 2026-10-22, risks).
-        const fresh: Session = { ...cleared(s), garmentKey: event.garmentKey };
-        const hit = await deps.recognizeKind(event.garmentKey);
-        return hit
-          ? enter({ ...fresh, kind: hit.label }, 'CONFIRM_KIND', out, ctx, deps)
-          : enter(fresh, 'ASK_GENDER', out, ctx, deps);
+        return startFromPhoto({ ...cleared(s), garmentKey: event.garmentKey }, out, ctx, deps);
       }
       if (s.state === 'ASK_EXTRA_PHOTO') {
         const slot = firstMissingSlot(s);

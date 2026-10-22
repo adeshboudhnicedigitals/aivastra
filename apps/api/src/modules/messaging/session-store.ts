@@ -20,8 +20,13 @@ export async function loadSession(
   // Flow 2: pose picking became a count question and recognition no longer
   // rides in the session; a session saved mid-step by the old flow carries on.
   const state = s.state as string;
-  if (state === 'PICK_LOOKS') s.state = 'ASK_POSE_COUNT';
-  if (state === 'CONFIRM_GARMENT_TYPE') s.state = 'ASK_GARMENT_TYPE';
+  // The nonce is reset on a mapped state: the seller's old buttons still carry
+  // it, and a match would land in reprompt() with no way forward. A mismatch
+  // takes the engine's stale path, which re-sends the new step's prompt.
+  if (state === 'PICK_LOOKS' || state === 'CONFIRM_GARMENT_TYPE') {
+    s.state = state === 'PICK_LOOKS' ? 'ASK_POSE_COUNT' : 'ASK_GARMENT_TYPE';
+    s.nonce = 'migrated';
+  }
   delete s.recognition;
   return s;
 }

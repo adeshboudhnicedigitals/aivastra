@@ -19,7 +19,7 @@ const LOWER_ONLY: TemplateOption = {
 
 const session = (over: Partial<Session> = {}): Session => ({
   v: 1,
-  state: 'PICK_LOOKS',
+  state: 'ASK_POSE_COUNT',
   nonce: 'n1',
   page: 0,
   aspectRatio: '3:4',

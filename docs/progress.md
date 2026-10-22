@@ -11,17 +11,22 @@
   picking are gone: the seller picks a count of 1/2/3/5 (`ASK_POSE_COUNT`, capped by pool size and
   balance), confirms (`CONFIRM_GENERATE`, balance re-checked at the tap) and the looks are drawn
   at random, avoiding ones already seen (`seenLooks`). After delivery the seller gets a summary
-  with credits used plus Retry / More poses / Change garment / menu buttons.
+  with credits used plus closing buttons: with failures "Retry failed / More poses / Menu",
+  otherwise "More poses / Change garment / New catalog".
   Files: `apps/api/src/modules/messaging/{classify,deps,session-store,inbound-consumer}.ts`,
   `engine/{engine,rules,copy,types}.ts`, tests under `apps/api/test/` and
   `test/integration/messaging-classify.test.ts`. Sessions saved by the old flow are mapped on load
-  (`CONFIRM_GARMENT_TYPE` becomes `ASK_GARMENT_TYPE`). Dead `MAX_PICKS` removed.
+  (`CONFIRM_GARMENT_TYPE` becomes `ASK_GARMENT_TYPE`, `PICK_LOOKS` becomes `ASK_POSE_COUNT`) and
+  their nonce is reset to `migrated`, so a tap on an old button takes the stale path and re-sends
+  the new step instead of hitting the reprompt. A first photo with no session is now recognised
+  too (shared `startFromPhoto`). Dead `MAX_PICKS` removed.
 - **Done (deviations, accepted):** the delivery summary is sent after the images, not before them
   (images are sent per job by `delivery.ts`); the button reads "Different number" rather than
   "Choose different number" (20-char button cap); the kind is shown as "a top", not "a women's
   top".
-- **Note:** `garment_recognitions.gender` is now null for new rows (the kind is recognised before
-  the gender is asked).
+- **Note:** `garment_recognitions.gender` was already null since commit `a24ecb3a` (the request
+  carries no gender), not changed by this work. The `matched` metric now counts any recognised
+  kind, including kinds the tapped gender does not have (previously those counted as unmatched).
 - **Note:** a pool that shrinks below the chosen N between the count tap and Generate silently
   yields fewer poses. `seenLooks` is recorded at Generate even if the run then fails to start.
 - **Failed-Not-Done:** the "Analysing..." message during the recognition wait; carousel code
@@ -29,6 +34,11 @@
 - **Open:** real-device checks have not been done: list rows rendering on a phone, the up-to-12 s
   silent wait after the photo (no "Analysing..." message), and whether the message ordering feels
   right (summary after images).
+- **Open (review follow-ups):** send "Analysing your photo..." before the 12 s wait; take the
+  sender lock in `deliverRun`'s `runConversation` (the delivery tick can race the photo wait and
+  leave stale closing buttons); a/an article for plural kinds ("a jeans"); `COPY.posesChanged`
+  wording ("choose again"); unused `imageUrl` built per pool load in `deps.ts`; a DELIVERED
+  re-render on stray text resends the summary.
 
 ## 2026-10-21 — WhatsApp bot v2 P0: no dead ends, readiness reasons, studio draft hand-off
 

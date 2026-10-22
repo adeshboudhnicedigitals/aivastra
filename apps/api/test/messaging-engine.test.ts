@@ -152,8 +152,8 @@ describe('engine: menu and global commands', () => {
 
   it('stray text on an idle step shows that step again instead of a reprompt', async () => {
     const { deps } = fakeDeps({ getBalance: async () => 8 });
-    const c = await atConfirm(deps, 2);
-    const no = await handle(c.session, tap(c, 'generate'), CTX, deps);
+    // Eight credits cannot cover two poses: the summary never shows a negative remainder.
+    const no = await atConfirm(deps, 2);
     expect(no.session.state).toBe('NO_CREDITS');
     const again = await handle(no.session, { type: 'text', text: 'ok' }, CTX, deps);
     expect(again.session.state).toBe('NO_CREDITS');
@@ -918,5 +918,69 @@ describe('engine: sessions saved by the single-template engine', () => {
     const r = await handle(picking, { type: 'reply', id: 'n1|look|a' }, CTX, deps);
     expect(texts(r.messages)[0]).toMatch(/session expired/);
     expect(r.session.state).toBe('MAIN_MENU');
+  });
+});
+
+describe('engine: review fixes', () => {
+  it('a session mapped from the old flow answers an old tap with the stale text and the count list', async () => {
+    const { deps } = fakeDeps();
+    const base = await atCount(deps);
+    const mapped = { ...base.session, nonce: 'migrated' } as Session;
+    const r = await handle(mapped, { type: 'reply', id: 'n1|look|a' }, CTX, deps);
+    expect(texts(r.messages)[0]).toBe('That option is from an earlier step.');
+    expect(r.session.state).toBe('ASK_POSE_COUNT');
+    expect(r.messages.length).toBeGreaterThan(1);
+  });
+
+  it('a first photo with no session is recognised and the kind confirmed', async () => {
+    const { deps, calls } = fakeDeps(KIND);
+    const r = await handle(null, photo(1), CTX, deps);
+    expect(calls.recognize).toHaveLength(1);
+    expect(r.session).toMatchObject({ state: 'CONFIRM_KIND', kind: 'Shirt' });
+  });
+
+  it('a first photo with no session and no recognition goes to the gender question', async () => {
+    const { deps } = fakeDeps({ recognizeKind: async () => null });
+    const r = await handle(null, photo(1), CTX, deps);
+    expect(r.session.state).toBe('ASK_GENDER');
+    expect(r.session.kind).toBeUndefined();
+  });
+
+  it('an invalid reply at CONFIRM_KIND reprompts and keeps the state', async () => {
+    const { deps } = fakeDeps(KIND);
+    const at = await run(deps, [() => photo(1)]);
+    const r = await handle(
+      at.session,
+      { type: 'reply', id: encodeReplyId(at.session.nonce, 'bogus', '') },
+      CTX,
+      deps,
+    );
+    expect(texts(r.messages)[0]).toBe('Please use the options above, or type MENU.');
+    expect(r.session.state).toBe('CONFIRM_KIND');
+  });
+
+  it('a new photo clears the looks already seen', async () => {
+    const { deps } = fakeDeps();
+    const gen = await generated(deps, ['a']);
+    const done = await handle(
+      gen.session,
+      { type: 'runFinished', runId: 'run-1', images: 1, failedPoseIds: [] },
+      CTX,
+      deps,
+    );
+    expect(done.session.seenLooks).toEqual(['a']);
+    const r = await handle(done.session, photo(2), CTX, deps);
+    expect(r.session.seenLooks).toBeUndefined();
+  });
+
+  it('a balance below the chosen count goes to NO_CREDITS instead of a negative remainder', async () => {
+    let balance = 50;
+    const { deps } = fakeDeps({ getBalance: async () => balance });
+    const c = await atConfirm(deps, 3);
+    balance = 10;
+    // A stale tap re-renders the confirm step with today's balance.
+    const r = await handle(c.session, { type: 'reply', id: 'old|x|' }, CTX, deps);
+    expect(r.session.state).toBe('NO_CREDITS');
+    expect(texts(r.messages).join('\n')).not.toContain('Remaining balance: -');
   });
 });
