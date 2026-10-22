@@ -100,7 +100,15 @@ We're creating your catalogue images.
 This may take a few seconds.`,
   stillGenerating: (finished: number, total: number) =>
     `Still generating: ${finished} of ${total} done.`,
-  delivered: 'All done. What next?',
+  deliveredSummary: (
+    n: number,
+    category: string,
+    garment: string,
+    used: number,
+    remaining: number,
+  ) =>
+    `Here are your ${n} generated ${n === 1 ? 'pose' : 'poses'}!\nCategory: ${category} | Garment: ${garment}\nCredits used: ${used} credits\nRemaining balance: ${remaining} credits`,
+  deliveredNext: 'What would you like to do next?',
   partlyFailed: (failed: number, total: number) =>
     `${failed} of ${total} ${total === 1 ? 'image' : 'images'} failed. The credits for ${failed === 1 ? 'it were' : 'them were'} refunded.`,
   posesChanged: 'Those poses changed. Please choose again.',

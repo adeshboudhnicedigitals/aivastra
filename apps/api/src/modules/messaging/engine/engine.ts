@@ -444,12 +444,36 @@ async function render(
     }
 
     case 'DELIVERED': {
+      const runs = s.runs ?? [];
+      const failed = runs.reduce((n, r) => n + (r.failedPoseIds?.length ?? 0), 0);
+      const delivered = runs.reduce((n, r) => n + r.images, 0) - failed;
+      // Failed images were refunded, so only the delivered ones were spent.
+      if (delivered > 0 && s.gender && s.garmentType) {
+        out.push(
+          text(
+            COPY.deliveredSummary(
+              delivered,
+              COPY.genders[s.gender],
+              s.garmentType.label,
+              delivered * (s.perImage ?? 0),
+              await deps.getBalance(ctx.userId),
+            ),
+          ),
+        );
+      }
       const retryable = retryLookIds(s).length > 0;
-      const items: [string, string, string][] = [];
-      if (retryable) items.push(['retry', '', COPY.btnRetryFailed]);
-      items.push(['more_poses', '', COPY.btnMorePoses]);
-      items.push(retryable ? ['menu', 'menu', COPY.btnMenu] : ['menu', 'new', COPY.btnNewCatalog]);
-      out.push(buttons(s, COPY.delivered, items));
+      const items: [string, string, string][] = retryable
+        ? [
+            ['retry', '', COPY.btnRetryFailed],
+            ['more_poses', '', COPY.btnMorePoses],
+            ['menu', 'menu', COPY.btnMenu],
+          ]
+        : [
+            ['more_poses', '', COPY.btnMorePoses],
+            ['change', '', COPY.btnChangeGarment],
+            ['menu', 'new', COPY.btnNewCatalog],
+          ];
+      out.push(buttons(s, COPY.deliveredNext, items));
       return done();
     }
   }
@@ -559,6 +583,7 @@ async function onReply(
         // priced run of only those looks.
         return generate({ ...s, picked: ids }, ids, out, ctx, deps);
       }
+      if (action === 'change') return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
       return reprompt();
     }
 

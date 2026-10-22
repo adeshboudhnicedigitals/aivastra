@@ -768,12 +768,30 @@ describe('engine: progress and delivery', () => {
     expect(texts(r.messages)).toEqual(['Still generating: 1 of 2 done.']);
   });
 
-  it('one run finishing with no failures offers more poses and a new catalog', async () => {
+  it('one run finishing summarises the credits used and offers the next steps', async () => {
     const { deps } = fakeDeps();
     const gen = await generated(deps, ['a', 'c']);
     const r = await handle(gen.session, finished('run-1', 2), CTX, deps);
     expect(r.session.state).toBe('DELIVERED');
-    expect(buttonTitles(r.messages.at(-1))).toEqual(['More poses', 'New catalog']);
+    expect(texts(r.messages)).toContain(
+      'Here are your 2 generated poses!\nCategory: Women | Garment: Shirt\nCredits used: 10 credits\nRemaining balance: 50 credits',
+    );
+    expect(r.messages.at(-1)).toMatchObject({ text: 'What would you like to do next?' });
+    expect(buttonTitles(r.messages.at(-1))).toEqual([
+      'More poses',
+      'Change garment',
+      'New catalog',
+    ]);
+  });
+
+  it('Change garment after delivery returns to the garment-type list, keeping photo and gender', async () => {
+    const { deps } = fakeDeps();
+    const gen = await generated(deps, ['a']);
+    const done = await handle(gen.session, finished('run-1', 1), CTX, deps);
+    const r = await handle(done.session, tap(done, 'change'), CTX, deps);
+    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women', picked: [] });
+    expect(r.session.garmentKey).toContain('000000000001');
+    expect(r.session.seenLooks).toBeUndefined();
   });
 
   it('with several runs the closing message waits for the last one', async () => {
@@ -786,7 +804,11 @@ describe('engine: progress and delivery', () => {
     expect(repeat.messages).toEqual([]);
     const last = await handle(first.session, finished('run-2', 1), CTX, deps);
     expect(last.session.state).toBe('DELIVERED');
-    expect(buttonTitles(last.messages.at(-1))).toEqual(['More poses', 'New catalog']);
+    expect(buttonTitles(last.messages.at(-1))).toEqual([
+      'More poses',
+      'Change garment',
+      'New catalog',
+    ]);
   });
 
   it('a runFinished for an older run changes nothing', async () => {
@@ -801,6 +823,10 @@ describe('engine: progress and delivery', () => {
     const gen = await generated(deps, ['a', 'c']);
     const r = await handle(gen.session, finished('run-1', 2, ['pose-c']), CTX, deps);
     expect(texts(r.messages)[0]).toBe('1 of 2 images failed. The credits for it were refunded.');
+    expect(texts(r.messages)).toContain(
+      'Here are your 1 generated pose!\nCategory: Women | Garment: Shirt\nCredits used: 5 credits\nRemaining balance: 50 credits',
+    );
+    expect(buttonTitles(r.messages.at(-1))).toEqual(['Retry failed', 'More poses', 'Menu']);
     const retry = await handle(r.session, tap(r, 'retry'), CTX, deps);
     expect(retry.session.state).toBe('GENERATING');
     expect(calls.createRun.at(-1)?.inputs.looks).toEqual([
