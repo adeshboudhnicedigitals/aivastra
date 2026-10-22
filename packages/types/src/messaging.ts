@@ -39,6 +39,9 @@ export const ChatConnectPreviewResponse = z.object({
   matchesProfile: z.boolean(),
   profilePhoneLast4: z.string().nullable(),
   alreadyConnected: z.boolean(),
+  // The bot's number, digits only, for the "Back to WhatsApp" link on the
+  // success screen. Null when the deployment has no WHATSAPP_DISPLAY_NUMBER.
+  displayNumber: z.string().nullable(),
 });
 export type ChatConnectPreviewResponse = z.infer<typeof ChatConnectPreviewResponse>;
 

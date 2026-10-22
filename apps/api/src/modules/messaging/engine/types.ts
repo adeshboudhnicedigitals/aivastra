@@ -155,7 +155,9 @@ export type OutboundMessage =
       buttonLabel: string;
       rows: { id: string; title: string; description?: string }[];
     }
-  | { kind: 'cards'; text: string; cards: { id: string; imageUrl: string }[] };
+  | { kind: 'cards'; text: string; cards: { id: string; imageUrl: string }[] }
+  // One labelled button that opens a URL (WhatsApp's CTA URL message).
+  | { kind: 'link'; text: string; label: string; url: string; footer?: string };
 
 export interface EngineContext {
   userId: string;

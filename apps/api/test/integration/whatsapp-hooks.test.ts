@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { runConversation } from '../../src/modules/messaging/conversation';
 import { createEngineDeps } from '../../src/modules/messaging/deps';
+import { COPY } from '../../src/modules/messaging/engine/copy';
 import { decodeReplyId } from '../../src/modules/messaging/engine/reply-id';
 import type { InboundEvent, OutboundMessage } from '../../src/modules/messaging/engine/types';
 import { CHANNEL_WHATSAPP, connectAccount } from '../../src/modules/messaging/identity';
@@ -188,8 +189,8 @@ describe('whatsapp hooks', () => {
     } finally {
       waHolder.current = null;
     }
-    expect(wa.texts()[0]).toMatch(/^Connected\./);
-    expect(wa.texts().at(-1)).toBe('What would you like to do?');
+    expect(wa.texts()[0]).toMatch(/^You're all set!/);
+    expect(wa.texts().at(-1)).toBe(COPY.menu);
   });
 
   it('notifyConnected sends nothing when the window is closed or the number opted out', async () => {

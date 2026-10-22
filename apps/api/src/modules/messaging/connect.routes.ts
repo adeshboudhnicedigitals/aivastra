@@ -118,6 +118,7 @@ export async function messagingConnectRoutes(app: FastifyInstance) {
         matchesProfile: matchesProfilePhone(payload.externalId, profilePhone),
         profilePhoneLast4: profilePhone ? profilePhone.slice(-4) : null,
         alreadyConnected: existing?.userId === req.userId,
+        displayNumber: app.env.WHATSAPP_DISPLAY_NUMBER ?? null,
       };
     },
   );

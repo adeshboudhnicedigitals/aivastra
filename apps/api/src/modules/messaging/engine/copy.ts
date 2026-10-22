@@ -17,10 +17,13 @@ function askMain(main: string | null): string {
 
 // Button titles are capped at 20 characters by WhatsApp; list row titles at 24.
 export const COPY = {
-  menu: 'What would you like to do?',
+  menu: '✨ Ai Vastra\nWhat would you like to do?',
   btnNewCatalog: 'New catalog',
-  btnCredits: 'Credits',
-  btnHelp: 'Help',
+  // Menu-only titles carry the emoji; btnNewCatalog stays plain because the
+  // delivery buttons share it.
+  btnMenuNew: '📸 New catalogue',
+  btnCredits: '💳 My credits',
+  btnHelp: '💬 Help',
   btnMenu: 'Menu',
   btnMore: 'More',
   btnStartOver: 'Start over',
@@ -120,10 +123,26 @@ This may take a few seconds.`,
   unsupported: 'Please send a photo (JPG or PNG), not a video or document.',
   nothingAvailable: 'Nothing is available for that choice right now.',
 
-  connectPrompt: (url: string) =>
-    `Welcome to Aivastra! To create catalog images here, connect your Aivastra account (or create one): ${url}\nThis link works for 30 minutes.`,
-  connected:
-    'Connected. You can now create catalog images here. Reply STOP at any time to stop messages from Aivastra, or MENU to see your options.',
+  connectPrompt: [
+    'Welcome to Ai Vastra! 👋',
+    'Create professional fashion catalogue images from your garment photos.',
+    '',
+    '📸 AI model photos',
+    '🚫 No studio, no shoot day',
+    '⚡ Ready in minutes',
+    '',
+    'To get started, connect your Ai Vastra account (or create one).',
+  ].join('\n'),
+  btnConnect: 'Connect my account',
+  connectFooter: 'The link expires in 30 minutes.',
+  connected: [
+    "You're all set! ✅",
+    'Your WhatsApp is now connected to your Ai Vastra account.',
+    '',
+    'Send a garment photo whenever you are ready and I will turn it into catalogue images. 📸',
+    '',
+    'Reply MENU to see your options, or STOP to pause messages.',
+  ].join('\n'),
   connectedDifferentNumber: (last4: string) =>
     `Note: this WhatsApp number is different from the mobile number on your account (ending ${last4}).`,
   alreadyConnected: 'This number is already connected to your Aivastra account.',

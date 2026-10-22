@@ -317,7 +317,7 @@ async function render(
     case 'MAIN_MENU':
       out.push(
         buttons(s, COPY.menu, [
-          ['menu', 'new', COPY.btnNewCatalog],
+          ['menu', 'new', COPY.btnMenuNew],
           ['menu', 'credits', COPY.btnCredits],
           ['menu', 'help', COPY.btnHelp],
         ]),

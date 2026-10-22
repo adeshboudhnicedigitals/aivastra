@@ -7,6 +7,7 @@ import type { OutboundMessage } from '../../engine/types.js';
 const BODY_MAX = 1024;
 const BUTTON_TITLE_MAX = 20;
 const ROW_TITLE_MAX = 24;
+const FOOTER_MAX = 60;
 const ROW_DESC_MAX = 72;
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
 
@@ -53,6 +54,22 @@ export function renderMessage(m: OutboundMessage): Record<string, unknown>[] {
                   })),
                 },
               ],
+            },
+          },
+        },
+      ];
+
+    case 'link':
+      return [
+        {
+          type: 'interactive',
+          interactive: {
+            type: 'cta_url',
+            body: { text: clip(m.text, BODY_MAX) },
+            ...(m.footer ? { footer: { text: clip(m.footer, FOOTER_MAX) } } : {}),
+            action: {
+              name: 'cta_url',
+              parameters: { display_text: clip(m.label, BUTTON_TITLE_MAX), url: m.url },
             },
           },
         },

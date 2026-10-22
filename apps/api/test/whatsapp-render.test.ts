@@ -113,6 +113,31 @@ describe('renderMessage', () => {
     ]);
   });
 
+  it('link → cta_url message with the label clipped to 20', () => {
+    expect(
+      renderMessage({
+        kind: 'link',
+        text: 'Connect',
+        label: 'Connect your account now',
+        url: 'https://x/c?t=1',
+        footer: 'Expires soon',
+      }),
+    ).toEqual([
+      {
+        type: 'interactive',
+        interactive: {
+          type: 'cta_url',
+          body: { text: 'Connect' },
+          footer: { text: 'Expires soon' },
+          action: {
+            name: 'cta_url',
+            parameters: { display_text: 'Connect your account', url: 'https://x/c?t=1' },
+          },
+        },
+      },
+    ]);
+  });
+
   it('0 cards renders nothing', () => {
     expect(renderMessage({ kind: 'cards', text: 'x', cards: [] })).toEqual([]);
   });
