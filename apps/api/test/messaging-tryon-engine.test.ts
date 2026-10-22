@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AppError } from '../src/lib/errors';
-import { decodeReplyId } from '../src/modules/messaging/engine/reply-id';
+import { decodeReplyId, encodeReplyId } from '../src/modules/messaging/engine/reply-id';
 import { handleTryon, type TryonDeps } from '../src/modules/messaging/engine/tryon-engine';
 import type { TryonPose } from '../src/modules/messaging/engine/tryon-rules';
 import type {
@@ -261,18 +261,48 @@ describe('try-on engine', () => {
     expect(texts(r.messages)[0]).toBe('50 credits added.');
   });
 
-  it('a session left by the other flow starts at the menu', async () => {
-    const { deps } = fakeDeps();
-    const legacy = {
-      v: 1,
-      state: 'PICK_LOOKS',
-      nonce: 'x',
-      page: 0,
-      photos: {},
-      picked: [],
-    } as unknown as Session;
-    const r = await handleTryon(legacy, { type: 'text', text: 'hi' }, CTX, deps);
+  // A catalogue session in a state both flows share, with no flow marker.
+  const catalogueAtCount = (): Session => ({
+    v: 1,
+    state: 'ASK_POSE_COUNT',
+    nonce: 'x',
+    page: 0,
+    aspectRatio: '3:4',
+    resolution: '2K',
+    garmentKey: KEY,
+    gender: 'men',
+    garmentType: {
+      id: 'gt1',
+      label: 'Shirt',
+      requiresLowerUpload: false,
+      requiresThirdUpload: false,
+      upperUploadLabel: null,
+      lowerUploadLabel: null,
+      thirdUploadLabel: null,
+      defaultLowerCatalogId: null,
+      defaultShoeCatalogId: null,
+    },
+    perImage: 10,
+    balance: 500,
+    count: 3,
+    photos: {},
+    picked: ['look-1'],
+  });
+
+  it('a catalogue session in a shared state starts at the menu, not the count list', async () => {
+    const { deps, calls } = fakeDeps();
+    const r = await handleTryon(catalogueAtCount(), { type: 'text', text: 'hi' }, CTX, deps);
     expect(r.session.state).toBe('MAIN_MENU');
+    expect(r.session.flow).toBe('tryon');
+    expect(calls.runs).toHaveLength(0);
+  });
+
+  it('a catalogue count tap cannot start a try-on run', async () => {
+    const { deps, calls } = fakeDeps();
+    const tap: InboundEvent = { type: 'reply', id: encodeReplyId('x', 'count', '3') };
+    const r = await handleTryon(catalogueAtCount(), tap, CTX, deps);
+    expect(r.session.state).toBe('MAIN_MENU');
+    expect(calls.runs).toHaveLength(0);
   });
 
   it('MENU resets to the menu from anywhere', async () => {

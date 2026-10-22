@@ -97,6 +97,10 @@ export interface RunRef {
 export interface Session {
   v: 1;
   state: State;
+  // Set only by the try-on engine. The two flows share state names, so this is
+  // what lets a session left by the other flow reset instead of being driven
+  // with the wrong reducer.
+  flow?: 'tryon';
   // Changes every time a new step is prompted; every button/row/card id carries
   // it, so a tap on an older message is recognised and ignored (spec section 8).
   nonce: string;

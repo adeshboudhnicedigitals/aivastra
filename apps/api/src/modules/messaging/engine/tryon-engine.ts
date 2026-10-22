@@ -63,6 +63,7 @@ function fresh(deps: TryonDeps): Session {
   return {
     v: 1,
     state: 'MAIN_MENU',
+    flow: 'tryon',
     nonce: deps.newNonce(),
     page: 0,
     // Unused by this flow; the fields are required by Session.
@@ -265,8 +266,9 @@ export async function handleTryon(
   deps: TryonDeps,
 ): Promise<EngineResult> {
   const out: Out = [];
-  // A session saved by the other flow (the flag was switched) starts over.
-  const known = prev && STATES.includes(prev.state) ? prev : null;
+  // A session saved by the other flow (the flag was switched) starts over. The
+  // state names overlap, so the flow marker — not the state — decides this.
+  const known = prev && prev.flow === 'tryon' && STATES.includes(prev.state) ? prev : null;
   if (!known) {
     const s = fresh(deps);
     if (event.type === 'reply' && prev) out.push(text(COPY.sessionExpired));
