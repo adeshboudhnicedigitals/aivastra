@@ -2,6 +2,56 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-22 — WhatsApp try-on flow: photo → gender → pose count → direct jobs
+
+- **Done:** a direct try-on flow behind `WHATSAPP_BOT_FLOW=tryon` (default `catalogue`):
+  garment photo → Men/Women/Boys/Girls → 1/3/5 poses → direct try-on jobs. The split is
+  1 = 1 Full, 3 = 2 Full + 1 Half, 5 = 3 Full + 2 Half; Full is drawn first and there are no
+  Back poses. Files: `apps/api/src/modules/messaging/{tryon-jobs,tryon-deps,conversation}.ts`,
+  `engine/{tryon-engine,tryon-rules,copy,types}.ts`, `env.ts`; plan
+  `docs/superpowers/plans/2026-10-22-whatsapp-tryon-flow.md`.
+- **Done:** `whatsapp_pool` on `model_pose_assets`
+  (`packages/db/src/migrations/0230_lush_orphan.sql`, default `false`), exposed through the
+  existing admin pose-asset GET/PATCH as `whatsappPool`. A pose is drawable only when pool +
+  active + Full/Half + the tapped gender + an active `workflow_type='tryon'` template all
+  hold (`listPoolPoses`).
+- **Done:** `JOB_SOURCE.WHATSAPP_TRYON` (`whatsapp_tryon`). Each pose becomes one
+  `createDevJobCore` job under a single `messaging_runs` id; per-message idempotency key
+  `wa-tryon:<messageId>`; a partial start reports created < requested; terminal failures are
+  refunded by the dispatcher; `runFinished.failed` carries the failed job count so the summary
+  says how many were refunded. The source is excluded from the studio gallery and compressed
+  by default like the other direct try-on sources.
+- **Done:** Admin → Assets → WhatsApp Poses tab, built on the existing
+  `GET/PATCH /admin/assets/pose-assets` (`whatsappPool`), with per-gender Full/Half pool
+  counts, a "not drawable" reason badge and a 1/3/5 availability strip
+  (`apps/admin-web/src/pages/assets/WhatsappPosesTab.tsx`).
+- **Done (tests):** 18 try-on engine unit tests, 5 pure split/draw tests, the pool PATCH and
+  job-creation integration tests (2 + 6), the end-to-end conversation test (2), and the
+  taxonomy count 16→17. Final verification on this tree: `npx.cmd tsc --noEmit` clean;
+  `npx.cmd vitest run messaging whatsapp tryon` = 20 files / 231 tests passed;
+  `npx.cmd vitest run --config vitest.integration.config.ts admin-whatsapp-pool
+  messaging-tryon-jobs messaging-tryon-conversation admin-job-taxonomy whatsapp-inbound
+  messaging-connect` = 6 files / 30 tests passed; `pnpm.cmd --filter @aivastra/types build`
+  and `pnpm.cmd --filter @aivastra/admin exec tsc -p tsconfig.app.json --noEmit` clean.
+- **Failed-Not-Done:** the three known pre-existing Flow-2 failures remain red and untouched:
+  `test/integration/messaging-conversation.test.ts` (the pose-pick test and "picks from two
+  templates") and `test/integration/whatsapp-hooks.test.ts` (the NO_CREDITS "credits-added +
+  the pose cards" test). They are outside this task's verification command set, so they were
+  not re-run in the final pass. The admin tab was not checked in a browser (no browser
+  available); its typecheck/lint/build passed instead. The plan's per-task model tiers could
+  not be set because the `task` tool has no model parameter.
+- **Open:** a real WhatsApp-number end-to-end run has not been done.
+- **Open (deviations to confirm):** (1) the pool also requires the pose's template to be
+  `workflow_type='tryon'`; (2) `whatsapp_tryon` jobs are excluded from the studio gallery, so
+  results live only in the chat; (3) the admin surface is the existing pose-asset GET/PATCH,
+  not new `/admin/whatsapp-poses` routes.
+- **Open (deploy):** Back poses are deferred. The old catalogue flow is still present pending
+  approval and `WHATSAPP_BOT_FLOW` defaults to `catalogue`. Switch the flag to `tryon` only
+  after filling at least one gender's pool in staging; a restart is required (the env object is
+  built at boot, then the flag is read per message). Minor gaps from the SDD ledger (admin GET
+  default scope hides template-scoped pool rows, closeup/null-shot rows are unmanageable, etc.)
+  are recorded there.
+
 ## 2026-10-22 — WhatsApp Flow 2: classify at upload, confirm kind, pose count, random looks
 
 - **Done:** the WhatsApp engine now implements Flow 2 (plan
