@@ -2,6 +2,26 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-22 (later) — WhatsApp try-on: one bot workflow, legacy poses, Move to Half/Full
+
+- **Done:** the bot no longer uses each pose's own workflow (pose assets' workflows are
+  `regular` and must not be changed — the catalogue flow depends on them). One workflow runs
+  every WhatsApp job: `config:system.whatsappTryon.workflowTemplateId`, written through the
+  existing `PATCH /admin/config` (`SystemConfigBody.whatsappTryon`), read by
+  `getWhatsappTryonWorkflowId` (`lib/resolution-config.ts`). `listPoolPoses` returns nothing
+  unless that id is an active `workflow_type='tryon'` template; otherwise a pose is drawable
+  when pooled + active + Full/Half + the tapped gender. **This supersedes the earlier
+  "pose's own template must be an active tryon" rule below.**
+- **Done:** `PATCH /admin/assets/pose-assets/:id` accepts `shotType` (legacy poses had none,
+  so they could not be added). WhatsApp Poses tab: Try-on workflow selector, Add as Full/Half
+  for untyped poses, Move to Half/Full on pool cards, Add button above the sections.
+- **Done (tests):** `messaging-tryon-jobs` (8), `messaging-tryon-conversation` (2),
+  `admin-whatsapp-pool` (2) pass; api and admin `tsc` clean. Not checked in a browser.
+- **Open:** the 3 minors worth fixing (blank `WHATSAPP_BOT_FLOW=` fails startup; `no_poses`
+  reuses the garment-unavailable metric; partial-start failure not logged); no test for PATCH
+  `shotType`; real-number end-to-end run. Next work: refactor the WhatsApp user flow itself
+  (see `docs/handovers/2026-10-22-whatsapp-tryon-flow-handoff.md`).
+
 ## 2026-10-22 — WhatsApp try-on flow: photo → gender → pose count → direct jobs
 
 - **Done:** a direct try-on flow behind `WHATSAPP_BOT_FLOW=tryon` (default `catalogue`):
