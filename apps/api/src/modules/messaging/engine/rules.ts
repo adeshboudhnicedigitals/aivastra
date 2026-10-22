@@ -14,6 +14,41 @@ import type {
 // looks (at most a handful), far under the create schema's 12-look cap.
 export const MAX_PICKS = 20;
 
+// What the seller can ask for (Flow 2 mockup). A fixed set, not a free number:
+// it keeps the count a one-tap list and every option priced on its label.
+export const POSE_COUNTS = [1, 2, 3, 5] as const;
+
+/** The counts the pool can supply and the balance can pay for, ascending. */
+export function poseCountOptions(poolSize: number, perImage: number, balance: number): number[] {
+  return POSE_COUNTS.filter((n) => n <= poolSize && n * perImage <= balance);
+}
+
+/**
+ * Picks `n` looks at random from the pool, preferring ones this garment has not
+ * had yet. When the unseen looks run out it tops up from the seen ones and the
+ * "seen" list restarts with just this batch, so a long session keeps rotating
+ * through the pool instead of getting stuck. `shuffle` is injected so the
+ * engine stays pure.
+ */
+export function drawLooks(
+  poolIds: string[],
+  seen: string[],
+  n: number,
+  shuffle: (ids: string[]) => string[],
+): { ids: string[]; seen: string[] } {
+  const inPool = new Set(poolIds);
+  const live = seen.filter((id) => inPool.has(id));
+  const seenSet = new Set(live);
+  const fresh = shuffle(poolIds.filter((id) => !seenSet.has(id)));
+  if (fresh.length >= n) {
+    const ids = fresh.slice(0, n);
+    return { ids, seen: [...live, ...ids] };
+  }
+  const reused = shuffle(poolIds.filter((id) => seenSet.has(id))).slice(0, n - fresh.length);
+  const ids = [...fresh, ...reused];
+  return { ids, seen: ids };
+}
+
 const isLowerOnlyLook = (l: TemplateLook) => l.hasLower && !l.hasUpper;
 
 /**
