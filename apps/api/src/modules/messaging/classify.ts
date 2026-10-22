@@ -190,6 +190,88 @@ export async function resolveRecognition(
   }
 }
 
+/**
+ * Spec 2026-10-22: asked the moment the photo arrives. Queues one request over
+ * every gender's public-slug kinds (one option per label), waits up to the
+ * budget and returns the recognised kind's label — a kind, not a row, because
+ * the photo carries no gender (typeForKind maps it once the seller has tapped
+ * one). Null for every failure; the list is then the way out, so recognition
+ * can cost a tap but never a run.
+ */
+export async function recognizeKind(
+  app: FastifyInstance,
+  garmentKey: string,
+  opts: { budgetMs?: number } = {},
+): Promise<{ label: string } | null> {
+  if (app.env.GARMENT_RECOGNITION_ENABLED !== true) return null;
+  const budgetMs = opts.budgetMs ?? RECOGNITION_BUDGET_MS;
+  try {
+    const candidates = await kindCandidates(app);
+    // Nothing a photo could be recognised as: straight to the list, without a
+    // request no one can answer usefully.
+    if (candidates.length === 0) return null;
+    const requestId = randomUUID();
+    const request: GarmentRecognitionRequest = {
+      requestId,
+      garmentKey,
+      options: candidates.map(({ slug, label }) => ({ slug, label })),
+      expiresAt: Date.now() + budgetMs,
+    };
+    await app.redis.xadd(
+      GARMENT_RECOGNITION_STREAM,
+      'MAXLEN',
+      '~',
+      String(STREAM_MAXLEN),
+      '*',
+      'payload',
+      JSON.stringify(request),
+    );
+    const result = await waitForResult(app, requestId, budgetMs);
+    if (!result || result.error === 'expired') {
+      count('timeout');
+      return null;
+    }
+    if (result.error) {
+      count(result.error);
+      return null;
+    }
+    const kind = matchAnswer(result.answer, candidates);
+    count(kind ? 'matched' : 'unmatched');
+    if (!kind) {
+      // The raw answer is model output about a garment photo, not personal data;
+      // capped so a runaway answer cannot flood the log.
+      app.log.info(
+        { requestId, answer: result.answer?.slice(0, 40) },
+        'garment recognition answer not in options',
+      );
+    }
+    return kind ? { label: kind.label } : null;
+  } catch (err) {
+    count('failed');
+    app.log.warn({ err }, 'garment recognition failed; falling back to the list');
+    return null;
+  }
+}
+
+/**
+ * The recognised kind as the tapped gender's own type (types are per-gender
+ * rows). Null when that gender has no type of that kind: the seller then picks
+ * from the list.
+ */
+export async function typeForKind(
+  app: FastifyInstance,
+  label: string,
+  gender: Gender,
+): Promise<{ garmentTypeId: string; label: string } | null> {
+  try {
+    const own = (await publicTypes(app, gender)).find((c) => norm(c.label) === norm(label));
+    return own ? { garmentTypeId: own.id, label: own.label } : null;
+  } catch (err) {
+    app.log.warn({ err }, 'garment kind could not be mapped; falling back to the list');
+    return null;
+  }
+}
+
 export function recordRecognitionCorrected(): void {
   garmentClassifyCorrectedTotal.inc();
 }

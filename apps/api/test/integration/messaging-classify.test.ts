@@ -5,7 +5,12 @@ import {
   garmentRecognitionResultKey,
 } from '@aivastra/types';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { resolveRecognition, startRecognition } from '../../src/modules/messaging/classify';
+import {
+  recognizeKind,
+  resolveRecognition,
+  startRecognition,
+  typeForKind,
+} from '../../src/modules/messaging/classify';
 import type { Gender } from '../../src/modules/messaging/engine/types';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
@@ -75,6 +80,49 @@ describe('garment recognition (api side)', () => {
     const ticket = await startRecognition(app, key, opts);
     return ticket ? resolveRecognition(app, ticket, gender) : null;
   }
+
+  it('recognizeKind returns the kind label, one option per label across genders', async () => {
+    const since = await lastId();
+    const [kind, request] = await Promise.all([
+      recognizeKind(app, 'inputs/x/garment.jpg'),
+      answerNext(since, { answer: 'WA-Kurti.', error: null }),
+    ]);
+    expect(kind).toEqual({ label: 'Kurti' });
+    expect(request.options.map((o) => o.slug).sort()).toEqual([
+      'wa-full-shirt',
+      'wa-kurta',
+      'wa-kurti',
+    ]);
+  });
+
+  it('typeForKind maps a kind to the tapped gender row, or null when that gender lacks it', async () => {
+    expect(await typeForKind(app, 'kurti', 'women')).toEqual({
+      garmentTypeId: ids.kurti,
+      label: 'Kurti',
+    });
+    expect(await typeForKind(app, 'Kurti', 'men')).toEqual({
+      garmentTypeId: ids.kurtiMen,
+      label: 'Kurti',
+    });
+    expect(await typeForKind(app, 'Kurta', 'women')).toBeNull();
+  });
+
+  it('recognizeKind returns null when disabled, on an error answer, and on no match', async () => {
+    const off = { ...app, env: { ...app.env, GARMENT_RECOGNITION_ENABLED: false } } as TestApp;
+    expect(await recognizeKind(off, 'inputs/x/garment.jpg')).toBeNull();
+    const since = await lastId();
+    const [errored] = await Promise.all([
+      recognizeKind(app, 'inputs/x/garment.jpg'),
+      answerNext(since, { answer: null, error: 'no_worker' }),
+    ]);
+    expect(errored).toBeNull();
+    const since2 = await lastId();
+    const [unmatched] = await Promise.all([
+      recognizeKind(app, 'inputs/x/garment.jpg'),
+      answerNext(since2, { answer: 'wa-nonsense', error: null }),
+    ]);
+    expect(unmatched).toBeNull();
+  });
 
   const lastId = async () =>
     (await app.redis.xrevrange(GARMENT_RECOGNITION_STREAM, '+', '-', 'COUNT', 1))[0]?.[0] ?? '0-0';
