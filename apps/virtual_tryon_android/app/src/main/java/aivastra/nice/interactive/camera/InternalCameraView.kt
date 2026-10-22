@@ -15,6 +15,7 @@ import android.util.Size
 import android.view.Surface
 import android.view.WindowManager
 import android.hardware.camera2.CaptureRequest
+import aivastra.nice.interactive.BuildConfig
 import aivastra.nice.interactive.utils.CrashReporter
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2Interop
@@ -69,6 +70,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -90,6 +92,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -105,6 +108,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
@@ -154,12 +158,15 @@ fun InternalCameraView(
 
     LaunchedEffect(Unit) {
         if (!isPreview) {
+            reportCameraDiagnostic(context, "camera_screen_opened")
             val future = ProcessCameraProvider.getInstance(context)
             future.addListener({
                 try {
                     cameraProvider = future.get()
+                    reportCameraDiagnostic(context, "camera_provider_obtained")
                 } catch (e: Exception) {
                     Log.e("InternalCameraView", "Failed to obtain ProcessCameraProvider", e)
+                    reportCameraDiagnostic(context, "camera_provider_obtain_failed")
                 }
             }, ContextCompat.getMainExecutor(context))
         }
@@ -261,8 +268,17 @@ fun InternalCameraView(
             )
             boundCamera = camera
             applyDefaultExposure(camera)
+            reportCameraDiagnostic(
+                context,
+                "camera_bind_success",
+                mapOf(
+                    "implementation_mode" to settings.surfaceStreamType.name,
+                    "hdr_option" to settings.hdrOption.name
+                )
+            )
         } catch (e: Exception) {
             Log.e("InternalCameraView", "Tuned camera binding failed, retrying with defaults", e)
+            reportCameraDiagnostic(context, "camera_bind_failed_retrying_defaults")
             try {
                 val fallbackCapture = ImageCapture.Builder()
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
@@ -277,8 +293,10 @@ fun InternalCameraView(
                 )
                 boundCamera = camera
                 applyDefaultExposure(camera)
+                reportCameraDiagnostic(context, "camera_bind_fallback_success")
             } catch (fallbackError: Exception) {
                 Log.e("InternalCameraView", "Fallback camera binding failed", fallbackError)
+                reportCameraDiagnostic(context, "camera_bind_fallback_failed")
             }
         }
     }
@@ -577,6 +595,43 @@ fun InternalCameraView(
                 }
             )
         }
+
+        // Temporary troubleshooting aid for the kiosk blank-preview investigation — lets the
+        // sequence of camera bind/HDR-extension checkpoints be read directly off a kiosk
+        // device's screen with no adb and no waiting on Crashlytics propagation. Debug-only
+        // so it never reaches a real customer in a release build.
+        if (BuildConfig.DEBUG) {
+            CameraDiagnosticOverlay(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = statusBarH + 60.dp, start = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun CameraDiagnosticOverlay(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.7f))
+            .padding(8.dp)
+    ) {
+        Text(
+            "CAMERA DIAGNOSTICS",
+            color = Color.Yellow,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = PoppinsFamily
+        )
+        CameraDiagnosticLog.events.forEach { event ->
+            Text(
+                event,
+                color = Color.White,
+                fontSize = 9.sp,
+                fontFamily = PoppinsFamily
+            )
+        }
     }
 }
 
@@ -729,23 +784,44 @@ private fun applyKioskCaptureTuning(context: Context, builder: ImageCapture.Buil
     }
 }
 
+// Vendor Camera2 Extensions HAL implementations are not guaranteed to complete this future.
+// A bound-but-broken HAL on some boxes has been observed to never resolve it, which would
+// otherwise stall camera binding indefinitely — bounding it here keeps that failure mode from
+// blocking the preview forever. Real extension resolution normally completes in well under a
+// second, so this timeout never fires on a healthy device.
+private const val EXTENSIONS_MANAGER_TIMEOUT_MS = 5000L
+
 private suspend fun resolveHdrCameraSelector(
     context: Context,
     provider: ProcessCameraProvider,
     baseSelector: CameraSelector,
     forceHdr: Boolean
 ): CameraSelector {
-    val extensionsManager = awaitExtensionsManager(context, provider) ?: return baseSelector
+    val extensionsManager = withTimeoutOrNull(EXTENSIONS_MANAGER_TIMEOUT_MS) {
+        awaitExtensionsManager(context, provider)
+    }
+    if (extensionsManager == null) {
+        reportCameraDiagnostic(context, "hdr_extensions_manager_unavailable_or_timed_out")
+        return baseSelector
+    }
     return try {
         when {
-            extensionsManager.isExtensionAvailable(baseSelector, ExtensionMode.HDR) ->
+            extensionsManager.isExtensionAvailable(baseSelector, ExtensionMode.HDR) -> {
+                reportCameraDiagnostic(context, "hdr_extension_hdr_mode_enabled")
                 extensionsManager.getExtensionEnabledCameraSelector(baseSelector, ExtensionMode.HDR)
-            !forceHdr && extensionsManager.isExtensionAvailable(baseSelector, ExtensionMode.AUTO) ->
+            }
+            !forceHdr && extensionsManager.isExtensionAvailable(baseSelector, ExtensionMode.AUTO) -> {
+                reportCameraDiagnostic(context, "hdr_extension_auto_mode_enabled")
                 extensionsManager.getExtensionEnabledCameraSelector(baseSelector, ExtensionMode.AUTO)
-            else -> baseSelector
+            }
+            else -> {
+                reportCameraDiagnostic(context, "hdr_extension_not_available")
+                baseSelector
+            }
         }
     } catch (e: Exception) {
         Log.e("InternalCameraView", "HDR extension selection failed", e)
+        reportCameraDiagnostic(context, "hdr_extension_selection_exception")
         baseSelector
     }
 }
@@ -767,6 +843,44 @@ private suspend fun awaitExtensionsManager(
         ContextCompat.getMainExecutor(context)
     )
 }
+
+// Non-fatal breadcrumbs for diagnosing device-specific blank-preview/hang reports that have no
+// repro on hand and no adb access — shows up in Firebase Crashlytics grouped under
+// "CameraDiagnosticEvent" with the device's Build.* properties attached as custom keys, so a
+// specific box's behavior can be read off the dashboard instead of guessed at from code.
+// On-screen mirror of the same breadcrumbs, for diagnosing a device with no adb access and no
+// time to wait on Crashlytics propagation — read directly off the kiosk screen in a debug build
+// instead. Kept out of release builds (see the on-screen overlay in InternalCameraView) since
+// it's a temporary troubleshooting aid, not something a real customer should see.
+object CameraDiagnosticLog {
+    val events = mutableStateListOf<String>()
+
+    fun add(event: String) {
+        if (events.size >= 12) events.removeAt(0)
+        events.add(event)
+    }
+}
+
+private fun reportCameraDiagnostic(context: Context, event: String, extra: Map<String, String> = emptyMap()) {
+    CameraDiagnosticLog.add(
+        if (extra.isEmpty()) event else "$event (${extra.entries.joinToString { "${it.key}=${it.value}" }})"
+    )
+    try {
+        CrashReporter.setCustomKey("camera_diag_manufacturer", Build.MANUFACTURER)
+        CrashReporter.setCustomKey("camera_diag_model", Build.MODEL)
+        CrashReporter.setCustomKey("camera_diag_device", Build.DEVICE)
+        CrashReporter.setCustomKey("camera_diag_product", Build.PRODUCT)
+        CrashReporter.setCustomKey("camera_diag_sdk_int", Build.VERSION.SDK_INT.toString())
+        CrashReporter.setCustomKey("camera_diag_is_kiosk_device", isKioskDevice(context).toString())
+        CrashReporter.setCustomKey("camera_diag_has_usb_camera", hasUsbCamera(context).toString())
+        extra.forEach { (key, value) -> CrashReporter.setCustomKey("camera_diag_$key", value) }
+        CrashReporter.recordException(CameraDiagnosticEvent(event), "CameraDiagnostics")
+    } catch (e: Exception) {
+        Log.e("InternalCameraView", "Failed to report camera diagnostic", e)
+    }
+}
+
+private class CameraDiagnosticEvent(message: String) : Exception(message)
 
 fun isKioskDevice(context: Context): Boolean {
     val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
