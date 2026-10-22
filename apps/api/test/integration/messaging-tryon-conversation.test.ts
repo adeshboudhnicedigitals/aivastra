@@ -160,8 +160,10 @@ describe('whatsapp try-on flow (real deps, WHATSAPP_BOT_FLOW=tryon)', () => {
     expect(before).toHaveLength(1);
 
     // The try-on session is mid-GENERATING; the catalogue reducer must not drive it.
+    // A non-exit word: the catalogue engine is idle at GENERATING for it, so without
+    // the flow guard the session would stay GENERATING with flow:'tryon'.
     app.env.WHATSAPP_BOT_FLOW = 'catalogue';
-    await send({ type: 'text', text: 'hello' });
+    await send({ type: 'text', text: 'ok' });
 
     const session = await loadSession(app.redis, acct.channel, acct.externalId);
     expect(session?.state).toBe('MAIN_MENU');
