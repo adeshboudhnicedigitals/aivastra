@@ -360,6 +360,57 @@ describe('accessories', () => {
     expect(() => applyWorkflowPatch(wf, tmpl, BASE_INPUTS)).toThrow(/no linked "configs" input/);
   });
 
+  // Mirrors the lehenga template: accessory LoadImage → background removal → image stitch
+  // (image2) → config parser. None of the accessory's consumers carries a `configs` link.
+  function makeStitchWorkflow() {
+    return {
+      ...makeWorkflow(),
+      '1006:759': { inputs: {}, class_type: 'ImageScaleToTotalPixels' },
+      '1263': {
+        inputs: { image: 'placeholder_accessory.png' },
+        class_type: 'LoadImage',
+        _meta: { title: 'accessory' },
+      },
+      '1264': { inputs: { image: ['1263', 0] }, class_type: 'RMBG' },
+      '1265': {
+        inputs: { image1: ['1006:759', 0], image2: ['1264', 0] },
+        class_type: 'AILab_ImageStitch',
+      },
+      '1239': { inputs: { image: ['1265', 0] }, class_type: 'QwenEditConfigJsonParser' },
+    };
+  }
+
+  it('drops background removal and the stitch, feeding image1 onward, when none was selected', () => {
+    const wf = makeStitchWorkflow();
+    const tmpl = makeTemplate({ accessoryNodeId: '1263' });
+    applyWorkflowPatch(wf, tmpl, BASE_INPUTS);
+    expect(wf['1263']).toBeUndefined();
+    expect(wf['1264']).toBeUndefined();
+    expect(wf['1265']).toBeUndefined();
+    expect(wf['1239']?.inputs.image).toEqual(['1006:759', 0]);
+  });
+
+  it('keeps the stitch chain intact when an accessory was selected', () => {
+    const wf = makeStitchWorkflow();
+    const tmpl = makeTemplate({ accessoryNodeId: '1263' });
+    applyWorkflowPatch(wf, tmpl, {
+      ...BASE_INPUTS,
+      accessoryGarmentFile: 'accessory_stack_abc.png',
+    });
+    expect(wf['1263']?.inputs.image).toBe('accessory_stack_abc.png');
+    expect(wf['1239']?.inputs.image).toEqual(['1265', 0]);
+  });
+
+  it('fails closed when the accessory is the stitch image1 rather than image2', () => {
+    const wf = makeStitchWorkflow();
+    (wf['1265'] as { inputs: Record<string, unknown> }).inputs = {
+      image1: ['1264', 0],
+      image2: ['1006:759', 0],
+    };
+    const tmpl = makeTemplate({ accessoryNodeId: '1263' });
+    expect(() => applyWorkflowPatch(wf, tmpl, BASE_INPUTS)).toThrow(/no linked "configs" input/);
+  });
+
   it('warns when an accessory file is provided but no accessoryNodeId is mapped', () => {
     const wf = makeWorkflowWithAccessoryNode();
     const warn = vi.fn();
