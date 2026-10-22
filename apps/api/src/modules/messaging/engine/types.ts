@@ -90,6 +90,8 @@ export interface RunRef {
   images: number;
   finished?: boolean;
   failedPoseIds?: string[];
+  // Jobs that did not complete (set by the try-on flow, which has no pose ids).
+  failed?: number;
 }
 
 export interface Session {
@@ -138,7 +140,7 @@ export type InboundEvent =
   // A photo already downloaded, stored and bound to the user (photos.ts).
   | { type: 'image'; garmentKey: string }
   | { type: 'unsupportedMedia' }
-  | { type: 'runFinished'; runId: string; images: number; failedPoseIds: string[] }
+  | { type: 'runFinished'; runId: string; images: number; failedPoseIds: string[]; failed?: number }
   | { type: 'creditsAdded'; credits: number };
 
 export interface Button {
