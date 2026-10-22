@@ -112,6 +112,24 @@ This may take a few seconds.`,
   ) =>
     `Here are your ${n} generated ${n === 1 ? 'pose' : 'poses'}!\nCategory: ${category} | Garment: ${garment}\nCredits used: ${used} credits\nRemaining balance: ${remaining} credits`,
   deliveredNext: 'What would you like to do next?',
+
+  // Try-on flow (spec 2026-10-22-whatsapp-tryon-flow-design).
+  tryonCountPrompt: (category: string, perImage: number, balance: number) =>
+    `Great! Let's create your catalogue. ✨
+Category: ${category}
+
+Credits per pose: ${perImage} credits
+Available balance: ${balance} credits
+
+How many poses would you like?
+Tapping an option starts generating right away.`,
+  tryonNoPoses:
+    "We don't have poses ready for that category on WhatsApp yet. Please choose another.",
+  tryonDelivered: (n: number, category: string, used: number, remaining: number) =>
+    `Here are your ${n} generated ${n === 1 ? 'pose' : 'poses'}!\nCategory: ${category}\nCredits used: ${used} credits\nRemaining balance: ${remaining} credits`,
+  btnMakeMore: 'Make more',
+  btnNewGarment: 'New garment',
+
   partlyFailed: (failed: number, total: number) =>
     `${failed} of ${total} ${total === 1 ? 'image' : 'images'} failed. The credits for ${failed === 1 ? 'it were' : 'them were'} refunded.`,
   posesChanged: 'Those poses changed. Please choose again.',

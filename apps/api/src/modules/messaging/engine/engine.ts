@@ -72,9 +72,9 @@ function picksCleared(s: Session): Session {
   return { ...s, picked: [], count: undefined, runs: undefined, unstarted: undefined };
 }
 
-const text = (t: string): OutboundMessage => ({ kind: 'text', text: t });
+export const text = (t: string): OutboundMessage => ({ kind: 'text', text: t });
 
-function buttons(
+export function buttons(
   s: Session,
   body: string,
   items: [action: string, value: string, title: string][],
