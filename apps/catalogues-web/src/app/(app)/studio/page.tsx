@@ -1039,11 +1039,26 @@ export default function StudioPage(): React.ReactElement {
   function handleApplyPosePreset(preset: { poseIds: string[] }) {
     const availableIds = new Set((poses?.items ?? []).map((p) => p.id));
     const applicable = preset.poseIds.filter((id) => availableIds.has(id));
-    const dropped = preset.poseIds.length - applicable.length;
     if (applicable.length === 0) {
       showToast('All poses in this preset are no longer available.');
       return;
     }
+    // Clicking an already-applied preset again undoes it, rather than being a no-op —
+    // the only way to clear a preset selection without manually unchecking every pose.
+    const alreadyApplied =
+      poseIds.length === applicable.length && applicable.every((id) => poseIds.includes(id));
+    if (alreadyApplied) {
+      setPoseIds([]);
+      setLowerCatalogId('');
+      setShoeCatalogId('');
+      setAccessoryCatalogIds([]);
+      setUpperGarmentBackFile(null);
+      setUpperGarmentBackKey('');
+      setLowerGarmentBackFile(null);
+      setLowerGarmentBackKey('');
+      return;
+    }
+    const dropped = preset.poseIds.length - applicable.length;
     setPoseIds(applicable);
     if (dropped > 0) {
       showToast(
@@ -4974,7 +4989,7 @@ export default function StudioPage(): React.ReactElement {
                             padding: '6px 12px',
                             borderRadius: 999,
                             border: `1px solid ${C.border}`,
-                            background: '#fff',
+                            background: C.card,
                             color: C.text,
                             cursor: 'pointer',
                           }}
@@ -4991,7 +5006,7 @@ export default function StudioPage(): React.ReactElement {
                             gap: 4,
                             borderRadius: 999,
                             border: `1px solid ${C.border}`,
-                            background: '#fff',
+                            background: C.card,
                             paddingRight: 6,
                           }}
                         >
