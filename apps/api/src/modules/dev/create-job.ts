@@ -29,13 +29,16 @@ export async function createDevJobCore(
     // 'inhouse' = the dedicated lane (jobs:inhouse) consumed only by workers tagged
     // 'inhouse'; everything else rides the shared jobs:normal.
     lane?: 'normal' | 'inhouse';
+    // One id shared by every job of a run (the WhatsApp try-on run id). Absent: a fresh
+    // id per job, as before.
+    catalogueId?: string;
     buildJobInputs: () => Omit<typeof schema.jobInputs.$inferInsert, 'jobId'>;
   },
 ): Promise<{ jobId: string }> {
   await assertMerchantJobRateLimit(app, params.merchantUserId);
 
   const lane = params.lane ?? 'normal';
-  const catalogueId = randomUUID();
+  const catalogueId = params.catalogueId ?? randomUUID();
   const [job] = await app.db.transaction(async (tx) => {
     const [newJob] = await tx
       .insert(schema.jobs)
