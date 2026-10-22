@@ -15,6 +15,22 @@ describe('whatsapp try-on pool and run creation', () => {
   let realHeadObject: TestApp['storage']['headObject'];
   let tryonWf: { id: string };
   let seq = 0;
+  const WORKER_ID = 'tryon-worker-test';
+
+  const seedWorker = async () => {
+    await app.redis.hset(
+      'worker:registry',
+      WORKER_ID,
+      JSON.stringify({
+        url: 'http://worker.test',
+        apiKey: 'test-key',
+        status: 'IDLE',
+        lastSeen: Date.now(),
+        allowedJobTypes: [],
+      }),
+    );
+    await app.redis.setex(`worker:health:${WORKER_ID}`, 300, '1');
+  };
 
   const pose = async (over: Partial<typeof schema.modelPoseAssets.$inferInsert> = {}) => {
     const n = ++seq;
@@ -58,7 +74,8 @@ describe('whatsapp try-on pool and run creation', () => {
       })
       .returning();
   }, 60000);
-  beforeEach(() => {
+  beforeEach(async () => {
+    await seedWorker();
     app.storage.headObject = (async () => ({
       contentLength: 1024,
     })) as typeof app.storage.headObject;
@@ -191,6 +208,32 @@ describe('whatsapp try-on pool and run creation', () => {
     const b = await createTryonRun(app, ctx, { garmentKey: s.garmentKey, poses: [p] });
     expect(b.runId).toBe(a.runId);
     expect(await balanceOf(s.userId)).toBe(95);
+  });
+
+  it('refuses to charge when no try-on worker is registered', async () => {
+    const s = await seller(100);
+    const [p] = await listPoolPoses(app, 'men');
+    await app.redis.del('worker:registry');
+
+    await expect(
+      createTryonRun(
+        app,
+        { userId: s.userId, accountId: s.accountId, messageId: `wamid.noworker.${seq}` },
+        { garmentKey: s.garmentKey, poses: [p] },
+      ),
+    ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE', statusCode: 503 });
+
+    expect(await balanceOf(s.userId)).toBe(100);
+    const runs = await app.db
+      .select({ catalogueId: schema.messagingRuns.catalogueId })
+      .from(schema.messagingRuns)
+      .where(eq(schema.messagingRuns.messagingAccountId, s.accountId));
+    expect(runs).toHaveLength(0);
+    const jobs = await app.db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.userId, s.userId));
+    expect(jobs).toHaveLength(0);
   });
 
   it('a run the balance cannot cover entirely throws INSUFFICIENT_CREDITS and charges nothing', async () => {

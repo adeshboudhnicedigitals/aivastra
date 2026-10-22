@@ -70,6 +70,21 @@ describe('whatsapp try-on flow (real deps, WHATSAPP_BOT_FLOW=tryon)', () => {
     await app.db
       .insert(schema.modelPoseAssets)
       .values([mk(1, 'full'), mk(2, 'full'), mk(3, 'full'), mk(4, 'half'), mk(5, 'half')]);
+    // createTryonRun refuses to charge without a healthy try-on worker, so the
+    // end-to-end flow needs the dispatcher's registry entry present.
+    const workerId = 'tryon-conversation-worker';
+    await app.redis.hset(
+      'worker:registry',
+      workerId,
+      JSON.stringify({
+        url: 'http://worker.test',
+        apiKey: 'test-key',
+        status: 'IDLE',
+        lastSeen: Date.now(),
+        allowedJobTypes: [],
+      }),
+    );
+    await app.redis.setex(`worker:health:${workerId}`, 300, '1');
   }, 60000);
   beforeEach(() => {
     // Both tests start in try-on; the reverse-guard test flips it for one send.

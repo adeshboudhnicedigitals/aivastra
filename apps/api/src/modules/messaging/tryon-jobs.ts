@@ -15,6 +15,34 @@ const P = schema.modelPoseAssets;
 const W = schema.workflowTemplates;
 
 /**
+ * True when at least one worker is advertised as able to take try-on work. The api
+ * cannot reach ComfyUI, so this reads the dispatcher's own routing snapshot: without
+ * it an empty pool would charge the seller and leave the job queued for the
+ * dispatcher's 3 h MAX_QUEUE_WAIT_MS before a NO_WORKER refund.
+ *
+ * Mirrors apps/dispatcher/src/worker/selector.ts: registry key `worker:registry`,
+ * DRAINING is excluded, an empty/absent allowedJobTypes accepts any job (though the
+ * Lua round-trip re-encodes it as `{}`, so anything non-array counts as empty), and
+ * the `worker:health:<id>` TTL key must still be '1' or the worker is dead.
+ */
+async function hasTryonWorker(app: FastifyInstance): Promise<boolean> {
+  const registry = await app.redis.hgetall('worker:registry');
+  for (const [id, json] of Object.entries(registry)) {
+    let entry: { status?: unknown; allowedJobTypes?: unknown };
+    try {
+      entry = JSON.parse(json) as typeof entry;
+    } catch {
+      continue; // malformed entry
+    }
+    if (entry.status === 'DRAINING') continue;
+    const allowed = Array.isArray(entry.allowedJobTypes) ? entry.allowedJobTypes : [];
+    if (allowed.length > 0 && !allowed.includes('tryon')) continue;
+    if ((await app.redis.get(`worker:health:${id}`)) === '1') return true;
+  }
+  return false;
+}
+
+/**
  * The poses the bot may draw for a gender: in the WhatsApp pool, live, Full or
  * Half, and carrying an active try-on workflow. Read fresh on every use, so an
  * admin removing a pose or switching off a workflow takes effect at once.
@@ -80,6 +108,13 @@ export async function createTryonRun(
     `wa-tryon:${ctx.messageId}`,
     async () => {
       await verifyGarmentKey(app, ctx.userId, input.garmentKey);
+      if (!(await hasTryonWorker(app))) {
+        throw new AppError(
+          'SERVICE_UNAVAILABLE',
+          503,
+          'Our try-on service is briefly unavailable. Please try again in a minute — you have not been charged.',
+        );
+      }
       const cost = await getTryonCreditCost(app);
       // The seller's own credits, so their watermark entitlement applies (as for the extension).
       const { watermark } = await resolveQueueRouting(app, ctx.userId);

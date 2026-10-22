@@ -21,6 +21,10 @@
   refunded by the dispatcher; `runFinished.failed` carries the failed job count so the summary
   says how many were refunded. The source is excluded from the studio gallery and compressed
   by default like the other direct try-on sources.
+- **Done:** before charging, `createTryonRun` requires a healthy, non-draining worker that
+  accepts `tryon` (it reads the dispatcher's `worker:registry` and `worker:health:<id>` keys),
+  so an empty pool fails with `SERVICE_UNAVAILABLE` before any credit deduction instead of
+  leaving the seller waiting for a `NO_WORKER` refund.
 - **Done:** Admin → Assets → WhatsApp Poses tab, built on the existing
   `GET/PATCH /admin/assets/pose-assets` (`whatsappPool`), with per-gender Full/Half pool
   counts, a "not drawable" reason badge and a 1/3/5 availability strip
@@ -44,7 +48,9 @@
 - **Open (deviations to confirm):** (1) the pool also requires the pose's template to be
   `workflow_type='tryon'`; (2) `whatsapp_tryon` jobs are excluded from the studio gallery, so
   results live only in the chat; (3) the admin surface is the existing pose-asset GET/PATCH,
-  not new `/admin/whatsapp-poses` routes.
+  not new `/admin/whatsapp-poses` routes; (4) the spec says `watermark: false`, but the plan
+  deliberately uses `resolveQueueRouting` so the seller's watermark entitlement applies
+  (free-plan images are watermarked) — a plan override, not accidental drift.
 - **Open (deploy):** Back poses are deferred. The old catalogue flow is still present pending
   approval and `WHATSAPP_BOT_FLOW` defaults to `catalogue`. Switch the flag to `tryon` only
   after filling at least one gender's pool in staging; a restart is required (the env object is
