@@ -1,3 +1,11 @@
+import { comfyEmptyOutputTotal } from '@aivastra/observability';
+import {
+  classifyEmptyOutput,
+  type EmptyOutputHistoryEntry,
+  OUTPUT_WITHHELD,
+  RESULT_NODE_NOT_IN_WORKFLOW,
+} from './output-withheld.js';
+
 export interface ComfySubmitResult {
   promptId: string;
 }
@@ -66,7 +74,7 @@ export async function fetchHistory(
   workerUrl: string,
   apiKey: string,
   promptId: string,
-  log?: { info: (obj: unknown, msg: string) => void },
+  log?: { info: (obj: unknown, msg: string) => void; error?: (obj: unknown, msg: string) => void },
   resultNodeId?: string,
 ): Promise<ComfyOutputImage[]> {
   const url = `${workerUrl.replace(/\/$/, '')}/history/${promptId}`;
@@ -78,7 +86,7 @@ export async function fetchHistory(
   if (!res.ok) throw new Error(`ComfyUI /history failed: ${res.status}`);
   const history = (await res.json()) as Record<string, unknown>;
   const entry = history[promptId] as
-    | { outputs?: Record<string, { images?: ComfyOutputImage[] }> }
+    | (EmptyOutputHistoryEntry & { outputs?: Record<string, { images?: ComfyOutputImage[] }> })
     | undefined;
   if (!entry?.outputs) return [];
 
@@ -92,6 +100,24 @@ export async function fetchHistory(
     // ever log the identical {filename, subfolder} pair, that pair is the
     // collision, on this worker, between those two jobs.
     log?.info({ promptId, resultNodeId, images }, 'ComfyUI history fetched');
+    if (images.length === 0) {
+      const verdict = classifyEmptyOutput(entry, resultNodeId);
+      if (verdict === 'withheld') {
+        comfyEmptyOutputTotal.inc({ verdict });
+        log?.info({ promptId, resultNodeId, verdict }, 'ComfyUI result node withheld its output');
+        throw new Error(OUTPUT_WITHHELD);
+      }
+      if (verdict === 'node_not_in_workflow') {
+        // A template bug, not a customer problem: surface it loudly so someone fixes the template.
+        comfyEmptyOutputTotal.inc({ verdict });
+        log?.error?.(
+          { promptId, resultNodeId, verdict },
+          'result_node_id is not in the workflow that ran — template misconfigured',
+        );
+        throw new Error(RESULT_NODE_NOT_IN_WORKFLOW);
+      }
+      log?.info({ promptId, resultNodeId, verdict }, 'ComfyUI result node produced no image');
+    }
     return images;
   }
 

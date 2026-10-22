@@ -57,6 +57,16 @@ export const storageReadFallbackTotal = new Counter({
   registers: [register],
 });
 
+// A finished ComfyUI run whose result node produced no image. `withheld` = the workflow's gate
+// stopped the output on purpose (customer photo rejected); `node_not_in_workflow` = the template's
+// result_node_id is not in the workflow that ran, i.e. a template bug that needs a human.
+export const comfyEmptyOutputTotal = new Counter({
+  name: 'comfy_empty_output_total',
+  help: 'ComfyUI runs that finished with no image on the result node, by verdict',
+  labelNames: ['verdict'] as const,
+  registers: [register],
+});
+
 export const shopifyPaymentCheckFailuresTotal = new Counter({
   name: 'shopify_payment_check_failures_total',
   help: 'Partner API payment checks that failed, by reason (missing_config/http/graphql/rate_limited)',
