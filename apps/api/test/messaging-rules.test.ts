@@ -4,7 +4,6 @@ import {
   buildTryonBody,
   drawLooks,
   groupByTemplate,
-  MAX_PICKS,
   POSE_COUNTS,
   poseCountOptions,
   retryLookIds,
@@ -154,10 +153,6 @@ describe('retryLookIds', () => {
       retryLookIds(session({ templates, picked: ['a'], runs: [{ runId: 'r', images: 1 }] })),
     ).toEqual([]);
   });
-});
-
-describe('MAX_PICKS', () => {
-  it('is 20', () => expect(MAX_PICKS).toBe(20));
 });
 
 describe('poseCountOptions', () => {

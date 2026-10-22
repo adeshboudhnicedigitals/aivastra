@@ -27,7 +27,8 @@ export function createAppWhatsappClient(app: FastifyInstance): WhatsappClient | 
  * Two of one seller's messages handled at once would overwrite each other's
  * session (plan 2, conversation.ts). Within one process the per-sender chain
  * below already orders them; the lock covers a second api replica. The wait
- * budget (15 s) outlasts a gender tap's recognition wait (8 s, plan 2 D48).
+ * budget (15 s) outlasts the photo step's recognition wait (RECOGNITION_BUDGET_MS, 12 s):
+ * the seller's next message queues behind it instead of failing.
  */
 async function withSenderLock(app: FastifyInstance, from: string, fn: () => Promise<void>) {
   const key = `msg:lock:whatsapp:${from}`;
@@ -47,7 +48,7 @@ async function withSenderLock(app: FastifyInstance, from: string, fn: () => Prom
 /**
  * Same consumer-group idiom as shopify/sync-consumer.ts, but not one message at
  * a time (D50): each sender's messages are chained in arrival order, and
- * different senders run in parallel. A gender tap can wait up to 8 s for
+ * different senders run in parallel. The photo step can wait up to 12 s for
  * garment recognition; with a single sequential loop every other seller would
  * wait behind it.
  */

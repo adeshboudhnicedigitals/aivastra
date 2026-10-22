@@ -9,11 +9,6 @@ import type {
   TryonBody,
 } from './types.js';
 
-// The most poses one Generate may start (spec 2026-10-14, P4). Keeps a request
-// inside the queue-capacity check in jobs/create.ts. A group is one template's
-// looks (at most a handful), far under the create schema's 12-look cap.
-export const MAX_PICKS = 20;
-
 // What the seller can ask for (Flow 2 mockup). A fixed set, not a free number:
 // it keeps the count a one-tap list and every option priced on its label.
 export const POSE_COUNTS = [1, 2, 3, 5] as const;

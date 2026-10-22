@@ -1,3 +1,5 @@
+> Superseded by docs/superpowers/plans/2026-10-22-whatsapp-flow-2.md (implementation) — the carousel/pose-picking parts below are removed by Flow 2.
+
 # Handoff — WhatsApp pose cards + early classification (2026-10-21)
 
 Session on `dev` after pulling `origin/dev` (fast-forward `f5c8e79e` → `6bdd81dd`). Two changes

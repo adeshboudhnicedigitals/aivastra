@@ -2,6 +2,34 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-22 — WhatsApp Flow 2: classify at upload, confirm kind, pose count, random looks
+
+- **Done:** the WhatsApp engine now implements Flow 2 (plan
+  `docs/superpowers/plans/2026-10-22-whatsapp-flow-2.md`). The photo is classified right after
+  upload and the seller confirms the kind ("a top") before the gender (`CONFIRM_KIND`); "No,
+  different item" goes gender then that gender's garment-type list. Pose carousel and per-pose
+  picking are gone: the seller picks a count of 1/2/3/5 (`ASK_POSE_COUNT`, capped by pool size and
+  balance), confirms (`CONFIRM_GENERATE`, balance re-checked at the tap) and the looks are drawn
+  at random, avoiding ones already seen (`seenLooks`). After delivery the seller gets a summary
+  with credits used plus Retry / More poses / Change garment / menu buttons.
+  Files: `apps/api/src/modules/messaging/{classify,deps,session-store,inbound-consumer}.ts`,
+  `engine/{engine,rules,copy,types}.ts`, tests under `apps/api/test/` and
+  `test/integration/messaging-classify.test.ts`. Sessions saved by the old flow are mapped on load
+  (`CONFIRM_GARMENT_TYPE` becomes `ASK_GARMENT_TYPE`). Dead `MAX_PICKS` removed.
+- **Done (deviations, accepted):** the delivery summary is sent after the images, not before them
+  (images are sent per job by `delivery.ts`); the button reads "Different number" rather than
+  "Choose different number" (20-char button cap); the kind is shown as "a top", not "a women's
+  top".
+- **Note:** `garment_recognitions.gender` is now null for new rows (the kind is recognised before
+  the gender is asked).
+- **Note:** a pool that shrinks below the chosen N between the count tap and Generate silently
+  yields fewer poses. `seenLooks` is recorded at Generate even if the run then fails to start.
+- **Failed-Not-Done:** the "Analysing..." message during the recognition wait; carousel code
+  removal in `render.ts`; welcome/menu copy. All out of scope for this change.
+- **Open:** real-device checks have not been done: list rows rendering on a phone, the up-to-12 s
+  silent wait after the photo (no "Analysing..." message), and whether the message ordering feels
+  right (summary after images).
+
 ## 2026-10-21 — WhatsApp bot v2 P0: no dead ends, readiness reasons, studio draft hand-off
 
 - **Done:** pure `decideReadiness` in `apps/api/src/modules/messaging/readiness.ts` (commit
