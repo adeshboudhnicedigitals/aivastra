@@ -32,6 +32,10 @@ describe('whatsapp try-on pool and run creation', () => {
     await app.redis.setex(`worker:health:${WORKER_ID}`, 300, '1');
   };
 
+  // The bot runs one admin-picked workflow for every pose (config:system.whatsappTryon).
+  const useWorkflow = (id: string | null) =>
+    app.redis.set('config:system', JSON.stringify({ whatsappTryon: { workflowTemplateId: id } }));
+
   const pose = async (over: Partial<typeof schema.modelPoseAssets.$inferInsert> = {}) => {
     const n = ++seq;
     const [p] = await app.db
@@ -73,6 +77,7 @@ describe('whatsapp try-on pool and run creation', () => {
         garmentPhasePromptNode: '2',
       })
       .returning();
+    await useWorkflow(tryonWf.id);
   }, 60000);
   beforeEach(async () => {
     await seedWorker();
@@ -93,35 +98,8 @@ describe('whatsapp try-on pool and run creation', () => {
     await pose({ genderSlug: 'boys', whatsappPool: false });
     await pose({ genderSlug: 'boys', isActive: false });
     await pose({ genderSlug: 'boys', deletedAt: new Date() });
-    await pose({ genderSlug: 'boys', workflowTemplateId: null });
     await pose({ genderSlug: 'boys', shotType: 'closeup' });
     await pose({ genderSlug: 'girls' });
-    const [inactiveWf] = await app.db
-      .insert(schema.workflowTemplates)
-      .values({
-        slug: `off-wf-${Date.now()}`,
-        label: 'Off',
-        jsonContent: {},
-        workflowType: 'tryon',
-        isActive: false,
-        poseNodeId: '1',
-        upperNodeIds: [],
-        garmentPhasePromptNode: '2',
-      })
-      .returning();
-    await pose({ genderSlug: 'boys', workflowTemplateId: inactiveWf.id });
-    const [regularWf] = await app.db
-      .insert(schema.workflowTemplates)
-      .values({
-        slug: `reg-wf-${Date.now()}`,
-        label: 'Regular',
-        jsonContent: {},
-        poseNodeId: '1',
-        upperNodeIds: [],
-        garmentPhasePromptNode: '2',
-      })
-      .returning();
-    await pose({ genderSlug: 'boys', workflowTemplateId: regularWf.id });
 
     const found = await listPoolPoses(app, 'boys');
     expect(found.map((p) => p.id)).toEqual([ok.id]);
@@ -131,6 +109,36 @@ describe('whatsapp try-on pool and run creation', () => {
       r2Key: ok.r2Key,
       workflowTemplateId: tryonWf.id,
     });
+  });
+
+  it('listPoolPoses offers nothing unless the configured workflow is an active try-on', async () => {
+    await pose({ genderSlug: 'girls' });
+    const mk = async (over: Partial<typeof schema.workflowTemplates.$inferInsert>) =>
+      (
+        await app.db
+          .insert(schema.workflowTemplates)
+          .values({
+            slug: `wf-${Date.now()}-${++seq}`,
+            label: 'x',
+            jsonContent: {},
+            poseNodeId: '1',
+            upperNodeIds: [],
+            garmentPhasePromptNode: '2',
+            ...over,
+          })
+          .returning()
+      )[0];
+    const inactive = await mk({ workflowType: 'tryon', isActive: false });
+    const regular = await mk({});
+    try {
+      for (const id of [null, inactive.id, regular.id]) {
+        await useWorkflow(id);
+        expect(await listPoolPoses(app, 'girls')).toEqual([]);
+      }
+    } finally {
+      await useWorkflow(tryonWf.id);
+    }
+    expect((await listPoolPoses(app, 'girls')).length).toBeGreaterThan(0);
   });
 
   async function seller(credits: number) {

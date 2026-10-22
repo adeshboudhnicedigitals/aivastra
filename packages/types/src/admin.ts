@@ -140,6 +140,9 @@ export const SystemConfigBody = z.object({
   // a burst of submissions the current worker pool can't drain is rejected up front
   // instead of accepted and left to queue indefinitely.
   maxQueueDepth: z.number().int().min(1).max(5000).optional(),
+  // The single try-on workflow every WhatsApp bot job runs (poses carry no workflow of
+  // their own there). Null/absent = not configured, so the bot offers no poses.
+  whatsappTryon: z.object({ workflowTemplateId: z.string().uuid().nullable() }).optional(),
   // Admin-fixed inputs for merchant catalogue-manager's constrained "flat garment
   // -> catalogue image" generation. Keyed by category so studio-style face/background
   // variety per gender is preserved without per-merchant or per-item picking.

@@ -58,6 +58,11 @@ describe('whatsapp try-on flow (real deps, WHATSAPP_BOT_FLOW=tryon)', () => {
         garmentPhasePromptNode: '2',
       })
       .returning();
+    // The bot runs the one workflow the admin picked, not each pose's own.
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ whatsappTryon: { workflowTemplateId: wf.id } }),
+    );
     const mk = (i: number, shotType: 'full' | 'half') => ({
       label: `TcPose${sfx}-${i}`,
       genderSlug: 'men',

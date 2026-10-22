@@ -5,7 +5,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { withIdempotency } from '../../lib/idempotency.js';
-import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { getTryonCreditCost, getWhatsappTryonWorkflowId } from '../../lib/resolution-config.js';
 import { createDevJobCore } from '../dev/create-job.js';
 import { resolveQueueRouting, verifyGarmentKey } from '../jobs/create.js';
 import type { ShotType, TryonPose } from './engine/tryon-rules.js';
@@ -44,20 +44,23 @@ async function hasTryonWorker(app: FastifyInstance): Promise<boolean> {
 
 /**
  * The poses the bot may draw for a gender: in the WhatsApp pool, live, Full or
- * Half, and carrying an active try-on workflow. Read fresh on every use, so an
- * admin removing a pose or switching off a workflow takes effect at once.
+ * Half. Every pose runs the one workflow the admin picked on the WhatsApp Poses
+ * tab (poses' own workflowTemplateId is not used here, so it can stay on the
+ * catalogue flow's workflows); it must be an active try-on, else nothing is
+ * offered. Read fresh on every use, so an admin removing a pose or switching off
+ * the workflow takes effect at once.
  */
 export async function listPoolPoses(app: FastifyInstance, gender: Gender): Promise<TryonPose[]> {
+  const workflowId = await getWhatsappTryonWorkflowId(app);
+  if (!workflowId) return [];
+  const [wf] = await app.db
+    .select({ id: W.id, version: W.version })
+    .from(W)
+    .where(and(eq(W.id, workflowId), eq(W.isActive, true), eq(W.workflowType, 'tryon')));
+  if (!wf) return [];
   const rows = await app.db
-    .select({
-      id: P.id,
-      shotType: P.shotType,
-      r2Key: P.r2Key,
-      workflowTemplateId: W.id,
-      templateVersion: W.version,
-    })
+    .select({ id: P.id, shotType: P.shotType, r2Key: P.r2Key })
     .from(P)
-    .innerJoin(W, eq(W.id, P.workflowTemplateId))
     .where(
       and(
         eq(P.whatsappPool, true),
@@ -65,8 +68,6 @@ export async function listPoolPoses(app: FastifyInstance, gender: Gender): Promi
         isNull(P.deletedAt),
         eq(P.genderSlug, gender),
         inArray(P.shotType, ['full', 'half']),
-        eq(W.isActive, true),
-        eq(W.workflowType, 'tryon'),
       ),
     )
     .orderBy(P.sortOrder, P.label);
@@ -75,8 +76,8 @@ export async function listPoolPoses(app: FastifyInstance, gender: Gender): Promi
     gender,
     shotType: r.shotType as ShotType,
     r2Key: r.r2Key,
-    workflowTemplateId: r.workflowTemplateId,
-    templateVersion: r.templateVersion ?? null,
+    workflowTemplateId: wf.id,
+    templateVersion: wf.version ?? null,
   }));
 }
 

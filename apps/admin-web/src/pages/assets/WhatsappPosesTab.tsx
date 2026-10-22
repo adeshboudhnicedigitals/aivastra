@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
+import { SearchableSelect } from '../../components/SearchableSelect';
 import { useCrumb } from '../../context/BreadcrumbContext';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type { ModelPoseAsset, WorkflowOption } from '../../types';
@@ -25,16 +26,14 @@ const GENDERS = [
 /**
  * Why the bot would skip this pose. Mirrors the eligibility filters in
  * listPoolPoses (apps/api/src/modules/messaging/tryon-jobs.ts); membership in
- * the WhatsApp pool itself is checked separately by the caller.
+ * the WhatsApp pool itself is checked separately by the caller. The workflow is
+ * not per pose: the bot runs the single one chosen at the top of this tab.
  */
-function undrawableReasons(p: ModelPoseAsset, tryonWorkflowIds: Set<string>): string[] {
+function undrawableReasons(p: ModelPoseAsset): string[] {
   const reasons: string[] = [];
   if (!p.isActive) reasons.push('inactive');
   if (p.shotType !== 'full' && p.shotType !== 'half') reasons.push('not a Full or Half pose');
   if (!p.genderSlug) reasons.push('no gender');
-  if (!p.workflowTemplateId) reasons.push('no workflow');
-  else if (!tryonWorkflowIds.has(p.workflowTemplateId))
-    reasons.push('workflow is not an active try-on');
   return reasons;
 }
 
@@ -99,26 +98,60 @@ export function WhatsappPosesTab() {
     };
   }, [workflows.length, setWorkflows, toast]);
 
-  const tryonIds = useMemo(
-    () =>
-      new Set(workflows.filter((w) => w.workflowType === 'tryon' && w.isActive).map((w) => w.id)),
+  const tryonWorkflows = useMemo(
+    () => workflows.filter((w) => w.workflowType === 'tryon' && w.isActive),
     [workflows],
   );
-  const drawable = (p: ModelPoseAsset) =>
-    p.whatsappPool === true && undrawableReasons(p, tryonIds).length === 0;
-  const wfLabel = (id: string | null) => {
-    if (!id) return 'no workflow';
-    return workflows.find((w) => w.id === id)?.label ?? 'unknown workflow';
+  // The one workflow every WhatsApp job runs (config:system.whatsappTryon). Until it
+  // names an active try-on workflow the bot offers no poses at all.
+  const [botWorkflowId, setBotWorkflowId] = useState<string | null>(null);
+  const [savingWf, setSavingWf] = useState(false);
+  useEffect(() => {
+    apiFetch<{ whatsappTryon?: { workflowTemplateId: string | null } }>('/admin/config')
+      .then((cfg) => setBotWorkflowId(cfg.whatsappTryon?.workflowTemplateId ?? null))
+      .catch((e) =>
+        toast({
+          kind: 'error',
+          title: 'Could not load the bot workflow',
+          body: apiErrorMessage(e, 'Please try again.'),
+        }),
+      );
+  }, [toast]);
+  const saveBotWorkflow = async (id: string) => {
+    setSavingWf(true);
+    try {
+      await apiFetch('/admin/config', {
+        method: 'PATCH',
+        body: JSON.stringify({ whatsappTryon: { workflowTemplateId: id || null } }),
+      });
+      setBotWorkflowId(id || null);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Could not save the workflow',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setSavingWf(false);
+    }
   };
+  const workflowOk = botWorkflowId !== null && tryonWorkflows.some((w) => w.id === botWorkflowId);
+  const drawable = (p: ModelPoseAsset) =>
+    workflowOk && p.whatsappPool === true && undrawableReasons(p).length === 0;
 
-  const setPool = async (p: ModelPoseAsset, whatsappPool: boolean) => {
+  // `shotType` is passed for legacy poses that have none; the bot needs Full or Half.
+  const setPool = async (p: ModelPoseAsset, whatsappPool: boolean, shotType?: 'full' | 'half') => {
     setBusy(p.id);
     try {
       await apiFetch(`/admin/assets/pose-assets/${p.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ whatsappPool }),
+        body: JSON.stringify(shotType ? { whatsappPool, shotType } : { whatsappPool }),
       });
-      setPoses((prev) => prev.map((x) => (x.id === p.id ? { ...x, whatsappPool } : x)));
+      setPoses((prev) =>
+        prev.map((x) =>
+          x.id === p.id ? { ...x, whatsappPool, ...(shotType ? { shotType } : {}) } : x,
+        ),
+      );
     } catch (e) {
       toast({
         kind: 'error',
@@ -132,7 +165,8 @@ export function WhatsappPosesTab() {
 
   const inPool = poses.filter((p) => p.whatsappPool === true);
   const candidates = poses.filter(
-    (p) => p.whatsappPool !== true && (p.shotType === 'full' || p.shotType === 'half'),
+    (p) =>
+      p.whatsappPool !== true && (p.shotType === 'full' || p.shotType === 'half' || !p.shotType),
   );
   const count = (g: string, shot: 'full' | 'half') =>
     poses.filter((p) => drawable(p) && p.genderSlug === g && p.shotType === shot).length;
@@ -157,7 +191,7 @@ export function WhatsappPosesTab() {
             }}
           >
             {list.map((p) => {
-              const reasons = undrawableReasons(p, tryonIds);
+              const reasons = undrawableReasons(p);
               return (
                 <div
                   key={p.id}
@@ -198,9 +232,6 @@ export function WhatsappPosesTab() {
                       <span className="badge dot accent" style={{ fontSize: 10 }}>
                         {p.genderSlug ?? 'no gender'}
                       </span>
-                      <span className="badge dot accent" style={{ fontSize: 10 }} title="Workflow">
-                        {wfLabel(p.workflowTemplateId)}
-                      </span>
                       {reasons.length > 0 && (
                         <span
                           className="badge"
@@ -211,15 +242,26 @@ export function WhatsappPosesTab() {
                         </span>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={busy === p.id}
-                      onClick={() => void setPool(p, false)}
-                      style={{ marginTop: 8, fontSize: 11 }}
-                    >
-                      {busy === p.id ? 'Removing…' : 'Remove'}
-                    </button>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={busy === p.id}
+                        onClick={() => void setPool(p, true, shot === 'full' ? 'half' : 'full')}
+                        style={{ fontSize: 11 }}
+                      >
+                        {shot === 'full' ? 'Move to Half' : 'Move to Full'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={busy === p.id}
+                        onClick={() => void setPool(p, false)}
+                        style={{ fontSize: 11 }}
+                      >
+                        {busy === p.id ? '…' : 'Remove'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -246,10 +288,34 @@ export function WhatsappPosesTab() {
         <div style={{ color: 'var(--muted)', padding: '2rem', textAlign: 'center' }}>Loading…</div>
       ) : (
         <>
+          <div className="card" style={{ padding: 12, marginBottom: 16 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Try-on workflow</p>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+              Every WhatsApp job runs this one workflow with the pose as the person image. Poses'
+              own workflows are not used here.
+            </p>
+            <div style={{ maxWidth: 360 }}>
+              <SearchableSelect
+                options={tryonWorkflows.map((w) => ({ id: w.id, label: w.label }))}
+                value={botWorkflowId ?? ''}
+                onChange={(id) => void saveBotWorkflow(id)}
+                emptyLabel="— not set —"
+                disabled={savingWf}
+              />
+            </div>
+            {!workflowOk && (
+              <p style={{ fontSize: 12, color: 'var(--warn-ink)', marginTop: 8 }}>
+                {botWorkflowId
+                  ? 'The saved workflow is not an active try-on workflow.'
+                  : 'No workflow chosen.'}{' '}
+                The bot offers no poses until one is set.
+              </p>
+            )}
+          </div>
+
           <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
             1 pose = 1 Full · 3 = 2 Full + 1 Half · 5 = 3 Full + 2 Half, filtered by the gender the
-            seller taps. A pose needs a gender and an active try-on workflow — edit those in Pose
-            Assets.
+            seller taps. A pose needs a gender — edit it in Pose Assets.
           </p>
 
           <div className="card" style={{ padding: 12, marginBottom: 16, overflowX: 'auto' }}>
@@ -294,9 +360,7 @@ export function WhatsappPosesTab() {
             </table>
           </div>
 
-          {renderSection('full', 'Full poses')}
-          {renderSection('half', 'Half poses')}
-
+          {/* Above the sections: below two long grids the button was off-screen. */}
           <button type="button" className="btn" onClick={() => setAdding((v) => !v)}>
             {adding ? 'Close' : 'Add from Pose Assets'}
           </button>
@@ -336,17 +400,36 @@ export function WhatsappPosesTab() {
                       <div style={{ padding: '8px 8px 10px' }}>
                         <p style={{ fontSize: 11, fontWeight: 600 }}>{p.displayName ?? p.label}</p>
                         <p style={{ fontSize: 10, color: 'var(--muted)' }}>
-                          {p.shotType} · {p.genderSlug ?? 'no gender'}
+                          {p.shotType ?? 'no shot type'} · {p.genderSlug ?? 'no gender'}
                         </p>
-                        <button
-                          type="button"
-                          className="btn"
-                          disabled={busy === p.id}
-                          onClick={() => void setPool(p, true)}
-                          style={{ marginTop: 8, fontSize: 11 }}
-                        >
-                          {busy === p.id ? 'Adding…' : 'Add'}
-                        </button>
+                        {p.shotType ? (
+                          <button
+                            type="button"
+                            className="btn"
+                            disabled={busy === p.id}
+                            onClick={() => void setPool(p, true)}
+                            style={{ marginTop: 8, fontSize: 11 }}
+                          >
+                            {busy === p.id ? 'Adding…' : 'Add'}
+                          </button>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                            {(['full', 'half'] as const).map((shot) => (
+                              <button
+                                key={shot}
+                                type="button"
+                                className="btn"
+                                disabled={busy === p.id}
+                                onClick={() => void setPool(p, true, shot)}
+                                style={{ fontSize: 11 }}
+                              >
+                                {busy === p.id
+                                  ? '…'
+                                  : `Add as ${shot === 'full' ? 'Full' : 'Half'}`}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -354,6 +437,11 @@ export function WhatsappPosesTab() {
               )}
             </div>
           )}
+
+          <div style={{ marginTop: 16 }}>
+            {renderSection('full', 'Full poses')}
+            {renderSection('half', 'Half poses')}
+          </div>
         </>
       )}
     </>

@@ -1091,6 +1091,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           isActive: z.boolean().optional(),
           sortOrder: z.number().int().optional(),
           whatsappPool: z.boolean().optional(),
+          // Legacy poses were uploaded before shot types existed; the WhatsApp pool needs one.
+          shotType: z.enum(['full', 'half', 'closeup']).optional(),
           publicApiSlug: PublicApiSlugField,
         }),
       },
@@ -1109,6 +1111,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         isActive?: boolean;
         sortOrder?: number;
         whatsappPool?: boolean;
+        shotType?: 'full' | 'half' | 'closeup';
         publicApiSlug?: string | null;
       };
 
@@ -1149,6 +1152,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (body.isActive !== undefined) set.isActive = body.isActive;
       if (body.sortOrder !== undefined) set.sortOrder = body.sortOrder;
       if (body.whatsappPool !== undefined) set.whatsappPool = body.whatsappPool;
+      if (body.shotType !== undefined) set.shotType = body.shotType;
       // Already normalized ('' -> null) by PublicApiSlugField.
       if (body.publicApiSlug !== undefined) set.publicApiSlug = body.publicApiSlug;
 
