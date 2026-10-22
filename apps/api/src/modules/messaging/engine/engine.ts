@@ -364,19 +364,18 @@ async function render(
       out.push(
         listMsg(
           s,
-          COPY.askGender,
+          s.kind ? COPY.askGenderConfirmed : COPY.askGender,
           GENDERS.map((g) => ({ action: 'gender', value: g, title: COPY.genders[g] })),
         ),
       );
       return done();
 
-    case 'CONFIRM_GARMENT_TYPE':
-      if (!s.garmentType) return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
+    case 'CONFIRM_KIND':
+      if (!s.kind) return enter(s, 'ASK_GENDER', out, ctx, deps);
       out.push(
-        buttons(s, COPY.confirmGarment(s.garmentType.label), [
-          ['confirm', '', COPY.btnYes],
-          ['change', '', COPY.btnNo],
-          ['menu', 'menu', COPY.btnMenu],
+        buttons(s, COPY.kindGuess(s.kind), [
+          ['confirm', '', COPY.btnYesContinue],
+          ['change', '', COPY.btnNoDifferent],
         ]),
       );
       return done();
@@ -512,47 +511,35 @@ async function onReply(
   }
 
   switch (s.state) {
+    case 'CONFIRM_KIND': {
+      if (action === 'confirm') return enter(s, 'ASK_GENDER', out, ctx, deps);
+      if (action !== 'change') return reprompt();
+      deps.recordRecognitionCorrected();
+      return enter({ ...s, kind: undefined }, 'ASK_GENDER', out, ctx, deps);
+    }
+
     case 'ASK_GENDER': {
       if (action !== 'gender' || !GENDERS.includes(value as Gender)) return reprompt();
       const gender = value as Gender;
-      const withGender: Session = { ...s, gender, recognition: undefined };
-      // Spec 8a: recognition was started with the photo (the image event) and
-      // has been running while the seller answered; collect it for this
-      // gender. Null on every failure — the list is always the way out.
-      const hit = s.recognition ? await deps.resolveRecognition(s.recognition, gender) : null;
-      if (hit) {
-        const gt = (await deps.listGarmentTypes(gender)).find((t) => t.id === hit.garmentTypeId);
-        // A correct answer for a type the bot cannot offer (a saree two-step
-        // type, no template): hand the seller to the studio rather than pretend we didn't know.
-        if (!gt) {
-          // Report why, from the same facts the studio reads, so an admin sees
-          // "template_inactive" rather than a bare "not offered".
-          const { reasons } = await deps.getReadiness(gender, hit.garmentTypeId);
-          for (const reason of reasons) {
-            deps.reportUnavailable({ gender, garmentTypeId: hit.garmentTypeId, reason });
-          }
-          return handoff(withGender, { id: hit.garmentTypeId, label: hit.label }, out, ctx, deps);
+      const withGender: Session = { ...s, gender };
+      // No kind, or a kind this gender does not have: the list is the way out.
+      const hit = s.kind ? await deps.typeForKind(s.kind, gender) : null;
+      if (!hit)
+        return enter({ ...withGender, kind: undefined }, 'ASK_GARMENT_TYPE', out, ctx, deps);
+      const gt = (await deps.listGarmentTypes(gender)).find((t) => t.id === hit.garmentTypeId);
+      // A correct answer for a type the bot cannot offer (a saree two-step
+      // type, no template): hand the seller to the studio rather than pretend we didn't know.
+      if (!gt) {
+        // Report why, from the same facts the studio reads, so an admin sees
+        // "template_inactive" rather than a bare "not offered".
+        const { reasons } = await deps.getReadiness(gender, hit.garmentTypeId);
+        for (const reason of reasons) {
+          deps.reportUnavailable({ gender, garmentTypeId: hit.garmentTypeId, reason });
         }
-        // A guess is confirmed before anything is loaded: one tap on a hit,
-        // and a miss never reaches the credit prompt.
-        return enter(
-          { ...withGender, garmentType: gt, recognized: true },
-          'CONFIRM_GARMENT_TYPE',
-          out,
-          ctx,
-          deps,
-        );
+        return handoff(withGender, { id: hit.garmentTypeId, label: hit.label }, out, ctx, deps);
       }
-      return enter(withGender, 'ASK_GARMENT_TYPE', out, ctx, deps);
-    }
-
-    case 'CONFIRM_GARMENT_TYPE': {
-      if (action === 'confirm' && s.garmentType) {
-        return chooseGarmentType(s, s.garmentType, true, out, ctx, deps);
-      }
-      if (action !== 'change') return reprompt();
-      deps.recordRecognitionCorrected();
-      return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
+      // The kind was confirmed before the gender, so no second "Looks like".
+      return chooseGarmentType({ ...withGender, kind: undefined }, gt, true, out, ctx, deps);
     }
 
     case 'ASK_GARMENT_TYPE': {
@@ -729,16 +716,14 @@ export async function handle(
 
     case 'image': {
       if (NEW_PHOTO_STATES.includes(s.state)) {
-        // Spec 8a: recognition starts now and runs while the seller answers the
-        // gender question; it is collected at the gender tap.
-        const recognition = (await deps.startRecognition(event.garmentKey)) ?? undefined;
-        return enter(
-          { ...cleared(s), garmentKey: event.garmentKey, recognition },
-          'ASK_GENDER',
-          out,
-          ctx,
-          deps,
-        );
+        // Spec 8a: recognised right after the upload and before any question,
+        // so the seller confirms the kind while the photo is fresh. Awaited:
+        // the seller waits once, up to the budget (spec 2026-10-22, risks).
+        const fresh: Session = { ...cleared(s), garmentKey: event.garmentKey };
+        const hit = await deps.recognizeKind(event.garmentKey);
+        return hit
+          ? enter({ ...fresh, kind: hit.label }, 'CONFIRM_KIND', out, ctx, deps)
+          : enter(fresh, 'ASK_GENDER', out, ctx, deps);
       }
       if (s.state === 'ASK_EXTRA_PHOTO') {
         const slot = firstMissingSlot(s);

@@ -162,6 +162,12 @@ describe('engine: menu and global commands', () => {
   });
 });
 
+// A recognised Shirt, and the gender's own row for it.
+const KIND = {
+  recognizeKind: async () => ({ label: 'Shirt' }),
+  typeForKind: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
+};
+
 describe('engine: photo, gender and garment type', () => {
   it('New catalog asks for the photo; the photo leads to the four-gender list', async () => {
     const { deps } = fakeDeps();
@@ -171,7 +177,7 @@ describe('engine: photo, gender and garment type', () => {
       garmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg',
     });
     const list = listOf(r);
-    expect(list?.text).toBe('Create catalogue for:');
+    expect(list?.text).toBe('Create this catalogue for:');
     expect(list?.rows.map((x) => x.title)).toEqual(['Women', 'Men', 'Boys', 'Girls']);
   });
 
@@ -182,21 +188,27 @@ describe('engine: photo, gender and garment type', () => {
     expect(r.session.garmentKey).toContain('000000000002');
   });
 
-  it('recognised: the guess is confirmed first; Yes goes on to pose picking', async () => {
-    const { deps } = fakeDeps({
-      resolveRecognition: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
-    });
-    const ask = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
-    expect(ask.session).toMatchObject({
-      state: 'CONFIRM_GARMENT_TYPE',
-      garmentType: { id: 'gt-shirt' },
-      recognized: true,
-    });
-    expect(ask.messages[0]).toMatchObject({
+  it('recognition runs right after the upload and asks the seller to confirm the kind', async () => {
+    const { deps, calls } = fakeDeps(KIND);
+    const r = await run(deps, [() => photo(1)]);
+    expect(calls.recognize).toEqual([
+      { garmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg' },
+    ]);
+    expect(r.session).toMatchObject({ state: 'CONFIRM_KIND', kind: 'Shirt' });
+    expect(r.messages[0]).toMatchObject({
       kind: 'buttons',
-      text: 'Looks like: Shirt. Is that right?',
+      text: "I've analysed the image and it looks like a shirt.\nIs this correct?",
     });
-    const r = await handle(ask.session, tap(ask, 'confirm'), CTX, deps);
+    expect(buttonTitles(r.messages[0])).toEqual(['Yes, continue', 'No, different item']);
+  });
+
+  it('Yes asks the gender, then goes on with that gender’s own type', async () => {
+    const { deps, calls } = fakeDeps(KIND);
+    const ask = await run(deps, [() => photo(1), (x) => tap(x, 'confirm')]);
+    expect(ask.session.state).toBe('ASK_GENDER');
+    expect(listOf(ask)?.text).toBe('Great! 👍\nCreate this catalogue for:');
+    const r = await handle(ask.session, tap(ask, 'gender', 'women'), CTX, deps);
+    expect(calls.mapped).toEqual([{ label: 'Shirt', gender: 'women' }]);
     expect(r.session).toMatchObject({
       state: 'PICK_LOOKS',
       gender: 'women',
@@ -204,53 +216,46 @@ describe('engine: photo, gender and garment type', () => {
       recognized: true,
       faceId: 'face-1',
     });
+    expect(r.session.kind).toBeUndefined();
   });
 
-  it('recognised: No sends the seller to the list and counts a correction', async () => {
-    const { deps, calls } = fakeDeps({
-      resolveRecognition: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
-    });
-    const ask = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
-    const r = await handle(ask.session, tap(ask, 'change'), CTX, deps);
-    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
-    expect(r.session.garmentType).toBeUndefined();
-    expect(r.session.garmentKey).toContain('000000000001');
+  it('No asks the gender, then shows that gender’s list and counts a correction', async () => {
+    const { deps, calls } = fakeDeps(KIND);
+    const ask = await run(deps, [() => photo(1), (x) => tap(x, 'change')]);
+    expect(ask.session.state).toBe('ASK_GENDER');
+    expect(ask.session.kind).toBeUndefined();
+    expect(listOf(ask)?.text).toBe('Create this catalogue for:');
     expect(calls.corrected).toBe(1);
+    const r = await handle(ask.session, tap(ask, 'gender', 'women'), CTX, deps);
+    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
+    expect(calls.mapped).toEqual([]);
   });
 
-  it('recognition starts with the upload and is collected at the gender tap', async () => {
-    const { deps, calls } = fakeDeps();
-    const asked = await run(deps, [() => photo(1)]);
-    expect(asked.session.state).toBe('ASK_GENDER');
-    expect(asked.session.recognition).toBeDefined();
-    expect(calls.recognize).toEqual([
-      { garmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg' },
+  it('a kind the tapped gender does not have goes to that gender’s list', async () => {
+    const { deps } = fakeDeps({ ...KIND, typeForKind: async () => null });
+    const r = await run(deps, [
+      () => photo(1),
+      (x) => tap(x, 'confirm'),
+      (x) => tap(x, 'gender', 'boys'),
     ]);
-    expect(calls.resolved).toEqual([]);
-    const r = await handle(asked.session, tap(asked, 'gender', 'boys'), CTX, deps);
-    expect(calls.resolved).toEqual(['boys']);
-    expect(r.session.recognition).toBeUndefined();
-  });
-
-  it('not recognised: the garment-type list, then a pick goes to pose picking', async () => {
-    const { deps } = fakeDeps();
-    const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
-    expect(list.session.state).toBe('ASK_GARMENT_TYPE');
-    expect(listOf(list)?.text).toBe('Which garment is it?');
-    const r = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
-    expect(r.session).toMatchObject({ state: 'PICK_LOOKS', recognized: false });
+    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'boys' });
+    expect(r.session.kind).toBeUndefined();
   });
 
   it('a recognised type the bot cannot offer hands off to the studio, keeps the session and reports why', async () => {
     const { deps, calls } = fakeDeps({
-      resolveRecognition: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
+      ...KIND,
+      typeForKind: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
       getReadiness: async () => ({ status: 'blocked', reasons: ['mannequin_flow'] }),
     });
-    const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    const r = await run(deps, [
+      () => photo(1),
+      (x) => tap(x, 'confirm'),
+      (x) => tap(x, 'gender', 'women'),
+    ]);
     expect(texts(r.messages)[0]).toMatch(
       /^Saree catalogs can't be made on WhatsApp yet\. You can create one in the web studio: https:\/\/app\.test\/studio\?draft=/,
     );
-    // The seller keeps their photo and gender and gets the type list.
     expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
     expect(r.session.garmentKey).toBeDefined();
     expect(calls.unavailable).toEqual([
@@ -264,15 +269,29 @@ describe('engine: photo, gender and garment type', () => {
 
   it('a hand-off with no type list to offer ends at the menu without "choose another type"', async () => {
     const { deps } = fakeDeps({
-      resolveRecognition: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
+      ...KIND,
+      typeForKind: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
       getReadiness: async () => ({ status: 'blocked', reasons: ['mannequin_flow'] }),
       listGarmentTypes: async () => [],
     });
-    const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    const r = await run(deps, [
+      () => photo(1),
+      (x) => tap(x, 'confirm'),
+      (x) => tap(x, 'gender', 'women'),
+    ]);
     const sent = texts(r.messages);
     expect(sent[0]).toMatch(/^Saree catalogs can't be made .*https:\/\/app\.test\/studio\?draft=/);
     expect(sent.join('\n')).not.toContain('Or choose another type.');
     expect(r.session.state).toBe('MAIN_MENU');
+  });
+
+  it('not recognised: the garment-type list, then a pick goes to pose picking', async () => {
+    const { deps } = fakeDeps();
+    const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    expect(list.session.state).toBe('ASK_GARMENT_TYPE');
+    expect(listOf(list)?.text).toBe('Which garment is it?');
+    const r = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
+    expect(r.session).toMatchObject({ state: 'PICK_LOOKS', recognized: false });
   });
 
   it('no template, no face, or no eligible look hands off and the reason is reported', async () => {
@@ -404,13 +423,11 @@ describe('engine: pose cards', () => {
   });
 
   it('Change after a recognised type counts a correction; after a list pick it does not', async () => {
-    const recognised = fakeDeps({
-      resolveRecognition: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
-    });
+    const recognised = fakeDeps(KIND);
     const r1 = await run(recognised.deps, [
       () => photo(1),
-      (x) => tap(x, 'gender', 'women'),
       (x) => tap(x, 'confirm'),
+      (x) => tap(x, 'gender', 'women'),
       (x) => tap(x, 'change'),
     ]);
     expect(r1.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });

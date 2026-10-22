@@ -5,7 +5,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getResolutionTierConfig } from '../../lib/resolution-config.js';
 import { listCatalogueTemplates, listFaces, listGarmentTypes } from '../models/queries.js';
-import { recordRecognitionCorrected, resolveRecognition, startRecognition } from './classify.js';
+import { recognizeKind, recordRecognitionCorrected, typeForKind } from './classify.js';
 import { buildPool } from './engine/rules.js';
 import type {
   AspectRatio,
@@ -101,8 +101,8 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
       );
     },
 
-    startRecognition: (garmentKey) => startRecognition(app, garmentKey),
-    resolveRecognition: (ticket, gender) => resolveRecognition(app, ticket, gender),
+    recognizeKind: (garmentKey) => recognizeKind(app, garmentKey),
+    typeForKind: (label, gender) => typeForKind(app, label, gender),
     recordRecognitionCorrected,
     // Info, not warn: it is admin data, not a fault, but it is the only trace
     // of why a seller was told a type "isn't available on WhatsApp yet".

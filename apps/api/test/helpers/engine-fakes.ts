@@ -59,7 +59,7 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     // The idempotency key each createRun call was given (ctx.messageId).
     createRunKeys: [] as string[],
     recognize: [] as { garmentKey: string }[],
-    resolved: [] as string[],
+    mapped: [] as { label: string; gender: string }[],
     corrected: 0,
     unavailable: [] as UnavailableReport[],
   };
@@ -68,14 +68,8 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     getUserDefaults: async () => ({ aspectRatio: '3:4', resolution: 'HD' }),
     getBalance: async () => 50,
     listGarmentTypes: async () => [GT_SHIRT],
-    startRecognition: async (garmentKey) => {
-      calls.recognize.push({ garmentKey });
-      return { requestId: `r${calls.recognize.length}`, expiresAt: 0 };
-    },
-    resolveRecognition: async (_ticket, gender) => {
-      calls.resolved.push(gender);
-      return null;
-    },
+    recognizeKind: async () => null,
+    typeForKind: async () => null,
     recordRecognitionCorrected: () => {
       calls.corrected++;
     },
@@ -103,6 +97,18 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
       studio: 'https://app.test/studio',
     },
     ...over,
+  };
+  // Logged around any override, so a test that supplies an answer still sees
+  // what the engine asked.
+  const recognizeKind = deps.recognizeKind;
+  const typeForKind = deps.typeForKind;
+  deps.recognizeKind = async (garmentKey) => {
+    calls.recognize.push({ garmentKey });
+    return recognizeKind(garmentKey);
+  };
+  deps.typeForKind = async (label, gender) => {
+    calls.mapped.push({ label, gender });
+    return typeForKind(label, gender);
   };
   return { deps, calls };
 }

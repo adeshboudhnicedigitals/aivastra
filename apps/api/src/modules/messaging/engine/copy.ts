@@ -39,12 +39,17 @@ export const COPY = {
     `Send a photo of your garment to start a catalog, or type MENU at any time. Need a person? ${help}`,
 
   askGarmentPhoto: 'Send a photo of your garment, laid flat and fully visible.',
-  askGender: 'Create catalogue for:',
+  askGender: 'Create this catalogue for:',
+  // After "Yes, continue" the confirmation is acknowledged first (Flow 2).
+  askGenderConfirmed: 'Great! 👍\nCreate this catalogue for:',
+  btnYesContinue: 'Yes, continue',
+  btnNoDifferent: 'No, different item',
+  kindGuess: (kind: string) => {
+    const name = kind.trim().toLowerCase();
+    return `I've analysed the image and it looks like ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}.\nIs this correct?`;
+  },
   genders: { women: 'Women', men: 'Men', boys: 'Boys', girls: 'Girls' } as const,
   askGarmentType: 'Which garment is it?',
-  confirmGarment: (label: string) => `Looks like: ${label}. Is that right?`,
-  btnYes: 'Yes',
-  btnNo: 'No, change',
   // The draft link carries the photo once the studio page reads `?draft=`, so
   // until then this wording must not claim the photo is saved. `offerList` is
   // false when there is no type list to follow, so the text does not point at one.

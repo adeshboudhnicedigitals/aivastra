@@ -5,12 +5,7 @@ import {
   garmentRecognitionResultKey,
 } from '@aivastra/types';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  recognizeKind,
-  resolveRecognition,
-  startRecognition,
-  typeForKind,
-} from '../../src/modules/messaging/classify';
+import { recognizeKind, typeForKind } from '../../src/modules/messaging/classify';
 import type { Gender } from '../../src/modules/messaging/engine/types';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
@@ -77,8 +72,8 @@ describe('garment recognition (api side)', () => {
 
   // Both halves back to back, as the engine does across the gender question.
   async function recognize(key: string, gender: Gender, opts: { budgetMs?: number } = {}) {
-    const ticket = await startRecognition(app, key, opts);
-    return ticket ? resolveRecognition(app, ticket, gender) : null;
+    const kind = await recognizeKind(app, key, opts);
+    return kind ? typeForKind(app, kind.label, gender) : null;
   }
 
   it('recognizeKind returns the kind label, one option per label across genders', async () => {
@@ -188,7 +183,7 @@ describe('garment recognition (api side)', () => {
   it('with the flag off nothing is requested', async () => {
     const before = await app.redis.xlen(GARMENT_RECOGNITION_STREAM);
     const off = { ...app, env: { ...app.env, GARMENT_RECOGNITION_ENABLED: false } } as TestApp;
-    expect(await startRecognition(off, 'inputs/x/garment.jpg')).toBeNull();
+    expect(await recognizeKind(off, 'inputs/x/garment.jpg')).toBeNull();
     expect(await app.redis.xlen(GARMENT_RECOGNITION_STREAM)).toBe(before);
   });
 });

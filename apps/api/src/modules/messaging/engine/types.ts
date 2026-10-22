@@ -4,25 +4,18 @@ import type { Readiness, ReadinessReason } from '../readiness.js';
 
 export type { Readiness, ReadinessReason };
 
-/** A recognition request in flight: id to find the answer, deadline for the wait. */
-export interface RecognitionTicket {
-  requestId: string;
-  expiresAt: number;
-}
-
 export type Gender = 'women' | 'men' | 'boys' | 'girls';
 // The four values PATCH /v1/me accepts as users.default_aspect_ratio.
 export type AspectRatio = '1:1' | '2:3' | '3:4' | '4:5';
 export type Resolution = 'HD' | '2K' | '4K';
 export type TryonBody = z.infer<typeof CreateTryOnJobRequest>;
 
-// Spec section 8 (amended 2026-10-14): photo → gender → (recognised and
-// confirmed, or listed) garment type → required extra photos → pose picks → generating → delivered.
+// Flow 2 (2026-10-22): photo → (kind confirmed) → gender → garment type → required extra photos → pose picks → generating → delivered.
 export type State =
   | 'MAIN_MENU'
   | 'ASK_GARMENT_PHOTO'
   | 'ASK_GENDER'
-  | 'CONFIRM_GARMENT_TYPE'
+  | 'CONFIRM_KIND'
   | 'ASK_GARMENT_TYPE'
   | 'ASK_EXTRA_PHOTO'
   | 'PICK_LOOKS'
@@ -112,8 +105,9 @@ export interface Session {
   garmentKey?: string;
   gender?: Gender;
   garmentType?: GarmentTypeOption;
-  // The recognition request sent with the photo; resolved once the gender is known.
-  recognition?: RecognitionTicket;
+  // What recognition said the photo is, as a kind label ("Top"), kept from the
+  // upload until the gender is known (types are per-gender rows).
+  kind?: string;
   // The type came from recognition, not the list: a later "Change" is counted
   // as a correction (spec 8a metrics).
   recognized?: boolean;
@@ -193,11 +187,12 @@ export interface EngineDeps {
   getBalance(userId: string): Promise<number>;
   // Types the bot can offer: standard try-on with at least one template mapping.
   listGarmentTypes(gender: Gender): Promise<GarmentTypeOption[]>;
-  // Spec 8a. Started with the photo, resolved after the gender tap. Null means
-  // "show the list" — for every failure, never an error.
-  startRecognition(garmentKey: string): Promise<RecognitionTicket | null>;
-  resolveRecognition(
-    ticket: RecognitionTicket,
+  // Spec 8a, awaited at the image event: the photo's kind, or null — for every
+  // failure, never an error — in which case the list is the way out.
+  recognizeKind(garmentKey: string): Promise<{ label: string } | null>;
+  // The kind as the tapped gender's own type; null when that gender has none.
+  typeForKind(
+    label: string,
     gender: Gender,
   ): Promise<{ garmentTypeId: string; label: string } | null>;
   recordRecognitionCorrected(): void;
