@@ -4,9 +4,11 @@ import { decodeReplyId, encodeReplyId } from './reply-id.js';
 import {
   buildPool,
   buildTryonBody,
+  drawLooks,
   firstMissingSlot,
   groupByTemplate,
-  MAX_PICKS,
+  POSE_COUNTS,
+  poseCountOptions,
   requiredPhotoSlots,
   retryLookIds,
 } from './rules.js';
@@ -24,7 +26,6 @@ import type {
   State,
 } from './types.js';
 
-const CARDS_PER_PAGE = 10;
 // 9 rows + a "More" row keeps a list inside WhatsApp's 10-row limit.
 const ROWS_PER_PAGE = 9;
 // The order management gave: "Create catalogue for (Women, Men, Boys, Girls)".
@@ -68,7 +69,7 @@ function garmentCleared(s: Session): Session {
 
 /** Back to choosing poses; garment, type, extra photos, face and templates kept. */
 function picksCleared(s: Session): Session {
-  return { ...s, picked: [], runs: undefined, unstarted: undefined };
+  return { ...s, picked: [], count: undefined, runs: undefined, unstarted: undefined };
 }
 
 const text = (t: string): OutboundMessage => ({ kind: 'text', text: t });
@@ -98,34 +99,6 @@ function listMsg(s: Session, body: string, rows: Row[]): OutboundMessage {
     page.push({ id: encodeReplyId(s.nonce, 'more', ''), title: COPY.btnMore });
   }
   return { kind: 'list', text: body, buttonLabel: COPY.listChoose, rows: page };
-}
-
-/** A carousel page plus a buttons message for More / extra actions. */
-function cardsMsgs(
-  s: Session,
-  body: string,
-  action: string,
-  items: { id: string; label: string; imageUrl: string }[],
-  extra: [action: string, value: string, title: string][] = [],
-  footer: string = COPY.moreOptions,
-): Out {
-  const start = s.page * CARDS_PER_PAGE;
-  const page = items.slice(start, start + CARDS_PER_PAGE);
-  const out: Out = [
-    {
-      kind: 'cards',
-      text: body,
-      cards: page.map((i) => ({
-        id: encodeReplyId(s.nonce, action, i.id),
-        imageUrl: i.imageUrl,
-      })),
-    },
-  ];
-  const more: [string, string, string][] =
-    start + CARDS_PER_PAGE < items.length ? [['more', '', COPY.btnMore]] : [];
-  const actions = [...more, ...extra];
-  if (actions.length > 0) out.push(buttons(s, footer, actions));
-  return out;
 }
 
 interface Loaded {
@@ -215,7 +188,6 @@ async function handoff(
 async function chooseGarmentType(
   s: Session,
   gt: GarmentTypeOption,
-  recognized: boolean,
   out: Out,
   ctx: EngineContext,
   deps: EngineDeps,
@@ -224,7 +196,6 @@ async function chooseGarmentType(
   const withType: Session = {
     ...garmentCleared(s),
     garmentType: gt,
-    recognized,
     faceId: faceId ?? undefined,
   };
   if (!faceId) {
@@ -234,7 +205,7 @@ async function chooseGarmentType(
   if (!loaded) return handoff(s, gt, out, ctx, deps);
   return enter(
     loaded.session,
-    firstMissingSlot(loaded.session) ? 'ASK_EXTRA_PHOTO' : 'PICK_LOOKS',
+    firstMissingSlot(loaded.session) ? 'ASK_EXTRA_PHOTO' : 'ASK_POSE_COUNT',
     out,
     ctx,
     deps,
@@ -254,7 +225,7 @@ async function createRejected(
   // A look deactivated or a mapping changed after the cards were shown.
   if (err.code === 'BAD_CATALOG') {
     out.push(text(COPY.posesChanged));
-    return enter({ ...s, picked: [] }, 'PICK_LOOKS', out, ctx, deps);
+    return enter({ ...s, picked: [], count: undefined }, 'ASK_POSE_COUNT', out, ctx, deps);
   }
   out.push(text(err.message));
   return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
@@ -283,7 +254,7 @@ async function generate(
     // An admin removed a look since the cards were shown: nothing is charged and
     // the seller reviews what is left (ls.picked is already pruned).
     out.push(text(COPY.posesChanged));
-    return enter(ls, 'PICK_LOOKS', out, ctx, deps);
+    return enter(ls, 'ASK_POSE_COUNT', out, ctx, deps);
   }
 
   const groups = groupByTemplate(ls.templates ?? [], lookIds);
@@ -314,10 +285,8 @@ async function generate(
     }
   }
 
-  // Shown, not charged, from the pick prompt's quote: the charge itself is
-  // createJob's own resolution of the same plan (D17).
   const started = runs.reduce((n, r) => n + r.images, 0);
-  out.push(text(COPY.generating(started, started * (ls.perImage ?? 0))));
+  out.push(text(COPY.generating(started)));
   if (unstarted.length > 0) {
     out.push(text(COPY.partlyStarted(started, lookIds.length, reason)));
   }
@@ -398,7 +367,7 @@ async function render(
 
     case 'ASK_EXTRA_PHOTO': {
       const slot = firstMissingSlot(s);
-      if (!slot) return enter(s, 'PICK_LOOKS', out, ctx, deps);
+      if (!slot) return enter(s, 'ASK_POSE_COUNT', out, ctx, deps);
       const gt = s.garmentType;
       const label =
         slot === 'lowerFront' ? (gt?.lowerUploadLabel ?? null) : (gt?.thirdUploadLabel ?? null);
@@ -408,54 +377,58 @@ async function render(
       return done();
     }
 
-    case 'PICK_LOOKS': {
+    case 'ASK_POSE_COUNT': {
       const loaded = await loadPool(s, deps);
-      if (!loaded?.session.templates)
+      const first = loaded?.session.templates?.[0];
+      if (!loaded || !first || !s.gender || !s.garmentType) {
         return handoff(s, s.garmentType ?? { id: '', label: 'These' }, out, ctx, deps);
+      }
       const ls = loaded.session;
-      let perImage = ls.perImage;
-      let balance = ls.balance;
-      // Priced once per visit to the step (page 0), not on every "More" page.
-      if (ls.page === 0 || perImage === undefined || balance === undefined) {
-        const first = ls.templates?.[0];
-        if (!first) return handoff(s, s.garmentType ?? { id: '', label: 'These' }, out, ctx, deps);
-        try {
-          // One look prices one image: the cost per image comes from the same plan
-          // resolution the web uses (D17); the selection multiplies it.
-          const q = await deps.quote(ctx.userId, buildTryonBody(ls, first, [first.looks[0].id]));
-          perImage = q.perImage;
-          balance = q.balance;
-        } catch (err) {
-          // Anything createJob would reject surfaces here, before any credits are taken.
-          if (!(err instanceof AppError)) throw err;
-          out.push(text(err.message));
-          return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
-        }
+      let q: { perImage: number; balance: number };
+      try {
+        // One look prices one image: the cost per image comes from the same plan
+        // resolution the web uses (D17); the count multiplies it.
+        q = await deps.quote(ctx.userId, buildTryonBody(ls, first, [first.looks[0].id]));
+      } catch (err) {
+        // Anything createJob would reject surfaces here, before any credits are taken.
+        if (!(err instanceof AppError)) throw err;
+        out.push(text(err.message));
+        return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
       }
-      const next: Session = { ...ls, perImage, balance };
-      if (next.page === 0) {
-        out.push(
-          buttons(next, COPY.pickPrompt(perImage, balance), [
-            ['change', '', COPY.btnChangeGarment],
-            ['menu', 'menu', COPY.btnMenu],
-          ]),
-        );
-      }
-      const n = next.picked.length;
+      const next: Session = { ...ls, perImage: q.perImage, balance: q.balance, count: undefined };
+      const options = poseCountOptions(loaded.cards.length, q.perImage, q.balance);
+      if (options.length === 0) return enter(next, 'NO_CREDITS', out, ctx, deps);
       out.push(
-        ...cardsMsgs(
+        listMsg(
           next,
-          COPY.pickCards,
-          'look',
-          loaded.cards,
-          [
-            ['generate', '', COPY.btnGenerate],
-            ['clear', '', COPY.btnClear],
-          ],
-          n > 0 ? COPY.selected(n, n * perImage) : COPY.pickFooter,
+          COPY.countPrompt(COPY.genders[s.gender], s.garmentType.label, q.perImage, q.balance),
+          options.map((n) => ({
+            action: 'count',
+            value: String(n),
+            title: COPY.countOption(n, n * q.perImage),
+          })),
         ),
       );
       return done(next);
+    }
+
+    case 'CONFIRM_GENERATE': {
+      const { count: n, perImage, gender, garmentType } = s;
+      if (!n || perImage === undefined || !gender || !garmentType) {
+        return enter(s, 'ASK_POSE_COUNT', out, ctx, deps);
+      }
+      const remaining = (await deps.getBalance(ctx.userId)) - n * perImage;
+      out.push(
+        buttons(
+          s,
+          COPY.confirmGenerate(n, COPY.genders[gender], garmentType.label, n * perImage, remaining),
+          [
+            ['generate', '', COPY.btnGenerate],
+            ['recount', '', COPY.btnDifferentNumber],
+          ],
+        ),
+      );
+      return done();
     }
 
     case 'NO_CREDITS':
@@ -539,62 +512,46 @@ async function onReply(
         return handoff(withGender, { id: hit.garmentTypeId, label: hit.label }, out, ctx, deps);
       }
       // The kind was confirmed before the gender, so no second "Looks like".
-      return chooseGarmentType({ ...withGender, kind: undefined }, gt, true, out, ctx, deps);
+      return chooseGarmentType({ ...withGender, kind: undefined }, gt, out, ctx, deps);
     }
 
     case 'ASK_GARMENT_TYPE': {
       const gt = (await deps.listGarmentTypes(s.gender as Gender)).find((t) => t.id === value);
       if (action !== 'gt' || !gt) return reprompt();
-      return chooseGarmentType(s, gt, false, out, ctx, deps);
+      return chooseGarmentType(s, gt, out, ctx, deps);
     }
 
-    case 'PICK_LOOKS': {
-      if (action === 'change') {
-        if (s.recognized) deps.recordRecognitionCorrected();
-        return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
-      }
+    case 'ASK_POSE_COUNT': {
+      const n = Number(value);
+      if (action !== 'count' || !(POSE_COUNTS as readonly number[]).includes(n)) return reprompt();
+      return enter({ ...s, count: n }, 'CONFIRM_GENERATE', out, ctx, deps);
+    }
+
+    case 'CONFIRM_GENERATE': {
+      if (action === 'recount')
+        return enter({ ...s, count: undefined }, 'ASK_POSE_COUNT', out, ctx, deps);
+      const n = s.count;
+      if (action !== 'generate' || !n) return reprompt();
+      const loaded = await loadPool(s, deps);
+      if (!loaded) return handoff(s, s.garmentType ?? { id: '', label: 'These' }, out, ctx, deps);
+      const ls = loaded.session;
+      // Tapping Generate is the agreement to spend (D45). Caught here, before
+      // any run exists; createJob checks again.
       const perImage = s.perImage ?? 0;
-      // Not a re-render: re-sending the carousel after every tap would bury the
-      // chat. The nonce stays, so every earlier Generate button acts on the
-      // current selection.
-      const status = (picks: string[]): OutboundMessage =>
-        buttons(s, COPY.selected(picks.length, picks.length * perImage), [
-          ['generate', '', COPY.btnGenerate],
-          ['clear', '', COPY.btnClear],
-        ]);
-      if (action === 'clear') {
-        out.push(status([]));
-        return { session: { ...s, picked: [] }, messages: out };
+      if (n * perImage > (await deps.getBalance(ctx.userId))) {
+        return enter(ls, 'NO_CREDITS', out, ctx, deps);
       }
-      if (action === 'generate') {
-        if (s.picked.length === 0) {
-          out.push(text(COPY.pickAtLeastOne));
-          return { session: s, messages: out };
-        }
-        // Tapping Generate is the agreement to spend (D45). Caught here, before
-        // any run exists; createJob checks again.
-        const balance = await deps.getBalance(ctx.userId);
-        if (s.picked.length * perImage > balance) return enter(s, 'NO_CREDITS', out, ctx, deps);
-        return generate(s, s.picked, out, ctx, deps);
-      }
-      const inPool = (s.templates ?? []).some((t) => t.looks.some((l) => l.id === value));
-      if (action !== 'look' || !inPool) return reprompt();
-      if (s.picked.includes(value)) {
-        const without = s.picked.filter((id) => id !== value);
-        out.push(status(without));
-        return { session: { ...s, picked: without }, messages: out };
-      }
-      if (s.picked.length >= MAX_PICKS) {
-        out.push(text(COPY.pickCap(MAX_PICKS)));
-        return { session: s, messages: out };
-      }
-      const next = [...s.picked, value];
-      out.push(status(next));
-      return { session: { ...s, picked: next }, messages: out };
+      const draw = drawLooks(
+        loaded.cards.map((c) => c.id),
+        ls.seenLooks ?? [],
+        n,
+        deps.shuffle,
+      );
+      return generate({ ...ls, picked: draw.ids, seenLooks: draw.seen }, draw.ids, out, ctx, deps);
     }
 
     case 'DELIVERED': {
-      if (action === 'more_poses') return enter(picksCleared(s), 'PICK_LOOKS', out, ctx, deps);
+      if (action === 'more_poses') return enter(picksCleared(s), 'ASK_POSE_COUNT', out, ctx, deps);
       if (action === 'retry') {
         const ids = retryLookIds(s);
         if (ids.length === 0) return reprompt();
@@ -644,7 +601,8 @@ type LegacySession = Session & {
 function upgradeSession(prev: Session): Session | null {
   const old = prev as LegacySession;
   if (old.runId === undefined) {
-    return old.template === undefined && old.count === undefined ? prev : null;
+    // `count` is a current field again (pose count), so only `template` marks the old shape.
+    return old.template === undefined ? prev : null;
   }
   const { template: _t, count: _c, runId, runImages, failedPoseIds, ...rest } = old;
   return {
@@ -731,7 +689,7 @@ export async function handle(
           const next = { ...s, photos: { ...s.photos, [slot]: event.garmentKey } };
           return enter(
             next,
-            firstMissingSlot(next) ? 'ASK_EXTRA_PHOTO' : 'PICK_LOOKS',
+            firstMissingSlot(next) ? 'ASK_EXTRA_PHOTO' : 'ASK_POSE_COUNT',
             out,
             ctx,
             deps,
@@ -769,8 +727,8 @@ export async function handle(
 
     case 'creditsAdded':
       out.push(text(COPY.creditsAdded(event.credits)));
-      // Back to the cards with the selection kept (spec section 6).
-      if (s.state === 'NO_CREDITS') return enter(s, 'PICK_LOOKS', out, ctx, deps);
+      // Back to the count question (spec section 6).
+      if (s.state === 'NO_CREDITS') return enter(s, 'ASK_POSE_COUNT', out, ctx, deps);
       return { session: s, messages: out };
   }
 }

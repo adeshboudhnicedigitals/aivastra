@@ -10,7 +10,7 @@ export type AspectRatio = '1:1' | '2:3' | '3:4' | '4:5';
 export type Resolution = 'HD' | '2K' | '4K';
 export type TryonBody = z.infer<typeof CreateTryOnJobRequest>;
 
-// Flow 2 (2026-10-22): photo → (kind confirmed) → gender → garment type → required extra photos → pose picks → generating → delivered.
+// Flow 2 (2026-10-22): photo → (kind confirmed) → gender → garment type → required extra photos → pose count → confirm → generating → delivered.
 export type State =
   | 'MAIN_MENU'
   | 'ASK_GARMENT_PHOTO'
@@ -18,7 +18,8 @@ export type State =
   | 'CONFIRM_KIND'
   | 'ASK_GARMENT_TYPE'
   | 'ASK_EXTRA_PHOTO'
-  | 'PICK_LOOKS'
+  | 'ASK_POSE_COUNT'
+  | 'CONFIRM_GENERATE'
   | 'NO_CREDITS'
   | 'GENERATING'
   | 'DELIVERED';
@@ -108,9 +109,6 @@ export interface Session {
   // What recognition said the photo is, as a kind label ("Top"), kept from the
   // upload until the gender is known (types are per-gender rows).
   kind?: string;
-  // The type came from recognition, not the list: a later "Change" is counted
-  // as a correction (spec 8a metrics).
-  recognized?: boolean;
   photos: Partial<Record<PhotoSlot, string>>;
   faceId?: string;
   // Every active template of the type, with only the looks the bot can generate
@@ -119,8 +117,12 @@ export interface Session {
   // Cost per image and balance as shown with the pose cards (D45).
   perImage?: number;
   balance?: number;
-  // Picked look ids, in tap order.
+  // How many poses the seller asked for (one of POSE_COUNTS), until Generate.
+  count?: number;
+  // The looks drawn for the last Generate (what Retry reads).
   picked: string[];
+  // Looks already generated for this garment, so "More poses" shows new ones.
+  seenLooks?: string[];
   // One entry per template group of the last Generate.
   runs?: RunRef[];
   // Picked looks whose run could not be created (a later group failed after an
@@ -185,6 +187,8 @@ export interface EngineDeps {
   newNonce(): string;
   getUserDefaults(userId: string): Promise<{ aspectRatio: AspectRatio; resolution: Resolution }>;
   getBalance(userId: string): Promise<number>;
+  // Randomises look ids (injected so the engine stays pure and tests can pin the draw).
+  shuffle(ids: string[]): string[];
   // Types the bot can offer: standard try-on with at least one template mapping.
   listGarmentTypes(gender: Gender): Promise<GarmentTypeOption[]>;
   // Spec 8a, awaited at the image event: the photo's kind, or null — for every

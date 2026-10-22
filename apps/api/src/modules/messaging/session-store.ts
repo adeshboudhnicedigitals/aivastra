@@ -14,9 +14,16 @@ export async function loadSession(
 ): Promise<Session | null> {
   const raw = await redis.get(key(channel, externalId));
   if (!raw) return null;
-  const s = JSON.parse(raw) as Session;
+  const s = JSON.parse(raw) as Session & { recognition?: unknown };
   // A session written by an incompatible engine version starts over cleanly.
-  return s.v === 1 ? s : null;
+  if (s.v !== 1) return null;
+  // Flow 2: pose picking became a count question and recognition no longer
+  // rides in the session; a session saved mid-step by the old flow carries on.
+  const state = s.state as string;
+  if (state === 'PICK_LOOKS') s.state = 'ASK_POSE_COUNT';
+  if (state === 'CONFIRM_GARMENT_TYPE') s.state = 'ASK_GARMENT_TYPE';
+  delete s.recognition;
+  return s;
 }
 
 export async function saveSession(

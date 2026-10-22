@@ -26,12 +26,11 @@ export const COPY = {
   btnStartOver: 'Start over',
   btnMorePoses: 'More poses',
   btnRetryFailed: 'Retry failed',
-  btnSelect: 'Select',
   btnChangeGarment: 'Change garment',
   btnGenerate: 'Generate',
-  btnClear: 'Clear',
+  btnSelect: 'Select',
+  btnDifferentNumber: 'Different number',
   listChoose: 'Choose',
-  moreOptions: 'More options:',
 
   credits: (balance: number, pricing: string) =>
     `You have ${balance} credits. Buy more on the website: ${pricing}`,
@@ -65,20 +64,40 @@ export const COPY = {
     third: (label: string | null, main: string | null) =>
       `${askMain(main)}Now send a photo of the ${photoName(label) ?? 'third garment'}.`,
   },
-  pickPrompt: (perImage: number, balance: number) =>
-    `Pick the poses you want. Each one is ${perImage} credits. Your balance: ${balance} credits.`,
-  pickCards: 'Tap a pose to select it. Tap it again to remove it.',
-  pickFooter: 'Select poses above, then tap Generate.',
-  selected: (n: number, credits: number) => `${n} selected · ${credits} credits`,
-  pickAtLeastOne: 'Tap at least one pose first.',
-  pickCap: (max: number) => `You can generate up to ${max} poses at a time.`,
+  countPrompt: (category: string, garment: string, perImage: number, balance: number) =>
+    `Great! Let's create your catalogue. ✨
+Category: ${category}
+Garment: ${garment}
+
+Credits per pose: ${perImage} credits
+Available balance: ${balance} credits
+
+How many poses would you like to generate for your catalogue?
+You can choose one option below. Each pose will use ${perImage} credits.`,
+  countOption: (n: number, credits: number) =>
+    `${n} ${n === 1 ? 'pose' : 'poses'} (${credits} credits)`,
+  confirmGenerate: (
+    n: number,
+    category: string,
+    garment: string,
+    credits: number,
+    remaining: number,
+  ) =>
+    `Perfect! You've selected ${n} ${n === 1 ? 'pose' : 'poses'}.
+Category: ${category} | Garment: ${garment}
+Credits required: ${credits} credits
+Remaining balance: ${remaining} credits
+
+Do you want to proceed with ${n} ${n === 1 ? 'pose' : 'poses'}?`,
   partlyStarted: (started: number, total: number, reason: string) =>
     `Started ${started} of ${total} ${total === 1 ? 'image' : 'images'}. The rest couldn't start: ${reason}`,
   noCredits: (pricing: string) =>
     `You don't have enough credits for this. Buy more on the website, then come back: ${pricing}`,
   creditsAdded: (n: number) => `${n} credits added.`,
-  generating: (n: number, credits: number) =>
-    `Working on ${n} ${n === 1 ? 'image' : 'images'}, ${credits} credits. I'll send each one here as it's ready.`,
+  generating: (n: number) =>
+    `Generating your ${n} ${n === 1 ? 'pose' : 'poses'}...
+We're creating your catalogue images.
+This may take a few seconds.`,
   stillGenerating: (finished: number, total: number) =>
     `Still generating: ${finished} of ${total} done.`,
   delivered: 'All done. What next?',

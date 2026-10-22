@@ -67,6 +67,7 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     newNonce: () => `n${++n}`,
     getUserDefaults: async () => ({ aspectRatio: '3:4', resolution: 'HD' }),
     getBalance: async () => 50,
+    shuffle: (ids) => ids,
     listGarmentTypes: async () => [GT_SHIRT],
     recognizeKind: async () => null,
     typeForKind: async () => null,

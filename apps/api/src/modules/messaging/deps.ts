@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { whatsappGarmentUnavailableTotal } from '@aivastra/observability';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
@@ -101,6 +101,14 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
       );
     },
 
+    shuffle: (ids) => {
+      const a = [...ids];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = randomInt(i + 1);
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    },
     recognizeKind: (garmentKey) => recognizeKind(app, garmentKey),
     typeForKind: (label, gender) => typeForKind(app, label, gender),
     recordRecognitionCorrected,
