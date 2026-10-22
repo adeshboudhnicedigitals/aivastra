@@ -7,8 +7,8 @@ import type { OutboundMessage } from '../../engine/types.js';
 const BODY_MAX = 1024;
 const BUTTON_TITLE_MAX = 20;
 const ROW_TITLE_MAX = 24;
+const FOOTER_MAX = 60;
 const ROW_DESC_MAX = 72;
-const CARD_BODY_MAX = 160;
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
 
 function replyButtons(text: string, buttons: { id: string; title: string }[]) {
@@ -59,6 +59,22 @@ export function renderMessage(m: OutboundMessage): Record<string, unknown>[] {
         },
       ];
 
+    case 'link':
+      return [
+        {
+          type: 'interactive',
+          interactive: {
+            type: 'cta_url',
+            body: { text: clip(m.text, BODY_MAX) },
+            ...(m.footer ? { footer: { text: clip(m.footer, FOOTER_MAX) } } : {}),
+            action: {
+              name: 'cta_url',
+              parameters: { display_text: clip(m.label, BUTTON_TITLE_MAX), url: m.url },
+            },
+          },
+        },
+      ];
+
     case 'cards': {
       if (m.cards.length === 0) return [];
       // A carousel needs 2–10 cards; one option becomes a single button message
@@ -67,7 +83,7 @@ export function renderMessage(m: OutboundMessage): Record<string, unknown>[] {
       // 2026-10-13), so the seller saw Select before the pose.
       if (m.cards.length === 1) {
         const [c] = m.cards;
-        const msg = replyButtons(`${c.title}\n\n${m.text}`, [{ id: c.id, title: COPY.btnSelect }]);
+        const msg = replyButtons(m.text, [{ id: c.id, title: COPY.btnSelect }]);
         return [
           {
             ...msg,
@@ -94,7 +110,6 @@ export function renderMessage(m: OutboundMessage): Record<string, unknown>[] {
                 card_index: i,
                 type: 'cta_url',
                 header: { type: 'image', image: { link: c.imageUrl } },
-                body: { text: clip(c.title, CARD_BODY_MAX) },
                 action: {
                   buttons: [
                     { type: 'quick_reply', quick_reply: { id: c.id, title: COPY.btnSelect } },

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   buildPool,
   buildTryonBody,
+  drawLooks,
   groupByTemplate,
-  MAX_PICKS,
+  POSE_COUNTS,
+  poseCountOptions,
   retryLookIds,
 } from '../src/modules/messaging/engine/rules';
 import type { Session, TemplateOption } from '../src/modules/messaging/engine/types';
@@ -17,7 +19,7 @@ const LOWER_ONLY: TemplateOption = {
 
 const session = (over: Partial<Session> = {}): Session => ({
   v: 1,
-  state: 'PICK_LOOKS',
+  state: 'ASK_POSE_COUNT',
   nonce: 'n1',
   page: 0,
   aspectRatio: '3:4',
@@ -153,6 +155,46 @@ describe('retryLookIds', () => {
   });
 });
 
-describe('MAX_PICKS', () => {
-  it('is 20', () => expect(MAX_PICKS).toBe(20));
+describe('poseCountOptions', () => {
+  it('offers 1, 2, 3, 5', () => expect([...POSE_COUNTS]).toEqual([1, 2, 3, 5]));
+  it('drops counts above the pool size', () =>
+    expect(poseCountOptions(3, 10, 1000)).toEqual([1, 2, 3]));
+  it('drops counts the balance cannot cover', () =>
+    expect(poseCountOptions(10, 10, 30)).toEqual([1, 2, 3]));
+  it('is empty when even one pose is unaffordable', () =>
+    expect(poseCountOptions(10, 10, 5)).toEqual([]));
+});
+
+describe('drawLooks', () => {
+  const identity = (ids: string[]) => ids;
+  const reverse = (ids: string[]) => [...ids].reverse();
+
+  it('draws n distinct pool ids through the shuffle', () => {
+    expect(drawLooks(['a', 'b', 'c', 'd'], [], 2, reverse)).toEqual({
+      ids: ['d', 'c'],
+      seen: ['d', 'c'],
+    });
+  });
+
+  it('avoids looks already seen and remembers the new ones', () => {
+    expect(drawLooks(['a', 'b', 'c', 'd'], ['a', 'b'], 2, identity)).toEqual({
+      ids: ['c', 'd'],
+      seen: ['a', 'b', 'c', 'd'],
+    });
+  });
+
+  it('tops up from seen looks when the unseen ones run out, and restarts the cycle', () => {
+    expect(drawLooks(['a', 'b', 'c'], ['a', 'b'], 3, identity)).toEqual({
+      ids: ['c', 'a', 'b'],
+      seen: ['c', 'a', 'b'],
+    });
+  });
+
+  it('returns the whole pool when n exceeds it', () => {
+    expect(drawLooks(['a', 'b'], [], 5, identity).ids).toEqual(['a', 'b']);
+  });
+
+  it('drops seen ids that left the pool', () => {
+    expect(drawLooks(['a', 'b'], ['gone'], 1, identity)).toEqual({ ids: ['a'], seen: ['a'] });
+  });
 });

@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { createEngineDeps } from './deps.js';
 import { handle } from './engine/engine.js';
+import { handleTryon } from './engine/tryon-engine.js';
 import type { EngineDeps, InboundEvent, OutboundMessage } from './engine/types.js';
 import { loadSession, saveSession } from './session-store.js';
+import { createTryonDeps } from './tryon-deps.js';
 
 export interface ConversationAccount {
   id: string;
@@ -16,8 +18,9 @@ export interface ConversationAccount {
  * engine, save, return what to send. The caller (plan 3's inbound consumer)
  * renders and sends the messages, and must process one sender's events one at
  * a time — two concurrent calls for one sender would overwrite each other's
- * session. A gender tap can take up to 8 s here (garment recognition, D48), so
- * the caller must not make other senders wait behind it.
+ * session. A photo can take up to RECOGNITION_BUDGET_MS (12 s) here (garment
+ * recognition at the photo step), so the caller must not make other senders
+ * wait behind it.
  */
 export async function runConversation(
   app: FastifyInstance,
@@ -27,12 +30,15 @@ export async function runConversation(
   deps: EngineDeps = createEngineDeps(app),
 ): Promise<OutboundMessage[]> {
   const prev = await loadSession(app.redis, account.channel, account.externalId);
-  const { session, messages } = await handle(
-    prev,
-    event,
-    { userId: account.userId, accountId: account.id, messageId },
-    deps,
-  );
+  const ctx = { userId: account.userId, accountId: account.id, messageId };
+  // WHATSAPP_BOT_FLOW=tryon swaps the whole reducer; both read and write the same
+  // session key, and each starts a session left by the other cleanly. The try-on
+  // engine checks the flow marker itself; the catalogue one ignores it, so it is
+  // handed null instead of a try-on session it would otherwise drive mid-step.
+  const { session, messages } =
+    app.env.WHATSAPP_BOT_FLOW === 'tryon'
+      ? await handleTryon(prev, event, ctx, createTryonDeps(app))
+      : await handle(prev?.flow === 'tryon' ? null : prev, event, ctx, deps);
   await saveSession(app.redis, account.channel, account.externalId, session);
   return messages;
 }

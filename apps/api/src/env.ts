@@ -202,6 +202,10 @@ const Env = z.object({
   // Approved utility template sent when results finish after the 24-hour window
   // closed (D26). Unset = such results simply wait for the seller's next message.
   WHATSAPP_RESULTS_TEMPLATE: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  // Which bot flow answers: 'catalogue' (garment type, templates) or 'tryon' (photo,
+  // gender, pose count; spec 2026-10-22-whatsapp-tryon-flow-design). Read per message,
+  // so a restart switches it.
+  WHATSAPP_BOT_FLOW: z.enum(['catalogue', 'tryon']).default('catalogue'),
   // WhatsApp bot garment recognition on our own GPU (spec 8a). Off: the bot
   // always shows the garment-type list — the state until the dispatcher's
   // classify lane ships, and the way back if recognition isn't good enough.
