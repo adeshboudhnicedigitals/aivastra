@@ -39,38 +39,69 @@ const isLink = (v: unknown): v is [string, number] =>
 
 /**
  * Removes an optional image node from the graph the way ComfyUI's own Bypass does when
- * exporting API JSON: each node that consumes the image is a pass-through (it carries a
- * `configs` link from upstream), so whatever read its output is rewired to that upstream
- * link and the node is dropped, along with the image node itself.
+ * exporting API JSON. Each node that consumes the image is dropped and whatever read its
+ * output is rewired to the link it would have passed through:
+ *  - a `configs` consumer is a pass-through of its upstream `configs` link;
+ *  - an image stitch fed only through `image2` passes through its `image1`;
+ *  - a non-terminal consumer whose every link comes from the image (e.g. background removal)
+ *    is a pure transform of it, so it is dropped the same way, recursively.
  *
- * Fails closed if a consumer has no `configs` link to fall back on — leaving the node in
+ * Fails closed if a consumer has none of these to fall back on — leaving the node in
  * would feed the template's placeholder image to the model as a real reference.
  */
 function bypassOptionalImageNode(workflow: Workflow, imageNodeId: string, role: string): void {
   requireNode(workflow, imageNodeId, role);
 
-  const consumers = Object.entries(workflow).filter(
-    ([id, node]) =>
-      id !== imageNodeId &&
-      Object.values(node.inputs).some((v) => isLink(v) && v[0] === imageNodeId),
-  );
+  const linksTo = (node: WorkflowNode, id: string): string[] =>
+    Object.entries(node.inputs)
+      .filter(([, v]) => isLink(v) && v[0] === id)
+      .map(([key]) => key);
 
-  for (const [consumerId, consumer] of consumers) {
-    const upstream = consumer.inputs.configs;
-    if (!isLink(upstream)) {
-      throw new Error(
-        `Workflow node "${consumerId}" consumes the optional ${role} node "${imageNodeId}" but has ` +
-          `no linked "configs" input to bypass to — cannot drop the ${role} when none is selected`,
-      );
+  const consumersOf = (id: string) =>
+    Object.entries(workflow).filter(([cid, node]) => cid !== id && linksTo(node, id).length > 0);
+
+  const passThroughOf = (consumer: WorkflowNode, id: string): [string, number] | null => {
+    if (isLink(consumer.inputs.configs) && consumer.inputs.configs[0] !== id) {
+      return consumer.inputs.configs;
     }
-    for (const node of Object.values(workflow)) {
-      for (const [key, value] of Object.entries(node.inputs)) {
-        if (isLink(value) && value[0] === consumerId) node.inputs[key] = upstream;
+    const viaImage2 = linksTo(consumer, id).join() === 'image2';
+    if (
+      consumer.class_type === 'AILab_ImageStitch' &&
+      viaImage2 &&
+      isLink(consumer.inputs.image1)
+    ) {
+      return consumer.inputs.image1;
+    }
+    return null;
+  };
+
+  const drop = (id: string): void => {
+    for (const [consumerId, consumer] of consumersOf(id)) {
+      const upstream = passThroughOf(consumer, id);
+      if (upstream) {
+        for (const node of Object.values(workflow)) {
+          for (const [key, value] of Object.entries(node.inputs)) {
+            if (isLink(value) && value[0] === consumerId) node.inputs[key] = upstream;
+          }
+        }
+        delete workflow[consumerId];
+      } else if (
+        // A terminal node is never a transform to skip past — dropping it would delete real output.
+        consumersOf(consumerId).length > 0 &&
+        Object.values(consumer.inputs).every((v) => !isLink(v) || v[0] === id)
+      ) {
+        drop(consumerId);
+      } else {
+        throw new Error(
+          `Workflow node "${consumerId}" consumes the optional ${role} node "${id}" but has ` +
+            `no linked "configs" input to bypass to — cannot drop the ${role} when none is selected`,
+        );
       }
     }
-    delete workflow[consumerId];
-  }
-  delete workflow[imageNodeId];
+    delete workflow[id];
+  };
+
+  drop(imageNodeId);
 }
 
 /**
