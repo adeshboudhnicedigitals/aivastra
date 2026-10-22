@@ -2006,7 +2006,6 @@ export default function StudioPage(): React.ReactElement {
     (!needsLowerBack || (lowerOnlyIsBack ? !!upperGarmentBackKey : !!lowerGarmentBackKey)) &&
     (!requiresThirdUpload || !!thirdGarmentKey) &&
     (!sareeTwoInputActive || !!palluGarmentKey) &&
-    (!needsAccessory || accessoryCategories.length === 0 || visibleAccessoryIds.length > 0) &&
     !!faceId &&
     (catalogueTemplateId === 'custom' ? !!backgroundId : true) &&
     customDimsReady &&
@@ -2043,17 +2042,13 @@ export default function StudioPage(): React.ReactElement {
                 ? 'Upload the third garment image first'
                 : sareeTwoInputActive && !palluGarmentKey
                   ? 'Upload the pallu image first'
-                  : needsAccessory &&
-                      accessoryCategories.length > 0 &&
-                      visibleAccessoryIds.length === 0
-                    ? 'Select at least one accessory'
-                    : selectedCount === 0
-                      ? catalogueTemplateId === 'custom'
-                        ? 'Select at least one pose'
-                        : 'Select at least one look'
-                      : !customDimsReady
-                        ? 'Enter a valid width and height'
-                        : '';
+                  : selectedCount === 0
+                    ? catalogueTemplateId === 'custom'
+                      ? 'Select at least one pose'
+                      : 'Select at least one look'
+                    : !customDimsReady
+                      ? 'Enter a valid width and height'
+                      : '';
 
   // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
   // are always visible and keep their static stepNumber. Everything after that is
