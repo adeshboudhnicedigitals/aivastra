@@ -61,8 +61,11 @@ export async function listPoolPoses(app: FastifyInstance, gender: Gender): Promi
  * balance or the queue gives out partway the earlier jobs stand and only they
  * are recorded; `created < requested` tells the caller. Nothing created means
  * the first error is rethrown (INSUFFICIENT_CREDITS reaches the engine as such).
- * Keyed on the Meta message id like createRun, so a redelivered webhook cannot
- * start a second run.
+ * Keyed on the Meta message id, under a try-on-specific key so it can never
+ * collide with createRun's cached payload, so a redelivered webhook cannot start
+ * a second run. The messaging_runs insert runs *after* the cache write (outside
+ * the wrapper): if it fails, the retry replays the cached job ids and only
+ * re-attempts the insert, rather than charging every pose again.
  */
 export async function createTryonRun(
   app: FastifyInstance,
@@ -70,54 +73,71 @@ export async function createTryonRun(
   input: { garmentKey: string; poses: TryonPose[] },
 ): Promise<{ runId: string; requested: number; created: number; reason?: string }> {
   if (input.poses.length === 0) throw new AppError('BAD_REQUEST', 400, 'no poses to generate');
-  return withIdempotency(app, 'jobs', ctx.userId, `wa:${ctx.messageId}`, async () => {
-    await verifyGarmentKey(app, ctx.userId, input.garmentKey);
-    const cost = await getTryonCreditCost(app);
-    // The seller's own credits, so their watermark entitlement applies (as for the extension).
-    const { watermark } = await resolveQueueRouting(app, ctx.userId);
-    const runId = randomUUID();
-    const jobIds: string[] = [];
-    let failure: unknown;
-    for (const pose of input.poses) {
-      try {
-        const { jobId } = await createDevJobCore(app, {
-          merchantUserId: ctx.userId,
-          apiKeyId: null,
-          cost,
-          watermark,
-          source: JOB_SOURCE.WHATSAPP_TRYON,
-          catalogueId: runId,
-          buildJobInputs: () => ({
-            upperGarmentKey: input.garmentKey,
-            params: {
-              personKey: pose.r2Key,
-              workflowTemplateId: pose.workflowTemplateId,
-              dispatchTemplateVersion: pose.templateVersion,
-            },
-          }),
-        });
-        jobIds.push(jobId);
-      } catch (err) {
-        failure = err;
-        break;
+  const created = await withIdempotency(
+    app,
+    'jobs',
+    ctx.userId,
+    `wa-tryon:${ctx.messageId}`,
+    async () => {
+      await verifyGarmentKey(app, ctx.userId, input.garmentKey);
+      const cost = await getTryonCreditCost(app);
+      // The seller's own credits, so their watermark entitlement applies (as for the extension).
+      const { watermark } = await resolveQueueRouting(app, ctx.userId);
+      const runId = randomUUID();
+      const jobIds: string[] = [];
+      let failure: unknown;
+      for (const pose of input.poses) {
+        try {
+          const { jobId } = await createDevJobCore(app, {
+            merchantUserId: ctx.userId,
+            apiKeyId: null,
+            cost,
+            watermark,
+            source: JOB_SOURCE.WHATSAPP_TRYON,
+            catalogueId: runId,
+            buildJobInputs: () => ({
+              upperGarmentKey: input.garmentKey,
+              params: {
+                personKey: pose.r2Key,
+                workflowTemplateId: pose.workflowTemplateId,
+                dispatchTemplateVersion: pose.templateVersion,
+              },
+            }),
+          });
+          jobIds.push(jobId);
+        } catch (err) {
+          failure = err;
+          break;
+        }
       }
-    }
-    if (jobIds.length === 0) throw failure;
-    await app.db
-      .insert(schema.messagingRuns)
-      .values({
-        catalogueId: runId,
-        messagingAccountId: ctx.accountId,
-        userId: ctx.userId,
+      if (jobIds.length === 0) throw failure;
+      return {
+        runId,
         jobIds,
-      })
-      .onConflictDoNothing();
-    return {
-      runId,
-      requested: input.poses.length,
-      created: jobIds.length,
-      reason:
-        failure instanceof AppError ? failure.message : failure ? 'a temporary problem' : undefined,
-    };
-  });
+        requested: input.poses.length,
+        created: jobIds.length,
+        reason:
+          failure instanceof AppError
+            ? failure.message
+            : failure
+              ? 'a temporary problem'
+              : undefined,
+      };
+    },
+  );
+  await app.db
+    .insert(schema.messagingRuns)
+    .values({
+      catalogueId: created.runId,
+      messagingAccountId: ctx.accountId,
+      userId: ctx.userId,
+      jobIds: created.jobIds,
+    })
+    .onConflictDoNothing();
+  return {
+    runId: created.runId,
+    requested: created.requested,
+    created: created.created,
+    reason: created.reason,
+  };
 }
