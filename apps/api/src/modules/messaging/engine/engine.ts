@@ -412,27 +412,6 @@ async function render(
       return done(next);
     }
 
-    case 'CONFIRM_GENERATE': {
-      const { count: n, perImage, gender, garmentType } = s;
-      if (!n || perImage === undefined || !gender || !garmentType) {
-        return enter(s, 'ASK_POSE_COUNT', out, ctx, deps);
-      }
-      const remaining = (await deps.getBalance(ctx.userId)) - n * perImage;
-      // Balance fell since the count was chosen: don't show a negative remainder.
-      if (remaining < 0) return enter(s, 'NO_CREDITS', out, ctx, deps);
-      out.push(
-        buttons(
-          s,
-          COPY.confirmGenerate(n, COPY.genders[gender], garmentType.label, n * perImage, remaining),
-          [
-            ['generate', '', COPY.btnGenerate],
-            ['recount', '', COPY.btnDifferentNumber],
-          ],
-        ),
-      );
-      return done();
-    }
-
     case 'NO_CREDITS':
       out.push(buttons(s, COPY.noCredits(deps.links.pricing), [['menu', 'menu', COPY.btnMenu]]));
       return done();
@@ -550,18 +529,10 @@ async function onReply(
     case 'ASK_POSE_COUNT': {
       const n = Number(value);
       if (action !== 'count' || !(POSE_COUNTS as readonly number[]).includes(n)) return reprompt();
-      return enter({ ...s, count: n }, 'CONFIRM_GENERATE', out, ctx, deps);
-    }
-
-    case 'CONFIRM_GENERATE': {
-      if (action === 'recount')
-        return enter({ ...s, count: undefined }, 'ASK_POSE_COUNT', out, ctx, deps);
-      const n = s.count;
-      if (action !== 'generate' || !n) return reprompt();
       const loaded = await loadPool(s, deps);
       if (!loaded) return handoff(s, s.garmentType ?? { id: '', label: 'These' }, out, ctx, deps);
-      const ls = loaded.session;
-      // Tapping Generate is the agreement to spend (D45). Caught here, before
+      const ls = { ...loaded.session, count: n };
+      // Tapping the count is the agreement to spend (D45). Caught here, before
       // any run exists; createJob checks again.
       const perImage = s.perImage ?? 0;
       if (n * perImage > (await deps.getBalance(ctx.userId))) {

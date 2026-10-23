@@ -30,9 +30,7 @@ export const COPY = {
   btnMorePoses: 'More poses',
   btnRetryFailed: 'Retry failed',
   btnChangeGarment: 'Change garment',
-  btnGenerate: 'Generate',
   btnSelect: 'Select',
-  btnDifferentNumber: 'Different number',
   listChoose: 'Choose',
 
   credits: (balance: number, pricing: string) =>
@@ -79,19 +77,6 @@ How many poses would you like to generate for your catalogue?
 You can choose one option below. Each pose will use ${perImage} credits.`,
   countOption: (n: number, credits: number) =>
     `${n} ${n === 1 ? 'pose' : 'poses'} (${credits} credits)`,
-  confirmGenerate: (
-    n: number,
-    category: string,
-    garment: string,
-    credits: number,
-    remaining: number,
-  ) =>
-    `Perfect! You've selected ${n} ${n === 1 ? 'pose' : 'poses'}.
-Category: ${category} | Garment: ${garment}
-Credits required: ${credits} credits
-Remaining balance: ${remaining} credits
-
-Do you want to proceed with ${n} ${n === 1 ? 'pose' : 'poses'}?`,
   partlyStarted: (started: number, total: number, reason: string) =>
     `Started ${started} of ${total} ${total === 1 ? 'image' : 'images'}. The rest couldn't start: ${reason}`,
   noCredits: (pricing: string) =>
