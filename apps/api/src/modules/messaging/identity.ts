@@ -27,7 +27,9 @@ const WEB_CODE_PREFIX = 'msg:connect:web:';
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 8;
 
-export type ChatTokenPayload = { channel: Channel; externalId: string };
+// `at` is when the sender last messaged us. An unlinked number has no account row
+// to hold that, and the connect confirmation needs it to know the 24h window is open.
+export type ChatTokenPayload = { channel: Channel; externalId: string; at?: number };
 export type ConnectInput = {
   channel: Channel;
   externalId: string;
@@ -99,7 +101,7 @@ export async function createChatConnectToken(
   externalId: string,
 ): Promise<string> {
   const token = randomBytes(32).toString('base64url');
-  const payload: ChatTokenPayload = { channel: CHANNEL_WHATSAPP, externalId };
+  const payload: ChatTokenPayload = { channel: CHANNEL_WHATSAPP, externalId, at: Date.now() };
   await redis.set(
     CHAT_TOKEN_PREFIX + sha256(token),
     JSON.stringify(payload),
