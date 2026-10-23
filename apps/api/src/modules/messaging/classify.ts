@@ -104,19 +104,31 @@ async function kindCandidates(app: FastifyInstance): Promise<RecognitionCandidat
   return [...byLabel.values()];
 }
 
+/** The genders with a public type of this kind, in GENDERS order. */
+async function gendersOfKind(app: FastifyInstance, label: string): Promise<Gender[]> {
+  const has = await Promise.all(
+    GENDERS.map(async (g) =>
+      (await publicTypes(app, g)).some((c) => norm(c.label) === norm(label)),
+    ),
+  );
+  return GENDERS.filter((_, i) => has[i]);
+}
+
 /**
  * Spec 2026-10-22: asked the moment the photo arrives. Queues one request over
  * every gender's public-slug kinds (one option per label), waits up to the
- * budget and returns the recognised kind's label — a kind, not a row, because
- * the photo carries no gender (typeForKind maps it once the seller has tapped
- * one). Null for every failure; the list is then the way out, so recognition
- * can cost a tap but never a run.
+ * budget and returns the recognised kind's label and the genders that have a
+ * type of that kind. It is a kind, not a row, because the photo carries no
+ * gender: a kind only one gender has (Kurti) implies it, any other is asked
+ * (typeForKind maps the kind once the gender is known). Null for every
+ * failure; the list is then the way out, so recognition can cost a tap but
+ * never a run.
  */
 export async function recognizeKind(
   app: FastifyInstance,
   garmentKey: string,
   opts: { budgetMs?: number } = {},
-): Promise<{ label: string } | null> {
+): Promise<{ label: string; genders: Gender[] } | null> {
   if (app.env.GARMENT_RECOGNITION_ENABLED !== true) return null;
   const budgetMs = opts.budgetMs ?? RECOGNITION_BUDGET_MS;
   try {
@@ -159,7 +171,7 @@ export async function recognizeKind(
         'garment recognition answer not in options',
       );
     }
-    return kind ? { label: kind.label } : null;
+    return kind ? { label: kind.label, genders: await gendersOfKind(app, kind.label) } : null;
   } catch (err) {
     count('failed');
     app.log.warn({ err }, 'garment recognition failed; falling back to the list');

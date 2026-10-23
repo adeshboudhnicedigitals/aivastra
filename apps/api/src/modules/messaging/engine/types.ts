@@ -38,11 +38,10 @@ export interface GarmentTypeOption {
   defaultShoeCatalogId: string | null;
 }
 
-// One (pose, background) pairing of a catalogue template — one image.
-export interface TemplateLook {
+// One standard pose the bot can draw for a garment type. `id` is the pose asset
+// id; the background is not part of it, because the bot picks one per catalogue.
+export interface PoseLook {
   id: string;
-  poseId: string;
-  backgroundId: string;
   label: string;
   imageUrl: string;
   hasUpper: boolean;
@@ -50,28 +49,17 @@ export interface TemplateLook {
   hasShoes: boolean;
 }
 
-export interface TemplateOption {
-  id: string;
-  mappingId: string;
-  looks: TemplateLook[];
-}
-
-// A look as the session keeps it: ids and flags only. Labels and image URLs are
-// re-read on every render so a presigned URL never goes stale in Redis, and a
-// pool of ~150 looks stays small (spec 2026-10-14, section 5).
+// A look as the session keeps it: id and flags only. Labels and image URLs are
+// re-read on every render so a presigned URL never goes stale in Redis.
 export interface PoolLook {
   id: string;
-  poseId: string;
-  backgroundId: string;
   hasLower: boolean;
   hasShoes: boolean;
 }
 
-// One template's eligible looks. `lowerOnly` is decided per template (rules.ts
-// eligibleLooks), so a type can mix a lower-only and a full-body template.
-export interface PoolTemplate {
-  id: string;
-  mappingId: string;
+// The type's eligible poses. `lowerOnly` is decided over the whole pool
+// (rules.ts eligibleLooks): every pose dresses only the lower body.
+export interface Pool {
   lowerOnly: boolean;
   looks: PoolLook[];
 }
@@ -114,11 +102,21 @@ export interface Session {
   // What recognition said the photo is, as a kind label ("Top"), kept from the
   // upload until the gender is known (types are per-gender rows).
   kind?: string;
+  // The genders that have a type of `kind`; exactly one means the gender is implied.
+  kindGenders?: Gender[];
   photos: Partial<Record<PhotoSlot, string>>;
   faceId?: string;
-  // Every active template of the type, with only the looks the bot can generate
-  // (rules.ts buildPool), de-duplicated. Re-read on every pick prompt.
-  templates?: PoolTemplate[];
+  // The type's standard poses the bot can generate (rules.ts buildPool).
+  // Re-read on every prompt and on Generate.
+  pool?: Pool;
+  // The model face and background of the current catalogue: drawn at random once
+  // when the seller picks a count, then shared by every image of that run (and
+  // by its retry), so the catalogue shows one model in one setting.
+  backgroundId?: string;
+  // The lower garment and shoes of the run, when its poses use them: the type's
+  // default, else one drawn at random. Same for every image of the run.
+  lowerCatalogId?: string;
+  shoeCatalogId?: string;
   // Cost per image and balance as shown with the pose cards (D45).
   perImage?: number;
   balance?: number;
@@ -128,11 +126,8 @@ export interface Session {
   picked: string[];
   // Looks already generated for this garment, so "More poses" shows new ones.
   seenLooks?: string[];
-  // One entry per template group of the last Generate.
+  // The runs of the last Generate.
   runs?: RunRef[];
-  // Picked looks whose run could not be created (a later group failed after an
-  // earlier one was charged); [Retry] picks them up with the failed images.
-  unstarted?: string[];
 }
 
 // Normalised by plan 3 from Meta's webhook payloads.
@@ -182,12 +177,9 @@ export interface Quote {
 export interface UnavailableReport {
   gender: Gender;
   garmentTypeId: string;
-  // 'no_template' is the engine's own: getTemplates returned nothing. The rest
-  // are readiness reasons (readiness.ts), reported for a recognised type the
-  // list does not offer.
-  reason: ReadinessReason | 'no_template';
-  templateId?: string;
-  templateLooks?: number;
+  reason: ReadinessReason;
+  // For no_eligible_looks: how many poses the type has before the eligibility filter.
+  poses?: number;
 }
 
 export interface EngineDeps {
@@ -196,11 +188,11 @@ export interface EngineDeps {
   getBalance(userId: string): Promise<number>;
   // Randomises look ids (injected so the engine stays pure and tests can pin the draw).
   shuffle(ids: string[]): string[];
-  // Types the bot can offer: standard try-on with at least one template mapping.
+  // Types the bot can offer: standard try-on with at least one assigned pose.
   listGarmentTypes(gender: Gender): Promise<GarmentTypeOption[]>;
   // Spec 8a, awaited at the image event: the photo's kind, or null — for every
   // failure, never an error — in which case the list is the way out.
-  recognizeKind(garmentKey: string): Promise<{ label: string } | null>;
+  recognizeKind(garmentKey: string): Promise<{ label: string; genders: Gender[] } | null>;
   // The kind as the tapped gender's own type; null when that gender has none.
   typeForKind(
     label: string,
@@ -221,10 +213,18 @@ export interface EngineDeps {
     garmentTypeId: string;
     garmentKey: string;
   }): Promise<string>;
-  // Every active template for the type, in admin order (spec 2026-10-14, P2).
-  getTemplates(gender: Gender, garmentTypeId: string): Promise<TemplateOption[]>;
-  // The first active face for the gender and type in admin order (D43), or null.
-  getDefaultFaceId(gender: Gender, garmentTypeId: string): Promise<string | null>;
+  // The standard poses assigned to the type for the gender, in studio order.
+  getLooks(gender: Gender, garmentTypeId: string): Promise<PoseLook[]>;
+  // The faces the studio offers for the gender and type, in admin order.
+  listFaceIds(gender: Gender, garmentTypeId: string): Promise<string[]>;
+  // The backgrounds the studio offers for the gender.
+  listBackgroundIds(gender: Gender): Promise<string[]>;
+  // The lower garments or shoes the studio offers for the gender and type.
+  listCatalogItemIds(
+    type: 'lower' | 'shoe',
+    gender: Gender,
+    garmentTypeId: string,
+  ): Promise<string[]>;
   // Throws AppError for anything createJob would reject.
   quote(userId: string, body: TryonBody): Promise<Quote>;
   // Throws AppError('INSUFFICIENT_CREDITS', 402) when the balance is short.
