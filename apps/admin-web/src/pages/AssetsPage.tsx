@@ -12,6 +12,7 @@ import { FacesTab } from './assets/FacesTab';
 import { GarmentTypesTab } from './assets/GarmentTypesTab';
 import { PoseAssetsTab } from './assets/PoseAssetsTab';
 import { SareeStylesTab } from './assets/SareeStylesTab';
+import { WhatsappPosesTab } from './assets/WhatsappPosesTab';
 
 interface Props {
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
@@ -23,6 +24,7 @@ const TABS = [
   { k: 'faces' as const, l: 'Model Faces' },
   { k: 'backgrounds' as const, l: 'Backgrounds' },
   { k: 'pose-assets' as const, l: 'Pose Assets' },
+  { k: 'whatsapp-poses' as const, l: 'WhatsApp Poses' },
   { k: 'lower' as const, l: 'Lower garments' },
   { k: 'shoe' as const, l: 'Shoes' },
   { k: 'accessory' as const, l: 'Accessories' },
@@ -184,6 +186,7 @@ function AssetsShell() {
       {activeTab === 'faces' && <FacesTab />}
       {activeTab === 'garment-types' && <GarmentTypesTab />}
       {activeTab === 'pose-assets' && <PoseAssetsTab />}
+      {activeTab === 'whatsapp-poses' && <WhatsappPosesTab />}
       {(activeTab === 'lower' || activeTab === 'shoe' || activeTab === 'accessory') && (
         <CatalogTab />
       )}

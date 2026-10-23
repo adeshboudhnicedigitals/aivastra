@@ -18,6 +18,7 @@ export type AssetTab =
   | 'shoe'
   | 'accessory'
   | 'pose-assets'
+  | 'whatsapp-poses'
   | 'catalogue-templates'
   | 'body-types'
   | 'saree-styles'
@@ -32,6 +33,7 @@ const VALID_TABS: AssetTab[] = [
   'shoe',
   'accessory',
   'pose-assets',
+  'whatsapp-poses',
   'catalogue-templates',
   'body-types',
   'saree-styles',

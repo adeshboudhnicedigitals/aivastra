@@ -224,13 +224,14 @@ describe('messaging conversation (real deps)', () => {
   it('photo → gender → type → pick → generate creates one charged job and records the run', async () => {
     const w = await walkToPick('conv');
     const { userId, account, acct, send } = w;
-    const prompt = w.msgs.find((m) => m.kind === 'buttons');
-    expect(prompt && prompt.kind === 'buttons' ? prompt.text : '').toContain(
-      'Each one is 5 credits',
+    const prompt = w.msgs.find((m) => m.kind === 'list');
+    expect(prompt && prompt.kind === 'list' ? prompt.text : '').toContain(
+      'Each pose will use 5 credits',
     );
 
-    const selected = await send(tapIn(w.msgs, 'look', seeded.lookId));
-    await send(tapIn(selected, 'generate'));
+    // The bot draws the look itself: with a pool of two, a count of 1 starts one run.
+    const confirm = await send(tapIn(w.msgs, 'count', '1'));
+    await send(tapIn(confirm, 'generate'));
     const session = await loadSession(app.redis, acct.channel, acct.externalId);
     expect(session?.state).toBe('GENERATING');
     expect(session?.runs).toHaveLength(1);
@@ -249,11 +250,10 @@ describe('messaging conversation (real deps)', () => {
   it('picks from two templates start one run per template, each charged once', async () => {
     const w = await walkToPick('two');
     const { userId, account, acct, send } = w;
-    // Both templates' looks are on the same cards.
-    await send(tapIn(w.msgs, 'look', seeded.lookId));
-    const selected = await send(tapIn(w.msgs, 'look', seeded.lookId2));
-    expect(selected[0].kind === 'buttons' ? selected[0].text : '').toBe('2 selected · 10 credits');
-    await send(tapIn(selected, 'generate'));
+    // The pool is one look per template, so a count of 2 draws both of them.
+    const confirm = await send(tapIn(w.msgs, 'count', '2'));
+    expect(confirm[0].kind === 'buttons' ? confirm[0].text : '').toContain('10 credits');
+    await send(tapIn(confirm, 'generate'));
 
     const session = await loadSession(app.redis, acct.channel, acct.externalId);
     expect(session?.state).toBe('GENERATING');

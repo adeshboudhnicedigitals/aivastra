@@ -118,6 +118,7 @@ export async function messagingConnectRoutes(app: FastifyInstance) {
         matchesProfile: matchesProfilePhone(payload.externalId, profilePhone),
         profilePhoneLast4: profilePhone ? profilePhone.slice(-4) : null,
         alreadyConnected: existing?.userId === req.userId,
+        displayNumber: app.env.WHATSAPP_DISPLAY_NUMBER ?? null,
       };
     },
   );
@@ -143,6 +144,16 @@ export async function messagingConnectRoutes(app: FastifyInstance) {
         userId: req.userId,
         linkedVia: 'chat_link',
       });
+      // The row is brand new, so it has never seen an inbound message and the push
+      // below would find the window closed. The seller did message us to get this
+      // link; carry that time over.
+      if (payload.at && !account.lastInboundAt) {
+        account.lastInboundAt = new Date(payload.at);
+        await app.db
+          .update(schema.messagingAccounts)
+          .set({ lastInboundAt: account.lastInboundAt })
+          .where(eq(schema.messagingAccounts.id, account.id));
+      }
       // Fire-and-forget: the web response must not wait on Meta.
       void notifyConnected(app, account.id);
       return { account: toMessagingAccountDto(account) };

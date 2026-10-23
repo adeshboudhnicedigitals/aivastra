@@ -2,6 +2,120 @@
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
 
+## 2026-10-22 (later) — WhatsApp try-on: one bot workflow, legacy poses, Move to Half/Full
+
+- **Done:** the bot no longer uses each pose's own workflow (pose assets' workflows are
+  `regular` and must not be changed — the catalogue flow depends on them). One workflow runs
+  every WhatsApp job: `config:system.whatsappTryon.workflowTemplateId`, written through the
+  existing `PATCH /admin/config` (`SystemConfigBody.whatsappTryon`), read by
+  `getWhatsappTryonWorkflowId` (`lib/resolution-config.ts`). `listPoolPoses` returns nothing
+  unless that id is an active `workflow_type='tryon'` template; otherwise a pose is drawable
+  when pooled + active + Full/Half + the tapped gender. **This supersedes the earlier
+  "pose's own template must be an active tryon" rule below.**
+- **Done:** `PATCH /admin/assets/pose-assets/:id` accepts `shotType` (legacy poses had none,
+  so they could not be added). WhatsApp Poses tab: Try-on workflow selector, Add as Full/Half
+  for untyped poses, Move to Half/Full on pool cards, Add button above the sections.
+- **Done (tests):** `messaging-tryon-jobs` (8), `messaging-tryon-conversation` (2),
+  `admin-whatsapp-pool` (2) pass; api and admin `tsc` clean. Not checked in a browser.
+- **Open:** the 3 minors worth fixing (blank `WHATSAPP_BOT_FLOW=` fails startup; `no_poses`
+  reuses the garment-unavailable metric; partial-start failure not logged); no test for PATCH
+  `shotType`; real-number end-to-end run. Next work: refactor the WhatsApp user flow itself
+  (see `docs/handovers/2026-10-22-whatsapp-tryon-flow-handoff.md`).
+
+## 2026-10-22 — WhatsApp try-on flow: photo → gender → pose count → direct jobs
+
+- **Done:** a direct try-on flow behind `WHATSAPP_BOT_FLOW=tryon` (default `catalogue`):
+  garment photo → Men/Women/Boys/Girls → 1/3/5 poses → direct try-on jobs. The split is
+  1 = 1 Full, 3 = 2 Full + 1 Half, 5 = 3 Full + 2 Half; Full is drawn first and there are no
+  Back poses. Files: `apps/api/src/modules/messaging/{tryon-jobs,tryon-deps,conversation}.ts`,
+  `engine/{tryon-engine,tryon-rules,copy,types}.ts`, `env.ts`; plan
+  `docs/superpowers/plans/2026-10-22-whatsapp-tryon-flow.md`.
+- **Done:** `whatsapp_pool` on `model_pose_assets`
+  (`packages/db/src/migrations/0230_lush_orphan.sql`, default `false`), exposed through the
+  existing admin pose-asset GET/PATCH as `whatsappPool`. A pose is drawable only when pool +
+  active + Full/Half + the tapped gender + an active `workflow_type='tryon'` template all
+  hold (`listPoolPoses`).
+- **Done:** `JOB_SOURCE.WHATSAPP_TRYON` (`whatsapp_tryon`). Each pose becomes one
+  `createDevJobCore` job under a single `messaging_runs` id; per-message idempotency key
+  `wa-tryon:<messageId>`; a partial start reports created < requested; terminal failures are
+  refunded by the dispatcher; `runFinished.failed` carries the failed job count so the summary
+  says how many were refunded. The source is excluded from the studio gallery and compressed
+  by default like the other direct try-on sources.
+- **Done:** before charging, `createTryonRun` requires a healthy, non-draining worker that
+  accepts `tryon` (it reads the dispatcher's `worker:registry` and `worker:health:<id>` keys),
+  so an empty pool fails with `SERVICE_UNAVAILABLE` before any credit deduction instead of
+  leaving the seller waiting for a `NO_WORKER` refund.
+- **Done:** Admin → Assets → WhatsApp Poses tab, built on the existing
+  `GET/PATCH /admin/assets/pose-assets` (`whatsappPool`), with per-gender Full/Half pool
+  counts, a "not drawable" reason badge and a 1/3/5 availability strip
+  (`apps/admin-web/src/pages/assets/WhatsappPosesTab.tsx`).
+- **Done (tests):** 18 try-on engine unit tests, 5 pure split/draw tests, the pool PATCH and
+  job-creation integration tests (2 + 6), the end-to-end conversation test (2), and the
+  taxonomy count 16→17. Final verification on this tree: `npx.cmd tsc --noEmit` clean;
+  `npx.cmd vitest run messaging whatsapp tryon` = 20 files / 231 tests passed;
+  `npx.cmd vitest run --config vitest.integration.config.ts admin-whatsapp-pool
+  messaging-tryon-jobs messaging-tryon-conversation admin-job-taxonomy whatsapp-inbound
+  messaging-connect` = 6 files / 30 tests passed; `pnpm.cmd --filter @aivastra/types build`
+  and `pnpm.cmd --filter @aivastra/admin exec tsc -p tsconfig.app.json --noEmit` clean.
+- **Failed-Not-Done:** the three known pre-existing Flow-2 failures remain red and untouched:
+  `test/integration/messaging-conversation.test.ts` (the pose-pick test and "picks from two
+  templates") and `test/integration/whatsapp-hooks.test.ts` (the NO_CREDITS "credits-added +
+  the pose cards" test). They are outside this task's verification command set, so they were
+  not re-run in the final pass. The admin tab was not checked in a browser (no browser
+  available); its typecheck/lint/build passed instead. The plan's per-task model tiers could
+  not be set because the `task` tool has no model parameter.
+- **Open:** a real WhatsApp-number end-to-end run has not been done.
+- **Open (deviations to confirm):** (1) the pool also requires the pose's template to be
+  `workflow_type='tryon'`; (2) `whatsapp_tryon` jobs are excluded from the studio gallery, so
+  results live only in the chat; (3) the admin surface is the existing pose-asset GET/PATCH,
+  not new `/admin/whatsapp-poses` routes; (4) the spec says `watermark: false`, but the plan
+  deliberately uses `resolveQueueRouting` so the seller's watermark entitlement applies
+  (free-plan images are watermarked) — a plan override, not accidental drift.
+- **Open (deploy):** Back poses are deferred. The old catalogue flow is still present pending
+  approval and `WHATSAPP_BOT_FLOW` defaults to `catalogue`. Switch the flag to `tryon` only
+  after filling at least one gender's pool in staging; a restart is required (the env object is
+  built at boot, then the flag is read per message). Minor gaps from the SDD ledger (admin GET
+  default scope hides template-scoped pool rows, closeup/null-shot rows are unmanageable, etc.)
+  are recorded there.
+
+## 2026-10-22 — WhatsApp Flow 2: classify at upload, confirm kind, pose count, random looks
+
+- **Done:** the WhatsApp engine now implements Flow 2 (plan
+  `docs/superpowers/plans/2026-10-22-whatsapp-flow-2.md`). The photo is classified right after
+  upload and the seller confirms the kind ("a top") before the gender (`CONFIRM_KIND`); "No,
+  different item" goes gender then that gender's garment-type list. Pose carousel and per-pose
+  picking are gone: the seller picks a count of 1/2/3/5 (`ASK_POSE_COUNT`, capped by pool size and
+  balance), confirms (`CONFIRM_GENERATE`, balance re-checked at the tap) and the looks are drawn
+  at random, avoiding ones already seen (`seenLooks`). After delivery the seller gets a summary
+  with credits used plus closing buttons: with failures "Retry failed / More poses / Menu",
+  otherwise "More poses / Change garment / New catalog".
+  Files: `apps/api/src/modules/messaging/{classify,deps,session-store,inbound-consumer}.ts`,
+  `engine/{engine,rules,copy,types}.ts`, tests under `apps/api/test/` and
+  `test/integration/messaging-classify.test.ts`. Sessions saved by the old flow are mapped on load
+  (`CONFIRM_GARMENT_TYPE` becomes `ASK_GARMENT_TYPE`, `PICK_LOOKS` becomes `ASK_POSE_COUNT`) and
+  their nonce is reset to `migrated`, so a tap on an old button takes the stale path and re-sends
+  the new step instead of hitting the reprompt. A first photo with no session is now recognised
+  too (shared `startFromPhoto`). Dead `MAX_PICKS` removed.
+- **Done (deviations, accepted):** the delivery summary is sent after the images, not before them
+  (images are sent per job by `delivery.ts`); the button reads "Different number" rather than
+  "Choose different number" (20-char button cap); the kind is shown as "a top", not "a women's
+  top".
+- **Note:** `garment_recognitions.gender` was already null since commit `a24ecb3a` (the request
+  carries no gender), not changed by this work. The `matched` metric now counts any recognised
+  kind, including kinds the tapped gender does not have (previously those counted as unmatched).
+- **Note:** a pool that shrinks below the chosen N between the count tap and Generate silently
+  yields fewer poses. `seenLooks` is recorded at Generate even if the run then fails to start.
+- **Failed-Not-Done:** the "Analysing..." message during the recognition wait; carousel code
+  removal in `render.ts`; welcome/menu copy. All out of scope for this change.
+- **Open:** real-device checks have not been done: list rows rendering on a phone, the up-to-12 s
+  silent wait after the photo (no "Analysing..." message), and whether the message ordering feels
+  right (summary after images).
+- **Open (review follow-ups):** send "Analysing your photo..." before the 12 s wait; take the
+  sender lock in `deliverRun`'s `runConversation` (the delivery tick can race the photo wait and
+  leave stale closing buttons); a/an article for plural kinds ("a jeans"); `COPY.posesChanged`
+  wording ("choose again"); unused `imageUrl` built per pool load in `deps.ts`; a DELIVERED
+  re-render on stray text resends the summary.
+
 ## 2026-10-21 — WhatsApp bot v2 P0: no dead ends, readiness reasons, studio draft hand-off
 
 - **Done:** pure `decideReadiness` in `apps/api/src/modules/messaging/readiness.ts` (commit

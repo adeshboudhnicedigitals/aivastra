@@ -597,6 +597,9 @@ export async function jobsRoutes(app: FastifyInstance) {
                 // a shopper's own-account extension click isn't the Studio's curated
                 // catalog gallery, even though it bills the same userId/user_credits.
                 JOB_SOURCE.EXTENSION_TRYON,
+                // WhatsApp try-ons are delivered in the chat; like the extension's they are
+                // direct person+garment jobs, not the curated catalogue gallery.
+                JOB_SOURCE.WHATSAPP_TRYON,
               ]),
             ),
             ...(batchId ? [eq(schema.jobs.batchId, batchId)] : []),

@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { runConversation } from '../../src/modules/messaging/conversation';
 import { deliverPendingForAccount, deliverRun } from '../../src/modules/messaging/delivery';
 import { CHANNEL_WHATSAPP, connectAccount } from '../../src/modules/messaging/identity';
 import { saveSession } from '../../src/modules/messaging/session-store';
@@ -10,6 +11,10 @@ import { buildTestApp, type TestApp } from '../helpers/api';
 import { createVerifiedUserToken } from '../helpers/auth';
 import { type Containers, startContainers } from '../helpers/containers';
 import { fakeWhatsapp } from '../helpers/fake-whatsapp';
+
+// Spy, not stub: the closing message still comes from the real engine, but the
+// event delivery hands it is observable (the catalogue engine ignores `failed`).
+vi.mock('../../src/modules/messaging/conversation', { spy: true });
 
 let seq = 0;
 // Unique digits per account so parallel files never share a number.
@@ -145,6 +150,18 @@ describe('whatsapp delivery', () => {
     expect(wa.uploads[0]).toMatchObject({ mimeType: 'image/png' });
     expect(wa.sent.filter((m) => typeOf(m.payload) === 'image')).toHaveLength(1);
     expect(wa.texts().join('\n')).toMatch(/1 of 2 images failed/);
+    expect(runConversation).toHaveBeenCalledWith(
+      app,
+      expect.anything(),
+      {
+        type: 'runFinished',
+        runId: s.runId,
+        images: 2,
+        failedPoseIds: [expect.any(String)],
+        failed: 1,
+      },
+      `run:${s.runId}`,
+    );
     const run = await runRow(s.runId);
     expect(new Set(run.deliveredJobIds)).toEqual(new Set([s.jobA.id, s.jobB.id]));
     expect(run.finishedAt).not.toBeNull();

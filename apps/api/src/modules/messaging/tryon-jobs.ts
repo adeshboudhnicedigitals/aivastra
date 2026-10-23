@@ -1,0 +1,179 @@
+import { randomUUID } from 'node:crypto';
+import { schema } from '@aivastra/db';
+import { JOB_SOURCE } from '@aivastra/types';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
+import { AppError } from '../../lib/errors.js';
+import { withIdempotency } from '../../lib/idempotency.js';
+import { getTryonCreditCost, getWhatsappTryonWorkflowId } from '../../lib/resolution-config.js';
+import { createDevJobCore } from '../dev/create-job.js';
+import { resolveQueueRouting, verifyGarmentKey } from '../jobs/create.js';
+import type { ShotType, TryonPose } from './engine/tryon-rules.js';
+import type { EngineContext, Gender } from './engine/types.js';
+
+const P = schema.modelPoseAssets;
+const W = schema.workflowTemplates;
+
+/**
+ * True when at least one worker is advertised as able to take try-on work. The api
+ * cannot reach ComfyUI, so this reads the dispatcher's own routing snapshot: without
+ * it an empty pool would charge the seller and leave the job queued for the
+ * dispatcher's 3 h MAX_QUEUE_WAIT_MS before a NO_WORKER refund.
+ *
+ * Mirrors apps/dispatcher/src/worker/selector.ts: registry key `worker:registry`,
+ * DRAINING is excluded, an empty/absent allowedJobTypes accepts any job (though the
+ * Lua round-trip re-encodes it as `{}`, so anything non-array counts as empty), and
+ * the `worker:health:<id>` TTL key must still be '1' or the worker is dead.
+ */
+async function hasTryonWorker(app: FastifyInstance): Promise<boolean> {
+  const registry = await app.redis.hgetall('worker:registry');
+  for (const [id, json] of Object.entries(registry)) {
+    let entry: { status?: unknown; allowedJobTypes?: unknown };
+    try {
+      entry = JSON.parse(json) as typeof entry;
+    } catch {
+      continue; // malformed entry
+    }
+    if (entry.status === 'DRAINING') continue;
+    const allowed = Array.isArray(entry.allowedJobTypes) ? entry.allowedJobTypes : [];
+    if (allowed.length > 0 && !allowed.includes('tryon')) continue;
+    if ((await app.redis.get(`worker:health:${id}`)) === '1') return true;
+  }
+  return false;
+}
+
+/**
+ * The poses the bot may draw for a gender: in the WhatsApp pool, live, Full or
+ * Half. Every pose runs the one workflow the admin picked on the WhatsApp Poses
+ * tab (poses' own workflowTemplateId is not used here, so it can stay on the
+ * catalogue flow's workflows); it must be an active try-on, else nothing is
+ * offered. Read fresh on every use, so an admin removing a pose or switching off
+ * the workflow takes effect at once.
+ */
+export async function listPoolPoses(app: FastifyInstance, gender: Gender): Promise<TryonPose[]> {
+  const workflowId = await getWhatsappTryonWorkflowId(app);
+  if (!workflowId) return [];
+  const [wf] = await app.db
+    .select({ id: W.id, version: W.version })
+    .from(W)
+    .where(and(eq(W.id, workflowId), eq(W.isActive, true), eq(W.workflowType, 'tryon')));
+  if (!wf) return [];
+  const rows = await app.db
+    .select({ id: P.id, shotType: P.shotType, r2Key: P.r2Key })
+    .from(P)
+    .where(
+      and(
+        eq(P.whatsappPool, true),
+        eq(P.isActive, true),
+        isNull(P.deletedAt),
+        eq(P.genderSlug, gender),
+        inArray(P.shotType, ['full', 'half']),
+      ),
+    )
+    .orderBy(P.sortOrder, P.label);
+  return rows.map((r) => ({
+    id: r.id,
+    gender,
+    shotType: r.shotType as ShotType,
+    r2Key: r.r2Key,
+    workflowTemplateId: wf.id,
+    templateVersion: wf.version ?? null,
+  }));
+}
+
+/**
+ * One direct try-on job per pose (the shape processTryonDirectJob runs: garment
+ * as upperGarmentKey, the pose image as params.personKey), all under one run id
+ * that is also the jobs' catalogueId, plus the messaging_runs row delivery reads.
+ *
+ * Each job is charged and enqueued on its own (createDevJobCore), so when the
+ * balance or the queue gives out partway the earlier jobs stand and only they
+ * are recorded; `created < requested` tells the caller. Nothing created means
+ * the first error is rethrown (INSUFFICIENT_CREDITS reaches the engine as such).
+ * Keyed on the Meta message id, under a try-on-specific key so it can never
+ * collide with createRun's cached payload, so a redelivered webhook cannot start
+ * a second run. The messaging_runs insert runs *after* the cache write (outside
+ * the wrapper): if it fails, the retry replays the cached job ids and only
+ * re-attempts the insert, rather than charging every pose again.
+ */
+export async function createTryonRun(
+  app: FastifyInstance,
+  ctx: EngineContext,
+  input: { garmentKey: string; poses: TryonPose[] },
+): Promise<{ runId: string; requested: number; created: number; reason?: string }> {
+  if (input.poses.length === 0) throw new AppError('BAD_REQUEST', 400, 'no poses to generate');
+  const created = await withIdempotency(
+    app,
+    'jobs',
+    ctx.userId,
+    `wa-tryon:${ctx.messageId}`,
+    async () => {
+      await verifyGarmentKey(app, ctx.userId, input.garmentKey);
+      if (!(await hasTryonWorker(app))) {
+        throw new AppError(
+          'SERVICE_UNAVAILABLE',
+          503,
+          'Our try-on service is briefly unavailable. Please try again in a minute — you have not been charged.',
+        );
+      }
+      const cost = await getTryonCreditCost(app);
+      // The seller's own credits, so their watermark entitlement applies (as for the extension).
+      const { watermark } = await resolveQueueRouting(app, ctx.userId);
+      const runId = randomUUID();
+      const jobIds: string[] = [];
+      let failure: unknown;
+      for (const pose of input.poses) {
+        try {
+          const { jobId } = await createDevJobCore(app, {
+            merchantUserId: ctx.userId,
+            apiKeyId: null,
+            cost,
+            watermark,
+            source: JOB_SOURCE.WHATSAPP_TRYON,
+            catalogueId: runId,
+            buildJobInputs: () => ({
+              upperGarmentKey: input.garmentKey,
+              params: {
+                personKey: pose.r2Key,
+                workflowTemplateId: pose.workflowTemplateId,
+                dispatchTemplateVersion: pose.templateVersion,
+              },
+            }),
+          });
+          jobIds.push(jobId);
+        } catch (err) {
+          failure = err;
+          break;
+        }
+      }
+      if (jobIds.length === 0) throw failure;
+      return {
+        runId,
+        jobIds,
+        requested: input.poses.length,
+        created: jobIds.length,
+        reason:
+          failure instanceof AppError
+            ? failure.message
+            : failure
+              ? 'a temporary problem'
+              : undefined,
+      };
+    },
+  );
+  await app.db
+    .insert(schema.messagingRuns)
+    .values({
+      catalogueId: created.runId,
+      messagingAccountId: ctx.accountId,
+      userId: ctx.userId,
+      jobIds: created.jobIds,
+    })
+    .onConflictDoNothing();
+  return {
+    runId: created.runId,
+    requested: created.requested,
+    created: created.created,
+    reason: created.reason,
+  };
+}

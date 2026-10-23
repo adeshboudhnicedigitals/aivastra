@@ -81,6 +81,7 @@ describe('messaging connect (flag on)', () => {
       matchesProfile: true,
       profilePhoneLast4: number.slice(-4),
       alreadyConnected: false,
+      displayNumber: '15556585373',
     });
 
     // Preview does not consume: confirm still works afterwards.
@@ -122,6 +123,27 @@ describe('messaging connect (flag on)', () => {
       .from(schema.users)
       .where(eq(schema.users.id, userId));
     expect(u.phone).toBe('9000001234');
+  });
+
+  it('chat-started: confirm opens the 24h window from the message that asked for the link', async () => {
+    const { token } = await createVerifiedUserToken(app, `wa-win-${uniq()}@example.com`);
+    const number = phone();
+    const before = Date.now();
+    const t = await createChatConnectToken(app.redis, number);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/messaging/connect/chat/confirm',
+      headers: auth(token),
+      payload: { token: t },
+    });
+    expect(res.statusCode).toBe(200);
+    const [row] = await app.db
+      .select({ at: schema.messagingAccounts.lastInboundAt })
+      .from(schema.messagingAccounts)
+      .where(eq(schema.messagingAccounts.externalId, number));
+    // Without this the "connected" push finds the window closed and sends nothing.
+    expect(row.at?.getTime()).toBeGreaterThanOrEqual(before);
   });
 
   it('chat-started: confirm creates the row once and the token is single use', async () => {
