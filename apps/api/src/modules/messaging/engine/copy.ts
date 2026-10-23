@@ -44,8 +44,9 @@ export const COPY = {
   askGenderConfirmed: 'Great! 👍\nCreate this catalogue for:',
   btnYesContinue: 'Yes, continue',
   btnNoDifferent: 'No, different item',
-  kindGuess: (kind: string) => {
-    const name = kind.trim().toLowerCase();
+  // `gender` is given when the kind implies it, so the seller can catch a wrong one here.
+  kindGuess: (kind: string, gender?: string) => {
+    const name = `${gender ? `${gender.toLowerCase()}'s ` : ''}${kind.trim().toLowerCase()}`;
     return `I've analysed the image and it looks like ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}.\nIs this correct?`;
   },
   genders: { women: 'Women', men: 'Men', boys: 'Boys', girls: 'Girls' } as const,

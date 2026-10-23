@@ -82,12 +82,22 @@ describe('garment recognition (api side)', () => {
       recognizeKind(app, 'inputs/x/garment.jpg'),
       answerNext(since, { answer: 'WA-Kurti.', error: null }),
     ]);
-    expect(kind).toEqual({ label: 'Kurti' });
+    // Kurti rows exist for women and men; the label alone does not pick one.
+    expect(kind).toEqual({ label: 'Kurti', genders: ['women', 'men'] });
     expect(request.options.map((o) => o.slug).sort()).toEqual([
       'wa-full-shirt',
       'wa-kurta',
       'wa-kurti',
     ]);
+  });
+
+  it('recognizeKind reports a single gender when only one has the kind', async () => {
+    const since = await lastId();
+    const [kind] = await Promise.all([
+      recognizeKind(app, 'inputs/x/garment.jpg'),
+      answerNext(since, { answer: 'wa-kurta', error: null }),
+    ]);
+    expect(kind).toEqual({ label: 'Kurta', genders: ['men'] });
   });
 
   it('typeForKind maps a kind to the tapped gender row, or null when that gender lacks it', async () => {
