@@ -390,6 +390,19 @@
   text-overflow: ellipsis;
 }
 
+.aivastra-tryon__legal--brand {
+  margin-top: 2px;
+  /* Wraps (unlike the one-line T&C above) so it never leaves the modal; the
+     ready-preview budget below reserves room for its two lines. */
+  white-space: normal;
+  overflow: visible;
+}
+
+.aivastra-tryon__legal--brand a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .aivastra-tryon__step {
   flex: 1;
   min-height: 0;
@@ -465,7 +478,7 @@
      (modal padding, header, gap, CTA button, legal text) — object-fit:
      contain on the image then just letterboxes within whatever height this
      resolves to, rather than the box growing past it. */
-  max-height: calc(75dvh - 200px);
+  max-height: calc(75dvh - 236px);
   /* Flex items default to a content-based automatic minimum size, which for
      a box sized by aspect-ratio is that ratio's own height — without this,
      a tall photo can't shrink below it even when the modal (auto-height in
