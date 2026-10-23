@@ -210,7 +210,7 @@ jobs:
         run: pnpm --filter ${{ matrix.package }} test:unit
 
   test-integration:
-    name: Integration tests (${{ matrix.package }})
+    name: Integration tests (${{ matrix.package }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [detect]
@@ -223,7 +223,20 @@ jobs:
       fail-fast: false
       matrix:
         # Only apps/api and apps/dispatcher have a test:integration script.
-        package: ['@aivastra/api', '@aivastra/dispatcher']
+        # The api suite (~180 files) is split across three runners with
+        # Vitest's --shard — every file builds its own Postgres DB, MinIO bucket
+        # and per-worker Redis index, so shards share nothing. Each shard
+        # repeats install/build/docker startup, which is the price of cutting
+        # wall time from ~8-10 min to a few. The dispatcher suite is small and
+        # runs whole.
+        include:
+          - package: '@aivastra/api'
+            shard: 1/3
+          - package: '@aivastra/api'
+            shard: 2/3
+          - package: '@aivastra/api'
+            shard: 3/3
+          - package: '@aivastra/dispatcher'
     # `matrix` isn't in the allowed-context list for a job-level `if:` (only
     # github/inputs/needs/vars are — see actionlint's expression check), so the
     # per-package skip has to live on every step instead of the job. A skipped
@@ -274,7 +287,9 @@ jobs:
 
       - name: Run integration tests
         if: contains(needs.detect.outputs.test_targets, matrix.package) && github.event_name != 'push'
-        run: pnpm --filter ${{ matrix.package }} test:integration
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: pnpm --filter ${{ matrix.package }} test:integration ${SHARD:+--shard=$SHARD}
 
   ci-scripts:
     name: Detector tests
