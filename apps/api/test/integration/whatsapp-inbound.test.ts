@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ParsedInbound } from '../../src/modules/messaging/channels/whatsapp/parse';
+import { COPY } from '../../src/modules/messaging/engine/copy';
 import {
   CHANNEL_WHATSAPP,
   connectAccount,
@@ -45,10 +46,17 @@ describe('whatsapp inbound', () => {
       msg(from, { kind: 'image', mediaId: 'm', mimeType: 'image/jpeg' }),
       noPending,
     );
-    expect(wa.texts()).toHaveLength(1);
-    expect(wa.texts()[0]).toMatch(
-      /^Welcome to Aivastra!.*https:\/\/app\.test\/connect\/whatsapp\?t=/s,
-    );
+    expect(wa.sent).toHaveLength(1);
+    // A CTA URL button, not a pasted link: the token stays out of the chat text.
+    expect(wa.texts()[0]).toMatch(/^Welcome to Ai Vastra!/);
+    expect(wa.sent[0].payload).toMatchObject({
+      interactive: {
+        type: 'cta_url',
+        action: {
+          parameters: { url: expect.stringMatching(/^https:\/\/app\.test\/connect\/whatsapp\?t=/) },
+        },
+      },
+    });
     expect(wa.uploads).toHaveLength(0);
   });
 
@@ -75,9 +83,9 @@ describe('whatsapp inbound', () => {
     expect(row).toMatchObject({ userId, linkedVia: 'web_code' });
     expect(row.lastInboundAt).not.toBeNull();
     const t = wa.texts();
-    expect(t[0]).toMatch(/^Connected\./);
+    expect(t[0]).toMatch(/^You're all set!/);
     expect(t[1]).toMatch(/ending 1234/);
-    expect(t.at(-1)).toBe('What would you like to do?');
+    expect(t.at(-1)).toBe(COPY.menu);
   });
 
   it('an expired code is refused', async () => {
@@ -118,7 +126,7 @@ describe('whatsapp inbound', () => {
       .from(schema.messagingAccounts)
       .where(eq(schema.messagingAccounts.id, account.id));
     expect(row.optedOutAt).toBeNull();
-    expect(wa.texts().at(-1)).toBe('What would you like to do?');
+    expect(wa.texts().at(-1)).toBe(COPY.menu);
   });
 
   it('a connected number reaches the engine and pending deliveries run first', async () => {
@@ -137,7 +145,7 @@ describe('whatsapp inbound', () => {
     const pending = vi.fn().mockResolvedValue(undefined);
     await processInbound(app, wa.client, msg(from, { kind: 'text', text: 'hi' }), pending);
     expect(pending).toHaveBeenCalledWith(app, wa.client, account.id);
-    expect(wa.texts().at(-1)).toBe('What would you like to do?');
+    expect(wa.texts().at(-1)).toBe(COPY.menu);
   });
 
   it('a photo is downloaded, stored as an owned upload and handed to the engine', async () => {
@@ -160,7 +168,7 @@ describe('whatsapp inbound', () => {
       noPending,
     );
     // Photo from the main menu → the engine asks for gender next.
-    expect(wa.texts().at(-1)).toBe('Create catalogue for:');
+    expect(wa.texts().at(-1)).toBe('Create this catalogue for:');
     const owned = await app.redis.keys('upload:owner:inputs/*');
     expect(owned.length).toBeGreaterThan(0);
   });

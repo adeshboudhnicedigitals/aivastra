@@ -103,7 +103,14 @@ export async function deliverRun(
         channel: account.channel,
         externalId: account.externalId,
       },
-      { type: 'runFinished', runId, images: run.jobIds.length, failedPoseIds },
+      {
+        type: 'runFinished',
+        runId,
+        images: run.jobIds.length,
+        failedPoseIds,
+        // Direct try-on jobs carry no pose id, so the count is the only signal.
+        failed: jobs.filter((j) => j.status !== 'COMPLETED').length,
+      },
       `run:${runId}`,
     );
     await sendMessages(app, wa, to, out);

@@ -1,11 +1,11 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { whatsappGarmentUnavailableTotal } from '@aivastra/observability';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getResolutionTierConfig } from '../../lib/resolution-config.js';
 import { listCatalogueTemplates, listFaces, listGarmentTypes } from '../models/queries.js';
-import { recognizeGarment, recordRecognitionCorrected } from './classify.js';
+import { recognizeKind, recordRecognitionCorrected, typeForKind } from './classify.js';
 import { buildPool } from './engine/rules.js';
 import type {
   AspectRatio,
@@ -101,7 +101,16 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
       );
     },
 
-    recognizeGarment: (garmentKey, gender) => recognizeGarment(app, garmentKey, gender),
+    shuffle: (ids) => {
+      const a = [...ids];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = randomInt(i + 1);
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    },
+    recognizeKind: (garmentKey) => recognizeKind(app, garmentKey),
+    typeForKind: (label, gender) => typeForKind(app, label, gender),
     recordRecognitionCorrected,
     // Info, not warn: it is admin data, not a fault, but it is the only trace
     // of why a seller was told a type "isn't available on WhatsApp yet".

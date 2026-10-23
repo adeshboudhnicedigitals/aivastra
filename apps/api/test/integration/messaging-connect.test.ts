@@ -81,6 +81,7 @@ describe('messaging connect (flag on)', () => {
       matchesProfile: true,
       profilePhoneLast4: number.slice(-4),
       alreadyConnected: false,
+      displayNumber: '15556585373',
     });
 
     // Preview does not consume: confirm still works afterwards.

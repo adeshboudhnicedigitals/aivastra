@@ -152,8 +152,8 @@ describe('engine: menu and global commands', () => {
 
   it('stray text on an idle step shows that step again instead of a reprompt', async () => {
     const { deps } = fakeDeps({ getBalance: async () => 8 });
-    const { r } = await pickLooks(deps, ['a', 'b']);
-    const no = await handle(r.session, tap(r, 'generate'), CTX, deps);
+    // Eight credits cannot cover two poses: the summary never shows a negative remainder.
+    const no = await atConfirm(deps, 2);
     expect(no.session.state).toBe('NO_CREDITS');
     const again = await handle(no.session, { type: 'text', text: 'ok' }, CTX, deps);
     expect(again.session.state).toBe('NO_CREDITS');
@@ -161,6 +161,12 @@ describe('engine: menu and global commands', () => {
     expect(texts(again.messages)).not.toContain('Please use the options above, or type MENU.');
   });
 });
+
+// A recognised Shirt, and the gender's own row for it.
+const KIND = {
+  recognizeKind: async () => ({ label: 'Shirt' }),
+  typeForKind: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
+};
 
 describe('engine: photo, gender and garment type', () => {
   it('New catalog asks for the photo; the photo leads to the four-gender list', async () => {
@@ -171,7 +177,7 @@ describe('engine: photo, gender and garment type', () => {
       garmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg',
     });
     const list = listOf(r);
-    expect(list?.text).toBe('Create catalogue for:');
+    expect(list?.text).toBe('Create this catalogue for:');
     expect(list?.rows.map((x) => x.title)).toEqual(['Women', 'Men', 'Boys', 'Girls']);
   });
 
@@ -182,69 +188,73 @@ describe('engine: photo, gender and garment type', () => {
     expect(r.session.garmentKey).toContain('000000000002');
   });
 
-  it('recognised: the guess is confirmed first; Yes goes on to pose picking', async () => {
-    const { deps } = fakeDeps({
-      recognizeGarment: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
-    });
-    const ask = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
-    expect(ask.session).toMatchObject({
-      state: 'CONFIRM_GARMENT_TYPE',
-      garmentType: { id: 'gt-shirt' },
-      recognized: true,
-    });
-    expect(ask.messages[0]).toMatchObject({
+  it('recognition runs right after the upload and asks the seller to confirm the kind', async () => {
+    const { deps, calls } = fakeDeps(KIND);
+    const r = await run(deps, [() => photo(1)]);
+    expect(calls.recognize).toEqual([
+      { garmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg' },
+    ]);
+    expect(r.session).toMatchObject({ state: 'CONFIRM_KIND', kind: 'Shirt' });
+    expect(r.messages[0]).toMatchObject({
       kind: 'buttons',
-      text: 'Looks like: Shirt. Is that right?',
+      text: "I've analysed the image and it looks like a shirt.\nIs this correct?",
     });
-    const r = await handle(ask.session, tap(ask, 'confirm'), CTX, deps);
+    expect(buttonTitles(r.messages[0])).toEqual(['Yes, continue', 'No, different item']);
+  });
+
+  it('Yes asks the gender, then goes on with that gender’s own type', async () => {
+    const { deps, calls } = fakeDeps(KIND);
+    const ask = await run(deps, [() => photo(1), (x) => tap(x, 'confirm')]);
+    expect(ask.session.state).toBe('ASK_GENDER');
+    expect(listOf(ask)?.text).toBe('Great! 👍\nCreate this catalogue for:');
+    const r = await handle(ask.session, tap(ask, 'gender', 'women'), CTX, deps);
+    expect(calls.mapped).toEqual([{ label: 'Shirt', gender: 'women' }]);
     expect(r.session).toMatchObject({
-      state: 'PICK_LOOKS',
+      state: 'ASK_POSE_COUNT',
       gender: 'women',
       garmentType: { id: 'gt-shirt' },
-      recognized: true,
       faceId: 'face-1',
     });
+    expect(r.session.kind).toBeUndefined();
   });
 
-  it('recognised: No sends the seller to the list and counts a correction', async () => {
-    const { deps, calls } = fakeDeps({
-      recognizeGarment: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
-    });
-    const ask = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
-    const r = await handle(ask.session, tap(ask, 'change'), CTX, deps);
-    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
-    expect(r.session.garmentType).toBeUndefined();
-    expect(r.session.garmentKey).toContain('000000000001');
+  it('No asks the gender, then shows that gender’s list and counts a correction', async () => {
+    const { deps, calls } = fakeDeps(KIND);
+    const ask = await run(deps, [() => photo(1), (x) => tap(x, 'change')]);
+    expect(ask.session.state).toBe('ASK_GENDER');
+    expect(ask.session.kind).toBeUndefined();
+    expect(listOf(ask)?.text).toBe('Create this catalogue for:');
     expect(calls.corrected).toBe(1);
+    const r = await handle(ask.session, tap(ask, 'gender', 'women'), CTX, deps);
+    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
+    expect(calls.mapped).toEqual([]);
   });
 
-  it('recognition is asked with the photo and the tapped gender', async () => {
-    const { deps, calls } = fakeDeps();
-    await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'boys')]);
-    expect(calls.recognize).toEqual([
-      { garmentKey: 'inputs/00000000-0000-4000-8000-000000000001/garment.jpg', gender: 'boys' },
+  it('a kind the tapped gender does not have goes to that gender’s list', async () => {
+    const { deps } = fakeDeps({ ...KIND, typeForKind: async () => null });
+    const r = await run(deps, [
+      () => photo(1),
+      (x) => tap(x, 'confirm'),
+      (x) => tap(x, 'gender', 'boys'),
     ]);
-  });
-
-  it('not recognised: the garment-type list, then a pick goes to pose picking', async () => {
-    const { deps } = fakeDeps();
-    const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
-    expect(list.session.state).toBe('ASK_GARMENT_TYPE');
-    expect(listOf(list)?.text).toBe('Which garment is it?');
-    const r = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
-    expect(r.session).toMatchObject({ state: 'PICK_LOOKS', recognized: false });
+    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'boys' });
+    expect(r.session.kind).toBeUndefined();
   });
 
   it('a recognised type the bot cannot offer hands off to the studio, keeps the session and reports why', async () => {
     const { deps, calls } = fakeDeps({
-      recognizeGarment: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
+      ...KIND,
+      typeForKind: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
       getReadiness: async () => ({ status: 'blocked', reasons: ['mannequin_flow'] }),
     });
-    const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    const r = await run(deps, [
+      () => photo(1),
+      (x) => tap(x, 'confirm'),
+      (x) => tap(x, 'gender', 'women'),
+    ]);
     expect(texts(r.messages)[0]).toMatch(
       /^Saree catalogs can't be made on WhatsApp yet\. You can create one in the web studio: https:\/\/app\.test\/studio\?draft=/,
     );
-    // The seller keeps their photo and gender and gets the type list.
     expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
     expect(r.session.garmentKey).toBeDefined();
     expect(calls.unavailable).toEqual([
@@ -258,15 +268,29 @@ describe('engine: photo, gender and garment type', () => {
 
   it('a hand-off with no type list to offer ends at the menu without "choose another type"', async () => {
     const { deps } = fakeDeps({
-      recognizeGarment: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
+      ...KIND,
+      typeForKind: async () => ({ garmentTypeId: 'gt-saree', label: 'Saree' }),
       getReadiness: async () => ({ status: 'blocked', reasons: ['mannequin_flow'] }),
       listGarmentTypes: async () => [],
     });
-    const r = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    const r = await run(deps, [
+      () => photo(1),
+      (x) => tap(x, 'confirm'),
+      (x) => tap(x, 'gender', 'women'),
+    ]);
     const sent = texts(r.messages);
     expect(sent[0]).toMatch(/^Saree catalogs can't be made .*https:\/\/app\.test\/studio\?draft=/);
     expect(sent.join('\n')).not.toContain('Or choose another type.');
     expect(r.session.state).toBe('MAIN_MENU');
+  });
+
+  it('not recognised: the garment-type list, then a pick goes to the pose count question', async () => {
+    const { deps } = fakeDeps();
+    const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
+    expect(list.session.state).toBe('ASK_GARMENT_TYPE');
+    expect(listOf(list)?.text).toBe('Which garment is it?');
+    const r = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
+    expect(r.session.state).toBe('ASK_POSE_COUNT');
   });
 
   it('no template, no face, or no eligible look hands off and the reason is reported', async () => {
@@ -321,100 +345,79 @@ describe('engine: photo, gender and garment type', () => {
   });
 });
 
-// A seller at the pose cards for GT_SHIRT, through the garment-type list.
-async function atPick(deps: EngineDeps) {
+// A seller at the pose-count question for GT_SHIRT, through the garment-type list.
+async function atCount(deps: EngineDeps) {
   const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
   return run(deps, [(x) => tap(x, 'gt', 'gt-shirt')], list);
 }
 
-// Taps each look on the cards `at` offered, in order. Returns the cards result
-// and the result of the last tap (whose buttons hold Generate).
-async function pickLooks(deps: EngineDeps, lookIds: string[]) {
-  const at = await atPick(deps);
-  let r = at;
-  for (const id of lookIds) r = await handle(r.session, tap(at, 'look', id), CTX, deps);
-  return { at, r };
+// ...and after tapping a count: the summary with Generate / Different number.
+async function atConfirm(deps: EngineDeps, n: number) {
+  const at = await atCount(deps);
+  return handle(at.session, tap(at, 'count', String(n)), CTX, deps);
 }
 
+// A shuffle that puts `want` first, in that order: the draw is random in
+// production, so tests choose which looks it returns.
+const prefer = (want: string[]) => (ids: string[]) => [
+  ...want.filter((w) => ids.includes(w)),
+  ...ids.filter((i) => !want.includes(i)),
+];
+
+// Count = lookIds.length, drawn as exactly lookIds, then Generate.
 async function generated(deps: EngineDeps, lookIds: string[]) {
-  const { r } = await pickLooks(deps, lookIds);
-  return handle(r.session, tap(r, 'generate'), CTX, deps);
+  deps.shuffle = prefer(lookIds);
+  const c = await atConfirm(deps, lookIds.length);
+  return handle(c.session, tap(c, 'generate'), CTX, deps);
 }
 
 const buttonTitles = (m: OutboundMessage | undefined) =>
   m && m.kind === 'buttons' ? m.buttons.map((b) => b.title) : [];
 
-describe('engine: pose cards', () => {
-  it('prompts with the cost and balance, offers Change, and lists the eligible looks', async () => {
+describe('engine: pose count', () => {
+  it('summarises the choice and offers 1, 2 and 3 poses with their credit cost', async () => {
     const { deps, calls } = fakeDeps();
-    const r = await atPick(deps);
-    const [prompt, cards, footer] = r.messages;
-    expect('text' in prompt && prompt.text).toBe(
-      'Pick the poses you want. Each one is 5 credits. Your balance: 50 credits.',
+    const r = await atCount(deps);
+    expect(r.session).toMatchObject({ state: 'ASK_POSE_COUNT', perImage: 5, balance: 50 });
+    const list = listOf(r);
+    expect(list?.text).toBe(
+      "Great! Let's create your catalogue. ✨\nCategory: Women\nGarment: Shirt\n\nCredits per pose: 5 credits\nAvailable balance: 50 credits\n\nHow many poses would you like to generate for your catalogue?\nYou can choose one option below. Each pose will use 5 credits.",
     );
-    expect(buttonTitles(prompt)).toEqual(['Change garment', 'Menu']);
-    // Look 'd' needs shoes and GT_SHIRT has no default shoe (D49): 3 looks, not 4.
-    expect(cards.kind === 'cards' ? cards.cards.map((c) => c.title) : []).toEqual([
-      'Pose a',
-      'Pose b',
-      'Pose c',
+    // Look 'd' needs shoes and GT_SHIRT has no default shoe (D49): a pool of 3, so no "5 poses".
+    expect(list?.rows.map((x) => x.title)).toEqual([
+      '1 pose (5 credits)',
+      '2 poses (10 credits)',
+      '3 poses (15 credits)',
     ]);
-    expect('text' in footer && footer.text).toBe('Select poses above, then tap Generate.');
-    expect(buttonTitles(footer)).toEqual(['Generate', 'Clear']);
     // Priced with one look, through the real create-body builder.
     expect(calls.quote.at(-1)?.inputs.looks).toEqual([{ poseId: 'pose-a', backgroundId: 'bg-a' }]);
   });
 
-  it('pools the looks of every template, showing a repeated pose + background once', async () => {
-    const { deps } = fakeDeps({ getTemplates: async () => [TEMPLATE, TEMPLATE_2] });
-    const r = await atPick(deps);
-    const cards = r.messages.find((m) => m.kind === 'cards');
-    expect(cards && cards.kind === 'cards' ? cards.cards.map((c) => c.title) : []).toEqual([
-      'Pose a',
-      'Pose b',
-      'Pose c',
-      'Pose e',
-      'Pose f',
-    ]);
-  });
-
-  it('pages at 10 cards with More; a pick from page 1 still works after More', async () => {
-    const big = { ...TEMPLATE, looks: Array.from({ length: 12 }, (_, i) => look(`l${i}`)) };
-    const { deps } = fakeDeps({ getTemplates: async () => [big] });
-    const at = await atPick(deps);
-    const cards = at.messages.find((m) => m.kind === 'cards');
-    expect(cards && cards.kind === 'cards' ? cards.cards : []).toHaveLength(10);
-    expect(buttonTitles(at.messages.at(-1))).toEqual(['More', 'Generate', 'Clear']);
-    const second = await handle(at.session, tap(at, 'more'), CTX, deps);
-    const rest = second.messages.find((m) => m.kind === 'cards');
-    expect(rest && rest.kind === 'cards' ? rest.cards.map((c) => c.title) : []).toEqual([
-      'Pose l10',
-      'Pose l11',
-    ]);
-    // Page 2 does not repeat the price prompt, and the nonce is unchanged.
-    expect(second.messages[0].kind).toBe('cards');
-    const pickOne = await handle(second.session, tap(at, 'look', 'l0'), CTX, deps);
-    expect(pickOne.session.picked).toEqual(['l0']);
-  });
-
-  it('Change after a recognised type counts a correction; after a list pick it does not', async () => {
-    const recognised = fakeDeps({
-      recognizeGarment: async () => ({ garmentTypeId: 'gt-shirt', label: 'Shirt' }),
+  it('offers only counts the balance can pay for', async () => {
+    const { deps } = fakeDeps({
+      getBalance: async () => 10,
+      quote: async () => ({ images: 1, perImage: 5, total: 5, balance: 10 }),
     });
-    const r1 = await run(recognised.deps, [
-      () => photo(1),
-      (x) => tap(x, 'gender', 'women'),
-      (x) => tap(x, 'confirm'),
-      (x) => tap(x, 'change'),
+    const r = await atCount(deps);
+    expect(listOf(r)?.rows.map((x) => x.title)).toEqual([
+      '1 pose (5 credits)',
+      '2 poses (10 credits)',
     ]);
-    expect(r1.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
-    expect(r1.session.garmentKey).toContain('000000000001');
-    expect(recognised.calls.corrected).toBe(1);
+  });
 
-    const listed = fakeDeps();
-    const at = await atPick(listed.deps);
-    await handle(at.session, tap(at, 'change'), CTX, listed.deps);
-    expect(listed.calls.corrected).toBe(0);
+  it('goes to NO_CREDITS when not even one pose is affordable', async () => {
+    const { deps } = fakeDeps({
+      quote: async () => ({ images: 1, perImage: 5, total: 5, balance: 3 }),
+    });
+    const r = await atCount(deps);
+    expect(r.session.state).toBe('NO_CREDITS');
+  });
+
+  it('pools the looks of every template for the pool size', async () => {
+    const { deps } = fakeDeps({ getTemplates: async () => [TEMPLATE, TEMPLATE_2] });
+    const r = await atCount(deps);
+    // 5 distinct looks (a, b, c, e, f): the 5-pose option appears.
+    expect(listOf(r)?.rows.map((x) => x.title)).toContain('5 poses (25 credits)');
   });
 
   it('a quote error is shown before any credits are taken', async () => {
@@ -424,93 +427,112 @@ describe('engine: pose cards', () => {
         throw new AppError('VALIDATION', 400, 'face not found or inactive');
       },
     });
-    const r = await atPick(deps);
+    const r = await atCount(deps);
     expect(texts(r.messages)).toContain('face not found or inactive');
     expect(r.session.state).toBe('MAIN_MENU');
   });
-});
 
-describe('engine: selecting poses', () => {
-  it('a tap selects and reports the count and cost; tapping again removes it', async () => {
+  it('a count that was not offered is re-prompted', async () => {
     const { deps } = fakeDeps();
-    const { at, r: one } = await pickLooks(deps, ['a']);
-    expect(texts(one.messages)).toEqual(['1 selected · 5 credits']);
-    expect(buttonTitles(one.messages[0])).toEqual(['Generate', 'Clear']);
-    expect(one.session.picked).toEqual(['a']);
-    const off = await handle(one.session, tap(at, 'look', 'a'), CTX, deps);
-    expect(texts(off.messages)).toEqual(['0 selected · 0 credits']);
-    expect(off.session.picked).toEqual([]);
-  });
-
-  it('Clear empties the selection', async () => {
-    const { deps } = fakeDeps();
-    const { r } = await pickLooks(deps, ['a', 'c']);
-    const cleared = await handle(r.session, tap(r, 'clear'), CTX, deps);
-    expect(cleared.session.picked).toEqual([]);
-    expect(texts(cleared.messages)).toEqual(['0 selected · 0 credits']);
-  });
-
-  it('declines a 21st pose', async () => {
-    const big = { ...TEMPLATE, looks: Array.from({ length: 22 }, (_, i) => look(`l${i}`)) };
-    const { deps } = fakeDeps({ getTemplates: async () => [big] });
-    const at = await atPick(deps);
-    let s = at.session;
-    for (let i = 0; i < 20; i++) {
-      const r = await handle(
-        s,
-        { type: 'reply', id: encodeReplyId(s.nonce, 'look', `l${i}`) },
-        CTX,
-        deps,
-      );
-      s = r.session;
-    }
-    expect(s.picked).toHaveLength(20);
-    const over = await handle(
-      s,
-      { type: 'reply', id: encodeReplyId(s.nonce, 'look', 'l20') },
-      CTX,
-      deps,
-    );
-    expect(texts(over.messages)).toEqual(['You can generate up to 20 poses at a time.']);
-    expect(over.session.picked).toHaveLength(20);
-  });
-
-  it('a look that is not on the cards is re-prompted', async () => {
-    const { deps } = fakeDeps();
-    const at = await atPick(deps);
+    const at = await atCount(deps);
     const r = await handle(
       at.session,
-      { type: 'reply', id: encodeReplyId(at.session.nonce, 'look', 'nope') },
+      { type: 'reply', id: encodeReplyId(at.session.nonce, 'count', '4') },
       CTX,
       deps,
     );
     expect(texts(r.messages)[0]).toBe('Please use the options above, or type MENU.');
+    expect(r.session.state).toBe('ASK_POSE_COUNT');
+  });
+});
+
+describe('engine: confirming the count', () => {
+  it('summarises cost and remaining balance and offers Generate or a different number', async () => {
+    const { deps } = fakeDeps();
+    const r = await atConfirm(deps, 2);
+    expect(r.session).toMatchObject({ state: 'CONFIRM_GENERATE', count: 2 });
+    expect(r.messages[0]).toMatchObject({
+      kind: 'buttons',
+      text: "Perfect! You've selected 2 poses.\nCategory: Women | Garment: Shirt\nCredits required: 10 credits\nRemaining balance: 40 credits\n\nDo you want to proceed with 2 poses?",
+    });
+    expect(buttonTitles(r.messages[0])).toEqual(['Generate', 'Different number']);
   });
 
-  it('Generate with nothing selected asks for a pose and stays on the cards', async () => {
+  it('Different number returns to the count list without charging', async () => {
     const { deps, calls } = fakeDeps();
-    const at = await atPick(deps);
-    const r = await handle(at.session, tap(at, 'generate'), CTX, deps);
-    expect(texts(r.messages)).toEqual(['Tap at least one pose first.']);
-    expect(r.session.state).toBe('PICK_LOOKS');
+    const c = await atConfirm(deps, 2);
+    const r = await handle(c.session, tap(c, 'recount'), CTX, deps);
+    expect(r.session.state).toBe('ASK_POSE_COUNT');
     expect(calls.createRun).toHaveLength(0);
   });
 
-  it('a selection the balance cannot cover goes to NO_CREDITS before any run; credits added return to the cards with the selection kept', async () => {
-    const { deps, calls } = fakeDeps({ getBalance: async () => 8 });
-    const { r } = await pickLooks(deps, ['a', 'b']);
-    const no = await handle(r.session, tap(r, 'generate'), CTX, deps);
-    expect(no.session.state).toBe('NO_CREDITS');
-    expect(texts(no.messages)[0]).toContain('https://app.test/pricing');
+  it('Generate re-checks the balance: a balance that dropped goes to NO_CREDITS before any run', async () => {
+    let balance = 50;
+    const { deps, calls } = fakeDeps({ getBalance: async () => balance });
+    const c = await atConfirm(deps, 3);
+    balance = 10;
+    const r = await handle(c.session, tap(c, 'generate'), CTX, deps);
+    expect(r.session.state).toBe('NO_CREDITS');
     expect(calls.createRun).toHaveLength(0);
-    const back = await handle(no.session, { type: 'creditsAdded', credits: 100 }, CTX, deps);
-    expect(texts(back.messages)[0]).toBe('100 credits added.');
-    expect(back.session).toMatchObject({ state: 'PICK_LOOKS', picked: ['a', 'b'] });
+  });
+
+  it('credits added after NO_CREDITS return to the count question', async () => {
+    const { deps } = fakeDeps();
+    const c = await atConfirm(deps, 3);
+    const broke = { ...c.session, state: 'NO_CREDITS' as const };
+    const r = await handle(broke, { type: 'creditsAdded', credits: 100 }, CTX, deps);
+    expect(r.session.state).toBe('ASK_POSE_COUNT');
+  });
+});
+
+describe('engine: random draw', () => {
+  it('draws N distinct looks from the pool at Generate', async () => {
+    const { deps, calls } = fakeDeps();
+    const r = await generated(deps, ['b', 'c']);
+    expect(r.session).toMatchObject({
+      state: 'GENERATING',
+      picked: ['b', 'c'],
+      seenLooks: ['b', 'c'],
+    });
+    expect(calls.createRun[0].inputs).toMatchObject({
+      looks: [
+        { poseId: 'pose-b', backgroundId: 'bg-b' },
+        { poseId: 'pose-c', backgroundId: 'bg-c' },
+      ],
+    });
+  });
+
+  it('a look removed between the count and Generate is simply not drawn', async () => {
+    let current = TEMPLATE;
+    const { deps, calls } = fakeDeps({ getTemplates: async () => [current] });
+    const c = await atConfirm(deps, 2);
+    current = { ...TEMPLATE, looks: TEMPLATE.looks.filter((l) => l.id !== 'a') };
+    const r = await handle(c.session, tap(c, 'generate'), CTX, deps);
+    expect(r.session.picked).toEqual(['b', 'c']);
+    expect(calls.createRun).toHaveLength(1);
+  });
+
+  it('More poses draws looks the seller has not had, then starts over when the pool runs out', async () => {
+    const { deps } = fakeDeps();
+    const first = await generated(deps, ['a', 'b']);
+    const done = await handle(
+      first.session,
+      { type: 'runFinished', runId: 'run-1', images: 2, failedPoseIds: [] },
+      CTX,
+      deps,
+    );
+    deps.shuffle = (ids) => ids;
+    const again = await handle(done.session, tap(done, 'more_poses'), CTX, deps);
+    const c2 = await handle(again.session, tap(again, 'count', '2'), CTX, deps);
+    const second = await handle(c2.session, tap(c2, 'generate'), CTX, deps);
+    // 'a' and 'b' were had: only 'c' is new, so one reused look tops it up.
+    expect(second.session.picked).toEqual(['c', 'a']);
+    expect(second.session.seenLooks).toEqual(['c', 'a']);
   });
 });
 
 describe('engine: generating', () => {
-  it('one template: one run with exactly the picked looks, in tap order', async () => {
+  it('one template: one run with exactly the drawn looks', async () => {
     const { deps, calls } = fakeDeps();
     const r = await generated(deps, ['c', 'a']);
     expect(r.session).toMatchObject({
@@ -529,7 +551,7 @@ describe('engine: generating', () => {
     expect(calls.createRun[0].inputs).not.toHaveProperty('lowerCatalogId');
     expect(calls.createRunKeys).toEqual(['wamid.1:0']);
     expect(texts(r.messages)[0]).toBe(
-      "Working on 2 images, 10 credits. I'll send each one here as it's ready.",
+      "Generating your 2 poses...\nWe're creating your catalogue images.\nThis may take a few seconds.",
     );
   });
 
@@ -547,7 +569,7 @@ describe('engine: generating', () => {
     expect(calls.createRunKeys).toEqual(['wamid.1:0', 'wamid.1:1']);
     expect(r.session.runs?.map((x) => x.runId)).toEqual(['run-1', 'run-2']);
     expect(texts(r.messages)[0]).toBe(
-      "Working on 2 images, 10 credits. I'll send each one here as it's ready.",
+      "Generating your 2 poses...\nWe're creating your catalogue images.\nThis may take a few seconds.",
     );
   });
 
@@ -564,7 +586,7 @@ describe('engine: generating', () => {
     const r = await generated(deps, ['a', 'e']);
     expect(calls.createRun).toHaveLength(0);
     expect(texts(r.messages)[0]).toBe('Those poses changed. Please choose again.');
-    expect(r.session).toMatchObject({ state: 'PICK_LOOKS', picked: [] });
+    expect(r.session).toMatchObject({ state: 'ASK_POSE_COUNT', picked: [] });
   });
 
   it('a later group that fails leaves its looks unstarted and says so', async () => {
@@ -585,7 +607,7 @@ describe('engine: generating', () => {
       picked: ['a', 'e'],
     });
     expect(texts(r.messages)).toEqual([
-      "Working on 1 image, 5 credits. I'll send each one here as it's ready.",
+      "Generating your 1 pose...\nWe're creating your catalogue images.\nThis may take a few seconds.",
       "Started 1 of 2 images. The rest couldn't start: insufficient credits",
     ]);
   });
@@ -600,7 +622,7 @@ describe('engine: generating', () => {
     expect(r.session).toMatchObject({ state: 'NO_CREDITS', picked: ['a'] });
   });
 
-  it('a look that changed at create time returns to the cards with the selection cleared', async () => {
+  it('a look that changed at create time returns to the count question with the selection cleared', async () => {
     const { AppError } = await import('../src/lib/errors');
     const { deps } = fakeDeps({
       createRun: async () => {
@@ -613,18 +635,7 @@ describe('engine: generating', () => {
     });
     const r = await generated(deps, ['a']);
     expect(texts(r.messages)[0]).toBe('Those poses changed. Please choose again.');
-    expect(r.session).toMatchObject({ state: 'PICK_LOOKS', picked: [] });
-  });
-
-  it('a look removed since the cards were shown is dropped, nothing is charged', async () => {
-    let current = TEMPLATE;
-    const { deps, calls } = fakeDeps({ getTemplates: async () => [current] });
-    const { r } = await pickLooks(deps, ['a', 'c']);
-    current = { ...TEMPLATE, looks: TEMPLATE.looks.filter((l) => l.id !== 'c') };
-    const out = await handle(r.session, tap(r, 'generate'), CTX, deps);
-    expect(texts(out.messages)[0]).toBe('Those poses changed. Please choose again.');
-    expect(out.session).toMatchObject({ state: 'PICK_LOOKS', picked: ['a'] });
-    expect(calls.createRun).toHaveLength(0);
+    expect(r.session).toMatchObject({ state: 'ASK_POSE_COUNT', picked: [] });
   });
 
   it('a session saved with an older shape still generates at the bot shape', async () => {
@@ -633,9 +644,9 @@ describe('engine: generating', () => {
     const { deps, calls } = fakeDeps({
       getUserDefaults: async () => ({ aspectRatio: '3:4', resolution: '2K' }),
     });
-    const { r } = await pickLooks(deps, ['a']);
-    const stale = { ...r.session, aspectRatio: '1:1' as const, resolution: 'HD' as const };
-    const out = await handle(stale, tap(r, 'generate'), CTX, deps);
+    const c = await atConfirm(deps, 1);
+    const stale = { ...c.session, aspectRatio: '1:1' as const, resolution: 'HD' as const };
+    const out = await handle(stale, tap(c, 'generate'), CTX, deps);
     expect(out.session.state).toBe('GENERATING');
     expect(calls.createRun[0]).toMatchObject({ aspectRatio: '3:4', resolution: '2K' });
     expect(out.session).toMatchObject({ aspectRatio: '3:4', resolution: '2K' });
@@ -667,7 +678,7 @@ describe('engine: generating', () => {
 });
 
 describe('engine: required extra photos', () => {
-  it('asks for the third photo before the cards and sends it', async () => {
+  it('asks for the third photo before the pose count and sends it', async () => {
     const { deps, calls } = fakeDeps({
       listGarmentTypes: async () => [
         { ...GT_SHIRT, requiresThirdUpload: true, thirdUploadLabel: 'dupatta' },
@@ -677,10 +688,11 @@ describe('engine: required extra photos', () => {
     const ask = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
     expect(ask.session.state).toBe('ASK_EXTRA_PHOTO');
     expect(texts(ask.messages)[0]).toBe('Now send a photo of the dupatta.');
-    const cards = await handle(ask.session, photo(3), CTX, deps);
-    expect(cards.session.state).toBe('PICK_LOOKS');
-    const one = await handle(cards.session, tap(cards, 'look', 'a'), CTX, deps);
-    await handle(one.session, tap(one, 'generate'), CTX, deps);
+    deps.shuffle = prefer(['a']);
+    const at = await handle(ask.session, photo(3), CTX, deps);
+    expect(at.session.state).toBe('ASK_POSE_COUNT');
+    const c = await handle(at.session, tap(at, 'count', '1'), CTX, deps);
+    await handle(c.session, tap(c, 'generate'), CTX, deps);
     expect(calls.createRun[0].inputs.thirdGarmentKey).toContain('000000000003');
   });
 
@@ -693,9 +705,11 @@ describe('engine: required extra photos', () => {
     const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'men')]);
     const ask = await handle(list.session, tap(list, 'gt', 'gt-shirt'), CTX, deps);
     expect(texts(ask.messages)[0]).toBe('Now send a photo of the pyjama.');
-    const cards = await handle(ask.session, photo(4), CTX, deps);
-    const one = await handle(cards.session, tap(cards, 'look', 'b'), CTX, deps);
-    await handle(one.session, tap(one, 'generate'), CTX, deps);
+    deps.shuffle = prefer(['b']);
+    const at = await handle(ask.session, photo(4), CTX, deps);
+    expect(at.session.state).toBe('ASK_POSE_COUNT');
+    const c = await handle(at.session, tap(at, 'count', '1'), CTX, deps);
+    await handle(c.session, tap(c, 'generate'), CTX, deps);
     expect(calls.createRun[0].inputs.lowerGarmentKey).toContain('000000000004');
     expect(calls.createRun[0].inputs).not.toHaveProperty('lowerCatalogId');
   });
@@ -754,12 +768,30 @@ describe('engine: progress and delivery', () => {
     expect(texts(r.messages)).toEqual(['Still generating: 1 of 2 done.']);
   });
 
-  it('one run finishing with no failures offers more poses and a new catalog', async () => {
+  it('one run finishing summarises the credits used and offers the next steps', async () => {
     const { deps } = fakeDeps();
     const gen = await generated(deps, ['a', 'c']);
     const r = await handle(gen.session, finished('run-1', 2), CTX, deps);
     expect(r.session.state).toBe('DELIVERED');
-    expect(buttonTitles(r.messages.at(-1))).toEqual(['More poses', 'New catalog']);
+    expect(texts(r.messages)).toContain(
+      'Here are your 2 generated poses!\nCategory: Women | Garment: Shirt\nCredits used: 10 credits\nRemaining balance: 50 credits',
+    );
+    expect(r.messages.at(-1)).toMatchObject({ text: 'What would you like to do next?' });
+    expect(buttonTitles(r.messages.at(-1))).toEqual([
+      'More poses',
+      'Change garment',
+      'New catalog',
+    ]);
+  });
+
+  it('Change garment after delivery returns to the garment-type list, keeping photo and gender', async () => {
+    const { deps } = fakeDeps();
+    const gen = await generated(deps, ['a']);
+    const done = await handle(gen.session, finished('run-1', 1), CTX, deps);
+    const r = await handle(done.session, tap(done, 'change'), CTX, deps);
+    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women', picked: [] });
+    expect(r.session.garmentKey).toContain('000000000001');
+    expect(r.session.seenLooks).toBeUndefined();
   });
 
   it('with several runs the closing message waits for the last one', async () => {
@@ -772,7 +804,11 @@ describe('engine: progress and delivery', () => {
     expect(repeat.messages).toEqual([]);
     const last = await handle(first.session, finished('run-2', 1), CTX, deps);
     expect(last.session.state).toBe('DELIVERED');
-    expect(buttonTitles(last.messages.at(-1))).toEqual(['More poses', 'New catalog']);
+    expect(buttonTitles(last.messages.at(-1))).toEqual([
+      'More poses',
+      'Change garment',
+      'New catalog',
+    ]);
   });
 
   it('a runFinished for an older run changes nothing', async () => {
@@ -787,6 +823,10 @@ describe('engine: progress and delivery', () => {
     const gen = await generated(deps, ['a', 'c']);
     const r = await handle(gen.session, finished('run-1', 2, ['pose-c']), CTX, deps);
     expect(texts(r.messages)[0]).toBe('1 of 2 images failed. The credits for it were refunded.');
+    expect(texts(r.messages)).toContain(
+      'Here are your 1 generated pose!\nCategory: Women | Garment: Shirt\nCredits used: 5 credits\nRemaining balance: 50 credits',
+    );
+    expect(buttonTitles(r.messages.at(-1))).toEqual(['Retry failed', 'More poses', 'Menu']);
     const retry = await handle(r.session, tap(r, 'retry'), CTX, deps);
     expect(retry.session.state).toBe('GENERATING');
     expect(calls.createRun.at(-1)?.inputs.looks).toEqual([
@@ -817,16 +857,17 @@ describe('engine: progress and delivery', () => {
     });
   });
 
-  it('More poses returns to the cards with the garment, type and face kept', async () => {
+  it('More poses returns to the count question with the garment, type, face and seen looks kept', async () => {
     const { deps } = fakeDeps();
     const gen = await generated(deps, ['a', 'c']);
     const done = await handle(gen.session, finished('run-1', 2), CTX, deps);
     const r = await handle(done.session, tap(done, 'more_poses'), CTX, deps);
     expect(r.session).toMatchObject({
-      state: 'PICK_LOOKS',
+      state: 'ASK_POSE_COUNT',
       garmentType: { id: 'gt-shirt' },
       faceId: 'face-1',
       picked: [],
+      seenLooks: ['a', 'c'],
     });
     expect(r.session.garmentKey).toContain('000000000001');
   });
@@ -877,5 +918,69 @@ describe('engine: sessions saved by the single-template engine', () => {
     const r = await handle(picking, { type: 'reply', id: 'n1|look|a' }, CTX, deps);
     expect(texts(r.messages)[0]).toMatch(/session expired/);
     expect(r.session.state).toBe('MAIN_MENU');
+  });
+});
+
+describe('engine: review fixes', () => {
+  it('a session mapped from the old flow answers an old tap with the stale text and the count list', async () => {
+    const { deps } = fakeDeps();
+    const base = await atCount(deps);
+    const mapped = { ...base.session, nonce: 'migrated' } as Session;
+    const r = await handle(mapped, { type: 'reply', id: 'n1|look|a' }, CTX, deps);
+    expect(texts(r.messages)[0]).toBe('That option is from an earlier step.');
+    expect(r.session.state).toBe('ASK_POSE_COUNT');
+    expect(r.messages.length).toBeGreaterThan(1);
+  });
+
+  it('a first photo with no session is recognised and the kind confirmed', async () => {
+    const { deps, calls } = fakeDeps(KIND);
+    const r = await handle(null, photo(1), CTX, deps);
+    expect(calls.recognize).toHaveLength(1);
+    expect(r.session).toMatchObject({ state: 'CONFIRM_KIND', kind: 'Shirt' });
+  });
+
+  it('a first photo with no session and no recognition goes to the gender question', async () => {
+    const { deps } = fakeDeps({ recognizeKind: async () => null });
+    const r = await handle(null, photo(1), CTX, deps);
+    expect(r.session.state).toBe('ASK_GENDER');
+    expect(r.session.kind).toBeUndefined();
+  });
+
+  it('an invalid reply at CONFIRM_KIND reprompts and keeps the state', async () => {
+    const { deps } = fakeDeps(KIND);
+    const at = await run(deps, [() => photo(1)]);
+    const r = await handle(
+      at.session,
+      { type: 'reply', id: encodeReplyId(at.session.nonce, 'bogus', '') },
+      CTX,
+      deps,
+    );
+    expect(texts(r.messages)[0]).toBe('Please use the options above, or type MENU.');
+    expect(r.session.state).toBe('CONFIRM_KIND');
+  });
+
+  it('a new photo clears the looks already seen', async () => {
+    const { deps } = fakeDeps();
+    const gen = await generated(deps, ['a']);
+    const done = await handle(
+      gen.session,
+      { type: 'runFinished', runId: 'run-1', images: 1, failedPoseIds: [] },
+      CTX,
+      deps,
+    );
+    expect(done.session.seenLooks).toEqual(['a']);
+    const r = await handle(done.session, photo(2), CTX, deps);
+    expect(r.session.seenLooks).toBeUndefined();
+  });
+
+  it('a balance below the chosen count goes to NO_CREDITS instead of a negative remainder', async () => {
+    let balance = 50;
+    const { deps } = fakeDeps({ getBalance: async () => balance });
+    const c = await atConfirm(deps, 3);
+    balance = 10;
+    // A stale tap re-renders the confirm step with today's balance.
+    const r = await handle(c.session, { type: 'reply', id: 'old|x|' }, CTX, deps);
+    expect(r.session.state).toBe('NO_CREDITS');
+    expect(texts(r.messages).join('\n')).not.toContain('Remaining balance: -');
   });
 });

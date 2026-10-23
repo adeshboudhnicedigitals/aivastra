@@ -17,21 +17,23 @@ function askMain(main: string | null): string {
 
 // Button titles are capped at 20 characters by WhatsApp; list row titles at 24.
 export const COPY = {
-  menu: 'What would you like to do?',
+  menu: '✨ Ai Vastra\nWhat would you like to do?',
   btnNewCatalog: 'New catalog',
-  btnCredits: 'Credits',
-  btnHelp: 'Help',
+  // Menu-only titles carry the emoji; btnNewCatalog stays plain because the
+  // delivery buttons share it.
+  btnMenuNew: '📸 New catalogue',
+  btnCredits: '💳 My credits',
+  btnHelp: '💬 Help',
   btnMenu: 'Menu',
   btnMore: 'More',
   btnStartOver: 'Start over',
   btnMorePoses: 'More poses',
   btnRetryFailed: 'Retry failed',
-  btnSelect: 'Select',
   btnChangeGarment: 'Change garment',
   btnGenerate: 'Generate',
-  btnClear: 'Clear',
+  btnSelect: 'Select',
+  btnDifferentNumber: 'Different number',
   listChoose: 'Choose',
-  moreOptions: 'More options:',
 
   credits: (balance: number, pricing: string) =>
     `You have ${balance} credits. Buy more on the website: ${pricing}`,
@@ -39,12 +41,17 @@ export const COPY = {
     `Send a photo of your garment to start a catalog, or type MENU at any time. Need a person? ${help}`,
 
   askGarmentPhoto: 'Send a photo of your garment, laid flat and fully visible.',
-  askGender: 'Create catalogue for:',
+  askGender: 'Create this catalogue for:',
+  // After "Yes, continue" the confirmation is acknowledged first (Flow 2).
+  askGenderConfirmed: 'Great! 👍\nCreate this catalogue for:',
+  btnYesContinue: 'Yes, continue',
+  btnNoDifferent: 'No, different item',
+  kindGuess: (kind: string) => {
+    const name = kind.trim().toLowerCase();
+    return `I've analysed the image and it looks like ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}.\nIs this correct?`;
+  },
   genders: { women: 'Women', men: 'Men', boys: 'Boys', girls: 'Girls' } as const,
   askGarmentType: 'Which garment is it?',
-  confirmGarment: (label: string) => `Looks like: ${label}. Is that right?`,
-  btnYes: 'Yes',
-  btnNo: 'No, change',
   // The draft link carries the photo once the studio page reads `?draft=`, so
   // until then this wording must not claim the photo is saved. `offerList` is
   // false when there is no type list to follow, so the text does not point at one.
@@ -60,23 +67,69 @@ export const COPY = {
     third: (label: string | null, main: string | null) =>
       `${askMain(main)}Now send a photo of the ${photoName(label) ?? 'third garment'}.`,
   },
-  pickPrompt: (perImage: number, balance: number) =>
-    `Pick the poses you want. Each one is ${perImage} credits. Your balance: ${balance} credits.`,
-  pickCards: 'Tap a pose to select it. Tap it again to remove it.',
-  pickFooter: 'Select poses above, then tap Generate.',
-  selected: (n: number, credits: number) => `${n} selected · ${credits} credits`,
-  pickAtLeastOne: 'Tap at least one pose first.',
-  pickCap: (max: number) => `You can generate up to ${max} poses at a time.`,
+  countPrompt: (category: string, garment: string, perImage: number, balance: number) =>
+    `Great! Let's create your catalogue. ✨
+Category: ${category}
+Garment: ${garment}
+
+Credits per pose: ${perImage} credits
+Available balance: ${balance} credits
+
+How many poses would you like to generate for your catalogue?
+You can choose one option below. Each pose will use ${perImage} credits.`,
+  countOption: (n: number, credits: number) =>
+    `${n} ${n === 1 ? 'pose' : 'poses'} (${credits} credits)`,
+  confirmGenerate: (
+    n: number,
+    category: string,
+    garment: string,
+    credits: number,
+    remaining: number,
+  ) =>
+    `Perfect! You've selected ${n} ${n === 1 ? 'pose' : 'poses'}.
+Category: ${category} | Garment: ${garment}
+Credits required: ${credits} credits
+Remaining balance: ${remaining} credits
+
+Do you want to proceed with ${n} ${n === 1 ? 'pose' : 'poses'}?`,
   partlyStarted: (started: number, total: number, reason: string) =>
     `Started ${started} of ${total} ${total === 1 ? 'image' : 'images'}. The rest couldn't start: ${reason}`,
   noCredits: (pricing: string) =>
     `You don't have enough credits for this. Buy more on the website, then come back: ${pricing}`,
   creditsAdded: (n: number) => `${n} credits added.`,
-  generating: (n: number, credits: number) =>
-    `Working on ${n} ${n === 1 ? 'image' : 'images'}, ${credits} credits. I'll send each one here as it's ready.`,
+  generating: (n: number) =>
+    `Generating your ${n} ${n === 1 ? 'pose' : 'poses'}...
+We're creating your catalogue images.
+This may take a few seconds.`,
   stillGenerating: (finished: number, total: number) =>
     `Still generating: ${finished} of ${total} done.`,
-  delivered: 'All done. What next?',
+  deliveredSummary: (
+    n: number,
+    category: string,
+    garment: string,
+    used: number,
+    remaining: number,
+  ) =>
+    `Here are your ${n} generated ${n === 1 ? 'pose' : 'poses'}!\nCategory: ${category} | Garment: ${garment}\nCredits used: ${used} credits\nRemaining balance: ${remaining} credits`,
+  deliveredNext: 'What would you like to do next?',
+
+  // Try-on flow (spec 2026-10-22-whatsapp-tryon-flow-design).
+  tryonCountPrompt: (category: string, perImage: number, balance: number) =>
+    `Great! Let's create your catalogue. ✨
+Category: ${category}
+
+Credits per pose: ${perImage} credits
+Available balance: ${balance} credits
+
+How many poses would you like?
+Tapping an option starts generating right away.`,
+  tryonNoPoses:
+    "We don't have poses ready for that category on WhatsApp yet. Please choose another.",
+  tryonDelivered: (n: number, category: string, used: number, remaining: number) =>
+    `Here are your ${n} generated ${n === 1 ? 'pose' : 'poses'}!\nCategory: ${category}\nCredits used: ${used} credits\nRemaining balance: ${remaining} credits`,
+  btnMakeMore: 'Make more',
+  btnNewGarment: 'New garment',
+
   partlyFailed: (failed: number, total: number) =>
     `${failed} of ${total} ${total === 1 ? 'image' : 'images'} failed. The credits for ${failed === 1 ? 'it were' : 'them were'} refunded.`,
   posesChanged: 'Those poses changed. Please choose again.',
@@ -88,10 +141,26 @@ export const COPY = {
   unsupported: 'Please send a photo (JPG or PNG), not a video or document.',
   nothingAvailable: 'Nothing is available for that choice right now.',
 
-  connectPrompt: (url: string) =>
-    `Welcome to Aivastra! To create catalog images here, connect your Aivastra account (or create one): ${url}\nThis link works for 30 minutes.`,
-  connected:
-    'Connected. You can now create catalog images here. Reply STOP at any time to stop messages from Aivastra, or MENU to see your options.',
+  connectPrompt: [
+    'Welcome to Ai Vastra! 👋',
+    'Create professional fashion catalogue images from your garment photos.',
+    '',
+    '📸 AI model photos',
+    '🚫 No studio, no shoot day',
+    '⚡ Ready in minutes',
+    '',
+    'To get started, connect your Ai Vastra account (or create one).',
+  ].join('\n'),
+  btnConnect: 'Connect my account',
+  connectFooter: 'The link expires in 30 minutes.',
+  connected: [
+    "You're all set! ✅",
+    'Your WhatsApp is now connected to your Ai Vastra account.',
+    '',
+    'Send a garment photo whenever you are ready and I will turn it into catalogue images. 📸',
+    '',
+    'Reply MENU to see your options, or STOP to pause messages.',
+  ].join('\n'),
   connectedDifferentNumber: (last4: string) =>
     `Note: this WhatsApp number is different from the mobile number on your account (ending ${last4}).`,
   alreadyConnected: 'This number is already connected to your Aivastra account.',

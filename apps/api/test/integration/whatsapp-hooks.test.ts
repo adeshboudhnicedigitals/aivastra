@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { runConversation } from '../../src/modules/messaging/conversation';
 import { createEngineDeps } from '../../src/modules/messaging/deps';
+import { COPY } from '../../src/modules/messaging/engine/copy';
 import { decodeReplyId } from '../../src/modules/messaging/engine/reply-id';
 import type { InboundEvent, OutboundMessage } from '../../src/modules/messaging/engine/types';
 import { CHANNEL_WHATSAPP, connectAccount } from '../../src/modules/messaging/identity';
@@ -188,8 +189,8 @@ describe('whatsapp hooks', () => {
     } finally {
       waHolder.current = null;
     }
-    expect(wa.texts()[0]).toMatch(/^Connected\./);
-    expect(wa.texts().at(-1)).toBe('What would you like to do?');
+    expect(wa.texts()[0]).toMatch(/^You're all set!/);
+    expect(wa.texts().at(-1)).toBe(COPY.menu);
   });
 
   it('notifyConnected sends nothing when the window is closed or the number opted out', async () => {
@@ -221,12 +222,12 @@ describe('whatsapp hooks', () => {
     expect(waOut.sent).toHaveLength(0);
   });
 
-  it('notifyCreditsAdded on a NO_CREDITS session sends credits-added + the pose cards', async () => {
+  it('notifyCreditsAdded on a NO_CREDITS session sends credits-added + the pose-count question', async () => {
     const { userId } = await createVerifiedUserToken(
       app,
       `wa-cred-${seq}-${Date.now()}@example.com`,
     );
-    // A balance below one image's price (5): picking a pose then Generate lands in NO_CREDITS.
+    // A balance below one image's price (5): the pose-count step lands in NO_CREDITS.
     await app.db.insert(schema.userCredits).values({ userId, balance: 3 });
     const { account } = await connectAccount(app.db, {
       channel: CHANNEL_WHATSAPP,
@@ -262,10 +263,15 @@ describe('whatsapp hooks', () => {
       throw new Error('no garment type offered');
     })();
     msgs = await send(gtTap);
-    msgs = await send(tapIn(msgs, 'look'));
-    msgs = await send(tapIn(msgs, 'generate'));
+    // The count question has no affordable option at 3 credits, so the type tap lands in NO_CREDITS.
     expect(msgs.map((m) => ('text' in m ? m.text : '')).join('\n')).toMatch(/pricing/);
 
+    // The webhook that calls notifyCreditsAdded has already granted the credits;
+    // the count question re-reads the balance, so mirror that here.
+    await app.db
+      .update(schema.userCredits)
+      .set({ balance: 103 })
+      .where(eq(schema.userCredits.userId, userId));
     const wa = fakeWhatsapp();
     waHolder.current = wa;
     try {
@@ -275,12 +281,11 @@ describe('whatsapp hooks', () => {
     }
     expect(wa.texts()).toContain('100 credits added.');
     expect(wa.sent.some((s) => payloadType(s.payload) === 'interactive')).toBe(true);
-    // Back at the pose cards: one pose becomes an image button message, several
-    // a carousel (render.ts). This seeding has one pose.
-    const cards = wa.sent.find(
-      (s) => (s.payload as { interactive?: { type?: string } }).interactive?.type === 'button',
+    // Back at the pose-count question, which goes out as a list message.
+    const countList = wa.sent.find(
+      (s) => (s.payload as { interactive?: { type?: string } }).interactive?.type === 'list',
     );
-    expect(cards).toBeDefined();
+    expect(countList).toBeDefined();
   });
 
   it('notifyCreditsAdded sends nothing with the flag off', async () => {

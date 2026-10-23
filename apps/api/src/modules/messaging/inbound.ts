@@ -79,7 +79,13 @@ async function handleUnknown(
   if (!code) {
     const token = await createChatConnectToken(app.redis, externalId);
     return sendMessages(app, wa, m.from, [
-      text(COPY.connectPrompt(chatConnectUrl(app.env.WEB_URL, token))),
+      {
+        kind: 'link',
+        text: COPY.connectPrompt,
+        label: COPY.btnConnect,
+        footer: COPY.connectFooter,
+        url: chatConnectUrl(app.env.WEB_URL, token),
+      },
     ]);
   }
   const hit = await consumeWebConnectCode(app.redis, code);

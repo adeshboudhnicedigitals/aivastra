@@ -4,7 +4,7 @@ import type { ChatConnectConfirmResponse, ChatConnectPreviewResponse } from '@ai
 import { useMutation, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { api } from '@/lib/api';
@@ -52,6 +52,82 @@ function Notice({ title, body }: { title: string; body: string }) {
   );
 }
 
+const REDIRECT_SECONDS = 5;
+
+// Success screen: counts down, then opens the bot's chat. The button does the
+// same at once. Without a configured number there is nowhere to go, so it is a
+// plain confirmation.
+function Connected({ displayNumber }: { displayNumber: string | null }) {
+  const [left, setLeft] = useState(REDIRECT_SECONDS);
+  const [stopped, setStopped] = useState(false);
+  const chatUrl = displayNumber ? `https://wa.me/${displayNumber}` : null;
+
+  useEffect(() => {
+    if (!chatUrl || stopped) return;
+    if (left <= 0) {
+      window.location.href = chatUrl;
+      return;
+    }
+    const t = setTimeout(() => setLeft((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [chatUrl, left, stopped]);
+
+  return (
+    <Shell>
+      <div style={{ textAlign: 'center' }}>
+        <div
+          aria-hidden
+          style={{
+            width: 64,
+            height: 64,
+            borderRadius: '50%',
+            background: C.mint,
+            color: '#fff',
+            fontSize: 34,
+            lineHeight: '64px',
+            margin: '0 auto 16px',
+          }}
+        >
+          ✓
+        </div>
+        <h1 style={{ fontWeight: 700, fontSize: 22, marginBottom: 8 }}>WhatsApp connected</h1>
+        <p style={{ fontSize: 14, color: C.mid, lineHeight: 1.6 }}>
+          Your number is linked to your Aivastra account. You can disconnect it at any time in
+          Settings.
+        </p>
+        {chatUrl && (
+          <>
+            <p role="status" style={{ fontSize: 13, color: C.mid, margin: '20px 0 12px' }}>
+              {stopped
+                ? 'Redirect cancelled.'
+                : `Taking you back to WhatsApp in ${Math.max(left, 0)}…`}
+            </p>
+            <GradBtn onClick={() => (window.location.href = chatUrl)}>Back to WhatsApp</GradBtn>
+            {!stopped && (
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setStopped(true)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: C.mid,
+                    fontSize: 13,
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Stay on this page
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Shell>
+  );
+}
+
 function ConnectWhatsappInner() {
   const token = useSearchParams().get('t') ?? '';
 
@@ -80,12 +156,7 @@ function ConnectWhatsappInner() {
   if (preview.error)
     return <Notice title="Can't connect this number" body={messageFor(preview.error)} />;
   if (confirm.isSuccess || preview.data?.alreadyConnected) {
-    return (
-      <Notice
-        title="WhatsApp connected"
-        body="You can go back to WhatsApp and start creating catalog images. You can disconnect this number at any time in Settings."
-      />
-    );
+    return <Connected displayNumber={preview.data?.displayNumber ?? null} />;
   }
 
   const data = preview.data;
