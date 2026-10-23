@@ -3,19 +3,15 @@ import {
   buildPool,
   buildTryonBody,
   drawLooks,
-  groupByTemplate,
   POSE_COUNTS,
   poseCountOptions,
   retryLookIds,
 } from '../src/modules/messaging/engine/rules';
-import type { Session, TemplateOption } from '../src/modules/messaging/engine/types';
-import { GT_SHIRT, look, TEMPLATE, TEMPLATE_2 } from './helpers/engine-fakes';
+import type { Session } from '../src/modules/messaging/engine/types';
+import { GT_SHIRT, look, POSES } from './helpers/engine-fakes';
 
-const LOWER_ONLY: TemplateOption = {
-  id: 'tpl-3',
-  mappingId: 'map-3',
-  looks: [look('j', { hasUpper: false, hasLower: true })],
-};
+// Lower items exist, shoes do not: only a default shoe could fill a shoe slot.
+const SUPPLY = { lower: true, shoes: false };
 
 const session = (over: Partial<Session> = {}): Session => ({
   v: 1,
@@ -28,130 +24,104 @@ const session = (over: Partial<Session> = {}): Session => ({
   picked: [],
   garmentKey: 'inputs/x/garment.jpg',
   faceId: 'face-1',
+  backgroundId: 'bg-1',
   garmentType: GT_SHIRT,
   ...over,
 });
 
 describe('buildPool', () => {
-  it('joins every template, in order, keeping only looks the bot can generate', () => {
-    const { templates, cards } = buildPool(GT_SHIRT, [TEMPLATE, TEMPLATE_2]);
-    expect(templates.map((t) => t.id)).toEqual(['tpl-1', 'tpl-2']);
+  it('keeps only poses the bot can generate, in order', () => {
+    const { pool, cards } = buildPool(GT_SHIRT, POSES, SUPPLY);
     // 'd' needs shoes and GT_SHIRT has no default shoe (D49).
-    expect(cards.map((c) => c.id)).toEqual(['a', 'b', 'c', 'e', 'f']);
+    expect(cards.map((c) => c.id)).toEqual(['a', 'b', 'c']);
+    expect(pool.lowerOnly).toBe(false);
   });
 
-  it('shows a pose + background pair that appears twice once, under the first template', () => {
-    const { templates, cards } = buildPool(GT_SHIRT, [TEMPLATE, TEMPLATE_2]);
-    expect(cards.map((c) => c.id)).not.toContain('a2');
-    expect(templates[1].looks.map((l) => l.id)).toEqual(['e', 'f']);
+  it('is lowerOnly when every pose dresses only the lower body', () => {
+    const { pool } = buildPool(GT_SHIRT, [look('j', { hasUpper: false, hasLower: true })], SUPPLY);
+    expect(pool.lowerOnly).toBe(true);
   });
 
-  it('decides lowerOnly per template', () => {
-    const { templates } = buildPool(GT_SHIRT, [TEMPLATE, LOWER_ONLY]);
-    expect(templates.map((t) => [t.id, t.lowerOnly])).toEqual([
-      ['tpl-1', false],
-      ['tpl-3', true],
-    ]);
+  it('drops a pose with no garment slot (no usable workflow)', () => {
+    const { cards } = buildPool(GT_SHIRT, [look('x', { hasUpper: false }), look('a')], SUPPLY);
+    expect(cards.map((c) => c.id)).toEqual(['a']);
   });
 
-  it('drops a template with no eligible look', () => {
-    const shoeOnly: TemplateOption = {
-      id: 'tpl-4',
-      mappingId: 'map-4',
-      looks: [look('s', { hasShoes: true })],
-    };
-    const { templates } = buildPool(GT_SHIRT, [shoeOnly, TEMPLATE]);
-    expect(templates.map((t) => t.id)).toEqual(['tpl-1']);
+  it('offers a lower or shoe pose only when the type can fill the slot', () => {
+    const ids = (supply: { lower: boolean; shoes: boolean }, gt = GT_SHIRT) =>
+      buildPool(gt, POSES, supply).cards.map((c) => c.id);
+    // Items to draw from fill the slot even with no default on the type.
+    expect(ids({ lower: true, shoes: true }, { ...GT_SHIRT, defaultLowerCatalogId: null })).toEqual(
+      ['a', 'b', 'c', 'd'],
+    );
+    // Nothing to draw and no default: those poses are not offered.
+    expect(
+      ids({ lower: false, shoes: false }, { ...GT_SHIRT, defaultLowerCatalogId: null }),
+    ).toEqual(['a', 'c']);
   });
 
   it('keeps ids and flags only in the session pool, and label + image in the cards', () => {
-    const { templates, cards } = buildPool(GT_SHIRT, [TEMPLATE]);
-    expect(templates[0].looks[1]).toEqual({
-      id: 'b',
-      poseId: 'pose-b',
-      backgroundId: 'bg-b',
-      hasLower: true,
-      hasShoes: false,
-    });
+    const { pool, cards } = buildPool(GT_SHIRT, POSES, SUPPLY);
+    expect(pool.looks[1]).toEqual({ id: 'b', hasLower: true, hasShoes: false });
     expect(cards[0]).toEqual({ id: 'a', label: 'Pose a', imageUrl: 'https://img/a.jpg' });
   });
 });
 
-describe('groupByTemplate', () => {
-  const { templates } = buildPool(GT_SHIRT, [TEMPLATE, TEMPLATE_2]);
-
-  it('groups picks by template, in template order, keeping tap order inside a group', () => {
-    expect(
-      groupByTemplate(templates, ['f', 'c', 'e', 'a']).map((g) => [g.template.id, g.lookIds]),
-    ).toEqual([
-      ['tpl-1', ['c', 'a']],
-      ['tpl-2', ['f', 'e']],
-    ]);
-  });
-
-  it('ignores ids that are in no template and skips templates with no pick', () => {
-    expect(groupByTemplate(templates, ['e', 'zzz']).map((g) => g.template.id)).toEqual(['tpl-2']);
-  });
-});
-
 describe('buildTryonBody', () => {
-  const { templates } = buildPool(GT_SHIRT, [TEMPLATE, TEMPLATE_2]);
+  const pool = buildPool(GT_SHIRT, POSES, SUPPLY).pool;
 
-  it('uses the given template mapping and only its looks', () => {
-    const body = buildTryonBody(session(), templates[1], ['f', 'e']);
+  it('sends custom looks: each pose on the one background, no template mapping', () => {
+    const body = buildTryonBody(session({ pool }), ['c', 'a']);
     expect(body.inputs).toMatchObject({
-      catalogueTemplateMappingId: 'map-2',
+      faceId: 'face-1',
       looks: [
-        { poseId: 'pose-f', backgroundId: 'bg-f' },
-        { poseId: 'pose-e', backgroundId: 'bg-e' },
+        { poseId: 'c', backgroundId: 'bg-1' },
+        { poseId: 'a', backgroundId: 'bg-1' },
       ],
     });
+    expect(body.inputs).not.toHaveProperty('catalogueTemplateMappingId');
     expect(body.aspectRatio).toBe('3:4');
     expect(body.resolution).toBe('2K');
   });
 
-  it('sends the default lower only when a chosen look has a lower slot', () => {
-    expect(buildTryonBody(session(), templates[0], ['a']).inputs).not.toHaveProperty(
-      'lowerCatalogId',
-    );
-    expect(buildTryonBody(session(), templates[0], ['b']).inputs.lowerCatalogId).toBe(
-      'lower-default',
-    );
+  it('sends the run lower only when a chosen look has a lower slot', () => {
+    const s = session({ pool, lowerCatalogId: 'lower-1' });
+    expect(buildTryonBody(s, ['a']).inputs).not.toHaveProperty('lowerCatalogId');
+    expect(buildTryonBody(s, ['b']).inputs.lowerCatalogId).toBe('lower-1');
   });
 
-  it('sends the photo as the lower garment for a lower-only template', () => {
-    const { templates: t } = buildPool(GT_SHIRT, [LOWER_ONLY]);
-    const body = buildTryonBody(session(), t[0], ['j']);
+  it('sends the photo as the lower garment for a lower-only pool', () => {
+    const lowerOnly = buildPool(
+      GT_SHIRT,
+      [look('j', { hasUpper: false, hasLower: true })],
+      SUPPLY,
+    ).pool;
+    const body = buildTryonBody(session({ pool: lowerOnly }), ['j']);
     expect(body.inputs.lowerGarmentKey).toBe(body.inputs.upperGarmentKey);
   });
 
-  it('throws when the session lacks the garment or face', () => {
-    expect(() => buildTryonBody(session({ garmentKey: undefined }), templates[0], ['a'])).toThrow(
-      'session incomplete',
-    );
+  it('throws when the session lacks the garment, face or background', () => {
+    for (const over of [
+      { garmentKey: undefined },
+      { faceId: undefined },
+      { backgroundId: undefined },
+    ]) {
+      expect(() => buildTryonBody(session({ pool, ...over }), ['a'])).toThrow('session incomplete');
+    }
   });
 });
 
 describe('retryLookIds', () => {
-  const { templates } = buildPool(GT_SHIRT, [TEMPLATE, TEMPLATE_2]);
-
-  it('is the picked looks whose pose failed, plus the unstarted ones, in tap order', () => {
+  it('is the picked looks whose pose failed, in tap order', () => {
     const s = session({
-      templates,
       picked: ['a', 'e', 'c'],
-      runs: [
-        { runId: 'run-1', images: 2, finished: true, failedPoseIds: ['pose-c'] },
-        { runId: 'run-2', images: 1, finished: true },
-      ],
-      unstarted: ['e'],
+      runs: [{ runId: 'run-1', images: 3, finished: true, failedPoseIds: ['c', 'e'] }],
     });
     expect(retryLookIds(s)).toEqual(['e', 'c']);
   });
 
-  it('is empty when nothing failed and nothing is unstarted', () => {
-    expect(
-      retryLookIds(session({ templates, picked: ['a'], runs: [{ runId: 'r', images: 1 }] })),
-    ).toEqual([]);
+  it('is empty when nothing failed', () => {
+    expect(retryLookIds(session({ picked: ['a'], runs: [{ runId: 'r', images: 1 }] }))).toEqual([]);
   });
 });
 

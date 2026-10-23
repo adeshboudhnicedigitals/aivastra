@@ -1,8 +1,9 @@
 import { schema } from '@aivastra/db';
-import { and, eq, exists, inArray, isNotNull, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { selectCatalogItems } from './items.js';
 import { buildTree } from './tree.js';
 
 async function resolveCategoryThumbUrls(
@@ -156,82 +157,7 @@ export async function catalogRoutes(app: FastifyInstance) {
 
         if (!hasSupportingPose && mappedSupporting.length === 0) return { type, tree: [] };
 
-        // Garment type determines the pose workflow. When a garment type has
-        // explicit lower/shoe mappings configured via catalog_item_subcategories,
-        // Studio picker narrows to those mapped items (plus the configured default).
-        // If unconfigured, it offers every active lower garment or shoe for the selected gender.
-        // Accessories are always strictly opt-in via catalog_item_subcategories.
-        const conditions = [
-          eq(schema.catalogItems.isActive, true),
-          eq(schema.catalogItems.type, type),
-        ];
-        if (gender) conditions.push(eq(schema.catalogItems.genderSlug, gender));
-        if (type === 'accessory' && garmentTypeId) {
-          conditions.push(
-            exists(
-              app.db
-                .select({ one: schema.catalogItemSubcategories.catalogItemId })
-                .from(schema.catalogItemSubcategories)
-                .where(
-                  and(
-                    eq(schema.catalogItemSubcategories.catalogItemId, schema.catalogItems.id),
-                    eq(schema.catalogItemSubcategories.subcategoryId, garmentTypeId),
-                  ),
-                ),
-            ),
-          );
-        } else if ((type === 'lower' || type === 'shoe') && garmentTypeId) {
-          const [hasExplicitMappings] = await app.db
-            .select({ one: schema.catalogItemSubcategories.catalogItemId })
-            .from(schema.catalogItemSubcategories)
-            .innerJoin(
-              schema.catalogItems,
-              eq(schema.catalogItemSubcategories.catalogItemId, schema.catalogItems.id),
-            )
-            .where(
-              and(
-                eq(schema.catalogItemSubcategories.subcategoryId, garmentTypeId),
-                eq(schema.catalogItems.type, type),
-              ),
-            )
-            .limit(1);
-
-          if (hasExplicitMappings) {
-            const [gt] = await app.db
-              .select({
-                defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
-                defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
-              })
-              .from(schema.garmentSubcategories)
-              .where(eq(schema.garmentSubcategories.id, garmentTypeId));
-            const defaultId =
-              type === 'lower' ? gt?.defaultLowerCatalogId : gt?.defaultShoeCatalogId;
-
-            const isMapped = exists(
-              app.db
-                .select({ one: schema.catalogItemSubcategories.catalogItemId })
-                .from(schema.catalogItemSubcategories)
-                .where(
-                  and(
-                    eq(schema.catalogItemSubcategories.catalogItemId, schema.catalogItems.id),
-                    eq(schema.catalogItemSubcategories.subcategoryId, garmentTypeId),
-                  ),
-                ),
-            );
-
-            const mappedCondition = defaultId
-              ? or(isMapped, eq(schema.catalogItems.id, defaultId))
-              : isMapped;
-            if (mappedCondition) {
-              conditions.push(mappedCondition);
-            }
-          }
-        }
-
-        const items = await app.db
-          .select()
-          .from(schema.catalogItems)
-          .where(and(...conditions));
+        const items = await selectCatalogItems(app, { type, gender, garmentTypeId });
 
         const enriched = await Promise.all(
           items.map(async (i) => ({
