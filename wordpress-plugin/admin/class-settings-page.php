@@ -171,7 +171,7 @@ class Aivastra_Settings_Page
     {
         add_action('admin_menu', [self::class, 'register_menu']);
         add_action('admin_init', [self::class, 'redirect_legacy_url']);
-        add_action('admin_head', [self::class, 'print_menu_icon_style']);
+        add_action('admin_enqueue_scripts', [self::class, 'enqueue_menu_icon_style']);
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_assets']);
         add_action('admin_post_aivastra_tryon_connect', [self::class, 'handle_connect']);
         add_action('admin_post_aivastra_tryon_connect_start', [self::class, 'handle_connect_start']);
@@ -440,12 +440,19 @@ class Aivastra_Settings_Page
      * The mark is much wider than tall, so at 20px wide it's only ~14px high
      * and looks undersized next to the square dashicons. 24px wide (~16px
      * high) matches their visual weight and still fits the 36px icon column
-     * when the menu is folded. Printed on every admin screen because the
-     * sidebar is — the settings-page.css bundle only loads on our own page.
+     * when the menu is folded. Enqueued (as an inline style on a sourceless
+     * handle, since this is one selector, not a file worth shipping) on
+     * every admin screen because the sidebar is — enqueue_assets()'s
+     * settings-page.css bundle only loads on our own page.
      */
-    public static function print_menu_icon_style(): void
+    public static function enqueue_menu_icon_style(): void
     {
-        echo '<style>#adminmenu #toplevel_page_aivastra-tryon div.wp-menu-image.svg{background-size:24px auto}</style>';
+        wp_register_style('aivastra-tryon-menu-icon', false, [], AIVASTRA_TRYON_VERSION);
+        wp_enqueue_style('aivastra-tryon-menu-icon');
+        wp_add_inline_style(
+            'aivastra-tryon-menu-icon',
+            '#adminmenu #toplevel_page_aivastra-tryon div.wp-menu-image.svg{background-size:24px auto}'
+        );
     }
 
     private static function menu_icon(): string
@@ -469,7 +476,8 @@ class Aivastra_Settings_Page
         if ($pagenow !== 'options-general.php' || ($_GET['page'] ?? '') !== 'aivastra-tryon') {
             return;
         }
-        wp_safe_redirect(add_query_arg(wp_unslash($_GET), admin_url('admin.php')));
+        $safeArgs = array_map('sanitize_text_field', wp_unslash($_GET));
+        wp_safe_redirect(add_query_arg($safeArgs, admin_url('admin.php')));
         exit;
     }
 
@@ -646,24 +654,27 @@ class Aivastra_Settings_Page
      */
     private static function render_connect_popup_close(bool $connected, string $fallbackUrl): void
     {
+        // This whole page is a bare HTML shell (no wp_head()/wp_footer()),
+        // so the usual "enqueue now, printed automatically later" flow never
+        // fires — wp_print_scripts() is called explicitly below instead,
+        // right where the script used to be inlined as a literal tag.
+        wp_register_script('aivastra-tryon-connect-popup', false, [], AIVASTRA_TRYON_VERSION, true);
+        wp_add_inline_script(
+            'aivastra-tryon-connect-popup',
+            sprintf(
+                '(function(){try{if(window.opener&&!window.opener.closed){window.opener.postMessage({aivastraConnected:%s},window.location.origin);window.close();return;}}catch(e){}window.location.href=%s;})();',
+                $connected ? 'true' : 'false',
+                wp_json_encode($fallbackUrl)
+            )
+        );
+        wp_enqueue_script('aivastra-tryon-connect-popup');
         ?>
         <!doctype html>
         <html>
         <head><meta charset="utf-8"><title>Ai Vastra</title></head>
         <body style="font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#303030;text-align:center;padding:24px;box-sizing:border-box;">
           <p><?php echo $connected ? esc_html('Connected! This tab will close automatically.') : esc_html('Could not connect. This tab will close automatically — please try again.'); ?></p>
-          <script>
-            (function () {
-              try {
-                if (window.opener && !window.opener.closed) {
-                  window.opener.postMessage({ aivastraConnected: <?php echo $connected ? 'true' : 'false'; ?> }, window.location.origin);
-                  window.close();
-                  return;
-                }
-              } catch (e) {}
-              window.location.href = <?php echo wp_json_encode($fallbackUrl); ?>;
-            })();
-          </script>
+          <?php wp_print_scripts('aivastra-tryon-connect-popup'); ?>
         </body>
         </html>
         <?php
