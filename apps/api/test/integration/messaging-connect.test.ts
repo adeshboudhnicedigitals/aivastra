@@ -125,6 +125,27 @@ describe('messaging connect (flag on)', () => {
     expect(u.phone).toBe('9000001234');
   });
 
+  it('chat-started: confirm opens the 24h window from the message that asked for the link', async () => {
+    const { token } = await createVerifiedUserToken(app, `wa-win-${uniq()}@example.com`);
+    const number = phone();
+    const before = Date.now();
+    const t = await createChatConnectToken(app.redis, number);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/messaging/connect/chat/confirm',
+      headers: auth(token),
+      payload: { token: t },
+    });
+    expect(res.statusCode).toBe(200);
+    const [row] = await app.db
+      .select({ at: schema.messagingAccounts.lastInboundAt })
+      .from(schema.messagingAccounts)
+      .where(eq(schema.messagingAccounts.externalId, number));
+    // Without this the "connected" push finds the window closed and sends nothing.
+    expect(row.at?.getTime()).toBeGreaterThanOrEqual(before);
+  });
+
   it('chat-started: confirm creates the row once and the token is single use', async () => {
     const { token, userId } = await createVerifiedUserToken(app, `wa-conf-${uniq()}@example.com`);
     const number = phone();
