@@ -26,6 +26,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword } from '../auth/service.js';
+import { eraseComparisonsForSourceJobs } from '../comparison/erase.js';
+import { notComparisonSystemUser } from '../comparison/exclusion.js';
 import { deriveDisplayStatus } from '../credits/unlimited-plan.js';
 import { disconnect as disconnectGoogleDrive } from '../google-drive/token.js';
 import { recordAudit } from './audit.js';
@@ -97,6 +99,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       const where = and(
         searchWhere,
         bannedWhere,
+        // The reserved account that owns internal comparison replays is not a customer.
+        notComparisonSystemUser,
         merchant === true ? isNotNull(schema.merchants.id) : undefined,
         fromInclusive ? gte(schema.users.createdAt, fromInclusive) : undefined,
         toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
@@ -591,6 +595,37 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       .where(eq(schema.merchants.userId, id));
     if (merchantRow) return { ok: false, reason: 'cannot erase a merchant account owner' };
 
+    // Close account job admission before reading the source-job set. Job
+    // creation transactions lock and recheck this same user row immediately
+    // before inserting, so work either commits before this ban (and is found
+    // below) or observes the ban and aborts.
+    await app.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.id, id))
+        .for('update');
+      if (!existing) return;
+      await tx
+        .update(schema.users)
+        .set({ isBanned: true, banReason: 'admin erasure (GDPR)', updatedAt: new Date() })
+        .where(eq(schema.users.id, id));
+    });
+
+    const sourceJobs = await app.db
+      .select({ id: schema.jobs.id })
+      .from(schema.jobs)
+      .where(
+        and(eq(schema.jobs.userId, id), sql`${schema.jobs.source} is distinct from 'comparison'`),
+      );
+    const comparisonCleanup = await eraseComparisonsForSourceJobs(
+      app,
+      sourceJobs.map((job) => job.id),
+    );
+    if (comparisonCleanup.incomplete > 0) {
+      return { ok: false, reason: 'comparison output cleanup pending; retry user erasure' };
+    }
+
     // Revoke before delete: dropping the row is not the same as revoking
     // authorization at Google. Runs against app.db directly (not tx) since
     // it's an external HTTP call — deliberately outside the transaction so
@@ -655,7 +690,10 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const res = await eraseUser(id, req.userId);
-      if (!res.ok) throw new AppError('FORBIDDEN', 403, res.reason);
+      if (!res.ok) {
+        const pending = res.reason.includes('cleanup pending');
+        throw new AppError(pending ? 'CONFLICT' : 'FORBIDDEN', pending ? 409 : 403, res.reason);
+      }
       return { ok: true };
     },
   );

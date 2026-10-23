@@ -12,6 +12,7 @@ import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { assertOwnsUploadKey, resolveQueueRouting } from './create.js';
+import { lockAndAssertUserCanCreateJobs } from './creation-guard.js';
 
 export async function createSareeJob(
   app: FastifyInstance,
@@ -67,6 +68,7 @@ export async function createSareeJob(
   // 5. Deduct + insert in a single txn (mirrors createSimpleTryonJob).
   const catalogueId = randomUUID();
   const job = await app.db.transaction(async (tx) => {
+    await lockAndAssertUserCanCreateJobs(tx, userId);
     const [newJob] = await tx
       .insert(schema.jobs)
       .values({

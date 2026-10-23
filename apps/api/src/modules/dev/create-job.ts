@@ -9,6 +9,7 @@ import { AppError } from '../../lib/errors.js';
 import { assertMerchantJobRateLimit } from '../../lib/job-rate-limit.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
+import { lockAndAssertUserCanCreateJobs } from '../jobs/creation-guard.js';
 
 /**
  * Shared insert/deduct/enqueue/refund-on-fail core for every dev-API job kind.
@@ -40,6 +41,7 @@ export async function createDevJobCore(
   const lane = params.lane ?? 'normal';
   const catalogueId = params.catalogueId ?? randomUUID();
   const [job] = await app.db.transaction(async (tx) => {
+    await lockAndAssertUserCanCreateJobs(tx, params.merchantUserId);
     const [newJob] = await tx
       .insert(schema.jobs)
       .values({

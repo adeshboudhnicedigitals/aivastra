@@ -49,7 +49,7 @@ describe('GET /admin/jobs/sources', () => {
     await c?.stop();
   });
 
-  it('returns all 17 job sources', async () => {
+  it('returns every supported job source, including internal comparisons', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/admin/jobs/sources',
@@ -57,7 +57,7 @@ describe('GET /admin/jobs/sources', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as string[];
-    expect(body).toHaveLength(17);
+    expect(body).toHaveLength(18);
     expect(body.sort()).toEqual(
       [
         'catalog',
@@ -77,6 +77,7 @@ describe('GET /admin/jobs/sources', () => {
         'extension_tryon',
         'whatsapp_tryon',
         'fabric_to_garment',
+        'comparison',
       ].sort(),
     );
   });

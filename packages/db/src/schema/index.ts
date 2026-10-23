@@ -22,4 +22,5 @@ export * from './shopify.js';
 export * from './tryon.js';
 export * from './users.js';
 export * from './workers.js';
+export * from './workflow-comparisons.js';
 export * from './workflow-governance.js';

@@ -179,6 +179,16 @@ export function createDb(url: string): {
 }
 
 export { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
+export {
+  type ComparisonCleanupResult,
+  type ComparisonObjectIO,
+  canFinalizeComparisonReplay,
+  cleanupComparisonReplay,
+  comparisonOutputLockKey,
+  deleteComparisonOutputObjects,
+  invalidateComparisonsForSources,
+  type WithDbLock,
+} from './comparison-lifecycle.js';
 export * as schema from './schema/index.js';
 export type {
   ShopifyWidgetBehavior,
@@ -186,3 +196,7 @@ export type {
   ShopifyWidgetCopy,
   ShopifyWidgetTheme,
 } from './schema/shopify.js';
+export {
+  cleanupUnusedWorkflowArchive,
+  hasWorkflowVersionConsumers,
+} from './workflow-template-retention.js';

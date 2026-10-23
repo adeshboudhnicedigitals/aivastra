@@ -10,6 +10,7 @@ import { AppError } from '../../lib/errors.js';
 import { getFabricToGarmentCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import { resolveQueueRouting, verifyGarmentKey } from './create.js';
+import { lockAndAssertUserCanCreateJobs } from './creation-guard.js';
 
 export async function createFabricToGarmentJob(
   app: FastifyInstance,
@@ -53,6 +54,7 @@ export async function createFabricToGarmentJob(
 
   const catalogueId = randomUUID();
   const job = await app.db.transaction(async (tx) => {
+    await lockAndAssertUserCanCreateJobs(tx, userId);
     const [newJob] = await tx
       .insert(schema.jobs)
       .values({

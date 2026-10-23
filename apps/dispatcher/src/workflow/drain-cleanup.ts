@@ -1,56 +1,15 @@
 // apps/dispatcher/src/workflow/drain-cleanup.ts
-import { type DB, schema } from '@aivastra/db';
+import { cleanupUnusedWorkflowArchive, type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
-import { and, count, eq, notInArray, or, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
-const TERMINAL_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED'];
-
-/**
- * Deletes an archived template version once no non-terminal job still
- * references it via job_inputs.params.dispatchTemplateVersion. Called from
- * the dispatcher's existing terminal-transition points — not a periodic
- * sweep — since it only ever needs to run right after a job that might have
- * been the last one draining a given version reaches a terminal state.
- */
+/** Recheck job and collected-comparison roots under the template row lock. */
 export async function maybeCleanupArchive(
   db: DB,
   workflowTemplateId: string,
   version: number,
 ): Promise<void> {
-  const [row] = await db
-    .select({ cnt: count() })
-    .from(schema.jobs)
-    .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
-    .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
-    .leftJoin(
-      schema.garmentSubcategories,
-      eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
-    )
-    .where(
-      and(
-        sql`${schema.jobInputs.params} ->> 'dispatchTemplateVersion' = ${String(version)}`,
-        or(
-          sql`${schema.jobInputs.params} ->> 'workflowTemplateId' = ${workflowTemplateId}`,
-          eq(schema.modelPoseAssets.workflowTemplateId, workflowTemplateId),
-          eq(schema.garmentSubcategories.sareeStep2WorkflowTemplateId, workflowTemplateId),
-          eq(schema.garmentSubcategories.mannequinWorkflowTemplateId, workflowTemplateId),
-          eq(schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId, workflowTemplateId),
-          eq(schema.garmentSubcategories.twoInputTryonWorkflowTemplateId, workflowTemplateId),
-        ),
-        notInArray(schema.jobs.status, TERMINAL_STATUSES),
-      ),
-    );
-
-  if (Number(row?.cnt ?? 0) > 0) return;
-
-  await db
-    .delete(schema.workflowTemplateArchives)
-    .where(
-      and(
-        eq(schema.workflowTemplateArchives.workflowTemplateId, workflowTemplateId),
-        eq(schema.workflowTemplateArchives.version, version),
-      ),
-    );
+  await cleanupUnusedWorkflowArchive(db, workflowTemplateId, version);
 }
 
 /**

@@ -181,6 +181,34 @@ describe('whatsapp delivery', () => {
     expect(wa.uploads).toHaveLength(uploaded);
   });
 
+  it('delivers only job IDs recorded on a customer run, never an unrelated comparison replay', async () => {
+    const s = await seedRun();
+    const [systemUser] = await app.db
+      .insert(schema.users)
+      .values({ email: `comparison-system-${randomUUID()}@internal`, emailVerified: true })
+      .returning();
+    const [replay] = await app.db
+      .insert(schema.jobs)
+      .values({
+        userId: systemUser.id,
+        source: 'comparison',
+        status: 'COMPLETED',
+        creditsCharged: 0,
+      })
+      .returning();
+    const replayKey = keys.output(replay.id);
+    await app.storage.putObject(replayKey, Buffer.from('replay-png'), 'image/png');
+    await app.db.insert(schema.jobOutputs).values({ jobId: replay.id, resultKey: replayKey });
+    await seedGenerating(s.externalId, s.runId);
+    const wa = fakeWhatsapp();
+
+    await deliverRun(app, wa.client, s.runId);
+
+    expect(wa.uploads).toHaveLength(1);
+    expect(wa.uploads[0].bytes).not.toEqual(Buffer.from('replay-png'));
+    expect((await runRow(s.runId)).jobIds).not.toContain(replay.id);
+  });
+
   it('window closed: one template, then the image after the window reopens', async () => {
     const s = await seedRun();
     await app.db

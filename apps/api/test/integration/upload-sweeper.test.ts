@@ -67,6 +67,34 @@ describe('runUploadSweepTick', () => {
     expect(head.contentLength).toBeGreaterThan(0);
   });
 
+  it.each([
+    'personKey',
+    'customerPhotoKey',
+  ] as const)('preserves an inputs/ person referenced only by %s while deleting an orphan', async (reference) => {
+    const personKey = keys.inputGarment(`sweeper-person-${reference}`);
+    const orphanKey = keys.inputGarment(`sweeper-orphan-${reference}`);
+    for (const key of [personKey, orphanKey]) {
+      await app.storage.putObject(key, Buffer.from('person'), 'image/jpeg');
+    }
+    const [job] = await app.db
+      .insert(schema.jobs)
+      .values({
+        source: reference === 'personKey' ? 'comparison' : 'shopify',
+        ...(reference === 'customerPhotoKey' ? { customerPhotoKey: personKey } : {}),
+      })
+      .returning();
+    await app.db.insert(schema.jobInputs).values({
+      jobId: job.id,
+      params: reference === 'personKey' ? { personKey } : {},
+    });
+
+    // Both objects are old enough; the only difference is the live reference.
+    await runUploadSweepTick(app, { maxAgeMs: -1 });
+
+    expect((await app.storage.headObject(personKey)).contentLength).toBeGreaterThan(0);
+    await expect(app.storage.headObject(orphanKey)).rejects.toThrow();
+  });
+
   it('leaves a recent unreferenced object alone (default 24h cutoff)', async () => {
     const freshKey = keys.inputGarment('sweeper-fresh');
     await app.storage.putObject(freshKey, Buffer.from('x'), 'image/jpeg');

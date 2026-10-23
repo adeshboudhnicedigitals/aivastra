@@ -3,6 +3,9 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
 import { hashPassword } from './modules/auth/service.js';
+import { startComparisonCollector } from './modules/comparison/collector.js';
+import { startComparisonDispatcher } from './modules/comparison/dispatcher-tick.js';
+import { startComparisonRetention } from './modules/comparison/retention.js';
 import { startUserLowCreditAlertScheduler } from './modules/credits/low-credit-alert-scheduler.js';
 import { startUnlimitedPlanReminderScheduler } from './modules/credits/unlimited-plan-scheduler.js';
 import {
@@ -39,6 +42,14 @@ startCollectionResyncScheduler(app);
 startProductResyncScheduler(app);
 startUploadSweeper(app);
 startRecognitionSweeper(app);
+const stopComparisonCollector = startComparisonCollector(app);
+const stopComparisonDispatcher = startComparisonDispatcher(app);
+const stopComparisonRetention = startComparisonRetention(app);
+app.addHook('onClose', async () => {
+  stopComparisonCollector();
+  stopComparisonDispatcher();
+  stopComparisonRetention();
+});
 startAlertScheduler(app);
 startAutorefillReconciler(app);
 startPaymentSettlementScheduler(app);

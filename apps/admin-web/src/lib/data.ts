@@ -55,6 +55,7 @@ export function jobTypeBadge(t: string): [string, string] {
     api_tryon: ['success', 'API Try On'],
     api_saree_mannequin: ['success', 'API Saree Prep'],
     api_catalog: ['success', 'API Catalog'],
+    comparison: ['info', 'Workflow Comparison'],
     api: ['success', 'API (legacy)'],
   };
   if (!m[t]) {

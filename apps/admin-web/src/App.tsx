@@ -33,6 +33,7 @@ import TelemetryPage from './pages/TelemetryPage';
 import TryonPage from './pages/TryonPage';
 import UsersPage from './pages/UsersPage';
 import WorkersPage from './pages/WorkersPage';
+import WorkflowComparisonsPage from './pages/WorkflowComparisonsPage';
 import WorkflowsPage from './pages/WorkflowsPage';
 import type { ToastItem } from './types';
 
@@ -46,6 +47,7 @@ const PATH_LABELS: Record<string, string> = {
   users: 'Users',
   jobs: 'Jobs',
   'classify-service': 'Classify Service',
+  'workflow-comparisons': 'Workflow Comparisons',
   'held-batches': 'Held Batches',
   workflows: 'Workflows',
   'workflow-approvals': 'Flow Approvals',
@@ -262,6 +264,10 @@ export default function App() {
             <Route path="/users" element={<UsersPage {...pageProps} />} />
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
             <Route path="/classify-service" element={<ClassifyServicePage {...pageProps} />} />
+            <Route
+              path="/workflow-comparisons"
+              element={<WorkflowComparisonsPage toast={toast} />}
+            />
             {/* The old list lives on as the Requests tab. */}
             <Route
               path="/garment-recognitions"
