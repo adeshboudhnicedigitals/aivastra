@@ -152,8 +152,9 @@ describe('engine: menu and global commands', () => {
 
   it('stray text on an idle step shows that step again instead of a reprompt', async () => {
     const { deps } = fakeDeps({ getBalance: async () => 8 });
-    // Eight credits cannot cover two poses: the summary never shows a negative remainder.
-    const no = await atConfirm(deps, 2);
+    // Eight credits cannot cover two poses.
+    const at = await atCount(deps);
+    const no = await handle(at.session, tap(at, 'count', '2'), CTX, deps);
     expect(no.session.state).toBe('NO_CREDITS');
     const again = await handle(no.session, { type: 'text', text: 'ok' }, CTX, deps);
     expect(again.session.state).toBe('NO_CREDITS');
@@ -352,11 +353,6 @@ async function atCount(deps: EngineDeps) {
 }
 
 // ...and after tapping a count: the summary with Generate / Different number.
-async function atConfirm(deps: EngineDeps, n: number) {
-  const at = await atCount(deps);
-  return handle(at.session, tap(at, 'count', String(n)), CTX, deps);
-}
-
 // A shuffle that puts `want` first, in that order: the draw is random in
 // production, so tests choose which looks it returns.
 const prefer = (want: string[]) => (ids: string[]) => [
@@ -364,11 +360,11 @@ const prefer = (want: string[]) => (ids: string[]) => [
   ...ids.filter((i) => !want.includes(i)),
 ];
 
-// Count = lookIds.length, drawn as exactly lookIds, then Generate.
+// Count = lookIds.length, drawn as exactly lookIds; the count tap generates.
 async function generated(deps: EngineDeps, lookIds: string[]) {
   deps.shuffle = prefer(lookIds);
-  const c = await atConfirm(deps, lookIds.length);
-  return handle(c.session, tap(c, 'generate'), CTX, deps);
+  const at = await atCount(deps);
+  return handle(at.session, tap(at, 'count', String(lookIds.length)), CTX, deps);
 }
 
 const buttonTitles = (m: OutboundMessage | undefined) =>
@@ -446,40 +442,29 @@ describe('engine: pose count', () => {
   });
 });
 
-describe('engine: confirming the count', () => {
-  it('summarises cost and remaining balance and offers Generate or a different number', async () => {
-    const { deps } = fakeDeps();
-    const r = await atConfirm(deps, 2);
-    expect(r.session).toMatchObject({ state: 'CONFIRM_GENERATE', count: 2 });
-    expect(r.messages[0]).toMatchObject({
-      kind: 'buttons',
-      text: "Perfect! You've selected 2 poses.\nCategory: Women | Garment: Shirt\nCredits required: 10 credits\nRemaining balance: 40 credits\n\nDo you want to proceed with 2 poses?",
-    });
-    expect(buttonTitles(r.messages[0])).toEqual(['Generate', 'Different number']);
-  });
-
-  it('Different number returns to the count list without charging', async () => {
+describe('engine: tapping the count', () => {
+  it('the tap is the agreement to spend: it starts the run with no confirm step', async () => {
     const { deps, calls } = fakeDeps();
-    const c = await atConfirm(deps, 2);
-    const r = await handle(c.session, tap(c, 'recount'), CTX, deps);
-    expect(r.session.state).toBe('ASK_POSE_COUNT');
-    expect(calls.createRun).toHaveLength(0);
+    const at = await atCount(deps);
+    const r = await handle(at.session, tap(at, 'count', '2'), CTX, deps);
+    expect(r.session).toMatchObject({ state: 'GENERATING', count: 2 });
+    expect(calls.createRun).toHaveLength(1);
   });
 
-  it('Generate re-checks the balance: a balance that dropped goes to NO_CREDITS before any run', async () => {
+  it('re-checks the balance: a balance that dropped goes to NO_CREDITS before any run', async () => {
     let balance = 50;
     const { deps, calls } = fakeDeps({ getBalance: async () => balance });
-    const c = await atConfirm(deps, 3);
+    const at = await atCount(deps);
     balance = 10;
-    const r = await handle(c.session, tap(c, 'generate'), CTX, deps);
+    const r = await handle(at.session, tap(at, 'count', '3'), CTX, deps);
     expect(r.session.state).toBe('NO_CREDITS');
     expect(calls.createRun).toHaveLength(0);
   });
 
   it('credits added after NO_CREDITS return to the count question', async () => {
     const { deps } = fakeDeps();
-    const c = await atConfirm(deps, 3);
-    const broke = { ...c.session, state: 'NO_CREDITS' as const };
+    const at = await atCount(deps);
+    const broke = { ...at.session, state: 'NO_CREDITS' as const };
     const r = await handle(broke, { type: 'creditsAdded', credits: 100 }, CTX, deps);
     expect(r.session.state).toBe('ASK_POSE_COUNT');
   });
@@ -505,9 +490,9 @@ describe('engine: random draw', () => {
   it('a look removed between the count and Generate is simply not drawn', async () => {
     let current = TEMPLATE;
     const { deps, calls } = fakeDeps({ getTemplates: async () => [current] });
-    const c = await atConfirm(deps, 2);
+    const at = await atCount(deps);
     current = { ...TEMPLATE, looks: TEMPLATE.looks.filter((l) => l.id !== 'a') };
-    const r = await handle(c.session, tap(c, 'generate'), CTX, deps);
+    const r = await handle(at.session, tap(at, 'count', '2'), CTX, deps);
     expect(r.session.picked).toEqual(['b', 'c']);
     expect(calls.createRun).toHaveLength(1);
   });
@@ -523,8 +508,7 @@ describe('engine: random draw', () => {
     );
     deps.shuffle = (ids) => ids;
     const again = await handle(done.session, tap(done, 'more_poses'), CTX, deps);
-    const c2 = await handle(again.session, tap(again, 'count', '2'), CTX, deps);
-    const second = await handle(c2.session, tap(c2, 'generate'), CTX, deps);
+    const second = await handle(again.session, tap(again, 'count', '2'), CTX, deps);
     // 'a' and 'b' were had: only 'c' is new, so one reused look tops it up.
     expect(second.session.picked).toEqual(['c', 'a']);
     expect(second.session.seenLooks).toEqual(['c', 'a']);
@@ -644,9 +628,9 @@ describe('engine: generating', () => {
     const { deps, calls } = fakeDeps({
       getUserDefaults: async () => ({ aspectRatio: '3:4', resolution: '2K' }),
     });
-    const c = await atConfirm(deps, 1);
-    const stale = { ...c.session, aspectRatio: '1:1' as const, resolution: 'HD' as const };
-    const out = await handle(stale, tap(c, 'generate'), CTX, deps);
+    const at = await atCount(deps);
+    const stale = { ...at.session, aspectRatio: '1:1' as const, resolution: 'HD' as const };
+    const out = await handle(stale, tap(at, 'count', '1'), CTX, deps);
     expect(out.session.state).toBe('GENERATING');
     expect(calls.createRun[0]).toMatchObject({ aspectRatio: '3:4', resolution: '2K' });
     expect(out.session).toMatchObject({ aspectRatio: '3:4', resolution: '2K' });
@@ -691,8 +675,7 @@ describe('engine: required extra photos', () => {
     deps.shuffle = prefer(['a']);
     const at = await handle(ask.session, photo(3), CTX, deps);
     expect(at.session.state).toBe('ASK_POSE_COUNT');
-    const c = await handle(at.session, tap(at, 'count', '1'), CTX, deps);
-    await handle(c.session, tap(c, 'generate'), CTX, deps);
+    await handle(at.session, tap(at, 'count', '1'), CTX, deps);
     expect(calls.createRun[0].inputs.thirdGarmentKey).toContain('000000000003');
   });
 
@@ -708,8 +691,7 @@ describe('engine: required extra photos', () => {
     deps.shuffle = prefer(['b']);
     const at = await handle(ask.session, photo(4), CTX, deps);
     expect(at.session.state).toBe('ASK_POSE_COUNT');
-    const c = await handle(at.session, tap(at, 'count', '1'), CTX, deps);
-    await handle(c.session, tap(c, 'generate'), CTX, deps);
+    await handle(at.session, tap(at, 'count', '1'), CTX, deps);
     expect(calls.createRun[0].inputs.lowerGarmentKey).toContain('000000000004');
     expect(calls.createRun[0].inputs).not.toHaveProperty('lowerCatalogId');
   });
@@ -971,16 +953,5 @@ describe('engine: review fixes', () => {
     expect(done.session.seenLooks).toEqual(['a']);
     const r = await handle(done.session, photo(2), CTX, deps);
     expect(r.session.seenLooks).toBeUndefined();
-  });
-
-  it('a balance below the chosen count goes to NO_CREDITS instead of a negative remainder', async () => {
-    let balance = 50;
-    const { deps } = fakeDeps({ getBalance: async () => balance });
-    const c = await atConfirm(deps, 3);
-    balance = 10;
-    // A stale tap re-renders the confirm step with today's balance.
-    const r = await handle(c.session, { type: 'reply', id: 'old|x|' }, CTX, deps);
-    expect(r.session.state).toBe('NO_CREDITS');
-    expect(texts(r.messages).join('\n')).not.toContain('Remaining balance: -');
   });
 });
