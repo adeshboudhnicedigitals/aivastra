@@ -230,8 +230,7 @@ describe('messaging conversation (real deps)', () => {
     );
 
     // The bot draws the look itself: with a pool of two, a count of 1 starts one run.
-    const confirm = await send(tapIn(w.msgs, 'count', '1'));
-    await send(tapIn(confirm, 'generate'));
+    await send(tapIn(w.msgs, 'count', '1'));
     const session = await loadSession(app.redis, acct.channel, acct.externalId);
     expect(session?.state).toBe('GENERATING');
     expect(session?.runs).toHaveLength(1);
@@ -251,9 +250,7 @@ describe('messaging conversation (real deps)', () => {
     const w = await walkToPick('two');
     const { userId, account, acct, send } = w;
     // The pool is one look per template, so a count of 2 draws both of them.
-    const confirm = await send(tapIn(w.msgs, 'count', '2'));
-    expect(confirm[0].kind === 'buttons' ? confirm[0].text : '').toContain('10 credits');
-    await send(tapIn(confirm, 'generate'));
+    await send(tapIn(w.msgs, 'count', '2'));
 
     const session = await loadSession(app.redis, acct.channel, acct.externalId);
     expect(session?.state).toBe('GENERATING');

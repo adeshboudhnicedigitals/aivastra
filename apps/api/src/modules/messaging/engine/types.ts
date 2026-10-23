@@ -10,7 +10,7 @@ export type AspectRatio = '1:1' | '2:3' | '3:4' | '4:5';
 export type Resolution = 'HD' | '2K' | '4K';
 export type TryonBody = z.infer<typeof CreateTryOnJobRequest>;
 
-// Flow 2 (2026-10-22): photo → (kind confirmed) → gender → garment type → required extra photos → pose count → confirm → generating → delivered.
+// Flow 2 (2026-10-22): photo → (kind confirmed) → gender → garment type → required extra photos → pose count (the tap generates) → generating → delivered.
 export type State =
   | 'MAIN_MENU'
   | 'ASK_GARMENT_PHOTO'
@@ -19,7 +19,6 @@ export type State =
   | 'ASK_GARMENT_TYPE'
   | 'ASK_EXTRA_PHOTO'
   | 'ASK_POSE_COUNT'
-  | 'CONFIRM_GENERATE'
   | 'NO_CREDITS'
   | 'GENERATING'
   | 'DELIVERED';
