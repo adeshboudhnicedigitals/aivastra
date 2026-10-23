@@ -23,6 +23,10 @@ let hiddenFaceId: string;
 // piece photo — exercises the lowerGarment/thirdGarment upload path.
 let compositeGarmentTypeId: string;
 
+// Slug of a garment type that opts `front-standing` in (and says nothing about
+// `side-profile`) via a pose_garment_configs row — see beforeAll.
+let sareeTypeSlug: string;
+
 const jpegBytes = () => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64)]);
 
 const getOptions = (query: string, token = key, headers: Record<string, string> = {}) =>
@@ -149,7 +153,7 @@ beforeAll(async () => {
     })
     .returning();
 
-  const [, sideProfile] = await app.db
+  const [frontStanding, sideProfile] = await app.db
     .insert(schema.modelPoseAssets)
     .values([
       {
@@ -181,7 +185,7 @@ beforeAll(async () => {
   // composite-garment-type tests below — createJob requires a lower garment on
   // any pose using this workflow, which is exactly the case those tests cover.
   // Only its public_api_slug ('full-body-with-lower') is referenced below.
-  await app.db
+  const [fullBodyWithLower] = await app.db
     .insert(schema.modelPoseAssets)
     .values({
       genderSlug: 'women',
@@ -217,6 +221,27 @@ beforeAll(async () => {
     isActive: false,
   });
 
+  // A garment type that opts `front-standing` IN via a per-(pose, garmentType) row
+  // and says nothing about `side-profile` — row existence is the opt-in signal, so
+  // only front-standing should surface once this garmentType narrows the pose list.
+  const [sareeType] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({
+      genderSlug: 'women',
+      slug: 'saree-test',
+      label: 'Saree',
+      isActive: true,
+      publicApiSlug: 'saree-test',
+    })
+    .returning();
+  sareeTypeSlug = sareeType.publicApiSlug ?? '';
+
+  await app.db.insert(schema.poseGarmentConfigs).values({
+    poseAssetId: frontStanding.id,
+    subcategoryId: sareeType.id,
+    isActive: true,
+  });
+
   // A garment type that requires the caller's own 2nd piece photo (mirrors a real
   // kurta-pyjama/sherwani-pyjama config) — same requiresLowerUpload flag
   // EditGarmentTypeModal.tsx already toggles admin-side.
@@ -233,6 +258,19 @@ beforeAll(async () => {
     })
     .returning();
   compositeGarmentTypeId = composite.id;
+
+  // Opt-in rows for the poses the composite/dress generate tests below exercise —
+  // under the opt-in rule (row existence = visible), a pose with no row for a given
+  // garmentType is "unknown" for it, exactly like production's admin-managed mapping
+  // (see subcategories.routes.ts pose-configs endpoint). front-standing has no
+  // lowerNodeId of its own, which is exactly what the "missing lowerGarment upload"
+  // and "pose has no lowerNodeId" tests below need; full-body-with-lower's own
+  // workflow (wfWithLower) already has one.
+  await app.db.insert(schema.poseGarmentConfigs).values([
+    { poseAssetId: frontStanding.id, subcategoryId: composite.id, isActive: true },
+    { poseAssetId: fullBodyWithLower.id, subcategoryId: composite.id, isActive: true },
+    { poseAssetId: frontStanding.id, subcategoryId: dress.id, isActive: true },
+  ]);
 
   // Seeded straight into Postgres, so the /admin/* onResponse hook that normally
   // invalidates never fired — see plugins/catalog-cache-invalidation.ts.
@@ -323,6 +361,37 @@ describe('GET /v1/dev/catalog/options', () => {
     await bumpCatalogOptionsVersion(app);
     const after = (await getOptions('gender=women')).headers.get('etag');
     expect(after).not.toBe(before);
+  });
+
+  it('scopes poses to the given garmentType via pose_garment_configs row existence, not just isActive', async () => {
+    // Unfiltered: every general-scope pose for the gender shows up.
+    const unfiltered = (await (await getOptions('gender=women')).json()) as {
+      poses: { slug: string }[];
+    };
+    expect(unfiltered.poses.map((p) => p.slug)).toEqual(
+      expect.arrayContaining(['front-standing', 'side-profile']),
+    );
+
+    // `saree-test` only has an opt-in row for front-standing — side-profile, which
+    // has no row for this garmentType at all, must be narrowed out even though its
+    // own global isActive is true. This is the exact regression /v1/dev/catalog/options
+    // had: it used to only hide a pose when a row EXPLICITLY set isActive: false,
+    // so an unconfigured pose like side-profile leaked through for every garmentType.
+    const sareeScoped = (await (
+      await getOptions(`gender=women&garmentType=${sareeTypeSlug}`)
+    ).json()) as { poses: { slug: string }[] };
+    const sareeSlugs = sareeScoped.poses.map((p) => p.slug);
+    expect(sareeSlugs).toContain('front-standing');
+    expect(sareeSlugs).not.toContain('side-profile');
+
+    // `dress` has exactly one row, for side-profile, with isActive: false. No row
+    // opts front-standing in, so it must be narrowed out too — not just side-profile.
+    const dressScoped = (await (await getOptions('gender=women&garmentType=dress')).json()) as {
+      poses: { slug: string }[];
+    };
+    expect(dressScoped.poses.map((p) => p.slug)).not.toEqual(
+      expect.arrayContaining(['front-standing', 'side-profile']),
+    );
   });
 });
 
