@@ -172,7 +172,7 @@ describe('whatsapp hooks', () => {
     } finally {
       waHolder.current = null;
     }
-    expect(wa.texts()[0]).toMatch(/^You're all set!/);
+    expect(wa.texts()[0]).toMatch(/^Connected ✅/);
     expect(wa.texts().at(-1)).toBe(COPY.menu);
   });
 

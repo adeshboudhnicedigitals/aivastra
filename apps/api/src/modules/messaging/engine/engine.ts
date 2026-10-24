@@ -333,7 +333,7 @@ async function render(
       return done();
 
     case 'ASK_GARMENT_PHOTO':
-      out.push(buttons(s, COPY.askGarmentPhoto, [['menu', 'menu', COPY.btnMenu]]));
+      out.push(buttons(s, COPY.askGarmentPhoto, [['menu', 'menu', COPY.btnBack]]));
       return done();
 
     case 'ASK_GENDER':
@@ -437,20 +437,12 @@ async function render(
       const runs = s.runs ?? [];
       const failed = runs.reduce((n, r) => n + (r.failedPoseIds?.length ?? 0), 0);
       const delivered = runs.reduce((n, r) => n + r.images, 0) - failed;
+      // One message: what was delivered, what it cost, what was refunded, what next.
       // Failed images were refunded, so only the delivered ones were spent.
-      if (delivered > 0 && s.gender && s.garmentType) {
-        out.push(
-          text(
-            COPY.deliveredSummary(
-              delivered,
-              COPY.genders[s.gender],
-              s.garmentType.label,
-              delivered * (s.perImage ?? 0),
-              await deps.getBalance(ctx.userId),
-            ),
-          ),
-        );
-      }
+      const body =
+        delivered > 0 || failed > 0
+          ? COPY.closing(delivered, failed, s.perImage ?? 0, await deps.getBalance(ctx.userId))
+          : COPY.deliveredNext;
       const retryable = retryLookIds(s).length > 0;
       const items: [string, string, string][] = retryable
         ? [
@@ -460,13 +452,34 @@ async function render(
           ]
         : [
             ['more_poses', '', COPY.btnMorePoses],
-            ['change', '', COPY.btnChangeGarment],
-            ['menu', 'new', COPY.btnNewCatalog],
+            ['menu', 'new', COPY.btnNewGarment],
+            ['menu', 'menu', COPY.btnMenu],
           ];
-      out.push(buttons(s, COPY.deliveredNext, items));
+      out.push(buttons(s, body, items));
       return done();
     }
   }
+}
+
+/**
+ * Answers credits / help without losing the seller's place: at the photo prompt
+ * the reminder rides in the same message, while generating nothing is re-asked,
+ * and anywhere else the current step is shown again with the draft kept.
+ */
+async function answerInfo(
+  s: Session,
+  message: string,
+  out: Out,
+  ctx: EngineContext,
+  deps: EngineDeps,
+): Promise<EngineResult> {
+  if (s.state === 'ASK_GARMENT_PHOTO') {
+    out.push(text(`${message}\n\n${COPY.thenPhoto}`));
+    return { session: s, messages: out };
+  }
+  out.push(text(message));
+  if (s.state === 'GENERATING') return { session: s, messages: out };
+  return render(s, out, ctx, deps);
 }
 
 async function onReply(
@@ -477,23 +490,18 @@ async function onReply(
   ctx: EngineContext,
   deps: EngineDeps,
 ): Promise<EngineResult> {
-  const reprompt = () => {
-    out.push(text(COPY.reprompt));
-    return { session: s, messages: out };
-  };
+  // An answer that does not fit the step shows the step again, without a scolding line.
+  const reprompt = () => render(s, out, ctx, deps);
   // Paging keeps the nonce so cards on earlier pages stay tappable.
   if (action === 'more') return render({ ...s, page: s.page + 1 }, out, ctx, deps);
   if (action === 'restart') return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
   if (action === 'menu') {
     if (value === 'new') return enter(cleared(s), 'ASK_GARMENT_PHOTO', out, ctx, deps);
     if (value === 'credits') {
-      out.push(text(COPY.credits(await deps.getBalance(ctx.userId), deps.links.pricing)));
-      return enter(s, 'MAIN_MENU', out, ctx, deps);
+      const balance = await deps.getBalance(ctx.userId);
+      return answerInfo(s, COPY.credits(balance, deps.links.pricing), out, ctx, deps);
     }
-    if (value === 'help') {
-      out.push(text(COPY.help(deps.links.help)));
-      return enter(s, 'MAIN_MENU', out, ctx, deps);
-    }
+    if (value === 'help') return answerInfo(s, COPY.help(deps.links.help), out, ctx, deps);
     return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
   }
 
@@ -555,7 +563,6 @@ async function onReply(
         // priced run of only those looks.
         return generate({ ...s, picked: ids }, ids, out, ctx, deps);
       }
-      if (action === 'change') return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
       return reprompt();
     }
 
@@ -566,19 +573,6 @@ async function onReply(
 
 // Typed words that mean "get me out". Never 'stop': that is the opt-out (inbound.ts).
 const EXIT_WORDS = new Set(['cancel', 'exit', 'quit', 'back', 'hi', 'hello']);
-
-// Steps with no question pending: stray text shows the step again, not a reprompt.
-const IDLE_STATES: State[] = ['MAIN_MENU', 'GENERATING', 'DELIVERED', 'NO_CREDITS'];
-
-// States where a new photo starts a new catalog (spec section 8): outside the
-// question steps, a photo can only mean "do this one".
-const NEW_PHOTO_STATES: State[] = [
-  'MAIN_MENU',
-  'ASK_GARMENT_PHOTO',
-  'NO_CREDITS',
-  'GENERATING',
-  'DELIVERED',
-];
 
 // What a session saved before 2026-10-14 may still carry.
 type LegacySession = Session & {
@@ -682,7 +676,6 @@ export async function handle(
   const upgraded = prev ? upgradeSession(prev) : null;
   if (!upgraded) {
     const fresh = await freshSession(ctx.userId, deps);
-    if (event.type === 'reply') out.push(text(COPY.sessionExpired));
     // A first photo starts a catalog straight away (spec section 8).
     if (event.type === 'image')
       return startFromPhoto({ ...fresh, garmentKey: event.garmentKey }, out, ctx, deps);
@@ -704,31 +697,24 @@ export async function handle(
       const cmd = event.text.trim().toLowerCase();
       if (cmd === 'menu' || cmd === 'restart' || EXIT_WORDS.has(cmd))
         return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
-      if (cmd === 'help') {
-        out.push(text(COPY.help(deps.links.help)));
-        return render(s, out, ctx, deps);
+      if (cmd === 'help') return answerInfo(s, COPY.help(deps.links.help), out, ctx, deps);
+      if (cmd === 'credits') {
+        const balance = await deps.getBalance(ctx.userId);
+        return answerInfo(s, COPY.credits(balance, deps.links.pricing), out, ctx, deps);
       }
-      if (IDLE_STATES.includes(s.state)) return render(s, out, ctx, deps);
-      out.push(text(COPY.reprompt));
-      return { session: s, messages: out };
+      // Anything else shows the current step again, without a scolding line.
+      return render(s, out, ctx, deps);
     }
 
     case 'reply': {
       const d = decodeReplyId(event.id);
-      if (!d || d.nonce !== s.nonce) {
-        out.push(text(COPY.stale));
-        return render(s, out, ctx, deps);
-      }
+      // Menu buttons do not depend on the step, so they work from any old message.
+      // Any other stale tap just shows the step we are on, with no complaint.
+      if (!d || (d.action !== 'menu' && d.nonce !== s.nonce)) return render(s, out, ctx, deps);
       return onReply(s, d.action, d.value, out, ctx, deps);
     }
 
     case 'image': {
-      if (NEW_PHOTO_STATES.includes(s.state)) {
-        // Spec 8a: recognised right after the upload and before any question,
-        // so the seller confirms the kind while the photo is fresh. Awaited:
-        // the seller waits once, up to the budget (spec 2026-10-22, risks).
-        return startFromPhoto({ ...cleared(s), garmentKey: event.garmentKey }, out, ctx, deps);
-      }
       if (s.state === 'ASK_EXTRA_PHOTO') {
         const slot = firstMissingSlot(s);
         if (slot) {
@@ -742,8 +728,10 @@ export async function handle(
           );
         }
       }
-      out.push(text(COPY.notNow));
-      return render(s, out, ctx, deps);
+      // Anywhere else a photo can only mean "do this one" (spec section 8): it
+      // replaces the draft. Recognised right after the upload and before any
+      // question; awaited, so the seller waits once, up to the budget.
+      return startFromPhoto({ ...cleared(s), garmentKey: event.garmentKey }, out, ctx, deps);
     }
 
     case 'unsupportedMedia':
@@ -765,9 +753,6 @@ export async function handle(
       const next: Session = { ...s, runs: updated };
       // The closing message waits for the last run of the Generate (spec section 4).
       if (!updated.every((r) => r.finished)) return { session: next, messages: out };
-      const failed = updated.reduce((n, r) => n + (r.failedPoseIds?.length ?? 0), 0);
-      const images = updated.reduce((n, r) => n + r.images, 0);
-      if (failed > 0) out.push(text(COPY.partlyFailed(failed, images)));
       return enter(next, 'DELIVERED', out, ctx, deps);
     }
 

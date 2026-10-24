@@ -195,9 +195,7 @@ describe('messaging conversation (real deps)', () => {
     const w = await walkToPick('conv');
     const { userId, account, acct, send } = w;
     const prompt = w.msgs.find((m) => m.kind === 'list');
-    expect(prompt && prompt.kind === 'list' ? prompt.text : '').toContain(
-      'Each pose will use 5 credits',
-    );
+    expect(prompt && prompt.kind === 'list' ? prompt.text : '').toContain('5 credits each');
 
     // The bot draws the look itself: with a pool of two, a count of 1 starts one run.
     await send(tapIn(w.msgs, 'count', '1'));
