@@ -223,13 +223,19 @@ export async function buildCatalogOptions(
     .where(and(...poseConditions));
 
   // If garmentTypeId given, overlay per-type workflow overrides for hasLower/hasShoes,
-  // and per-type active overrides (a pose can be hidden for one garment type without
-  // touching its global isActive flag or its visibility under other garment types).
+  // and apply strict opt-in visibility: a pose shows for a garment type only when a
+  // pose_garment_configs row exists for it. isActive on that row is a *narrowing*
+  // override (null = inherit, i.e. still visible — false = explicitly hidden), not the
+  // opt-in signal itself; the row's mere existence is. Mirrors GET /v1/models/poses
+  // (models/routes.ts) — this builder had its own, separate opt-out copy of the same
+  // logic that the 2026-10-06 opt-in fix (915a7abb0) never reached, so a garmentType
+  // narrowed lowerItems/shoeItems (via fetchCatalogItems' own opt-in allowedIds) but
+  // silently returned every pose for every garment type.
   let configMap = new Map<
     string,
     { upperNodeIds: string[] | null; lowerNodeId: string | null; shoeNodeId: string | null }
   >();
-  let inactiveForType = new Set<string>();
+  let activeForType: Set<string> | null = null;
   if (garmentTypeId && poseRows.length > 0) {
     const poseIds = poseRows.map((p) => p.id);
     const configs = await app.db
@@ -267,14 +273,12 @@ export async function buildCatalogOptions(
           },
         ]),
     );
-    inactiveForType = new Set(
-      configs.filter((c) => c.isActive === false).map((c) => c.poseAssetId),
-    );
+    activeForType = new Set(configs.filter((c) => c.isActive !== false).map((c) => c.poseAssetId));
   }
 
   const poses = await Promise.all(
     poseRows
-      .filter((p) => !inactiveForType.has(p.id))
+      .filter((p) => activeForType === null || activeForType.has(p.id))
       .map(async (p) => {
         const cfg = configMap.get(p.id);
         const upperNodeIds = cfg !== undefined ? cfg.upperNodeIds : p.upperNodeIds;
