@@ -48,7 +48,7 @@ describe('whatsapp inbound', () => {
     );
     expect(wa.sent).toHaveLength(1);
     // A CTA URL button, not a pasted link: the token stays out of the chat text.
-    expect(wa.texts()[0]).toMatch(/^Welcome to Ai Vastra!/);
+    expect(wa.texts()[0]).toMatch(/^Welcome to Ai Vastra/);
     expect(wa.sent[0].payload).toMatchObject({
       interactive: {
         type: 'cta_url',
@@ -83,7 +83,7 @@ describe('whatsapp inbound', () => {
     expect(row).toMatchObject({ userId, linkedVia: 'web_code' });
     expect(row.lastInboundAt).not.toBeNull();
     const t = wa.texts();
-    expect(t[0]).toMatch(/^You're all set!/);
+    expect(t[0]).toMatch(/^Connected ✅/);
     expect(t[1]).toMatch(/ending 1234/);
     expect(t.at(-1)).toBe(COPY.menu);
   });
@@ -113,7 +113,7 @@ describe('whatsapp inbound', () => {
     });
     const wa = fakeWhatsapp();
     await processInbound(app, wa.client, msg(from, { kind: 'text', text: 'STOP' }), noPending);
-    expect(wa.texts()).toEqual([expect.stringMatching(/^You won't receive any more messages/)]);
+    expect(wa.texts()).toEqual([expect.stringMatching(/^Paused\./)]);
     let [row] = await app.db
       .select()
       .from(schema.messagingAccounts)
@@ -168,7 +168,7 @@ describe('whatsapp inbound', () => {
       noPending,
     );
     // Photo from the main menu → the engine asks for gender next.
-    expect(wa.texts().at(-1)).toBe('Create this catalogue for:');
+    expect(wa.texts().at(-1)).toBe('Who is it for?');
     const owned = await app.redis.keys('upload:owner:inputs/*');
     expect(owned.length).toBeGreaterThan(0);
   });
