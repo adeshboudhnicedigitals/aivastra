@@ -35,6 +35,12 @@ setDefaultResultOrder('ipv4first');
 
 const env = loadEnv();
 const app = await buildServer(env);
+// Fastify rejects addHook once listening, so the hook is registered here and the
+// stop functions are collected as the comparison loops start below.
+const stopComparisonLoops: Array<() => void> = [];
+app.addHook('onClose', async () => {
+  for (const stop of stopComparisonLoops) stop();
+});
 await app.listen({ port: env.API_PORT, host: '0.0.0.0' });
 
 startSyncConsumer(app);
@@ -42,14 +48,11 @@ startCollectionResyncScheduler(app);
 startProductResyncScheduler(app);
 startUploadSweeper(app);
 startRecognitionSweeper(app);
-const stopComparisonCollector = startComparisonCollector(app);
-const stopComparisonDispatcher = startComparisonDispatcher(app);
-const stopComparisonRetention = startComparisonRetention(app);
-app.addHook('onClose', async () => {
-  stopComparisonCollector();
-  stopComparisonDispatcher();
-  stopComparisonRetention();
-});
+stopComparisonLoops.push(
+  startComparisonCollector(app),
+  startComparisonDispatcher(app),
+  startComparisonRetention(app),
+);
 startAlertScheduler(app);
 startAutorefillReconciler(app);
 startPaymentSettlementScheduler(app);

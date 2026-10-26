@@ -1,11 +1,54 @@
-## 2026-10-23 — workflow comparison Task 10 admin tab (uncommitted)
+## 2026-10-23 — workflow comparison sweeper: local verification (Task 11, staging not yet run)
+
+- **Done:** fixed an API startup crash in `apps/api/src/main.ts`. `app.addHook('onClose', …)` was
+  called after `app.listen()`, which Fastify rejects (`FST_ERR_INSTANCE_ALREADY_LISTENING`), so the
+  API process died seconds after listening. No test caught it because the integration tests build the
+  app without `main.ts`. The hook is now registered before `listen` and the three comparison loops
+  push their stop functions into it. Found only by launching the real API.
+- **Done:** two stale assertions in `admin-jobs-delete-assets.test.ts` now expect the
+  `comparisonErased` tombstone that deleting a source's result/person image writes (by design in
+  Task 8); added a test that deleting a replay job's person image returns 409 and leaves the shared
+  source object.
+- **Verified (local):** API unit 108 files / 1045 tests; API integration 186 files / 1451 tests;
+  dispatcher unit 17 / 235; dispatcher integration 39 / 198; `tsc --noEmit` for api, dispatcher and
+  admin-web; admin build. Migrations `0230` and `0231` apply on the local dev DB.
+- **Verified (local, real processes, headless browser):** against the real API and admin SPA on a
+  prod-snapshot dev DB, the Workflow Comparisons tab renders; the toggle writes a
+  `comparison.settings.update` audit row; the row detail opens and its id is in the URL
+  (`?comparison=<id>`), surviving a reload; with a fake in-house worker registered, the dispatch loop
+  created one replay job (QUEUED, cost 0, `queue_stream='inhouse'`, system-user owner, no merchant or
+  Shopify store, no `primaryWorkerIds`/`fallbackWorkerIds`, 0 `credit_ledger` rows, `XADD` to
+  `jobs:inhouse` only); "Cancel queued" (native confirm) moved the replay job to
+  `CANCELLED/ADMIN_CANCEL`, the row to `CANCELLED`, wrote `comparison.cancel_queued`, and left no
+  ledger rows. With no worker registered the loop skips (`no_worker`); a row whose source objects are
+  missing goes `EXPIRED` at dispatch. All demo rows, the fake worker and the stream were removed after.
+- **Failed-Not-Done:** the task's real goal is **not done**: nothing has been deployed to staging, so
+  no real try-on has been replayed on the in-house worker and no general-vs-original image pair has
+  been looked at. Not verified locally: image rendering with real inputs (demo rows used made-up
+  keys, so images were broken), the collector picking up a genuinely new completed job (the snapshot
+  has none in the last 30 days; covered by integration tests only), and that a replay never shows in a
+  customer's history on a live stack (covered by integration tests only).
+- **Failed-Not-Done:** one flake seen once in the full API integration run
+  (`jobs-create-mannequin` charged 5 instead of 35 credits; passed alone 3/3 and on a clean rerun of the
+  whole suite). Probably a Redis config key leaked between test files, as with the settings test
+  earlier; the leaking file was not identified.
+- **Open:** UI polish seen in the screenshots: no page heading; the table is narrow and unstyled
+  next to other admin tables; the Created column is clipped while a detail panel is open.
+- **Open:** push the branch, open the PR into `dev`, let CI deploy staging, then run Step 2 of the
+  plan there (enable, wait for a real completed job, confirm one replay, cost 0, shown in the tab,
+  absent from customer history) and record the outcome here.
+- **Open:** v1 limits worth remembering: a shared source key does not guarantee identical image bytes
+  if a Shopify resync overwrites it; a long `COLLECTED` backlog can postpone replacing the general
+  template (its version stays pinned until the backlog drains or expires).
+
+## 2026-10-23 — workflow comparison Task 10 admin tab
 
 - **Done:** added the `/workflow-comparisons` page and `jobs.read` navigation entry. The page has settings controls, a queued cancellation confirmation, backlog counts, status/source filters, pagination, unsupported reasons, and side-by-side inputs/results with workflow/worker/timing/error metadata. Detail selection is in the URL; filters remain local.
 - **Verified:** admin build (`tsc -b` + Vite) passed. New page has no Biome warnings; full admin lint reports 17 warnings in pre-existing unrelated code. API list/detail integration tests passed in Task 9.
 - **Failed-Not-Done:** authenticated browser and live-worker QA has not run locally; full interactive check is deferred to Task 11 staging verification. No commit/push yet.
 - **Open:** staging deployment and end-to-end comparison verification remain.
 
-## 2026-10-23 — workflow comparison Task 9 admin API (uncommitted)
+## 2026-10-23 — workflow comparison Task 9 admin API
 
 - **Done:** added admin list/detail endpoints with `jobs.read` authorization, status/source filters, stable keyset pagination, global status counts, backlog counts, pinned workflow metadata, and presigned input/result URLs.
 - **Verified:** focused API integration suite passed (5 tests); API typecheck passed. Scoped review found no issue. Integration ran against local test services only.
@@ -15,6 +58,81 @@
 > **Moved 2026-08-29:** the GPU audit report, optimisation runbook, ComfyUI authoring rules and
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
+
+## 2026-10-23 — workflow comparison Task 8 source erasure and retention hooks
+
+- **Done:** shared DB lifecycle helper locks source rows, writes a durable `comparisonErased`
+  tombstone, expires links and clears frozen input pointers. API erasure removes replay jobs and
+  all known output variants under the same session lock used by dispatcher finalization.
+- **Done:** Shopify shopper/store redaction, user anonymization, customer source-job deletion,
+  admin source asset deletion, Shopify hard-store deletion, and dispatcher Shopify photo/result
+  retention now clean linked replay outputs before dropping source provenance. Failed or busy
+  output cleanup leaves durable links/keys and prevents source deletion; GDPR retry stamps remain.
+- **Verified:** comparison erasure + existing Shopify GDPR retry, admin user erasure and customer
+  job deletion suites passed (24 tests); dispatcher Shopify retention and comparison-finalization
+  passed (13 tests). A clean follow-up of comparison erasure/GDPR retry and Shopify retention also
+  passed after the retention retry-query change. Follow-up source/store lock and developer job
+  regressions passed (8 tests); Shopify store and customer job/limit suites passed (53 tests).
+  DB build, API typecheck and dispatcher build pass.
+- **Done:** final scoped review approved (`task-8-final-review.md`). It found and then verified
+  fixes for user job creation racing account erasure, Shopify source jobs racing store deletion,
+  and a developer API job path that also needed the user-row lock.
+- **Open:** Task 9 API, Task 10 admin UI, and Task 11 staging verification remain. No staging or
+  rollout has happened.
+
+## 2026-10-23 — workflow comparison Task 7 isolation audit and regressions
+
+- **Done:** business-facing job counts, queue capacity, customer exports, public kiosk
+  downloads and workflow usage aggregates exclude comparison replays. The dedicated system
+  user remains excluded from customer rankings/exports; legacy NULL sources remain counted.
+- **Done:** upload orphan cleanup now preserves keys referenced by `job_inputs.params.personKey`
+  and `jobs.customerPhotoKey`, while still deleting unrelated aged objects.
+- **Done:** added authenticated `/v1/jobs` isolation, WhatsApp run-ID isolation, and dispatcher
+  replay completion coverage asserting `webhooks:outbound` is unchanged.
+- **Verified:** six focused API integration files passed (31 tests), including queue capacity,
+  admin credit analysis, job taxonomy, upload sweeper, comparison exclusions and WhatsApp
+  delivery. Dispatcher comparison-finalization integration passed (9 tests). These ran against
+  local Docker test services only.
+- **Reader decisions:**
+
+  | Reader/action | Decision | Reason |
+  |---|---|---|
+  | Customer history, result/actions, catalogs, video and exports | Isolated by dedicated owner; history regression added | Routes scope to authenticated user; comparison jobs belong only to system identity. |
+  | Customer and admin credit ledgers | Excluded by no-ledger invariant | Replay creation and cancellation must not create ledger entries; replay cost is zero. |
+  | Public kiosk batch download | Explicitly excludes comparisons | This endpoint accepts arbitrary job IDs and has no owner scope. |
+  | Queue admission/capacity | Excluded | Replays use the in-house lane and must not consume customer queue allowance. |
+  | Admin business totals, user rankings/exports, workflow usage analytics | Explicitly excluded | These are customer/business measures; zero credits alone does not prevent count/rank contamination. |
+  | Admin jobs, recent failures, stuck/retry/retention checks | Intentionally included and labelled | These are operational views and lifecycle safety checks; replay jobs are real dispatcher jobs. Generic retry rejects comparison jobs. |
+  | Merchant/API-key/Shopify customer reads | Isolated by owner/store/source predicates | Replay creation carries no merchant, API key, Shopify store or shopper ownership. |
+  | WhatsApp deliveries | Isolated by persisted run job-ID set; regression added | Delivery reads only IDs returned by customer job creation; replay IDs are never appended. |
+  | Outbound merchant webhooks | Excluded by dispatcher route; completion regression added | Webhook writes occur only in the owner-bound widget processor; comparison uses the direct try-on route. |
+  | Customer SSE | Isolated by per-user channel | System-owned replay events cannot reach customer subscriptions. |
+  | Admin telemetry / labelled duration histograms | Operationally included | Replay activity is identifiable by source/job type; histograms are grouped by job type. |
+  | Dispatcher queue/worker health and performance samples | Intentionally included | These checks must reflect actual in-house GPU work and capacity. |
+  | Upload orphan sweeper | Includes live person/garment references | Deleting a referenced input would break a delayed replay or a live source job. |
+  | Email senders | No generic completion email found | Existing mail paths are auth, payment, support or scheduled credit/plan mail; no replay-triggered sender. |
+
+- **Done:** scoped fresh review approved with no findings (`task-7-rereview.md`). No staging
+  verification or rollout has occurred.
+- **Open:** Task 8 source invalidation/erasure, then API review page/admin UI and staging flow.
+
+## 2026-10-23 — workflow comparison Task 6 retention review fixes
+
+- **Done:** shared callback-based comparison output cleanup in `packages/db`, using the same
+  session advisory lock as dispatcher comparison finalization. Fresh EXPIRED links cancel/erase
+  queued or running replays immediately; failed storage deletion retains replay/link cleanup roots.
+  Generic admin retry rejects comparison jobs. Ordinary retention preserves source inputs.
+- **Done:** independent fair bounded privacy, terminal, and archive recovery scans, plus targeted
+  archive release for affected template/version pairs on expiry/cancellation. Completion-relative
+  retention and the separate zero-credit cancellation/audit core are retained explicitly.
+- **Done:** 96 focused API +14 focused dispatcher integration tests; serial API suite 1001 tests;
+  dispatcher unit suite 232 tests; API/dispatcher/db typechecks and scoped Biome passed. Evidence,
+  regression reds, and an invalid overlapping API runner attempt superseded by the clean serial
+  run are recorded in `.superpowers/sdd/2026-10-22-workflow-comparison-sweeper/task-6-fix-report.md`.
+- **Failed-Not-Done:** no staging or live-GPU verification, no deployment, commit, or push.
+- **Open:** Task 8 still owns source invalidation/erasure hooks. Session locking is not an object
+  storage transaction; a lost DB session during an outstanding remote PUT remains a documented
+  limitation. Recovery cursors reset on restart. Task 7 exclusions were preserved unchanged.
 
 ## 2026-10-22 (later) — WhatsApp try-on: one bot workflow, legacy poses, Move to Half/Full
 
@@ -129,81 +247,6 @@
   leave stale closing buttons); a/an article for plural kinds ("a jeans"); `COPY.posesChanged`
   wording ("choose again"); unused `imageUrl` built per pool load in `deps.ts`; a DELIVERED
   re-render on stray text resends the summary.
-## 2026-10-23 — workflow comparison Task 7 isolation audit and regressions (uncommitted)
-
-- **Done:** business-facing job counts, queue capacity, customer exports, public kiosk
-  downloads and workflow usage aggregates exclude comparison replays. The dedicated system
-  user remains excluded from customer rankings/exports; legacy NULL sources remain counted.
-- **Done:** upload orphan cleanup now preserves keys referenced by `job_inputs.params.personKey`
-  and `jobs.customerPhotoKey`, while still deleting unrelated aged objects.
-- **Done:** added authenticated `/v1/jobs` isolation, WhatsApp run-ID isolation, and dispatcher
-  replay completion coverage asserting `webhooks:outbound` is unchanged.
-- **Verified:** six focused API integration files passed (31 tests), including queue capacity,
-  admin credit analysis, job taxonomy, upload sweeper, comparison exclusions and WhatsApp
-  delivery. Dispatcher comparison-finalization integration passed (9 tests). These ran against
-  local Docker test services only.
-- **Reader decisions:**
-
-  | Reader/action | Decision | Reason |
-  |---|---|---|
-  | Customer history, result/actions, catalogs, video and exports | Isolated by dedicated owner; history regression added | Routes scope to authenticated user; comparison jobs belong only to system identity. |
-  | Customer and admin credit ledgers | Excluded by no-ledger invariant | Replay creation and cancellation must not create ledger entries; replay cost is zero. |
-  | Public kiosk batch download | Explicitly excludes comparisons | This endpoint accepts arbitrary job IDs and has no owner scope. |
-  | Queue admission/capacity | Excluded | Replays use the in-house lane and must not consume customer queue allowance. |
-  | Admin business totals, user rankings/exports, workflow usage analytics | Explicitly excluded | These are customer/business measures; zero credits alone does not prevent count/rank contamination. |
-  | Admin jobs, recent failures, stuck/retry/retention checks | Intentionally included and labelled | These are operational views and lifecycle safety checks; replay jobs are real dispatcher jobs. Generic retry rejects comparison jobs. |
-  | Merchant/API-key/Shopify customer reads | Isolated by owner/store/source predicates | Replay creation carries no merchant, API key, Shopify store or shopper ownership. |
-  | WhatsApp deliveries | Isolated by persisted run job-ID set; regression added | Delivery reads only IDs returned by customer job creation; replay IDs are never appended. |
-  | Outbound merchant webhooks | Excluded by dispatcher route; completion regression added | Webhook writes occur only in the owner-bound widget processor; comparison uses the direct try-on route. |
-  | Customer SSE | Isolated by per-user channel | System-owned replay events cannot reach customer subscriptions. |
-  | Admin telemetry / labelled duration histograms | Operationally included | Replay activity is identifiable by source/job type; histograms are grouped by job type. |
-  | Dispatcher queue/worker health and performance samples | Intentionally included | These checks must reflect actual in-house GPU work and capacity. |
-  | Upload orphan sweeper | Includes live person/garment references | Deleting a referenced input would break a delayed replay or a live source job. |
-  | Email senders | No generic completion email found | Existing mail paths are auth, payment, support or scheduled credit/plan mail; no replay-triggered sender. |
-
-- **Done:** scoped fresh review approved with no findings (`task-7-rereview.md`). No staging
-  verification or rollout has occurred.
-- **Open:** Task 8 source invalidation/erasure, then API review page/admin UI and staging flow.
-
-## 2026-10-23 — workflow comparison Task 8 source erasure and retention hooks (uncommitted)
-
-- **Done:** shared DB lifecycle helper locks source rows, writes a durable `comparisonErased`
-  tombstone, expires links and clears frozen input pointers. API erasure removes replay jobs and
-  all known output variants under the same session lock used by dispatcher finalization.
-- **Done:** Shopify shopper/store redaction, user anonymization, customer source-job deletion,
-  admin source asset deletion, Shopify hard-store deletion, and dispatcher Shopify photo/result
-  retention now clean linked replay outputs before dropping source provenance. Failed or busy
-  output cleanup leaves durable links/keys and prevents source deletion; GDPR retry stamps remain.
-- **Verified:** comparison erasure + existing Shopify GDPR retry, admin user erasure and customer
-  job deletion suites passed (24 tests); dispatcher Shopify retention and comparison-finalization
-  passed (13 tests). A clean follow-up of comparison erasure/GDPR retry and Shopify retention also
-  passed after the retention retry-query change. Follow-up source/store lock and developer job
-  regressions passed (8 tests); Shopify store and customer job/limit suites passed (53 tests).
-  DB build, API typecheck and dispatcher build pass.
-- **Done:** final scoped review approved (`task-8-final-review.md`). It found and then verified
-  fixes for user job creation racing account erasure, Shopify source jobs racing store deletion,
-  and a developer API job path that also needed the user-row lock.
-- **Open:** Task 9 API, Task 10 admin UI, and Task 11 staging verification remain. No staging or
-  rollout has happened.
-
-## 2026-10-23 — workflow comparison Task 6 retention review fixes (uncommitted)
-
-- **Done:** shared callback-based comparison output cleanup in `packages/db`, using the same
-  session advisory lock as dispatcher comparison finalization. Fresh EXPIRED links cancel/erase
-  queued or running replays immediately; failed storage deletion retains replay/link cleanup roots.
-  Generic admin retry rejects comparison jobs. Ordinary retention preserves source inputs.
-- **Done:** independent fair bounded privacy, terminal, and archive recovery scans, plus targeted
-  archive release for affected template/version pairs on expiry/cancellation. Completion-relative
-  retention and the separate zero-credit cancellation/audit core are retained explicitly.
-- **Done:** 96 focused API +14 focused dispatcher integration tests; serial API suite 1001 tests;
-  dispatcher unit suite 232 tests; API/dispatcher/db typechecks and scoped Biome passed. Evidence,
-  regression reds, and an invalid overlapping API runner attempt superseded by the clean serial
-  run are recorded in `.superpowers/sdd/2026-10-22-workflow-comparison-sweeper/task-6-fix-report.md`.
-- **Failed-Not-Done:** no staging or live-GPU verification, no deployment, commit, or push.
-- **Open:** Task 8 still owns source invalidation/erasure hooks. Session locking is not an object
-  storage transaction; a lost DB session during an outstanding remote PUT remains a documented
-  limitation. Recovery cursors reset on restart. Task 7 exclusions were preserved unchanged.
-
 ## 2026-10-21 — WhatsApp bot v2 P0: no dead ends, readiness reasons, studio draft hand-off
 
 - **Done:** pure `decideReadiness` in `apps/api/src/modules/messaging/readiness.ts` (commit
@@ -10583,7 +10626,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 ---
 
-### 2026-05-23 (uncommitted) — Multi-pose per job + catalogue grouping
+### 2026-05-23 — Multi-pose per job + catalogue grouping
 
 **Done**
 
