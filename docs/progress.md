@@ -1,3 +1,9 @@
+## 2026-10-26 — stabilize WhatsApp inbound acknowledgement integration test
+
+- **Root cause:** the ordering test considered a message complete when its mocked `processInbound` handler returned. The consumer issues `XACK` afterward, so the test could inspect `XPENDING` before the final acknowledgement completed.
+- **Done:** wait up to 2 seconds for the consumer group's pending count to reach zero before asserting; no production consumer behavior changed.
+- **Verified:** focused `whatsapp-hooks.test.ts` integration run passed (5 tests); targeted Biome and `git diff --check` passed. CI rerun is pending after push.
+
 ## 2026-10-26 — independent merchant try-on latency investigation
 
 - **Done:** read-only analysis of four production jobs, retained ComfyUI histories, dispatcher logs, executed code, worker configuration and Redis registry. Full evidence and mitigation tradeoffs: `docs/investigations/2026-10-26-tryon-latency.md`.
