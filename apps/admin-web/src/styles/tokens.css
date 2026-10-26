@@ -1851,6 +1851,9 @@ p {
 .table-wrap tr:hover td {
   background: var(--surface-2);
 }
+.table-wrap tr.selected td {
+  background: var(--accent-soft);
+}
 .table-wrap .mono {
   font-family: var(--mono);
   font-size: 12px;

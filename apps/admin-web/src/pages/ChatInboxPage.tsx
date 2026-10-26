@@ -89,6 +89,13 @@ const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, normal: 2, 
 const CATEGORY_OPTIONS = ['billing', 'bug', 'order', 'account', 'other'] as const;
 const PRIORITY_OPTIONS = ['low', 'normal', 'high', 'urgent'] as const;
 
+function formatRaisedAt(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? 'Unknown'
+    : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 export default function ChatInboxPage({ toast }: Props) {
   const [queue, setQueue] = useState<ConvRow[]>([]);
   const [myTickets, setMyTickets] = useState<ConvRow[]>([]);
@@ -308,6 +315,7 @@ export default function ChatInboxPage({ toast }: Props) {
     if (p !== 0) return p;
     return new Date(a.lastMessageAt).getTime() - new Date(b.lastMessageAt).getTime();
   });
+  const selectedConversation = [...queue, ...myTickets].find((c) => c.id === selectedConv);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, height: '100%' }}>
@@ -384,6 +392,12 @@ export default function ChatInboxPage({ toast }: Props) {
                   </span>
                 </div>
                 <div style={{ fontWeight: 500, marginTop: 4 }}>{c.userEmail}</div>
+                <div
+                  title={c.createdAt}
+                  style={{ color: 'var(--muted)', fontSize: 11, marginTop: 4 }}
+                >
+                  Raised {formatRaisedAt(c.createdAt)}
+                </div>
                 <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 4 }}>
                   {c.escalationReason && <span className="badge">{c.escalationReason}</span>}
                 </div>
@@ -459,6 +473,12 @@ export default function ChatInboxPage({ toast }: Props) {
                   </span>
                 </div>
                 <div style={{ fontWeight: 500, marginTop: 4 }}>{c.userEmail}</div>
+                <div
+                  title={c.createdAt}
+                  style={{ color: 'var(--muted)', fontSize: 11, marginTop: 4 }}
+                >
+                  Raised {formatRaisedAt(c.createdAt)}
+                </div>
                 <span className="badge" style={{ marginTop: 4 }}>
                   {c.status}
                 </span>
@@ -492,9 +512,16 @@ export default function ChatInboxPage({ toast }: Props) {
               gap: 8,
             }}
           >
-            <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-              Status: <strong>{status}</strong>
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                Status: <strong>{status}</strong>
+              </span>
+              {selectedConversation && (
+                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                  Raised: <strong>{formatRaisedAt(selectedConversation.createdAt)}</strong>
+                </span>
+              )}
+            </div>
             {status === 'IN_PROGRESS' && (
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn sm ghost" onClick={() => resolveConv(selectedConv)}>

@@ -1,3 +1,53 @@
+## 2026-10-26 — chat inbox: show complaint raised time
+
+- **Done:** displayed each complaint's `createdAt` as a localized “Raised” date/time in Queue and My Tickets, and for the selected conversation in its header. The conversations API already included `createdAt`; no API or database changes were needed.
+- **Verified:** admin build, targeted Biome check, and `git diff --check` passed. Browser smoke check with an intercepted local complaint row confirmed the timestamp appears in both the list and selected ticket header. The local inbox had no real queue tickets; the smoke row was browser-mocked and did not touch database data.
+- **Branch state:** uncommitted; no push.
+
+## 2026-10-26 — workflow comparisons: four-image gallery sizing
+
+- **Done:** reduced each comparison image another 20% from the prior layout and moved Person and Garment reference inputs into the same four-column row as Original and General, ordered Person, Garment, Original, General. All four tiles use the same 3:4 dimensions; measured at 178×237 px each on desktop. At 768 px the four-up row remains in one line and all images remain equal size.
+- **Verified:** admin build, targeted Biome check, `git diff --check`, desktop and 768 px browser screenshots. No browser runtime errors.
+- **Screenshots:** `/tmp/workflow-comparison-ui/gallery-four-up-desktop.png` and `gallery-four-up-768.png`.
+
+## 2026-10-26 — workflow comparisons: image-first admin gallery
+
+- **Done:** reworked `WorkflowComparisonsPage.tsx` into a one-comparison-per-row gallery with equal 3:4 Original / General result tiles, workflow labels, durations, duration delta, compact person/garment thumbnails, and a details drawer. Non-completed statuses use compact status placeholders and show an original result image when present. Added Gallery/List selection (`?view=list`), collapsed Settings, kept backlog counts and Cancel queued in the header, and retained cursor pagination.
+- **Done:** comparison detail URLs continue to use `?comparison=<id>` with `useUrlState` and `useCloseOverlay`; the drawer reloads from that URL and displays inputs plus job/template/worker/duration/error metadata. Extended the shared image lightbox to switch between comparison outputs with Left/Right while Escape closes it. Visible cards request their image URLs lazily and the page caches details by comparison ID.
+- **Verified:** `pnpm --filter @aivastra/admin build` passed; `pnpm --filter @aivastra/admin exec biome check src/pages/WorkflowComparisonsPage.tsx src/components/ImageLightbox.tsx` passed; `git diff --check` passed. Browser QA at 1280px and 768px confirmed the gallery, original/general lightbox flip, drawer, List view, QUEUED gallery placeholders (2 rows), and reload restoration for both `?comparison=<id>` and `?view=list`. No browser runtime errors were observed.
+- **Screenshots:** `/tmp/workflow-comparison-ui/gallery-desktop.png`, `gallery-768.png`, `lightbox-original.png`, `lightbox-general.png`, `drawer.png`, `list-768.png`, and `queued-gallery-768.png`.
+- **Not verified:** API dev was already listening on port 4000, so the new API process could not be started. Browser verification used the existing local API and seeded comparison data. No staging/deployment verification was run. The production build still reports the admin JS chunk size warning (>500 kB).
+- **Branch state:** not committed or pushed; existing user changes were preserved.
+
+## 2026-10-26 — workflow comparison sweeper: admin UI redesign
+
+- **Done:** redesigned `apps/admin-web/src/pages/WorkflowComparisonsPage.tsx`:
+  - Added standard `.page-head` container with `<h1>Workflow Comparisons</h1>` and `.lede`.
+  - Replaced bare table with `<div className="table-wrap"><table className="table">` and defined percentage `<colgroup>` (`12%`, `25%`, `16%`, `25%`, `22%`).
+  - Added mono short Comparison ID column (`row.id.slice(0, 8)`), row hover state, and selected highlight (`.table-wrap tr.selected td`).
+  - Integrated `StatusBadge` in table and drawer; added missing statuses (`COLLECTED`, `RUNNING`, `UNSUPPORTED`, `EXPIRED`) to `statusBadge()` in `apps/admin-web/src/lib/data.ts`.
+  - Moved `unsupportedReason` into its own column with a clean badge and tooltip, keeping row heights uniform.
+  - Converted detail view into a slide-out right-hand drawer (`.drawer`, `width: min(820px, 100vw)`), resolving column clipping on the list view.
+  - Detail layout: inputs (Person & Garment) placed smaller above the prominent side-by-side Original vs General result comparison (3:4 portrait up to 420px height).
+  - Wired in `ImageLightbox` on all image thumbnails for in-place zoom/inspection instead of opening new tabs.
+  - Formatted Original and General worker/duration/error metadata into structured `<KV>` cards, keeping the comparison purely focused on visual quality.
+  - Tidied settings card: aligned controls on baseline, styled "Cancel queued" as `.btn.danger`, and grouped backlog counts (Collected, Queued, Running) into themed stat chips.
+  - Preserved URL routing standard: `?comparison=<id>` via `useUrlState`, `useCloseOverlay`, and keyboard Escape listener (respecting lightbox state).
+- **Verified:**
+  - `pnpm --filter @aivastra/admin build` (`tsc -b && vite build`) passed with exit code 0.
+  - `pnpm --filter @aivastra/admin exec biome check src/pages/WorkflowComparisonsPage.tsx` passed with 0 errors/warnings.
+  - Automated Playwright browser tests verified:
+    - List view rendered at 1280px desktop and 768px tablet.
+    - COMPLETED detail drawer open at desktop and 768px tablet, showing side-by-side images and duration delta.
+    - UNSUPPORTED detail drawer open, showing warning banner and reason badge.
+    - QUEUED detail drawer open, showing inputs and "Job not completed yet" placeholder.
+    - Reloading with `?comparison=<id>` verified to restore the detail drawer.
+    - Image lightbox opened on thumbnail click, and closed via Escape without closing the underlying drawer.
+- **Failed-Not-Done:**
+  - Branch has not been committed or pushed (per instructions, awaiting user UI approval).
+- **Open Questions:**
+  - None. Ready for user UI review.
+
 ## 2026-10-23 — workflow comparison sweeper: local verification (Task 11, staging not yet run)
 
 - **Done:** fixed an API startup crash in `apps/api/src/main.ts`. `app.addHook('onClose', …)` was
