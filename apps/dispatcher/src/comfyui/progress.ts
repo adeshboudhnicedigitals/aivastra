@@ -10,11 +10,12 @@ import {
   comfyTimeoutConfigSchema,
   getComfyTimeoutConfig,
   POLL_INTERVAL_MS,
+  QUEUE_CLEANUP_POLL_INTERVAL_MS,
 } from '../config/comfy-timeout.js';
 import { boundedRead, readCapabilities, versionMatches } from '../worker/capabilities.js';
 import { isQueueGateEnabled } from '../worker/registry.js';
 import { type ComfyLog, type CompletionContext, cancelPrompt } from './cancel.js';
-import { deleteQueuedPrompt, fetchPromptQueueState } from './client.js';
+import { type ComfyHistoryEntry, deleteQueuedPrompt, fetchPromptQueueState } from './client.js';
 import { type ExecutionTiming, executionTiming } from './execution-timing.js';
 
 export { JobCancelledError } from './cancel.js';
@@ -28,6 +29,29 @@ export type ProgressCallback = (update: ProgressUpdate) => void;
 export type WaitForCompletionResult =
   | { status: 'completed'; executionTiming?: ExecutionTiming }
   | { status: 'queue_cleanup_failed' };
+
+// Keep the full history available for output processing without adding its large
+// prompt payload to logs, job events, or the completion result's public shape.
+const completedHistories = new WeakMap<WaitForCompletionResult, ComfyHistoryEntry>();
+
+export function getCompletedHistory(
+  result: WaitForCompletionResult,
+): ComfyHistoryEntry | undefined {
+  return completedHistories.get(result);
+}
+
+function completedResult(
+  entry: ComfyHistoryEntry,
+  totalNodeCount: number,
+): WaitForCompletionResult {
+  const timing = executionTiming(entry, totalNodeCount);
+  const result: WaitForCompletionResult = {
+    status: 'completed',
+    ...(timing ? { executionTiming: timing } : {}),
+  };
+  completedHistories.set(result, entry);
+  return result;
+}
 
 export function assertNever(value: never): never {
   throw new Error(`Unexpected completion result: ${JSON.stringify(value)}`);
@@ -45,6 +69,7 @@ export async function waitForCompletion(
   isCancelled?: () => Promise<boolean>,
   context?: CompletionContext,
   totalNodeCount = 0,
+  pollIntervalMs = POLL_INTERVAL_MS,
 ): Promise<WaitForCompletionResult> {
   const submittedAt = Date.now();
   const workerId = context?.workerId ?? 'unknown';
@@ -98,7 +123,7 @@ export async function waitForCompletion(
     new Error(`ComfyUI history polling timeout after ${timeoutMs}ms for prompt ${promptId}`);
   while (true) {
     if (mode === 'LEGACY_FALLBACK' && Date.now() >= deadline) throw executionTimedOut();
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     if (isCancelled && (await isCancelled()) === true) {
       await cancelPrompt(
         workerUrl,
@@ -144,12 +169,7 @@ export async function waitForCompletion(
       if (!queueBudgetExhausted) throw err;
       history = {};
     }
-    const entry = history[promptId] as
-      | {
-          outputs?: Record<string, unknown>;
-          status?: { status_str?: string; messages?: [string, Record<string, unknown>][] };
-        }
-      | undefined;
+    const entry = history[promptId] as ComfyHistoryEntry | undefined;
 
     if (entry?.status?.status_str === 'error') {
       // ComfyUI's /history status_str alone ("error") drops the actual cause — the
@@ -168,12 +188,12 @@ export async function waitForCompletion(
     // at all is a workflow whose gate withheld every output node — finished, nothing to wait for;
     // fetchHistory then classifies it instead of this loop polling until the timeout.
     if (
-      (entry?.outputs && Object.keys(entry.outputs).length > 0) ||
-      entry?.status?.status_str === 'success'
+      entry &&
+      ((entry.outputs && Object.keys(entry.outputs).length > 0) ||
+        entry.status?.status_str === 'success')
     ) {
       log?.info({ promptId }, 'ComfyUI generation complete');
-      const timing = executionTiming(entry, totalNodeCount);
-      return { status: 'completed', ...(timing ? { executionTiming: timing } : {}) };
+      return completedResult(entry, totalNodeCount);
     }
 
     if (
@@ -214,8 +234,7 @@ export async function waitForCompletion(
           if (latest[promptId]?.status?.status_str === 'error')
             throw new Error(`ComfyUI execution error for prompt ${promptId}`);
           if (Object.keys(latest[promptId]?.outputs ?? {}).length > 0) {
-            const timing = executionTiming(latest[promptId], totalNodeCount);
-            return { status: 'completed', ...(timing ? { executionTiming: timing } : {}) };
+            return completedResult(latest[promptId] as ComfyHistoryEntry, totalNodeCount);
           }
           if (remaining() <= 0) break;
           const state = await fetchPromptQueueState(workerUrl, apiKey, promptId, remaining());
@@ -243,8 +262,7 @@ export async function waitForCompletion(
               if (final[promptId]?.status?.status_str === 'error')
                 throw new Error(`ComfyUI execution error for prompt ${promptId}`);
               if (Object.keys(final[promptId]?.outputs ?? {}).length > 0) {
-                const timing = executionTiming(final[promptId], totalNodeCount);
-                return { status: 'completed', ...(timing ? { executionTiming: timing } : {}) };
+                return completedResult(final[promptId] as ComfyHistoryEntry, totalNodeCount);
               }
               cleanupConfirmed = true;
               break;
@@ -293,7 +311,7 @@ export async function waitForCompletion(
           absentSince = undefined;
           log?.debug({ workerId, promptId, err }, 'ComfyUI queue cleanup observation failed');
         }
-        const delay = Math.min(POLL_INTERVAL_MS, cleanupDeadline - Date.now());
+        const delay = Math.min(QUEUE_CLEANUP_POLL_INTERVAL_MS, cleanupDeadline - Date.now());
         if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
       }
       if (mode !== 'RUNNING') {

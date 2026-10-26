@@ -3,6 +3,8 @@ import { desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { eraseComparisonsForSourceJobs } from '../comparison/erase.js';
+import { shopifyStoreLifecycleLockKey } from '../shopify/store-lock.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
@@ -261,26 +263,51 @@ export async function adminShopifyStoresRoutes(app: FastifyInstance) {
     { preHandler: DELETE, schema: { params: z.object({ id: z.string().uuid() }) } },
     async (req) => {
       const { id } = req.params as { id: string };
+      const deleted = await app.withAdvisoryLock(shopifyStoreLifecycleLockKey(id), async (db) => {
+        const sourceJobs = await db
+          .select({ id: schema.jobs.id })
+          .from(schema.jobs)
+          .where(eq(schema.jobs.shopifyStoreId, id));
+        const cleanup = await eraseComparisonsForSourceJobs(
+          app,
+          sourceJobs.map((job) => job.id),
+        );
+        if (cleanup.incomplete > 0) return false;
 
-      await app.db.transaction(async (tx) => {
-        const [existing] = await tx
-          .select()
-          .from(schema.shopifyStores)
-          .where(eq(schema.shopifyStores.id, id))
-          .for('update');
-        if (!existing) throw new AppError('NOT_FOUND', 404, 'store not found');
+        await db.transaction(async (tx) => {
+          const [existing] = await tx
+            .select()
+            .from(schema.shopifyStores)
+            .where(eq(schema.shopifyStores.id, id))
+            .for('update');
+          if (!existing) throw new AppError('NOT_FOUND', 404, 'store not found');
 
-        await tx.delete(schema.shopifyStores).where(eq(schema.shopifyStores.id, id));
+          await tx.delete(schema.shopifyStores).where(eq(schema.shopifyStores.id, id));
 
-        await recordAudit(tx, {
-          actor: { userId: req.userId, role: req.adminRole! },
-          action: 'shopify_stores.delete',
-          resourceType: 'shopify_store',
-          resourceId: id,
-          before: { id: existing.id, shopDomain: existing.shopDomain },
-          request: req,
+          await recordAudit(tx, {
+            actor: { userId: req.userId, role: req.adminRole! },
+            action: 'shopify_stores.delete',
+            resourceType: 'shopify_store',
+            resourceId: id,
+            before: { id: existing.id, shopDomain: existing.shopDomain },
+            request: req,
+          });
         });
+        return true;
       });
+      if (deleted === undefined) {
+        throw new AppError(
+          'CONFLICT',
+          409,
+          'store lifecycle change already in progress; retry store deletion',
+        );
+      }
+      if (!deleted)
+        throw new AppError(
+          'CONFLICT',
+          409,
+          'comparison output cleanup pending; retry store deletion',
+        );
 
       app.log.warn(
         { adminUserId: req.userId, storeId: id, action: 'SHOPIFY_STORE_DELETE' },

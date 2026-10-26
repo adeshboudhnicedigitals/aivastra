@@ -61,6 +61,7 @@ describe('report-received acknowledgment email', () => {
       app.env.RESEND_API_KEY,
       app.env.EMAIL_FROM,
       'support-ticket@example.com',
+      null,
     );
   });
 
@@ -86,6 +87,7 @@ describe('report-received acknowledgment email', () => {
       app.env.RESEND_API_KEY,
       app.env.EMAIL_FROM,
       'contact-submitted@example.com',
+      'Jamie Doe',
     );
   });
 

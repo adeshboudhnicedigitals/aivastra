@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { verifyPassword } from '../auth/service.js';
+import { eraseComparisonsForSourceJobs } from '../comparison/erase.js';
 import { refund } from '../credits/ledger.js';
 import { refundStoreAndMarkCancelled } from '../credits/shopify-ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
@@ -601,6 +602,10 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       const { id } = req.params as any;
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
       if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
+      // Replays belong to the comparison lifecycle. Generic retry cannot safely
+      // recreate its frozen link or override a source-erasure tombstone.
+      if (job.source === 'comparison')
+        throw new AppError('BAD_STATE', 409, 'comparison jobs cannot be retried here');
       if (job.status !== 'FAILED') throw new AppError('BAD_STATE', 409, 'only FAILED can retry');
       await app.db
         .update(schema.jobs)
@@ -706,6 +711,26 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
       if (!(TERMINAL_JOB_STATUSES as readonly string[]).includes(job.status)) {
         throw new AppError('BAD_STATE', 409, 'job must be COMPLETED, FAILED, or CANCELLED');
+      }
+      if (job.source === 'comparison' && targets.includes('person')) {
+        throw new AppError(
+          'CONFLICT',
+          409,
+          'comparison jobs share their source inputs and cannot erase them',
+        );
+      }
+      if (
+        job.source !== 'comparison' &&
+        (targets.includes('person') || targets.includes('result'))
+      ) {
+        const cleanup = await eraseComparisonsForSourceJobs(app, [id]);
+        if (cleanup.incomplete > 0) {
+          throw new AppError(
+            'CONFLICT',
+            409,
+            'comparison output cleanup pending; retry asset deletion',
+          );
+        }
       }
 
       const [output] = await app.db

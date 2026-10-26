@@ -1,4 +1,4 @@
-import { type DbTransaction, schema } from '@aivastra/db';
+import { type DbTransaction, hasWorkflowVersionConsumers, schema } from '@aivastra/db';
 import {
   CLASSIFY_OPTIONS_PLACEHOLDER,
   CLASSIFY_OUTPUT_CLASS_TYPES,
@@ -9,24 +9,13 @@ import {
   ReplaceWorkflowBody,
   UpdateWorkflowBody,
 } from '@aivastra/types';
-import {
-  and,
-  count,
-  desc,
-  eq,
-  inArray,
-  isNotNull,
-  isNull,
-  ne,
-  notInArray,
-  or,
-  sql,
-} from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { verifyPassword } from '../auth/service.js';
+import { notComparisonJob } from '../comparison/exclusion.js';
 import { recordAudit } from './audit.js';
 import { detectFabricMappings } from './fabric-detect.js';
 import { requireAnyPermission, requirePermission } from './guard.js';
@@ -35,55 +24,6 @@ import { detectTryonTwoInputMappings } from './tryon-two-input-detect.js';
 import { detectTwoStageMappings } from './two-stage-detect.js';
 import { classifyNode, detectMappings, type NodeCategory } from './workflow-detect.js';
 import { recordWorkflowVersion } from './workflow-versions.js';
-
-// Statuses that mean a job is done touching its stamped template version.
-// Kept in sync by hand with apps/dispatcher/src/workflow/drain-cleanup.ts's
-// TERMINAL_STATUSES — that module can't be imported here (dispatcher isn't a
-// shared package), and duplicating one string array is cheaper than adding a
-// cross-app dependency for it.
-const TERMINAL_JOB_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED'];
-
-/**
- * True if at least one non-terminal job is still stamped with
- * (workflowTemplateId, version) — i.e. was created while that version was
- * live and hasn't finished dispatching against it yet. Mirrors the WHERE
- * clause in the dispatcher's maybeCleanupArchive so "should we archive on
- * replace" and "is it safe to delete the archive" agree on what counts as
- * in-flight. Only jobs that explicitly stamped this exact version count —
- * jobs with no stamp resolve against the live row regardless of any archive,
- * so archiving can't protect them and their presence shouldn't force one.
- */
-async function hasInFlightJobsForTemplateVersion(
-  tx: DbTransaction,
-  workflowTemplateId: string,
-  version: number,
-): Promise<boolean> {
-  const [row] = await tx
-    .select({ cnt: count() })
-    .from(schema.jobs)
-    .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
-    .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
-    .leftJoin(
-      schema.garmentSubcategories,
-      eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
-    )
-    .where(
-      and(
-        sql`${schema.jobInputs.params} ->> 'dispatchTemplateVersion' = ${String(version)}`,
-        or(
-          sql`${schema.jobInputs.params} ->> 'workflowTemplateId' = ${workflowTemplateId}`,
-          eq(schema.modelPoseAssets.workflowTemplateId, workflowTemplateId),
-          eq(schema.garmentSubcategories.sareeStep2WorkflowTemplateId, workflowTemplateId),
-          eq(schema.garmentSubcategories.mannequinWorkflowTemplateId, workflowTemplateId),
-          eq(schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId, workflowTemplateId),
-          eq(schema.garmentSubcategories.twoInputTryonWorkflowTemplateId, workflowTemplateId),
-        ),
-        notInArray(schema.jobs.status, TERMINAL_JOB_STATUSES),
-      ),
-    );
-
-  return Number(row?.cnt ?? 0) > 0;
-}
 
 type WorkflowNode = {
   class_type?: string;
@@ -1705,13 +1645,18 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
         )
         .where(
-          or(
-            sql`${schema.jobInputs.params} ->> 'workflowTemplateId' = ${id}`,
-            eq(schema.modelPoseAssets.workflowTemplateId, id),
-            eq(schema.garmentSubcategories.sareeStep2WorkflowTemplateId, id),
-            eq(schema.garmentSubcategories.mannequinWorkflowTemplateId, id),
-            eq(schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId, id),
-            eq(schema.garmentSubcategories.twoInputTryonWorkflowTemplateId, id),
+          and(
+            // Production usage only: every comparison replay is stamped with the
+            // general template, which would otherwise look like organic traffic.
+            notComparisonJob,
+            or(
+              sql`${schema.jobInputs.params} ->> 'workflowTemplateId' = ${id}`,
+              eq(schema.modelPoseAssets.workflowTemplateId, id),
+              eq(schema.garmentSubcategories.sareeStep2WorkflowTemplateId, id),
+              eq(schema.garmentSubcategories.mannequinWorkflowTemplateId, id),
+              eq(schema.garmentSubcategories.mannequinTwoInputWorkflowTemplateId, id),
+              eq(schema.garmentSubcategories.twoInputTryonWorkflowTemplateId, id),
+            ),
           ),
         );
 
@@ -1871,17 +1816,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           }
         }
 
-        // Only archive the outgoing version if a non-terminal job is actually
-        // stamped with it — otherwise there is nothing to drain, and an
-        // archive row with no job that will ever reach a terminal state would
-        // sit there forever (drain-cleanup only runs off a job's terminal
-        // transition, never a periodic sweep), permanently blocking the next
-        // replace with a false "still draining" conflict.
-        const needsDrain = await hasInFlightJobsForTemplateVersion(
-          tx,
-          existing.id,
-          existing.version,
-        );
+        // COLLECTED comparisons have no replay job yet, but must retain the
+        // outgoing graph until dispatch or expiry releases their frozen version.
+        const needsDrain = await hasWorkflowVersionConsumers(tx, existing.id, existing.version);
 
         if (needsDrain) {
           await tx.insert(schema.workflowTemplateArchives).values({

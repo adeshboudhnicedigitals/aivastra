@@ -21,6 +21,7 @@ import {
   resolvePixverseVideoPricing,
 } from '../../lib/resolution-config.js';
 import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
+import { notComparisonJob, notComparisonSystemUser } from '../comparison/exclusion.js';
 import { CREDIT_PACKS } from '../shopify/packs.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
@@ -369,23 +370,41 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       newUsersRows,
       newContactsRows,
     ] = await Promise.all([
-      app.db.select({ c: count() }).from(schema.jobs).where(eq(schema.jobs.status, 'QUEUED')),
-      app.redis.hgetall('worker:registry'),
-
-      app.db.select({ c: count() }).from(schema.jobs).where(gte(schema.jobs.createdAt, todayStart)),
       app.db
         .select({ c: count() })
         .from(schema.jobs)
-        .where(and(gte(schema.jobs.createdAt, yesterday), lt(schema.jobs.createdAt, todayStart))),
+        .where(and(eq(schema.jobs.status, 'QUEUED'), notComparisonJob)),
+      app.redis.hgetall('worker:registry'),
+
+      app.db
+        .select({ c: count() })
+        .from(schema.jobs)
+        .where(and(gte(schema.jobs.createdAt, todayStart), notComparisonJob)),
+      app.db
+        .select({ c: count() })
+        .from(schema.jobs)
+        .where(
+          and(
+            gte(schema.jobs.createdAt, yesterday),
+            lt(schema.jobs.createdAt, todayStart),
+            notComparisonJob,
+          ),
+        ),
 
       app.db
         .select({ c: countDistinct(schema.jobs.userId) })
         .from(schema.jobs)
-        .where(gte(schema.jobs.createdAt, todayStart)),
+        .where(and(gte(schema.jobs.createdAt, todayStart), notComparisonJob)),
       app.db
         .select({ c: countDistinct(schema.jobs.userId) })
         .from(schema.jobs)
-        .where(and(gte(schema.jobs.createdAt, yesterday), lt(schema.jobs.createdAt, todayStart))),
+        .where(
+          and(
+            gte(schema.jobs.createdAt, yesterday),
+            lt(schema.jobs.createdAt, todayStart),
+            notComparisonJob,
+          ),
+        ),
 
       app.db
         .select({ c: sum(schema.jobs.creditsCharged) })
@@ -405,7 +424,13 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       app.db
         .select({ c: count() })
         .from(schema.jobs)
-        .where(and(eq(schema.jobs.status, 'FAILED'), gte(schema.jobs.createdAt, h24ago))),
+        .where(
+          and(
+            eq(schema.jobs.status, 'FAILED'),
+            gte(schema.jobs.createdAt, h24ago),
+            notComparisonJob,
+          ),
+        ),
 
       app.db
         .select({
@@ -413,7 +438,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
           c: count(),
         })
         .from(schema.jobs)
-        .where(gte(schema.jobs.createdAt, dNago))
+        .where(and(gte(schema.jobs.createdAt, dNago), notComparisonJob))
         .groupBy(sql`DATE(${schema.jobs.createdAt})`)
         .orderBy(sql`DATE(${schema.jobs.createdAt})`),
 
@@ -445,7 +470,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       app.db
         .select({ c: count() })
         .from(schema.users)
-        .where(gte(schema.users.createdAt, todayStart)),
+        .where(and(gte(schema.users.createdAt, todayStart), notComparisonSystemUser)),
 
       app.db
         .select({ c: count() })

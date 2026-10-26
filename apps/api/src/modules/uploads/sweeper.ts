@@ -12,7 +12,8 @@ const ORPHAN_AGE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Deletes objects under inputs/ that are older than 24h and are not referenced
- * by any job_inputs row (upper/lower/third garment key). All three columns can
+ * by any job_inputs row (all four garment keys or params.personKey), or by
+ * jobs.customerPhotoKey. Every garment column can
  * hold an inputs/ key — each garment slot gets its own /v1/uploads/presign call
  * and therefore its own inputs/<token>/garment.jpg key. Video jobs instead keep
  * their uploaded image in params.sourceImageKey; it doubles as the card thumbnail
@@ -50,6 +51,15 @@ export async function runUploadSweepTick(
   // animate here. Without this check the sweeper deleted every video source after 24h,
   // leaving the card thumbnail 404ing (presignGet signs locally and never notices).
   const sourceImageKey = sql<string>`${schema.jobInputs.params}->>'sourceImageKey'`;
+  const personKey = sql<string>`${schema.jobInputs.params}->>'personKey'`;
+  const referencedAsPerson = await app.db
+    .select({ key: personKey })
+    .from(schema.jobInputs)
+    .where(inArray(personKey, candidateKeys));
+  const referencedAsCustomerPhoto = await app.db
+    .select({ key: schema.jobs.customerPhotoKey })
+    .from(schema.jobs)
+    .where(inArray(schema.jobs.customerPhotoKey, candidateKeys));
   const referencedAsSource = await app.db
     .select({ key: sourceImageKey })
     .from(schema.jobInputs)
@@ -62,6 +72,8 @@ export async function runUploadSweepTick(
       r.fourthGarmentKey,
     ]),
     ...referencedAsSource.map((r) => r.key),
+    ...referencedAsPerson.map((r) => r.key),
+    ...referencedAsCustomerPhoto.map((r) => r.key),
   ]);
 
   let deleted = 0;

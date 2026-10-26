@@ -23,6 +23,7 @@ import { withIdempotency } from '../../lib/idempotency.js';
 import { sendReportReceivedEmail } from '../../lib/mailer.js';
 import { getFabricToGarmentCreditCost, getTryonCreditCost } from '../../lib/resolution-config.js';
 import { reopenResolvedTicket, setSubjectFromFirstMessage } from '../../lib/tickets.js';
+import { eraseComparisonsForSourceJobs } from '../comparison/erase.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { claimFabricToGarmentResult } from './claimFabricToGarmentResult.js';
 import {
@@ -1209,6 +1210,14 @@ export async function jobsRoutes(app: FastifyInstance) {
       if (!TERMINAL.includes(job.status)) {
         throw new AppError('CONFLICT', 409, 'cannot delete an active job');
       }
+      const comparisonCleanup = await eraseComparisonsForSourceJobs(app, [id]);
+      if (comparisonCleanup.incomplete > 0) {
+        throw new AppError(
+          'CONFLICT',
+          409,
+          'comparison output cleanup pending; retry job deletion',
+        );
+      }
       // Delete R2 output object if it exists. Tryon-direct results
       // (source='tryon'/'api_tryon') are stored WebP-encoded, not PNG (see
       // apps/dispatcher/src/workflow/finalize.ts) — the actual uploaded key
@@ -1341,7 +1350,12 @@ export async function jobsRoutes(app: FastifyInstance) {
       // be the account's own email — so the acknowledgment goes to whatever the
       // caller submitted, same as the original contact_requests-era handler.
       try {
-        await sendReportReceivedEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, body.email);
+        await sendReportReceivedEmail(
+          app.env.RESEND_API_KEY,
+          app.env.EMAIL_FROM,
+          body.email,
+          body.name,
+        );
       } catch (err) {
         app.log.error({ err }, 'Failed to send report-received acknowledgment email');
       }

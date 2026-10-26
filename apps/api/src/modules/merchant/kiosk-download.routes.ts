@@ -1,8 +1,9 @@
 import { schema } from '@aivastra/db';
 import { KioskDownloadBatchQuery } from '@aivastra/types';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { notComparisonJob } from '../comparison/exclusion.js';
 
 const MAX_JOB_IDS = 30;
 // Matches the presign TTL merchant/tryon.routes.ts already hands a single result's
@@ -39,7 +40,7 @@ export async function kioskDownloadRoutes(app: FastifyInstance) {
         })
         .from(schema.jobs)
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
-        .where(inArray(schema.jobs.id, ids));
+        .where(and(inArray(schema.jobs.id, ids), notComparisonJob));
 
       const now = Date.now();
       const eligible = rows.filter(

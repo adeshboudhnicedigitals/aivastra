@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { assertQueueCapacity } from '../../src/lib/queue-capacity-config.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { createVerifiedUserToken } from '../helpers/auth.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
@@ -52,6 +53,13 @@ async function seedFaceBackgroundPose() {
 }
 
 describe('queue-depth admission control', () => {
+  it('excludes queued workflow comparisons from the customer queue ceiling', async () => {
+    await app.db.insert(schema.jobs).values({ status: 'QUEUED', source: 'comparison' });
+    await app.redis.set('config:system', JSON.stringify({ maxQueueDepth: 1 }));
+
+    await expect(assertQueueCapacity(app, 1)).resolves.toBeUndefined();
+  });
+
   it('rejects a submission that would push QUEUED count past the admin ceiling with 503, charging nothing', async () => {
     const { token, userId } = await createVerifiedUserToken(app, 'queue-cap-busy@x.com');
     await grantCredits(userId, 100);

@@ -146,14 +146,19 @@ export async function supportRoutes(app: FastifyInstance) {
       }
 
       const [user] = await app.db
-        .select({ email: schema.users.email })
+        .select({ email: schema.users.email, displayName: schema.users.displayName })
         .from(schema.users)
         .where(eq(schema.users.id, req.userId))
         .limit(1);
       const email = user?.email ?? '';
       if (email) {
         try {
-          await sendReportReceivedEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, email);
+          await sendReportReceivedEmail(
+            app.env.RESEND_API_KEY,
+            app.env.EMAIL_FROM,
+            email,
+            user?.displayName,
+          );
         } catch (err) {
           app.log.error({ err }, 'Failed to send report-received acknowledgment email');
         }

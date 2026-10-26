@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { recordAudit } from '../admin/audit.js';
 import { resolveAdminAccess } from '../admin/guard.js';
+import { jobDurationSecondsSql } from '../admin/job-duration.js';
 import { jobTypeSql } from '../admin/job-type.js';
 import { signAccess, verifyAccess, verifyPassword } from '../auth/service.js';
 
@@ -264,6 +265,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           userCreatedAt: schema.users.createdAt,
           creditsCharged: schema.jobs.creditsCharged,
           createdAt: schema.jobs.createdAt,
+          durationSeconds: jobDurationSecondsSql(),
           status: schema.jobs.status,
           workerId: schema.jobs.workerId,
           workerLabel: schema.workers.label,
@@ -385,6 +387,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           userCreatedAt: r.userCreatedAt,
           creditsCharged: r.creditsCharged,
           createdAt: r.createdAt,
+          durationSeconds: r.durationSeconds,
           status: r.status,
           workerId: r.workerId,
           workerLabel: r.workerLabel,
@@ -1052,6 +1055,7 @@ ${commonCss()}
 .col-garments { width: 220px; text-align: center; }
 .col-credits { width: 70px; text-align: center; }
 .col-when { width: 150px; }
+.col-duration { width: 90px; text-align: center; }
 .col-flag { width: 150px; text-align: center; }
 
 .id-num { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); cursor: help; }
@@ -1398,6 +1402,7 @@ ${commonCss()}
           <th class="col-img">Output</th>
           <th class="col-credits">Credits</th>
           <th class="col-when">When</th>
+          <th class="col-duration">Duration</th>
           <th class="col-flag">Flag</th>
         </tr>
       </thead>
@@ -1643,6 +1648,7 @@ function appJs(): string {
         '<td class="col-img"><div class="skel" style="height:90px;width:70px;margin:0 auto"></div><div class="skel" style="height:10px;width:80px;margin:6px auto 0"></div></td>' +
         '<td class="col-credits"><div class="skel" style="height:14px;width:30px;margin:0 auto"></div></td>' +
         '<td class="col-when"><div class="skel" style="height:14px;width:110px"></div></td>' +
+        '<td class="col-duration"><div class="skel" style="height:14px;width:60px;margin:0 auto"></div></td>' +
         '<td class="col-flag"><div class="skel" style="height:24px;width:80px;margin:0 auto"></div></td></tr>');
     }
     resultsBody.innerHTML = rows.join('');
@@ -1664,7 +1670,7 @@ function appJs(): string {
     setResultCountText(state.total + ' output(s) — page ' + state.page + ' of ' + totalPages);
 
     if (state.items.length === 0) {
-      resultsBody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg></div><div>No results found.</div></div></td></tr>';
+      resultsBody.innerHTML = '<tr><td colspan="11"><div class="empty-state"><div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg></div><div>No results found.</div></div></td></tr>';
       resultsCards.innerHTML = '<div class="empty-state"><div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg></div><div>No results found.</div></div>';
     } else {
       var rows = [];
@@ -1692,6 +1698,7 @@ function appJs(): string {
           '<td class="col-img">' + renderThumb(item.outputThumbUrl || item.outputUrl, 'Output', null, false, item.outputUrl) + '</td>' +
           '<td class="col-credits"><span class="credits-num">' + item.creditsCharged + '</span></td>' +
           '<td class="col-when"><span class="when-text">' + fmtDate(item.createdAt) + '</span></td>' +
+          '<td class="col-duration">' + fmtDuration(item.durationSeconds) + '</td>' +
           '<td class="col-flag">' + renderFlagCell(item) + '</td>' +
           '</tr>'
         );
@@ -1815,7 +1822,7 @@ function appJs(): string {
   function renderCard(item, seq, rev, rowClass, rowTitle, poseLabel) {
     var html = '<div class="result-card ' + rowClass + '" title="' + esc(rowTitle) + '">' +
       '<div class="card-top">' +
-        '<div class="card-id"><span class="id-num">#' + rev + '</span><span class="when-text">' + fmtDate(item.createdAt) + '</span></div>' +
+        '<div class="card-id"><span class="id-num">#' + rev + '</span><span class="when-text">' + fmtDate(item.createdAt) + '</span><span class="when-text">' + fmtDuration(item.durationSeconds) + '</span></div>' +
         renderFlagButton(item) +
       '</div>';
     var flagMeta = renderFlagMeta(item);
@@ -1870,6 +1877,20 @@ function appJs(): string {
     var d = new Date(iso);
     var pad = function(n) { return String(n).padStart(2, '0'); };
     return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+
+  // Generation duration = jobs.completedAt - jobs.startedAt (seconds), computed
+  // server-side by jobDurationSecondsSql — null for any job still queued or
+  // in-flight, which this renders as '—' rather than '0s'.
+  function fmtDuration(seconds) {
+    if (seconds === null || seconds === undefined) return '—';
+    var s = Math.round(seconds);
+    if (s < 60) return s + 's';
+    var m = Math.floor(s / 60);
+    var rem = s % 60;
+    if (m < 60) return m + 'm ' + rem + 's';
+    var h = Math.floor(m / 60);
+    return h + 'h ' + (m % 60) + 'm';
   }
 
   // Theme toggle
