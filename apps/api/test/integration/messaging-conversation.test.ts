@@ -179,7 +179,7 @@ describe('messaging conversation (real deps)', () => {
     const key = await storeGarmentPhoto(app, userId, Buffer.from('fake-jpeg'), 'image/jpeg');
     let msgs = await send({ type: 'image', garmentKey: key });
     msgs = await send(tapIn(msgs, 'gender', 'women'));
-    msgs = await send(tapIn(msgs, 'gt', seeded.garmentTypeId));
+    msgs = await send(tapIn(msgs, 'basket', `t:${seeded.garmentTypeId}`));
     return { userId, account, acct, send, msgs };
   }
 

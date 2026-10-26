@@ -10,6 +10,8 @@ export interface RecognitionRecord {
   options: Array<{ slug: string; label: string }>;
   // The model's raw text (null when there is no answer to record).
   answer: string | null;
+  // Every option's probability, best first; null when the backend cannot rank.
+  ranked: Array<{ slug: string; p: number }> | null;
   outcome: 'answered' | 'no_worker' | 'failed' | 'expired';
   ms: number;
   workerId: string | null;
@@ -33,6 +35,7 @@ export async function recordRecognition(
       garmentKey: row.garmentKey,
       options: row.options,
       answer: row.answer,
+      ranked: row.ranked,
       outcome: row.outcome,
       ms: row.ms,
       workerId: row.workerId,

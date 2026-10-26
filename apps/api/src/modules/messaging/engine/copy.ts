@@ -39,14 +39,12 @@ export const COPY = {
 
   askGarmentPhoto: 'Send a photo of the garment, laid flat.',
   askGender: 'Who is it for?',
-  askGenderConfirmed: 'Who is it for?',
   btnYesContinue: 'Yes, continue',
   btnNoDifferent: 'No, different item',
-  // `gender` is given when the kind implies it, so the seller can catch a wrong one here.
-  kindGuess: (kind: string, gender?: string) => {
-    const name = `${gender ? `${gender.toLowerCase()}'s ` : ''}${kind.trim().toLowerCase()}`;
-    return `Looks like ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}. Correct?`;
-  },
+  // The basket name is admin-written ("Men lower", "Two piece"), so it is used as is.
+  basketGuess: (name: string) => `Looks like ${name.trim().toLowerCase()}. Correct?`,
+  askBasket: 'Which is it?',
+  basketOther: 'Something else',
   genders: { women: 'Women', men: 'Men', boys: 'Boys', girls: 'Girls' } as const,
   askGarmentType: 'Which garment is it?',
   // The draft link carries the photo once the studio page reads `?draft=`, so

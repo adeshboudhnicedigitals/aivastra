@@ -7,6 +7,7 @@ import { apiErrorMessage, apiFetch } from '../lib/data';
 import { AssetsProvider, useAssetsContext } from './assets/AssetsContext';
 import { WhatsappPosesTab } from './assets/WhatsappPosesTab';
 import GarmentRecognitionsPage from './GarmentRecognitionsPage';
+import { BasketsTab } from './whatsapp/BasketsTab';
 
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -38,6 +39,7 @@ interface LogItem {
 
 const TABS = [
   { id: 'overview', label: 'Classifier' },
+  { id: 'baskets', label: 'Baskets' },
   { id: 'whatsapp-poses', label: 'Poses' },
   { id: 'requests', label: 'Requests' },
   { id: 'logs', label: 'Logs' },
@@ -727,8 +729,8 @@ export default function WhatsAppPage({ toast }: Props) {
         <div>
           <h1 style={{ marginBottom: 4 }}>WhatsApp</h1>
           <p className="lede" style={{ margin: 0, fontSize: 13.5, color: 'var(--muted)' }}>
-            Everything the WhatsApp bot runs on: the garment classifier, its requests and logs, and
-            the pose pool.
+            Everything the WhatsApp bot runs on: the garment classifier and its baskets, its
+            requests and logs, and the pose pool.
           </p>
         </div>
       </div>
@@ -762,6 +764,7 @@ export default function WhatsAppPage({ toast }: Props) {
       </div>
 
       {tab === 'overview' && <Overview toast={toast} />}
+      {tab === 'baskets' && <BasketsTab toast={toast} />}
       {tab === 'whatsapp-poses' && (
         <AssetsProvider toast={toast}>
           <PosesPane />

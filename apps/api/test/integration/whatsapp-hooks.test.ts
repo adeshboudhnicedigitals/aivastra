@@ -234,13 +234,13 @@ describe('whatsapp hooks', () => {
     const key = await storeGarmentPhoto(app, userId, Buffer.from('fake-jpeg'), 'image/jpeg');
     let msgs = await send({ type: 'image', garmentKey: key });
     msgs = await send(tapIn(msgs, 'gender', 'women'));
-    // The garment-type list carries real ids; tap the first type offered.
+    // The fallback list carries real basket keys; tap the first one offered.
     const gtTap = (() => {
       for (const m of msgs) {
         if (m.kind !== 'list') continue;
         for (const row of m.rows) {
           const d = decodeReplyId(row.id);
-          if (d?.action === 'gt') return { type: 'reply', id: row.id } as InboundEvent;
+          if (d?.action === 'basket') return { type: 'reply', id: row.id } as InboundEvent;
         }
       }
       throw new Error('no garment type offered');

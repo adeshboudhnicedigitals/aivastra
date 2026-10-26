@@ -31,6 +31,10 @@ export const GarmentRecognitionResult = z.object({
   error: z.enum(['no_worker', 'failed', 'expired']).nullable(),
   // Pick-up to answer, as measured by the dispatcher.
   ms: z.number().int().nonnegative(),
+  // Every option's probability, best first, from the scored classify service.
+  // Absent on the ComfyUI path (it cannot rank) and from an older dispatcher;
+  // the api then treats `answer` as a single unranked pick.
+  ranked: z.array(z.object({ slug: z.string(), p: z.number() })).optional(),
 });
 export type GarmentRecognitionResult = z.infer<typeof GarmentRecognitionResult>;
 // The classify workflow's Qwen prompt carries this placeholder; the dispatcher

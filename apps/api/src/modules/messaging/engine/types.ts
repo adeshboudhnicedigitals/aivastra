@@ -10,12 +10,15 @@ export type AspectRatio = '1:1' | '2:3' | '3:4' | '4:5';
 export type Resolution = 'HD' | '2K' | '4K';
 export type TryonBody = z.infer<typeof CreateTryOnJobRequest>;
 
-// Flow 2 (2026-10-22): photo → (kind confirmed) → gender → garment type → required extra photos → pose count (the tap generates) → generating → delivered.
+// Flow 3 (2026-10-26): photo → gender → (basket confirmed, or picked from the
+// alternatives) → garment type → pose count (the tap generates) → generating → delivered.
+// A basket resolves to its representative type; the list is the way out at every step.
 export type State =
   | 'MAIN_MENU'
   | 'ASK_GARMENT_PHOTO'
   | 'ASK_GENDER'
-  | 'CONFIRM_KIND'
+  | 'CONFIRM_BASKET'
+  | 'CHOOSE_BASKET'
   | 'ASK_GARMENT_TYPE'
   | 'ASK_EXTRA_PHOTO'
   | 'ASK_POSE_COUNT'
@@ -99,11 +102,9 @@ export interface Session {
   garmentKey?: string;
   gender?: Gender;
   garmentType?: GarmentTypeOption;
-  // What recognition said the photo is, as a kind label ("Top"), kept from the
-  // upload until the gender is known (types are per-gender rows).
-  kind?: string;
-  // The genders that have a type of `kind`; exactly one means the gender is implied.
-  kindGenders?: Gender[];
+  // What recognition said the photo is, best first: the guess, then the
+  // alternatives "No, different item" offers. Cleared once a type is chosen.
+  baskets?: BasketChoice[];
   photos: Partial<Record<PhotoSlot, string>>;
   faceId?: string;
   // The type's standard poses the bot can generate (rules.ts buildPool).
@@ -140,6 +141,12 @@ export type InboundEvent =
   | { type: 'unsupportedMedia' }
   | { type: 'runFinished'; runId: string; images: number; failedPoseIds: string[]; failed?: number }
   | { type: 'creditsAdded'; credits: number };
+
+// A basket the bot can offer: `b:<basket id>`, or `t:<type id>` for a type in none.
+export interface BasketChoice {
+  key: string;
+  name: string;
+}
 
 export interface Button {
   id: string;
@@ -190,14 +197,14 @@ export interface EngineDeps {
   shuffle(ids: string[]): string[];
   // Types the bot can offer: standard try-on with at least one assigned pose.
   listGarmentTypes(gender: Gender): Promise<GarmentTypeOption[]>;
-  // Spec 8a, awaited at the image event: the photo's kind, or null — for every
-  // failure, never an error — in which case the list is the way out.
-  recognizeKind(garmentKey: string): Promise<{ label: string; genders: Gender[] } | null>;
-  // The kind as the tapped gender's own type; null when that gender has none.
-  typeForKind(
-    label: string,
-    gender: Gender,
-  ): Promise<{ garmentTypeId: string; label: string } | null>;
+  // Awaited once the gender is tapped: the photo's baskets best first, or null —
+  // for every failure and a weak guess, never an error — and the list is the way out.
+  recognizeBaskets(garmentKey: string, gender: Gender): Promise<BasketChoice[] | null>;
+  // The types a basket stands for, representative first; empty when it is gone.
+  basketTypes(gender: Gender, key: string): Promise<{ id: string; label: string }[]>;
+  // The pick list when there is no guess: baskets, then types in none, each with
+  // at least one type the bot can offer.
+  listBaskets(gender: Gender): Promise<BasketChoice[]>;
   recordRecognitionCorrected(): void;
   // Why a garment type could not be offered. The seller only sees "not
   // available"; this is the admin-facing reason (logged, never shown).
