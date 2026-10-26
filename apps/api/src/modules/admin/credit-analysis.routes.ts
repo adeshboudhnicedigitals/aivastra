@@ -4,6 +4,7 @@ import { and, desc, eq, exists, gte, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { notComparisonJob } from '../comparison/exclusion.js';
 import { requirePermission } from './guard.js';
 
 const SOURCES = [
@@ -47,7 +48,9 @@ function sourceCondition(source: SourceFilter) {
     case 'saree':
       return eq(schema.jobs.source, source);
     default:
-      return sql`true`;
+      // 'all' still excludes internal comparison replays: cost 0 does not stop them
+      // inflating job counts, last-activity and the ranked system-user row.
+      return notComparisonJob;
   }
 }
 

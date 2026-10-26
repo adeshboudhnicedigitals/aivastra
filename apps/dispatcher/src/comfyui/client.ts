@@ -16,6 +16,10 @@ export interface ComfyOutputImage {
   type: string;
 }
 
+export type ComfyHistoryEntry = EmptyOutputHistoryEntry & {
+  outputs?: Record<string, { images?: ComfyOutputImage[] }>;
+};
+
 function apiHeaders(apiKey: string): Record<string, string> {
   return {
     'X-Api-Key': apiKey,
@@ -76,18 +80,24 @@ export async function fetchHistory(
   promptId: string,
   log?: { info: (obj: unknown, msg: string) => void; error?: (obj: unknown, msg: string) => void },
   resultNodeId?: string,
+  completedHistoryEntry?: ComfyHistoryEntry,
 ): Promise<ComfyOutputImage[]> {
-  const url = `${workerUrl.replace(/\/$/, '')}/history/${promptId}`;
-  log?.info({ url }, 'GET /history → ComfyUI');
-  const res = await fetch(url, {
-    headers: { 'X-Api-Key': apiKey },
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!res.ok) throw new Error(`ComfyUI /history failed: ${res.status}`);
-  const history = (await res.json()) as Record<string, unknown>;
-  const entry = history[promptId] as
-    | (EmptyOutputHistoryEntry & { outputs?: Record<string, { images?: ComfyOutputImage[] }> })
-    | undefined;
+  let entry = completedHistoryEntry;
+  if (!entry) {
+    const url = `${workerUrl.replace(/\/$/, '')}/history/${promptId}`;
+    log?.info({ url }, 'GET /history → ComfyUI');
+    const res = await fetch(url, {
+      headers: { 'X-Api-Key': apiKey },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`ComfyUI /history failed: ${res.status}`);
+    const history = (await res.json()) as Record<string, unknown>;
+    entry = history[promptId] as ComfyHistoryEntry | undefined;
+  }
+  log?.info(
+    { promptId, reusedFromCompletionPoll: Boolean(completedHistoryEntry) },
+    'ComfyUI history ready',
+  );
   if (!entry?.outputs) return [];
 
   // Templates with more than one SaveImage node disambiguate via resultNodeId —

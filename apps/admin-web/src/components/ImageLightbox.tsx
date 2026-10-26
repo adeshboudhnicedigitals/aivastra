@@ -5,16 +5,37 @@ import { isVideoUrl } from '../lib/media';
 // so images preview in place instead of navigating to a new tab. Also handles
 // a catalog-video job's .mp4 output — same popup, a <video> instead of an
 // <img> when the url is one.
-export function ImageLightbox({ url, onClose }: { url: string; onClose: () => void }) {
+export function ImageLightbox({
+  url,
+  images,
+  index = 0,
+  onIndexChange,
+  onClose,
+}: {
+  url?: string;
+  images?: { url: string; label: string }[];
+  index?: number;
+  onIndexChange?: (index: number) => void;
+  onClose: () => void;
+}) {
+  const active = images?.[index];
+  const activeUrl = active?.url ?? url ?? '';
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (!images || !onIndexChange || images.length < 2) return;
+      if (e.key === 'ArrowLeft') onIndexChange((index + images.length - 1) % images.length);
+      if (e.key === 'ArrowRight') onIndexChange((index + 1) % images.length);
     }
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [images, index, onIndexChange, onClose]);
 
-  const video = isVideoUrl(url);
+  const video = isVideoUrl(activeUrl);
 
   return (
     <div
@@ -32,7 +53,7 @@ export function ImageLightbox({ url, onClose }: { url: string; onClose: () => vo
     >
       {video ? (
         <video
-          src={url}
+          src={activeUrl}
           controls
           autoPlay
           style={{
@@ -48,8 +69,9 @@ export function ImageLightbox({ url, onClose }: { url: string; onClose: () => vo
       ) : (
         // biome-ignore lint/performance/noImgElement: admin panel
         <img
-          src={url}
-          alt="preview"
+          src={activeUrl}
+          alt={active?.label ?? 'preview'}
+          decoding="async"
           style={{
             maxWidth: '90vw',
             maxHeight: '90vh',
@@ -58,6 +80,35 @@ export function ImageLightbox({ url, onClose }: { url: string; onClose: () => vo
           }}
           onClick={(e) => e.stopPropagation()}
         />
+      )}
+      {images && images.length > 1 && onIndexChange && (
+        <>
+          <button
+            type="button"
+            aria-label="Previous image"
+            onClick={(e) => {
+              e.stopPropagation();
+              onIndexChange((index + images.length - 1) % images.length);
+            }}
+            style={{ position: 'absolute', left: 20, top: '50%', transform: 'translateY(-50%)' }}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            aria-label="Next image"
+            onClick={(e) => {
+              e.stopPropagation();
+              onIndexChange((index + 1) % images.length);
+            }}
+            style={{ position: 'absolute', right: 20, top: '50%', transform: 'translateY(-50%)' }}
+          >
+            ›
+          </button>
+          <span style={{ position: 'absolute', bottom: 20, color: 'white', fontSize: 13 }}>
+            {active?.label} · {index + 1} / {images.length}
+          </span>
+        </>
       )}
     </div>
   );

@@ -7,7 +7,7 @@ import {
   ShopifyCustomerPhotoPreviewRequest,
   ShopifyCustomerPresignRequest,
 } from '@aivastra/types';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type {
   FastifyBaseLogger,
   FastifyInstance,
@@ -35,6 +35,7 @@ import {
 import { markThemeEmbedSeen } from './onboarding.routes.js';
 import { resolveShopper } from './shopper.js';
 import { formatResetTime, windowEnd } from './store-day.js';
+import { shopifyStoreLifecycleLockKey } from './store-lock.js';
 
 const SLOT_RELEASE_MAX_ATTEMPTS = 3;
 const SLOT_RELEASE_RETRY_DELAY_MS = 100;
@@ -421,6 +422,15 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
 
       try {
         await app.db.transaction(async (tx) => {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${shopifyStoreLifecycleLockKey(storeId)}, 0))`,
+          );
+          const [storeStillExists] = await tx
+            .select({ id: schema.shopifyStores.id })
+            .from(schema.shopifyStores)
+            .where(eq(schema.shopifyStores.id, storeId))
+            .for('update');
+          if (!storeStillExists) throw new AppError('NOT_FOUND', 404, 'store not found');
           if (shopper) {
             // Serializes this shopper's requests: acquires a transaction-scoped
             // advisory lock on (store, counting identity) and rechecks the

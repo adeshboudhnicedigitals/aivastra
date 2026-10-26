@@ -600,7 +600,7 @@ describe('typed caller enforcement', () => {
       expect(source).not.toMatch(/^\s*await waitForCompletion\(/m);
       const sites =
         source.match(
-          /const completion = await (?:waitForCompletion|observeCompletion)\([\s\S]*?fetchHistory\(/g,
+          /const completion = await (?:measureJobStage\([\s\S]*?\(\) =>\s*)?(?:waitForCompletion|observeCompletion)\([\s\S]*?fetchHistory\(/g,
         ) ?? [];
       expect(sites).toHaveLength(file === 'processor' ? 8 : 1);
       expect(source.match(/settlePerformanceSample\(w, 'success'\)/g)).toHaveLength(

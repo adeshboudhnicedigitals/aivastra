@@ -15,6 +15,7 @@ import {
   type TryonPlan,
   verifyGarmentKey,
 } from './create.js';
+import { lockAndAssertUserCanCreateJobs } from './creation-guard.js';
 import { promptGuard } from './sanitize.js';
 
 export interface BatchCreateResult {
@@ -199,6 +200,7 @@ export async function createBatchJobs(
   // (a concurrent spend draining the balance) propagates out of the callback and
   // rolls back every insert, so all-or-nothing survives without a lock.
   const catalogues = await app.db.transaction(async (tx) => {
+    await lockAndAssertUserCanCreateJobs(tx, userId);
     const created: BatchCreateResult['catalogues'] = [];
     for (const [rowIndex, plan] of plans.entries()) {
       const row = rows[rowIndex];

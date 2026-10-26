@@ -75,7 +75,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const { db, close: closeDb } = makeDb(env);
+  const { db, close: closeDb, withAdvisoryLock } = makeDb(env);
   const { main: redis, pub, close: closeRedis } = makeRedis(env);
   // Capability deadlines must not queue behind the main connection's blocking consumers.
   const comfyRedis = makeComfyRedis(redis);
@@ -127,8 +127,10 @@ async function main(): Promise<void> {
 
   const processorCfg = {
     db,
+    withAdvisoryLock,
     redis,
     comfyRedis,
+    comfyPollIntervalMs: env.COMFY_POLL_INTERVAL_MS,
     pub,
     storage,
     log,
@@ -177,7 +179,7 @@ async function main(): Promise<void> {
   // cadence would just re-scan stores with nothing to do.
   const shopifyRetentionInterval = setInterval(
     () => {
-      void runShopifyRetention(db, storage, log);
+      void runShopifyRetention(db, storage, log, withAdvisoryLock);
     },
     60 * 60 * 1000,
   );
