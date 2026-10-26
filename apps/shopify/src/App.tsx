@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppFont } from './components/AppFont';
 import { AppNavMenu, NAV_ITEMS } from './components/AppNavMenu';
+import { SupportChat } from './components/SupportChat';
 import { apiFetch, setShopDomain } from './lib/api';
 import {
   AppBridgeTimeoutError,
@@ -258,6 +259,7 @@ export default function App() {
             <Route path="/widget-design" element={<Navigate to="/" replace />} />
           </Routes>
         </Frame>
+        <SupportChat />
       </AppFont>
     </AppProvider>
   );
