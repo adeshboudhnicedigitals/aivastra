@@ -65,7 +65,7 @@ class Aivastra_Category_Map_Ajax
         $terms = get_terms(['taxonomy' => 'product_cat', 'hide_empty' => false, 'fields' => 'ids']);
         $validTermIds = is_wp_error($terms) ? [] : array_map('intval', $terms);
 
-        $rawMap = $_POST['aivastra_category_map'] ?? [];
+        $rawMap = wp_unslash($_POST['aivastra_category_map'] ?? []);
         $clean = Aivastra_Category_Mapping::sanitize(
             is_array($rawMap) ? $rawMap : [],
             $validTermIds,

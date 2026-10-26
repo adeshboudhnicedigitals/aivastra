@@ -65,7 +65,8 @@ class Aivastra_Product_Toggle
         if (!current_user_can('edit_post', $postId)) {
             return;
         }
-        update_post_meta($postId, self::META_KEY, self::sanitize_checkbox(wp_unslash($_POST[self::META_KEY] ?? null)));
+        $rawValue = isset($_POST[self::META_KEY]) ? sanitize_text_field(wp_unslash($_POST[self::META_KEY])) : null;
+        update_post_meta($postId, self::META_KEY, self::sanitize_checkbox($rawValue));
     }
 
     /** A never-saved product (get_post_meta returns '') is enabled, matching pre-toggle behavior. */

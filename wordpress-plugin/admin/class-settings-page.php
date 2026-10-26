@@ -117,7 +117,9 @@ class Aivastra_Settings_Page
         'invalid_state' => 'That connection attempt expired or didn\'t match — please try "Continue with Google" again.',
     ];
 
-    // Hardcoded, no user data ever passed through — safe to echo raw.
+    // Hardcoded, no user data ever passed through — still routed through
+    // icon_kses() before being echoed (see that method) rather than echoed
+    // raw, since "escape on output" applies regardless of the source.
     private const ICONS = [
         'check-circle' => '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
         'refresh' => '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
@@ -502,8 +504,8 @@ class Aivastra_Settings_Page
         }
         check_admin_referer('aivastra_tryon_connect');
 
-        $fullKey = self::sanitize_key_input((string) ($_POST['aivastra_full_key'] ?? ''));
-        $widgetKey = self::sanitize_key_input((string) ($_POST['aivastra_widget_key'] ?? ''));
+        $fullKey = self::sanitize_key_input((string) wp_unslash($_POST['aivastra_full_key'] ?? ''));
+        $widgetKey = self::sanitize_key_input((string) wp_unslash($_POST['aivastra_widget_key'] ?? ''));
 
         $redirectArgs = ['page' => 'aivastra-tryon'];
 
@@ -520,17 +522,17 @@ class Aivastra_Settings_Page
         exit;
     }
 
-    // 10 minutes — generous enough to survive the admin switching tabs to
-    // log in or register on app.aivastra.com, short enough that a stale
-    // transient from an abandoned attempt doesn't linger.
-    private const CONNECT_STATE_TRANSIENT = 'aivastra_tryon_connect_state';
-    private const CONNECT_STATE_TTL = 10 * MINUTE_IN_SECONDS;
+    // The OAuth "state" param's nonce action — verified in handle_connect_callback()
+    // via wp_verify_nonce() rather than a stashed transient (see that method's doc
+    // comment for why a WP nonce is actually the right tool for a cross-redirect
+    // callback, not just a form-embedded one).
+    private const CONNECT_STATE_ACTION = 'aivastra_tryon_connect_state';
 
     /**
      * "Continue with Google" sub-path (docs/wordpress-plugin-design.md §4.1)
-     * — generates a one-time state token, stashes it in a transient, and
-     * sends the browser to Google's own consent screen first rather than our
-     * branded /login form. Google requires an exact-match registered
+     * — generates a WP nonce as a one-time OAuth state token, and sends the
+     * browser to Google's own consent screen first rather than our branded
+     * /login form. Google requires an exact-match registered
      * redirect URI (GOOGLE_CALLBACK_URL, fixed to api.aivastra.com) — it can
      * never redirect straight into a WordPress site's admin-post.php — so
      * this still has to bounce through our own domain once; what changed
@@ -555,8 +557,7 @@ class Aivastra_Settings_Page
         }
         check_admin_referer('aivastra_tryon_connect_start');
 
-        $state = wp_generate_password(32, false);
-        set_transient(self::CONNECT_STATE_TRANSIENT, $state, self::CONNECT_STATE_TTL);
+        $state = wp_create_nonce(self::CONNECT_STATE_ACTION);
 
         $callbackUrl = admin_url('admin-post.php?action=aivastra_tryon_connect_callback');
         $consentPath = add_query_arg([
@@ -584,9 +585,15 @@ class Aivastra_Settings_Page
     /**
      * Step 2: the browser lands back here from app.aivastra.com with either
      * `code` (approved) or `error=access_denied` (the admin clicked Cancel
-     * on the consent screen). The transient is the only thing authenticating
-     * this request — there is no nonce, since app.aivastra.com's redirect is
-     * cross-site and carries no WordPress session.
+     * on the consent screen). This can't carry a form-embedded `_wpnonce`
+     * the usual way (app.aivastra.com's redirect builds the URL itself, not
+     * a WordPress page), but the admin's own WP session cookie IS still
+     * present — it's a same-browser top-level navigation back to this site,
+     * not a cross-origin request — which is exactly what current_user_can()
+     * below relies on, and also what makes wp_verify_nonce() work correctly
+     * here: the nonce created in handle_connect_start() for this same
+     * session is still verifiable against that session when this callback
+     * runs, same as any other nonce check in this plugin.
      *
      * No wp_safe_redirect() straight to admin.php any more — "Continue with
      * Google" now submits with target="_blank" (render_connect_form()'s own
@@ -608,13 +615,10 @@ class Aivastra_Settings_Page
             wp_die(esc_html('You do not have permission to do this.'), 403);
         }
 
-        $expectedState = get_transient(self::CONNECT_STATE_TRANSIENT);
-        delete_transient(self::CONNECT_STATE_TRANSIENT); // one-time use regardless of outcome
-
         $state = isset($_GET['state']) ? sanitize_text_field(wp_unslash($_GET['state'])) : '';
         $redirectArgs = ['page' => 'aivastra-tryon'];
 
-        if ($expectedState === false || $state === '' || !hash_equals((string) $expectedState, $state)) {
+        if ($state === '' || !wp_verify_nonce($state, self::CONNECT_STATE_ACTION)) {
             $redirectArgs['aivastra_error'] = 'invalid_state';
         } elseif (isset($_GET['error'])) {
             // Admin clicked Cancel — not a failure, just an abandoned attempt.
@@ -788,7 +792,7 @@ class Aivastra_Settings_Page
         }
         check_admin_referer('aivastra_tryon_buy');
 
-        $planSlug = sanitize_key((string) ($_POST['aivastra_plan_slug'] ?? ''));
+        $planSlug = sanitize_key((string) wp_unslash($_POST['aivastra_plan_slug'] ?? ''));
         $settings = new Aivastra_Connection_Settings();
         $service = new Aivastra_Connection_Service($settings, self::API_BASE);
         $result = $service->create_order($planSlug);
@@ -826,7 +830,7 @@ class Aivastra_Settings_Page
         }
         check_admin_referer('aivastra_tryon_save_widget_customization');
 
-        $raw = $_POST['aivastra_widget'] ?? [];
+        $raw = wp_unslash($_POST['aivastra_widget'] ?? []);
         $clean = Aivastra_Widget_Customization::sanitize(is_array($raw) ? $raw : []);
         (new Aivastra_Connection_Settings())->set_widget_customization($clean);
 
@@ -853,14 +857,55 @@ class Aivastra_Settings_Page
         exit;
     }
 
+    /**
+     * wp_kses() allowlist for this plugin's hand-written inline icon SVGs
+     * (ICONS, GOOGLE_ICON, every lucide() call site) — covers exactly the
+     * tags/attributes those use, nothing more. Applied in icon_kses() below
+     * rather than at each of the ~33 echo sites: since nothing transforms
+     * the string between these functions returning and it being echoed,
+     * escaping here is equivalent to escaping at every call site.
+     *
+     * @return array<string, array<string, true>>
+     */
+    private static function svg_icon_kses_allowed(): array
+    {
+        $attrs = array_fill_keys(
+            ['width', 'height', 'viewbox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'aria-hidden', 'class'],
+            true
+        );
+        return [
+            'svg' => $attrs,
+            'path' => ['d' => true, 'fill' => true],
+            'circle' => ['cx' => true, 'cy' => true, 'r' => true, 'fill' => true],
+            'line' => ['x1' => true, 'y1' => true, 'x2' => true, 'y2' => true],
+            'polyline' => ['points' => true],
+            'rect' => ['x' => true, 'y' => true, 'width' => true, 'height' => true, 'rx' => true, 'ry' => true, 'fill' => true],
+        ];
+    }
+
+    private static function icon_kses(string $svg): string
+    {
+        // wp_kses() lowercases every attribute name it passes through, but
+        // SVG's viewBox attribute only works case-sensitively — a lowercased
+        // viewbox silently stops the icon from scaling correctly. Browsers
+        // do special-case-correct it back when parsing inline HTML (the
+        // HTML5 spec's "adjust SVG attributes" step), but relying on that
+        // quirk instead of just fixing the case directly would be a subtle
+        // thing to get wrong later. viewBox is the only camelCase attribute
+        // any of ICONS/GOOGLE_ICON/lucide() ever use (verified — nothing
+        // here uses e.g. preserveAspectRatio), so a single targeted replace
+        // is exact, not a guess.
+        return str_replace('viewbox="', 'viewBox="', wp_kses($svg, self::svg_icon_kses_allowed()));
+    }
+
     private static function icon(string $name): string
     {
-        return self::ICONS[$name] ?? '';
+        return self::icon_kses(self::ICONS[$name] ?? '');
     }
 
     private static function google_icon(): string
     {
-        return self::GOOGLE_ICON;
+        return self::icon_kses(self::GOOGLE_ICON);
     }
 
     /** Small colored icon chip shown before a section's <h2>, matching that section's icon elsewhere on the page. */
@@ -1566,7 +1611,7 @@ class Aivastra_Settings_Page
      */
     private static function lucide(string $inner, int $size): string
     {
-        return '<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $inner . '</svg>';
+        return self::icon_kses('<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $inner . '</svg>');
     }
 
     /**
@@ -2287,7 +2332,7 @@ class Aivastra_Settings_Page
             self::render_notice('success', 'Try-on button settings saved.');
         }
         if (isset($_GET['aivastra_error'])) {
-            $code = (string) $_GET['aivastra_error'];
+            $code = sanitize_text_field(wp_unslash($_GET['aivastra_error']));
             $message = self::ERROR_MESSAGES[$code] ?? $code;
             self::render_notice('error', $message);
         }
