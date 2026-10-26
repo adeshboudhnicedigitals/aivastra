@@ -6,7 +6,7 @@ import {
   buildTryonBody,
   drawLooks,
   firstMissingSlot,
-  groupByTemplate,
+  itemSupply,
   POSE_COUNTS,
   poseCountOptions,
   requiredPhotoSlots,
@@ -21,7 +21,6 @@ import type {
   InboundEvent,
   OutboundMessage,
   PickCard,
-  RunRef,
   Session,
   State,
 } from './types.js';
@@ -67,9 +66,9 @@ function garmentCleared(s: Session): Session {
   return { ...cleared(s), garmentKey: s.garmentKey, gender: s.gender };
 }
 
-/** Back to choosing poses; garment, type, extra photos, face and templates kept. */
+/** Back to choosing poses; garment, type and extra photos kept. */
 function picksCleared(s: Session): Session {
-  return { ...s, picked: [], count: undefined, runs: undefined, unstarted: undefined };
+  return { ...s, picked: [], count: undefined, runs: undefined };
 }
 
 export const text = (t: string): OutboundMessage => ({ kind: 'text', text: t });
@@ -107,34 +106,67 @@ interface Loaded {
 }
 
 /**
- * Re-reads every template of the type and keeps only the looks the bot can
- * generate (D49), as one de-duplicated pool. Re-read on every pick prompt and
- * on Generate, so a look an admin removed, or a presigned image URL that
- * expired, never reaches the seller; picks no longer in the pool are dropped.
- * Null when nothing is left — the type is then not available in the chat (D47).
+ * Re-reads the type's standard poses and keeps only the ones the bot can
+ * generate (D49), as one pool. Re-read on every prompt and on Generate, so a
+ * pose an admin removed, or a presigned image URL that expired, never reaches
+ * the seller; picks no longer in the pool are dropped. Null when nothing is
+ * left — the type is then not available in the chat (D47).
  */
 async function loadPool(s: Session, deps: EngineDeps): Promise<Loaded | null> {
   if (!s.gender || !s.garmentType) return null;
   const at = { gender: s.gender as Gender, garmentTypeId: s.garmentType.id };
-  const options = await deps.getTemplates(at.gender, at.garmentTypeId);
-  if (options.length === 0) {
-    deps.reportUnavailable({ ...at, reason: 'no_template' });
+  const poses = await deps.getLooks(at.gender, at.garmentTypeId);
+  if (poses.length === 0) {
+    deps.reportUnavailable({ ...at, reason: 'no_poses' });
     return null;
   }
-  const { templates, cards } = buildPool(s.garmentType, options);
-  if (templates.length === 0) {
-    deps.reportUnavailable({
-      ...at,
-      reason: 'no_eligible_looks',
-      templateId: options[0].id,
-      templateLooks: options.reduce((n, t) => n + t.looks.length, 0),
-    });
+  const [lowerIds, shoeIds] = await Promise.all([
+    deps.listCatalogItemIds('lower', at.gender, at.garmentTypeId),
+    deps.listCatalogItemIds('shoe', at.gender, at.garmentTypeId),
+  ]);
+  const { pool, cards } = buildPool(
+    s.garmentType,
+    poses,
+    itemSupply(s.garmentType, lowerIds, shoeIds),
+  );
+  if (pool.looks.length === 0) {
+    deps.reportUnavailable({ ...at, reason: 'no_eligible_looks', poses: poses.length });
     return null;
   }
   const ids = new Set(cards.map((c) => c.id));
   return {
-    session: { ...s, templates, picked: s.picked.filter((id) => ids.has(id)) },
+    session: { ...s, pool, picked: s.picked.filter((id) => ids.has(id)) },
     cards,
+  };
+}
+
+/**
+ * What every image of a run shares: one model face and one background at
+ * random, plus a lower garment and shoes — the type's default, else one at
+ * random. Null when there is no face or no background. A lower or shoe the
+ * type cannot supply is left out; the pool already excludes the poses that
+ * need it.
+ */
+async function drawBatch(
+  s: Session,
+  deps: EngineDeps,
+): Promise<Pick<Session, 'faceId' | 'backgroundId' | 'lowerCatalogId' | 'shoeCatalogId'> | null> {
+  const gender = s.gender as Gender;
+  const gt = s.garmentType as GarmentTypeOption;
+  const [faces, backgrounds, lowers, shoes] = await Promise.all([
+    deps.listFaceIds(gender, gt.id),
+    deps.listBackgroundIds(gender),
+    deps.listCatalogItemIds('lower', gender, gt.id),
+    deps.listCatalogItemIds('shoe', gender, gt.id),
+  ]);
+  const faceId = deps.shuffle(faces)[0];
+  const backgroundId = deps.shuffle(backgrounds)[0];
+  if (!faceId || !backgroundId) return null;
+  return {
+    faceId,
+    backgroundId,
+    lowerCatalogId: gt.defaultLowerCatalogId ?? deps.shuffle(lowers)[0],
+    shoeCatalogId: gt.defaultShoeCatalogId ?? deps.shuffle(shoes)[0],
   };
 }
 
@@ -182,7 +214,7 @@ async function handoff(
 
 /**
  * The garment type is known, from recognition or the list. Fills the defaults
- * the chat no longer asks for (D43): face and templates. Then the required
+ * the chat no longer asks for (D43): the pose pool. Then the required
  * extra photos, then the pose picks.
  */
 async function chooseGarmentType(
@@ -192,16 +224,19 @@ async function chooseGarmentType(
   ctx: EngineContext,
   deps: EngineDeps,
 ): Promise<EngineResult> {
-  const faceId = await deps.getDefaultFaceId(s.gender as Gender, gt.id);
-  const withType: Session = {
-    ...garmentCleared(s),
-    garmentType: gt,
-    faceId: faceId ?? undefined,
-  };
-  if (!faceId) {
-    deps.reportUnavailable({ gender: s.gender as Gender, garmentTypeId: gt.id, reason: 'no_face' });
+  const gender = s.gender as Gender;
+  const withType: Session = { ...garmentCleared(s), garmentType: gt };
+  const [faces, backgrounds] = await Promise.all([
+    deps.listFaceIds(gender, gt.id),
+    deps.listBackgroundIds(gender),
+  ]);
+  if (faces.length === 0) {
+    deps.reportUnavailable({ gender, garmentTypeId: gt.id, reason: 'no_face' });
   }
-  const loaded = faceId ? await loadPool(withType, deps) : null;
+  if (backgrounds.length === 0) {
+    deps.reportUnavailable({ gender, garmentTypeId: gt.id, reason: 'no_background' });
+  }
+  const loaded = faces.length > 0 && backgrounds.length > 0 ? await loadPool(withType, deps) : null;
   if (!loaded) return handoff(s, gt, out, ctx, deps);
   return enter(
     loaded.session,
@@ -232,12 +267,9 @@ async function createRejected(
 }
 
 /**
- * Starts the runs for `lookIds` (all picks, or the failed and unstarted ones on
- * retry): one create call per template, because a catalogue belongs to one
- * template mapping (P6). Every group is quoted first (read-only, raises what
- * createJob would), so a look that is no longer valid is found before the first
- * charge. A group that fails after an earlier one was charged leaves its looks
- * in `unstarted`, for [Retry].
+ * Starts one run for `lookIds` (all picks, or the failed ones on retry), on the
+ * session's face and background. The run is quoted first (read-only, raises what
+ * createJob would), so a pose that is no longer valid is found before the charge.
  */
 async function generate(
   s: Session,
@@ -251,45 +283,22 @@ async function generate(
   const ls = loaded.session;
   const inPool = new Set(loaded.cards.map((c) => c.id));
   if (lookIds.some((id) => !inPool.has(id))) {
-    // An admin removed a look since the cards were shown: nothing is charged and
+    // An admin removed a pose since the cards were shown: nothing is charged and
     // the seller reviews what is left (ls.picked is already pruned).
     out.push(text(COPY.posesChanged));
     return enter(ls, 'ASK_POSE_COUNT', out, ctx, deps);
   }
 
-  const groups = groupByTemplate(ls.templates ?? [], lookIds);
-  const bodyOf = (g: (typeof groups)[number]) => buildTryonBody(ls, g.template, g.lookIds);
+  let run: { runId: string; images: number };
   try {
-    for (const g of groups) await deps.quote(ctx.userId, bodyOf(g));
+    const body = buildTryonBody(ls, lookIds);
+    await deps.quote(ctx.userId, body);
+    run = await deps.createRun(ctx, body);
   } catch (err) {
     return createRejected(err, ls, out, ctx, deps);
   }
 
-  const runs: RunRef[] = [];
-  let unstarted: string[] = [];
-  let reason = '';
-  for (const [i, g] of groups.entries()) {
-    try {
-      // One key per group: a redelivered tap returns the same catalogues.
-      const { runId, images } = await deps.createRun(
-        { ...ctx, messageId: `${ctx.messageId}:${i}` },
-        bodyOf(g),
-      );
-      runs.push({ runId, images });
-    } catch (err) {
-      if (runs.length === 0) return createRejected(err, ls, out, ctx, deps);
-      if (!(err instanceof AppError)) throw err;
-      unstarted = groups.slice(i).flatMap((rest) => rest.lookIds);
-      reason = err.message;
-      break;
-    }
-  }
-
-  const started = runs.reduce((n, r) => n + r.images, 0);
-  out.push(text(COPY.generating(started)));
-  if (unstarted.length > 0) {
-    out.push(text(COPY.partlyStarted(started, lookIds.length, reason)));
-  }
+  out.push(text(COPY.generating(run.images)));
   return {
     session: {
       ...ls,
@@ -297,8 +306,7 @@ async function generate(
       state: 'GENERATING',
       nonce: deps.newNonce(),
       page: 0,
-      runs,
-      unstarted: unstarted.length > 0 ? unstarted : undefined,
+      runs: [run],
     },
     messages: out,
   };
@@ -325,7 +333,7 @@ async function render(
       return done();
 
     case 'ASK_GARMENT_PHOTO':
-      out.push(buttons(s, COPY.askGarmentPhoto, [['menu', 'menu', COPY.btnMenu]]));
+      out.push(buttons(s, COPY.askGarmentPhoto, [['menu', 'menu', COPY.btnBack]]));
       return done();
 
     case 'ASK_GENDER':
@@ -334,7 +342,7 @@ async function render(
         listMsg(
           s,
           s.kind ? COPY.askGenderConfirmed : COPY.askGender,
-          GENDERS.map((g) => ({ action: 'gender', value: g, title: COPY.genders[g] })),
+          askableGenders(s).map((g) => ({ action: 'gender', value: g, title: COPY.genders[g] })),
         ),
       );
       return done();
@@ -342,7 +350,7 @@ async function render(
     case 'CONFIRM_KIND':
       if (!s.kind) return enter(s, 'ASK_GENDER', out, ctx, deps);
       out.push(
-        buttons(s, COPY.kindGuess(s.kind), [
+        buttons(s, COPY.kindGuess(s.kind, genderLabel(impliedGender(s))), [
           ['confirm', '', COPY.btnYesContinue],
           ['change', '', COPY.btnNoDifferent],
         ]),
@@ -379,8 +387,9 @@ async function render(
 
     case 'ASK_POSE_COUNT': {
       const loaded = await loadPool(s, deps);
-      const first = loaded?.session.templates?.[0];
-      if (!loaded || !first || !s.gender || !s.garmentType) {
+      const batch = loaded ? await drawBatch(loaded.session, deps) : null;
+      const first = loaded?.session.pool?.looks[0];
+      if (!loaded || !batch || !first || !s.gender || !s.garmentType) {
         return handoff(s, s.garmentType ?? { id: '', label: 'These' }, out, ctx, deps);
       }
       const ls = loaded.session;
@@ -388,7 +397,7 @@ async function render(
       try {
         // One look prices one image: the cost per image comes from the same plan
         // resolution the web uses (D17); the count multiplies it.
-        q = await deps.quote(ctx.userId, buildTryonBody(ls, first, [first.looks[0].id]));
+        q = await deps.quote(ctx.userId, buildTryonBody({ ...ls, ...batch }, [first.id]));
       } catch (err) {
         // Anything createJob would reject surfaces here, before any credits are taken.
         if (!(err instanceof AppError)) throw err;
@@ -412,27 +421,6 @@ async function render(
       return done(next);
     }
 
-    case 'CONFIRM_GENERATE': {
-      const { count: n, perImage, gender, garmentType } = s;
-      if (!n || perImage === undefined || !gender || !garmentType) {
-        return enter(s, 'ASK_POSE_COUNT', out, ctx, deps);
-      }
-      const remaining = (await deps.getBalance(ctx.userId)) - n * perImage;
-      // Balance fell since the count was chosen: don't show a negative remainder.
-      if (remaining < 0) return enter(s, 'NO_CREDITS', out, ctx, deps);
-      out.push(
-        buttons(
-          s,
-          COPY.confirmGenerate(n, COPY.genders[gender], garmentType.label, n * perImage, remaining),
-          [
-            ['generate', '', COPY.btnGenerate],
-            ['recount', '', COPY.btnDifferentNumber],
-          ],
-        ),
-      );
-      return done();
-    }
-
     case 'NO_CREDITS':
       out.push(buttons(s, COPY.noCredits(deps.links.pricing), [['menu', 'menu', COPY.btnMenu]]));
       return done();
@@ -449,20 +437,12 @@ async function render(
       const runs = s.runs ?? [];
       const failed = runs.reduce((n, r) => n + (r.failedPoseIds?.length ?? 0), 0);
       const delivered = runs.reduce((n, r) => n + r.images, 0) - failed;
+      // One message: what was delivered, what it cost, what was refunded, what next.
       // Failed images were refunded, so only the delivered ones were spent.
-      if (delivered > 0 && s.gender && s.garmentType) {
-        out.push(
-          text(
-            COPY.deliveredSummary(
-              delivered,
-              COPY.genders[s.gender],
-              s.garmentType.label,
-              delivered * (s.perImage ?? 0),
-              await deps.getBalance(ctx.userId),
-            ),
-          ),
-        );
-      }
+      const body =
+        delivered > 0 || failed > 0
+          ? COPY.closing(delivered, failed, s.perImage ?? 0, await deps.getBalance(ctx.userId))
+          : COPY.deliveredNext;
       const retryable = retryLookIds(s).length > 0;
       const items: [string, string, string][] = retryable
         ? [
@@ -472,13 +452,34 @@ async function render(
           ]
         : [
             ['more_poses', '', COPY.btnMorePoses],
-            ['change', '', COPY.btnChangeGarment],
-            ['menu', 'new', COPY.btnNewCatalog],
+            ['menu', 'new', COPY.btnNewGarment],
+            ['menu', 'menu', COPY.btnMenu],
           ];
-      out.push(buttons(s, COPY.deliveredNext, items));
+      out.push(buttons(s, body, items));
       return done();
     }
   }
+}
+
+/**
+ * Answers credits / help without losing the seller's place: at the photo prompt
+ * the reminder rides in the same message, while generating nothing is re-asked,
+ * and anywhere else the current step is shown again with the draft kept.
+ */
+async function answerInfo(
+  s: Session,
+  message: string,
+  out: Out,
+  ctx: EngineContext,
+  deps: EngineDeps,
+): Promise<EngineResult> {
+  if (s.state === 'ASK_GARMENT_PHOTO') {
+    out.push(text(`${message}\n\n${COPY.thenPhoto}`));
+    return { session: s, messages: out };
+  }
+  out.push(text(message));
+  if (s.state === 'GENERATING') return { session: s, messages: out };
+  return render(s, out, ctx, deps);
 }
 
 async function onReply(
@@ -489,56 +490,37 @@ async function onReply(
   ctx: EngineContext,
   deps: EngineDeps,
 ): Promise<EngineResult> {
-  const reprompt = () => {
-    out.push(text(COPY.reprompt));
-    return { session: s, messages: out };
-  };
+  // An answer that does not fit the step shows the step again, without a scolding line.
+  const reprompt = () => render(s, out, ctx, deps);
   // Paging keeps the nonce so cards on earlier pages stay tappable.
   if (action === 'more') return render({ ...s, page: s.page + 1 }, out, ctx, deps);
   if (action === 'restart') return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
   if (action === 'menu') {
     if (value === 'new') return enter(cleared(s), 'ASK_GARMENT_PHOTO', out, ctx, deps);
     if (value === 'credits') {
-      out.push(text(COPY.credits(await deps.getBalance(ctx.userId), deps.links.pricing)));
-      return enter(s, 'MAIN_MENU', out, ctx, deps);
+      const balance = await deps.getBalance(ctx.userId);
+      return answerInfo(s, COPY.credits(balance, deps.links.pricing), out, ctx, deps);
     }
-    if (value === 'help') {
-      out.push(text(COPY.help(deps.links.help)));
-      return enter(s, 'MAIN_MENU', out, ctx, deps);
-    }
+    if (value === 'help') return answerInfo(s, COPY.help(deps.links.help), out, ctx, deps);
     return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
   }
 
   switch (s.state) {
     case 'CONFIRM_KIND': {
-      if (action === 'confirm') return enter(s, 'ASK_GENDER', out, ctx, deps);
+      if (action === 'confirm') {
+        const implied = impliedGender(s);
+        return implied
+          ? pickGender(s, implied, out, ctx, deps)
+          : enter(s, 'ASK_GENDER', out, ctx, deps);
+      }
       if (action !== 'change') return reprompt();
       deps.recordRecognitionCorrected();
-      return enter({ ...s, kind: undefined }, 'ASK_GENDER', out, ctx, deps);
+      return enter({ ...s, kind: undefined, kindGenders: undefined }, 'ASK_GENDER', out, ctx, deps);
     }
 
     case 'ASK_GENDER': {
-      if (action !== 'gender' || !GENDERS.includes(value as Gender)) return reprompt();
-      const gender = value as Gender;
-      const withGender: Session = { ...s, gender };
-      // No kind, or a kind this gender does not have: the list is the way out.
-      const hit = s.kind ? await deps.typeForKind(s.kind, gender) : null;
-      if (!hit)
-        return enter({ ...withGender, kind: undefined }, 'ASK_GARMENT_TYPE', out, ctx, deps);
-      const gt = (await deps.listGarmentTypes(gender)).find((t) => t.id === hit.garmentTypeId);
-      // A correct answer for a type the bot cannot offer (a saree two-step
-      // type, no template): hand the seller to the studio rather than pretend we didn't know.
-      if (!gt) {
-        // Report why, from the same facts the studio reads, so an admin sees
-        // "template_inactive" rather than a bare "not offered".
-        const { reasons } = await deps.getReadiness(gender, hit.garmentTypeId);
-        for (const reason of reasons) {
-          deps.reportUnavailable({ gender, garmentTypeId: hit.garmentTypeId, reason });
-        }
-        return handoff(withGender, { id: hit.garmentTypeId, label: hit.label }, out, ctx, deps);
-      }
-      // The kind was confirmed before the gender, so no second "Looks like".
-      return chooseGarmentType({ ...withGender, kind: undefined }, gt, out, ctx, deps);
+      if (action !== 'gender' || !askableGenders(s).includes(value as Gender)) return reprompt();
+      return pickGender(s, value as Gender, out, ctx, deps);
     }
 
     case 'ASK_GARMENT_TYPE': {
@@ -550,18 +532,14 @@ async function onReply(
     case 'ASK_POSE_COUNT': {
       const n = Number(value);
       if (action !== 'count' || !(POSE_COUNTS as readonly number[]).includes(n)) return reprompt();
-      return enter({ ...s, count: n }, 'CONFIRM_GENERATE', out, ctx, deps);
-    }
-
-    case 'CONFIRM_GENERATE': {
-      if (action === 'recount')
-        return enter({ ...s, count: undefined }, 'ASK_POSE_COUNT', out, ctx, deps);
-      const n = s.count;
-      if (action !== 'generate' || !n) return reprompt();
       const loaded = await loadPool(s, deps);
-      if (!loaded) return handoff(s, s.garmentType ?? { id: '', label: 'These' }, out, ctx, deps);
-      const ls = loaded.session;
-      // Tapping Generate is the agreement to spend (D45). Caught here, before
+      const batch = loaded ? await drawBatch(loaded.session, deps) : null;
+      if (!loaded || !batch) {
+        return handoff(s, s.garmentType ?? { id: '', label: 'These' }, out, ctx, deps);
+      }
+      // The face and background are drawn here, once, for the whole catalogue.
+      const ls = { ...loaded.session, ...batch, count: n };
+      // Tapping the count is the agreement to spend (D45). Caught here, before
       // any run exists; createJob checks again.
       const perImage = s.perImage ?? 0;
       if (n * perImage > (await deps.getBalance(ctx.userId))) {
@@ -585,7 +563,6 @@ async function onReply(
         // priced run of only those looks.
         return generate({ ...s, picked: ids }, ids, out, ctx, deps);
       }
-      if (action === 'change') return enter(garmentCleared(s), 'ASK_GARMENT_TYPE', out, ctx, deps);
       return reprompt();
     }
 
@@ -596,19 +573,6 @@ async function onReply(
 
 // Typed words that mean "get me out". Never 'stop': that is the opt-out (inbound.ts).
 const EXIT_WORDS = new Set(['cancel', 'exit', 'quit', 'back', 'hi', 'hello']);
-
-// Steps with no question pending: stray text shows the step again, not a reprompt.
-const IDLE_STATES: State[] = ['MAIN_MENU', 'GENERATING', 'DELIVERED', 'NO_CREDITS'];
-
-// States where a new photo starts a new catalog (spec section 8): outside the
-// question steps, a photo can only mean "do this one".
-const NEW_PHOTO_STATES: State[] = [
-  'MAIN_MENU',
-  'ASK_GARMENT_PHOTO',
-  'NO_CREDITS',
-  'GENERATING',
-  'DELIVERED',
-];
 
 // What a session saved before 2026-10-14 may still carry.
 type LegacySession = Session & {
@@ -644,6 +608,46 @@ function upgradeSession(prev: Session): Session | null {
   };
 }
 
+/** The genders the gender question offers: only those with the recognised kind, when known. */
+const askableGenders = (s: Session): Gender[] => (s.kindGenders?.length ? s.kindGenders : GENDERS);
+
+/** The gender the recognised kind implies: set when only one gender has a type of it. */
+const impliedGender = (s: Session): Gender | undefined =>
+  s.kindGenders?.length === 1 ? s.kindGenders[0] : undefined;
+
+const genderLabel = (g: Gender | undefined) => (g ? COPY.genders[g] : undefined);
+
+/**
+ * The gender is known (tapped, or implied by the confirmed kind): the recognised
+ * kind becomes that gender's own type.
+ */
+async function pickGender(
+  s: Session,
+  gender: Gender,
+  out: Out,
+  ctx: EngineContext,
+  deps: EngineDeps,
+): Promise<EngineResult> {
+  const withGender: Session = { ...s, gender, kindGenders: undefined };
+  // No kind, or a kind this gender does not have: the list is the way out.
+  const hit = s.kind ? await deps.typeForKind(s.kind, gender) : null;
+  if (!hit) return enter({ ...withGender, kind: undefined }, 'ASK_GARMENT_TYPE', out, ctx, deps);
+  const gt = (await deps.listGarmentTypes(gender)).find((t) => t.id === hit.garmentTypeId);
+  // A correct answer for a type the bot cannot offer (a saree two-step
+  // type, no template): hand the seller to the studio rather than pretend we didn't know.
+  if (!gt) {
+    // Report why, from the same facts the studio reads, so an admin sees
+    // "template_inactive" rather than a bare "not offered".
+    const { reasons } = await deps.getReadiness(gender, hit.garmentTypeId);
+    for (const reason of reasons) {
+      deps.reportUnavailable({ gender, garmentTypeId: hit.garmentTypeId, reason });
+    }
+    return handoff(withGender, { id: hit.garmentTypeId, label: hit.label }, out, ctx, deps);
+  }
+  // The kind was confirmed before the gender, so no second "Looks like".
+  return chooseGarmentType({ ...withGender, kind: undefined }, gt, out, ctx, deps);
+}
+
 /** A new garment photo: recognise the kind first, else go straight to the gender. */
 async function startFromPhoto(
   fresh: Session,
@@ -653,7 +657,7 @@ async function startFromPhoto(
 ): Promise<EngineResult> {
   const hit = await deps.recognizeKind(fresh.garmentKey as string);
   return hit
-    ? enter({ ...fresh, kind: hit.label }, 'CONFIRM_KIND', out, ctx, deps)
+    ? enter({ ...fresh, kind: hit.label, kindGenders: hit.genders }, 'CONFIRM_KIND', out, ctx, deps)
     : enter(fresh, 'ASK_GENDER', out, ctx, deps);
 }
 
@@ -672,7 +676,6 @@ export async function handle(
   const upgraded = prev ? upgradeSession(prev) : null;
   if (!upgraded) {
     const fresh = await freshSession(ctx.userId, deps);
-    if (event.type === 'reply') out.push(text(COPY.sessionExpired));
     // A first photo starts a catalog straight away (spec section 8).
     if (event.type === 'image')
       return startFromPhoto({ ...fresh, garmentKey: event.garmentKey }, out, ctx, deps);
@@ -694,31 +697,24 @@ export async function handle(
       const cmd = event.text.trim().toLowerCase();
       if (cmd === 'menu' || cmd === 'restart' || EXIT_WORDS.has(cmd))
         return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
-      if (cmd === 'help') {
-        out.push(text(COPY.help(deps.links.help)));
-        return render(s, out, ctx, deps);
+      if (cmd === 'help') return answerInfo(s, COPY.help(deps.links.help), out, ctx, deps);
+      if (cmd === 'credits') {
+        const balance = await deps.getBalance(ctx.userId);
+        return answerInfo(s, COPY.credits(balance, deps.links.pricing), out, ctx, deps);
       }
-      if (IDLE_STATES.includes(s.state)) return render(s, out, ctx, deps);
-      out.push(text(COPY.reprompt));
-      return { session: s, messages: out };
+      // Anything else shows the current step again, without a scolding line.
+      return render(s, out, ctx, deps);
     }
 
     case 'reply': {
       const d = decodeReplyId(event.id);
-      if (!d || d.nonce !== s.nonce) {
-        out.push(text(COPY.stale));
-        return render(s, out, ctx, deps);
-      }
+      // Menu buttons do not depend on the step, so they work from any old message.
+      // Any other stale tap just shows the step we are on, with no complaint.
+      if (!d || (d.action !== 'menu' && d.nonce !== s.nonce)) return render(s, out, ctx, deps);
       return onReply(s, d.action, d.value, out, ctx, deps);
     }
 
     case 'image': {
-      if (NEW_PHOTO_STATES.includes(s.state)) {
-        // Spec 8a: recognised right after the upload and before any question,
-        // so the seller confirms the kind while the photo is fresh. Awaited:
-        // the seller waits once, up to the budget (spec 2026-10-22, risks).
-        return startFromPhoto({ ...cleared(s), garmentKey: event.garmentKey }, out, ctx, deps);
-      }
       if (s.state === 'ASK_EXTRA_PHOTO') {
         const slot = firstMissingSlot(s);
         if (slot) {
@@ -732,8 +728,10 @@ export async function handle(
           );
         }
       }
-      out.push(text(COPY.notNow));
-      return render(s, out, ctx, deps);
+      // Anywhere else a photo can only mean "do this one" (spec section 8): it
+      // replaces the draft. Recognised right after the upload and before any
+      // question; awaited, so the seller waits once, up to the budget.
+      return startFromPhoto({ ...cleared(s), garmentKey: event.garmentKey }, out, ctx, deps);
     }
 
     case 'unsupportedMedia':
@@ -755,9 +753,6 @@ export async function handle(
       const next: Session = { ...s, runs: updated };
       // The closing message waits for the last run of the Generate (spec section 4).
       if (!updated.every((r) => r.finished)) return { session: next, messages: out };
-      const failed = updated.reduce((n, r) => n + (r.failedPoseIds?.length ?? 0), 0);
-      const images = updated.reduce((n, r) => n + r.images, 0);
-      if (failed > 0) out.push(text(COPY.partlyFailed(failed, images)));
       return enter(next, 'DELIVERED', out, ctx, deps);
     }
 

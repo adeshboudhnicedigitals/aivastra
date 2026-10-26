@@ -149,7 +149,7 @@ describe('whatsapp delivery', () => {
     expect(wa.uploads).toHaveLength(1);
     expect(wa.uploads[0]).toMatchObject({ mimeType: 'image/png' });
     expect(wa.sent.filter((m) => typeOf(m.payload) === 'image')).toHaveLength(1);
-    expect(wa.texts().join('\n')).toMatch(/1 of 2 images failed/);
+    expect(wa.texts().join('\n')).toMatch(/1 couldn't be made/);
     expect(runConversation).toHaveBeenCalledWith(
       app,
       expect.anything(),
@@ -235,7 +235,7 @@ describe('whatsapp delivery', () => {
     await deliverPendingForAccount(appWithTemplate, wa.client, s.account.id);
 
     expect(wa.sent.filter((m) => typeOf(m.payload) === 'image')).toHaveLength(1);
-    expect(wa.texts().join('\n')).toMatch(/1 of 2 images failed/);
+    expect(wa.texts().join('\n')).toMatch(/1 couldn't be made/);
     run = await runRow(s.runId);
     expect(run.finishedAt).not.toBeNull();
   });

@@ -97,7 +97,7 @@ export const garmentClassifyCorrectedTotal = new Counter({
 });
 
 // One increment per reason a garment type was not offered to a WhatsApp seller.
-// A sudden rise in template_inactive / no_mapping is the signal the October
+// A sudden rise in poses_inactive / no_poses is the signal the October
 // incident (all 140 catalogue templates inactive) lacked.
 export const whatsappGarmentUnavailableTotal = new Counter({
   name: 'whatsapp_garment_unavailable_total',

@@ -169,9 +169,8 @@ export async function processInbound(
       .set({ optedOutAt: null, updatedAt: new Date() })
       .where(eq(M.id, account.id));
   }
-  if (m.content.kind === 'text' && parseConnectCommand(m.content.text)) {
-    return sendMessages(app, wa, m.from, [text(COPY.alreadyConnected)]);
-  }
+  // A connect code from an already-connected number is not special: it falls
+  // through as ordinary text, which shows the current step again.
 
   // Results that finished while the window was closed go out first (D26).
   await deliverPending(app, wa, account.id);
