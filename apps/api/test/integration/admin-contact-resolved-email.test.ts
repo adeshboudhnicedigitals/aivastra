@@ -66,6 +66,7 @@ describe('admin contact requests — resolved email', () => {
       app.env.EMAIL_FROM,
       row.email,
       row.message,
+      row.name,
     );
   });
 
@@ -116,6 +117,7 @@ describe('admin contact requests — resolved email', () => {
       app.env.EMAIL_FROM,
       row.email,
       'Your reported issue',
+      row.name,
     );
   });
 

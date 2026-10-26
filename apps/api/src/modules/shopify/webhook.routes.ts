@@ -387,6 +387,7 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
                   appUrl: appLinkFor(app, store.shopDomain),
                   cappedAmountUsd,
                   balanceUsedUsd: refreshed?.balanceUsedUsd ?? null,
+                  name: store.shopOwnerName,
                 },
               );
             } else {

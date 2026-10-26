@@ -183,7 +183,12 @@ export async function googleAuthRoutes(app: FastifyInstance) {
 
     if (isNewUser) {
       try {
-        await sendWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, googleUser.email);
+        await sendWelcomeEmail(
+          app.env.RESEND_API_KEY,
+          app.env.EMAIL_FROM,
+          googleUser.email,
+          googleUser.name,
+        );
       } catch (err) {
         app.log.error({ err }, 'Failed to send welcome email');
       }

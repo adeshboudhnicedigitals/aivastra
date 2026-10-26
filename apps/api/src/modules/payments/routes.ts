@@ -36,7 +36,7 @@ async function maybeSendReceipt(
     const invoice = await issueInvoiceIfNeeded(app, payment.id);
 
     const [user] = await app.db
-      .select({ email: schema.users.email })
+      .select({ email: schema.users.email, displayName: schema.users.displayName })
       .from(schema.users)
       .where(eq(schema.users.id, userId));
     if (!user) return;
@@ -64,6 +64,7 @@ async function maybeSendReceipt(
         razorpayOrderId: payment.razorpayOrderId,
         razorpayPaymentId: payment.razorpayPaymentId ?? '',
         paidAt: payment.paidAt ?? new Date(),
+        name: user.displayName,
       },
       attachments,
     );
