@@ -130,6 +130,7 @@ async function main(): Promise<void> {
     withAdvisoryLock,
     redis,
     comfyRedis,
+    comfyPollIntervalMs: env.COMFY_POLL_INTERVAL_MS,
     pub,
     storage,
     log,

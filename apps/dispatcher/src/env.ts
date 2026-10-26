@@ -57,6 +57,8 @@ const Env = z.object({
    *  worker registry — catalog-video jobs never touch ComfyUI. Should match the
    *  concurrency limit of the PixVerse plan. Restart the dispatcher to change it. */
   VIDEO_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(5),
+  /** ComfyUI history poll cadence. Restart the dispatcher to change it. */
+  COMFY_POLL_INTERVAL_MS: z.coerce.number().int().min(250).max(3_000).default(500),
   // Always-resident garment-recognition service (aivastra-gpu pipeline/classify-service).
   // Unset → the classify lane falls back to a ComfyUI worker allowing `classify`.
   CLASSIFY_SERVICE_URL: optionalUrl(),

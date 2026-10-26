@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { boundedRead } from '../worker/bounded-read.js';
 
 export const COMFY_TIMEOUT_CONFIG_KEY = 'config:comfy-timeout';
+// Fallback for direct callers; the dispatcher passes its validated env setting.
 export const POLL_INTERVAL_MS = 3_000;
+export const QUEUE_CLEANUP_POLL_INTERVAL_MS = POLL_INTERVAL_MS;
 export const comfyTimeoutConfigSchema = z
   .object({
     queueCleanupTimeoutMs: z.number().int().positive().default(30_000),

@@ -105,6 +105,14 @@
 - **Failed-Not-Done:** none for Task 9. No commit, push, staging, or deployment yet.
 - **Open:** Task 10 admin UI and Task 11 staging verification remain.
 
+## 2026-10-26 — dispatcher try-on latency mitigation
+
+- **Done:** created `fix/tryon-latency-dispatcher` from freshly fetched `origin/dev` at `ab307d27`. Isolated GPU and webhook blocking stream reads on dedicated Redis connections, retaining command traffic on the main connection and closing reader connections on shutdown. Excluded DRAINING workers from both shared and in-house admission caps.
+- **Done:** completion polling now defaults to 500ms and is configurable with `COMFY_POLL_INTERVAL_MS` (250–3000ms). Queue cleanup keeps its prior 3s interval and validation budget. The polled completion history is reused for output selection across ComfyUI job paths via an in-memory WeakMap; the completion result shape and event payloads remain unchanged.
+- **Done:** merchant widget jobs emit per-stage `durationMs` logs for worker selection, input transfer, prompt submission, dispatch-event write, completion observation, duration write, status transitions, output download, compression-config Redis read, output encoding/storage, notifications/acknowledgement, and worker release.
+- **Not verified:** no test/build commands were run. The temporary worktree has no installed node_modules, and this implementation turn did not run tests per instruction. No staging or production deployment was performed.
+- **Branch state:** latency changes committed as `64002ce2`; included in the consolidation branch.
+
 > **Moved 2026-08-29:** the GPU audit report, optimisation runbook, ComfyUI authoring rules and
 > benchmark harness now live in the separate **`aivastra-gpu`** repo. The GPU VPSs share no code
 > with this one. The dated entries below are kept as history of the work.
