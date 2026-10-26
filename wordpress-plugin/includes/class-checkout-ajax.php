@@ -30,9 +30,9 @@ class Aivastra_Checkout_Ajax
         check_ajax_referer(self::NONCE_ACTION, 'nonce');
 
         $payment = [
-            'razorpayOrderId' => sanitize_text_field((string) ($_POST['razorpay_order_id'] ?? '')),
-            'razorpayPaymentId' => sanitize_text_field((string) ($_POST['razorpay_payment_id'] ?? '')),
-            'razorpaySignature' => sanitize_text_field((string) ($_POST['razorpay_signature'] ?? '')),
+            'razorpayOrderId' => sanitize_text_field(wp_unslash((string) ($_POST['razorpay_order_id'] ?? ''))),
+            'razorpayPaymentId' => sanitize_text_field(wp_unslash((string) ($_POST['razorpay_payment_id'] ?? ''))),
+            'razorpaySignature' => sanitize_text_field(wp_unslash((string) ($_POST['razorpay_signature'] ?? ''))),
         ];
 
         if ($payment['razorpayOrderId'] === '' || $payment['razorpayPaymentId'] === '' || $payment['razorpaySignature'] === '') {

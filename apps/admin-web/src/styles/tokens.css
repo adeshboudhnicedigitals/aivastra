@@ -2876,3 +2876,35 @@ p {
 .recharts-surface:focus-visible {
   outline: none;
 }
+
+/* Chat Inbox conversation-list rows: a row's own background covers the
+   selected/active state, so hover only needs to apply when not selected. */
+.chat-row {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 80ms ease;
+}
+.chat-row:hover {
+  background: var(--surface-hover);
+}
+.chat-row.active {
+  background: var(--accent-soft);
+}
+.chat-row.active:hover {
+  background: var(--accent-soft);
+}
+.chat-avatar {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+}

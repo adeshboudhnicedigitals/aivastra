@@ -6,7 +6,7 @@ The dated log underneath is append-only — newest entry on top — for context
 on *why* something changed, same convention as the main repo's
 `docs/progress.md`.
 
-**Last updated:** 2026-10-06
+**Last updated:** 2026-10-26
 
 ## Status checklist
 
@@ -35,28 +35,199 @@ on *why* something changed, same convention as the main repo's
 - [x] **6. wp.org zip built** (`make wordpress-plugin-zip`) — DONE, see log.
 - [x] **7. Submitted to wp.org for review** — automated scan passed on the
       rebuilt zip; status "Awaiting Review" as of 2026-10-06. **Action
-      needed before approval: fix the auto-assigned slug** — see log.
-- [ ] **8. Reviewer feedback resolved**
+      needed before approval: fix the auto-assigned slug** — see log. Still
+      unresolved as of the 2026-10-22 review email (its "what we know about
+      this plugin" section confirms the live slug is still
+      `ai-vastra-try-on`).
+- [~] **8. Reviewer feedback resolved** — PARTIAL. First review round landed
+      2026-10-22 (pended, not rejected); fixed and re-uploaded same day.
+      **Second review round landed 2026-10-26** (pended again) — three
+      categories of findings (one false-positive nonce flag, several
+      missing `wp_unslash()` calls, 33 un-escaped icon echoes), all fixed,
+      see log. **Not yet done: the zip hasn't been re-uploaded and the
+      reply hasn't been sent** — both are [YOU], next action below.
 - [ ] **9. SVN checked out, trunk/assets populated**
 - [ ] **10. First release committed to SVN**
 - [ ] **11. Listing confirmed live** at wordpress.org/plugins/aivastra-tryon/
 
 ## Current blocker
 
-**[YOU], urgent, time-limited:** wp.org auto-assigned the slug
-`ai-vastra-try-on` on submission — every reference in this repo (`readme.txt`,
-`aivastra-tryon.php`, `scripts/wordpress-plugin/build-zip.sh`'s `SLUG` var,
-`PUBLISH-PLAN.md`'s SVN commands) uses `aivastra-tryon` instead. The
-submission page explicitly states the slug **cannot be changed once
-approved**. Go back to the submission page and change the slug to
-`aivastra-tryon` before a reviewer picks this up. Everything else is done;
-this is the only open item. All of steps 2-6 are done. The four legal items
-from step 1 remain open but are no longer gating submission (business
-decision, 2026-10-06). Next action is purely [YOU]: upload the zip at
-wordpress.org/plugins/developers/add and fill in the submission form (see the
-2026-10-06 (later) log entry below for the exact field values).
+**[YOU]:** two things, in order —
+1. Upload the rebuilt zip (`dist/wordpress-plugin/aivastra-tryon-wporg-0.5.13.zip`)
+   via "Add your plugin," logged in as `aivastrawp`.
+2. Reply to the same review email thread (not a new email) — this round,
+   briefly explain the one judgment call: the OAuth connect callback's
+   CSRF check was converted from a custom token+transient to a standard
+   `wp_verify_nonce()` check (same protection, now recognizable to their
+   scanner). No need to itemize the `wp_unslash()`/escaping fixes — those
+   speak for themselves in the re-scan, per the reviewer's own "don't list
+   every change" preference.
+
+Still-open, not flagged by either review round: the **slug mismatch**
+(`ai-vastra-try-on` live on wp.org vs. `aivastra-tryon` used everywhere
+in-repo) — worth asking about in this same reply if it hasn't been raised
+yet, since the submission still isn't approved and the slug is still
+correctable until it is.
 
 ## Dated log
+
+### 2026-10-26 — Second reviewer-feedback round: false-positive nonce flag, missing wp_unslash(), 33 un-escaped icon echoes
+
+wp.org pended the resubmission a second time (Review ID
+`ai-vastra-try-on/aivastrawp/6Oct26/T1 25Oct26/4.3`), three categories of
+findings. Every one independently verified against the current repo (not
+just the email's examples) before changing anything — a full
+`$_POST`/`$_GET`/`$_REQUEST` audit across every `.php` file found the
+complete set beyond what the email showed samples of, and a count of every
+icon-echoing call site matched the reviewer's stated "33" exactly.
+
+**Finding 1 — "no nonce check" on `handle_connect_callback()` — a scanner
+false positive, fixed anyway.** This is the callback the browser lands on
+after the admin's redirected back from Google/Ai Vastra's OAuth consent
+screen — it can never carry a form-embedded `_wpnonce` the normal way, so
+it already had the correct substitute: `handle_connect_start()` (itself
+nonce-gated) generated a random token, stashed it in a transient, and the
+callback verified it with `hash_equals()`. Plugin Check's scanner only
+pattern-matches for `wp_verify_nonce()`/`check_admin_referer()`, so it
+couldn't see this. Rather than just explaining it in the reply (risking a
+third round if the automated check runs again on a future update), swapped
+the custom token+transient mechanism for `wp_create_nonce()`/
+`wp_verify_nonce()` directly — identical security property (same
+logged-in-admin requirement both endpoints already enforced via
+`current_user_can()`), now scanner-visible, and simpler (no transient
+plumbing). Verified in the container: a nonce generated for the logged-in
+admin verifies correctly; a tampered value, a mismatched action string, and
+verification under a different user session all correctly fail — matching
+and in two cases exceeding the old mechanism's guarantees.
+
+**Finding 2 — missing `wp_unslash()` before sanitizing.** Every flagged
+(and several unflagged but identically-shaped) `$_POST`/`$_GET` read across
+`admin/class-settings-page.php` and four AJAX handler classes
+(`class-connect-ajax.php`, `class-checkout-ajax.php`,
+`class-product-eligibility-ajax.php`, `class-category-map-ajax.php`) already
+had `current_user_can()` + `check_admin_referer()`/`check_ajax_referer()` —
+the actual gap was just the missing slash-stripping step before the value
+reached its (already-present) sanitizer. One real, not just cosmetic, bug
+fixed in passing: `aivastra_widget`'s free-text fields (heading/subheading/
+CTA labels) would previously save with a stray backslash in front of any
+apostrophe a merchant typed. `class-settings-page.php:2290`
+(`aivastra_error`) had no sanitize call at all, just a cast — fixed to match
+the pattern already used everywhere else in that file. `sanitize_checkbox()`
+(a custom function, unrecognized by the scanner) got re-flagged at
+`class-product-toggle.php:68` despite already being `wp_unslash()`'d from
+round 1 — fixed there and at the identically-shaped, unflagged
+`class-product-eligibility-ajax.php:42` by routing the raw value through
+`sanitize_text_field()` first. `class-cart-ajax.php` was already fully
+correct (confirmed, not changed).
+
+**Finding 3 — 33 un-escaped `echo` sites, all from 3 shared functions.**
+`icon()`, `google_icon()`, `lucide()` — all return hand-written, hardcoded
+inline SVG markup (verified: no DB/user data ever flows through any of
+them). Added a `wp_kses()` allowlist (svg/path/circle/line/polyline/rect +
+their specific attributes) applied once inside all three functions, which
+covers every one of the 33 echo sites without touching them individually.
+One real snag caught during verification, not something `php -l` or the
+test suite would have caught: `wp_kses()` lowercases every attribute name
+it passes through, but SVG's `viewBox` only renders correctly
+case-sensitively — browsers do auto-correct a lowercased `viewbox` per the
+HTML5 spec's inline-SVG parsing rules, but relying on that silently instead
+of just fixing it felt like exactly the kind of thing that regresses later
+unnoticed, so `icon_kses()` restores the correct case explicitly.
+Verified programmatically (not just inspected) that every one of the 22
+`ICONS` entries, `GOOGLE_ICON`, and all 9 real `lucide()` call sites in the
+file render byte-identical before and after the change.
+
+**Verification performed** (same container-based approach as round 1):
+`php -l` clean on all 6 edited files; full WP bootstrap with the plugin
+active, no fatals; the nonce round-trip test described above; a
+programmatic before/after diff of every icon's rendered output; the full
+PHPUnit suite (88/88 passing, same as round 1); rebuilt the zip and
+grep-verified every fix present in the rebuilt package.
+
+### 2026-10-22 — First reviewer-feedback round: 4 code issues + ownership mismatch, all fixed
+
+wp.org's review email (human + AI-assisted) pended the 2026-10-06 submission
+rather than rejecting it. Four categories of findings, all verified directly
+against the actual submitted zip (`dist/wordpress-plugin/aivastra-tryon-wporg-0.5.13.zip`,
+confirmed still on disk, gitignored but physically present since 2026-10-06)
+before touching anything — confirmed every line the reviewer cited matched
+exactly, and a full re-scan of the zip for the same patterns turned up no
+additional unlisted instances.
+
+**Root cause of the trademark/ownership flag:** the account that actually
+submitted is `aivastrawp`, not `aivastra` — the username `readme.txt`'s
+`Contributors:` field was filled in with on 2026-10-06, off a wp.org
+**display name** in a screenshot, not a verified login username.
+`PUBLISH-PROGRESS.md` flagged this exact risk at the time ("confirm the exact
+login username matches... the screenshot only confirmed the display name")
+and it was never followed up before submission. This is also what triggered
+the AI reviewer's trademark-naming concern — it had no way to tell this is
+Ai Vastra's own first-party plugin for its own service.
+
+**Decided with user:** prove ownership by replying to the email explaining
+the situation (not a DNS TXT record or account-email change), and keep the
+plugin name "Ai Vastra Try-On" as-is rather than rebrand — once ownership is
+established the name is accurate, not misleading.
+
+**Fixed:**
+- `readme.txt`: `Contributors: aivastra` → `Contributors: aivastrawp`.
+- `admin/class-settings-page.php` — `print_menu_icon_style()` (literal
+  `echo '<style>...'` on every admin screen) replaced with
+  `enqueue_menu_icon_style()`, hooked on `admin_enqueue_scripts` instead of
+  `admin_head`, using `wp_register_style(..., false, ...)` +
+  `wp_add_inline_style()` — the standard WP pattern for a handle that only
+  carries inline CSS, no file needed for one selector.
+- `admin/class-settings-page.php` — `render_connect_popup_close()` (literal
+  `<script>...</script>` in a bare standalone HTML popup page that never
+  calls `wp_head()`/`wp_footer()`) replaced with `wp_register_script(...,
+  false, ...)` + `wp_add_inline_script()` + explicit `wp_print_scripts()`
+  call in place of the old tag — the only way to go through the enqueue API
+  on a page with no normal head/footer hooks to hang an automatic print off
+  of.
+- `admin/class-settings-page.php` — `redirect_legacy_url()`'s
+  `add_query_arg(wp_unslash($_GET), ...)` now sanitizes every value first:
+  `array_map('sanitize_text_field', wp_unslash($_GET))`. `add_query_arg()`
+  doesn't escape its input; callers must.
+- `includes/class-product-toggle.php:59` — nonce check now wraps the raw
+  `$_POST` value in `sanitize_text_field(wp_unslash(...))` instead of a bare
+  `(string)` cast (which type-coerces but sanitizes nothing). Also unslashed
+  the checkbox value on line 68 while in the same function, same class of
+  issue, not itself flagged by the reviewer.
+
+**Verified, not just written:**
+- `php -l` clean on both edited files (via the `local-wp-wordpress-1`
+  container's PHP 8.1, which bind-mounts this directory live).
+- Full WP bootstrap inside that container: plugin loads, stays active, both
+  edited classes and the renamed method exist — no fatals.
+- Functionally exercised all three enqueue/sanitize mechanisms directly
+  (not just inspected): `enqueue_menu_icon_style()` actually registers,
+  enqueues, and prints the exact same CSS rule through `WP_Styles::do_item()`;
+  the new `$_GET` sanitization correctly strips a `<script>` payload from a
+  simulated malicious value (`wp_strip_all_tags()` inside
+  `sanitize_text_field()` removes the entire tag-and-contents, not just the
+  tags); the `wp_register_script(false)` + `wp_add_inline_script()` +
+  `wp_print_scripts()` sequence prints the exact inline JS through
+  `WP_Scripts::do_item()`, same as the old literal tag did, just through the
+  enqueue API.
+- Nonce fix specifically: confirmed the sanitized value round-trips through
+  `wp_verify_nonce()` correctly using WP's own `add_magic_quotes()` to
+  reproduce exactly what `$_POST` actually looks like after WP's bootstrap
+  slashing — not a hand-faked simulation. Also confirmed the old
+  `(string)`-only code wasn't a live functional bug for nonces specifically
+  (hex strings have nothing for `addslashes()` to touch) — this fix is
+  defense-in-depth / guideline compliance, not a bug fix for a real exploit
+  path found in testing.
+- Full existing PHPUnit suite: **88/88 passed**, run inside the same
+  container (`php vendor/bin/phpunit`).
+- Rebuilt `make wordpress-plugin-zip`, unzipped the result, and re-confirmed
+  by grep: `Contributors: aivastrawp` present, zero literal `<script>`/
+  `<style>` tags anywhere in the package, both the nonce and `add_query_arg`
+  fixes present at their call sites.
+
+**Not yet done:** uploading the rebuilt zip and replying to the email thread
+— both [YOU], see "Current blocker" above.
+
+### 2026-10-06 (final) — Resubmitted, scan passed, awaiting review — slug mismatch flagged
 
 ### 2026-10-06 (final) — Resubmitted, scan passed, awaiting review — slug mismatch flagged
 

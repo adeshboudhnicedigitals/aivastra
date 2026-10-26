@@ -234,6 +234,7 @@ export function Sidebar({
   const { token, role: authRole, hasPermission, logout } = useAuth();
   const [contactBadge, setContactBadge] = useState(0);
   const [pendingApprovalsBadge, setPendingApprovalsBadge] = useState(0);
+  const [chatInboxBadge, setChatInboxBadge] = useState(0);
 
   useEffect(() => {
     if (!token) return;
@@ -245,6 +246,20 @@ export function Sidebar({
     const t = setInterval(fetchCount, 5_000);
     return () => clearInterval(t);
   }, [token]);
+
+  // Unclaimed-ticket count on Chat Inbox — same "OPEN" queue ChatInboxPage itself
+  // lists, so the badge always matches what claiming would show. No dedicated
+  // count endpoint exists for this, so this reuses the list route and counts rows.
+  useEffect(() => {
+    if (!token || !hasPermission('chatbot.read')) return;
+    const fetchCount = () =>
+      apiFetch<{ rows: unknown[] }>('/admin/chatbot/conversations?status=OPEN')
+        .then(({ rows }) => setChatInboxBadge(rows.length))
+        .catch(() => {});
+    void fetchCount();
+    const t = setInterval(fetchCount, 5_000);
+    return () => clearInterval(t);
+  }, [token, hasPermission]);
 
   // Pending-count badge on Flow Approvals — SUPER_ADMIN only, since the full
   // pending queue (as opposed to just the viewer's own proposals) is only
@@ -314,11 +329,13 @@ export function Sidebar({
                 ? contactBadge
                 : item.k === 'workflow-approvals'
                   ? pendingApprovalsBadge
-                  : (item.count ?? 0);
+                  : item.k === 'chat-inbox'
+                    ? chatInboxBadge
+                    : (item.count ?? 0);
             return (
               <button
                 key={item.k}
-                className={`nav-item nav-item--icon ${item.alert || (item.k === 'contacts' && contactBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
+                className={`nav-item nav-item--icon ${item.alert || (item.k === 'contacts' && contactBadge > 0) || (item.k === 'chat-inbox' && chatInboxBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onNav(item.k);
@@ -396,11 +413,13 @@ export function Sidebar({
                   ? contactBadge
                   : item.k === 'workflow-approvals'
                     ? pendingApprovalsBadge
-                    : (item.count ?? 0);
+                    : item.k === 'chat-inbox'
+                      ? chatInboxBadge
+                      : (item.count ?? 0);
               return (
                 <button
                   key={item.k}
-                  className={`nav-item ${item.alert || (item.k === 'contacts' && contactBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
+                  className={`nav-item ${item.alert || (item.k === 'contacts' && contactBadge > 0) || (item.k === 'chat-inbox' && chatInboxBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
                   onClick={() => {
                     onNav(item.k);
                     onCloseMobile();

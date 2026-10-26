@@ -1738,10 +1738,11 @@ export default function StudioPage(): React.ReactElement {
     setPalluGarmentKey('');
   }
 
-  // Crops the single uploaded photo into Body (top) + Pallu (bottom) at the slider
-  // position, then feeds the two crops through the exact same presign+upload path
-  // (handleGarmentUpload / handlePalluGarmentUpload) the two-upload mode already uses —
-  // so submission, validation, and the dispatcher never need to know this mode exists.
+  // Crops the single uploaded photo into Body (top) at the slider position; Pallu
+  // gets the whole uploaded photo, uncropped. Both go through the exact same
+  // presign+upload path (handleGarmentUpload / handlePalluGarmentUpload) the
+  // two-upload mode already uses — so submission, validation, and the dispatcher
+  // never need to know this mode exists.
   async function handleConfirmSplit() {
     if (!sliderSplitFile || isSplitting) return;
     setIsSplitting(true);
@@ -1760,7 +1761,6 @@ export default function StudioPage(): React.ReactElement {
         naturalHeight - 1,
         Math.max(1, Math.round(naturalHeight * splitRatio)),
       );
-      const palluHeight = naturalHeight - bodyHeight;
       const mimeType = ['image/jpeg', 'image/png', 'image/webp'].includes(sliderSplitFile.type)
         ? sliderSplitFile.type
         : 'image/jpeg';
@@ -1789,13 +1789,12 @@ export default function StudioPage(): React.ReactElement {
         });
       };
 
-      const [bodyFile, palluFile] = await Promise.all([
-        cropToFile(0, bodyHeight, `body.${extension}`),
-        cropToFile(bodyHeight, palluHeight, `pallu.${extension}`),
-      ]);
+      const bodyFile = await cropToFile(0, bodyHeight, `body.${extension}`);
 
       setIsSplitConfirmed(true);
-      await Promise.all([handleGarmentUpload(bodyFile), handlePalluGarmentUpload(palluFile)]);
+      // Pallu gets the whole uploaded photo (not a crop) — only the saree/body
+      // input is cropped at the slider position.
+      await Promise.all([handleGarmentUpload(bodyFile), handlePalluGarmentUpload(sliderSplitFile)]);
     } catch (e) {
       showToast((e as Error).message || 'Could not process the image split. Please try again.');
     } finally {
