@@ -8,6 +8,7 @@ import { AppError } from '../../lib/errors.js';
 import { assertQueueCapacity } from '../../lib/queue-capacity-config.js';
 import { atomicDeduct } from '../credits/ledger.js';
 import { assertOwnsUploadKey, resolveQueueRouting, resolveTryonPlan } from './create.js';
+import { lockAndAssertUserCanCreateJobs } from './creation-guard.js';
 import { promptGuard } from './sanitize.js';
 
 export async function createSareeMannequinJob(
@@ -77,6 +78,7 @@ export async function createSareeMannequinJob(
   const { queueStream, priority, watermark } = routing;
 
   const { mannequinJobId, jobIds } = await app.db.transaction(async (tx) => {
+    await lockAndAssertUserCanCreateJobs(tx, userId);
     const [mannequinJob] = await tx
       .insert(schema.jobs)
       .values({

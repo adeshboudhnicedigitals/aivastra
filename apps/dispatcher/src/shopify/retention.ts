@@ -1,7 +1,13 @@
-import { type DB, schema } from '@aivastra/db';
+import {
+  cleanupComparisonReplay,
+  type DB,
+  invalidateComparisonsForSources,
+  schema,
+  type WithDbLock,
+} from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
-import type { StorageProvider } from '@aivastra/storage';
-import { and, eq, inArray, isNotNull, lt, notExists, or, sql } from 'drizzle-orm';
+import { keys, type StorageProvider } from '@aivastra/storage';
+import { and, eq, exists, inArray, isNotNull, lt, notExists, or, sql } from 'drizzle-orm';
 
 // Bounded so one store with a long backlog cannot monopolise a pass. The
 // sweeper runs hourly; anything left over is picked up next time.
@@ -27,6 +33,44 @@ async function tryDelete(storage: StorageProvider, key: string, log: Logger): Pr
   }
 }
 
+async function eraseComparisonReplays(
+  db: DB,
+  storage: StorageProvider,
+  log: Logger,
+  withAdvisoryLock: WithDbLock,
+  sourceJobId: string,
+): Promise<boolean> {
+  const links = await invalidateComparisonsForSources(db, [sourceJobId]);
+  let complete = true;
+  for (const link of links) {
+    if (!link.generalJobId) continue;
+    try {
+      const result = await cleanupComparisonReplay({
+        db,
+        withAdvisoryLock,
+        comparisonId: link.id,
+        io: {
+          deleteObject: (key) => storage.deleteObject(key),
+          replayOutputKeys: (jobId) => [
+            keys.output(jobId, 'png'),
+            keys.output(jobId, 'webp'),
+            keys.outputThumb(jobId),
+          ],
+        },
+        eligible: (row) => row.sourceJobId === sourceJobId && row.status === 'EXPIRED',
+      });
+      if (!result.complete) complete = false;
+    } catch (err) {
+      complete = false;
+      log.warn(
+        { err, sourceJobId, comparisonId: link.id, replayJobId: link.generalJobId },
+        'shopify retention: comparison outputs could not be purged; will retry next pass',
+      );
+    }
+  }
+  return complete;
+}
+
 /**
  * Delete shopper PII past each store's configured retention.
  *
@@ -40,6 +84,7 @@ export async function runShopifyRetention(
   db: DB,
   storage: StorageProvider,
   log: Logger,
+  withAdvisoryLock: WithDbLock,
 ): Promise<void> {
   const stores = await db.select().from(schema.shopifyStores);
 
@@ -62,6 +107,7 @@ export async function runShopifyRetention(
 
       for (const row of rows) {
         if (!row.key) continue;
+        if (!(await eraseComparisonReplays(db, storage, log, withAdvisoryLock, row.id))) continue;
         if (!(await tryDelete(storage, row.key, log))) continue;
         await db
           .update(schema.jobs)
@@ -96,6 +142,8 @@ export async function runShopifyRetention(
         .limit(BATCH);
 
       for (const row of rows) {
+        if (!(await eraseComparisonReplays(db, storage, log, withAdvisoryLock, row.jobId)))
+          continue;
         // The two keys are nulled independently: one object may delete
         // successfully while its sibling transiently fails, and a failed
         // delete must leave its own column non-null so the next pass retries
@@ -149,6 +197,12 @@ export async function runShopifyRetention(
               isNotNull(schema.jobs.customerPhotoKey),
               isNotNull(schema.jobOutputs.resultKey),
               isNotNull(schema.jobOutputs.thumbnailKey),
+              exists(
+                db
+                  .select({ one: sql`1` })
+                  .from(schema.workflowComparisons)
+                  .where(eq(schema.workflowComparisons.sourceJobId, schema.jobs.id)),
+              ),
             ),
           ),
         );

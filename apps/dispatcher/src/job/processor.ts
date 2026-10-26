@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { type DB, schema } from '@aivastra/db';
+import { type DB, schema, type WithDbLock } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import {
   comfyRequestDuration,
@@ -10,6 +10,7 @@ import {
 } from '@aivastra/observability';
 import { keys, type StorageProvider } from '@aivastra/storage';
 import {
+  JOB_SOURCE,
   PIXVERSE_DURATION_MAX,
   PIXVERSE_DURATION_MIN,
   PIXVERSE_QUALITIES,
@@ -39,6 +40,7 @@ import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 import { releaseWorker } from '../worker/registry.js';
 import { selectPreferredWorker, selectWorker } from '../worker/selector.js';
 import { stackAccessoryImages } from '../workflow/accessory-stack.js';
+import { finalizeComparisonOutput } from '../workflow/comparison-finalize.js';
 import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
 import { encodeCompressedImage, finalizeOutput } from '../workflow/finalize.js';
 import { patchWorkflow } from '../workflow/patcher.js';
@@ -67,7 +69,10 @@ type JobOutcome = 'success' | 'failed' | 'retried' | 'cancelled';
 /** Record the terminal (or retry) outcome of a processing attempt with its duration. */
 function recordJobOutcome(outcome: JobOutcome, startedAt: number, jobType: string | null): void {
   const job_type = jobType ?? 'unknown';
-  jobsProcessedTotal.inc({ outcome });
+  // jobs_processed_total has no source label, so an internal comparison replay would
+  // sit inside the customer success-rate panels with no way to filter it out. Its
+  // timing is still recorded below under job_type="comparison".
+  if (jobType !== JOB_SOURCE.COMPARISON) jobsProcessedTotal.inc({ outcome });
   jobProcessingDuration.observe({ outcome, job_type }, (Date.now() - startedAt) / 1000);
 }
 
@@ -159,6 +164,7 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
 
 export interface ProcessorConfig {
   db: DB;
+  withAdvisoryLock?: WithDbLock;
   redis: Redis;
   comfyRedis: Redis;
   pub: Redis;
@@ -228,7 +234,7 @@ export async function processJob(
   }
 
   // Past the skip checks — this is a real processing attempt.
-  jobAttemptsTotal.inc();
+  if (job.source !== JOB_SOURCE.COMPARISON) jobAttemptsTotal.inc(); // see recordJobOutcome
 
   const [inputs] = await db
     .select()
@@ -1411,7 +1417,7 @@ async function processTryonDirectJob(
     // Compression is configurable per job source (admin Settings → Image
     // Compression); tryon/api_tryon/merchant_tryon default to enabled q90.
     const compression = await getImageCompressionConfig(redis, job.source);
-    const { completed } = await finalizeOutput({
+    const finalization = {
       imageBytes,
       jobId,
       userId,
@@ -1421,7 +1427,11 @@ async function processTryonDirectJob(
       pub,
       storage,
       jobLog,
-    });
+    };
+    const { completed } =
+      job.source === JOB_SOURCE.COMPARISON
+        ? await finalizeComparisonOutput(finalization, cfg.withAdvisoryLock)
+        : await finalizeOutput(finalization);
     if (!completed) {
       settlePerformanceSample(w, 'cancelled');
       await redis.xack(stream, 'dispatcher-cg', messageId);

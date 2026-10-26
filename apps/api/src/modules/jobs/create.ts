@@ -29,6 +29,7 @@ import { assertGarmentObjectValid, assertOwnsUploadKey } from '../../lib/upload-
 import { atomicDeduct, refundAndMarkFailed } from '../credits/ledger.js';
 import { getActiveUnlimitedPlan } from '../credits/unlimited-plan.js';
 import { getSareeSettings } from '../saree/settings.js';
+import { lockAndAssertUserCanCreateJobs } from './creation-guard.js';
 import { promptGuard } from './sanitize.js';
 
 export { assertOwnsUploadKey } from '../../lib/upload-ownership.js';
@@ -1247,6 +1248,7 @@ export async function createJob(
 
   const cost = opts?.waiveCost ? 0 : plan.cost;
   const jobIds = await app.db.transaction(async (tx) => {
+    await lockAndAssertUserCanCreateJobs(tx, userId);
     const created: string[] = [];
     for (const look of plan.looks) {
       const [job] = await tx
@@ -1462,6 +1464,7 @@ export async function createSimpleTryonJob(
 
   const catalogueId = randomUUID();
   const [job] = await app.db.transaction(async (tx) => {
+    await lockAndAssertUserCanCreateJobs(tx, userId);
     const [newJob] = await tx
       .insert(schema.jobs)
       .values({
@@ -1602,6 +1605,7 @@ export async function createCatalogVideoJob(
   // PixVerse's real cost varies by both, for presets and custom alike.
   const cost = await getPixverseVideoCreditCost(app, duration, quality);
   const [job] = await app.db.transaction(async (tx) => {
+    await lockAndAssertUserCanCreateJobs(tx, userId);
     const [newJob] = await tx
       .insert(schema.jobs)
       .values({

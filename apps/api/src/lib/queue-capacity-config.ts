@@ -1,18 +1,18 @@
 import { schema } from '@aivastra/db';
 import { DEFAULT_MAX_QUEUE_DEPTH, JOB_SOURCE } from '@aivastra/types';
-import { and, count, eq, sql } from 'drizzle-orm';
+import { and, count, eq, notInArray, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from './errors.js';
 
 const CONFIG_KEY = 'config:system';
 
-// Every job source competes for the same GPU worker pool EXCEPT catalog_video, which
-// rides its own jobs:video lane (capped by VIDEO_CONCURRENCY, not the GPU worker
-// count) — so it's excluded from the count. Not just the sources this plan's own
+// Customer GPU jobs share this ceiling. catalog_video rides its own jobs:video
+// lane, and internal comparisons use the in-house lane, so neither consumes
+// customer capacity. Count all other sources, not just the sources this plan's own
 // job-creation functions produce, since a Shopify, merchant, kiosk, dev-catalog, or
 // tryon-direct job sitting QUEUED is just as much a worker-pool consumer as a
 // catalog/saree job is.
-const VIDEO_SOURCE = JOB_SOURCE.CATALOG_VIDEO;
+const EXCLUDED_SOURCES = [JOB_SOURCE.CATALOG_VIDEO, JOB_SOURCE.COMPARISON];
 
 /**
  * Reads the admin-configured ceiling on concurrently QUEUED jobs (system-wide,
@@ -34,8 +34,8 @@ export async function getMaxQueueDepth(app: FastifyInstance): Promise<number> {
 
 /**
  * Rejects a job submission before any credit/DB work if accepting it would push
- * the system-wide QUEUED count — every source except catalog_video (see VIDEO_SOURCE
- * above), not just the sources this plan's own 4 gated functions create — past the
+ * the customer QUEUED count — excluding video and internal comparisons (see
+ * EXCLUDED_SOURCES above), not just the sources this plan's own 4 gated functions create — past the
  * admin's ceiling. This is an admission-control gate, not a correctness guard — a
  * concurrent submission can still race past it, same tradeoff createBatchJobs's
  * preflight balance check already accepts (see create.ts comment there). Note: only
@@ -55,9 +55,9 @@ export async function assertQueueCapacity(
       and(
         eq(schema.jobs.status, 'QUEUED'),
         // jobs.source is nullable, so the negative branch must COALESCE — a bare
-        // `source <> 'catalog_video'` evaluates to NULL on legacy rows and would
+        // `source NOT IN (...)` evaluates to NULL on legacy rows and would
         // silently exclude them from the count (same trap sweeper.ts guards against).
-        sql`coalesce(${schema.jobs.source}, '') <> ${VIDEO_SOURCE}`,
+        notInArray(sql`coalesce(${schema.jobs.source}, '')`, EXCLUDED_SOURCES),
       ),
     );
   const current = row?.c ?? 0;

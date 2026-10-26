@@ -82,6 +82,13 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+function formatRaisedAt(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? 'Unknown'
+    : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -396,6 +403,7 @@ export default function ChatInboxPage({ toast }: Props) {
   const sortedQueue = [...queue].sort(byRecency).filter(matchesSearch);
   const sortedMine = [...myTickets].sort(byRecency).filter(matchesSearch);
   const list = activeTab === 'unclaimed' ? sortedQueue : sortedMine;
+  const selectedConversation = [...queue, ...myTickets].find((c) => c.id === selectedConv);
 
   return (
     <div
@@ -550,6 +558,12 @@ export default function ChatInboxPage({ toast }: Props) {
                       >
                         {c.subject || 'No subject'}
                       </div>
+                      <div
+                        title={c.createdAt}
+                        style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 3 }}
+                      >
+                        Raised {formatRaisedAt(c.createdAt)}
+                      </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
                         <span
                           title={`Priority: ${c.priority}`}
@@ -653,6 +667,14 @@ export default function ChatInboxPage({ toast }: Props) {
                   >
                     {fields.subject || 'No subject'}
                   </div>
+                  {selectedConversation && (
+                    <div
+                      title={selectedConversation.createdAt}
+                      style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 2 }}
+                    >
+                      Raised {formatRaisedAt(selectedConversation.createdAt)}
+                    </div>
+                  )}
                 </div>
                 <span className={statusBadgeClass(status)}>{status}</span>
                 {status === 'OPEN' && (

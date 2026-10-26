@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { resolveQueueRouting } from './create.js';
+import { lockAndAssertUserCanCreateJobs } from './creation-guard.js';
 import { hasActiveRefundRequest } from './refund-requests.js';
 import { promptGuard } from './sanitize.js';
 
@@ -159,6 +160,7 @@ export async function regenerateJob(
   const { queueStream, priority, watermark } = await resolveQueueRouting(app, userId);
 
   const newJobId = await app.db.transaction(async (tx) => {
+    await lockAndAssertUserCanCreateJobs(tx, userId);
     const [newJob] = await tx
       .insert(schema.jobs)
       .values({

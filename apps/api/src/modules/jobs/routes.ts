@@ -23,6 +23,7 @@ import { withIdempotency } from '../../lib/idempotency.js';
 import { sendReportReceivedEmail } from '../../lib/mailer.js';
 import { getFabricToGarmentCreditCost, getTryonCreditCost } from '../../lib/resolution-config.js';
 import { reopenResolvedTicket, setSubjectFromFirstMessage } from '../../lib/tickets.js';
+import { eraseComparisonsForSourceJobs } from '../comparison/erase.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { claimFabricToGarmentResult } from './claimFabricToGarmentResult.js';
 import {
@@ -1208,6 +1209,14 @@ export async function jobsRoutes(app: FastifyInstance) {
       const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED'];
       if (!TERMINAL.includes(job.status)) {
         throw new AppError('CONFLICT', 409, 'cannot delete an active job');
+      }
+      const comparisonCleanup = await eraseComparisonsForSourceJobs(app, [id]);
+      if (comparisonCleanup.incomplete > 0) {
+        throw new AppError(
+          'CONFLICT',
+          409,
+          'comparison output cleanup pending; retry job deletion',
+        );
       }
       // Delete R2 output object if it exists. Tryon-direct results
       // (source='tryon'/'api_tryon') are stored WebP-encoded, not PNG (see

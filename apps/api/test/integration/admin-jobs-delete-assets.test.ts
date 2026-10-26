@@ -156,7 +156,9 @@ describe('POST /admin/jobs/:id/delete-assets', () => {
       .select()
       .from(schema.jobInputs)
       .where(eq(schema.jobInputs.jobId, job.id));
-    expect(inputs?.params).toEqual({ workflowTemplateId: 'wt-1' });
+    // Deleting a source's result or person image also tombstones it, so the workflow
+    // comparison sweeper never replays a source whose original is gone.
+    expect(inputs?.params).toEqual({ workflowTemplateId: 'wt-1', comparisonErased: true });
   });
 
   it('deletes the customerPhotoKey person image on a merchant-style job', async () => {
@@ -204,7 +206,29 @@ describe('POST /admin/jobs/:id/delete-assets', () => {
       .select()
       .from(schema.jobInputs)
       .where(eq(schema.jobInputs.jobId, job.id));
-    expect(inputs?.params).toEqual({ workflowTemplateId: 'wt-1' });
+    // Deleting a source's result or person image also tombstones it, so the workflow
+    // comparison sweeper never replays a source whose original is gone.
+    expect(inputs?.params).toEqual({ workflowTemplateId: 'wt-1', comparisonErased: true });
+  });
+
+  it('refuses to erase the person image of a comparison replay, which shares its source inputs', async () => {
+    const replay = await seedJob('COMPLETED', 'comparison');
+    const personKey = `inputs/${replay.id}-shared-person.jpg`;
+    await app.storage.putObject(personKey, Buffer.from('stub-person'), 'image/jpeg');
+    await app.db
+      .insert(schema.jobInputs)
+      .values({ jobId: replay.id, params: { personKey, inhouse: true } });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/admin/jobs/${replay.id}/delete-assets`,
+      headers: superAdminHeader,
+      payload: { password: ADMIN_PASSWORD, targets: ['person'] },
+    });
+
+    expect(res.statusCode).toBe(409);
+    // The key belongs to the source job; deleting it here would destroy the original.
+    await expect(app.storage.headObject(personKey)).resolves.toBeDefined();
   });
 
   it('deletes both result and person in one call and writes an audit row', async () => {

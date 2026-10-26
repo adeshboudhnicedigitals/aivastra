@@ -5,6 +5,7 @@ export * from './batch.js';
 export * from './catalog.js';
 export * from './chatbot.js';
 export * from './common.js';
+export * from './comparison.js';
 export * from './credits.js';
 export * from './demo-catalog.js';
 export * from './dev.js';
