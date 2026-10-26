@@ -38,6 +38,7 @@ describe('admin image compression config', () => {
     // enabled so shipping this doesn't silently change output.
     expect(cfg.tryon).toEqual({ enabled: true, level: 'q90' });
     expect(cfg.api_tryon).toEqual({ enabled: true, level: 'q90' });
+    expect(cfg.comparison).toEqual({ enabled: true, level: 'q90' });
     expect(cfg.merchant_tryon).toEqual({ enabled: true, level: 'q90' });
     expect(cfg.wordpress_tryon).toEqual({ enabled: true, level: 'q90' });
     expect(cfg.regenerate).toEqual({ enabled: true, level: 'q90' });

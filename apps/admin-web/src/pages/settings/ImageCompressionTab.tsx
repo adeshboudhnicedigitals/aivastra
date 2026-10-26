@@ -18,6 +18,7 @@ const JOB_SOURCE_LABELS: [string, string][] = [
   ['api_catalog', 'API Catalog'],
   ['tryon', 'Tryon (Direct Edit)'],
   ['api_tryon', 'API Tryon'],
+  ['comparison', 'Workflow Comparison'],
   ['merchant_tryon', 'Merchant Tryon'],
   ['regenerate', 'Regenerate'],
   ['saree', 'Saree Catalogue'],

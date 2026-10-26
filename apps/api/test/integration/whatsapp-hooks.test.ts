@@ -362,12 +362,19 @@ describe('whatsapp inbound consumer ordering', () => {
       // Same sender stays in order: A2 only starts once A1 is done.
       expect(A2.start).toBeGreaterThanOrEqual(A1.end);
 
-      // Every message acked: nothing left pending in the group.
-      const pending = (await app.redis.xpending(
-        INBOUND_STREAM,
-        'messaging-inbound-cg',
-      )) as unknown[];
-      expect(Number(pending[0])).toBe(0);
+      // processInbound finishes just before handleOne XACKs, so wait for the
+      // consumer's acknowledgement instead of racing its final Redis command.
+      const ackDeadline = Date.now() + 2_000;
+      let pendingCount = -1;
+      while (pendingCount !== 0 && Date.now() < ackDeadline) {
+        const pending = (await app.redis.xpending(
+          INBOUND_STREAM,
+          'messaging-inbound-cg',
+        )) as unknown[];
+        pendingCount = Number(pending[0]);
+        if (pendingCount !== 0) await sleep(25);
+      }
+      expect(pendingCount).toBe(0);
     } finally {
       stop();
     }

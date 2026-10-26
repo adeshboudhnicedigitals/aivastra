@@ -133,6 +133,12 @@ const groups: NavGroup[] = [
         perm: 'jobs.read',
       },
       {
+        k: 'workflow-comparisons',
+        label: 'Workflow Comparisons',
+        icon: Icon.Workflow,
+        perm: 'jobs.read',
+      },
+      {
         k: 'held-batches',
         label: 'Held Batches',
         icon: Icon.Jobs,

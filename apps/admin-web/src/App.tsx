@@ -33,6 +33,7 @@ import TryonPage from './pages/TryonPage';
 import UsersPage from './pages/UsersPage';
 import WhatsAppPage from './pages/WhatsAppPage';
 import WorkersPage from './pages/WorkersPage';
+import WorkflowComparisonsPage from './pages/WorkflowComparisonsPage';
 import WorkflowsPage from './pages/WorkflowsPage';
 import type { ToastItem } from './types';
 
@@ -46,6 +47,7 @@ const PATH_LABELS: Record<string, string> = {
   users: 'Users',
   jobs: 'Jobs',
   whatsapp: 'WhatsApp',
+  'workflow-comparisons': 'Workflow Comparisons',
   'held-batches': 'Held Batches',
   workflows: 'Workflows',
   'workflow-approvals': 'Flow Approvals',
@@ -264,6 +266,10 @@ export default function App() {
             <Route path="/whatsapp" element={<WhatsAppPage {...pageProps} />} />
             {/* Old homes of what is now the WhatsApp page. */}
             <Route path="/classify-service" element={<Navigate to="/whatsapp" replace />} />
+            <Route
+              path="/workflow-comparisons"
+              element={<WorkflowComparisonsPage toast={toast} />}
+            />
             <Route
               path="/garment-recognitions"
               element={<Navigate to="/whatsapp?tab=requests" replace />}

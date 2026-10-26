@@ -9,6 +9,7 @@ import postgres from 'postgres';
 
 export interface TestEnv {
   db: DB;
+  withAdvisoryLock: ReturnType<typeof createDb>['withAdvisoryLock'];
   closeDb: () => Promise<void>;
   redisUrl: string;
   storage: StorageProvider;
@@ -37,7 +38,7 @@ export async function setupTestEnv(): Promise<TestEnv> {
   });
   await migClient.end();
 
-  const { db, close: closeDb } = createDb(pgUrl);
+  const { db, close: closeDb, withAdvisoryLock } = createDb(pgUrl);
 
   const r2Endpoint = 'http://127.0.0.1:9000';
   const bucket = `disp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -61,6 +62,7 @@ export async function setupTestEnv(): Promise<TestEnv> {
   return {
     db,
     closeDb,
+    withAdvisoryLock,
     redisUrl: 'redis://127.0.0.1:6379',
     storage,
     s3,

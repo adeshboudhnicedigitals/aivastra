@@ -67,11 +67,14 @@ export async function releaseWorkerIfBusy(redis: Redis, workerId: string): Promi
 // dedicated to inhouse never inflates the shared lanes' cap (their consumers would
 // hold slots no eligible worker can fill) and vice versa.
 export function servesSharedPools(w: WorkerEntry): boolean {
-  return w.allowedJobTypes.length === 0 || w.allowedJobTypes.some((t) => t !== 'inhouse');
+  return (
+    w.status !== 'DRAINING' &&
+    (w.allowedJobTypes.length === 0 || w.allowedJobTypes.some((t) => t !== 'inhouse'))
+  );
 }
 
 export function servesInhouse(w: WorkerEntry): boolean {
-  return w.allowedJobTypes.includes('inhouse');
+  return w.status !== 'DRAINING' && w.allowedJobTypes.includes('inhouse');
 }
 
 export async function getWorkers(redis: Redis): Promise<Map<string, WorkerEntry>> {

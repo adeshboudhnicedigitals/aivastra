@@ -86,7 +86,10 @@ export async function runConsumer(
   cfg: ProcessorConfig,
   log: Logger,
 ): Promise<() => void> {
-  await ensureGroups(redis, log);
+  // XREADGROUP BLOCK parks its Redis connection. Keep it away from claims,
+  // acknowledgements and registry reads used by active jobs.
+  const readConn = redis.duplicate();
+  await ensureGroups(readConn, log);
 
   // In-flight cap = number of registered workers, read live from the registry so
   // scaling GPUs up/down via the admin panel takes effect without a restart.
@@ -111,9 +114,13 @@ export async function runConsumer(
     return concurrency;
   }
 
-  return runStreamLoop(cfg, log, {
+  const stop = runStreamLoop(cfg, log, {
     name: 'gpu',
-    read: () => readOne(redis),
+    read: () => readOne(readConn),
     getConcurrency,
   });
+  return () => {
+    stop();
+    void readConn.quit().catch(() => {});
+  };
 }

@@ -83,6 +83,7 @@ describe('user low-credit alert scheduler', () => {
       app.env.RESEND_API_KEY,
       app.env.EMAIL_FROM,
       'below-threshold@example.com',
+      'Low Credit Test User',
     );
 
     const [row] = await app.db

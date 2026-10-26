@@ -1611,6 +1611,13 @@
       "when": 1792665581920,
       "tag": "0230_lush_orphan",
       "breakpoints": true
+    },
+    {
+      "idx": 231,
+      "version": "7",
+      "when": 1792735470794,
+      "tag": "0231_mysterious_red_hulk",
+      "breakpoints": true
     }
   ]
 }

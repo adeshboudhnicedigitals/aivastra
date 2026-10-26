@@ -229,11 +229,14 @@ export async function notifyRefundDecision(
 ) {
   try {
     const [user] = await app.db
-      .select({ email: schema.users.email })
+      .select({ email: schema.users.email, displayName: schema.users.displayName })
       .from(schema.users)
       .where(eq(schema.users.id, userId));
     if (!user?.email) return;
-    await sendRefundDecisionEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, user.email, decision);
+    await sendRefundDecisionEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, user.email, {
+      ...decision,
+      name: user.displayName,
+    });
   } catch (err) {
     app.log.error({ err, userId }, 'Failed to send refund decision email');
   }

@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
-import { and, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
+import { and, eq, exists, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { eraseComparisonsForSourceJobs } from '../comparison/erase.js';
 import { normalizeEmail } from './shopper.js';
 
 export interface ShopperMatch {
@@ -86,6 +87,9 @@ async function purgeJobObjects(
   app: FastifyInstance,
   job: { id: string; photoKey: string | null },
 ): Promise<boolean> {
+  const comparisonCleanup = await eraseComparisonsForSourceJobs(app, [job.id]);
+  if (comparisonCleanup.incomplete > 0) return false;
+
   let clean = true;
 
   if (job.photoKey) {
@@ -246,6 +250,12 @@ async function purgeUnlinkedStoreJobs(app: FastifyInstance, storeId: string): Pr
           isNotNull(schema.jobs.customerPhotoKey),
           isNotNull(schema.jobOutputs.resultKey),
           isNotNull(schema.jobOutputs.thumbnailKey),
+          exists(
+            app.db
+              .select({ one: schema.workflowComparisons.id })
+              .from(schema.workflowComparisons)
+              .where(eq(schema.workflowComparisons.sourceJobId, schema.jobs.id)),
+          ),
         ),
       ),
     );

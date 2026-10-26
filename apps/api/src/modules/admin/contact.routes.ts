@@ -138,6 +138,7 @@ export async function adminContactRoutes(app: FastifyInstance) {
             app.env.EMAIL_FROM,
             row.email,
             row.message?.trim() || 'Your reported issue',
+            row.name,
           );
         } catch (err) {
           app.log.error({ err, contactRequestId: id }, 'Failed to send issue-resolved email');

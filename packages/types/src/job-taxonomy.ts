@@ -20,6 +20,7 @@ export const JOB_SOURCE = {
   EXTENSION_TRYON: 'extension_tryon',
   WHATSAPP_TRYON: 'whatsapp_tryon',
   FABRIC_TO_GARMENT: 'fabric_to_garment',
+  COMPARISON: 'comparison',
 } as const;
 export type JobSource = (typeof JOB_SOURCE)[keyof typeof JOB_SOURCE];
 export const jobSourceSchema = z.enum(Object.values(JOB_SOURCE) as [JobSource, ...JobSource[]]);

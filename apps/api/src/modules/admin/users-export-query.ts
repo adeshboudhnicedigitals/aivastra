@@ -17,6 +17,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { notComparisonSystemUser } from '../comparison/exclusion.js';
 
 // createdFrom/createdTo are plain YYYY-MM-DD dates from the admin's date
 // pickers — see DATE_ONLY below for how "to" is made inclusive of the whole day.
@@ -92,6 +93,8 @@ export async function loadUsersForExport(
   const where = and(
     searchWhere,
     bannedWhere,
+    // The reserved account that owns internal comparison replays is not a customer.
+    notComparisonSystemUser,
     merchant === true ? isNotNull(schema.merchants.id) : undefined,
     fromInclusive ? gte(schema.users.createdAt, fromInclusive) : undefined,
     toInclusive ? lte(schema.users.createdAt, toInclusive) : undefined,
