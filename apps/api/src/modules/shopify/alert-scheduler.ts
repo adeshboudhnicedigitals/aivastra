@@ -49,6 +49,7 @@ interface SendEmailArgs {
   balance: number;
   tryOnsRemaining: number;
   daysRemaining: number | null;
+  name?: string | null;
 }
 
 async function defaultSendEmail(app: FastifyInstance, args: SendEmailArgs): Promise<void> {
@@ -59,6 +60,7 @@ async function defaultSendEmail(app: FastifyInstance, args: SendEmailArgs): Prom
     balance: args.balance,
     tryOnsRemaining: args.tryOnsRemaining,
     daysRemaining: args.daysRemaining,
+    name: args.name,
   });
 }
 
@@ -255,6 +257,7 @@ export async function runAlertTick(app: FastifyInstance, deps: TickDeps = {}): P
             balance: runway.balance,
             tryOnsRemaining: runway.tryOnsRemaining,
             daysRemaining: runway.daysRemaining,
+            name: store.shopOwnerName,
           });
           notified = true;
           app.log.info(

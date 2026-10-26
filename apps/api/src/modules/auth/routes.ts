@@ -388,6 +388,7 @@ export async function authRoutes(app: FastifyInstance) {
           app.env.WEB_URL,
           email,
           token,
+          displayName,
         );
       } catch (err) {
         app.log.error({ err }, 'Failed to send verification email');
@@ -1051,7 +1052,12 @@ export async function authRoutes(app: FastifyInstance) {
 
       if (isNewUser) {
         try {
-          await sendWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, identity.email);
+          await sendWelcomeEmail(
+            app.env.RESEND_API_KEY,
+            app.env.EMAIL_FROM,
+            identity.email,
+            identity.name,
+          );
         } catch (err) {
           app.log.error({ err }, 'Failed to send welcome email');
         }
@@ -1313,11 +1319,16 @@ export async function authRoutes(app: FastifyInstance) {
         .update(schema.users)
         .set({ emailVerified: true })
         .where(eq(schema.users.id, userId))
-        .returning({ email: schema.users.email });
+        .returning({ email: schema.users.email, displayName: schema.users.displayName });
 
       try {
         if (verifiedUser?.email) {
-          await sendWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, verifiedUser.email);
+          await sendWelcomeEmail(
+            app.env.RESEND_API_KEY,
+            app.env.EMAIL_FROM,
+            verifiedUser.email,
+            verifiedUser.displayName,
+          );
         }
       } catch (err) {
         app.log.error({ err }, 'Failed to send welcome email');
@@ -1336,7 +1347,11 @@ export async function authRoutes(app: FastifyInstance) {
     async (req) => {
       const { email } = req.body as { email: string };
       const [user] = await app.db
-        .select({ id: schema.users.id, emailVerified: schema.users.emailVerified })
+        .select({
+          id: schema.users.id,
+          emailVerified: schema.users.emailVerified,
+          displayName: schema.users.displayName,
+        })
         .from(schema.users)
         .where(eq(schema.users.email, email));
       // Always return 200 — no email enumeration
@@ -1350,6 +1365,7 @@ export async function authRoutes(app: FastifyInstance) {
           app.env.WEB_URL,
           email,
           token,
+          user.displayName,
         );
       } catch (err) {
         app.log.error({ err }, 'Failed to resend verification email');
@@ -1407,7 +1423,11 @@ export async function authRoutes(app: FastifyInstance) {
     async (req) => {
       const { email } = req.body as { email: string };
       const [user] = await app.db
-        .select({ id: schema.users.id, passwordHash: schema.users.passwordHash })
+        .select({
+          id: schema.users.id,
+          passwordHash: schema.users.passwordHash,
+          displayName: schema.users.displayName,
+        })
         .from(schema.users)
         .where(eq(schema.users.email, email));
       // Always return 200 — no email enumeration
@@ -1421,6 +1441,7 @@ export async function authRoutes(app: FastifyInstance) {
           app.env.WEB_URL,
           email,
           token,
+          user.displayName,
         );
       } catch (err) {
         app.log.error({ err }, 'Failed to send password reset email');

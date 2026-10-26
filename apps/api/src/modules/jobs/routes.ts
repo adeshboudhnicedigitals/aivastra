@@ -1341,7 +1341,12 @@ export async function jobsRoutes(app: FastifyInstance) {
       // be the account's own email — so the acknowledgment goes to whatever the
       // caller submitted, same as the original contact_requests-era handler.
       try {
-        await sendReportReceivedEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, body.email);
+        await sendReportReceivedEmail(
+          app.env.RESEND_API_KEY,
+          app.env.EMAIL_FROM,
+          body.email,
+          body.name,
+        );
       } catch (err) {
         app.log.error({ err }, 'Failed to send report-received acknowledgment email');
       }

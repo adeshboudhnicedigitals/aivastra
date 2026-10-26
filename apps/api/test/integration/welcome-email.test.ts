@@ -100,6 +100,7 @@ describe('welcome email timing', () => {
       app.env.RESEND_API_KEY,
       app.env.EMAIL_FROM,
       'verifyme@example.com',
+      'Verify Me',
     );
 
     const [user] = await app.db
@@ -143,6 +144,7 @@ describe('welcome email timing', () => {
       app.env.RESEND_API_KEY,
       app.env.EMAIL_FROM,
       email,
+      'Google Person',
     );
 
     const [user] = await app.db
