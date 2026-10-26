@@ -1,9 +1,16 @@
 # Handover: WhatsApp baskets + ranked garment classifier
 
-**For:** the next Claude Code agent (continuing on another machine)
-**From:** Claude, session of 2026-10-26. Design agreed with the user, one slice built (admin page rename), the rest not started.
-**Branch:** start from `dev`. The admin rename in "Already done" is **uncommitted** on the other machine's checkout unless the user pushed it; check `git log`/`git status` first and, if missing, redo it from the description below (it is small).
-**Read first:** `CLAUDE.md` (esp. Production safety, Commits and pushes, "Decisions get a tradeoff"), then `docs/progress.md` top entries.
+**For:** the next Claude Code agent, continuing on 2026-10-27.
+**From:** Claude, sessions of 2026-10-26. Design agreed with the user; the feature is built and tested on `feat/whatsapp-baskets` (committed, not pushed). The classify service on gpu8 is degraded by its shared GPU; that is tomorrow's first job.
+**Branch:** `feat/whatsapp-baskets` (has `origin/dev` merged in as of 2026-10-26). Run `git log --oneline -5` and `git status` first.
+**Read first:** `CLAUDE.md` (esp. Production safety, Commits and pushes, "Decisions get a tradeoff"), then `docs/progress.md` top entries, then `aivastra-gpu` `boxes/gpu8.md` ("2026-10-26 incident").
+
+## 0. Start here tomorrow
+
+1. **gpu8 classify service (blocking, user wants this first).** See section 10. Measure the peak VRAM of one complete worst-case request and reserve it at warm-up; then decide with the user between a dedicated GPU and moving the service to one of our own boxes. Any change on the box needs the user's go-ahead.
+2. **Open the admin WhatsApp → Baskets tab in a real browser** (never done: Claude in Chrome was not connected). Check create / edit / deactivate, the member picker's disabled rows with reasons, "Runs as", and the gender switch in the URL.
+3. **Run the bot flow once end to end locally** (photo → gender → basket guess or basket list → pose count). Only the engine tests and integration tests have run it.
+4. Remaining build items: section 6 "Not done".
 
 ## 1. Goal
 
@@ -29,14 +36,27 @@ Why sum probabilities per basket: individual types inside a basket are visually 
 - Representative type per basket: admin marks one explicitly; if none marked, fall back to the first ready type by sort order. (Recommended by Claude; the user asked what it meant and was told it defaults safely. Treat as accepted unless the user objects.)
 - No new model. Reuse the Qwen2.5-VL service already on the GPU box with its scored mode (section 5).
 
-## 3. Already done (uncommitted at time of writing)
+## 3. Already done
 
-Admin SPA (`apps/admin-web/src`), typecheck clean, lint at baseline (17 warnings, 0 errors). **Not opened in a browser.**
+Committed on `feat/whatsapp-baskets` (see `git log`); verified with typecheck + Biome on api, dispatcher and admin; api unit suite 1035/1035, WhatsApp/messaging integration 58/58, dispatcher `classify-lane` 12/12, new `admin-whatsapp-baskets` integration 6/6.
 
-- `pages/ClassifyServicePage.tsx` → `pages/WhatsAppPage.tsx` (`git mv`). Heading "WhatsApp". Tabs: **Classifier** (old Overview), **Poses**, **Requests**, **Logs**. Tab ids: `overview`, `whatsapp-poses`, `requests`, `logs`.
-- Route `/whatsapp`; `/classify-service` and `/garment-recognitions` redirect (the latter to `?tab=requests`) in `App.tsx`. Sidebar item `k: 'whatsapp'`, label "WhatsApp". `PATH_LABELS` updated.
-- The WhatsApp Poses tab moved out of Assets. It still depends on `AssetsProvider`/`useAssetsContext`, so `WhatsAppPage` mounts it inside its own `AssetsProvider` only on that tab (`PosesPane`), and `WhatsappPosesTab` got an `embedded` prop that hides its own page heading. Removed from `AssetsPage.tsx` tab list and `AssetsContext.tsx` (`AssetTab`, `VALID_TABS`). Old `/assets?tab=whatsapp-poses` bookmarks fall back to Garment Types.
-- Backend admin endpoints are unchanged (`/admin/classify-service/*`, `/admin/garment-recognitions/*`).
+- **Admin rename** (earlier commit `e4b586cc`): Classify Service → **WhatsApp** page, tabs Classifier / Baskets / Poses / Requests / Logs; `/classify-service` and `/garment-recognitions` redirect.
+- **Schema** (migration `0232_narrow_lady_deathstrike`, applied locally only): `whatsapp_baskets` (`gender_slug`, `name`, nullable `representative_subcategory_id`, `sort_order`, `is_active`), `garment_subcategories.whatsapp_basket_id` (nullable FK, at most one basket per type), `garment_recognitions.ranked` (jsonb).
+- **Contract:** `GarmentRecognitionResult.ranked?: {slug,p}[]` (best first). New `packages/types/src/whatsapp-baskets.ts` (create/patch bodies, `WhatsAppIneligibleReason`).
+- **Dispatcher:** the service path also sends `options` (JSON list of slugs) and passes `ranked` (or the first scored server's `top`) through `readRanked`, and records it. The current plain server ignores `options`, so this is safe to deploy before the GPU change.
+- **Api, `messaging/baskets.ts`:** `whatsappIneligibleReason` (single-image rule: no lower / third / fourth upload, no mannequin step), `loadBasketTypes`, `rankBaskets` (sum p per basket; a type in no basket or an inactive one is its own `t:<id>` basket), `basketMembers` (representative first), `basketChoices` (the fallback list).
+- **Api, `messaging/classify.ts`:** `recognizeBaskets(app, key, gender)` sends that gender's single-image public types, aggregates, and returns the top `MAX_BASKETS` (4) or null below `MIN_BASKET_SCORE` (0.5, **placeholder**, tune from data). A backend that cannot rank: the single matched answer counts as p = 1. `typesOfBasket`, `listBaskets`.
+- **Engine:** photo → **gender first** → `CONFIRM_BASKET` ("Looks like <basket>. Correct?") → No → `CHOOSE_BASKET` (alternatives + "Something else") → `ASK_GARMENT_TYPE`, which now lists **baskets** (then loose types), not every type. A basket runs as the first offerable member, representative first; none offerable → studio hand-off with the reason reported. Old `CONFIRM_KIND` sessions upgrade to `ASK_GENDER`; an old `gt` type row is still accepted. `deps.listGarmentTypes` applies the single-image rule.
+- **Admin api:** `GET/POST /admin/whatsapp/baskets`, `PATCH/DELETE /admin/whatsapp/baskets/:id` (`subcategories.write`, `recordAudit` in the transaction, delete = deactivate, members validated for gender + single-image, representative must be a member). UI: `apps/admin-web/src/pages/whatsapp/BasketsTab.tsx`.
+
+**Not done:** browser check of the Baskets tab; diagram update (`docs/superpowers/diagrams/whatsapp-bot-flow.drawio`); separate cleanup commit removing the now-unreachable `ASK_EXTRA_PHOTO` step; deploying `server_scored.py` with all-option probabilities (section 5, user's go-ahead); real basket groupings for men's uppers and boys/girls (section 7); the `MIN_BASKET_SCORE` threshold from real data.
+
+### Local dev data (this machine only, none of it in git)
+
+- `garment_subcategories` replaced with production's 103 rows (prod IDs). Backup of the pre-change DB: none kept for that step beyond the session scratchpad, which is gone.
+- Sample of production assets imported read-only: 53 general poses (≤3 per type) + 260 template / body-type poses, 745 pose↔type configs, 20 faces, 12 backgrounds, 185 catalog items, 66 workflow templates, all 227 shot-type workflows, 8 body types + 43 body-type poses, 142 catalogue templates (53 type mappings, 249 pose workflows). Images copied from `https://app.aivastra.com/minio/virtual-tryon-prod/` (public) into local `virtual-tryon-dev`. Backup before the asset import: `/tmp/aiv-sample/tryon_dev_before_assets.dump`.
+- 23 **test** baskets seeded by SQL (women from the CSV in section 7; men's uppers and all boys/girls baskets are provisional). Every active type now has poses, faces and backgrounds locally.
+- A local run of the 22 repo-root photos through `recognizeBaskets` (men): 15/16 single-image garments in the right basket; baggy jeans → Men lower. All scores were 1.00 because the live server does not rank.
 
 ## 4. Evidence gathered (so you need not redo it)
 
@@ -66,7 +86,7 @@ The sample ground-truth labels live only in the scratch scripts (not in the repo
 
 Correction to an earlier statement in the session: Qwen *can* produce probabilities here; ignore any suggestion that a separate embedding model is required.
 
-## 6. What to build, in order
+## 6. What was built (spec kept for reference)
 
 ### 6.1 Schema (migration; do **not** run against prod, see CLAUDE.md)
 - New table for baskets, e.g. `whatsapp_baskets`: `id`, `gender_slug`, `name`, `representative_subcategory_id` (nullable FK → `garment_subcategories`), `sort_order`, `is_active`, timestamps.
@@ -145,3 +165,15 @@ The production garment-type list the user pasted (slug → label, ~60 types) is 
 ## 9. Conventions reminders
 
 Per `CLAUDE.md`: no commit/push unless asked; commit only complete units (migration + api + UI together, not CSS tweaks); never print secrets; schema/migration work never against prod; branch → PR to `dev` → PR to `main`; report honestly what was and was not run. This work is UI-heavy: **open the admin page and the bot flow in a real run before claiming it works** (the rename above has only been typechecked).
+
+
+## 10. gpu8 classify incident (2026-10-26) and tomorrow's plan
+
+Full evidence: `aivastra-gpu` `boxes/gpu8.md` → "2026-10-26 incident"; also `docs/progress.md` top entry.
+
+- gpu8 (`ubuntu@50.35.188.73 -p 32152`, key `~/.ssh/aivastra_gpu_dev`, passwordless sudo) is a **Haishare shared-GPU pod**. `/usr/local/bin/nvidia-smi` is the provider's wrapper and shows only our slice (~16 GB); the real `/usr/bin/nvidia-smi` showed 97,247 / 97,887 MiB used and 100 % utilisation from other tenants.
+- From ~18:01 UTC every request hung at `server.py:79` (`.to(model.device)`) waiting for memory; earlier answers were 13–15 s. After a restart (user-approved) the model took 711 s to load; afterwards real requests took 36 s and even a warm-up-sized one 20.5 s. Production uses this service, so sellers wait ~12 s and get the basket list.
+- **Plan (agreed with the user):**
+  1. Measure peak VRAM for a complete worst-case request: 1 MP image (`MAX_PIXELS`), longest real option list (women, 35 options), on the plain server and on `server_scored.py` (closed-set scoring over all options). Use `torch.cuda.reset_peak_memory_stats()` / `max_memory_reserved()` around one `run()`. Do it on a box with free memory if gpu8 is still full.
+  2. Reserve that amount at warm-up (e.g. warm up with a worst-case-sized input and never call `empty_cache`, or allocate and free a block of that size so the caching allocator keeps it) so no request waits for memory mid-flight. Mirror the change in `aivastra-gpu` `pipeline/classify-service/` and the box log.
+  3. That stops the hangs, not the 20–36 s latency (compute is time-sliced). Bring the user the tradeoff: dedicated (non-Haishare) GPU from the provider vs moving the service to one of our own boxes (e.g. gpu3, ~43 of 97 GB used, shared with ComfyUI) vs the ComfyUI `classify` worker fallback (clear `classify_service_config` in admin — a production config change, needs the go-ahead; cold Qwen load ~37 s).

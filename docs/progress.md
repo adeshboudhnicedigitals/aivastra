@@ -1,3 +1,11 @@
+## 2026-10-26 — WhatsApp classify outage: gpu8's shared card is full
+
+- **Symptom:** from ~18:01 UTC every garment recognition failed (`garment_recognitions.outcome = failed`, `ms` 90007 = the dispatcher's hard cap); earlier answers had slowed to 13–15 s, past the bot's 12 s budget. Production uses the same service (`classify_service_config.url` = `https://gpu8-classify.aivastra.com`), so WhatsApp sellers wait ~12 s and get the list.
+- **Cause (confirmed on the box):** gpu8 is a Haishare shared-GPU pod. The real `/usr/bin/nvidia-smi` showed the physical card at 97,247 / 97,887 MiB and 100 % utilisation from other tenants; our slice held only the ~16 GB model. Every request thread was stuck at `server.py:79` (`.to(model.device)`) waiting for memory, and kernels time-slice with the other tenants. `/usr/local/bin/nvidia-smi` is the provider's wrapper and shows our slice only — that is why only 16 GB is visible.
+- **Done:** read-only diagnosis (recognition rows, service `/logs`, journal, cloudflared log, py-spy dumps); restarted `classify.service` with the user's go-ahead. The restart released our 16 GB and the model took 711 s to load back. Full write-up and the box changes: `aivastra-gpu` `boxes/gpu8.md` ("2026-10-26 incident") and `docs/changes.md`.
+- **Still broken:** after recovery a real request took 36.2 s and even a warm-up-sized one 20.5 s (one 60 s timeout). Holding 16 GB covers the weights and the warm-up's working set, not real 1 MP photos with a 20–35 option prompt, and memory reserves no GPU time.
+- **Open (2026-10-27):** measure peak VRAM of a complete worst-case request (`torch.cuda.max_memory_reserved()`, 1 MP image, longest option list, plain and scored server) and reserve that at warm-up so allocations never wait mid-request. That fixes the hangs only; the latency needs a dedicated GPU or a move to one of our own boxes. Decide whether to fall back to a ComfyUI `classify` worker meanwhile (production config change).
+
 ## 2026-10-26 — stabilize WhatsApp inbound acknowledgement integration test
 
 - **Root cause:** the ordering test considered a message complete when its mocked `processInbound` handler returned. The consumer issues `XACK` afterward, so the test could inspect `XPENDING` before the final acknowledgement completed.
