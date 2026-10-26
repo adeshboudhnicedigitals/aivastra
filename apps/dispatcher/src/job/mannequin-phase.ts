@@ -12,7 +12,7 @@ import {
   submitPrompt,
   uploadImageToComfy,
 } from '../comfyui/client.js';
-import { assertNever, waitForCompletion } from '../comfyui/progress.js';
+import { assertNever, getCompletedHistory, waitForCompletion } from '../comfyui/progress.js';
 import {
   logSelection,
   observeCompletion,
@@ -26,6 +26,7 @@ export interface MannequinPhaseConfig {
   db: DB;
   redis: Redis;
   comfyRedis: Redis;
+  comfyPollIntervalMs?: number;
   storage: StorageProvider;
 }
 export interface MannequinPhaseParams {
@@ -173,6 +174,7 @@ export async function runMannequinPhase(
           undefined,
           { comfyRedis: cfg.comfyRedis, workerId: w.id },
           totalNodeCount,
+          cfg.comfyPollIntervalMs,
         ),
     );
     switch (completion.status) {
@@ -189,7 +191,14 @@ export async function runMannequinPhase(
       .update(schema.jobs)
       .set({ comfyDurationMs: Math.round(comfyMs) })
       .where(eq(schema.jobs.id, jobId));
-    const [firstImage] = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const [firstImage] = await fetchHistory(
+      w.url,
+      w.apiKey,
+      promptId,
+      jobLog,
+      outputNodeId,
+      getCompletedHistory(completion),
+    );
     if (!firstImage) throw new Error('ComfyUI returned no output images for mannequin phase');
     const imageBytes = await downloadOutputImage(
       w.url,

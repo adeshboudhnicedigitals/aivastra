@@ -12,9 +12,12 @@ const CONSUMER = hostname();
 
 export async function runWebhooksConsumer(db: DB, redis: Redis, log: Logger): Promise<() => void> {
   let running = true;
+  // The stream read blocks; keep it off the connection used for XACK/XADD and
+  // by GPU job processing.
+  const readConn = redis.duplicate();
 
   try {
-    await redis.xgroup('CREATE', 'webhooks:outbound', GROUP, '$', 'MKSTREAM');
+    await readConn.xgroup('CREATE', 'webhooks:outbound', GROUP, '$', 'MKSTREAM');
     log.info('webhooks consumer group created');
   } catch (err: unknown) {
     if (!(err instanceof Error) || !err.message.includes('BUSYGROUP')) throw err;
@@ -23,7 +26,7 @@ export async function runWebhooksConsumer(db: DB, redis: Redis, log: Logger): Pr
   void (async function loop() {
     while (running) {
       try {
-        const result = (await redis.xreadgroup(
+        const result = (await readConn.xreadgroup(
           'GROUP',
           GROUP,
           CONSUMER,
@@ -158,6 +161,7 @@ export async function runWebhooksConsumer(db: DB, redis: Redis, log: Logger): Pr
 
   return () => {
     running = false;
+    void readConn.quit().catch(() => {});
   };
 }
 

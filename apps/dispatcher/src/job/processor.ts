@@ -25,7 +25,7 @@ import {
 } from '../comfyui/client.js';
 import { handleCompletionResult } from '../comfyui/completion-result.js';
 import { isTerminalJobError } from '../comfyui/output-withheld.js';
-import { JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
+import { getCompletedHistory, JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
 import { getImageCompressionConfig } from '../config/image-compression.js';
 import { loadEnv } from '../env.js';
 import {
@@ -69,6 +69,22 @@ function recordJobOutcome(outcome: JobOutcome, startedAt: number, jobType: strin
   const job_type = jobType ?? 'unknown';
   jobsProcessedTotal.inc({ outcome });
   jobProcessingDuration.observe({ outcome, job_type }, (Date.now() - startedAt) / 1000);
+}
+
+async function measureJobStage<T>(
+  jobLog: Logger,
+  stage: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const startedAt = performance.now();
+  try {
+    return await operation();
+  } finally {
+    jobLog.info(
+      { stage, durationMs: Math.round(performance.now() - startedAt) },
+      'job stage timing',
+    );
+  }
 }
 
 /**
@@ -161,6 +177,7 @@ export interface ProcessorConfig {
   db: DB;
   redis: Redis;
   comfyRedis: Redis;
+  comfyPollIntervalMs?: number;
   pub: Redis;
   storage: StorageProvider;
   log: Logger;
@@ -899,7 +916,7 @@ export async function processJob(
     });
 
     // 7. Wait for completion via WebSocket (5 min max)
-    // Checked each 3s poll tick — see JOB_CANCEL_KEY_PREFIX comment on the
+    // Checked each configured history-poll tick — see JOB_CANCEL_KEY_PREFIX comment on the
     // /v1/jobs/:id/cancel route (apps/api) for why only 'tryon'-source jobs
     // can set this flag.
     logSelection(cfg.comfyRedis, w, WORKER_POOL.CATALOGUE, performanceKey ?? '', jobLog);
@@ -927,6 +944,7 @@ export async function processJob(
           async () => (await cfg.comfyRedis.exists(`job:cancel:${jobId}`)) === 1,
           { comfyRedis: cfg.comfyRedis, workerId: w.id },
           totalNodeCount,
+          cfg.comfyPollIntervalMs,
         ),
     );
     if (
@@ -956,6 +974,7 @@ export async function processJob(
       promptId,
       jobLog,
       resultNodeId ?? undefined,
+      getCompletedHistory(completion),
     );
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images');
@@ -1374,6 +1393,7 @@ async function processTryonDirectJob(
           undefined,
           { comfyRedis: cfg.comfyRedis, workerId: w.id },
           totalNodeCount,
+          cfg.comfyPollIntervalMs,
         ),
     );
     if (
@@ -1396,7 +1416,14 @@ async function processTryonDirectJob(
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
-    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const outputImages = await fetchHistory(
+      w.url,
+      w.apiKey,
+      promptId,
+      jobLog,
+      outputNodeId,
+      getCompletedHistory(completion),
+    );
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for tryon direct job');
 
@@ -1654,6 +1681,7 @@ async function processRegenerateJob(
           undefined,
           { comfyRedis: cfg.comfyRedis, workerId: w.id },
           totalNodeCount,
+          cfg.comfyPollIntervalMs,
         ),
     );
     if (
@@ -1676,7 +1704,14 @@ async function processRegenerateJob(
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
-    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const outputImages = await fetchHistory(
+      w.url,
+      w.apiKey,
+      promptId,
+      jobLog,
+      outputNodeId,
+      getCompletedHistory(completion),
+    );
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for regenerate job');
 
@@ -1944,6 +1979,7 @@ async function processFabricToGarmentJob(
           async () => (await cfg.comfyRedis.exists(`job:cancel:${jobId}`)) === 1,
           { comfyRedis: cfg.comfyRedis, workerId: w.id },
           totalNodeCount,
+          cfg.comfyPollIntervalMs,
         ),
     );
     if (
@@ -1972,6 +2008,7 @@ async function processFabricToGarmentJob(
       promptId,
       jobLog,
       template.resultNodeId ?? undefined,
+      getCompletedHistory(completion),
     );
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for fabric-to-garment job');
@@ -2344,6 +2381,7 @@ async function processSareeMannequinJob(
           undefined,
           { comfyRedis: cfg.comfyRedis, workerId: w.id },
           totalNodeCount,
+          cfg.comfyPollIntervalMs,
         ),
     );
     if (
@@ -2366,7 +2404,14 @@ async function processSareeMannequinJob(
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
-    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const outputImages = await fetchHistory(
+      w.url,
+      w.apiKey,
+      promptId,
+      jobLog,
+      outputNodeId,
+      getCompletedHistory(completion),
+    );
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for mannequin job');
 
@@ -2614,6 +2659,7 @@ async function processSareeJob(
           undefined,
           { comfyRedis: cfg.comfyRedis, workerId: w.id },
           totalNodeCount,
+          cfg.comfyPollIntervalMs,
         ),
     );
     if (
@@ -2636,7 +2682,14 @@ async function processSareeJob(
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
-    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const outputImages = await fetchHistory(
+      w.url,
+      w.apiKey,
+      promptId,
+      jobLog,
+      outputNodeId,
+      getCompletedHistory(completion),
+    );
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for saree job');
 
@@ -2892,10 +2945,12 @@ async function processWidgetJob(
   // main studio flow and Shopify jobs use, via selectWorker. See processShopifyJob for
   // the precedent this mirrors.
   const performanceKey = templateRow ? getPerformanceKey(templateRow) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.MERCHANT, performanceKey, {
-    jobId,
-    log: jobLog,
-  });
+  const worker = await measureJobStage(jobLog, 'worker_selection', () =>
+    selectWorker(redis, WORKER_POOL.MERCHANT, performanceKey, {
+      jobId,
+      log: jobLog,
+    }),
+  );
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
@@ -2947,13 +3002,15 @@ async function processWidgetJob(
     }
 
     jobLog.info('uploading merchant widget inputs to ComfyUI');
-    const uploads = await Promise.all([
-      uploadToComfy(upperGarmentKey, 'merchant_garment'),
-      uploadToComfy(customerPhotoKey, 'merchant_customer'),
-      ...(garmentNodeId2 && inputs.thirdGarmentKey
-        ? [uploadToComfy(inputs.thirdGarmentKey, 'merchant_garment2')]
-        : []),
-    ]);
+    const uploads = await measureJobStage(jobLog, 'input_read_and_upload', () =>
+      Promise.all([
+        uploadToComfy(upperGarmentKey, 'merchant_garment'),
+        uploadToComfy(customerPhotoKey, 'merchant_customer'),
+        ...(garmentNodeId2 && inputs.thirdGarmentKey
+          ? [uploadToComfy(inputs.thirdGarmentKey, 'merchant_garment2')]
+          : []),
+      ]),
+    );
     const [garmentFilename, customerPhotoFilename, secondGarmentFilename] = uploads;
     jobLog.info(
       { garmentFilename, customerPhotoFilename, secondGarmentFilename },
@@ -2977,55 +3034,62 @@ async function processWidgetJob(
     await transitionJob(db, pub, jobId, '', 'GENERATING', { workerId: w.id }, jobLog);
     const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
-    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    const { promptId } = await measureJobStage(jobLog, 'prompt_submission', () =>
+      submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog),
+    );
     jobLog.info({ promptId }, 'merchant widget prompt submitted');
 
-    await db.insert(schema.jobEvents).values({
-      jobId,
-      eventType: 'COMFY_DISPATCH',
-      payload: {
-        promptId,
-        workerId: w.id,
-        workerUrl: w.url,
-        workflowTemplateId,
-        inputs: {
-          customerPhotoKey,
-          upperGarmentKey,
-          thirdGarmentKey: inputs.thirdGarmentKey ?? null,
-          customerPhotoFilename,
-          garmentFilename,
-          secondGarmentFilename: secondGarmentFilename ?? null,
+    await measureJobStage(jobLog, 'dispatch_event_database_write', () =>
+      db.insert(schema.jobEvents).values({
+        jobId,
+        eventType: 'COMFY_DISPATCH',
+        payload: {
+          promptId,
+          workerId: w.id,
+          workerUrl: w.url,
+          workflowTemplateId,
+          inputs: {
+            customerPhotoKey,
+            upperGarmentKey,
+            thirdGarmentKey: inputs.thirdGarmentKey ?? null,
+            customerPhotoFilename,
+            garmentFilename,
+            secondGarmentFilename: secondGarmentFilename ?? null,
+          },
+          prompt: workflow,
         },
-        prompt: workflow,
-      },
-    });
+      }),
+    );
 
     logSelection(cfg.comfyRedis, w, WORKER_POOL.MERCHANT, performanceKey ?? '', jobLog);
-    const completion = await observeCompletion(
-      cfg.comfyRedis,
-      w,
-      WORKER_POOL.MERCHANT,
-      performanceKey ?? '',
-      workflow,
-      jobLog,
-      (totalNodeCount) =>
-        waitForCompletion(
-          w.url,
-          w.apiKey,
-          clientUuid,
-          promptId,
-          300_000,
-          (update) => jobLog.debug(update, 'comfyui progress'),
-          {
-            info: jobLog.info.bind(jobLog),
-            debug: jobLog.debug.bind(jobLog),
-            error: jobLog.error.bind(jobLog),
-            warn: jobLog.warn.bind(jobLog),
-          },
-          undefined,
-          { comfyRedis: cfg.comfyRedis, workerId: w.id },
-          totalNodeCount,
-        ),
+    const completion = await measureJobStage(jobLog, 'comfy_completion_observation', () =>
+      observeCompletion(
+        cfg.comfyRedis,
+        w,
+        WORKER_POOL.MERCHANT,
+        performanceKey ?? '',
+        workflow,
+        jobLog,
+        (totalNodeCount) =>
+          waitForCompletion(
+            w.url,
+            w.apiKey,
+            clientUuid,
+            promptId,
+            300_000,
+            (update) => jobLog.debug(update, 'comfyui progress'),
+            {
+              info: jobLog.info.bind(jobLog),
+              debug: jobLog.debug.bind(jobLog),
+              error: jobLog.error.bind(jobLog),
+              warn: jobLog.warn.bind(jobLog),
+            },
+            undefined,
+            { comfyRedis: cfg.comfyRedis, workerId: w.id },
+            totalNodeCount,
+            cfg.comfyPollIntervalMs,
+          ),
+      ),
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -3044,59 +3108,80 @@ async function processWidgetJob(
       })
     )
       return;
-    await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
+    await measureJobStage(jobLog, 'comfy_duration_database_write', () =>
+      recordComfyDuration(db, jobId, job.source, comfyStartedAt),
+    );
 
-    await transitionJob(db, pub, jobId, '', 'UPLOADING', {}, jobLog);
-    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    await measureJobStage(jobLog, 'uploading_status_transition', () =>
+      transitionJob(db, pub, jobId, '', 'UPLOADING', {}, jobLog),
+    );
+    const outputImages = await measureJobStage(jobLog, 'completion_history_parse', () =>
+      fetchHistory(
+        w.url,
+        w.apiKey,
+        promptId,
+        jobLog,
+        outputNodeId,
+        getCompletedHistory(completion),
+      ),
+    );
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for merchant widget job');
 
-    const imageBytes = await downloadOutputImage(
-      w.url,
-      w.apiKey,
-      firstImage.filename,
-      firstImage.subfolder,
+    const imageBytes = await measureJobStage(jobLog, 'output_download', () =>
+      downloadOutputImage(w.url, w.apiKey, firstImage.filename, firstImage.subfolder),
     );
 
     // Upload result to R2 — per-job-type compression config (admin Settings →
     // Image Compression), defaults to enabled q90 for merchant_tryon so this
     // matches today's previously-hardcoded behavior.
-    const compression = await getImageCompressionConfig(redis, job.source);
+    const compression = await measureJobStage(jobLog, 'compression_config_redis_read', () =>
+      getImageCompressionConfig(redis, job.source),
+    );
     const {
       buffer: encodedBuffer,
       format: outputFormat,
       contentType,
-    } = await encodeCompressedImage(imageBytes, compression);
+    } = await measureJobStage(jobLog, 'output_encode', () =>
+      encodeCompressedImage(imageBytes, compression),
+    );
     const resultKey = keys.widgetOutput(jobId, outputFormat);
-    await storage.putObject(resultKey, encodedBuffer, contentType);
+    await measureJobStage(jobLog, 'output_storage_put', () =>
+      storage.putObject(resultKey, encodedBuffer, contentType),
+    );
 
     // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
-    if (!(await transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog))) {
+    const completed = await measureJobStage(jobLog, 'completed_status_transition', () =>
+      transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog),
+    );
+    if (!completed) {
       settlePerformanceSample(w, 'cancelled');
       await redis.xack(stream, 'dispatcher-cg', messageId);
       return;
     }
     settlePerformanceSample(w, 'success');
-    await pub.publish(
-      `sse:events:widget:${merchantId}`,
-      JSON.stringify({ jobId, type: 'STATUS', status: 'COMPLETED', resultKey }),
-    );
-    await redis.xadd(
-      'webhooks:outbound',
-      'MAXLEN',
-      '~',
-      10000,
-      '*',
-      'jobId',
-      jobId,
-      'merchantId',
-      merchantId,
-      'status',
-      'COMPLETED',
-      'resultKey',
-      resultKey,
-    );
-    await redis.xack(stream, 'dispatcher-cg', messageId);
+    await measureJobStage(jobLog, 'completion_notifications_and_ack', async () => {
+      await pub.publish(
+        `sse:events:widget:${merchantId}`,
+        JSON.stringify({ jobId, type: 'STATUS', status: 'COMPLETED', resultKey }),
+      );
+      await redis.xadd(
+        'webhooks:outbound',
+        'MAXLEN',
+        '~',
+        10000,
+        '*',
+        'jobId',
+        jobId,
+        'merchantId',
+        merchantId,
+        'status',
+        'COMPLETED',
+        'resultKey',
+        resultKey,
+      );
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+    });
     recordJobOutcome('success', startedAt, job.source);
     jobLog.info({ resultKey }, 'widget job completed successfully');
   } catch (err) {
@@ -3116,7 +3201,7 @@ async function processWidgetJob(
       job.source,
     );
   } finally {
-    await releaseWorker(redis, w.id, jobLog);
+    await measureJobStage(jobLog, 'worker_release', () => releaseWorker(redis, w.id, jobLog));
   }
 }
 
@@ -3354,6 +3439,7 @@ async function processShopifyJob(
           undefined,
           { comfyRedis: cfg.comfyRedis, workerId: w.id },
           totalNodeCount,
+          cfg.comfyPollIntervalMs,
         ),
     );
     if (
@@ -3377,7 +3463,14 @@ async function processShopifyJob(
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     await transitionJob(db, pub, jobId, '', 'UPLOADING', { shopifyStoreId }, jobLog);
-    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const outputImages = await fetchHistory(
+      w.url,
+      w.apiKey,
+      promptId,
+      jobLog,
+      outputNodeId,
+      getCompletedHistory(completion),
+    );
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images for shopify job');
 
