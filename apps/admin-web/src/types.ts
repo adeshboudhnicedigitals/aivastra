@@ -440,7 +440,7 @@ export interface ModelPoseAsset {
   shotType: 'full' | 'half' | 'closeup' | null;
   publicApiSlug: string | null;
   scope: 'general' | 'template';
-  /** In the WhatsApp bot's draw pool (Assets → WhatsApp Poses). */
+  /** In the WhatsApp bot's draw pool (WhatsApp → Poses). */
   whatsappPool?: boolean;
   isActive: boolean;
   sortOrder: number;

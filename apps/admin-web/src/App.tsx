@@ -10,7 +10,6 @@ import AssetsPage from './pages/AssetsPage';
 import AuditLogsPage from './pages/AuditLogsPage';
 import ChatbotQnaPage from './pages/ChatbotQnaPage';
 import ChatInboxPage from './pages/ChatInboxPage';
-import ClassifyServicePage from './pages/ClassifyServicePage';
 import ContactRequestsPage from './pages/ContactRequestsPage';
 import CreditAnalysisPage from './pages/CreditAnalysisPage';
 import DashboardPage from './pages/DashboardPage';
@@ -32,6 +31,7 @@ import ShopifyStoresPage from './pages/ShopifyStoresPage';
 import TelemetryPage from './pages/TelemetryPage';
 import TryonPage from './pages/TryonPage';
 import UsersPage from './pages/UsersPage';
+import WhatsAppPage from './pages/WhatsAppPage';
 import WorkersPage from './pages/WorkersPage';
 import WorkflowsPage from './pages/WorkflowsPage';
 import type { ToastItem } from './types';
@@ -45,7 +45,7 @@ const PATH_LABELS: Record<string, string> = {
   'demo-catalog': 'Kiosk Demo Data',
   users: 'Users',
   jobs: 'Jobs',
-  'classify-service': 'Classify Service',
+  whatsapp: 'WhatsApp',
   'held-batches': 'Held Batches',
   workflows: 'Workflows',
   'workflow-approvals': 'Flow Approvals',
@@ -261,11 +261,12 @@ export default function App() {
             <Route path="/pixverse" element={<PixversePage {...pageProps} />} />
             <Route path="/users" element={<UsersPage {...pageProps} />} />
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
-            <Route path="/classify-service" element={<ClassifyServicePage {...pageProps} />} />
-            {/* The old list lives on as the Requests tab. */}
+            <Route path="/whatsapp" element={<WhatsAppPage {...pageProps} />} />
+            {/* Old homes of what is now the WhatsApp page. */}
+            <Route path="/classify-service" element={<Navigate to="/whatsapp" replace />} />
             <Route
               path="/garment-recognitions"
-              element={<Navigate to="/classify-service?tab=requests" replace />}
+              element={<Navigate to="/whatsapp?tab=requests" replace />}
             />
             <Route path="/held-batches" element={<HeldBatchesPage {...pageProps} />} />
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
