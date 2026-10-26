@@ -33,18 +33,21 @@ export function normalizeStage(value: string): ReminderStage {
   return value === 'seven_day' || value === 'three_day' || value === 'expired' ? value : 'none';
 }
 
+interface ReminderParams {
+  stage: UnlimitedPlanReminderStage;
+  endDateLabel: string;
+  daysRemaining: number;
+  name?: string | null;
+}
+
 interface TickDeps {
-  sendEmail?: (
-    app: FastifyInstance,
-    to: string,
-    params: { stage: UnlimitedPlanReminderStage; endDateLabel: string; daysRemaining: number },
-  ) => Promise<void>;
+  sendEmail?: (app: FastifyInstance, to: string, params: ReminderParams) => Promise<void>;
 }
 
 async function defaultSendEmail(
   app: FastifyInstance,
   to: string,
-  params: { stage: UnlimitedPlanReminderStage; endDateLabel: string; daysRemaining: number },
+  params: ReminderParams,
 ): Promise<void> {
   await sendUnlimitedPlanReminderEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, to, params);
 }
@@ -73,6 +76,7 @@ export async function runUnlimitedPlanReminderTick(
       endAt: schema.unlimitedPlans.endAt,
       lastReminderStage: schema.unlimitedPlans.lastReminderStage,
       email: schema.users.email,
+      displayName: schema.users.displayName,
       isBanned: schema.users.isBanned,
     })
     .from(schema.unlimitedPlans)
@@ -99,6 +103,7 @@ export async function runUnlimitedPlanReminderTick(
             stage: targetStage,
             endDateLabel: endDateLabel(plan.endAt),
             daysRemaining,
+            name: plan.displayName,
           });
           await app.db
             .update(schema.unlimitedPlans)
@@ -161,6 +166,7 @@ export async function checkUnlimitedPlanReminderOnLogin(
       endAt: schema.unlimitedPlans.endAt,
       status: schema.unlimitedPlans.status,
       email: schema.users.email,
+      displayName: schema.users.displayName,
       isBanned: schema.users.isBanned,
     })
     .from(schema.unlimitedPlans)
@@ -192,7 +198,12 @@ export async function checkUnlimitedPlanReminderOnLogin(
     // (and every future one, since the frontend only calls this once per
     // mount) never appears at all, for a completely unrelated reason.
     try {
-      await sendEmail(app, row.email, { stage, endDateLabel: label, daysRemaining });
+      await sendEmail(app, row.email, {
+        stage,
+        endDateLabel: label,
+        daysRemaining,
+        name: row.displayName,
+      });
       // Kept in sync so the hourly tick doesn't duplicate this same-stage
       // email later — harmless either way since this path ignores the
       // column itself.

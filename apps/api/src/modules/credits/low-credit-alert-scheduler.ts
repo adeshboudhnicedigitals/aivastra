@@ -7,11 +7,15 @@ import { sendUserLowCreditsEmail } from '../../lib/mailer.js';
 export const LOW_CREDIT_THRESHOLD = 20;
 
 interface TickDeps {
-  sendEmail?: (app: FastifyInstance, to: string) => Promise<void>;
+  sendEmail?: (app: FastifyInstance, to: string, displayName?: string | null) => Promise<void>;
 }
 
-async function defaultSendEmail(app: FastifyInstance, to: string): Promise<void> {
-  await sendUserLowCreditsEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, to);
+async function defaultSendEmail(
+  app: FastifyInstance,
+  to: string,
+  displayName?: string | null,
+): Promise<void> {
+  await sendUserLowCreditsEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, to, displayName);
 }
 
 /**
@@ -31,6 +35,7 @@ export async function runUserLowCreditAlertTick(
     .select({
       userId: schema.userCredits.userId,
       email: schema.users.email,
+      displayName: schema.users.displayName,
     })
     .from(schema.userCredits)
     .innerJoin(schema.users, eq(schema.users.id, schema.userCredits.userId))
@@ -46,7 +51,7 @@ export async function runUserLowCreditAlertTick(
   for (const row of toAlert) {
     try {
       // email is guaranteed non-null by the isNotNull filter above.
-      await sendEmail(app, row.email as string);
+      await sendEmail(app, row.email as string, row.displayName);
       await app.db
         .update(schema.userCredits)
         .set({ lowCreditAlertSentAt: new Date() })

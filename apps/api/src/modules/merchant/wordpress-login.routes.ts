@@ -89,6 +89,7 @@ export async function wordpressLoginRoutes(app: FastifyInstance) {
             app.env.WEB_URL,
             email,
             token,
+            createdUser.displayName,
           );
         } catch (err) {
           app.log.error({ err }, 'Failed to send verification email (wordpress-login)');
@@ -119,6 +120,7 @@ export async function wordpressLoginRoutes(app: FastifyInstance) {
             app.env.WEB_URL,
             email,
             token,
+            user.displayName,
           );
         } catch (err) {
           app.log.error({ err }, 'Failed to resend verification email (wordpress-login)');
