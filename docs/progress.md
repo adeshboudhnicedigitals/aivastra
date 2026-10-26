@@ -1,3 +1,12 @@
+## 2026-10-26 — independent merchant try-on latency investigation
+
+- **Done:** read-only analysis of four production jobs, retained ComfyUI histories, dispatcher logs, executed code, worker configuration and Redis registry. Full evidence and mitigation tradeoffs: `docs/investigations/2026-10-26-tryon-latency.md`.
+- **Confirmed:** GPU and webhook blocking readers share the command Redis client. Local read-only reproduction delayed PING by 1.966s/3.982s behind one/two blocking reads versus 1ms on a separate client. This affects selection, finalization config reads, and release. Three historical selections take ~4.3s; exact per-command attribution remains uninstrumented.
+- **Confirmed:** 3s completion polling discards completed history and fetches it again; observed success-to-detection timestamps differ by 3.3–4.4s. Backend duration excludes 7.5–23.6s before GENERATING, and comfy_duration_ms includes submission/detection overhead.
+- **Configuration discovery:** catalogue and merchant GPUs are separately tagged, but share dispatcher admission. A DRAINING worker is counted in shared capacity; historical cap changed 5→6 at 06:16:02Z. Catalogue backlog is not evidence of direct merchant-GPU contention.
+- **Verified measurements:** six read-only output downloads in the dispatcher runtime took 0.254–1.283s; q90 encoding 0.153–0.174s. Did not reproduce a 9s transfer stall. Historical output phase cannot be split between network, Redis wait, encoding, storage and DB without additional timings.
+- **Not done:** no application fix, production mutation, new GPU job, commit, push or deployment. No browser-to-visible latency or historical clock-sync audit. Recommendation: isolate blocking Redis readers first, then reuse history/shorten polling with stage instrumentation; validate on staging.
+
 ## 2026-10-26 — chat inbox: show complaint raised time
 
 - **Done:** displayed each complaint's `createdAt` as a localized “Raised” date/time in Queue and My Tickets, and for the selected conversation in its header. The conversations API already included `createdAt`; no API or database changes were needed.
