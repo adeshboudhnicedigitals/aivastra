@@ -87,7 +87,7 @@ describe('whatsapp hooks', () => {
 
   // Catalog seeding for the quote/template path (same recipe as
   // messaging-conversation.test.ts): one garment type, face, background,
-  // workflow, pose, template + mapping, and an HD cost of 5 per image.
+  // workflow, pose assigned to the type, and an HD cost of 5 per image.
   async function seedCatalog(a: TestApp) {
     const sfx = `hooks${Date.now()}${++seq}`;
     await a.redis.set(
@@ -136,29 +136,12 @@ describe('whatsapp hooks', () => {
         workflowTemplateId: workflow.id,
       })
       .returning();
-    const [template] = await a.db
-      .insert(schema.catalogueTemplates)
-      .values({ genderSlug: 'women', label: `WaTemplate${sfx}`, sortOrder: 0 })
-      .returning();
-    const [look] = await a.db
-      .insert(schema.catalogueTemplateLooks)
-      .values({
-        templateId: template.id,
-        poseAssetId: pose.id,
-        backgroundId: background.id,
-        sortOrder: 0,
-      })
-      .returning();
-    const [mapping] = await a.db
-      .insert(schema.catalogueTemplateSubcategories)
-      .values({ templateId: template.id, subcategoryId: garmentType.id })
-      .returning();
-    await a.db.insert(schema.catalogueTemplatePoseWorkflows).values({
-      mappingId: mapping.id,
-      poseAssetId: pose.id,
-      workflowTemplateId: workflow.id,
-    });
-    if (!garmentType || !look) throw new Error('seeding failed');
+    // The bot reads the studio's pose list: a pose shows for a type when it has
+    // a pose_garment_configs row.
+    await a.db
+      .insert(schema.poseGarmentConfigs)
+      .values({ poseAssetId: pose.id, subcategoryId: garmentType.id });
+    if (!garmentType || !background) throw new Error('seeding failed');
     return { garmentTypeId: garmentType.id };
   }
 
@@ -189,7 +172,7 @@ describe('whatsapp hooks', () => {
     } finally {
       waHolder.current = null;
     }
-    expect(wa.texts()[0]).toMatch(/^You're all set!/);
+    expect(wa.texts()[0]).toMatch(/^Connected ✅/);
     expect(wa.texts().at(-1)).toBe(COPY.menu);
   });
 

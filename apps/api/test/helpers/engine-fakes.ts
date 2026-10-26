@@ -3,8 +3,7 @@ import type {
   EngineContext,
   EngineDeps,
   GarmentTypeOption,
-  TemplateLook,
-  TemplateOption,
+  PoseLook,
   TryonBody,
   UnavailableReport,
 } from '../../src/modules/messaging/engine/types';
@@ -23,10 +22,8 @@ export const GT_SHIRT: GarmentTypeOption = {
   defaultShoeCatalogId: null,
 };
 
-export const look = (id: string, roles: Partial<TemplateLook> = {}): TemplateLook => ({
+export const look = (id: string, roles: Partial<PoseLook> = {}): PoseLook => ({
   id,
-  poseId: `pose-${id}`,
-  backgroundId: `bg-${id}`,
   label: `Pose ${id}`,
   imageUrl: `https://img/${id}.jpg`,
   hasUpper: true,
@@ -36,18 +33,12 @@ export const look = (id: string, roles: Partial<TemplateLook> = {}): TemplateLoo
 });
 
 // 'd' has a shoe slot and GT_SHIRT has no default shoe → not offered (D49).
-export const TEMPLATE: TemplateOption = {
-  id: 'tpl-1',
-  mappingId: 'map-1',
-  looks: [look('a'), look('b', { hasLower: true }), look('c'), look('d', { hasShoes: true })],
-};
-
-// 'a2' repeats look a's pose and background, so the pool shows it once.
-export const TEMPLATE_2: TemplateOption = {
-  id: 'tpl-2',
-  mappingId: 'map-2',
-  looks: [look('a2', { poseId: 'pose-a', backgroundId: 'bg-a' }), look('e'), look('f')],
-};
+export const POSES: PoseLook[] = [
+  look('a'),
+  look('b', { hasLower: true }),
+  look('c'),
+  look('d', { hasShoes: true }),
+];
 
 const lookCount = (body: TryonBody) => body.inputs.looks?.length ?? 0;
 
@@ -79,8 +70,11 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     },
     getReadiness: async () => ({ status: 'ready', reasons: [] }),
     createStudioDraft: async (d) => `https://app.test/studio?draft=${d.garmentKey}`,
-    getTemplates: async () => [TEMPLATE],
-    getDefaultFaceId: async () => 'face-1',
+    getLooks: async () => POSES,
+    listFaceIds: async () => ['face-1'],
+    listBackgroundIds: async () => ['bg-1'],
+    // Lower items exist; no shoes do, so a shoe pose needs the type's own default.
+    listCatalogItemIds: async (type) => (type === 'lower' ? ['lower-1'] : []),
     quote: async (_u, body) => {
       calls.quote.push(body);
       const images = lookCount(body);

@@ -1,10 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { createEngineDeps } from './deps.js';
 import { handle } from './engine/engine.js';
-import { handleTryon } from './engine/tryon-engine.js';
 import type { EngineDeps, InboundEvent, OutboundMessage } from './engine/types.js';
 import { loadSession, saveSession } from './session-store.js';
-import { createTryonDeps } from './tryon-deps.js';
 
 export interface ConversationAccount {
   id: string;
@@ -31,14 +29,14 @@ export async function runConversation(
 ): Promise<OutboundMessage[]> {
   const prev = await loadSession(app.redis, account.channel, account.externalId);
   const ctx = { userId: account.userId, accountId: account.id, messageId };
-  // WHATSAPP_BOT_FLOW=tryon swaps the whole reducer; both read and write the same
-  // session key, and each starts a session left by the other cleanly. The try-on
-  // engine checks the flow marker itself; the catalogue one ignores it, so it is
-  // handed null instead of a try-on session it would otherwise drive mid-step.
-  const { session, messages } =
-    app.env.WHATSAPP_BOT_FLOW === 'tryon'
-      ? await handleTryon(prev, event, ctx, createTryonDeps(app))
-      : await handle(prev?.flow === 'tryon' ? null : prev, event, ctx, deps);
+  // A session left by the (unwired) try-on engine shares state names with this one,
+  // so it is handed null rather than driven mid-step by the wrong reducer.
+  const { session, messages } = await handle(
+    prev?.flow === 'tryon' ? null : prev,
+    event,
+    ctx,
+    deps,
+  );
   await saveSession(app.redis, account.channel, account.externalId, session);
   return messages;
 }

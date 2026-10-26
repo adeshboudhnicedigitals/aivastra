@@ -1,19 +1,14 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { whatsappGarmentUnavailableTotal } from '@aivastra/observability';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getResolutionTierConfig } from '../../lib/resolution-config.js';
-import { listCatalogueTemplates, listFaces, listGarmentTypes } from '../models/queries.js';
+import { selectCatalogItems } from '../catalog/items.js';
+import { listBackgrounds, listFaces, listGarmentTypes, listPoses } from '../models/queries.js';
 import { recognizeKind, recordRecognitionCorrected, typeForKind } from './classify.js';
-import { buildPool } from './engine/rules.js';
-import type {
-  AspectRatio,
-  EngineDeps,
-  GarmentTypeOption,
-  Resolution,
-  TemplateOption,
-} from './engine/types.js';
+import { buildPool, itemSupply } from './engine/rules.js';
+import type { AspectRatio, EngineDeps, GarmentTypeOption, Resolution } from './engine/types.js';
 import { decideReadiness } from './readiness.js';
 import { createRun, quoteRun, runProgress } from './runs.js';
 import { createStudioDraftToken } from './studio-draft.js';
@@ -72,31 +67,38 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
     async listGarmentTypes(gender) {
       const { items } = await listGarmentTypes(app, gender);
       if (items.length === 0) return [];
-      // Only types with an active template for this gender can produce a
+      // Only types with an assigned, active pose for this gender can produce a
       // catalog in the chat (D47); listing the rest would be a dead end.
-      const mapped = await app.db
-        .selectDistinct({ id: schema.catalogueTemplateSubcategories.subcategoryId })
-        .from(schema.catalogueTemplateSubcategories)
+      const assigned = await app.db
+        .selectDistinct({ id: schema.poseGarmentConfigs.subcategoryId })
+        .from(schema.poseGarmentConfigs)
         .innerJoin(
-          schema.catalogueTemplates,
+          schema.modelPoseAssets,
           and(
-            eq(schema.catalogueTemplates.id, schema.catalogueTemplateSubcategories.templateId),
-            eq(schema.catalogueTemplates.genderSlug, gender),
-            eq(schema.catalogueTemplates.isActive, true),
-            isNull(schema.catalogueTemplates.deletedAt),
+            eq(schema.modelPoseAssets.id, schema.poseGarmentConfigs.poseAssetId),
+            eq(schema.modelPoseAssets.genderSlug, gender),
+            eq(schema.modelPoseAssets.isActive, true),
+            eq(schema.modelPoseAssets.scope, 'general'),
+            isNull(schema.modelPoseAssets.deletedAt),
           ),
         )
         .where(
-          inArray(
-            schema.catalogueTemplateSubcategories.subcategoryId,
-            items.map((i) => i.id),
+          and(
+            inArray(
+              schema.poseGarmentConfigs.subcategoryId,
+              items.map((i) => i.id),
+            ),
+            or(
+              isNull(schema.poseGarmentConfigs.isActive),
+              eq(schema.poseGarmentConfigs.isActive, true),
+            ),
           ),
         );
-      const hasTemplate = new Set(mapped.map((m) => m.id));
+      const hasPoses = new Set(assigned.map((m) => m.id));
       return (
         items
           // D16/D31: the two-step saree flow is not in the bot.
-          .filter((i) => !i.requiresMannequinStep && hasTemplate.has(i.id))
+          .filter((i) => !i.requiresMannequinStep && hasPoses.has(i.id))
           .map(toGarmentTypeOption)
       );
     },
@@ -119,33 +121,33 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
       app.log.info(report, 'whatsapp: garment type not offered');
     },
 
-    async getTemplates(gender, garmentTypeId): Promise<TemplateOption[]> {
-      // Every active template for the type, already in admin sort order and
-      // already without looks whose pose, background or workflow is inactive
-      // (the studio's query). The engine pools them (spec 2026-10-14, P2).
-      const { items } = await listCatalogueTemplates(app, { gender, garmentTypeId });
-      return items.map(
-        (t): TemplateOption => ({
-          id: t.id,
-          mappingId: t.mappingId,
-          looks: t.looks.map((l) => ({
-            id: l.id,
-            poseId: l.poseId,
-            backgroundId: l.backgroundId,
-            label: l.poseLabel,
-            imageUrl: l.poseThumbnailUrl,
-            hasUpper: l.hasUpper,
-            hasLower: l.hasLower,
-            hasShoes: l.hasShoes,
-          })),
-        }),
-      );
+    async getLooks(gender, garmentTypeId) {
+      // The studio's own pose list for the type, already without inactive poses
+      // and poses hidden for it.
+      const { items } = await listPoses(app, { gender, garmentTypeId });
+      return items.map((p) => ({
+        id: p.id,
+        label: p.label,
+        imageUrl: p.thumbnailUrl,
+        hasUpper: p.hasUpper,
+        hasLower: p.hasLower,
+        hasShoes: p.hasShoes,
+      }));
     },
 
-    async getDefaultFaceId(gender, garmentTypeId) {
-      // The studio's own face list for this type, in admin order (D43).
+    async listFaceIds(gender, garmentTypeId) {
+      // The studio's own face list for this type, in admin order.
       const { items } = await listFaces(app, { gender, garmentTypeId });
-      return items[0]?.id ?? null;
+      return items.map((f) => f.id);
+    },
+
+    async listBackgroundIds(gender) {
+      return (await listBackgrounds(app, gender)).map((b) => b.id);
+    },
+
+    async listCatalogItemIds(type, gender, garmentTypeId) {
+      const items = await selectCatalogItems(app, { type, gender, garmentTypeId });
+      return items.map((i) => i.id);
     },
 
     async getReadiness(gender, garmentTypeId) {
@@ -156,39 +158,47 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
         return decideReadiness({
           active: false,
           requiresMannequinStep: false,
-          mappedTemplates: 0,
-          activeTemplates: 0,
+          assignedPoses: 0,
+          activePoses: 0,
           hasFace: false,
+          hasBackground: false,
           looksTotal: 0,
           looksUsable: 0,
         });
       }
-      // Mapping rows regardless of the template's own switch, so "mapped but
-      // template off" is told apart from "never mapped".
-      const mapped = await app.db
-        .select({ isActive: schema.catalogueTemplates.isActive })
-        .from(schema.catalogueTemplateSubcategories)
+      // Assignment rows regardless of any active switch, so "assigned but off"
+      // is told apart from "never assigned".
+      const assigned = await app.db
+        .select({ isActive: schema.poseGarmentConfigs.isActive })
+        .from(schema.poseGarmentConfigs)
         .innerJoin(
-          schema.catalogueTemplates,
+          schema.modelPoseAssets,
           and(
-            eq(schema.catalogueTemplates.id, schema.catalogueTemplateSubcategories.templateId),
-            eq(schema.catalogueTemplates.genderSlug, gender),
-            isNull(schema.catalogueTemplates.deletedAt),
+            eq(schema.modelPoseAssets.id, schema.poseGarmentConfigs.poseAssetId),
+            eq(schema.modelPoseAssets.genderSlug, gender),
+            eq(schema.modelPoseAssets.scope, 'general'),
+            isNull(schema.modelPoseAssets.deletedAt),
           ),
         )
-        .where(eq(schema.catalogueTemplateSubcategories.subcategoryId, garmentTypeId));
-      const options = await deps.getTemplates(gender, garmentTypeId);
-      const distinct = new Set(
-        options.flatMap((t) => t.looks.map((l) => `${l.poseId}:${l.backgroundId}`)),
-      );
+        .where(eq(schema.poseGarmentConfigs.subcategoryId, garmentTypeId));
+      const poses = await deps.getLooks(gender, garmentTypeId);
       return decideReadiness({
         active: true,
         requiresMannequinStep: gt.requiresMannequinStep,
-        mappedTemplates: mapped.length,
-        activeTemplates: mapped.filter((m) => m.isActive).length,
-        hasFace: (await deps.getDefaultFaceId(gender, garmentTypeId)) !== null,
-        looksTotal: distinct.size,
-        looksUsable: buildPool(toGarmentTypeOption(gt), options).cards.length,
+        assignedPoses: assigned.length,
+        activePoses: poses.length,
+        hasFace: (await deps.listFaceIds(gender, garmentTypeId)).length > 0,
+        hasBackground: (await deps.listBackgroundIds(gender)).length > 0,
+        looksTotal: poses.length,
+        looksUsable: buildPool(
+          toGarmentTypeOption(gt),
+          poses,
+          itemSupply(
+            toGarmentTypeOption(gt),
+            await deps.listCatalogItemIds('lower', gender, garmentTypeId),
+            await deps.listCatalogItemIds('shoe', gender, garmentTypeId),
+          ),
+        ).cards.length,
       });
     },
 
