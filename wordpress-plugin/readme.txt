@@ -1,5 +1,5 @@
 === Ai Vastra Try-On ===
-Contributors: aivastra
+Contributors: aivastrawp
 Tags: woocommerce, virtual try-on, ai, fashion, product page
 Requires at least: 6.5
 Tested up to: 7.1

@@ -32,9 +32,11 @@ class Aivastra_Connect_Ajax
         }
         check_ajax_referer(self::NONCE_ACTION, 'nonce');
 
-        $email = sanitize_email((string) ($_POST['email'] ?? ''));
-        $password = (string) ($_POST['password'] ?? '');
-        $phone = sanitize_text_field((string) ($_POST['phone'] ?? ''));
+        $email = sanitize_email(wp_unslash((string) ($_POST['email'] ?? '')));
+        // No sanitize_text_field() here — a password must stay byte-exact,
+        // unmodified by anything strip_tags()/trim() might do to it.
+        $password = wp_unslash((string) ($_POST['password'] ?? ''));
+        $phone = sanitize_text_field(wp_unslash((string) ($_POST['phone'] ?? '')));
 
         if ($email === '' || !is_email($email)) {
             wp_send_json_error(['message' => 'Enter a valid email address.']);

@@ -85,12 +85,22 @@ class Aivastra_Widget_Loader
         }
 
         wp_enqueue_style('aivastra-tryon-widget', AIVASTRA_TRYON_URL . 'assets/widget.css', [], AIVASTRA_TRYON_VERSION . '.' . filemtime(AIVASTRA_TRYON_DIR . 'assets/widget.css'));
-        wp_enqueue_script('aivastra-tryon-widget-logic', AIVASTRA_TRYON_URL . 'assets/widget-logic.js', [], AIVASTRA_TRYON_VERSION, true);
-        wp_enqueue_script('aivastra-tryon-widget', AIVASTRA_TRYON_URL . 'assets/widget.js', ['aivastra-tryon-widget-logic'], AIVASTRA_TRYON_VERSION, true);
+        wp_enqueue_script('aivastra-tryon-widget-logic', AIVASTRA_TRYON_URL . 'assets/widget-logic.js', [], AIVASTRA_TRYON_VERSION . '.' . filemtime(AIVASTRA_TRYON_DIR . 'assets/widget-logic.js'), true);
+        wp_enqueue_script('aivastra-tryon-widget', AIVASTRA_TRYON_URL . 'assets/widget.js', ['aivastra-tryon-widget-logic'], AIVASTRA_TRYON_VERSION . '.' . filemtime(AIVASTRA_TRYON_DIR . 'assets/widget.js'), true);
         wp_localize_script('aivastra-tryon-widget', 'AivastraTryOn', array_merge($config, [
             'widgetKey' => $widgetKey,
             'apiBase' => self::API_BASE,
             'category' => $category,
+            // Shown in the "credits exhausted" modal so shoppers know who to
+            // contact. Must be the MERCHANT's address, never Aivastra's —
+            // shoppers are on the merchant's storefront. WooCommerce's
+            // store-email sender is what merchants already set for customer
+            // mail; site admin email is the fallback. Empty hides the
+            // contact line in widget.js.
+            'contactEmail' => sanitize_email((string) get_option(
+                'woocommerce_email_from_address',
+                get_option('admin_email')
+            )),
             // Add to Cart posts to WordPress's own admin-ajax.php, not the
             // Aivastra API — WooCommerce cart state lives here, not on the
             // dev-API. See Aivastra_Cart_Ajax.

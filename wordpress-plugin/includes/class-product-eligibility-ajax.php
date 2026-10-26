@@ -39,7 +39,8 @@ class Aivastra_Product_Eligibility_Ajax
             wp_send_json_error(['message' => 'Unknown product.'], 404);
         }
 
-        $enabled = Aivastra_Product_Toggle::sanitize_checkbox($_POST['enabled'] ?? null) === '1';
+        $rawEnabled = isset($_POST['enabled']) ? sanitize_text_field(wp_unslash($_POST['enabled'])) : null;
+        $enabled = Aivastra_Product_Toggle::sanitize_checkbox($rawEnabled) === '1';
         update_post_meta($productId, Aivastra_Product_Toggle::META_KEY, $enabled ? '1' : '0');
 
         wp_send_json_success(['productId' => $productId, 'enabled' => $enabled]);
