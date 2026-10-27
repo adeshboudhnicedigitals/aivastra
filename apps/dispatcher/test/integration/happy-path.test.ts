@@ -1,7 +1,7 @@
 import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as progress from '../../src/comfyui/progress.js';
@@ -193,6 +193,42 @@ describe('dispatcher happy path', () => {
     const workers = await getWorkers(redis);
     expect(workers.get(WORKER_ID)?.status).toBe('IDLE');
   });
+  it('a failed prompt-ID receipt write does not fail or retry the job', async () => {
+    const { jobId, userId } = await seedJob();
+    await env.db.execute(
+      sql`create function reject_receipt() returns trigger language plpgsql as $$ begin raise exception 'receipt unavailable'; end $$`,
+    );
+    await env.db.execute(
+      sql`create trigger reject_receipt before update on execution_attempts for each row when (new.state = 'ACCEPTED') execute function reject_receipt()`,
+    );
+    try {
+      await processJob(
+        {
+          comfyRedis: redis,
+          db: env.db,
+          redis,
+          pub,
+          storage: env.storage,
+          log: createLogger('test'),
+        },
+        jobId,
+        userId,
+        'jobs:normal',
+        '1-1',
+      );
+    } finally {
+      await env.db.execute(sql`drop trigger reject_receipt on execution_attempts`);
+      await env.db.execute(sql`drop function reject_receipt()`);
+    }
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job).toMatchObject({ status: 'COMPLETED', attempts: 0 });
+    // One attempt row means exactly one POST: a retry would have allocated a second.
+    const attempts = await env.db.execute(
+      sql`select state, prompt_id from execution_attempts where job_id = ${jobId}`,
+    );
+    expect(attempts).toEqual([{ state: 'SUBMITTING', prompt_id: null }]);
+  });
+
   it('execution timeout remains an ordinary failure: consumes an attempt and requeues without refund', async () => {
     const { jobId, userId } = await seedJob();
     if (!jobId || !userId) throw new Error('missing fixture IDs');

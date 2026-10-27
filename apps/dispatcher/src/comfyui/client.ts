@@ -27,6 +27,16 @@ function apiHeaders(apiKey: string): Record<string, string> {
   };
 }
 
+/** The worker answered /prompt with a non-2xx status; `body` is its raw text. */
+export class ComfyPromptHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: string,
+  ) {
+    super(`ComfyUI /prompt failed: ${status} ${body}`);
+  }
+}
+
 export async function submitPrompt(
   workerUrl: string,
   apiKey: string,
@@ -45,7 +55,7 @@ export async function submitPrompt(
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     log?.error({ url, status: res.status, body: text }, 'ComfyUI /prompt failed');
-    throw new Error(`ComfyUI /prompt failed: ${res.status} ${text}`);
+    throw new ComfyPromptHttpError(res.status, text);
   }
   const json = (await res.json()) as { prompt_id: string };
   log?.info({ url, promptId: json.prompt_id }, 'ComfyUI /prompt accepted');
