@@ -13,6 +13,7 @@ import {
 
 const GROUP = DISPATCHER_GROUP;
 const CONSUMER = hostname();
+const STREAMS = ['jobs:priority', 'jobs:normal', 'jobs:low'] as const;
 
 // How often the consumer re-reads the worker registry to recompute its in-flight
 // cap (inhouse-only workers excluded — they have their own lane). Short enough that adding/removing a worker via the admin panel takes effect
@@ -20,7 +21,7 @@ const CONSUMER = hostname();
 const CONCURRENCY_REFRESH_MS = 5_000;
 
 async function ensureGroups(redis: Redis, log: Logger): Promise<void> {
-  for (const stream of ['jobs:priority', 'jobs:normal', 'jobs:low']) {
+  for (const stream of STREAMS) {
     try {
       await redis.xgroup('CREATE', stream, GROUP, '$', 'MKSTREAM');
       log.info({ stream }, 'consumer group created');
@@ -31,49 +32,40 @@ async function ensureGroups(redis: Redis, log: Logger): Promise<void> {
   }
 }
 
-async function readOne(redis: Redis): Promise<StreamMessage | null> {
-  // 1. Check priority queue — instant, no block
-  const priority = (await redis.xreadgroup(
-    'GROUP',
-    GROUP,
-    CONSUMER,
-    'COUNT',
-    '1',
-    'STREAMS',
-    'jobs:priority',
-    '>',
-  )) as XReadGroupResult;
-  const pMsg = parseMessage('jobs:priority', priority);
-  if (pMsg) return pMsg;
+async function readOne(redis: Redis, isRunning: () => boolean): Promise<StreamMessage | null> {
+  // Snapshot BEFORE checking the groups: an arrival between its empty check and
+  // XREAD must still wake us. Fresh IDs each cycle also avoid spinning on entries
+  // another consumer already claimed; '$' would miss arrivals in that gap.
+  const tails = await Promise.all(
+    STREAMS.map(async (stream) => {
+      const entries = await redis.xrevrange(stream, '+', '-', 'COUNT', 1);
+      return entries[0]?.[0] ?? '0-0';
+    }),
+  );
 
-  // 2. Check normal queue — instant, no block
-  const normal = (await redis.xreadgroup(
-    'GROUP',
-    GROUP,
-    CONSUMER,
-    'COUNT',
-    '1',
-    'STREAMS',
-    'jobs:normal',
-    '>',
-  )) as XReadGroupResult;
-  const nMsg = parseMessage('jobs:normal', normal);
-  if (nMsg) return nMsg;
+  // Preserve the existing ordered checks and claim only one job per free slot.
+  for (const stream of STREAMS) {
+    if (!isRunning()) return null;
+    const result = (await redis.xreadgroup(
+      'GROUP',
+      GROUP,
+      CONSUMER,
+      'COUNT',
+      '1',
+      'STREAMS',
+      stream,
+      '>',
+    )) as XReadGroupResult;
+    const msg = parseMessage(stream, result);
+    if (msg) return msg;
+  }
 
-  // 3. Block up to 2s on low queue
-  const low = (await redis.xreadgroup(
-    'GROUP',
-    GROUP,
-    CONSUMER,
-    'COUNT',
-    '1',
-    'BLOCK',
-    '2000',
-    'STREAMS',
-    'jobs:low',
-    '>',
-  )) as XReadGroupResult;
-  return parseMessage('jobs:low', low);
+  if (!isRunning()) return null;
+  // Plain XREAD is only a wake-up signal. Unlike a multi-stream XREADGROUP, it
+  // creates no pending entries or prefetched jobs outside our admission cap.
+  // Any stream can wake us; the next cycle chooses a job via the ordered claims.
+  await redis.xread('COUNT', 1, 'BLOCK', 2000, 'STREAMS', ...STREAMS, ...tails);
+  return null;
 }
 
 /**
@@ -86,7 +78,7 @@ export async function runConsumer(
   cfg: ProcessorConfig,
   log: Logger,
 ): Promise<() => void> {
-  // XREADGROUP BLOCK parks its Redis connection. Keep it away from claims,
+  // XREAD BLOCK parks its Redis connection. Keep it away from worker claims,
   // acknowledgements and registry reads used by active jobs.
   const readConn = redis.duplicate();
   await ensureGroups(readConn, log);
@@ -116,7 +108,7 @@ export async function runConsumer(
 
   const stop = runStreamLoop(cfg, log, {
     name: 'gpu',
-    read: () => readOne(readConn),
+    read: (isRunning) => readOne(readConn, isRunning),
     getConcurrency,
   });
   return () => {
