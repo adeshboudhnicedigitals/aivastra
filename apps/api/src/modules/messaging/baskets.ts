@@ -171,10 +171,11 @@ export function basketMembers(
 }
 
 /**
- * The bot's pick list when recognition has no confident guess: the gender's
- * active baskets in admin order, then each type in no basket, in type order.
- * Only entries with at least one type the bot can offer (`offered`: ready, with
- * poses) are listed, so every row leads somewhere.
+ * The bot's pick list when the seller chooses the type themselves: the gender's
+ * active baskets in admin order. A type in no basket (or only in an inactive
+ * one) is not listed: an admin decides what WhatsApp offers by putting types in
+ * baskets. Only baskets with at least one type the bot can offer (`offered`:
+ * ready, with poses) are listed, so every row leads somewhere.
  */
 export function basketChoices(
   types: BasketType[],
@@ -182,10 +183,7 @@ export function basketChoices(
   offered: Set<string>,
 ): BasketChoice[] {
   const live = types.filter((t) => offered.has(t.id));
-  return [
-    ...baskets
-      .filter((b) => live.some((t) => t.basketId === b.id))
-      .map((b) => ({ key: `b:${b.id}`, name: b.name })),
-    ...live.filter((t) => t.basketId === null).map((t) => ({ key: `t:${t.id}`, name: t.label })),
-  ];
+  return baskets
+    .filter((b) => live.some((t) => t.basketId === b.id))
+    .map((b) => ({ key: `b:${b.id}`, name: b.name }));
 }
