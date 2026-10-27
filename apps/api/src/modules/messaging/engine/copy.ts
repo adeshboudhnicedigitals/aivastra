@@ -17,15 +17,13 @@ function askMain(main: string | null): string {
 
 // Button titles are capped at 20 characters by WhatsApp; list row titles at 24.
 export const COPY = {
-  menu: '✨ Ai Vastra',
+  menu: 'What would you like to do?',
   btnNewCatalog: 'New catalog',
-  // Menu-only titles carry the emoji; btnNewCatalog stays plain because the
-  // delivery buttons share it.
-  btnMenuNew: '📸 New catalogue',
-  btnCredits: '💳 My credits',
-  btnHelp: '💬 Help',
+  btnMenuNew: 'New catalogue',
+  btnCredits: 'Credits',
+  btnHelp: 'Help',
   btnMenu: 'Menu',
-  btnBack: 'Back',
+  btnExit: 'Exit',
   btnMore: 'More',
   btnMorePoses: 'More poses',
   btnRetryFailed: 'Retry failed',
@@ -33,20 +31,18 @@ export const COPY = {
   listChoose: 'Choose',
 
   credits: (balance: number, pricing: string) =>
-    `You have ${balance} credits. Buy more on the website: ${pricing}`,
+    `You have ${balance} credits remaining. 💳\nBuy more on the website: ${pricing}`,
   help: (help: string) =>
     `Send a garment photo to start. Type MENU any time. Need a person? ${help}`,
 
-  askGarmentPhoto: 'Send a photo of the garment, laid flat.',
-  askGender: 'Who is it for?',
-  askGenderConfirmed: 'Who is it for?',
+  askGarmentPhoto: "Let's create your catalogue!✨\nUpload a clear photo of your garment.",
+  askGender: 'Who is this catalogue for?',
   btnYesContinue: 'Yes, continue',
-  btnNoDifferent: 'No, different item',
-  // `gender` is given when the kind implies it, so the seller can catch a wrong one here.
-  kindGuess: (kind: string, gender?: string) => {
-    const name = `${gender ? `${gender.toLowerCase()}'s ` : ''}${kind.trim().toLowerCase()}`;
-    return `Looks like ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}. Correct?`;
-  },
+  btnNoDifferent: 'Choose garment type',
+  // The basket name is admin-written ("Men lower", "Two piece"), so it is used as is.
+  basketGuess: (name: string) => `This looks like ${name.trim().toLowerCase()}. Is that right?`,
+  askBasket: 'No problem! Select the correct garment type.',
+  basketOther: 'Something else',
   genders: { women: 'Women', men: 'Men', boys: 'Boys', girls: 'Girls' } as const,
   askGarmentType: 'Which garment is it?',
   // The draft link carries the photo once the studio page reads `?draft=`, so
@@ -64,28 +60,33 @@ export const COPY = {
     third: (label: string | null, main: string | null) =>
       `${askMain(main)}Now send a photo of the ${photoName(label) ?? 'third garment'}.`,
   },
-  countPrompt: (category: string, garment: string, perImage: number, balance: number) =>
-    `How many poses?\n${garment} · ${category}\n${perImage} credits each · Balance: ${balance}`,
+  countPrompt: (perImage: number) =>
+    `How many poses would you like?\nEach pose uses ${perImage} credits.`,
   countOption: (n: number, credits: number) =>
-    `${n} ${n === 1 ? 'pose' : 'poses'} (${credits} credits)`,
+    `${n} ${n === 1 ? 'pose' : 'poses'} · ${credits} credits`,
   noCredits: (pricing: string) => `Not enough credits. Top up: ${pricing}`,
   creditsAdded: (n: number) => `${n} credits added.`,
-  generating: (n: number) => `Generating ${n} ${n === 1 ? 'pose' : 'poses'}… ⏳`,
+  generating: (n: number) => `Creating your ${n} ${n === 1 ? 'pose' : 'poses'} now. ✨`,
+  // A catalogue is being generated and the seller tried to start another.
+  busyNew: (finished: number, total: number) =>
+    `Your catalogue is still generating (${finished} of ${total} done). Please wait for it to finish.`,
+  // Mid-catalogue, the seller sent a photo or tapped New catalogue.
+  inFlow: "You're in the middle of a catalogue. Type MENU to start over.",
   stillGenerating: (finished: number, total: number) =>
     `Still generating: ${finished} of ${total} done.`,
   deliveredNext: 'What would you like to do next?',
 
   // One closing message: what was delivered, what it cost, what was refunded.
-  closing: (delivered: number, failed: number, perImage: number, remaining: number) => {
+  closing: (delivered: number, failed: number, perImage: number) => {
     const refunded = failed * perImage;
     if (delivered <= 0)
       return `Couldn't make your ${failed === 1 ? 'pose' : 'poses'} this time. Your ${refunded} credits were refunded. Try again?`;
-    const done = `${delivered} ${delivered === 1 ? 'pose' : 'poses'} · ${delivered * perImage} credits used · ${remaining} left`;
-    return failed > 0
-      ? `${done}\n${failed} couldn't be made, so ${refunded} credits were refunded.`
-      : done;
+    const done = `Your ${delivered} ${delivered === 1 ? 'pose is' : 'poses are'} ready! 🎉`;
+    const refund =
+      failed > 0 ? `\n${failed} couldn't be made, so ${refunded} credits were refunded.` : '';
+    return `${done}${refund}\nWhat would you like to do next?`;
   },
-  btnNewGarment: 'New garment',
+  btnNewGarment: 'New catalogue',
   // Appended to the credits/help answer at the photo prompt so the seller keeps their place.
   thenPhoto: 'Send a garment photo to start.',
 
@@ -94,11 +95,10 @@ export const COPY = {
   unsupported: 'Please send a photo (JPG or PNG), not a video or document.',
   nothingAvailable: 'Nothing is available for that choice right now.',
 
-  connectPrompt:
-    'Welcome to Ai Vastra 👋\nTurn a garment photo into model shots. Connect your account to start.',
+  connectPrompt: 'Welcome to Ai Vastra! 👋\nCreate AI fashion catalogues right here on WhatsApp.',
   btnConnect: 'Connect my account',
   connectFooter: 'The link expires in 30 minutes.',
-  connected: 'Connected ✅ Send a garment photo to start.',
+  connected: "You're connected! 🎉",
   connectedDifferentNumber: (last4: string) =>
     `Note: this WhatsApp number is different from the mobile number on your account (ending ${last4}).`,
   connectCodeInvalid:

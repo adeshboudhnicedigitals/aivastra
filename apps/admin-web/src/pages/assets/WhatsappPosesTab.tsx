@@ -37,9 +37,9 @@ function undrawableReasons(p: ModelPoseAsset): string[] {
   return reasons;
 }
 
-export function WhatsappPosesTab() {
+export function WhatsappPosesTab({ embedded = false }: { embedded?: boolean } = {}) {
   const { workflows, setWorkflows, toast, setPreviewUrl } = useAssetsContext();
-  const tabHref = '/assets?tab=whatsapp-poses';
+  const tabHref = '/whatsapp?tab=whatsapp-poses';
   useCrumb(0, { label: 'WhatsApp Poses', href: tabHref });
 
   const [poses, setPoses] = useState<ModelPoseAsset[]>([]);
@@ -274,15 +274,17 @@ export function WhatsappPosesTab() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>WhatsApp Poses</h1>
-          <p className="lede">
-            The poses the WhatsApp try-on bot may draw. This tab only curates the pool; the bot owns
-            its count and credit rules.
-          </p>
+      {!embedded && (
+        <div className="page-head">
+          <div>
+            <h1>WhatsApp Poses</h1>
+            <p className="lede">
+              The poses the WhatsApp try-on bot may draw. This tab only curates the pool; the bot
+              owns its count and credit rules.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {loading || !workflowsReady ? (
         <div style={{ color: 'var(--muted)', padding: '2rem', textAlign: 'center' }}>Loading…</div>

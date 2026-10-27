@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { parseWebhook } from './channels/whatsapp/parse.js';
+import { parseStatuses, parseWebhook } from './channels/whatsapp/parse.js';
 import { verifySignature } from './channels/whatsapp/signature.js';
+import { recordStatus } from './channels/whatsapp/status.js';
 
 export const INBOUND_STREAM = 'messaging:inbound';
 // Meta retries for up to a few days; a redelivery older than this is processed again.
@@ -48,6 +49,14 @@ export async function whatsappWebhookRoutes(app: FastifyInstance) {
           body = JSON.parse(raw.toString('utf-8'));
         } catch {
           return reply.code(200).send();
+        }
+
+        // Receipts for what we sent: delivery waits on the last image's (delivery.ts).
+        // Best effort: a lost receipt only means that wait runs to its timeout.
+        for (const status of parseStatuses(body)) {
+          await recordStatus(app, status).catch((err) =>
+            app.log.warn({ err }, 'whatsapp status not recorded'),
+          );
         }
 
         for (const msg of parseWebhook(body)) {

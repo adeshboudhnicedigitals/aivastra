@@ -60,6 +60,31 @@ function content(m: Obj): InboundContent {
   }
 }
 
+export interface ParsedStatus {
+  // The wamid of a message we sent.
+  messageId: string;
+  // sent | delivered | read | failed
+  status: string;
+}
+
+/** Delivery receipts for messages we sent. Defensive like parseWebhook: untrusted input. */
+export function parseStatuses(body: unknown): ParsedStatus[] {
+  const out: ParsedStatus[] = [];
+  for (const entry of arr(obj(body)?.entry)) {
+    for (const change of arr(obj(entry)?.changes)) {
+      const c = obj(change);
+      if (c?.field !== 'messages') continue;
+      for (const raw of arr(obj(c.value)?.statuses)) {
+        const st = obj(raw);
+        const id = str(st?.id);
+        const status = str(st?.status);
+        if (id && status) out.push({ messageId: id, status });
+      }
+    }
+  }
+  return out;
+}
+
 /** Defensive by design: the body is untrusted input even after the signature check. */
 export function parseWebhook(body: unknown): ParsedInbound[] {
   const out: ParsedInbound[] = [];

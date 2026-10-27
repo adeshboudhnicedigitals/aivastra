@@ -93,6 +93,9 @@ export const garmentRecognitions = pgTable(
     options: jsonb('options').notNull(),
     // The model's raw text (null when there is no answer to record).
     answer: text('answer'),
+    // Every option's probability, best first ([{slug, p}]), from the scored
+    // classify service. Null on the ComfyUI path, which cannot rank.
+    ranked: jsonb('ranked'),
     // 'answered' | 'no_worker' | 'failed' | 'expired'
     outcome: text('outcome').notNull(),
     // Pick-up to answer, as measured by the dispatcher.

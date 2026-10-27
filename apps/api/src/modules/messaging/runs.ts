@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { CreateTryOnJobRequest } from '@aivastra/types';
-import { and, eq, inArray, or } from 'drizzle-orm';
+import { and, eq, gt, inArray, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { withIdempotency } from '../../lib/idempotency.js';
 import {
@@ -70,6 +70,37 @@ export async function createRun(
     // A replayed pick returns the same catalogueId from the idempotency cache.
     .onConflictDoNothing();
   return { runId: result.catalogueId, images: result.jobIds.length };
+}
+
+// A run with unfinished jobs older than this is treated as dead, so the generating
+// lock (engine.ts) always releases. The dispatcher's stuck-job sweeper normally
+// fails such jobs long before; this is the last resort if it does not.
+export const ACTIVE_RUN_MAX_MS = 15 * 60 * 1000;
+
+/** The chat's unfinished runs from the last ACTIVE_RUN_MAX_MS, progress summed; null when none. */
+export async function activeRun(
+  app: FastifyInstance,
+  accountId: string,
+): Promise<{ finished: number; total: number } | null> {
+  const recent = await app.db
+    .select({ id: schema.messagingRuns.catalogueId })
+    .from(schema.messagingRuns)
+    .where(
+      and(
+        eq(schema.messagingRuns.messagingAccountId, accountId),
+        gt(schema.messagingRuns.createdAt, new Date(Date.now() - ACTIVE_RUN_MAX_MS)),
+      ),
+    );
+  let finished = 0;
+  let total = 0;
+  for (const { id } of recent) {
+    const p = await runProgress(app, id);
+    if (p.finished < p.total) {
+      finished += p.finished;
+      total += p.total;
+    }
+  }
+  return total > 0 ? { finished, total } : null;
 }
 
 export async function runProgress(

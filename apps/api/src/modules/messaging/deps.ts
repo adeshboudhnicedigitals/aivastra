@@ -6,11 +6,17 @@ import type { FastifyInstance } from 'fastify';
 import { getResolutionTierConfig } from '../../lib/resolution-config.js';
 import { selectCatalogItems } from '../catalog/items.js';
 import { listBackgrounds, listFaces, listGarmentTypes, listPoses } from '../models/queries.js';
-import { recognizeKind, recordRecognitionCorrected, typeForKind } from './classify.js';
+import { whatsappIneligibleReason } from './baskets.js';
+import {
+  listBaskets,
+  recognizeBaskets,
+  recordRecognitionCorrected,
+  typesOfBasket,
+} from './classify.js';
 import { buildPool, itemSupply } from './engine/rules.js';
 import type { AspectRatio, EngineDeps, GarmentTypeOption, Resolution } from './engine/types.js';
 import { decideReadiness } from './readiness.js';
-import { createRun, quoteRun, runProgress } from './runs.js';
+import { activeRun, createRun, quoteRun, runProgress } from './runs.js';
 import { createStudioDraftToken } from './studio-draft.js';
 
 const BOT_ASPECT_RATIO: AspectRatio = '3:4';
@@ -97,8 +103,8 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
       const hasPoses = new Set(assigned.map((m) => m.id));
       return (
         items
-          // D16/D31: the two-step saree flow is not in the bot.
-          .filter((i) => !i.requiresMannequinStep && hasPoses.has(i.id))
+          // One garment photo per chat: no extra uploads, no two-step saree (D16/D31).
+          .filter((i) => whatsappIneligibleReason(i) === null && hasPoses.has(i.id))
           .map(toGarmentTypeOption)
       );
     },
@@ -111,8 +117,12 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
       }
       return a;
     },
-    recognizeKind: (garmentKey) => recognizeKind(app, garmentKey),
-    typeForKind: (label, gender) => typeForKind(app, label, gender),
+    recognizeBaskets: (garmentKey, gender) => recognizeBaskets(app, garmentKey, gender),
+    basketTypes: (gender, key) => typesOfBasket(app, gender, key),
+    async listBaskets(gender) {
+      const offered = await deps.listGarmentTypes(gender);
+      return listBaskets(app, gender, new Set(offered.map((t) => t.id)));
+    },
     recordRecognitionCorrected,
     // Info, not warn: it is admin data, not a fault, but it is the only trace
     // of why a seller was told a type "isn't available on WhatsApp yet".
@@ -216,6 +226,7 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
     quote: (userId, body) => quoteRun(app, userId, body),
     createRun: (ctx, body) => createRun(app, ctx, body),
     runProgress: (runId) => runProgress(app, runId),
+    activeRun: (accountId) => activeRun(app, accountId),
     links: { pricing: `${web}/pricing`, help: `${web}/contact-us`, studio: `${web}/studio` },
   };
   return deps;

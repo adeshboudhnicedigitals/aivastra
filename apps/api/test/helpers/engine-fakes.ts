@@ -49,8 +49,8 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     createRun: [] as TryonBody[],
     // The idempotency key each createRun call was given (ctx.messageId).
     createRunKeys: [] as string[],
-    recognize: [] as { garmentKey: string }[],
-    mapped: [] as { label: string; gender: string }[],
+    recognize: [] as { garmentKey: string; gender: string }[],
+    basketTypes: [] as { gender: string; key: string }[],
     corrected: 0,
     unavailable: [] as UnavailableReport[],
   };
@@ -60,8 +60,12 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
     getBalance: async () => 50,
     shuffle: (ids) => ids,
     listGarmentTypes: async () => [GT_SHIRT],
-    recognizeKind: async () => null,
-    typeForKind: async () => null,
+    recognizeBaskets: async () => null,
+    // By default every offered type is a basket of its own, as with no baskets set up.
+    basketTypes: async (_g, key) =>
+      key === `t:${GT_SHIRT.id}` ? [{ id: GT_SHIRT.id, label: GT_SHIRT.label }] : [],
+    listBaskets: async (gender) =>
+      (await deps.listGarmentTypes(gender)).map((t) => ({ key: `t:${t.id}`, name: t.label })),
     recordRecognitionCorrected: () => {
       calls.corrected++;
     },
@@ -86,6 +90,8 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
       return { runId: `run-${calls.createRun.length}`, images: lookCount(body) };
     },
     runProgress: async () => ({ finished: 1, total: 2 }),
+    // Nothing is generating unless a test says so.
+    activeRun: async () => null,
     links: {
       pricing: 'https://app.test/pricing',
       help: 'https://app.test/contact-us',
@@ -95,15 +101,15 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
   };
   // Logged around any override, so a test that supplies an answer still sees
   // what the engine asked.
-  const recognizeKind = deps.recognizeKind;
-  const typeForKind = deps.typeForKind;
-  deps.recognizeKind = async (garmentKey) => {
-    calls.recognize.push({ garmentKey });
-    return recognizeKind(garmentKey);
+  const recognizeBaskets = deps.recognizeBaskets;
+  const basketTypes = deps.basketTypes;
+  deps.recognizeBaskets = async (garmentKey, gender) => {
+    calls.recognize.push({ garmentKey, gender });
+    return recognizeBaskets(garmentKey, gender);
   };
-  deps.typeForKind = async (label, gender) => {
-    calls.mapped.push({ label, gender });
-    return typeForKind(label, gender);
+  deps.basketTypes = async (gender, key) => {
+    calls.basketTypes.push({ gender, key });
+    return basketTypes(gender, key);
   };
   return { deps, calls };
 }

@@ -13,6 +13,7 @@ import {
   retryLookIds,
 } from './rules.js';
 import type {
+  BasketChoice,
   EngineContext,
   EngineDeps,
   EngineResult,
@@ -32,6 +33,17 @@ const GENDERS: Gender[] = ['women', 'men', 'boys', 'girls'];
 
 type Out = OutboundMessage[];
 type Row = { action: string; value: string; title: string };
+
+// Steps where the seller is part-way through a catalogue: a photo or New catalogue
+// here is refused rather than replacing what they chose. Exit leaves.
+const QUESTION_STATES: ReadonlySet<State> = new Set([
+  'ASK_GENDER',
+  'CONFIRM_BASKET',
+  'CHOOSE_BASKET',
+  'ASK_GARMENT_TYPE',
+  'ASK_POSE_COUNT',
+  'NO_CREDITS',
+]);
 
 export async function freshSession(userId: string, deps: EngineDeps): Promise<Session> {
   const defaults = await deps.getUserDefaults(userId);
@@ -204,7 +216,7 @@ async function handoff(
       : deps.links.studio;
   // An empty list would make ASK_GARMENT_TYPE say "nothing available" right
   // after "choose another type", so end at the menu with no list offer.
-  if (s.gender && (await deps.listGarmentTypes(s.gender as Gender)).length === 0) {
+  if (s.gender && (await deps.listBaskets(s.gender as Gender)).length === 0) {
     out.push(text(COPY.handoff(gt.label, url, false)));
     return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
   }
@@ -333,7 +345,7 @@ async function render(
       return done();
 
     case 'ASK_GARMENT_PHOTO':
-      out.push(buttons(s, COPY.askGarmentPhoto, [['menu', 'menu', COPY.btnBack]]));
+      out.push(buttons(s, COPY.askGarmentPhoto, [['menu', 'menu', COPY.btnExit]]));
       return done();
 
     case 'ASK_GENDER':
@@ -341,25 +353,42 @@ async function render(
       out.push(
         listMsg(
           s,
-          s.kind ? COPY.askGenderConfirmed : COPY.askGender,
-          askableGenders(s).map((g) => ({ action: 'gender', value: g, title: COPY.genders[g] })),
+          COPY.askGender,
+          GENDERS.map((g) => ({ action: 'gender', value: g, title: COPY.genders[g] })),
         ),
       );
       return done();
 
-    case 'CONFIRM_KIND':
-      if (!s.kind) return enter(s, 'ASK_GENDER', out, ctx, deps);
+    case 'CONFIRM_BASKET': {
+      const guess = s.baskets?.[0];
+      if (!guess) return enter(s, 'ASK_GARMENT_TYPE', out, ctx, deps);
       out.push(
-        buttons(s, COPY.kindGuess(s.kind, genderLabel(impliedGender(s))), [
+        buttons(s, COPY.basketGuess(guess.name), [
           ['confirm', '', COPY.btnYesContinue],
           ['change', '', COPY.btnNoDifferent],
+          ['menu', 'menu', COPY.btnMenu],
         ]),
       );
       return done();
+    }
+
+    case 'CHOOSE_BASKET': {
+      const alternatives = s.baskets?.slice(1) ?? [];
+      if (alternatives.length === 0) return enter(s, 'ASK_GARMENT_TYPE', out, ctx, deps);
+      out.push(
+        listMsg(s, COPY.askBasket, [
+          ...alternatives.map((b) => ({ action: 'basket', value: b.key, title: b.name })),
+          { action: 'other', value: '', title: COPY.basketOther },
+        ]),
+      );
+      return done();
+    }
 
     case 'ASK_GARMENT_TYPE': {
-      const types = await deps.listGarmentTypes(s.gender as Gender);
-      if (types.length === 0) {
+      // Baskets, not every type: one row per group the classifier would have
+      // guessed, so the list stays short and each row runs like a confirmed guess.
+      const choices = await deps.listBaskets(s.gender as Gender);
+      if (choices.length === 0) {
         out.push(text(COPY.nothingAvailable));
         return enter(cleared(s), 'MAIN_MENU', out, ctx, deps);
       }
@@ -367,7 +396,7 @@ async function render(
         listMsg(
           s,
           COPY.askGarmentType,
-          types.map((t) => ({ action: 'gt', value: t.id, title: t.label })),
+          choices.map((b) => ({ action: 'basket', value: b.key, title: b.name })),
         ),
       );
       return done();
@@ -410,7 +439,7 @@ async function render(
       out.push(
         listMsg(
           next,
-          COPY.countPrompt(COPY.genders[s.gender], s.garmentType.label, q.perImage, q.balance),
+          COPY.countPrompt(q.perImage),
           options.map((n) => ({
             action: 'count',
             value: String(n),
@@ -441,7 +470,7 @@ async function render(
       // Failed images were refunded, so only the delivered ones were spent.
       const body =
         delivered > 0 || failed > 0
-          ? COPY.closing(delivered, failed, s.perImage ?? 0, await deps.getBalance(ctx.userId))
+          ? COPY.closing(delivered, failed, s.perImage ?? 0)
           : COPY.deliveredNext;
       const retryable = retryLookIds(s).length > 0;
       const items: [string, string, string][] = retryable
@@ -506,24 +535,35 @@ async function onReply(
   }
 
   switch (s.state) {
-    case 'CONFIRM_KIND': {
-      if (action === 'confirm') {
-        const implied = impliedGender(s);
-        return implied
-          ? pickGender(s, implied, out, ctx, deps)
-          : enter(s, 'ASK_GENDER', out, ctx, deps);
-      }
+    case 'CONFIRM_BASKET': {
+      const guess = s.baskets?.[0];
+      if (action === 'confirm' && guess) return chooseBasket(s, guess, out, ctx, deps);
       if (action !== 'change') return reprompt();
       deps.recordRecognitionCorrected();
-      return enter({ ...s, kind: undefined, kindGenders: undefined }, 'ASK_GENDER', out, ctx, deps);
+      // The alternatives first; with none, CHOOSE_BASKET falls through to the list.
+      return enter(s, 'CHOOSE_BASKET', out, ctx, deps);
+    }
+
+    case 'CHOOSE_BASKET': {
+      if (action === 'other') {
+        return enter({ ...s, baskets: undefined }, 'ASK_GARMENT_TYPE', out, ctx, deps);
+      }
+      const picked = s.baskets?.slice(1).find((b) => b.key === value);
+      if (action !== 'basket' || !picked) return reprompt();
+      return chooseBasket(s, picked, out, ctx, deps);
     }
 
     case 'ASK_GENDER': {
-      if (action !== 'gender' || !askableGenders(s).includes(value as Gender)) return reprompt();
+      if (action !== 'gender' || !GENDERS.includes(value as Gender)) return reprompt();
       return pickGender(s, value as Gender, out, ctx, deps);
     }
 
     case 'ASK_GARMENT_TYPE': {
+      if (action === 'basket') {
+        const picked = (await deps.listBaskets(s.gender as Gender)).find((b) => b.key === value);
+        return picked ? chooseBasket(s, picked, out, ctx, deps) : reprompt();
+      }
+      // A type row from a list sent before baskets (2026-10-26), still tappable.
       const gt = (await deps.listGarmentTypes(s.gender as Gender)).find((t) => t.id === value);
       if (action !== 'gt' || !gt) return reprompt();
       return chooseGarmentType(s, gt, out, ctx, deps);
@@ -571,12 +611,22 @@ async function onReply(
   }
 }
 
+// Credits and help answer in place at every step, so they pass the generating lock.
+function isInfoRequest(event: InboundEvent): boolean {
+  if (event.type === 'text') return ['help', 'credits'].includes(event.text.trim().toLowerCase());
+  if (event.type !== 'reply') return false;
+  const d = decodeReplyId(event.id);
+  return d?.action === 'menu' && (d.value === 'credits' || d.value === 'help');
+}
+
 // Typed words that mean "get me out". Never 'stop': that is the opt-out (inbound.ts).
 const EXIT_WORDS = new Set(['cancel', 'exit', 'quit', 'back', 'hi', 'hello']);
 
 // What a session saved before 2026-10-14 may still carry.
 type LegacySession = Session & {
   template?: unknown;
+  kind?: string;
+  kindGenders?: string[];
   count?: number;
   runId?: string;
   runImages?: number;
@@ -591,6 +641,12 @@ type LegacySession = Session & {
  */
 function upgradeSession(prev: Session): Session | null {
   const old = prev as LegacySession;
+  // Saved mid-confirm by the kind flow (before 2026-10-26): the photo is kept
+  // and the seller is asked the gender, which now comes first.
+  if ((old.state as string) === 'CONFIRM_KIND') {
+    const { kind: _k, kindGenders: _g, ...rest } = old;
+    return { ...rest, state: 'ASK_GENDER' };
+  }
   if (old.runId === undefined) {
     // `count` is a current field again (pose count), so only `template` marks the old shape.
     return old.template === undefined ? prev : null;
@@ -608,18 +664,10 @@ function upgradeSession(prev: Session): Session | null {
   };
 }
 
-/** The genders the gender question offers: only those with the recognised kind, when known. */
-const askableGenders = (s: Session): Gender[] => (s.kindGenders?.length ? s.kindGenders : GENDERS);
-
-/** The gender the recognised kind implies: set when only one gender has a type of it. */
-const impliedGender = (s: Session): Gender | undefined =>
-  s.kindGenders?.length === 1 ? s.kindGenders[0] : undefined;
-
-const genderLabel = (g: Gender | undefined) => (g ? COPY.genders[g] : undefined);
-
 /**
- * The gender is known (tapped, or implied by the confirmed kind): the recognised
- * kind becomes that gender's own type.
+ * The gender is tapped: recognise the photo among that gender's types (types
+ * are per-gender rows, so recognition waits for it) and offer the best basket,
+ * or the type list when there is no confident guess.
  */
 async function pickGender(
   s: Session,
@@ -628,37 +676,55 @@ async function pickGender(
   ctx: EngineContext,
   deps: EngineDeps,
 ): Promise<EngineResult> {
-  const withGender: Session = { ...s, gender, kindGenders: undefined };
-  // No kind, or a kind this gender does not have: the list is the way out.
-  const hit = s.kind ? await deps.typeForKind(s.kind, gender) : null;
-  if (!hit) return enter({ ...withGender, kind: undefined }, 'ASK_GARMENT_TYPE', out, ctx, deps);
-  const gt = (await deps.listGarmentTypes(gender)).find((t) => t.id === hit.garmentTypeId);
-  // A correct answer for a type the bot cannot offer (a saree two-step
-  // type, no template): hand the seller to the studio rather than pretend we didn't know.
-  if (!gt) {
-    // Report why, from the same facts the studio reads, so an admin sees
-    // "template_inactive" rather than a bare "not offered".
-    const { reasons } = await deps.getReadiness(gender, hit.garmentTypeId);
-    for (const reason of reasons) {
-      deps.reportUnavailable({ gender, garmentTypeId: hit.garmentTypeId, reason });
-    }
-    return handoff(withGender, { id: hit.garmentTypeId, label: hit.label }, out, ctx, deps);
-  }
-  // The kind was confirmed before the gender, so no second "Looks like".
-  return chooseGarmentType({ ...withGender, kind: undefined }, gt, out, ctx, deps);
+  const withGender: Session = { ...s, gender, baskets: undefined };
+  const guesses = s.garmentKey ? await deps.recognizeBaskets(s.garmentKey, gender) : null;
+  if (!guesses?.length) return enter(withGender, 'ASK_GARMENT_TYPE', out, ctx, deps);
+  return enter({ ...withGender, baskets: guesses }, 'CONFIRM_BASKET', out, ctx, deps);
 }
 
-/** A new garment photo: recognise the kind first, else go straight to the gender. */
+/**
+ * A basket is confirmed or picked: it runs as the first of its types the bot can
+ * offer, representative first (D47: assigned poses). None offerable — the
+ * representative is not ready, say — hands the seller to the studio with that
+ * type rather than pretend we didn't know.
+ */
+async function chooseBasket(
+  s: Session,
+  basket: BasketChoice,
+  out: Out,
+  ctx: EngineContext,
+  deps: EngineDeps,
+): Promise<EngineResult> {
+  const gender = s.gender as Gender;
+  const next: Session = { ...s, baskets: undefined };
+  const [members, offered] = await Promise.all([
+    deps.basketTypes(gender, basket.key),
+    deps.listGarmentTypes(gender),
+  ]);
+  // An admin removed the basket since it was offered: the list is the way out.
+  const first = members[0];
+  if (!first) return enter(next, 'ASK_GARMENT_TYPE', out, ctx, deps);
+  for (const m of members) {
+    const gt = offered.find((t) => t.id === m.id);
+    if (gt) return chooseGarmentType(next, gt, out, ctx, deps);
+  }
+  // Report why, from the same facts the studio reads, so an admin sees
+  // "template_inactive" rather than a bare "not offered".
+  const { reasons } = await deps.getReadiness(gender, first.id);
+  for (const reason of reasons) {
+    deps.reportUnavailable({ gender, garmentTypeId: first.id, reason });
+  }
+  return handoff(next, first, out, ctx, deps);
+}
+
+/** A new garment photo: the gender comes first, since recognition is per gender. */
 async function startFromPhoto(
   fresh: Session,
   out: Out,
   ctx: EngineContext,
   deps: EngineDeps,
 ): Promise<EngineResult> {
-  const hit = await deps.recognizeKind(fresh.garmentKey as string);
-  return hit
-    ? enter({ ...fresh, kind: hit.label, kindGenders: hit.genders }, 'CONFIRM_KIND', out, ctx, deps)
-    : enter(fresh, 'ASK_GENDER', out, ctx, deps);
+  return enter(fresh, 'ASK_GENDER', out, ctx, deps);
 }
 
 /**
@@ -674,6 +740,24 @@ export async function handle(
 ): Promise<EngineResult> {
   const out: Out = [];
   const upgraded = prev ? upgradeSession(prev) : null;
+
+  // While a catalogue is generating nothing else starts: a photo, a tap or typed
+  // text (exit words included, which would otherwise drop the session and with it
+  // the closing message) only gets the progress. Read from the database because
+  // the session cannot be trusted to remember the run. Credits and help still answer.
+  const gated = event.type === 'text' || event.type === 'reply' || event.type === 'image';
+  const busy = gated && !isInfoRequest(event) ? await deps.activeRun(ctx.accountId) : null;
+  if (busy) {
+    out.push(
+      text(
+        event.type === 'text'
+          ? COPY.stillGenerating(busy.finished, busy.total)
+          : COPY.busyNew(busy.finished, busy.total),
+      ),
+    );
+    return { session: upgraded ?? (await freshSession(ctx.userId, deps)), messages: out };
+  }
+
   if (!upgraded) {
     const fresh = await freshSession(ctx.userId, deps);
     // A first photo starts a catalog straight away (spec section 8).
@@ -711,10 +795,20 @@ export async function handle(
       // Menu buttons do not depend on the step, so they work from any old message.
       // Any other stale tap just shows the step we are on, with no complaint.
       if (!d || (d.action !== 'menu' && d.nonce !== s.nonce)) return render(s, out, ctx, deps);
+      // New catalogue from an old message, mid-catalogue: refused like a new photo.
+      if (d.action === 'menu' && d.value === 'new' && QUESTION_STATES.has(s.state)) {
+        out.push(text(COPY.inFlow));
+        return render(s, out, ctx, deps);
+      }
       return onReply(s, d.action, d.value, out, ctx, deps);
     }
 
     case 'image': {
+      // Part-way through a catalogue a photo is not a new one: Exit first.
+      if (QUESTION_STATES.has(s.state)) {
+        out.push(text(COPY.inFlow));
+        return render(s, out, ctx, deps);
+      }
       if (s.state === 'ASK_EXTRA_PHOTO') {
         const slot = firstMissingSlot(s);
         if (slot) {
@@ -728,9 +822,9 @@ export async function handle(
           );
         }
       }
-      // Anywhere else a photo can only mean "do this one" (spec section 8): it
-      // replaces the draft. Recognised right after the upload and before any
-      // question; awaited, so the seller waits once, up to the budget.
+      // At the menu, photo prompt or after delivery a photo starts a catalogue (spec
+      // section 8). Recognised once the gender is tapped; awaited there, so the
+      // seller waits once, up to the budget.
       return startFromPhoto({ ...cleared(s), garmentKey: event.garmentKey }, out, ctx, deps);
     }
 

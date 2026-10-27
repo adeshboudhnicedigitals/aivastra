@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { recordStatus } from '../../src/modules/messaging/channels/whatsapp/status';
 import { runConversation } from '../../src/modules/messaging/conversation';
 import { deliverPendingForAccount, deliverRun } from '../../src/modules/messaging/delivery';
 import { CHANNEL_WHATSAPP, connectAccount } from '../../src/modules/messaging/identity';
@@ -24,6 +25,7 @@ describe('whatsapp delivery', () => {
   let c: Containers;
   let app: TestApp;
   let appWithTemplate: TestApp;
+  let appWaiting: TestApp;
 
   beforeAll(async () => {
     c = await startContainers();
@@ -36,8 +38,15 @@ describe('whatsapp delivery', () => {
       WEB_URL: 'http://localhost:3000',
       WHATSAPP_RESULTS_TEMPLATE: 'catalog_images_ready',
     });
+    // The closing buttons wait for the last image to be reported delivered (1.5 s here).
+    appWaiting = await buildTestApp(c, {
+      MESSAGING_WHATSAPP_ENABLED: true,
+      WEB_URL: 'http://localhost:3000',
+      WHATSAPP_IMAGE_DELIVERY_WAIT_MS: 1500,
+    });
   }, 60_000);
   afterAll(async () => {
+    await appWaiting?.close();
     await app?.close();
     await appWithTemplate?.close();
     await c?.stop();
@@ -165,6 +174,67 @@ describe('whatsapp delivery', () => {
     const run = await runRow(s.runId);
     expect(new Set(run.deliveredJobIds)).toEqual(new Set([s.jobA.id, s.jobB.id]));
     expect(run.finishedAt).not.toBeNull();
+  });
+
+  describe('closing buttons wait for the last image to be delivered', () => {
+    const closingIndex = (wa: ReturnType<typeof fakeWhatsapp>) =>
+      wa.sent.findIndex((m) => typeOf(m.payload) !== 'image');
+
+    // The fake client numbers its messages out.1, out.2...; real wamids are unique, so
+    // a receipt left by an earlier test must not count for this one.
+    beforeEach(async () => {
+      await appWaiting.redis.del('msg:status:whatsapp:out.1');
+    });
+
+    it('holds them until the image is reported delivered, then sends them after it', async () => {
+      const s = await seedRun();
+      await seedGenerating(s.externalId, s.runId);
+      const wa = fakeWhatsapp();
+
+      const delivery = deliverRun(appWaiting, wa.client, s.runId);
+      await new Promise((r) => setTimeout(r, 500));
+      // The image is out; the buttons are not, and the run is not closed.
+      expect(wa.sent.map((m) => typeOf(m.payload))).toEqual(['image']);
+      expect((await runRow(s.runId)).finishedAt).toBeNull();
+
+      await recordStatus(appWaiting, { messageId: 'out.1', status: 'delivered' });
+      await delivery;
+
+      expect(wa.sent.map((m) => typeOf(m.payload))[0]).toBe('image');
+      expect(closingIndex(wa)).toBe(1);
+      expect(wa.texts().join(' ')).toMatch(/1 couldn't be made/);
+      expect((await runRow(s.runId)).finishedAt).not.toBeNull();
+    });
+
+    it('sends them anyway when no receipt ever comes', async () => {
+      const s = await seedRun();
+      await seedGenerating(s.externalId, s.runId);
+      const wa = fakeWhatsapp();
+
+      const started = Date.now();
+      await deliverRun(appWaiting, wa.client, s.runId);
+
+      expect(Date.now() - started).toBeGreaterThanOrEqual(1400);
+      expect(closingIndex(wa)).toBe(1);
+      expect((await runRow(s.runId)).finishedAt).not.toBeNull();
+    });
+
+    it('does not wait when no image was sent (every job failed)', async () => {
+      const s = await seedRun({ secondStatus: 'FAILED' });
+      await app.db
+        .update(schema.jobs)
+        .set({ status: 'FAILED' })
+        .where(eq(schema.jobs.id, s.jobA.id));
+      await seedGenerating(s.externalId, s.runId);
+      const wa = fakeWhatsapp();
+
+      const started = Date.now();
+      await deliverRun(appWaiting, wa.client, s.runId);
+
+      expect(Date.now() - started).toBeLessThan(1000);
+      expect(wa.sent.some((m) => typeOf(m.payload) === 'image')).toBe(false);
+      expect((await runRow(s.runId)).finishedAt).not.toBeNull();
+    });
   });
 
   it('twice is once: a second deliverRun sends nothing new', async () => {
