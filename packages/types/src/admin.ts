@@ -6,6 +6,10 @@ export const GrantCreditsBody = z.object({
   amount: z.number().int().positive().max(10_000),
   reason: z.string().max(200).optional(),
 });
+export const GrantShopifyStoreCreditsBody = z.object({
+  amount: z.number().int().positive().max(10_000),
+  reason: z.string().trim().max(200).optional(),
+});
 export const BulkGrantBody = z.object({
   tier: z.string().min(1).max(64),
   amount: z.number().int().positive().max(10_000),
