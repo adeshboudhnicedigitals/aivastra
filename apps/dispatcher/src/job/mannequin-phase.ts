@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { comfyRequestDuration } from '@aivastra/observability';
@@ -6,12 +5,7 @@ import { isNotFoundError, keys, type StorageProvider } from '@aivastra/storage';
 import { WORKER_POOL } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
-import {
-  downloadOutputImage,
-  fetchHistory,
-  submitPrompt,
-  uploadImageToComfy,
-} from '../comfyui/client.js';
+import { downloadOutputImage, fetchHistory, uploadImageToComfy } from '../comfyui/client.js';
 import { assertNever, getCompletedHistory, waitForCompletion } from '../comfyui/progress.js';
 import {
   logSelection,
@@ -21,6 +15,7 @@ import {
 import { performanceKey as getPerformanceKey } from '../perf/performance-key.js';
 import { releaseWorker } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
+import { submitRecordedPhase } from './submission.js';
 
 export interface MannequinPhaseConfig {
   db: DB;
@@ -133,15 +128,35 @@ export async function runMannequinPhase(
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
       workflow[garmentNodeId].inputs!.image = garmentFile;
     }
-    const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
-    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    const {
+      promptId,
+      clientId: clientUuid,
+      attemptId,
+    } = await submitRecordedPhase({
+      db,
+      jobId,
+      phase: 'mannequin',
+      worker: w,
+      prompt: workflow,
+      log: jobLog,
+      contract: {
+        kind: 'in_job_mannequin',
+        workflowTemplateId: mannequinWorkflowTemplateId,
+        outputNodeId,
+        inputs: { garmentKey, personKey, personFile, garmentFile },
+        continuation: { faceId, intermediateKey },
+        timeoutMs: 300_000,
+      },
+    });
     jobLog.info({ promptId }, 'mannequin-phase prompt submitted');
     await db.insert(schema.jobEvents).values({
       jobId,
       eventType: 'COMFY_DISPATCH',
       payload: {
         promptId,
+        attemptId,
+        clientId: clientUuid,
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId: mannequinWorkflowTemplateId,
@@ -207,6 +222,14 @@ export async function runMannequinPhase(
       firstImage.subfolder,
     );
     await storage.putObject(intermediateKey, imageBytes, 'image/png');
+    await db
+      .update(schema.executionAttempts)
+      .set({
+        state: 'SUCCEEDED',
+        updatedAt: new Date(),
+        resolvedAt: new Date(),
+      })
+      .where(eq(schema.executionAttempts.id, attemptId));
     settlePerformanceSample(w, 'success');
     jobLog.info({ intermediateKey }, 'mannequin phase complete');
     return { status: 'completed', key: intermediateKey };

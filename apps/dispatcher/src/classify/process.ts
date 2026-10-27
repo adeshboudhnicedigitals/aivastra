@@ -1,3 +1,4 @@
+import { schema } from '@aivastra/db';
 import { garmentClassifyDurationSeconds } from '@aivastra/observability';
 import {
   GARMENT_RECOGNITION_RESULT_TTL_SEC,
@@ -6,8 +7,10 @@ import {
   garmentRecognitionResultKey,
   WORKER_POOL,
 } from '@aivastra/types';
-import { fetchPromptOutcome, submitPrompt, uploadImageToComfy } from '../comfyui/client.js';
+import { eq } from 'drizzle-orm';
+import { fetchPromptOutcome, uploadImageToComfy } from '../comfyui/client.js';
 import type { ProcessorConfig } from '../job/processor.js';
+import { submitRecordedPhase } from '../job/submission.js';
 import { releaseWorker } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 import { recordRecognition } from './record.js';
@@ -178,17 +181,38 @@ export async function processRecognitionRequest(
       log,
     );
     const prompt = buildClassifyPrompt(template, filename, request.options);
-    const { promptId } = await submitPrompt(
-      worker.url,
-      worker.apiKey,
-      request.requestId,
+    const { promptId, attemptId } = await submitRecordedPhase({
+      db: cfg.db,
+      requestId: request.requestId,
+      phase: 'classify',
+      worker,
       prompt,
       log,
-    );
+      contract: {
+        kind: 'classify',
+        workflowTemplateId: template.id,
+        outputNodeId: template.outputNodeId,
+        inputs: { garmentKey: request.garmentKey, filename, options: request.options },
+        timeoutMs: opts.hardCapMs ?? HARD_CAP_MS,
+      },
+    });
 
     const deadline = Date.now() + (opts.hardCapMs ?? HARD_CAP_MS);
     while (Date.now() < deadline) {
       const outcome = await fetchPromptOutcome(worker.url, worker.apiKey, promptId);
+      if (outcome.state === 'done' || outcome.state === 'error') {
+        await cfg.db
+          .update(schema.executionAttempts)
+          .set({
+            state: outcome.state === 'done' ? 'SUCCEEDED' : 'FAILED',
+            updatedAt: new Date(),
+            resolvedAt: new Date(),
+          })
+          .where(eq(schema.executionAttempts.id, attemptId))
+          .catch((err) => {
+            log.warn({ err, attemptId }, 'could not record classify execution outcome');
+          });
+      }
       if (outcome.state === 'error') {
         log.warn({ workerId: worker.id, message: outcome.message }, 'classify workflow failed');
         return finish(null, 'failed', {
