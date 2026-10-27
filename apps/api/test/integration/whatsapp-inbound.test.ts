@@ -83,7 +83,7 @@ describe('whatsapp inbound', () => {
     expect(row).toMatchObject({ userId, linkedVia: 'web_code' });
     expect(row.lastInboundAt).not.toBeNull();
     const t = wa.texts();
-    expect(t[0]).toMatch(/^Connected ✅/);
+    expect(t[0]).toMatch(/^You're connected!/);
     expect(t[1]).toMatch(/ending 1234/);
     expect(t.at(-1)).toBe(COPY.menu);
   });
@@ -168,7 +168,7 @@ describe('whatsapp inbound', () => {
       noPending,
     );
     // Photo from the main menu → the engine asks for gender next.
-    expect(wa.texts().at(-1)).toBe('Who is it for?');
+    expect(wa.texts().at(-1)).toBe('Who is this catalogue for?');
     const owned = await app.redis.keys('upload:owner:inputs/*');
     expect(owned.length).toBeGreaterThan(0);
   });

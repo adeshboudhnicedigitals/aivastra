@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { parseWebhook } from '../src/modules/messaging/channels/whatsapp/parse';
+import { parseStatuses, parseWebhook } from '../src/modules/messaging/channels/whatsapp/parse';
 import { verifySignature } from '../src/modules/messaging/channels/whatsapp/signature';
 
 const wrap = (messages: unknown[], contacts: unknown[] = []) => ({
@@ -119,5 +119,46 @@ describe('verifySignature', () => {
     expect(verifySignature(body, good, 'other-secret-0123456789')).toBe(false);
     expect(verifySignature(body, undefined, 'app-secret-0123456789')).toBe(false);
     expect(verifySignature(body, 'sha256=zz', 'app-secret-0123456789')).toBe(false);
+  });
+});
+
+describe('parseStatuses', () => {
+  const statuses = (list: unknown[]) => ({
+    entry: [{ changes: [{ field: 'messages', value: { statuses: list } }] }],
+  });
+
+  it('reads the receipt for each message we sent', () => {
+    expect(
+      parseStatuses(
+        statuses([
+          { id: 'wamid.a', status: 'sent', recipient_id: '919100000001' },
+          { id: 'wamid.a', status: 'delivered' },
+          { id: 'wamid.b', status: 'failed' },
+        ]),
+      ),
+    ).toEqual([
+      { messageId: 'wamid.a', status: 'sent' },
+      { messageId: 'wamid.a', status: 'delivered' },
+      { messageId: 'wamid.b', status: 'failed' },
+    ]);
+  });
+
+  it('skips entries without an id or status, other fields, and malformed bodies', () => {
+    expect(
+      parseStatuses(statuses([{ status: 'delivered' }, { id: 'wamid.a' }, 'x', null])),
+    ).toEqual([]);
+    expect(
+      parseStatuses({
+        entry: [
+          { changes: [{ field: 'other', value: { statuses: [{ id: 'a', status: 'sent' }] } }] },
+        ],
+      }),
+    ).toEqual([]);
+    expect(parseStatuses(null)).toEqual([]);
+    expect(parseStatuses({ entry: 'nope' })).toEqual([]);
+  });
+
+  it('a body with only statuses carries no inbound messages', () => {
+    expect(parseWebhook(statuses([{ id: 'wamid.a', status: 'delivered' }]))).toEqual([]);
   });
 });

@@ -34,6 +34,17 @@ const GENDERS: Gender[] = ['women', 'men', 'boys', 'girls'];
 type Out = OutboundMessage[];
 type Row = { action: string; value: string; title: string };
 
+// Steps where the seller is part-way through a catalogue: a photo or New catalogue
+// here is refused rather than replacing what they chose. Exit leaves.
+const QUESTION_STATES: ReadonlySet<State> = new Set([
+  'ASK_GENDER',
+  'CONFIRM_BASKET',
+  'CHOOSE_BASKET',
+  'ASK_GARMENT_TYPE',
+  'ASK_POSE_COUNT',
+  'NO_CREDITS',
+]);
+
 export async function freshSession(userId: string, deps: EngineDeps): Promise<Session> {
   const defaults = await deps.getUserDefaults(userId);
   return {
@@ -334,7 +345,7 @@ async function render(
       return done();
 
     case 'ASK_GARMENT_PHOTO':
-      out.push(buttons(s, COPY.askGarmentPhoto, [['menu', 'menu', COPY.btnBack]]));
+      out.push(buttons(s, COPY.askGarmentPhoto, [['menu', 'menu', COPY.btnExit]]));
       return done();
 
     case 'ASK_GENDER':
@@ -355,6 +366,7 @@ async function render(
         buttons(s, COPY.basketGuess(guess.name), [
           ['confirm', '', COPY.btnYesContinue],
           ['change', '', COPY.btnNoDifferent],
+          ['menu', 'menu', COPY.btnMenu],
         ]),
       );
       return done();
@@ -427,7 +439,7 @@ async function render(
       out.push(
         listMsg(
           next,
-          COPY.countPrompt(COPY.genders[s.gender], s.garmentType.label, q.perImage, q.balance),
+          COPY.countPrompt(q.perImage),
           options.map((n) => ({
             action: 'count',
             value: String(n),
@@ -458,7 +470,7 @@ async function render(
       // Failed images were refunded, so only the delivered ones were spent.
       const body =
         delivered > 0 || failed > 0
-          ? COPY.closing(delivered, failed, s.perImage ?? 0, await deps.getBalance(ctx.userId))
+          ? COPY.closing(delivered, failed, s.perImage ?? 0)
           : COPY.deliveredNext;
       const retryable = retryLookIds(s).length > 0;
       const items: [string, string, string][] = retryable
@@ -599,6 +611,14 @@ async function onReply(
   }
 }
 
+// Credits and help answer in place at every step, so they pass the generating lock.
+function isInfoRequest(event: InboundEvent): boolean {
+  if (event.type === 'text') return ['help', 'credits'].includes(event.text.trim().toLowerCase());
+  if (event.type !== 'reply') return false;
+  const d = decodeReplyId(event.id);
+  return d?.action === 'menu' && (d.value === 'credits' || d.value === 'help');
+}
+
 // Typed words that mean "get me out". Never 'stop': that is the opt-out (inbound.ts).
 const EXIT_WORDS = new Set(['cancel', 'exit', 'quit', 'back', 'hi', 'hello']);
 
@@ -720,6 +740,24 @@ export async function handle(
 ): Promise<EngineResult> {
   const out: Out = [];
   const upgraded = prev ? upgradeSession(prev) : null;
+
+  // While a catalogue is generating nothing else starts: a photo, a tap or typed
+  // text (exit words included, which would otherwise drop the session and with it
+  // the closing message) only gets the progress. Read from the database because
+  // the session cannot be trusted to remember the run. Credits and help still answer.
+  const gated = event.type === 'text' || event.type === 'reply' || event.type === 'image';
+  const busy = gated && !isInfoRequest(event) ? await deps.activeRun(ctx.accountId) : null;
+  if (busy) {
+    out.push(
+      text(
+        event.type === 'text'
+          ? COPY.stillGenerating(busy.finished, busy.total)
+          : COPY.busyNew(busy.finished, busy.total),
+      ),
+    );
+    return { session: upgraded ?? (await freshSession(ctx.userId, deps)), messages: out };
+  }
+
   if (!upgraded) {
     const fresh = await freshSession(ctx.userId, deps);
     // A first photo starts a catalog straight away (spec section 8).
@@ -757,10 +795,20 @@ export async function handle(
       // Menu buttons do not depend on the step, so they work from any old message.
       // Any other stale tap just shows the step we are on, with no complaint.
       if (!d || (d.action !== 'menu' && d.nonce !== s.nonce)) return render(s, out, ctx, deps);
+      // New catalogue from an old message, mid-catalogue: refused like a new photo.
+      if (d.action === 'menu' && d.value === 'new' && QUESTION_STATES.has(s.state)) {
+        out.push(text(COPY.inFlow));
+        return render(s, out, ctx, deps);
+      }
       return onReply(s, d.action, d.value, out, ctx, deps);
     }
 
     case 'image': {
+      // Part-way through a catalogue a photo is not a new one: Exit first.
+      if (QUESTION_STATES.has(s.state)) {
+        out.push(text(COPY.inFlow));
+        return render(s, out, ctx, deps);
+      }
       if (s.state === 'ASK_EXTRA_PHOTO') {
         const slot = firstMissingSlot(s);
         if (slot) {
@@ -774,9 +822,9 @@ export async function handle(
           );
         }
       }
-      // Anywhere else a photo can only mean "do this one" (spec section 8): it
-      // replaces the draft. Recognised once the gender is tapped; awaited
-      // there, so the seller waits once, up to the budget.
+      // At the menu, photo prompt or after delivery a photo starts a catalogue (spec
+      // section 8). Recognised once the gender is tapped; awaited there, so the
+      // seller waits once, up to the budget.
       return startFromPhoto({ ...cleared(s), garmentKey: event.garmentKey }, out, ctx, deps);
     }
 

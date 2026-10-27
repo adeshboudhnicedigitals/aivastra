@@ -237,6 +237,11 @@ export interface EngineDeps {
   // Throws AppError('INSUFFICIENT_CREDITS', 402) when the balance is short.
   createRun(ctx: EngineContext, body: TryonBody): Promise<{ runId: string; images: number }>;
   runProgress(runId: string): Promise<{ finished: number; total: number }>;
+  // This chat's runs that still have unfinished jobs, summed; null when nothing is
+  // generating. Read from the database, not the session: the session forgets a run
+  // as soon as the seller leaves its step. Runs older than the cutoff are not
+  // counted, so a run that never finishes cannot lock a seller out.
+  activeRun(accountId: string): Promise<{ finished: number; total: number } | null>;
   links: { pricing: string; help: string; studio: string };
 }
 

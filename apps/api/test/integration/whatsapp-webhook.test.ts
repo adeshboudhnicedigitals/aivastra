@@ -73,6 +73,44 @@ describe('whatsapp webhook', () => {
     expect(await streamLength()).toBe(before + 1);
   });
 
+  it('remembers delivered and read receipts, not sent or failed, and enqueues nothing', async () => {
+    const before = await streamLength();
+    const id = (n: string) => `wamid.out-${n}-${runId}`;
+    const raw = JSON.stringify({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                statuses: [
+                  { id: id('sent'), status: 'sent' },
+                  { id: id('delivered'), status: 'delivered' },
+                  { id: id('read'), status: 'read' },
+                  { id: id('failed'), status: 'failed' },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/whatsapp/webhook',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': sign(raw) },
+      payload: raw,
+    });
+    expect(res.statusCode).toBe(200);
+    const stored = (n: string) => app.redis.get(`msg:status:whatsapp:${id(n)}`);
+    expect(await stored('delivered')).toBe('delivered');
+    expect(await stored('read')).toBe('read');
+    expect(await stored('sent')).toBeNull();
+    expect(await stored('failed')).toBeNull();
+    expect(await streamLength()).toBe(before);
+  });
+
   it('rejects a badly signed request with 401 and enqueues nothing', async () => {
     const before = await streamLength();
     const raw = payload(`wamid.bad-1-${runId}`);

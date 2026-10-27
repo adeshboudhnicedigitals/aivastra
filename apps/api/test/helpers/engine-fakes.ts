@@ -90,6 +90,8 @@ export function fakeDeps(over: Partial<EngineDeps> = {}) {
       return { runId: `run-${calls.createRun.length}`, images: lookCount(body) };
     },
     runProgress: async () => ({ finished: 1, total: 2 }),
+    // Nothing is generating unless a test says so.
+    activeRun: async () => null,
     links: {
       pricing: 'https://app.test/pricing',
       help: 'https://app.test/contact-us',

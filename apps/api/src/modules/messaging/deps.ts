@@ -16,7 +16,7 @@ import {
 import { buildPool, itemSupply } from './engine/rules.js';
 import type { AspectRatio, EngineDeps, GarmentTypeOption, Resolution } from './engine/types.js';
 import { decideReadiness } from './readiness.js';
-import { createRun, quoteRun, runProgress } from './runs.js';
+import { activeRun, createRun, quoteRun, runProgress } from './runs.js';
 import { createStudioDraftToken } from './studio-draft.js';
 
 const BOT_ASPECT_RATIO: AspectRatio = '3:4';
@@ -226,6 +226,7 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
     quote: (userId, body) => quoteRun(app, userId, body),
     createRun: (ctx, body) => createRun(app, ctx, body),
     runProgress: (runId) => runProgress(app, runId),
+    activeRun: (accountId) => activeRun(app, accountId),
     links: { pricing: `${web}/pricing`, help: `${web}/contact-us`, studio: `${web}/studio` },
   };
   return deps;
