@@ -2296,6 +2296,11 @@ function PoseConfigsPanel({
   // instead of requiring a trip there. Preserves whatever workflow/prompt
   // override that pose already has on the target (if any) rather than wiping
   // it, and only flips the target's isActive to true.
+  //
+  // sortOrder: the current effective rank of each pose in this garment type's
+  // list (items is already in server-ordered effective order) is forwarded to
+  // the target garment type, so a multi-sort you just applied here carries
+  // over instead of being silently dropped.
   const applyMapToGarmentType = async () => {
     if (!mapTargetId || selectedIds.length === 0) return;
     setMapSaving(true);
@@ -2311,6 +2316,11 @@ function PoseConfigsPanel({
       await Promise.all(
         entries.map(([poseId, configs]) => {
           const cfg = configs.find((c) => c.id === mapTargetId);
+          // Carry the pose's current effective rank in this garment type across
+          // to the target. items is already in effective sort order (per-type
+          // override wins over global), so findIndex + 1 gives the 1-based
+          // position the admin sees — the same source of truth openEdit uses.
+          const sourceRank = items.findIndex((i) => i.id === poseId) + 1;
           return apiFetch(`/admin/assets/garment-types/${mapTargetId}/pose-configs/${poseId}`, {
             method: 'PATCH',
             body: JSON.stringify({
@@ -2318,6 +2328,11 @@ function PoseConfigsPanel({
               promptGarmentPhase: cfg?.config?.promptGarmentPhase ?? null,
               promptFacePhase: cfg?.config?.promptFacePhase ?? null,
               isActive: true,
+              // Only send sortOrder when the pose is actually in the current
+              // list (sourceRank > 0). Poses that aren't in items (shouldn't
+              // happen, but defensive) get no position override, preserving
+              // existing target order rather than silently placing them at 0.
+              ...(sourceRank > 0 ? { sortOrder: sourceRank } : {}),
             }),
           });
         }),
