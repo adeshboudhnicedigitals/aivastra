@@ -26,7 +26,36 @@ const RESOLUTION_ORDER: Resolution[] = ['HD', '2K', '4K'];
 
 type GarmentTypeRow = Awaited<ReturnType<typeof listGarmentTypes>>['items'][number];
 
-const toGarmentTypeOption = (i: GarmentTypeRow): GarmentTypeOption => ({
+/**
+ * The types' default lower and shoe ids that the studio would still show: the
+ * item active and in an active category (see selectCatalogItems). A default is
+ * a plain id on the type, so without this a switched-off item would still be
+ * drawn for every run of the type.
+ */
+async function usableDefaultIds(app: FastifyInstance, rows: GarmentTypeRow[]) {
+  const ids = [
+    ...new Set(
+      rows
+        .flatMap((r) => [r.defaultLowerCatalogId, r.defaultShoeCatalogId])
+        .filter((x) => x != null),
+    ),
+  ] as string[];
+  if (ids.length === 0) return new Set<string>();
+  const ok = await app.db
+    .select({ id: schema.catalogItems.id })
+    .from(schema.catalogItems)
+    .innerJoin(
+      schema.catalogCategories,
+      and(
+        eq(schema.catalogCategories.id, schema.catalogItems.categoryId),
+        eq(schema.catalogCategories.isActive, true),
+      ),
+    )
+    .where(and(inArray(schema.catalogItems.id, ids), eq(schema.catalogItems.isActive, true)));
+  return new Set(ok.map((r) => r.id));
+}
+
+const toGarmentTypeOption = (i: GarmentTypeRow, usable: Set<string>): GarmentTypeOption => ({
   id: i.id,
   label: i.label,
   requiresLowerUpload: i.requiresLowerUpload,
@@ -34,8 +63,10 @@ const toGarmentTypeOption = (i: GarmentTypeRow): GarmentTypeOption => ({
   upperUploadLabel: i.upperUploadLabel,
   lowerUploadLabel: i.lowerUploadLabel,
   thirdUploadLabel: i.thirdUploadLabel,
-  defaultLowerCatalogId: i.defaultLowerCatalogId,
-  defaultShoeCatalogId: i.defaultShoeCatalogId,
+  defaultLowerCatalogId:
+    i.defaultLowerCatalogId && usable.has(i.defaultLowerCatalogId) ? i.defaultLowerCatalogId : null,
+  defaultShoeCatalogId:
+    i.defaultShoeCatalogId && usable.has(i.defaultShoeCatalogId) ? i.defaultShoeCatalogId : null,
 });
 
 /** Real EngineDeps: every option list is the studio's own query (models/queries.ts). */
@@ -101,11 +132,12 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
           ),
         );
       const hasPoses = new Set(assigned.map((m) => m.id));
+      const usable = await usableDefaultIds(app, items);
       return (
         items
           // One garment photo per chat: no extra uploads, no two-step saree (D16/D31).
           .filter((i) => whatsappIneligibleReason(i) === null && hasPoses.has(i.id))
-          .map(toGarmentTypeOption)
+          .map((i) => toGarmentTypeOption(i, usable))
       );
     },
 
@@ -198,6 +230,7 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
         )
         .where(eq(schema.poseGarmentConfigs.subcategoryId, garmentTypeId));
       const poses = await deps.getLooks(gender, garmentTypeId);
+      const usable = await usableDefaultIds(app, [gt]);
       return decideReadiness({
         active: true,
         requiresMannequinStep: gt.requiresMannequinStep,
@@ -207,10 +240,10 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
         hasBackground: (await deps.listBackgroundIds(gender)).length > 0,
         looksTotal: poses.length,
         looksUsable: buildPool(
-          toGarmentTypeOption(gt),
+          toGarmentTypeOption(gt, usable),
           poses,
           itemSupply(
-            toGarmentTypeOption(gt),
+            toGarmentTypeOption(gt, usable),
             await deps.listCatalogItemIds('lower', gender, garmentTypeId),
             await deps.listCatalogItemIds('shoe', gender, garmentTypeId),
           ),
