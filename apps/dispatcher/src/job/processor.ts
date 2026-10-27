@@ -3925,7 +3925,7 @@ async function terminateJob(
       eventType: status,
       payload: (status === 'CANCELLED' ? {} : { errorCode }) as Record<string, unknown>,
     });
-    await recordSubmissionOutcome(tx, jobId, status);
+    await recordSubmissionOutcome(tx, jobId, status, _log);
     return true;
   });
   if (!transitioned) {
@@ -3990,7 +3990,7 @@ async function handleFailure(
     // has moved on; resolved_at stays empty because the GPU may still be running it.
     await db.transaction(async (tx) => {
       await tx.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await recordSubmissionOutcome(tx, jobId, 'FAILED');
+      await recordSubmissionOutcome(tx, jobId, 'FAILED', log);
     });
     await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
     await redis.xack(stream, 'dispatcher-cg', messageId);

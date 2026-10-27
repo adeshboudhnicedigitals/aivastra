@@ -110,10 +110,19 @@ export async function submitRecordedPhase(opts: SubmissionOptions): Promise<{
         });
     throw err;
   }
+  // The worker already accepted the prompt. Failing here would send the caller
+  // into a retry that runs it a second time, so record the receipt best-effort.
+  // The attempt stays SUBMITTING and a later reconciler finds it by client ID.
   await db
     .update(schema.executionAttempts)
     .set({ state: 'ACCEPTED', promptId, updatedAt: new Date() })
-    .where(eq(schema.executionAttempts.id, attempt.id));
+    .where(eq(schema.executionAttempts.id, attempt.id))
+    .catch((err) => {
+      log.warn(
+        { err, attemptId: attempt.id, clientId: attempt.clientId },
+        'could not record accepted prompt receipt',
+      );
+    });
   return { attemptId: attempt.id, clientId: attempt.clientId, promptId };
 }
 
@@ -129,28 +138,41 @@ function isDefiniteRejection(err: unknown): boolean {
   }
 }
 
-/** Telemetry only; the caller's existing transaction still decides the job. */
+/**
+ * Telemetry only; the caller's existing transaction still decides the job.
+ *
+ * Phase A only: the attempt row is a record, so it runs in a savepoint and a
+ * failure is logged instead of rolling back the terminal transition. Phase B2
+ * makes the attempt authoritative for settlement; remove the savepoint then.
+ */
 export async function recordSubmissionOutcome(
   tx: DB | DbTransaction,
   jobId: string,
   status: string,
+  log: Logger,
 ): Promise<void> {
   if (!['COMPLETED', 'FAILED', 'CANCELLED'].includes(status)) return;
-  await tx
-    .update(schema.executionAttempts)
-    .set({
-      state: status === 'COMPLETED' ? 'SUCCEEDED' : 'FAILED',
-      updatedAt: new Date(),
-      // Failure/cancel/retry may leave a remote prompt alive. Do not certify it ended.
-      ...(status === 'COMPLETED' ? { resolvedAt: new Date() } : {}),
-    })
-    .where(
-      and(
-        eq(
-          schema.executionAttempts.id,
-          sql`(select id from execution_attempts where job_id = ${jobId} order by attempt_no desc limit 1)`,
-        ),
-        inArray(schema.executionAttempts.state, ['ACCEPTED', 'OUTPUT_READY']),
-      ),
-    );
+  try {
+    await tx.transaction(async (sp) => {
+      await sp
+        .update(schema.executionAttempts)
+        .set({
+          state: status === 'COMPLETED' ? 'SUCCEEDED' : 'FAILED',
+          updatedAt: new Date(),
+          // Failure/cancel/retry may leave a remote prompt alive. Do not certify it ended.
+          ...(status === 'COMPLETED' ? { resolvedAt: new Date() } : {}),
+        })
+        .where(
+          and(
+            eq(
+              schema.executionAttempts.id,
+              sql`(select id from execution_attempts where job_id = ${jobId} order by attempt_no desc limit 1)`,
+            ),
+            inArray(schema.executionAttempts.state, ['ACCEPTED', 'OUTPUT_READY']),
+          ),
+        );
+    });
+  } catch (err) {
+    log.warn({ err, jobId, status }, 'could not record submission outcome');
+  }
 }

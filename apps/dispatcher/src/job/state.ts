@@ -90,7 +90,7 @@ export async function transitionJob(
     await tx
       .insert(schema.jobEvents)
       .values({ jobId, eventType: status, payload: opts as Record<string, unknown> });
-    await recordSubmissionOutcome(tx, jobId, status);
+    await recordSubmissionOutcome(tx, jobId, status, log);
     return rows;
   });
   if (!updated.length) {

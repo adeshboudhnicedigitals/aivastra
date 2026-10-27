@@ -7,6 +7,7 @@ import { sql } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { processRecognitionRequest } from '../../src/classify/process.js';
+import { transitionJob } from '../../src/job/state.js';
 import { submitRecordedPhase } from '../../src/job/submission.js';
 import { registerWorkers } from '../../src/worker/registry.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
@@ -308,7 +309,7 @@ describe('durable Comfy submission intent', () => {
     }
   });
 
-  it('retains SUBMITTING without a second POST if receipt persistence fails', async () => {
+  it('returns the accepted prompt and stays SUBMITTING with one POST if receipt persistence fails', async () => {
     const job = await paidJob();
     await env.db.execute(
       sql`create function reject_intent_receipt() returns trigger language plpgsql as $$ begin raise exception 'receipt unavailable'; end $$`,
@@ -317,7 +318,8 @@ describe('durable Comfy submission intent', () => {
       sql`create trigger reject_intent_receipt before update on execution_attempts for each row when (new.state = 'ACCEPTED') execute function reject_intent_receipt()`,
     );
     try {
-      await expect(send(job.id)).rejects.toThrow('receipt unavailable');
+      const result = await send(job.id);
+      expect(result.promptId).toBe('intent-prompt-1');
       expect(requests).toHaveLength(1);
       const rows = await env.db.execute(
         sql`select state, prompt_id from execution_attempts where job_id = ${job.id}`,
@@ -326,6 +328,33 @@ describe('durable Comfy submission intent', () => {
     } finally {
       await env.db.execute(sql`drop trigger reject_intent_receipt on execution_attempts`);
       await env.db.execute(sql`drop function reject_intent_receipt()`);
+    }
+  });
+
+  it('a failing attempt update cannot roll back a terminal transition', async () => {
+    const job = await paidJob();
+    await send(job.id);
+    await env.db.execute(
+      sql`create function reject_outcome() returns trigger language plpgsql as $$ begin raise exception 'outcome unavailable'; end $$`,
+    );
+    await env.db.execute(
+      sql`create trigger reject_outcome before update on execution_attempts for each row when (new.state = 'SUCCEEDED') execute function reject_outcome()`,
+    );
+    try {
+      expect(await transitionJob(env.db, redis, job.id, '', 'COMPLETED', {}, log)).toBe(true);
+      const [row] = await env.db.execute(sql`select status from jobs where id = ${job.id}`);
+      expect(row?.status).toBe('COMPLETED');
+      const events = await env.db.execute(
+        sql`select 1 from job_events where job_id = ${job.id} and event_type = 'COMPLETED'`,
+      );
+      expect(events).toHaveLength(1);
+      const [attempt] = await env.db.execute(
+        sql`select state from execution_attempts where job_id = ${job.id}`,
+      );
+      expect(attempt?.state).toBe('ACCEPTED');
+    } finally {
+      await env.db.execute(sql`drop trigger reject_outcome on execution_attempts`);
+      await env.db.execute(sql`drop function reject_outcome()`);
     }
   });
 
