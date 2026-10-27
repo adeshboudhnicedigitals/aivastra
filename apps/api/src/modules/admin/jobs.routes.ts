@@ -263,6 +263,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
         hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
         outputKey: schema.jobOutputs.resultKey,
+        thumbnailKey: schema.jobOutputs.thumbnailKey,
         jobType: jobTypeSql(),
       })
       .from(schema.jobs)
@@ -291,10 +292,17 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           outputUrl: r.outputKey
             ? (await app.storage.presignGet(r.outputKey, 3600)).url
             : undefined,
+          // Falls back to outputUrl on the frontend for jobs that predate the
+          // dispatcher's finalize-time thumbnail (apps/dispatcher/src/workflow/
+          // finalize.ts) or come from a job type that bypasses it (widget, video).
+          thumbnailUrl: r.thumbnailKey
+            ? (await app.storage.presignGet(r.thumbnailKey, 3600)).url
+            : undefined,
           faceThumbnailUrl: r.faceThumbnailKey
             ? (await app.storage.presignGet(r.faceThumbnailKey, 3600)).url
             : undefined,
           outputKey: undefined,
+          thumbnailKey: undefined,
           faceThumbnailKey: undefined,
         })),
       ),
@@ -339,6 +347,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           jobType: jobTypeSql(),
           userHint: schema.jobInputs.userHint,
           outputKey: schema.jobOutputs.resultKey,
+          thumbnailKey: schema.jobOutputs.thumbnailKey,
           customerPhotoKey: schema.jobs.customerPhotoKey,
           // ComfyUI-actual inputs — mirrors dispatcher's key resolution exactly.
           // faceSideKey lives on model_faces; the bg is model_backgrounds.r2Key
@@ -505,7 +514,10 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       return {
         ...row,
         outputUrl: await pu(row.outputKey),
+        // Falls back to outputUrl on the frontend — see the list endpoint's note.
+        thumbnailUrl: await pu(row.thumbnailKey),
         outputKey: undefined,
+        thumbnailKey: undefined,
         faceSideKey: undefined,
         faceDisplayKey: undefined,
         bgFallbackKey: undefined,

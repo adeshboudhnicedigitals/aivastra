@@ -353,6 +353,8 @@ export interface Job {
   hasShoe: boolean;
   jobType?: string;
   outputUrl?: string;
+  /** Dispatcher-generated 512px JPEG (apps/dispatcher/src/workflow/finalize.ts); absent for widget/video jobs and jobs that predate the feature — fall back to outputUrl. */
+  thumbnailUrl?: string;
   userHint?: string;
   /** Non-null = this job was created by the regenerate flow, not a fresh submission. */
   parentJobId?: string | null;

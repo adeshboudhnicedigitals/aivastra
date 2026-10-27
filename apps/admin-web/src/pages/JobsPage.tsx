@@ -900,16 +900,24 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                           key: 'output',
                           label: 'Output',
                           target: 'result' as const,
-                          url: j.outputUrl,
+                          // The 512px dispatcher-generated thumbnail (apps/dispatcher/src/
+                          // workflow/finalize.ts) when present; falls back to the full
+                          // image for jobs/job-types that never got one (widget, video,
+                          // pre-thumbnail-feature jobs). Click-through always opens the
+                          // full-res outputUrl regardless of which one is displayed here.
+                          url: j.thumbnailUrl ?? j.outputUrl,
+                          previewUrl: j.outputUrl,
                         },
                       ] as {
                         key: string;
                         label: string;
                         target?: 'person' | 'result';
                         url?: string | null;
+                        previewUrl?: string | null;
                       }[]
-                    ).map(({ key, label, target, url }) => {
+                    ).map(({ key, label, target, url, previewUrl }) => {
                       if (!url) return null;
+                      const clickUrl = previewUrl ?? url;
                       const isSelectable = target != null && canDeleteAssets;
                       const isSelected = target != null && deleteAssetsTargets.has(target);
                       return (
@@ -925,12 +933,12 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                             }}
                           >
                             <a
-                              href={url}
+                              href={clickUrl}
                               rel="noreferrer"
                               style={{ display: 'block' }}
                               onClick={(e) => {
                                 e.preventDefault();
-                                setPreviewUrl(url);
+                                setPreviewUrl(clickUrl);
                               }}
                             >
                               {isVideoUrl(url) ? (
@@ -2342,9 +2350,13 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                                   <track kind="captions" />
                                 </video>
                               ) : (
+                                // Displays the dispatcher's 512px thumbnail when available
+                                // (falls back to the full image for job types/older jobs
+                                // that never got one); clicking always opens the full-res
+                                // outputUrl via setPreviewUrl below.
                                 // biome-ignore lint/performance/noImgElement: admin SPA, not Next.js
                                 <img
-                                  src={fullJ.outputUrl}
+                                  src={fullJ.thumbnailUrl ?? fullJ.outputUrl}
                                   alt="Output"
                                   style={{
                                     width: '100%',
