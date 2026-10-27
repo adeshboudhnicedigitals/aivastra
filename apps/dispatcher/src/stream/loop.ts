@@ -41,8 +41,8 @@ export function parseMessage(stream: string, result: XReadGroupResult): StreamMe
 export interface StreamLoopOptions {
   /** Lane name, bound to every log line so the two loops are distinguishable. */
   name: string;
-  /** Reads at most one message; may block internally; null when nothing was read. */
-  read: () => Promise<StreamMessage | null>;
+  /** Reads at most one message; checks isRunning before any further claims after an await. */
+  read: (isRunning: () => boolean) => Promise<StreamMessage | null>;
   /** Current in-flight cap. Called on every slot check — implementations cache. */
   getConcurrency: () => Promise<number>;
 }
@@ -76,7 +76,12 @@ export function runStreamLoop(
     while (running) {
       try {
         await waitForSlot();
-        const msg = await opts.read();
+        if (!running) break;
+        const msg = await opts.read(() => running);
+        // A claim already in flight may return after stop. Leave it pending for
+        // recovery: Change 2 (graceful shutdown and safe redelivery) will add
+        // coordinated draining/handback; re-enqueueing here could duplicate work.
+        if (!running) break;
         if (!msg) continue;
         const { stream, messageId, jobId, userId, retryCount } = msg;
         laneLog.info({ jobId, userId, stream, retryCount }, 'consumed job from stream');
@@ -87,6 +92,7 @@ export function runStreamLoop(
             inFlight--;
           });
       } catch (err) {
+        if (!running) break;
         laneLog.error({ err }, 'consumer loop error — resuming');
         await new Promise((r) => setTimeout(r, 1000));
       }
