@@ -4,20 +4,26 @@ import {
   type GarmentRecognitionRequest,
   garmentRecognitionResultKey,
 } from '@aivastra/types';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { recognizeKind, typeForKind } from '../../src/modules/messaging/classify';
-import type { Gender } from '../../src/modules/messaging/engine/types';
+import { recognizeBaskets, typesOfBasket } from '../../src/modules/messaging/classify';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
 
 describe('garment recognition (api side)', () => {
   let c: Containers;
   let app: TestApp;
-  let ids: { shirt: string; kurti: string; kurtiMen: string };
+  let ids: Record<string, string>;
+  let tops: string;
 
   beforeAll(async () => {
     c = await startContainers();
     app = await buildTestApp(c, { GARMENT_RECOGNITION_ENABLED: true });
+    const [basket] = await app.db
+      .insert(schema.whatsappBaskets)
+      .values({ genderSlug: 'women', name: 'Tops' })
+      .returning({ id: schema.whatsappBaskets.id });
+    tops = (basket as { id: string }).id;
     const rows = await app.db
       .insert(schema.garmentSubcategories)
       .values([
@@ -26,18 +32,33 @@ describe('garment recognition (api side)', () => {
           slug: 'fullshirt',
           label: 'Full shirt',
           publicApiSlug: 'wa-full-shirt',
+          sortOrder: 1,
+          whatsappBasketId: tops,
+        },
+        {
+          genderSlug: 'women',
+          slug: 'top',
+          label: 'Top',
+          publicApiSlug: 'wa-top',
+          sortOrder: 2,
+          whatsappBasketId: tops,
         },
         { genderSlug: 'women', slug: 'kurti', label: 'Kurti', publicApiSlug: 'wa-kurti' },
         // No public slug: cannot be recognised, only picked from the list.
         { genderSlug: 'women', slug: 'gown', label: 'Gown' },
+        // Two images: never offered on WhatsApp at all.
+        {
+          genderSlug: 'women',
+          slug: 'set',
+          label: 'Kurti set',
+          publicApiSlug: 'wa-set',
+          requiresLowerUpload: true,
+        },
         // Another gender: never offered for 'women'.
         { genderSlug: 'men', slug: 'kurta', label: 'Kurta', publicApiSlug: 'wa-kurta' },
-        // Same kind as the women's Kurti: one option for the model, a row per gender.
-        { genderSlug: 'men', slug: 'kurti-m', label: 'Kurti', publicApiSlug: 'wa-kurti-men' },
       ])
       .returning({ id: schema.garmentSubcategories.id, slug: schema.garmentSubcategories.slug });
-    const by = Object.fromEntries(rows.map((r) => [r.slug, r.id]));
-    ids = { shirt: by.fullshirt, kurti: by.kurti, kurtiMen: by['kurti-m'] };
+    ids = Object.fromEntries(rows.map((r) => [r.slug, r.id]));
   }, 60_000);
 
   afterAll(async () => {
@@ -49,7 +70,11 @@ describe('garment recognition (api side)', () => {
   // and answers it. Returns the request so the test can inspect it.
   async function answerNext(
     since: string,
-    result: { answer: string | null; error: 'no_worker' | 'failed' | 'expired' | null },
+    result: {
+      answer: string | null;
+      error: 'no_worker' | 'failed' | 'expired' | null;
+      ranked?: { slug: string; p: number }[];
+    },
   ): Promise<GarmentRecognitionRequest> {
     // Up to 5 s: the first call also builds the options cache for the gender.
     for (let i = 0; i < 100; i++) {
@@ -70,130 +95,127 @@ describe('garment recognition (api side)', () => {
     throw new Error('no recognition request arrived');
   }
 
-  // Both halves back to back, as the engine does across the gender question.
-  async function recognize(key: string, gender: Gender, opts: { budgetMs?: number } = {}) {
-    const kind = await recognizeKind(app, key, opts);
-    return kind ? typeForKind(app, kind.label, gender) : null;
-  }
-
-  it('recognizeKind returns the kind label, one option per label across genders', async () => {
-    const since = await lastId();
-    const [kind, request] = await Promise.all([
-      recognizeKind(app, 'inputs/x/garment.jpg'),
-      answerNext(since, { answer: 'WA-Kurti.', error: null }),
-    ]);
-    // Kurti rows exist for women and men; the label alone does not pick one.
-    expect(kind).toEqual({ label: 'Kurti', genders: ['women', 'men'] });
-    expect(request.options.map((o) => o.slug).sort()).toEqual([
-      'wa-full-shirt',
-      'wa-kurta',
-      'wa-kurti',
-    ]);
-  });
-
-  it('recognizeKind reports a single gender when only one has the kind', async () => {
-    const since = await lastId();
-    const [kind] = await Promise.all([
-      recognizeKind(app, 'inputs/x/garment.jpg'),
-      answerNext(since, { answer: 'wa-kurta', error: null }),
-    ]);
-    expect(kind).toEqual({ label: 'Kurta', genders: ['men'] });
-  });
-
-  it('typeForKind maps a kind to the tapped gender row, or null when that gender lacks it', async () => {
-    expect(await typeForKind(app, 'kurti', 'women')).toEqual({
-      garmentTypeId: ids.kurti,
-      label: 'Kurti',
-    });
-    expect(await typeForKind(app, 'Kurti', 'men')).toEqual({
-      garmentTypeId: ids.kurtiMen,
-      label: 'Kurti',
-    });
-    expect(await typeForKind(app, 'Kurta', 'women')).toBeNull();
-  });
-
-  it('recognizeKind returns null when disabled, on an error answer, and on no match', async () => {
-    const off = { ...app, env: { ...app.env, GARMENT_RECOGNITION_ENABLED: false } } as TestApp;
-    expect(await recognizeKind(off, 'inputs/x/garment.jpg')).toBeNull();
-    const since = await lastId();
-    const [errored] = await Promise.all([
-      recognizeKind(app, 'inputs/x/garment.jpg'),
-      answerNext(since, { answer: null, error: 'no_worker' }),
-    ]);
-    expect(errored).toBeNull();
-    const since2 = await lastId();
-    const [unmatched] = await Promise.all([
-      recognizeKind(app, 'inputs/x/garment.jpg'),
-      answerNext(since2, { answer: 'wa-nonsense', error: null }),
-    ]);
-    expect(unmatched).toBeNull();
-  });
-
   const lastId = async () =>
     (await app.redis.xrevrange(GARMENT_RECOGNITION_STREAM, '+', '-', 'COUNT', 1))[0]?.[0] ?? '0-0';
 
-  it('asks with one option per kind across genders and maps the answer to the tapped gender', async () => {
-    const since = await lastId();
-    const [hit, request] = await Promise.all([
-      recognize('inputs/x/garment.jpg', 'women'),
-      answerNext(since, { answer: 'WA-Kurti.', error: null }),
-    ]);
-    expect(request.garmentKey).toBe('inputs/x/garment.jpg');
-    // The men's Kurti shares the women's label: one option, not two.
-    expect(request.options.map((o) => o.slug).sort()).toEqual([
-      'wa-full-shirt',
-      'wa-kurta',
-      'wa-kurti',
-    ]);
-    expect(hit).toEqual({ garmentTypeId: ids.kurti, label: 'Kurti' });
-  });
+  const KEY = 'inputs/x/garment.jpg';
 
-  it("the same answer resolves to the other gender's own row", async () => {
+  it("sends only the gender's single-image types with a public slug, and the gender", async () => {
     const since = await lastId();
-    const [hit] = await Promise.all([
-      recognize('inputs/x/garment.jpg', 'men'),
+    const [, request] = await Promise.all([
+      recognizeBaskets(app, KEY, 'women'),
       answerNext(since, { answer: 'wa-kurti', error: null }),
     ]);
-    expect(hit).toEqual({ garmentTypeId: ids.kurtiMen, label: 'Kurti' });
+    expect(request.garmentKey).toBe(KEY);
+    expect(request.gender).toBe('women');
+    expect(request.options.map((o) => o.slug).sort()).toEqual([
+      'wa-full-shirt',
+      'wa-kurti',
+      'wa-top',
+    ]);
   });
 
-  it('a kind the tapped gender does not have is not recognised', async () => {
+  it('sums a ranking per basket: two weak tops beat one stronger kurti', async () => {
     const since = await lastId();
-    const [hit] = await Promise.all([
-      recognize('inputs/x/garment.jpg', 'women'),
+    const [ranked] = await Promise.all([
+      recognizeBaskets(app, KEY, 'women'),
+      answerNext(since, {
+        answer: 'wa-kurti',
+        error: null,
+        ranked: [
+          { slug: 'wa-kurti', p: 0.4 },
+          { slug: 'wa-top', p: 0.35 },
+          { slug: 'wa-full-shirt', p: 0.25 },
+        ],
+      }),
+    ]);
+    expect(ranked?.map((b) => [b.key, b.name])).toEqual([
+      [`b:${tops}`, 'Tops'],
+      [`t:${ids.kurti}`, 'Kurti'],
+    ]);
+    expect(ranked?.[0]?.score).toBeCloseTo(0.6);
+  });
+
+  it('a weak top basket is not offered', async () => {
+    const since = await lastId();
+    const [ranked] = await Promise.all([
+      recognizeBaskets(app, KEY, 'women'),
+      answerNext(since, {
+        answer: 'wa-kurti',
+        error: null,
+        ranked: [
+          { slug: 'wa-kurti', p: 0.45 },
+          { slug: 'wa-top', p: 0.3 },
+          { slug: 'wa-gone', p: 0.25 },
+        ],
+      }),
+    ]);
+    // Tops sums to 0.3 and Kurti is 0.45: neither reaches MIN_BASKET_SCORE.
+    expect(ranked).toBeNull();
+  });
+
+  it('a backend that cannot rank: the single matched answer is the guess', async () => {
+    const since = await lastId();
+    const [ranked] = await Promise.all([
+      recognizeBaskets(app, KEY, 'women'),
+      answerNext(since, { answer: 'WA-Top.', error: null }),
+    ]);
+    expect(ranked).toEqual([{ key: `b:${tops}`, name: 'Tops', score: 1 }]);
+  });
+
+  it('an answer outside the options, a dispatcher error and a timeout are not recognised', async () => {
+    const since = await lastId();
+    const [unmatched] = await Promise.all([
+      recognizeBaskets(app, KEY, 'women'),
       answerNext(since, { answer: 'wa-kurta', error: null }),
     ]);
-    expect(hit).toBeNull();
-  });
-
-  it('an answer outside the options is not recognised', async () => {
-    const since = await lastId();
-    const [hit] = await Promise.all([
-      recognize('inputs/x/garment.jpg', 'women'),
-      answerNext(since, { answer: 'wa-nonsense', error: null }),
+    expect(unmatched).toBeNull();
+    const since2 = await lastId();
+    const [errored] = await Promise.all([
+      recognizeBaskets(app, KEY, 'women'),
+      answerNext(since2, { answer: null, error: 'no_worker' }),
     ]);
-    expect(hit).toBeNull();
-  });
-
-  it('a dispatcher error is not recognised', async () => {
-    const since = await lastId();
-    const [hit] = await Promise.all([
-      recognize('inputs/x/garment.jpg', 'women'),
-      answerNext(since, { answer: null, error: 'no_worker' }),
-    ]);
-    expect(hit).toBeNull();
-  });
-
-  it('no answer within the budget is not recognised', async () => {
+    expect(errored).toBeNull();
     const started = Date.now();
-    expect(await recognize('inputs/x/garment.jpg', 'women', { budgetMs: 300 })).toBeNull();
+    expect(await recognizeBaskets(app, KEY, 'women', { budgetMs: 300 })).toBeNull();
     expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('typesOfBasket puts the representative first and ignores an inactive basket', async () => {
+    expect((await typesOfBasket(app, 'women', `b:${tops}`)).map((t) => t.id)).toEqual([
+      ids.fullshirt,
+      ids.top,
+    ]);
+    await app.db
+      .update(schema.whatsappBaskets)
+      .set({ representativeSubcategoryId: ids.top })
+      .where(eq(schema.whatsappBaskets.id, tops));
+    expect((await typesOfBasket(app, 'women', `b:${tops}`)).map((t) => t.id)).toEqual([
+      ids.top,
+      ids.fullshirt,
+    ]);
+    await app.db
+      .update(schema.whatsappBaskets)
+      .set({ isActive: false })
+      .where(eq(schema.whatsappBaskets.id, tops));
+    try {
+      expect(await typesOfBasket(app, 'women', `b:${tops}`)).toEqual([]);
+      // Its members are now baskets of their own.
+      expect(await typesOfBasket(app, 'women', `t:${ids.top}`)).toEqual([
+        { id: ids.top, label: 'Top' },
+      ]);
+    } finally {
+      await app.db
+        .update(schema.whatsappBaskets)
+        .set({ isActive: true })
+        .where(eq(schema.whatsappBaskets.id, tops));
+    }
   });
 
   it('with the flag off nothing is requested', async () => {
     const before = await app.redis.xlen(GARMENT_RECOGNITION_STREAM);
     const off = { ...app, env: { ...app.env, GARMENT_RECOGNITION_ENABLED: false } } as TestApp;
-    expect(await recognizeKind(off, 'inputs/x/garment.jpg')).toBeNull();
+    expect(await recognizeBaskets(off, KEY, 'women')).toBeNull();
     expect(await app.redis.xlen(GARMENT_RECOGNITION_STREAM)).toBe(before);
   });
 });

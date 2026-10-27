@@ -10,14 +10,20 @@ import {
   garmentRecognitionResultKey,
 } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
-import { getCatalogOptions } from '../../lib/catalog-options-cache.js';
+import {
+  type BasketChoice,
+  basketChoices,
+  basketMembers,
+  loadBasketTypes,
+  type RankedBasket,
+  rankBaskets,
+} from './baskets.js';
 import type { Gender } from './engine/types.js';
 
-// Spec 8a: the most the seller waits at the photo step, before any question is
-// asked; it does not overlap with the gender question.
+// Spec 8a: the most the seller waits after tapping the gender, before the
+// basket guess (or the list) is shown.
 export const RECOGNITION_BUDGET_MS = 12_000;
 const POLL_MS = 200;
-const GENDERS: Gender[] = ['women', 'men', 'boys', 'girls'];
 // Only bounds the stream if no dispatcher is consuming it; a request is
 // worthless once its budget has passed anyway.
 const STREAM_MAXLEN = 1000;
@@ -79,60 +85,41 @@ async function waitForResult(
   }
 }
 
-const norm = (s: string) => s.trim().toLowerCase();
-
-async function publicTypes(app: FastifyInstance, gender: Gender): Promise<RecognitionCandidate[]> {
-  const { options } = await getCatalogOptions(app, { gender, publicOnly: true });
-  return options.garmentTypes.flatMap((t) =>
-    t.slug ? [{ id: t.id, slug: t.slug, label: t.label }] : [],
-  );
-}
+/**
+ * Below this, the top basket is not offered as a guess and the seller picks
+ * from the list. A placeholder until it is set from real seller photos: the
+ * Requests tab (garment_recognitions.ranked) and the "No, different item"
+ * counter are the data to tune it with (handoff section 8).
+ */
+export const MIN_BASKET_SCORE = 0.5;
+// The guess plus this many alternatives behind "No, different item".
+export const MAX_BASKETS = 4;
 
 /**
- * What the model chooses among: one option per label across every gender, so
- * the prompt grows by the genuinely different kinds only, never by "Shirt"
- * four times. Types are per-gender rows, and a photo carries no gender, so the
- * answer is a kind; typeForKind maps it to the tapped gender's row.
+ * Handoff 2026-10-26: asked once the gender is known. Sends the classifier
+ * every single-image type of that gender with a public slug, sums the
+ * per-type probabilities per basket and returns the baskets best first (the
+ * guess, then alternatives). Null for every failure, and when the top basket
+ * is weaker than MIN_BASKET_SCORE: the type list is then the way out, so
+ * recognition can cost a tap but never a run.
+ *
+ * A backend that cannot rank (the ComfyUI path, the plain service) answers
+ * with one slug; that is taken as certain, which is what the bot did before
+ * baskets.
  */
-async function kindCandidates(app: FastifyInstance): Promise<RecognitionCandidate[]> {
-  const byLabel = new Map<string, RecognitionCandidate>();
-  for (const gender of GENDERS) {
-    for (const c of await publicTypes(app, gender)) {
-      if (!byLabel.has(norm(c.label))) byLabel.set(norm(c.label), c);
-    }
-  }
-  return [...byLabel.values()];
-}
-
-/** The genders with a public type of this kind, in GENDERS order. */
-async function gendersOfKind(app: FastifyInstance, label: string): Promise<Gender[]> {
-  const has = await Promise.all(
-    GENDERS.map(async (g) =>
-      (await publicTypes(app, g)).some((c) => norm(c.label) === norm(label)),
-    ),
-  );
-  return GENDERS.filter((_, i) => has[i]);
-}
-
-/**
- * Spec 2026-10-22: asked the moment the photo arrives. Queues one request over
- * every gender's public-slug kinds (one option per label), waits up to the
- * budget and returns the recognised kind's label and the genders that have a
- * type of that kind. It is a kind, not a row, because the photo carries no
- * gender: a kind only one gender has (Kurti) implies it, any other is asked
- * (typeForKind maps the kind once the gender is known). Null for every
- * failure; the list is then the way out, so recognition can cost a tap but
- * never a run.
- */
-export async function recognizeKind(
+export async function recognizeBaskets(
   app: FastifyInstance,
   garmentKey: string,
+  gender: Gender,
   opts: { budgetMs?: number } = {},
-): Promise<{ label: string; genders: Gender[] } | null> {
+): Promise<RankedBasket[] | null> {
   if (app.env.GARMENT_RECOGNITION_ENABLED !== true) return null;
   const budgetMs = opts.budgetMs ?? RECOGNITION_BUDGET_MS;
   try {
-    const candidates = await kindCandidates(app);
+    const { types, baskets } = await loadBasketTypes(app, gender);
+    const candidates: RecognitionCandidate[] = types.flatMap((t) =>
+      t.slug ? [{ id: t.id, slug: t.slug, label: t.label }] : [],
+    );
     // Nothing a photo could be recognised as: straight to the list, without a
     // request no one can answer usefully.
     if (candidates.length === 0) return null;
@@ -142,6 +129,7 @@ export async function recognizeKind(
       garmentKey,
       options: candidates.map(({ slug, label }) => ({ slug, label })),
       expiresAt: Date.now() + budgetMs,
+      gender,
     };
     await app.redis.xadd(
       GARMENT_RECOGNITION_STREAM,
@@ -161,17 +149,24 @@ export async function recognizeKind(
       count(result.error);
       return null;
     }
-    const kind = matchAnswer(result.answer, candidates);
-    count(kind ? 'matched' : 'unmatched');
-    if (!kind) {
+    const single = result.ranked ? null : matchAnswer(result.answer, candidates);
+    const ranked = rankBaskets(
+      result.ranked ?? (single ? [{ slug: single.slug, p: 1 }] : []),
+      types,
+      baskets,
+    ).slice(0, MAX_BASKETS);
+    const top = ranked[0];
+    const confident = top !== undefined && top.score >= MIN_BASKET_SCORE;
+    count(confident ? 'matched' : 'unmatched');
+    if (!confident) {
       // The raw answer is model output about a garment photo, not personal data;
       // capped so a runaway answer cannot flood the log.
       app.log.info(
-        { requestId, answer: result.answer?.slice(0, 40) },
-        'garment recognition answer not in options',
+        { requestId, answer: result.answer?.slice(0, 40), topScore: top?.score ?? null },
+        'garment recognition not confident enough; showing the list',
       );
     }
-    return kind ? { label: kind.label, genders: await gendersOfKind(app, kind.label) } : null;
+    return confident ? ranked : null;
   } catch (err) {
     count('failed');
     app.log.warn({ err }, 'garment recognition failed; falling back to the list');
@@ -179,26 +174,26 @@ export async function recognizeKind(
   }
 }
 
-/**
- * The recognised kind as the tapped gender's own type (types are per-gender
- * rows). Null when that gender has no type of that kind: the seller then picks
- * from the list.
- */
-export async function typeForKind(
+/** The types a basket stands for, representative first (baskets.ts basketMembers). */
+export async function typesOfBasket(
   app: FastifyInstance,
-  label: string,
   gender: Gender,
-): Promise<{ garmentTypeId: string; label: string } | null> {
-  try {
-    const own = (await publicTypes(app, gender)).find((c) => norm(c.label) === norm(label));
-    if (!own) app.log.info({ label, gender }, 'garment kind has no type for this gender');
-    return own ? { garmentTypeId: own.id, label: own.label } : null;
-  } catch (err) {
-    app.log.warn({ err }, 'garment kind could not be mapped; falling back to the list');
-    return null;
-  }
+  key: string,
+): Promise<{ id: string; label: string }[]> {
+  const { types, baskets } = await loadBasketTypes(app, gender);
+  return basketMembers(key, types, baskets);
 }
 
 export function recordRecognitionCorrected(): void {
   garmentClassifyCorrectedTotal.inc();
+}
+
+/** The fallback pick list (baskets.ts basketChoices); `offered` is the bot's type ids. */
+export async function listBaskets(
+  app: FastifyInstance,
+  gender: Gender,
+  offered: Set<string>,
+): Promise<BasketChoice[]> {
+  const { types, baskets } = await loadBasketTypes(app, gender);
+  return basketChoices(types, baskets, offered);
 }

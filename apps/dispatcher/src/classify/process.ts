@@ -24,6 +24,22 @@ const POLL_MS = 250;
 // the seller but its duration is the evidence spec 8a's switch-to-API rule needs.
 const HARD_CAP_MS = 90_000;
 
+/**
+ * The scored service's probabilities as {slug, p}, best first. `ranked` holds
+ * every option; `top` (the first deployed version) only the best three, which
+ * the api still uses. Anything malformed is dropped rather than failing the
+ * request: the plain `answer` still works without it.
+ */
+export function readRanked(raw: unknown): GarmentRecognitionResult['ranked'] {
+  if (!Array.isArray(raw)) return undefined;
+  const ranked = raw.flatMap((r) =>
+    r && typeof r.slug === 'string' && typeof r.p === 'number' && Number.isFinite(r.p)
+      ? [{ slug: r.slug, p: r.p }]
+      : [],
+  );
+  return ranked.length > 0 ? ranked.sort((a, b) => b.p - a.p) : undefined;
+}
+
 /** The always-resident VLM service (aivastra-gpu pipeline/classify-service). */
 export interface ClassifyService {
   url: string;
@@ -46,9 +62,18 @@ export async function processRecognitionRequest(
   const finish = async (
     answer: string | null,
     error: GarmentRecognitionResult['error'],
-    ctx: { workerId?: string | null; workflowTemplateId?: string | null } = {},
+    ctx: {
+      workerId?: string | null;
+      workflowTemplateId?: string | null;
+      ranked?: GarmentRecognitionResult['ranked'];
+    } = {},
   ): Promise<GarmentRecognitionResult> => {
-    const result: GarmentRecognitionResult = { answer, error, ms: Date.now() - startedAt };
+    const result: GarmentRecognitionResult = {
+      answer,
+      error,
+      ms: Date.now() - startedAt,
+      ...(ctx.ranked ? { ranked: ctx.ranked } : {}),
+    };
     garmentClassifyDurationSeconds.observe({ outcome: error ?? 'answered' }, result.ms / 1000);
     try {
       await cfg.redis.set(
@@ -70,6 +95,7 @@ export async function processRecognitionRequest(
         garmentKey: request.garmentKey,
         options: request.options,
         answer,
+        ranked: ctx.ranked ?? null,
         outcome: error ?? 'answered',
         ms: result.ms,
         workerId: ctx.workerId ?? null,
@@ -108,6 +134,9 @@ export async function processRecognitionRequest(
       form.set('image', new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }), 'garment.jpg');
       form.set('prompt', prompt);
       form.set('max_tokens', String(maxTokens));
+      // The scored service ranks exactly these keys as a closed set; the old
+      // server ignores the field and answers from the prompt alone.
+      form.set('options', JSON.stringify(request.options.map((o) => o.slug)));
       const res = await fetch(`${opts.service.url.replace(/\/+$/, '')}/classify`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${opts.service.apiKey}` },
@@ -118,9 +147,12 @@ export async function processRecognitionRequest(
         log.warn({ status: res.status }, 'classify service returned an error');
         return finish(null, 'failed', { workflowTemplateId: template.id });
       }
-      const body = (await res.json()) as { answer?: unknown };
+      const body = (await res.json()) as { answer?: unknown; ranked?: unknown; top?: unknown };
       const answer = typeof body.answer === 'string' && body.answer ? body.answer : null;
-      return finish(answer, null, { workflowTemplateId: template.id });
+      return finish(answer, null, {
+        workflowTemplateId: template.id,
+        ranked: readRanked(body.ranked ?? body.top),
+      });
     } catch (err) {
       log.warn({ err }, 'classify service request failed');
       return finish(null, 'failed', { workflowTemplateId: template.id });

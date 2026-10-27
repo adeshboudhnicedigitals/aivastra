@@ -123,6 +123,7 @@ describe('classify lane', () => {
     let svcUrl: string;
     let seen: { auth?: string; body: string }[];
     let status = 200;
+    let reply: Record<string, unknown> = { answer: 'wa-kurti', ms: 900 };
 
     beforeAll(async () => {
       seen = [];
@@ -135,7 +136,7 @@ describe('classify lane', () => {
             body: Buffer.concat(chunks).toString('utf8'),
           });
           res.writeHead(status, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ answer: 'wa-kurti', ms: 900 }));
+          res.end(JSON.stringify(reply));
         });
       });
       await new Promise<void>((r) => svc.listen(0, '127.0.0.1', r));
@@ -154,6 +155,37 @@ describe('classify lane', () => {
       // multipart form text carries CRLF; the service normalizes it back.
       expect(seen[0]?.body).toContain('Options:\r\nwa-kurti — Kurti');
       expect(comfy.lastPrompt()).toBeNull();
+      // The keys the scored service ranks as a closed set.
+      expect(seen[0]?.body).toContain('["wa-kurti","wa-full-shirt"]');
+      // The plain server ranks nothing, so the result has no ranking.
+      expect(result.ranked).toBeUndefined();
+    });
+
+    it('passes the scored service ranking through, best first, and records it', async () => {
+      status = 200;
+      reply = {
+        answer: 'wa-kurti',
+        ranked: [{ slug: 'wa-full-shirt', p: 0.2 }, { slug: 'wa-kurti', p: 0.8 }, { slug: 'bad' }],
+        ms: 120,
+      };
+      try {
+        const req = request();
+        const result = await processRecognitionRequest(cfg, req, {
+          service: { url: svcUrl, apiKey: 'svc-key' },
+        });
+        const ranked = [
+          { slug: 'wa-kurti', p: 0.8 },
+          { slug: 'wa-full-shirt', p: 0.2 },
+        ];
+        expect(result.ranked).toEqual(ranked);
+        const [row] = await env.db
+          .select({ ranked: schema.garmentRecognitions.ranked })
+          .from(schema.garmentRecognitions)
+          .where(eq(schema.garmentRecognitions.id, req.requestId));
+        expect(row?.ranked).toEqual(ranked);
+      } finally {
+        reply = { answer: 'wa-kurti', ms: 900 };
+      }
     });
 
     it('a service error is failed, not thrown', async () => {

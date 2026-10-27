@@ -27,7 +27,7 @@ interface ListResponse {
 
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
-  /** Rendered inside another page (the Classify Service tab): skip the page heading. */
+  /** Rendered inside another page (the WhatsApp page): skip the page heading. */
   embedded?: boolean;
 }
 

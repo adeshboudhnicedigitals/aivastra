@@ -63,6 +63,7 @@ import { adminTelemetryRoutes } from './modules/admin/telemetry.routes.js';
 import { adminTryonRoutes } from './modules/admin/tryon.routes.js';
 import { adminUnlimitedPlanRoutes } from './modules/admin/unlimitedPlan.routes.js';
 import { adminUsersRoutes } from './modules/admin/users.routes.js';
+import { adminWhatsAppBasketsRoutes } from './modules/admin/whatsapp-baskets.routes.js';
 import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
 import { adminWorkflowChangeRequestsRoutes } from './modules/admin/workflow-change-requests.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
@@ -465,6 +466,7 @@ export async function buildServer(env: Env) {
   await app.register(adminGarmentRecognitionsRoutes);
   await app.register(adminComparisonRoutes);
   await app.register(adminClassifyServiceRoutes);
+  await app.register(adminWhatsAppBasketsRoutes);
   await app.register(adminMerchantCatalogRoutes);
   await app.register(adminDemoCatalogRoutes);
   await app.register(adminWorkersRoutes);

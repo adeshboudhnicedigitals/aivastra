@@ -127,8 +127,8 @@ const groups: NavGroup[] = [
         perm: 'jobs.write',
       },
       {
-        k: 'classify-service',
-        label: 'Classify Service',
+        k: 'whatsapp',
+        label: 'WhatsApp',
         icon: Icon.Server,
         perm: 'jobs.read',
       },

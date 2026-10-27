@@ -1618,6 +1618,13 @@
       "when": 1792735470794,
       "tag": "0231_mysterious_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 232,
+      "version": "7",
+      "when": 1793028391491,
+      "tag": "0232_narrow_lady_deathstrike",
+      "breakpoints": true
     }
   ]
 }

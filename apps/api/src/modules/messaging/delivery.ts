@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { WhatsappClient } from './channels/whatsapp/client.js';
 import { fitForWhatsapp } from './channels/whatsapp/media.js';
+import { waitForDelivered } from './channels/whatsapp/status.js';
 import { runConversation } from './conversation.js';
 import { sendMessages, windowOpen } from './send.js';
 
@@ -49,6 +50,8 @@ export async function deliverRun(
     const to = account.externalId.slice(1);
     const optedOut = account.optedOutAt !== null;
     const open = windowOpen(account.lastInboundAt);
+    // The last image sent by this call: the closing buttons wait for it to land.
+    let lastImageId: string | null = null;
 
     for (const j of pending) {
       if (j.status === 'COMPLETED' && !optedOut) {
@@ -76,7 +79,7 @@ export async function deliverRun(
         const { contentType } = await app.storage.headObject(resultKey);
         const img = await fitForWhatsapp(original, contentType ?? 'image/png');
         const mediaId = await wa.uploadMedia(img.bytes, img.mimeType);
-        await wa.send(to, { type: 'image', image: { id: mediaId } });
+        lastImageId = (await wa.send(to, { type: 'image', image: { id: mediaId } })).messageId;
       }
       // STOP: results stay on the web (/catalogs); the job counts as accounted for.
       await app.db
@@ -90,6 +93,12 @@ export async function deliverRun(
     // Every job is accounted for. The closing buttons need an open window; when
     // closed, the run stays unfinished and closes on the seller's next message.
     if (!optedOut && !open) return;
+    // WhatsApp accepts a message before the phone has it, and a small interactive
+    // message can overtake a large image sent just before. Hold the buttons until
+    // the last image is reported delivered; fail-open on the timeout.
+    if (lastImageId && !optedOut) {
+      await waitForDelivered(app, lastImageId, app.env.WHATSAPP_IMAGE_DELIVERY_WAIT_MS);
+    }
     await app.db.update(R).set({ finishedAt: new Date() }).where(eq(R.catalogueId, runId));
     if (optedOut) return;
     const failedPoseIds = jobs

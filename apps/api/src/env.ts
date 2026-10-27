@@ -202,6 +202,14 @@ const Env = z.object({
   // Approved utility template sent when results finish after the 24-hour window
   // closed (D26). Unset = such results simply wait for the seller's next message.
   WHATSAPP_RESULTS_TEMPLATE: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  // How long the closing buttons wait for the run's last image to be reported
+  // delivered, so they arrive after it and not before. Fail-open: when the status
+  // never comes (Meta not sending statuses, say) the buttons go after this long.
+  // 0 = do not wait.
+  WHATSAPP_IMAGE_DELIVERY_WAIT_MS: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.coerce.number().int().min(0).max(30_000).default(8000),
+  ),
   // WhatsApp bot garment recognition on our own GPU (spec 8a). Off: the bot
   // always shows the garment-type list — the state until the dispatcher's
   // classify lane ships, and the way back if recognition isn't good enough.

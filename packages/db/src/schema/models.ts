@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   boolean,
   check,
   index,
@@ -186,9 +187,41 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
     () => workflowTemplates.id,
     { onDelete: 'set null' },
   ),
+  // The WhatsApp basket this type belongs to (at most one). The bot confirms a
+  // basket, not a type, because the types in one share a workflow and the
+  // classifier splits its probability between them. Null = its own basket.
+  // The basket's gender must equal genderSlug; enforced in the admin route.
+  whatsappBasketId: uuid('whatsapp_basket_id').references((): AnyPgColumn => whatsappBaskets.id, {
+    onDelete: 'set null',
+  }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Admin-made groups of one gender's garment types that run the same workflow.
+// The WhatsApp bot sums the classifier's per-type probabilities per basket and
+// asks the seller to confirm the basket; a confirmed basket runs as its
+// representative type. Members point here via garment_subcategories.whatsapp_basket_id.
+export const whatsappBaskets = pgTable(
+  'whatsapp_baskets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    genderSlug: text('gender_slug').notNull(),
+    name: text('name').notNull(),
+    // The type a confirmed basket runs as. Null = the first ready member by sort order.
+    representativeSubcategoryId: uuid('representative_subcategory_id').references(
+      (): AnyPgColumn => garmentSubcategories.id,
+      { onDelete: 'set null' },
+    ),
+    sortOrder: integer('sort_order').notNull().default(0),
+    // Soft delete: an inactive basket is ignored by the bot, its members act as
+    // singletons, and the row keeps its history.
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('whatsapp_baskets_gender_idx').on(t.genderSlug, t.sortOrder)],
+);
 
 // Fabric-to-Garment feature — admin-curated garment-type presets (Shirt, Kurti,
 // Anarkali, etc). Each preset carries the text prompt (and optional negative
