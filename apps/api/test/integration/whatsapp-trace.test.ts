@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  META_ERROR_OUTSIDE_WINDOW,
+  MetaApiError,
+} from '../../src/modules/messaging/channels/whatsapp/client';
 import { encodeReplyId } from '../../src/modules/messaging/engine/reply-id';
+import { sendMessages } from '../../src/modules/messaging/send';
 import {
   listSenders,
   readTimeline,
@@ -10,6 +15,7 @@ import {
 } from '../../src/modules/messaging/trace';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
+import { fakeWhatsapp } from '../helpers/fake-whatsapp';
 
 let seq = 0;
 const waId = () => `9188${Date.now().toString().slice(-6)}${(++seq).toString().padStart(2, '0')}`;
@@ -119,5 +125,57 @@ describe('whatsapp trace recorder', () => {
     } finally {
       app.redis.multi = real;
     }
+  });
+});
+
+describe('sendMessages trace', () => {
+  let c: Containers;
+  let app: TestApp;
+  beforeAll(async () => {
+    c = await startContainers();
+    app = await buildTestApp(c, { MESSAGING_WHATSAPP_ENABLED: true });
+  }, 60_000);
+  afterAll(async () => {
+    await app?.close();
+    await c?.stop();
+  });
+
+  it('records each message as sent', async () => {
+    const id = waId();
+    const wa = fakeWhatsapp();
+    await sendMessages(app, wa.client, id, [
+      { kind: 'text', text: 'one' },
+      { kind: 'buttons', text: 'two', buttons: [{ id: 'n|a|', title: 'A' }] },
+    ]);
+    const t = await readTimeline(app, id);
+    expect(t.map((e) => (e.dir === 'out' ? e.status : null))).toEqual(['sent', 'sent']);
+    expect(t[1]).toMatchObject({ kind: 'buttons', options: [{ id: 'n|a|', title: 'A' }] });
+  });
+
+  it('records a failure and still throws', async () => {
+    const id = waId();
+    const wa = fakeWhatsapp();
+    wa.client.send = async () => {
+      throw new Error('network down');
+    };
+    await expect(sendMessages(app, wa.client, id, [{ kind: 'text', text: 'one' }])).rejects.toThrow(
+      'network down',
+    );
+    const t = await readTimeline(app, id);
+    expect(t[0]).toMatchObject({ status: 'failed', error: 'network down' });
+  });
+
+  it('records the rest as skipped outside the 24h window and does not throw', async () => {
+    const id = waId();
+    const wa = fakeWhatsapp();
+    wa.client.send = async () => {
+      throw new MetaApiError(400, META_ERROR_OUTSIDE_WINDOW, 'outside window');
+    };
+    await sendMessages(app, wa.client, id, [
+      { kind: 'text', text: 'one' },
+      { kind: 'text', text: 'two' },
+    ]);
+    const t = await readTimeline(app, id);
+    expect(t.map((e) => (e.dir === 'out' ? e.status : null))).toEqual(['skipped', 'skipped']);
   });
 });
