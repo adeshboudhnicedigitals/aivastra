@@ -9,6 +9,7 @@ import {
   createWebConnectCode,
 } from '../../src/modules/messaging/identity';
 import { processInbound } from '../../src/modules/messaging/inbound';
+import { readTimeline } from '../../src/modules/messaging/trace';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { createVerifiedUserToken } from '../helpers/auth';
 import { type Containers, startContainers } from '../helpers/containers';
@@ -179,5 +180,20 @@ describe('whatsapp inbound', () => {
     const wa = fakeWhatsapp();
     await processInbound(app, wa.client, msg(from, { kind: 'text', text: 'hi' }), noPending);
     expect(wa.sent).toHaveLength(0);
+  });
+
+  it('records the inbound event and the replies in the conversation trace', async () => {
+    const wa = fakeWhatsapp();
+    const from = waId();
+    await processInbound(
+      app,
+      wa.client,
+      msg(from, { kind: 'text', text: 'hello there' }),
+      noPending,
+    );
+    const t = await readTimeline(app, from);
+    expect(t[0]).toMatchObject({ dir: 'in', kind: 'text', text: 'hello there' });
+    // An unknown number is sent the connect link; that reply is traced too.
+    expect(t.some((e) => e.dir === 'out' && e.status === 'sent')).toBe(true);
   });
 });
