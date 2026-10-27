@@ -163,6 +163,15 @@ describe('dispatcher retry + credit refund', () => {
     const [after1] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(after1?.status).toBe('QUEUED');
     expect(after1?.attempts).toBe(1);
+    // The requeued job must not leave an adoptable ACCEPTED attempt behind, and
+    // resolved_at stays empty because the GPU may still be running that prompt.
+    const attempts1 = await env.db
+      .select()
+      .from(schema.executionAttempts)
+      .where(eq(schema.executionAttempts.jobId, jobId));
+    expect(attempts1).toHaveLength(1);
+    expect(attempts1[0]).toMatchObject({ state: 'FAILED', resolvedAt: null });
+    expect(attempts1[0]?.promptId).toBeTruthy();
 
     // Reset worker to IDLE for second attempt
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');

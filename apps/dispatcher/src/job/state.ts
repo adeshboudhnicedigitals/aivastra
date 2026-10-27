@@ -4,6 +4,7 @@ import { jobE2eDuration } from '@aivastra/observability';
 import { and, eq, ne } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
+import { recordSubmissionOutcome } from './submission.js';
 
 export type JobStatus =
   | 'PENDING_MANNEQUIN'
@@ -89,6 +90,7 @@ export async function transitionJob(
     await tx
       .insert(schema.jobEvents)
       .values({ jobId, eventType: status, payload: opts as Record<string, unknown> });
+    await recordSubmissionOutcome(tx, jobId, status);
     return rows;
   });
   if (!updated.length) {
