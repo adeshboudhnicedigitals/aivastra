@@ -8,21 +8,21 @@
 .aivastra-tryon--floating {
   position: fixed;
   inset: auto auto 24px 24px;
-  z-index: 100;
+  z-index: 2147483645;
   margin: 0;
   max-width: 220px;
 }
 
-/* Bottom-right corner, nowhere near a theme's top nav bar to begin with. The
-   75dvh cap on .modal-content keeps it from ever growing tall enough to
-   reach the top of the viewport, and z-index is kept modest (not the old
-   9999) as a second safety net — if a theme's own sticky header ever did
-   overlap, it still wins the stacking conflict instead of this panel
-   covering it. */
+/* Bottom-right corner, nowhere near a theme's top nav bar to begin with, and
+   the 75dvh cap on .modal-content keeps it from reaching the top of the
+   viewport. The z-index is deliberately near the 32-bit max so the panel
+   floats above every theme header, sticky bar, cookie banner and chat bubble;
+   the JS reparents it to <body>, so no ancestor stacking context traps it.
+   The lightbox sits one step higher so it still covers the modal. */
 .aivastra-tryon__modal {
   position: fixed;
   inset: auto 24px 24px auto;
-  z-index: 40;
+  z-index: 2147483646;
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
@@ -844,7 +844,7 @@
 .aivastra-tryon__lightbox {
   position: fixed;
   inset: 0;
-  z-index: 10000;
+  z-index: 2147483647;
   display: flex;
   align-items: center;
   justify-content: center;

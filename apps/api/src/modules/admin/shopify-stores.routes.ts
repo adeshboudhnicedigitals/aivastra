@@ -1,9 +1,12 @@
-import { schema } from '@aivastra/db';
+import { randomUUID } from 'node:crypto';
+import { type DB, schema } from '@aivastra/db';
+import { GrantShopifyStoreCreditsBody } from '@aivastra/types';
 import { desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { eraseComparisonsForSourceJobs } from '../comparison/erase.js';
+import { grantStore } from '../credits/shopify-ledger.js';
 import { shopifyStoreLifecycleLockKey } from '../shopify/store-lock.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
@@ -249,6 +252,62 @@ export async function adminShopifyStoresRoutes(app: FastifyInstance) {
         .orderBy(desc(schema.shopifyCreditPurchases.createdAt))
         .limit(50);
       return { purchases };
+    },
+  );
+
+  // Manual top-up for support/goodwill. Gated on credits.write (the same
+  // capability as granting a user credits). Stores bill themselves, so this
+  // lands in shopify_store_credits/shopify_credit_ledger, never a user's
+  // balance. The ledger has no admin column, so the actor and note live in the
+  // audit row, written in the same transaction as the grant. A fresh externalRef
+  // per call makes each click its own grant: grantStore's idempotency exists for
+  // replayed webhooks, not for repeated deliberate top-ups.
+  app.post(
+    '/admin/shopify-stores/:id/credits',
+    {
+      preHandler: requirePermission('credits.write'),
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        body: GrantShopifyStoreCreditsBody,
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { amount, reason } = req.body as z.infer<typeof GrantShopifyStoreCreditsBody>;
+      const ledgerReason = reason ? `ADMIN_GRANT: ${reason}` : 'ADMIN_GRANT';
+      const balance = await app.db.transaction(async (tx) => {
+        const [store] = await tx
+          .select({ id: schema.shopifyStores.id })
+          .from(schema.shopifyStores)
+          .where(eq(schema.shopifyStores.id, id))
+          .for('update');
+        if (!store) throw new AppError('NOT_FOUND', 404, 'store not found');
+
+        const { granted } = await grantStore(
+          tx as unknown as DB,
+          id,
+          amount,
+          ledgerReason,
+          `admin_grant:${randomUUID()}`,
+        );
+        if (!granted) throw new AppError('CONFLICT', 409, 'grant was not applied');
+
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'shopify_stores.credits.grant',
+          resourceType: 'shopify_store',
+          resourceId: id,
+          after: { amount, reason: ledgerReason },
+          request: req,
+        });
+
+        const [credits] = await tx
+          .select({ balance: schema.shopifyStoreCredits.balance })
+          .from(schema.shopifyStoreCredits)
+          .where(eq(schema.shopifyStoreCredits.storeId, id));
+        return credits?.balance ?? amount;
+      });
+      return { ok: true, balance };
     },
   );
 

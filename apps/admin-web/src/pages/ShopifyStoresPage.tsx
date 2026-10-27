@@ -264,6 +264,14 @@ export default function ShopifyStoresPage({ toast }: Props) {
   const closeConfirm = useCloseOverlay(['confirm']);
   const confirmDelete = confirmParam === 'delete-store' ? selectedStore : null;
   const [deleting, setDeleting] = useState(false);
+  const canGrant = hasPermission('credits.write');
+  const grantOpen = confirmParam === 'grant-credits' && selectedStore !== null;
+  const [grantAmount, setGrantAmount] = useState('');
+  const [grantReason, setGrantReason] = useState('');
+  const [granting, setGranting] = useState(false);
+  const grantAmountNum = Number(grantAmount);
+  const grantAmountValid =
+    Number.isInteger(grantAmountNum) && grantAmountNum > 0 && grantAmountNum <= 10_000;
 
   useCrumb(
     0,
@@ -466,6 +474,33 @@ export default function ShopifyStoresPage({ toast }: Props) {
     void loadPurchases(selectedStore.id);
   }, [selectedStore?.id, loadLedger, loadStoreJobs, loadPurchases]);
 
+  async function handleGrantConfirm() {
+    if (!selectedStore || !grantAmountValid) return;
+    setGranting(true);
+    try {
+      await apiFetch(`/admin/shopify-stores/${selectedStore.id}/credits`, {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: grantAmountNum,
+          reason: grantReason.trim() || undefined,
+        }),
+      });
+      toast({ title: `Added ${grantAmountNum.toLocaleString()} credits` });
+      setGrantAmount('');
+      setGrantReason('');
+      closeConfirm();
+      await Promise.all([load(), loadLedger(selectedStore.id)]);
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to add credits',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setGranting(false);
+    }
+  }
+
   async function handleDeleteConfirm() {
     if (!confirmDelete) return;
     setDeleting(true);
@@ -517,6 +552,11 @@ export default function ShopifyStoresPage({ toast }: Props) {
             >
               <Icon.ExternalLink /> Open store
             </a>
+            {canGrant && (
+              <button className="btn" onClick={() => setConfirmParam('grant-credits')}>
+                Add credits
+              </button>
+            )}
             {isSuperAdmin && (
               <button className="btn danger" onClick={() => setConfirmParam('delete-store')}>
                 <Icon.Trash /> Delete store data
@@ -1150,6 +1190,60 @@ export default function ShopifyStoresPage({ toast }: Props) {
             </button>
           )}
         </div>
+
+        {grantOpen && (
+          <div className="modal-overlay" onClick={closeConfirm}>
+            <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Add credits</h3>
+              </div>
+              <div
+                className="modal-body"
+                style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+              >
+                <p style={{ margin: 0 }}>
+                  Add credits to <strong>{selectedStore.shopDomain}</strong> (current balance{' '}
+                  {selectedStore.balance.toLocaleString()}). This is recorded in the store ledger
+                  and the audit log.
+                </p>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span>Credits (1–10,000)</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={10000}
+                    step={1}
+                    value={grantAmount}
+                    onChange={(e) => setGrantAmount(e.target.value)}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span>Note (optional)</span>
+                  <input
+                    className="input"
+                    type="text"
+                    maxLength={180}
+                    value={grantReason}
+                    onChange={(e) => setGrantReason(e.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="modal-foot">
+                <button className="btn ghost" onClick={closeConfirm} disabled={granting}>
+                  Cancel
+                </button>
+                <button
+                  className="btn"
+                  onClick={handleGrantConfirm}
+                  disabled={granting || !grantAmountValid}
+                >
+                  {granting ? 'Adding…' : 'Add credits'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {confirmDelete && (
           <div className="modal-overlay" onClick={closeConfirm}>
