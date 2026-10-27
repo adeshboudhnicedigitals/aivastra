@@ -8,6 +8,7 @@ import { AssetsProvider, useAssetsContext } from './assets/AssetsContext';
 import { WhatsappPosesTab } from './assets/WhatsappPosesTab';
 import GarmentRecognitionsPage from './GarmentRecognitionsPage';
 import { BasketsTab } from './whatsapp/BasketsTab';
+import { ConversationsTab } from './whatsapp/ConversationsTab';
 
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -42,6 +43,7 @@ const TABS = [
   { id: 'baskets', label: 'Baskets' },
   { id: 'whatsapp-poses', label: 'Poses' },
   { id: 'requests', label: 'Requests' },
+  { id: 'conversations', label: 'Conversations' },
   { id: 'logs', label: 'Logs' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
@@ -730,7 +732,7 @@ export default function WhatsAppPage({ toast }: Props) {
           <h1 style={{ marginBottom: 4 }}>WhatsApp</h1>
           <p className="lede" style={{ margin: 0, fontSize: 13.5, color: 'var(--muted)' }}>
             Everything the WhatsApp bot runs on: the garment classifier and its baskets, its
-            requests and logs, and the pose pool.
+            requests, logs and conversations, and the pose pool.
           </p>
         </div>
       </div>
@@ -771,6 +773,7 @@ export default function WhatsAppPage({ toast }: Props) {
         </AssetsProvider>
       )}
       {tab === 'requests' && <GarmentRecognitionsPage toast={toast} embedded />}
+      {tab === 'conversations' && <ConversationsTab toast={toast} />}
       {tab === 'logs' && <Logs toast={toast} />}
     </>
   );
