@@ -156,7 +156,13 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
     },
 
     async listCatalogItemIds(type, gender, garmentTypeId) {
-      const items = await selectCatalogItems(app, { type, gender, garmentTypeId });
+      // The studio drops items in an inactive category, so the bot must too.
+      const items = await selectCatalogItems(app, {
+        type,
+        gender,
+        garmentTypeId,
+        categorizedOnly: true,
+      });
       return items.map((i) => i.id);
     },
 
