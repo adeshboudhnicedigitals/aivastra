@@ -5,7 +5,9 @@ import { apiErrorMessage, apiFetch } from '../../lib/data';
 
 // WhatsApp → Conversations. A debug view of what the bot received and sent per
 // seller number (Redis, 4-day retention): inbound texts and taps, outbound
-// messages with the buttons / list rows they carried, and send failures.
+// messages with the buttons / list rows they carried, send failures, and the
+// bot's own decisions (recognition scores against the cutoff, why a type was
+// not offered).
 
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -37,7 +39,36 @@ const ago = (t: number) => {
   return `${Math.floor(s / 86400)}d ago`;
 };
 
-function Bubble({ e }: { e: TraceEntry }) {
+// A decision the bot made, with the facts it used. Centered and dashed so it
+// reads as the bot's reasoning, not as a message the seller received.
+function Note({ e }: { e: Extract<TraceEntry, { dir: 'note' }> }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center' }}>
+      <div
+        style={{
+          maxWidth: '85%',
+          padding: '8px 12px',
+          borderRadius: 8,
+          border: '1px dashed var(--border)',
+          background: 'var(--surface-2)',
+          fontSize: 12.5,
+        }}
+      >
+        <div style={{ fontWeight: 600 }}>🔍 {e.title}</div>
+        {e.lines.map((l) => (
+          <div key={l} style={{ color: 'var(--muted)', marginTop: 2, wordBreak: 'break-word' }}>
+            {l}
+          </div>
+        ))}
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+          {time(e.t)} · bot decision, not sent
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Bubble({ e }: { e: Exclude<TraceEntry, { dir: 'note' }> }) {
   const out = e.dir === 'out';
   const failed = out && e.status === 'failed';
   const skipped = out && e.status === 'skipped';
@@ -192,9 +223,13 @@ export function ConversationsTab({ toast }: Props) {
           </p>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {entries?.map((e, i) => (
-            <Bubble key={`${e.t}-${i}`} e={e} />
-          ))}
+          {entries?.map((e, i) =>
+            e.dir === 'note' ? (
+              <Note key={`${e.t}-${i}`} e={e} />
+            ) : (
+              <Bubble key={`${e.t}-${i}`} e={e} />
+            ),
+          )}
         </div>
       </div>
     </div>

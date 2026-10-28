@@ -17,6 +17,9 @@ interface RecognitionDetail extends RecognitionItem {
   options: Array<{ slug: string; label: string }>;
   workerId: string | null;
   workflowTemplateId: string | null;
+  // Every option's probability, best first, from the scored classify service.
+  // Null on the ComfyUI path, which cannot rank.
+  ranked: Array<{ slug: string; p: number }> | null;
   photoUrl: string;
 }
 
@@ -166,6 +169,14 @@ export default function GarmentRecognitionsPage({ toast, embedded = false }: Pro
             placeholder="All outcomes"
           />
         </div>
+        <button
+          type="button"
+          className="btn sm"
+          disabled={loading}
+          onClick={() => void load(outcomeFilter, null, false)}
+        >
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </button>
       </div>
 
       {loading ? (
@@ -402,7 +413,7 @@ export default function GarmentRecognitionsPage({ toast, embedded = false }: Pro
                         marginBottom: 6,
                       }}
                     >
-                      Raw answer
+                      Raw JSON (classify response)
                     </div>
                     <div
                       style={{
@@ -413,9 +424,21 @@ export default function GarmentRecognitionsPage({ toast, embedded = false }: Pro
                         border: '1px solid var(--border)',
                         borderRadius: 6,
                         wordBreak: 'break-word',
+                        whiteSpace: 'pre-wrap',
+                        maxHeight: 320,
+                        overflow: 'auto',
                       }}
                     >
-                      {detail.answer ?? '(none)'}
+                      {JSON.stringify(
+                        {
+                          answer: detail.answer,
+                          confidence: detail.ranked,
+                          outcome: detail.outcome,
+                          ms: detail.ms,
+                        },
+                        null,
+                        2,
+                      )}
                     </div>
                   </div>
                 </>

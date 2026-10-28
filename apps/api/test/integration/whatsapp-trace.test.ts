@@ -11,6 +11,7 @@ import {
   TRACE_MAX_ENTRIES,
   TRACE_TTL_SECONDS,
   traceInbound,
+  traceNote,
   traceOutbound,
 } from '../../src/modules/messaging/trace';
 import { buildTestApp, type TestApp } from '../helpers/api';
@@ -31,6 +32,18 @@ describe('whatsapp trace recorder', () => {
   afterAll(async () => {
     await app?.close();
     await c?.stop();
+  });
+
+  it('records a decision note in order and previews its title', async () => {
+    const id = waId();
+    await traceInbound(app, id, { kind: 'text', text: 'hi' });
+    await traceNote(app, id, 'Recognition not confident → list', ['Cutoff 0.5: top basket 0.4966']);
+    const t = await readTimeline(app, id);
+    expect(t.map((e) => e.dir)).toEqual(['in', 'note']);
+    expect(t[1]).toMatchObject({ title: 'Recognition not confident → list' });
+    expect((await listSenders(app)).find((s) => s.waId === id)?.preview).toBe(
+      'Recognition not confident → list',
+    );
   });
 
   it('keeps entries in order, decodes taps, and keeps list options', async () => {

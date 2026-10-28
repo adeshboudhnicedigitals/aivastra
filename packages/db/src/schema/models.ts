@@ -478,9 +478,8 @@ export const modelPoseAssets = pgTable('model_pose_assets', {
   // 'template' = uploaded from within a catalogue template's looks builder, hidden from
   // both (managed only via the template that owns it).
   scope: text('scope').notNull().default('general'),
-  // The WhatsApp bot draws only from poses with this set (spec
-  // 2026-10-22-whatsapp-tryon-flow-design). A membership flag, not a visibility
-  // flag: the studio and catalogue templates ignore it.
+  // Unused: the WhatsApp pose-pool UI was removed. Column kept so no data is dropped;
+  // a later migration can drop it.
   whatsappPool: boolean('whatsapp_pool').notNull().default(false),
   // See modelFaces.publicApiSlug.
   publicApiSlug: text('public_api_slug'),
