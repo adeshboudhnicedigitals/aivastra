@@ -6,6 +6,7 @@ import {
 } from './channels/whatsapp/client.js';
 import { renderMessage } from './channels/whatsapp/render.js';
 import type { OutboundMessage } from './engine/types.js';
+import { traceOutbound } from './trace.js';
 
 // D39: free-form sends stop 10 minutes before Meta's 24-hour line, so a send in
 // flight never crosses it.
@@ -27,17 +28,18 @@ export async function sendMessages(
   to: string,
   messages: OutboundMessage[],
 ): Promise<void> {
-  for (const m of messages) {
-    for (const payload of renderMessage(m)) {
-      try {
-        await wa.send(to, payload);
-      } catch (err) {
-        if (err instanceof MetaApiError && err.code === META_ERROR_OUTSIDE_WINDOW) {
-          app.log.warn({ code: err.code }, 'whatsapp send outside the 24h window — skipped');
-          return;
-        }
-        throw err;
+  for (const [i, m] of messages.entries()) {
+    try {
+      for (const payload of renderMessage(m)) await wa.send(to, payload);
+    } catch (err) {
+      if (err instanceof MetaApiError && err.code === META_ERROR_OUTSIDE_WINDOW) {
+        app.log.warn({ code: err.code }, 'whatsapp send outside the 24h window — skipped');
+        for (const rest of messages.slice(i)) await traceOutbound(app, to, rest, 'skipped');
+        return;
       }
+      await traceOutbound(app, to, m, 'failed', err instanceof Error ? err.message : String(err));
+      throw err;
     }
+    await traceOutbound(app, to, m, 'sent');
   }
 }

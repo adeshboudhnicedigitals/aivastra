@@ -21,6 +21,7 @@ import {
 } from './identity.js';
 import { storeGarmentPhoto } from './photos.js';
 import { sendMessages } from './send.js';
+import { traceInbound } from './trace.js';
 
 const M = schema.messagingAccounts;
 // T6: generous for a person tapping through a wizard, low enough that one number
@@ -142,6 +143,9 @@ export async function processInbound(
   m: ParsedInbound,
   deliverPending: DeliverPending,
 ): Promise<void> {
+  // Record first, before any E.164 conversion: unknown numbers and rate-limited
+  // senders must still appear in the conversation trace (best effort).
+  await traceInbound(app, m.from, m.content);
   const externalId = toE164FromWaId(m.from);
   if (await overRateLimit(app, externalId)) {
     app.log.warn({ messageId: m.messageId }, 'whatsapp sender over rate limit — dropped');

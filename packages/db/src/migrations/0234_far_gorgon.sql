@@ -1,0 +1,1 @@
+ALTER TABLE "model_backgrounds" ADD COLUMN "whatsapp_pool" boolean DEFAULT false NOT NULL;

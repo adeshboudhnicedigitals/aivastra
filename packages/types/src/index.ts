@@ -21,5 +21,6 @@ export * from './refund.js';
 export * from './saree.js';
 export * from './tryon.js';
 export * from './whatsapp-baskets.js';
+export * from './whatsapp-trace.js';
 export * from './widget.js';
 export * from './worker-capabilities.js';

@@ -55,6 +55,10 @@ export const modelBackgrounds = pgTable(
     tags: text('tags').array().notNull().default(sql`ARRAY[]::text[]`), // free-form entity tags, independent of category (e.g. "warm tone")
     specialTag: text('special_tag'), // 'featured' | 'trending' | 'popular' | null — per-asset, moved off category level
     genderSlug: text('gender_slug'), // nullable — null means shown for all genders
+    // WhatsApp bot membership, not visibility: once any background has this set the
+    // bot draws only from those; none set = every studio background (same
+    // opt-in-once-explicit rule as face and catalog mappings). The studio ignores it.
+    whatsappPool: boolean('whatsapp_pool').notNull().default(false),
     // 'general' = visible in the admin Backgrounds tab and studio "create your own look";
     // 'template' = uploaded from within a catalogue template's looks builder, hidden from
     // both (managed only via the template that owns it); 'user' = uploaded by a user into

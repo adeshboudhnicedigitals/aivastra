@@ -35,7 +35,7 @@ type Out = OutboundMessage[];
 type Row = { action: string; value: string; title: string };
 
 // Steps where the seller is part-way through a catalogue: a photo or New catalogue
-// here is refused rather than replacing what they chose. Exit leaves.
+// here is refused rather than replacing what they chose. Menu leaves.
 const QUESTION_STATES: ReadonlySet<State> = new Set([
   'ASK_GENDER',
   'CONFIRM_BASKET',
@@ -345,7 +345,7 @@ async function render(
       return done();
 
     case 'ASK_GARMENT_PHOTO':
-      out.push(buttons(s, COPY.askGarmentPhoto, [['menu', 'menu', COPY.btnExit]]));
+      out.push(buttons(s, COPY.askGarmentPhoto, [['menu', 'menu', COPY.btnMenu]]));
       return done();
 
     case 'ASK_GENDER':
@@ -540,8 +540,8 @@ async function onReply(
       if (action === 'confirm' && guess) return chooseBasket(s, guess, out, ctx, deps);
       if (action !== 'change') return reprompt();
       deps.recordRecognitionCorrected();
-      // The alternatives first; with none, CHOOSE_BASKET falls through to the list.
-      return enter(s, 'CHOOSE_BASKET', out, ctx, deps);
+      // Straight to the full list: every basket, not just the classifier's runners-up.
+      return enter({ ...s, baskets: undefined }, 'ASK_GARMENT_TYPE', out, ctx, deps);
     }
 
     case 'CHOOSE_BASKET': {
@@ -804,7 +804,7 @@ export async function handle(
     }
 
     case 'image': {
-      // Part-way through a catalogue a photo is not a new one: Exit first.
+      // Part-way through a catalogue a photo is not a new one: Menu first.
       if (QUESTION_STATES.has(s.state)) {
         out.push(text(COPY.inFlow));
         return render(s, out, ctx, deps);

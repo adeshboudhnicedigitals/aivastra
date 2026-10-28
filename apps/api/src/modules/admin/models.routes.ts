@@ -584,18 +584,21 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           ids: z.array(z.string().uuid()).min(1),
           categoryId: z.number().int().positive().nullable().optional(),
           genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
+          whatsappPool: z.boolean().optional(),
         }),
       },
     },
     async (req) => {
-      const { ids, categoryId, genderSlug } = req.body as {
+      const { ids, categoryId, genderSlug, whatsappPool } = req.body as {
         ids: string[];
         categoryId?: number | null;
         genderSlug?: string | null;
+        whatsappPool?: boolean;
       };
       const patch: Record<string, unknown> = { updatedAt: new Date() };
       if (categoryId !== undefined) patch.categoryId = categoryId;
       if (genderSlug !== undefined) patch.genderSlug = genderSlug;
+      if (whatsappPool !== undefined) patch.whatsappPool = whatsappPool;
       // isWhiteBg is intentionally excluded — it must stay unique across all backgrounds.
       await app.db.transaction(async (tx) => {
         await tx

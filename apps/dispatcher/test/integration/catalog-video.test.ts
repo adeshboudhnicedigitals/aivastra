@@ -115,6 +115,13 @@ describe('catalog video job (PixVerse)', () => {
 
     const [updated] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(updated.status).toBe('COMPLETED');
+    // PixVerse keeps its pre-ownership contract: no control row, no attempt rows.
+    expect(
+      await env.db
+        .select()
+        .from(schema.dispatcherJobControl)
+        .where(eq(schema.dispatcherJobControl.jobId, jobId)),
+    ).toEqual([]);
 
     const [output] = await env.db
       .select()
