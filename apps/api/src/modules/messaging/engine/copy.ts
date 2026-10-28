@@ -23,7 +23,6 @@ export const COPY = {
   btnCredits: 'Credits',
   btnHelp: 'Help',
   btnMenu: 'Menu',
-  btnExit: 'Exit',
   btnMore: 'More',
   btnMorePoses: 'More poses',
   btnRetryFailed: 'Retry failed',
@@ -35,7 +34,7 @@ export const COPY = {
   help: (help: string) =>
     `Send a garment photo to start. Type MENU any time. Need a person? ${help}`,
 
-  askGarmentPhoto: "Let's create your catalogue!✨\nUpload a clear photo of your garment.",
+  askGarmentPhoto: "Let's create your catalogue! ✨\nUpload a clear photo of your garment.",
   askGender: 'Who is this catalogue for?',
   btnYesContinue: 'Yes, continue',
   btnNoDifferent: 'Choose garment type',

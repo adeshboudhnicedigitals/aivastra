@@ -102,6 +102,15 @@ describe('whatsapp hooks', () => {
       .insert(schema.garmentSubcategories)
       .values({ genderSlug: 'women', slug: `wa-gt-${sfx}`, label: 'Kurti' })
       .returning();
+    // The type list offers baskets only, so the type has to be in one.
+    const [basket] = await a.db
+      .insert(schema.whatsappBaskets)
+      .values({ genderSlug: 'women', name: 'Kurti' })
+      .returning();
+    await a.db
+      .update(schema.garmentSubcategories)
+      .set({ whatsappBasketId: basket.id })
+      .where(eq(schema.garmentSubcategories.id, garmentType.id));
     await a.db.insert(schema.modelFaces).values({
       gender: 'women',
       label: `WaFace${sfx}`,

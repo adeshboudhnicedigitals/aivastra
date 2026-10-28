@@ -40,6 +40,7 @@ describe('messaging conversation (real deps)', () => {
   // Fill in from your seeding: the ids the steps below tap.
   let seeded: {
     garmentTypeId: string;
+    basketId: string;
     poseId: string;
     faceId: string;
     backgroundId: string;
@@ -80,6 +81,15 @@ describe('messaging conversation (real deps)', () => {
       .insert(schema.garmentSubcategories)
       .values({ genderSlug: 'women', slug: `wa-gt-${sfx}`, label: 'Kurti' })
       .returning();
+    // The type list offers baskets only, so the type has to be in one.
+    const [basket] = await app.db
+      .insert(schema.whatsappBaskets)
+      .values({ genderSlug: 'women', name: 'Kurti' })
+      .returning();
+    await app.db
+      .update(schema.garmentSubcategories)
+      .set({ whatsappBasketId: basket.id })
+      .where(eq(schema.garmentSubcategories.id, garmentType.id));
     const [face] = await app.db
       .insert(schema.modelFaces)
       .values({
@@ -136,6 +146,7 @@ describe('messaging conversation (real deps)', () => {
     if (!garmentType || !face || !background) throw new Error('seeding failed');
     seeded = {
       garmentTypeId: garmentType.id,
+      basketId: basket.id,
       poseId: pose.id,
       faceId: face.id,
       backgroundId: background.id,
@@ -179,7 +190,7 @@ describe('messaging conversation (real deps)', () => {
     const key = await storeGarmentPhoto(app, userId, Buffer.from('fake-jpeg'), 'image/jpeg');
     let msgs = await send({ type: 'image', garmentKey: key });
     msgs = await send(tapIn(msgs, 'gender', 'women'));
-    msgs = await send(tapIn(msgs, 'basket', `t:${seeded.garmentTypeId}`));
+    msgs = await send(tapIn(msgs, 'basket', `b:${seeded.basketId}`));
     return { userId, account, acct, send, msgs };
   }
 
