@@ -19,6 +19,7 @@ import { runClassifyConsumer } from './classify/consumer.js';
 import { createServiceResolver } from './classify/service-config.js';
 import { loadEnv } from './env.js';
 import { startHealthServer } from './health/server.js';
+import { processSession, startLeaseRenewal } from './job/ownership.js';
 import { promoteSareeStep2Jobs } from './job/saree-step2-promoter.js';
 import { makeDb } from './lib/db.js';
 import { makeComfyRedis, makeRedis } from './lib/redis.js';
@@ -134,7 +135,12 @@ async function main(): Promise<void> {
     pub,
     storage,
     log,
+    ownerSession: processSession,
   };
+  // Started before any consumer or the startup recovery pass can acquire a job, so
+  // no lease is ever held without a renewer.
+  const stopLeaseRenewal = startLeaseRenewal(db, processSession, log);
+  log.info({ session: processSession }, 'dispatcher ownership session started');
 
   // Crash recovery: reclaim stale XPENDING entries from a previous run
   await recoverPendingJobs(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
@@ -192,6 +198,7 @@ async function main(): Promise<void> {
     clearInterval(recoveryInterval);
     clearInterval(sareeStep2Interval);
     clearInterval(shopifyRetentionInterval);
+    stopLeaseRenewal();
     stopConsumer();
     stopVideoConsumer();
     stopClassifyConsumer();

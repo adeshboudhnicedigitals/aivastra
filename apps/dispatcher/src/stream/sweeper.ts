@@ -2,6 +2,12 @@ import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
+import {
+  type OwnerToken,
+  processSession,
+  takeoverComfyJob,
+  takeoverInTransaction,
+} from '../job/ownership.js';
 import { transitionJob } from '../job/state.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 
@@ -19,6 +25,8 @@ interface StuckJob {
   creditsCharged: number;
   /** job_inputs.params — carries `storeCapKey` for store-billed Shopify jobs. */
   params: unknown;
+  /** True while a dispatcher holds an unretired, unexpired lease on the job. */
+  liveOwner: boolean;
 }
 
 const SELECT_COLS = {
@@ -28,9 +36,19 @@ const SELECT_COLS = {
   shopifyStoreId: schema.jobs.shopifyStoreId,
   creditsCharged: schema.jobs.creditsCharged,
   params: schema.jobInputs.params,
+  // Postgres time, like every other lease comparison. A job with no control row
+  // (in flight before ownership existed) is not live.
+  liveOwner: sql<boolean>`coalesce(not ${schema.dispatcherJobControl.ownerRetired}
+    and ${schema.dispatcherJobControl.leaseUntil} > clock_timestamp(), false)`,
 };
 
-export async function runSweeper(db: DB, redis: Redis, pub: Redis, log: Logger): Promise<void> {
+export async function runSweeper(
+  db: DB,
+  redis: Redis,
+  pub: Redis,
+  log: Logger,
+  session: string = processSession,
+): Promise<void> {
   const now = Date.now();
   // COALESCE(started_at, created_at): started_at is only set at GENERATING, so a job stuck
   // in PREPROCESSING falls back to created_at.
@@ -50,6 +68,7 @@ export async function runSweeper(db: DB, redis: Redis, pub: Redis, log: Logger):
       // LEFT, not INNER: a job whose inputs row is missing must still be swept
       // and refunded — losing its cap slot is the lesser failure by far.
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .leftJoin(schema.dispatcherJobControl, eq(schema.dispatcherJobControl.jobId, schema.jobs.id))
       .where(
         and(
           inArray(schema.jobs.status, IN_FLIGHT_STATES),
@@ -59,12 +78,20 @@ export async function runSweeper(db: DB, redis: Redis, pub: Redis, log: Logger):
           ),
         ),
       )
+      // Live-leased jobs sort last so they cannot crowd the limit out of the dead ones.
+      .orderBy(SELECT_COLS.liveOwner)
       .limit(50);
 
     if (inFlight.length === 0) return;
     log.info({ inFlight: inFlight.length }, 'sweeping stuck jobs');
 
-    for (const job of inFlight) await failAndRefund(db, redis, pub, job, 'STUCK_IN_FLIGHT', log);
+    for (const job of inFlight) {
+      if (job.liveOwner) {
+        log.info({ jobId: job.id }, 'sweeper skipping job with a live ownership lease');
+        continue;
+      }
+      await failAndRefund(db, redis, pub, job, 'STUCK_IN_FLIGHT', log, session);
+    }
   } catch (err) {
     log.error({ err }, 'failed to sweep stuck jobs');
   }
@@ -95,9 +122,16 @@ async function failAndRefundShopify(
   shopifyStoreId: string,
   errorCode: string,
   log: Logger,
+  session: string,
 ): Promise<void> {
+  let owner: OwnerToken | undefined;
   if (job.creditsCharged > 0) {
-    await db.transaction(async (tx) => {
+    const proceed = await db.transaction(async (tx) => {
+      // A fresh generation, in the same transaction as the refund writes: a job whose
+      // owner is alive (or already finished) is neither refunded nor failed.
+      const taken = await takeoverInTransaction(tx, job.id, session);
+      if (taken.kind !== 'Acquired') return false;
+      owner = taken.owner;
       const existing = await tx
         .select()
         .from(schema.shopifyCreditLedger)
@@ -107,7 +141,7 @@ async function failAndRefundShopify(
             eq(schema.shopifyCreditLedger.reason, 'JOB_FAIL_REFUND'),
           ),
         );
-      if (existing.length) return;
+      if (existing.length) return true;
       await tx
         .update(schema.shopifyStoreCredits)
         .set({ balance: sql`${schema.shopifyStoreCredits.balance} + ${job.creditsCharged}` })
@@ -118,10 +152,23 @@ async function failAndRefundShopify(
         reason: 'JOB_FAIL_REFUND',
         jobId: job.id,
       });
+      return true;
     });
+    if (!proceed) {
+      log.info({ jobId: job.id }, 'sweeper skipping job: owned or already finished');
+      return;
+    }
+  } else {
+    // Zero cost: no refund transaction to join, so the takeover stands alone.
+    const taken = await takeoverComfyJob(db, job.id, session);
+    if (taken.kind !== 'Acquired') {
+      log.info({ jobId: job.id }, 'sweeper skipping job: owned or already finished');
+      return;
+    }
+    owner = taken.owner;
   }
 
-  await transitionJob(db, pub, job.id, '', 'FAILED', { errorCode, shopifyStoreId }, log);
+  await transitionJob(db, pub, job.id, '', 'FAILED', { errorCode, shopifyStoreId }, log, owner);
   // Same reasoning as the processor's own failure path: a swept job never ran,
   // so it must stop consuming the merchant's daily cap. Idempotent per jobId,
   // so a sweep racing the processor cannot give the same slot back twice.
@@ -145,13 +192,20 @@ async function failAndRefund(
   job: StuckJob,
   errorCode: string,
   log: Logger,
+  session: string,
 ): Promise<void> {
   if (job.shopifyStoreId) {
-    await failAndRefundShopify(db, redis, pub, job, job.shopifyStoreId, errorCode, log);
+    await failAndRefundShopify(db, redis, pub, job, job.shopifyStoreId, errorCode, log, session);
     return;
   }
 
-  await db.transaction(async (tx) => {
+  let owner: OwnerToken | undefined;
+  const proceed = await db.transaction(async (tx) => {
+    // Fresh generation first, in this transaction (jobs → control lock order): never a
+    // dead owner's token, and never a refund for a job whose owner is alive.
+    const taken = await takeoverInTransaction(tx, job.id, session);
+    if (taken.kind !== 'Acquired') return false;
+    owner = taken.owner;
     // One credit pool per human. A job's billing owner is its user_id when set;
     // kiosk jobs have user_id = null and are billed to the merchant's owning user.
     let userId = job.userId;
@@ -174,13 +228,13 @@ async function failAndRefund(
       }
       userId = owner.userId;
     }
-    if (!userId) return; // job genuinely has no billing owner (userId and merchantId both unset) — nothing to refund, pre-existing behavior unchanged
+    if (!userId) return true; // job genuinely has no billing owner (userId and merchantId both unset) — nothing to refund, pre-existing behavior unchanged
 
     const existing = await tx
       .select()
       .from(schema.creditLedger)
       .where(eq(schema.creditLedger.jobId, job.id));
-    if (existing.some((e) => e.reason === 'JOB_FAIL_REFUND')) return;
+    if (existing.some((e) => e.reason === 'JOB_FAIL_REFUND')) return true;
     await tx
       .update(schema.userCredits)
       .set({ balance: sql`${schema.userCredits.balance} + ${job.creditsCharged}` })
@@ -191,7 +245,12 @@ async function failAndRefund(
       reason: 'JOB_FAIL_REFUND',
       jobId: job.id,
     });
+    return true;
   });
+  if (!proceed) {
+    log.info({ jobId: job.id }, 'sweeper skipping job: owned or already finished');
+    return;
+  }
 
-  await transitionJob(db, pub, job.id, job.userId ?? '', 'FAILED', { errorCode }, log);
+  await transitionJob(db, pub, job.id, job.userId ?? '', 'FAILED', { errorCode }, log, owner);
 }

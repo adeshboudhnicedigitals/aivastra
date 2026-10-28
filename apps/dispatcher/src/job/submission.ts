@@ -2,9 +2,12 @@ import { type DB, type DbTransaction, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { ComfyPromptHttpError, submitPrompt } from '../comfyui/client.js';
+import { assertOwnerInTransaction, type OwnerToken } from './ownership.js';
 
 interface SubmissionOptions {
   db: DB;
+  /** Present for every paid-Comfy submit; classify has no owner. */
+  owner?: OwnerToken;
   jobId?: string;
   requestId?: string;
   phase: 'main' | 'mannequin' | 'classify';
@@ -34,6 +37,8 @@ export async function submitRecordedPhase(opts: SubmissionOptions): Promise<{
         .where(eq(schema.jobs.id, jobId))
         .for('update');
       if (!job) throw new Error('submission job not found');
+      // jobs is already locked above, matching the lock order everywhere else.
+      if (opts.owner) await assertOwnerInTransaction(tx, opts.owner, `submit:${phase}`);
     } else {
       // Classify has no charged jobs row and records its result after execution.
       await tx.execute(
@@ -69,6 +74,17 @@ export async function submitRecordedPhase(opts: SubmissionOptions): Promise<{
       })
       .returning({ id: schema.executionAttempts.id, clientId: schema.executionAttempts.clientId });
     if (!row) throw new Error('submission intent insert returned no row');
+    // The only attempt allowed to publish is the newest one under the current owner.
+    if (opts.owner)
+      await tx
+        .update(schema.dispatcherJobControl)
+        .set({ activeAttemptId: row.id })
+        .where(
+          and(
+            eq(schema.dispatcherJobControl.jobId, opts.owner.jobId),
+            eq(schema.dispatcherJobControl.ownerSession, opts.owner.session),
+          ),
+        );
     if (jobId)
       await tx.insert(schema.jobEvents).values({
         jobId,

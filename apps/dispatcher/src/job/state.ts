@@ -1,9 +1,10 @@
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { jobE2eDuration } from '@aivastra/observability';
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, notInArray } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
+import { assertOwnerInTransaction, type OwnerToken } from './ownership.js';
 import { recordSubmissionOutcome } from './submission.js';
 
 export type JobStatus =
@@ -45,6 +46,8 @@ export async function transitionJob(
   status: JobStatus,
   opts: TransitionOptions = {},
   log: Logger,
+  /** Required on every paid-Comfy caller; only the sweeper's and API-adjacent callers omit it. */
+  owner?: OwnerToken,
 ): Promise<boolean> {
   const now = new Date();
   const patch: Record<string, unknown> = { status };
@@ -55,14 +58,22 @@ export async function transitionJob(
     patch.completedAt = now;
 
   const updated = await db.transaction(async (tx) => {
+    // Inside this transaction and before the first write: a check made earlier can
+    // be overtaken by a lease expiry before commit.
+    if (owner) await assertOwnerInTransaction(tx, owner, `transition:${status}`);
     const rows = await tx
       .update(schema.jobs)
       .set(patch as Parameters<ReturnType<typeof tx.update>['set']>[0])
-      // Intermediate writes must not erase CANCELLED before the completion guard.
+      // A terminal row is never rewritten: not only CANCELLED, which the completion
+      // guard relies on, but also a COMPLETED or FAILED job a stale caller would
+      // otherwise overwrite. FAILED -> QUEUED stays open: it is the retry transition.
       .where(
         and(
           eq(schema.jobs.id, jobId),
-          status === 'CANCELLED' ? undefined : ne(schema.jobs.status, 'CANCELLED'),
+          notInArray(
+            schema.jobs.status,
+            status === 'QUEUED' ? ['COMPLETED', 'CANCELLED'] : ['COMPLETED', 'FAILED', 'CANCELLED'],
+          ),
         ),
       )
       .returning({ createdAt: schema.jobs.createdAt, source: schema.jobs.source });

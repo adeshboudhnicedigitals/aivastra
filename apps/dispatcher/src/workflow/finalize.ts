@@ -20,6 +20,7 @@ import type { ImageCompressionJobConfig } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 import sharp from 'sharp';
 import { loadEnv } from '../env.js';
+import type { OwnerToken } from '../job/ownership.js';
 import { transitionJob } from '../job/state.js';
 import { applyWatermark, WATERMARK_VERSION } from './watermark.js';
 
@@ -53,6 +54,8 @@ export async function encodeCompressedImage(
 }
 
 export interface FinalizeOutputOpts {
+  /** Paid-Comfy owner token; the COMPLETED transition checks it in its own transaction. */
+  owner?: OwnerToken;
   /** Raw image bytes downloaded from ComfyUI. */
   imageBytes: Uint8Array;
   jobId: string;
@@ -161,6 +164,7 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
     'COMPLETED',
     { resultKey, thumbnailKey, assetKind, watermarkVersion, shopifyStoreId: opts.shopifyStoreId },
     jobLog,
+    opts.owner,
   );
 
   return { resultKey, thumbnailKey, completed };
