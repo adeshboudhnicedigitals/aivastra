@@ -9,6 +9,7 @@ import postgres from 'postgres';
 
 export interface TestEnv {
   db: DB;
+  databaseUrl: string;
   withAdvisoryLock: ReturnType<typeof createDb>['withAdvisoryLock'];
   closeDb: () => Promise<void>;
   redisUrl: string;
@@ -61,6 +62,7 @@ export async function setupTestEnv(): Promise<TestEnv> {
 
   return {
     db,
+    databaseUrl: pgUrl,
     closeDb,
     withAdvisoryLock,
     redisUrl: 'redis://127.0.0.1:6379',

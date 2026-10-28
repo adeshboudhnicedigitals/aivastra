@@ -239,6 +239,107 @@ describe('admin chatbot hitl', () => {
     });
   });
 
+  describe('GET /admin/chatbot/conversations — agent details and mine filter', () => {
+    async function seedClaimableConv() {
+      const { conv } = await seedConv('OPEN');
+      await app.db.insert(schema.chatbotMessages).values({
+        conversationId: conv.id,
+        role: 'user',
+        content: 'I need help',
+      });
+      return conv;
+    }
+
+    it('joins the claiming agent name/email onto a claimed conversation', async () => {
+      const conv = await seedClaimableConv();
+      await app.inject({
+        method: 'POST',
+        url: `/admin/chatbot/conversations/${conv.id}/claim`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/admin/chatbot/conversations?status=IN_PROGRESS&limit=200',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      const row = (
+        res.json().rows as Array<{
+          id: string;
+          agentName: string | null;
+          agentEmail: string | null;
+        }>
+      ).find((r) => r.id === conv.id);
+      expect(row?.agentEmail).toBe('hitl-admin@x.com');
+    });
+
+    it('agentName/agentEmail are null for an unclaimed conversation', async () => {
+      const conv = await seedClaimableConv();
+      const res = await app.inject({
+        method: 'GET',
+        url: '/admin/chatbot/conversations?status=OPEN&limit=200',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      const row = (
+        res.json().rows as Array<{
+          id: string;
+          agentName: string | null;
+          agentEmail: string | null;
+        }>
+      ).find((r) => r.id === conv.id);
+      expect(row?.agentEmail ?? null).toBeNull();
+    });
+
+    it("mine=true scopes the list to the caller's own claims, not every agent's", async () => {
+      const passwordHash = await hashPassword('password123');
+      const [otherUser] = await app.db
+        .insert(schema.users)
+        .values({ email: `hitl-other-${Date.now()}@x.com`, passwordHash, emailVerified: true })
+        .returning();
+      await app.db
+        .insert(schema.adminUsers)
+        .values({ userId: otherUser.id, role: 'SUPER_ADMIN', passwordHash })
+        .returning();
+      const loginRes = await app.inject({
+        method: 'POST',
+        url: '/admin/auth/login',
+        payload: { email: otherUser.email, password: 'password123' },
+      });
+      const otherToken = loginRes.json().accessToken;
+
+      const mine = await seedClaimableConv();
+      await app.inject({
+        method: 'POST',
+        url: `/admin/chatbot/conversations/${mine.id}/claim`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      const theirs = await seedClaimableConv();
+      await app.inject({
+        method: 'POST',
+        url: `/admin/chatbot/conversations/${theirs.id}/claim`,
+        headers: { authorization: `Bearer ${otherToken}` },
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/admin/chatbot/conversations?status=IN_PROGRESS&mine=true&limit=200',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      const ids = (res.json().rows as Array<{ id: string }>).map((r) => r.id);
+      expect(ids).toContain(mine.id);
+      expect(ids).not.toContain(theirs.id);
+
+      const allClaimed = await app.inject({
+        method: 'GET',
+        url: '/admin/chatbot/conversations?status=IN_PROGRESS&limit=200',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      const allIds = (allClaimed.json().rows as Array<{ id: string }>).map((r) => r.id);
+      expect(allIds).toContain(mine.id);
+      expect(allIds).toContain(theirs.id);
+    });
+  });
+
   it('duty toggle round-trips', async () => {
     const on = await app.inject({
       method: 'GET',

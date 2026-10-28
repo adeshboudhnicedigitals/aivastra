@@ -31,7 +31,7 @@ interface Stats {
   activeUsersToday: number;
   activeUsersDelta: number | null;
   newUsersToday: number;
-  newContacts: number;
+  unclaimedChats: number;
   workersHealthy: number;
   workersTotal: number;
   workers: Worker[];
@@ -207,7 +207,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
           </button>
         </div>
       )}
-      {stats.newContacts > 0 && (
+      {stats.unclaimedChats > 0 && (
         <div
           className="banner"
           style={{
@@ -217,16 +217,16 @@ export default function DashboardPage({ onNav, toast }: Props) {
           }}
         >
           <div className="ic" style={{ background: 'var(--accent)' }}>
-            <Icon.Bell />
+            <Icon.MessageSquare />
           </div>
           <div>
             <b>
-              {stats.newContacts} new contact request{stats.newContacts > 1 ? 's' : ''}
+              {stats.unclaimedChats} unclaimed chat{stats.unclaimedChats > 1 ? 's' : ''}
             </b>{' '}
             waiting for a response.
           </div>
-          <button className="btn" onClick={() => onNav('contacts')}>
-            <Icon.MessageSquare /> View contacts
+          <button className="btn" onClick={() => onNav('chat-inbox')}>
+            <Icon.MessageSquare /> View queries
           </button>
         </div>
       )}
@@ -329,32 +329,32 @@ export default function DashboardPage({ onNav, toast }: Props) {
           </button>
 
           <button
-            className={`stat ${stats.newContacts > 0 ? 'alert' : ''}`}
+            className={`stat ${stats.unclaimedChats > 0 ? 'alert' : ''}`}
             style={
-              stats.newContacts > 0
+              stats.unclaimedChats > 0
                 ? {
                     borderColor: 'var(--accent)',
                     background: 'var(--accent-soft)',
                   }
                 : undefined
             }
-            onClick={() => onNav('contacts')}
+            onClick={() => onNav('chat-inbox')}
           >
             <div
               className="lbl"
-              style={stats.newContacts > 0 ? { color: 'var(--accent-ink)' } : undefined}
+              style={stats.unclaimedChats > 0 ? { color: 'var(--accent-ink)' } : undefined}
             >
-              <Icon.Bell /> New contacts
+              <Icon.MessageSquare /> Queries
             </div>
             <div
               className="val"
-              style={stats.newContacts > 0 ? { color: 'var(--accent-ink)' } : undefined}
+              style={stats.unclaimedChats > 0 ? { color: 'var(--accent-ink)' } : undefined}
             >
-              {stats.newContacts}
+              {stats.unclaimedChats}
             </div>
             <div className="delta">
               <span style={{ color: 'var(--muted)' }}>
-                {stats.newContacts === 0 ? 'inbox clear' : 'need response'}
+                {stats.unclaimedChats === 0 ? 'inbox clear' : 'unclaimed chats'}
               </span>
             </div>
           </button>

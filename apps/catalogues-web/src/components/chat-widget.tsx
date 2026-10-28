@@ -1,11 +1,17 @@
 'use client';
 import type { ChatMessageT, ConversationStatusT, WsServerFrameT } from '@aivastra/types';
+import { useQuery } from '@tanstack/react-query';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { getToken } from '../lib/api';
+import { api, getToken } from '../lib/api';
 import { BREAKPOINTS } from '../lib/breakpoints';
 import { C, M } from './tokens';
 
 const CHATBOT_URL = process.env.NEXT_PUBLIC_CHATBOT_URL || 'http://localhost:4200';
+
+interface MeResponse {
+  email: string;
+  displayName: string | null;
+}
 
 // Renders the light markdown subset the bot model actually emits (**bold**, numbered/
 // bulleted lists) — no markdown library in this repo, and the widget has no other rich
@@ -66,6 +72,38 @@ function renderMessageContent(content: string) {
   return blocks;
 }
 
+// Short local time label for a message bubble ("2:14 PM").
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+// Round initials bubble shown next to each non-system message — the customer's
+// own messages get their real account initials (same two-letter convention as
+// the header's own avatar in UserMenu: displayName.slice(0, 2).toUpperCase()),
+// while an agent/bot message's bubble is keyed off its display label so a
+// different agent visibly gets a different avatar.
+function Avatar({ isUser, initials }: { isUser: boolean; initials: string }) {
+  return (
+    <div
+      style={{
+        width: 24,
+        height: 24,
+        borderRadius: '50%',
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '11px',
+        fontWeight: 600,
+        background: isUser ? 'linear-gradient(135deg, #ec4899, #8b5cf6)' : '#ece0fb',
+        color: isUser ? '#fff' : '#6d28d9',
+      }}
+    >
+      {initials}
+    </div>
+  );
+}
+
 // Renders an attachment image, falling back to a plain link if the fetch fails
 // (expired/deleted object, network blip) instead of the browser's broken-image icon.
 function AttachmentImage({ src, href, isUser }: { src: string; href: string; isUser: boolean }) {
@@ -111,6 +149,16 @@ export function ChatWidget() {
   const convRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Shares the 'me' query cache with UserMenu, so the "you" bubble shows the
+  // same initials as the account avatar in the header (e.g. "CH"), not a
+  // generic "You".
+  const { data: me } = useQuery<MeResponse>({
+    queryKey: ['me'],
+    queryFn: () => api.get('/v1/me'),
+    retry: false,
+  });
+  const myDisplayName = me?.displayName || me?.email?.split('@')[0] || 'You';
 
   const connect = useCallback(async () => {
     const token = getToken();
@@ -217,6 +265,12 @@ export function ChatWidget() {
     setInput('');
   }
 
+  // Most recent agent message's name, so the header can say who's actually
+  // replying instead of just "Live agent" once a ticket is claimed.
+  const liveAgentName = [...messages]
+    .reverse()
+    .find((m) => m.role === 'agent' && m.senderName)?.senderName;
+
   function reset() {
     setStatus('OPEN');
     setMessages([]);
@@ -320,7 +374,8 @@ export function ChatWidget() {
             <strong>Aivastra Support</strong>
             <div style={{ fontSize: '12px', opacity: 0.9 }}>
               {status === 'OPEN' && 'Waiting for an agent…'}
-              {status === 'IN_PROGRESS' && 'Live agent'}
+              {status === 'IN_PROGRESS' &&
+                (liveAgentName ? `Live agent — ${liveAgentName}` : 'Live agent')}
               {status === 'RESOLVED' && 'Marked resolved — send a message to reopen'}
               {status === 'CLOSED' && 'Conversation ended'}
             </div>
@@ -338,53 +393,131 @@ export function ChatWidget() {
               minHeight: '200px',
             }}
           >
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                style={{
-                  alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-                  maxWidth: '80%',
-                  padding: '8px 12px',
-                  borderRadius: '12px',
-                  fontSize: '14px',
-                  lineHeight: 1.4,
-                  background:
-                    m.role === 'user' ? '#ec4899' : m.role === 'system' ? 'transparent' : C.lighter,
-                  color: m.role === 'user' ? '#fff' : m.role === 'system' ? C.mid : C.text,
-                  fontStyle: m.role === 'system' ? 'italic' : 'normal',
-                  textAlign: m.role === 'system' ? 'center' : 'left',
-                }}
-              >
-                {renderMessageContent(m.content)}
-                {/* A PDF is a legitimate attachment here (SupportModal and the presign
-                    route both accept one), so only images get an <img> — anything else
-                    would render as a broken image icon. Rows written before
-                    attachmentType was populated have none; those were images. */}
-                {m.attachmentKey &&
-                  (!m.attachmentType || m.attachmentType.startsWith('image/') ? (
-                    <AttachmentImage
-                      src={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
-                      href={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
-                      isUser={m.role === 'user'}
-                    />
-                  ) : (
-                    <a
-                      href={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+            {messages.map((m) => {
+              // System rows are status events ("agent joined", "ticket resolved"), not
+              // a conversational party — no avatar/name, just a centered event line.
+              if (m.role === 'system') {
+                return (
+                  <div
+                    key={m.id}
+                    style={{
+                      alignSelf: 'center',
+                      maxWidth: '90%',
+                      textAlign: 'center',
+                      fontSize: '12px',
+                      fontStyle: 'italic',
+                      color: C.mid,
+                    }}
+                  >
+                    {renderMessageContent(m.content)}
+                    <span style={{ fontStyle: 'normal', marginLeft: 6 }}>
+                      {formatTime(m.createdAt)}
+                    </span>
+                  </div>
+                );
+              }
+              const isUser = m.role === 'user';
+              const label = isUser
+                ? 'You'
+                : m.role === 'bot'
+                  ? 'Assistant'
+                  : m.senderName || 'Support';
+              const initials = (isUser ? myDisplayName : label).slice(0, 2).toUpperCase();
+              return (
+                <div
+                  key={m.id}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: isUser ? 'flex-end' : 'flex-start',
+                    alignSelf: isUser ? 'flex-end' : 'flex-start',
+                    maxWidth: '88%',
+                  }}
+                >
+                  {/* The customer knows their own messages are theirs — no label needed.
+                      An agent/bot message names who's actually replying (the real admin's
+                      name once claimed, not a generic "Admin") so the customer can trust
+                      there's a person on the other end. */}
+                  {!isUser && (
+                    <div
                       style={{
-                        display: 'inline-block',
-                        marginTop: 4,
-                        fontSize: '13px',
-                        textDecoration: 'underline',
-                        color: m.role === 'user' ? '#fff' : C.pink,
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        color: C.mid,
+                        marginBottom: '2px',
+                        marginLeft: '32px',
                       }}
                     >
-                      View attachment
-                    </a>
-                  ))}
-              </div>
-            ))}
+                      {label}
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: isUser ? 'row-reverse' : 'row',
+                      alignItems: 'flex-end',
+                      gap: '8px',
+                      minWidth: 0,
+                    }}
+                  >
+                    <Avatar isUser={isUser} initials={initials} />
+                    <div
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '12px',
+                        fontSize: '14px',
+                        lineHeight: 1.4,
+                        background: isUser ? '#ec4899' : C.lighter,
+                        color: isUser ? '#fff' : C.text,
+                        minWidth: 0,
+                      }}
+                    >
+                      {renderMessageContent(m.content)}
+                      {/* A PDF is a legitimate attachment here (SupportModal and the presign
+                          route both accept one), so only images get an <img> — anything else
+                          would render as a broken image icon. Rows written before
+                          attachmentType was populated have none; those were images. */}
+                      {m.attachmentKey &&
+                        (!m.attachmentType || m.attachmentType.startsWith('image/') ? (
+                          <AttachmentImage
+                            src={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                            href={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                            isUser={isUser}
+                          />
+                        ) : (
+                          <a
+                            href={`${process.env.NEXT_PUBLIC_API_URL}/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: 'inline-block',
+                              marginTop: 4,
+                              fontSize: '13px',
+                              textDecoration: 'underline',
+                              color: isUser ? '#fff' : C.pink,
+                            }}
+                          >
+                            View attachment
+                          </a>
+                        ))}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '10px',
+                      color: C.mid,
+                      marginTop: '2px',
+                      // Offsets past the avatar (24px) + its gap (8px) so the
+                      // timestamp lines up under the bubble, not the avatar.
+                      marginLeft: isUser ? 0 : '32px',
+                      marginRight: isUser ? '32px' : 0,
+                    }}
+                  >
+                    {formatTime(m.createdAt)}
+                  </div>
+                </div>
+              );
+            })}
             {typing && (
               <em style={{ fontSize: '12px', color: C.mid, alignSelf: 'flex-start' }}>
                 {typing === 'bot' ? 'Assistant is typing…' : 'Agent is typing…'}

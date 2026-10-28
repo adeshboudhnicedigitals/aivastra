@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { type DB, schema, type WithDbLock } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import {
@@ -18,12 +17,7 @@ import {
 } from '@aivastra/types';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
-import {
-  downloadOutputImage,
-  fetchHistory,
-  submitPrompt,
-  uploadImageToComfy,
-} from '../comfyui/client.js';
+import { downloadOutputImage, fetchHistory, uploadImageToComfy } from '../comfyui/client.js';
 import { handleCompletionResult } from '../comfyui/completion-result.js';
 import { isTerminalJobError } from '../comfyui/output-withheld.js';
 import { getCompletedHistory, JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
@@ -47,6 +41,7 @@ import { patchWorkflow } from '../workflow/patcher.js';
 import { resolveWorkflowTemplateVersion } from '../workflow/resolve-template-version.js';
 import { runMannequinPhase } from './mannequin-phase.js';
 import { transitionJob } from './state.js';
+import { recordSubmissionOutcome, submitRecordedPhase } from './submission.js';
 
 const MAX_ATTEMPTS = 2;
 const MAX_QUEUE_WAIT_MS = 3 * 60 * 60 * 1000; // 3 h — dead-letter if no worker found this long
@@ -874,9 +869,30 @@ export async function processJob(
 
     // 6. Submit to ComfyUI
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
-    const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
-    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, prompt, jobLog);
+    const {
+      promptId,
+      clientId: clientUuid,
+      attemptId,
+    } = await submitRecordedPhase({
+      db,
+      jobId,
+      phase: 'main',
+      worker: w,
+      prompt: prompt,
+      log: jobLog,
+      contract: {
+        kind: 'regular',
+        workflowTemplateId: workflowTemplateId,
+        outputNodeId: resultNodeId,
+        inputs: inputs,
+        source: job.source,
+        watermark: job.watermark,
+        timeoutMs: 300_000,
+        finalizer: 'standard',
+        compressionSource: job.source,
+      },
+    });
     jobLog.info({ promptId }, 'prompt submitted to ComfyUI');
 
     // Store dispatch summary as a job event so admin can inspect what was sent to ComfyUI.
@@ -886,6 +902,8 @@ export async function processJob(
       eventType: 'COMFY_DISPATCH',
       payload: {
         promptId,
+        attemptId,
+        clientId: clientUuid,
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
@@ -1356,9 +1374,30 @@ async function processTryonDirectJob(
     }
 
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
-    const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
-    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    const {
+      promptId,
+      clientId: clientUuid,
+      attemptId,
+    } = await submitRecordedPhase({
+      db,
+      jobId,
+      phase: 'main',
+      worker: w,
+      prompt: workflow,
+      log: jobLog,
+      contract: {
+        kind: 'tryon_direct',
+        workflowTemplateId: workflowTemplateId,
+        outputNodeId: outputNodeId,
+        inputs: inputs,
+        source: job.source,
+        watermark: job.watermark,
+        timeoutMs: 300_000,
+        finalizer: 'standard',
+        compressionSource: job.source,
+      },
+    });
     jobLog.info({ promptId }, 'tryon direct prompt submitted');
 
     await db.insert(schema.jobEvents).values({
@@ -1366,6 +1405,8 @@ async function processTryonDirectJob(
       eventType: 'COMFY_DISPATCH',
       payload: {
         promptId,
+        attemptId,
+        clientId: clientUuid,
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
@@ -1648,9 +1689,30 @@ async function processRegenerateJob(
     }
 
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
-    const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
-    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    const {
+      promptId,
+      clientId: clientUuid,
+      attemptId,
+    } = await submitRecordedPhase({
+      db,
+      jobId,
+      phase: 'main',
+      worker: w,
+      prompt: workflow,
+      log: jobLog,
+      contract: {
+        kind: 'regenerate',
+        workflowTemplateId: workflowTemplateId,
+        outputNodeId: outputNodeId,
+        inputs: _inputs,
+        source: job.source,
+        watermark: job.watermark,
+        timeoutMs: 300_000,
+        finalizer: 'standard',
+        compressionSource: job.source,
+      },
+    });
     jobLog.info({ promptId }, 'regenerate prompt submitted');
 
     await db.insert(schema.jobEvents).values({
@@ -1658,6 +1720,8 @@ async function processRegenerateJob(
       eventType: 'COMFY_DISPATCH',
       payload: {
         promptId,
+        attemptId,
+        clientId: clientUuid,
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
@@ -1947,9 +2011,30 @@ async function processFabricToGarmentJob(
     }
 
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
-    const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
-    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    const {
+      promptId,
+      clientId: clientUuid,
+      attemptId,
+    } = await submitRecordedPhase({
+      db,
+      jobId,
+      phase: 'main',
+      worker: w,
+      prompt: workflow,
+      log: jobLog,
+      contract: {
+        kind: 'fabric_to_garment',
+        workflowTemplateId: workflowTemplateId,
+        outputNodeId: template.resultNodeId,
+        inputs: inputs,
+        source: job.source,
+        watermark: job.watermark,
+        timeoutMs: 300_000,
+        finalizer: 'standard',
+        compressionSource: job.source,
+      },
+    });
     jobLog.info({ promptId }, 'fabric-to-garment prompt submitted');
 
     await db.insert(schema.jobEvents).values({
@@ -1957,6 +2042,8 @@ async function processFabricToGarmentJob(
       eventType: 'COMFY_DISPATCH',
       payload: {
         promptId,
+        attemptId,
+        clientId: clientUuid,
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
@@ -2341,9 +2428,30 @@ async function processSareeMannequinJob(
     }
 
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
-    const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
-    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    const {
+      promptId,
+      clientId: clientUuid,
+      attemptId,
+    } = await submitRecordedPhase({
+      db,
+      jobId,
+      phase: 'mannequin',
+      worker: w,
+      prompt: workflow,
+      log: jobLog,
+      contract: {
+        kind: 'saree_mannequin',
+        workflowTemplateId: workflowTemplateId,
+        outputNodeId: outputNodeId,
+        inputs: inputs,
+        source: job.source,
+        watermark: false,
+        timeoutMs: 300_000,
+        finalizer: 'standard',
+        compressionSource: job.source,
+      },
+    });
     jobLog.info({ promptId }, 'mannequin prompt submitted');
 
     await db.insert(schema.jobEvents).values({
@@ -2351,6 +2459,8 @@ async function processSareeMannequinJob(
       eventType: 'COMFY_DISPATCH',
       payload: {
         promptId,
+        attemptId,
+        clientId: clientUuid,
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
@@ -2626,9 +2736,30 @@ async function processSareeJob(
     }
 
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
-    const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
-    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    const {
+      promptId,
+      clientId: clientUuid,
+      attemptId,
+    } = await submitRecordedPhase({
+      db,
+      jobId,
+      phase: 'main',
+      worker: w,
+      prompt: workflow,
+      log: jobLog,
+      contract: {
+        kind: 'saree',
+        workflowTemplateId: workflowTemplateId,
+        outputNodeId: outputNodeId,
+        inputs: inputs,
+        source: job.source,
+        watermark: job.watermark,
+        timeoutMs: 300_000,
+        finalizer: 'standard',
+        compressionSource: job.source,
+      },
+    });
     jobLog.info({ promptId }, 'saree prompt submitted');
 
     await db.insert(schema.jobEvents).values({
@@ -2636,6 +2767,8 @@ async function processSareeJob(
       eventType: 'COMFY_DISPATCH',
       payload: {
         promptId,
+        attemptId,
+        clientId: clientUuid,
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
@@ -3042,10 +3175,31 @@ async function processWidgetJob(
       workflow[garmentNodeId2].inputs!.image = secondGarmentFilename;
 
     await transitionJob(db, pub, jobId, '', 'GENERATING', { workerId: w.id }, jobLog);
-    const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
-    const { promptId } = await measureJobStage(jobLog, 'prompt_submission', () =>
-      submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog),
+    const {
+      promptId,
+      clientId: clientUuid,
+      attemptId,
+    } = await measureJobStage(jobLog, 'prompt_submission', () =>
+      submitRecordedPhase({
+        db,
+        jobId,
+        phase: 'main',
+        worker: w,
+        prompt: workflow,
+        log: jobLog,
+        contract: {
+          kind: 'merchant_widget',
+          workflowTemplateId: workflowTemplateId,
+          outputNodeId: outputNodeId,
+          inputs: inputs,
+          source: job.source,
+          watermark: job.watermark,
+          timeoutMs: 300_000,
+          finalizer: 'widget',
+          compressionSource: job.source,
+        },
+      }),
     );
     jobLog.info({ promptId }, 'merchant widget prompt submitted');
 
@@ -3055,6 +3209,8 @@ async function processWidgetJob(
         eventType: 'COMFY_DISPATCH',
         payload: {
           promptId,
+          attemptId,
+          clientId: clientUuid,
           workerId: w.id,
           workerUrl: w.url,
           workflowTemplateId,
@@ -3406,9 +3562,30 @@ async function processShopifyJob(
       { workerId: w.id, shopifyStoreId },
       jobLog,
     );
-    const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
-    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    const {
+      promptId,
+      clientId: clientUuid,
+      attemptId,
+    } = await submitRecordedPhase({
+      db,
+      jobId,
+      phase: 'main',
+      worker: w,
+      prompt: workflow,
+      log: jobLog,
+      contract: {
+        kind: 'shopify',
+        workflowTemplateId: workflowTemplateId,
+        outputNodeId: outputNodeId,
+        inputs: inputs,
+        source: job.source,
+        watermark: job.watermark,
+        timeoutMs: 300_000,
+        finalizer: 'standard',
+        compressionSource: job.source,
+      },
+    });
     jobLog.info({ promptId }, 'shopify prompt submitted');
 
     await db.insert(schema.jobEvents).values({
@@ -3416,6 +3593,8 @@ async function processShopifyJob(
       eventType: 'COMFY_DISPATCH',
       payload: {
         promptId,
+        attemptId,
+        clientId: clientUuid,
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
@@ -3746,6 +3925,7 @@ async function terminateJob(
       eventType: status,
       payload: (status === 'CANCELLED' ? {} : { errorCode }) as Record<string, unknown>,
     });
+    await recordSubmissionOutcome(tx, jobId, status, _log);
     return true;
   });
   if (!transitioned) {
@@ -3806,8 +3986,12 @@ async function handleFailure(
     );
     log.warn({ jobId, attempts: newAttempts, errorCode }, 'job FAILED — credits refunded');
   } else {
-    // Re-enqueue for retry
-    await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+    // Re-enqueue for retry. The failed attempt must not look adoptable once the job
+    // has moved on; resolved_at stays empty because the GPU may still be running it.
+    await db.transaction(async (tx) => {
+      await tx.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+      await recordSubmissionOutcome(tx, jobId, 'FAILED', log);
+    });
     await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('retried', startedAt, current.source);

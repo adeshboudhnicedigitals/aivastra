@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { QnaUpsert } from '@aivastra/types';
 import { and, desc, eq, exists, ilike, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -38,6 +39,7 @@ async function systemMessage(convId: string, content: string, app: FastifyInstan
         conversationId: convId,
         role: 'system',
         senderId: null,
+        senderName: null,
         content,
         // System messages never carry an attachment, but ChatMessage's schema
         // requires both fields — publish the full shape, not a partial one.
@@ -148,7 +150,12 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
   });
 
   app.get('/admin/chatbot/conversations', { preHandler: LIVE }, async (req) => {
-    const { status = 'all', limit = '50', offset = '0' } = req.query as Record<string, string>;
+    const {
+      status = 'all',
+      mine = 'false',
+      limit = '50',
+      offset = '0',
+    } = req.query as Record<string, string>;
     const lim = Math.min(Number(limit) || 50, 200);
     const off = Number(offset) || 0;
     // A ticket is created when the user's socket connects, before they type anything,
@@ -166,18 +173,51 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
           ),
         ),
     );
-    const where =
-      status !== 'all'
-        ? and(eq(schema.chatbotConversations.status, status), hasUserMessage)
-        : hasUserMessage;
+    const conds = [hasUserMessage];
+    if (status !== 'all') conds.push(eq(schema.chatbotConversations.status, status));
+    // `mine=true` is what the inbox's "My tickets" tab uses to scope the
+    // IN_PROGRESS list to the caller's own claims, instead of every agent's.
+    if (mine === 'true') {
+      const agentId = await adminRowId(req.userId, app);
+      conds.push(eq(schema.chatbotConversations.assignedAgentId, agentId));
+    }
+    const where = and(...conds);
+    // Resolves the claiming agent's name/email for display — assignedAgentId
+    // points at admin_users.id, which itself carries no name/email, so this
+    // chains through to the underlying users row (admin_users.userId).
+    const agentAdmin = alias(schema.adminUsers, 'conv_agent_admin');
+    const agentUser = alias(schema.users, 'conv_agent_user');
+    // A ticket started from the Shopify embedded admin's "Live chat" doesn't carry
+    // any source/store FK of its own — it's created under a synthetic per-store
+    // "support user" (shopifyStores.supportUserId), lazily provisioned by
+    // POST /v1/shopify/support/session. Joining on that is the only way to tell
+    // a Shopify merchant's ticket apart from a regular platform user's.
     const [rows, [countRow]] = await Promise.all([
       app.db
         .select({
           conv: schema.chatbotConversations,
           userEmail: schema.users.email,
+          userName: schema.users.displayName,
+          userPhone: schema.users.phone,
+          userCompany: schema.users.companyName,
+          agentName: agentUser.displayName,
+          agentEmail: agentUser.email,
+          shopifyStoreId: schema.shopifyStores.id,
+          shopDomain: schema.shopifyStores.shopDomain,
+          shopName: schema.shopifyStores.shopName,
+          shopOwnerName: schema.shopifyStores.shopOwnerName,
+          shopEmail: schema.shopifyStores.shopEmail,
+          shopPhone: schema.shopifyStores.shopPhone,
+          shopAddress: schema.shopifyStores.shopAddress,
         })
         .from(schema.chatbotConversations)
         .innerJoin(schema.users, eq(schema.users.id, schema.chatbotConversations.userId))
+        .leftJoin(agentAdmin, eq(agentAdmin.id, schema.chatbotConversations.assignedAgentId))
+        .leftJoin(agentUser, eq(agentUser.id, agentAdmin.userId))
+        .leftJoin(
+          schema.shopifyStores,
+          eq(schema.shopifyStores.supportUserId, schema.chatbotConversations.userId),
+        )
         .where(where)
         .orderBy(desc(schema.chatbotConversations.lastMessageAt))
         .limit(lim)
@@ -188,7 +228,22 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
         .where(where),
     ]);
     return {
-      rows: rows.map((r) => ({ ...r.conv, userEmail: r.userEmail })),
+      rows: rows.map((r) => ({
+        ...r.conv,
+        userEmail: r.userEmail,
+        userName: r.userName,
+        userPhone: r.userPhone,
+        userCompany: r.userCompany,
+        agentName: r.agentName,
+        agentEmail: r.agentEmail,
+        shopifyStoreId: r.shopifyStoreId,
+        shopDomain: r.shopDomain,
+        shopName: r.shopName,
+        shopOwnerName: r.shopOwnerName,
+        shopEmail: r.shopEmail,
+        shopPhone: r.shopPhone,
+        shopAddress: r.shopAddress,
+      })),
       total: countRow?.total ?? 0,
     };
   });

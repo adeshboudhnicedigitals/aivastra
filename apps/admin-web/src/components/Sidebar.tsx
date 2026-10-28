@@ -253,7 +253,8 @@ export function Sidebar({
     return () => clearInterval(t);
   }, [token]);
 
-  // Unclaimed-ticket count on Chat Inbox — same "OPEN" queue ChatInboxPage itself
+  // Unclaimed-ticket count on Chat Inbox (and mirrored onto Dashboard, so it's
+  // visible without opening Chat Inbox) — same "OPEN" queue ChatInboxPage itself
   // lists, so the badge always matches what claiming would show. No dedicated
   // count endpoint exists for this, so this reuses the list route and counts rows.
   useEffect(() => {
@@ -335,13 +336,13 @@ export function Sidebar({
                 ? contactBadge
                 : item.k === 'workflow-approvals'
                   ? pendingApprovalsBadge
-                  : item.k === 'chat-inbox'
+                  : item.k === 'chat-inbox' || item.k === 'dashboard'
                     ? chatInboxBadge
                     : (item.count ?? 0);
             return (
               <button
                 key={item.k}
-                className={`nav-item nav-item--icon ${item.alert || (item.k === 'contacts' && contactBadge > 0) || (item.k === 'chat-inbox' && chatInboxBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
+                className={`nav-item nav-item--icon ${item.alert || (item.k === 'contacts' && contactBadge > 0) || ((item.k === 'chat-inbox' || item.k === 'dashboard') && chatInboxBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onNav(item.k);
@@ -419,13 +420,13 @@ export function Sidebar({
                   ? contactBadge
                   : item.k === 'workflow-approvals'
                     ? pendingApprovalsBadge
-                    : item.k === 'chat-inbox'
+                    : item.k === 'chat-inbox' || item.k === 'dashboard'
                       ? chatInboxBadge
                       : (item.count ?? 0);
               return (
                 <button
                   key={item.k}
-                  className={`nav-item ${item.alert || (item.k === 'contacts' && contactBadge > 0) || (item.k === 'chat-inbox' && chatInboxBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
+                  className={`nav-item ${item.alert || (item.k === 'contacts' && contactBadge > 0) || ((item.k === 'chat-inbox' || item.k === 'dashboard') && chatInboxBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
                   onClick={() => {
                     onNav(item.k);
                     onCloseMobile();

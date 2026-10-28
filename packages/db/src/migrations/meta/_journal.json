@@ -1625,6 +1625,13 @@
       "when": 1793028391491,
       "tag": "0232_narrow_lady_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 233,
+      "version": "7",
+      "when": 1793093996500,
+      "tag": "0233_fantastic_hellion",
+      "breakpoints": true
     }
   ]
 }

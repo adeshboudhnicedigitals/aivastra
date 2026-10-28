@@ -287,6 +287,8 @@ dispatcher startup. No env changes.
 3. Consumer concurrency refreshes from the registry within ~5s.
 
 To remove one: mark inactive in admin, then restart the dispatcher.
+After a dispatcher restart, reactivate with `isActive: true` plus the unchanged
+`allowedJobTypes`; an activity-only toggle leaves a deleted worker out of Redis.
 
 ### Dispatcher modules (`apps/dispatcher/src/`)
 
