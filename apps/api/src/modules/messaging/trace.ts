@@ -14,6 +14,9 @@ export const TRACE_TTL_SECONDS = 4 * 24 * 60 * 60;
 export const TRACE_MAX_ENTRIES = 300;
 const INDEX_KEY = 'wa:trace:index';
 const ERROR_MAX = 200;
+const NOTE_TITLE_MAX = 160;
+const NOTE_LINES_MAX = 12;
+const NOTE_LINE_MAX = 300;
 
 const listKey = (waId: string) => `wa:trace:${waId}`;
 
@@ -116,8 +119,24 @@ export async function traceOutbound(
   }
 }
 
+/** A decision the bot made and why (see TraceNote); shown between the messages. */
+export async function traceNote(
+  app: FastifyInstance,
+  waId: string,
+  title: string,
+  lines: string[],
+): Promise<void> {
+  return push(app, waId, {
+    dir: 'note',
+    t: Date.now(),
+    title: title.slice(0, NOTE_TITLE_MAX),
+    lines: lines.slice(0, NOTE_LINES_MAX).map((l) => l.slice(0, NOTE_LINE_MAX)),
+  });
+}
+
 const previewOf = (e: TraceEntry | undefined): string => {
   if (!e) return '';
+  if (e.dir === 'note') return e.title;
   if (e.dir === 'out') return e.text;
   if (e.kind === 'text') return e.text ?? '';
   if (e.kind === 'reply') return `tapped ${e.action}${e.value ? `: ${e.value}` : ''}`;

@@ -149,7 +149,8 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
       }
       return a;
     },
-    recognizeBaskets: (garmentKey, gender) => recognizeBaskets(app, garmentKey, gender),
+    recognizeBaskets: (garmentKey, gender, note) =>
+      recognizeBaskets(app, garmentKey, gender, { note }),
     basketTypes: (gender, key) => typesOfBasket(app, gender, key),
     async listBaskets(gender) {
       const offered = await deps.listGarmentTypes(gender);

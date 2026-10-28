@@ -3,6 +3,7 @@ import { createEngineDeps } from './deps.js';
 import { handle } from './engine/engine.js';
 import type { EngineDeps, InboundEvent, OutboundMessage } from './engine/types.js';
 import { loadSession, saveSession } from './session-store.js';
+import { traceNote } from './trace.js';
 
 export interface ConversationAccount {
   id: string;
@@ -28,7 +29,16 @@ export async function runConversation(
   deps: EngineDeps = createEngineDeps(app),
 ): Promise<OutboundMessage[]> {
   const prev = await loadSession(app.redis, account.channel, account.externalId);
-  const ctx = { userId: account.userId, accountId: account.id, messageId };
+  const ctx = {
+    userId: account.userId,
+    accountId: account.id,
+    messageId,
+    // externalId is the wa_id the trace is keyed by.
+    note:
+      account.channel === 'whatsapp'
+        ? (title: string, lines: string[]) => traceNote(app, account.externalId, title, lines)
+        : undefined,
+  };
   // A session left by the (unwired) try-on engine shares state names with this one,
   // so it is handed null rather than driven mid-step by the wrong reducer.
   const { session, messages } = await handle(
