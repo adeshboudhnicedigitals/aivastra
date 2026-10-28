@@ -34,7 +34,16 @@ const TraceOut = z.object({
   error: z.string().optional(),
 });
 
-export const TraceEntry = z.discriminatedUnion('dir', [TraceIn, TraceOut]);
+// Why the bot decided what it did (recognition scores against the cutoff, the
+// reason a garment type was not offered). Written by the engine, never sent.
+const TraceNote = z.object({
+  dir: z.literal('note'),
+  t: z.number(),
+  title: z.string(),
+  lines: z.array(z.string()),
+});
+
+export const TraceEntry = z.discriminatedUnion('dir', [TraceIn, TraceOut, TraceNote]);
 export type TraceEntry = z.infer<typeof TraceEntry>;
 
 export const TraceSender = z.object({

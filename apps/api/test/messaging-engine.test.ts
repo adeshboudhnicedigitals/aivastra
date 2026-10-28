@@ -406,7 +406,11 @@ describe('engine: photo, gender and garment type', () => {
     ] as const) {
       const { deps, calls } = fakeDeps(over);
       const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
-      const r = await handle(list.session, tap(list, 'basket', 't:gt-shirt'), CTX, deps);
+      const notes: string[] = [];
+      const ctx = { ...CTX, note: async (title: string) => void notes.push(title) };
+      const r = await handle(list.session, tap(list, 'basket', 't:gt-shirt'), ctx, deps);
+      // The admin Conversations tab shows the same reason next to the hand-off.
+      expect(notes).toEqual([`Shirt not offered: ${reason}`]);
       expect(texts(r.messages)[0]).toMatch(/^Shirt catalogs can't be made on WhatsApp yet/);
       expect(r.session.state).toBe('ASK_GARMENT_TYPE');
       expect(r.session.gender).toBe('women');
