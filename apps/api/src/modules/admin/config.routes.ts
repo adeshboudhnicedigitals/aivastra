@@ -8,7 +8,7 @@ import {
   PresignWordpressPluginBody,
   SystemConfigBody,
 } from '@aivastra/types';
-import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-orm';
+import { and, count, countDistinct, eq, exists, gte, lt, lte, sql, sum } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   DEFAULT_FABRIC_TO_GARMENT_CONFIG,
@@ -369,6 +369,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       stuckJobs,
       newUsersRows,
       newContactsRows,
+      unclaimedChatsRows,
     ] = await Promise.all([
       app.db
         .select({ c: count() })
@@ -476,6 +477,30 @@ export async function adminConfigRoutes(app: FastifyInstance) {
         .select({ c: count() })
         .from(schema.contactRequests)
         .where(eq(schema.contactRequests.status, 'new')),
+
+      // Mirrors the hasUserMessage + status='OPEN' filter GET /admin/chatbot/conversations
+      // uses for its "Unclaimed" tab — a ticket row is created the instant a chat
+      // widget socket connects, before anything is typed, so without the exists()
+      // check this would count empty, never-messaged tickets too.
+      app.db
+        .select({ c: count() })
+        .from(schema.chatbotConversations)
+        .where(
+          and(
+            eq(schema.chatbotConversations.status, 'OPEN'),
+            exists(
+              app.db
+                .select()
+                .from(schema.chatbotMessages)
+                .where(
+                  and(
+                    eq(schema.chatbotMessages.conversationId, schema.chatbotConversations.id),
+                    eq(schema.chatbotMessages.role, 'user'),
+                  ),
+                ),
+            ),
+          ),
+        ),
     ]);
 
     // Workers from Redis
@@ -522,6 +547,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     const failed24h = failed24hRows[0]?.c ?? 0;
     const newUsersToday = newUsersRows[0]?.c ?? 0;
     const newContacts = Number(newContactsRows[0]?.c ?? 0);
+    const unclaimedChats = Number(unclaimedChatsRows[0]?.c ?? 0);
 
     return {
       jobsToday,
@@ -551,6 +577,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       })),
       newUsersToday,
       newContacts,
+      unclaimedChats,
     };
   });
 }
