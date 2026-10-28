@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
-import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
 import { sql } from 'drizzle-orm';
 import { Redis } from 'ioredis';
