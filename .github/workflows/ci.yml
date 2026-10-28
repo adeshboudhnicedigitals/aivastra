@@ -6,9 +6,11 @@ on:
   pull_request:
     branches: [main, dev]
   schedule:
-    # 02:30 UTC daily — validates the whole monorepo regardless of any diff, so a
-    # detector misclassification surfaces within a day instead of at the next incident.
-    - cron: '30 2 * * *'
+    # 02:30 UTC Mondays — validates the whole monorepo regardless of any diff, so a
+    # detector misclassification surfaces within a week instead of at the next incident.
+    # Weekly rather than daily to save hosted-runner minutes; restore to daily
+    # ('30 2 * * *') once CI moves to self-hosted runners.
+    - cron: '30 2 * * 1'
   workflow_dispatch:
     inputs:
       force_all:
@@ -214,6 +216,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [detect]
+    # See lint's comment — skip on push, already validated at PR time. Every step
+    # below carries the same event check, but without it here each of the six
+    # shards still starts a runner, runs no steps, and is billed a full minute.
+    if: github.event_name != 'push'
     # See test's comment — contents: read has to be listed alongside
     # packages: read or the job-level override drops checkout's access.
     permissions:
