@@ -366,6 +366,7 @@ export const PatchModelBackgroundBody = z.object({
   genderSlug: GenderEnum.nullable().optional(),
   isActive: z.boolean().optional(),
   isWhiteBg: z.boolean().optional(),
+  whatsappPool: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   r2Key: z.string().optional(),
   bgComfyR2Key: z.string().nullable().optional(),

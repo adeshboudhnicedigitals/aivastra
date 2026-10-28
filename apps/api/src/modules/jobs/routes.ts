@@ -1335,6 +1335,7 @@ export async function jobsRoutes(app: FastifyInstance) {
             conversationId: convId,
             role: 'user',
             senderId: req.userId,
+            senderName: null,
             content,
             attachmentKey: null,
             attachmentType: null,
