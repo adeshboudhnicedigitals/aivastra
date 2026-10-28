@@ -41,6 +41,7 @@ export interface ModelBackground {
   publicApiSlug: string | null;
   isActive: boolean;
   isWhiteBg: boolean;
+  whatsappPool: boolean;
   sortOrder: number;
   genderSlug: string | null;
   scope: 'general' | 'template';

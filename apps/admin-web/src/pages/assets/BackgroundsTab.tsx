@@ -404,6 +404,27 @@ export function BackgroundsTab() {
     }
   };
 
+  const applyBulkWhatsapp = async (whatsappPool: boolean) => {
+    const ids = [...selectedBgIds];
+    try {
+      await apiFetch('/admin/assets/backgrounds/bulk', {
+        method: 'PATCH',
+        body: JSON.stringify({ ids, whatsappPool }),
+      });
+      setBackgrounds((prev) => prev.map((b) => (ids.includes(b.id) ? { ...b, whatsappPool } : b)));
+      setSelectedBgIds([]);
+      toast({
+        title: `${ids.length} background${ids.length === 1 ? '' : 's'} ${whatsappPool ? 'added to' : 'removed from'} the WhatsApp pool`,
+      });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk WhatsApp pool change failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  };
+
   const applyBulkGender = async () => {
     const ids = [...selectedBgIds];
     const genderSlug = bulkGenderSlug || null;
@@ -725,6 +746,12 @@ export function BackgroundsTab() {
                 >
                   Change gender ({selectedBgIds.length})
                 </button>
+                <button className="btn sm" onClick={() => applyBulkWhatsapp(true)}>
+                  Add to WhatsApp pool ({selectedBgIds.length})
+                </button>
+                <button className="btn sm" onClick={() => applyBulkWhatsapp(false)}>
+                  Remove from WhatsApp pool ({selectedBgIds.length})
+                </button>
                 <button
                   className="btn sm danger"
                   onClick={() => {
@@ -796,6 +823,15 @@ export function BackgroundsTab() {
                       >
                         {SPECIAL_TAG_OPTIONS.find((t) => t.value === bg.specialTag)?.label ??
                           bg.specialTag}
+                      </span>
+                    )}
+                    {bg.whatsappPool && (
+                      <span
+                        className="badge dot"
+                        title="In the WhatsApp background pool"
+                        style={{ marginTop: 4, marginLeft: 4, display: 'inline-block' }}
+                      >
+                        WhatsApp
                       </span>
                     )}
 

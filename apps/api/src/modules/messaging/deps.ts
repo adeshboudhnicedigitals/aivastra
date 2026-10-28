@@ -184,7 +184,24 @@ export function createEngineDeps(app: FastifyInstance): EngineDeps {
     },
 
     async listBackgroundIds(gender) {
-      return (await listBackgrounds(app, gender)).map((b) => b.id);
+      const ids = (await listBackgrounds(app, gender)).map((b) => b.id);
+      if (ids.length === 0) return ids;
+      // Admin-flagged WhatsApp backgrounds win once any exist; none flagged
+      // keeps the studio's whole list, so the bot never goes dark on a deploy.
+      const flagged = new Set(
+        (
+          await app.db
+            .select({ id: schema.modelBackgrounds.id })
+            .from(schema.modelBackgrounds)
+            .where(
+              and(
+                inArray(schema.modelBackgrounds.id, ids),
+                eq(schema.modelBackgrounds.whatsappPool, true),
+              ),
+            )
+        ).map((r) => r.id),
+      );
+      return flagged.size > 0 ? ids.filter((id) => flagged.has(id)) : ids;
     },
 
     async listCatalogItemIds(type, gender, garmentTypeId) {
