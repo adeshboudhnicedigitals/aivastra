@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { useCrumb } from '../context/BreadcrumbContext';
@@ -119,6 +120,27 @@ interface ConvRow {
   lastMessageAt: string;
   userEmail: string;
   createdAt: string;
+  // The ticket-owning platform user's own profile fields — same `users` row
+  // userEmail already comes from, just not previously selected.
+  userName: string | null;
+  userPhone: string | null;
+  userCompany: string | null;
+  // Resolved server-side from assignedAgentId (admin_users -> users) — null
+  // until the ticket is claimed.
+  agentName: string | null;
+  agentEmail: string | null;
+  // Resolved server-side via shopify_stores.support_user_id — present only when
+  // this ticket was started from the Shopify embedded admin's Live chat, in
+  // which case userEmail above is that store's synthetic support identity, not
+  // a real person. shopDomain/shopName etc. are the merchant's own store details,
+  // the same ones shown on the admin panel's Shopify Stores tab.
+  shopifyStoreId: string | null;
+  shopDomain: string | null;
+  shopName: string | null;
+  shopOwnerName: string | null;
+  shopEmail: string | null;
+  shopPhone: string | null;
+  shopAddress: string | null;
 }
 
 interface Props {
@@ -162,10 +184,16 @@ const PRIORITY_COLOR: Record<string, string> = {
 };
 
 export default function ChatInboxPage({ toast }: Props) {
+  const navigate = useNavigate();
   const [queue, setQueue] = useState<ConvRow[]>([]);
+  const [claimed, setClaimed] = useState<ConvRow[]>([]);
   const [myTickets, setMyTickets] = useState<ConvRow[]>([]);
+  const [resolvedTickets, setResolvedTickets] = useState<ConvRow[]>([]);
+  const [closedTickets, setClosedTickets] = useState<ConvRow[]>([]);
   const [onDuty, setOnDuty] = useState(false);
-  const [activeTab, setActiveTab] = useState<'unclaimed' | 'mine'>('unclaimed');
+  const [activeTab, setActiveTab] = useState<
+    'unclaimed' | 'claimed' | 'mine' | 'resolved' | 'closed'
+  >('unclaimed');
   const [search, setSearch] = useState('');
   const [selectedConv, setSelectedConv] = useUrlState('conv');
   const closeConv = useCloseOverlay(['conv']);
@@ -181,10 +209,29 @@ export default function ChatInboxPage({ toast }: Props) {
   // leaves them on resolve/close).
   const [resolvedConvId, setResolvedConvId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [selectedMeta, setSelectedMeta] = useState<{ userEmail: string } | null>(null);
+  const [selectedMeta, setSelectedMeta] = useState<{
+    userId: string;
+    userEmail: string;
+    userName: string | null;
+    userPhone: string | null;
+    userCompany: string | null;
+    agentName: string | null;
+    agentEmail: string | null;
+    shopifyStoreId: string | null;
+    shopDomain: string | null;
+    shopName: string | null;
+    shopOwnerName: string | null;
+    shopEmail: string | null;
+    shopPhone: string | null;
+    shopAddress: string | null;
+  } | null>(null);
   const [seenMap, setSeenMap] = useState<Record<string, string>>(() => loadSeenMap());
   const [input, setInput] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // Subject/category/priority editor is collapsed by default — it was sitting
+  // permanently at the top of the pane, above the messages, which made the
+  // thread read like a form instead of a chat. Tucked behind a toggle instead.
+  const [showTicketDetails, setShowTicketDetails] = useState(false);
   const [typing, setTyping] = useState<string | null>(null);
   const [wsReady, setWsReady] = useState(false);
   // Local edit buffer for the selected ticket's subject/category/priority — seeded from
@@ -204,7 +251,9 @@ export default function ChatInboxPage({ toast }: Props) {
     selectedConv
       ? {
           label:
-            [...queue, ...myTickets].find((c) => c.id === selectedConv)?.subject ?? 'Conversation',
+            [...queue, ...claimed, ...myTickets, ...resolvedTickets, ...closedTickets].find(
+              (c) => c.id === selectedConv,
+            )?.subject ?? 'Conversation',
           href: `/chat-inbox?conv=${encodeURIComponent(selectedConv)}`,
         }
       : null,
@@ -223,13 +272,19 @@ export default function ChatInboxPage({ toast }: Props) {
   }, []);
 
   const load = useCallback(async () => {
-    const [q, m, d] = await Promise.all([
+    const [q, c, m, r, cl, d] = await Promise.all([
       apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=OPEN'),
       apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=IN_PROGRESS'),
+      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=IN_PROGRESS&mine=true'),
+      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=RESOLVED'),
+      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=CLOSED'),
       apiFetch<{ on: boolean }>('/admin/chatbot/duty'),
     ]);
     setQueue(q.rows);
+    setClaimed(c.rows);
     setMyTickets(m.rows);
+    setResolvedTickets(r.rows);
+    setClosedTickets(cl.rows);
     setOnDuty(d.on);
   }, []);
 
@@ -286,7 +341,9 @@ export default function ChatInboxPage({ toast }: Props) {
 
   useEffect(() => {
     if (!selectedConv || resolvedConvId === selectedConv) return;
-    const conv = [...queue, ...myTickets].find((c) => c.id === selectedConv);
+    const conv = [...queue, ...claimed, ...myTickets, ...resolvedTickets, ...closedTickets].find(
+      (c) => c.id === selectedConv,
+    );
     if (!conv) return;
     setStatus(conv.status);
     setFields({
@@ -294,25 +351,56 @@ export default function ChatInboxPage({ toast }: Props) {
       category: conv.category ?? '',
       priority: conv.priority,
     });
-    setSelectedMeta({ userEmail: conv.userEmail });
+    setSelectedMeta({
+      userId: conv.userId,
+      userEmail: conv.userEmail,
+      userName: conv.userName,
+      userPhone: conv.userPhone,
+      userCompany: conv.userCompany,
+      agentName: conv.agentName,
+      agentEmail: conv.agentEmail,
+      shopifyStoreId: conv.shopifyStoreId,
+      shopDomain: conv.shopDomain,
+      shopName: conv.shopName,
+      shopOwnerName: conv.shopOwnerName,
+      shopEmail: conv.shopEmail,
+      shopPhone: conv.shopPhone,
+      shopAddress: conv.shopAddress,
+    });
     setResolvedConvId(selectedConv);
     markSeen(selectedConv, conv.lastMessageAt);
-  }, [selectedConv, queue, myTickets, resolvedConvId, markSeen]);
+  }, [
+    selectedConv,
+    queue,
+    claimed,
+    myTickets,
+    resolvedTickets,
+    closedTickets,
+    resolvedConvId,
+    markSeen,
+  ]);
 
   useEffect(() => {
     if (!selectedConv || !wsReady) return;
     wsRef.current?.send({ type: 'join', conversationId: selectedConv } as WsAgentFrameT);
   }, [selectedConv, wsReady]);
 
+  // Collapse the ticket-details editor again whenever a different conversation
+  // is opened, so it doesn't stay pinned open across tickets.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedConv is the trigger, not a value read in the body
+  useEffect(() => {
+    setShowTicketDetails(false);
+  }, [selectedConv]);
+
   async function claim(id: string) {
     try {
       await apiFetch(`/admin/chatbot/conversations/${id}/claim`, { method: 'POST' });
-      toast({ title: 'Claimed' });
+      toast({ title: 'Answered' });
       void load();
     } catch (e) {
       toast({
         kind: 'error',
-        title: 'Failed to claim conversation',
+        title: 'Failed to answer conversation',
         body: apiErrorMessage(e, 'Please try again.'),
       });
     }
@@ -401,13 +489,43 @@ export default function ChatInboxPage({ toast }: Props) {
   const matchesSearch = (c: ConvRow) =>
     !q || c.userEmail.toLowerCase().includes(q) || (c.subject ?? '').toLowerCase().includes(q);
   const sortedQueue = [...queue].sort(byRecency).filter(matchesSearch);
+  const sortedClaimed = [...claimed].sort(byRecency).filter(matchesSearch);
   const sortedMine = [...myTickets].sort(byRecency).filter(matchesSearch);
-  const list = activeTab === 'unclaimed' ? sortedQueue : sortedMine;
-  const selectedConversation = [...queue, ...myTickets].find((c) => c.id === selectedConv);
+  const sortedResolved = [...resolvedTickets].sort(byRecency).filter(matchesSearch);
+  const sortedClosed = [...closedTickets].sort(byRecency).filter(matchesSearch);
+  const list =
+    activeTab === 'unclaimed'
+      ? sortedQueue
+      : activeTab === 'claimed'
+        ? sortedClaimed
+        : activeTab === 'mine'
+          ? sortedMine
+          : activeTab === 'resolved'
+            ? sortedResolved
+            : sortedClosed;
+  const selectedConversation = [
+    ...queue,
+    ...claimed,
+    ...myTickets,
+    ...resolvedTickets,
+    ...closedTickets,
+  ].find((c) => c.id === selectedConv);
 
   return (
     <div
-      style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 112px)', gap: 12 }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        // Fixed to the viewport, not just given a starting height — overflow:hidden
+        // means anything that doesn't fit is clipped here (and absorbed by the
+        // internal overflowY:auto panels below) instead of growing the page itself
+        // and forcing a page-level scrollbar, which is what every other admin page
+        // avoids by simply having less content than a viewport's worth.
+        height: 'calc(100vh - 112px)',
+        maxHeight: 'calc(100vh - 112px)',
+        overflow: 'hidden',
+        gap: 12,
+      }}
     >
       <div className="page-head" style={{ flexShrink: 0 }}>
         <div>
@@ -421,8 +539,8 @@ export default function ChatInboxPage({ toast }: Props) {
           onClick={toggleDuty}
           title={
             onDuty
-              ? 'You can claim new tickets. Click to go off duty.'
-              : 'Go on duty to start claiming new tickets.'
+              ? 'You can answer new tickets. Click to go offline.'
+              : 'Go online to start answering new tickets.'
           }
         >
           <span
@@ -434,7 +552,7 @@ export default function ChatInboxPage({ toast }: Props) {
               display: 'inline-block',
             }}
           />
-          {onDuty ? 'On duty' : 'Off duty'}
+          {onDuty ? 'Online' : 'Offline'}
         </button>
       </div>
 
@@ -442,7 +560,7 @@ export default function ChatInboxPage({ toast }: Props) {
         {/* Conversation list */}
         <div
           style={{
-            width: 320,
+            width: 540,
             flexShrink: 0,
             minHeight: 0,
             display: 'flex',
@@ -462,11 +580,24 @@ export default function ChatInboxPage({ toast }: Props) {
               style={{ fontSize: 13, padding: '7px 10px' }}
             />
           </div>
-          <div className="tabs" style={{ margin: '10px 12px 0', flexShrink: 0 }}>
+          <div
+            className="tabs"
+            style={{
+              margin: '10px 12px 0',
+              flexShrink: 0,
+              flexWrap: 'nowrap',
+            }}
+          >
             <button
               className={`tab ${activeTab === 'unclaimed' ? 'active' : ''}`}
               onClick={() => setActiveTab('unclaimed')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '9px 8px',
+                whiteSpace: 'nowrap',
+              }}
             >
               Unclaimed
               <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
@@ -474,13 +605,67 @@ export default function ChatInboxPage({ toast }: Props) {
               </span>
             </button>
             <button
+              className={`tab ${activeTab === 'claimed' ? 'active' : ''}`}
+              onClick={() => setActiveTab('claimed')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '9px 8px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Answered
+              <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
+                {claimed.length}
+              </span>
+            </button>
+            <button
               className={`tab ${activeTab === 'mine' ? 'active' : ''}`}
               onClick={() => setActiveTab('mine')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '9px 8px',
+                whiteSpace: 'nowrap',
+              }}
             >
               My tickets
               <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
                 {myTickets.length}
+              </span>
+            </button>
+            <button
+              className={`tab ${activeTab === 'resolved' ? 'active' : ''}`}
+              onClick={() => setActiveTab('resolved')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '9px 8px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Resolved
+              <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
+                {resolvedTickets.length}
+              </span>
+            </button>
+            <button
+              className={`tab ${activeTab === 'closed' ? 'active' : ''}`}
+              onClick={() => setActiveTab('closed')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '9px 8px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Closed
+              <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
+                {closedTickets.length}
               </span>
             </button>
           </div>
@@ -491,7 +676,13 @@ export default function ChatInboxPage({ toast }: Props) {
                   ? 'No tickets match your search.'
                   : activeTab === 'unclaimed'
                     ? 'No unclaimed tickets. You’re all caught up.'
-                    : 'You have no tickets assigned yet.'}
+                    : activeTab === 'claimed'
+                      ? 'No tickets answered right now.'
+                      : activeTab === 'mine'
+                        ? 'You have no tickets assigned yet.'
+                        : activeTab === 'resolved'
+                          ? 'No resolved tickets yet.'
+                          : 'No closed tickets yet.'}
               </div>
             ) : (
               list.map((c) => {
@@ -531,7 +722,10 @@ export default function ChatInboxPage({ toast }: Props) {
                             whiteSpace: 'nowrap',
                           }}
                         >
-                          {c.userEmail}
+                          {/* A Shopify Live Chat ticket's userId is a synthetic per-store
+                              "support user" (shopify-support+<domain>@internal.aivastra.com),
+                              not a real person — show the merchant's store name instead. */}
+                          {c.shopDomain ? c.shopName || c.shopDomain : c.userEmail}
                         </span>
                         <span
                           style={{
@@ -575,26 +769,24 @@ export default function ChatInboxPage({ toast }: Props) {
                             flexShrink: 0,
                           }}
                         />
+                        <span className="badge accent" style={{ fontSize: 11, padding: '1px 7px' }}>
+                          {c.shopDomain ? 'Shopify' : 'Web'}
+                        </span>
                         {c.category && (
                           <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
                             {c.category}
                           </span>
                         )}
-                        {c.escalationReason && (
-                          <span className="badge warn" style={{ fontSize: 11, padding: '1px 7px' }}>
-                            {c.escalationReason}
-                          </span>
-                        )}
                         {activeTab === 'unclaimed' ? (
                           <button
-                            className="btn sm ghost"
+                            className="btn sm primary"
                             style={{ marginLeft: 'auto', padding: '3px 10px', fontSize: 11 }}
                             onClick={(e) => {
                               e.stopPropagation();
                               claim(c.id);
                             }}
                           >
-                            Claim
+                            Answer
                           </button>
                         ) : (
                           <span
@@ -605,6 +797,20 @@ export default function ChatInboxPage({ toast }: Props) {
                           </span>
                         )}
                       </div>
+                      {activeTab !== 'unclaimed' && (c.agentName || c.agentEmail) && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: 'var(--muted)',
+                            marginTop: 4,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          Answered by {c.agentName || c.agentEmail}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -641,20 +847,37 @@ export default function ChatInboxPage({ toast }: Props) {
                 }}
               >
                 <div className="chat-avatar" style={{ width: 32, height: 32, fontSize: 12 }}>
-                  {(selectedMeta?.userEmail || '?').charAt(0).toUpperCase()}
+                  {(
+                    (selectedMeta?.shopDomain
+                      ? selectedMeta.shopName || selectedMeta.shopDomain
+                      : selectedMeta?.userEmail) || '?'
+                  )
+                    .charAt(0)
+                    .toUpperCase()}
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div
                     style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
                       fontSize: 13,
                       fontWeight: 600,
                       color: 'var(--ink)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
                     }}
                   >
-                    {selectedMeta?.userEmail ?? '—'}
+                    <span
+                      style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      {selectedMeta?.shopDomain
+                        ? selectedMeta.shopName || selectedMeta.shopDomain
+                        : (selectedMeta?.userEmail ?? '—')}
+                    </span>
+                    {selectedMeta && (
+                      <span className="badge accent" style={{ fontSize: 11, padding: '1px 7px' }}>
+                        {selectedMeta.shopDomain ? 'Shopify' : 'Web'}
+                      </span>
+                    )}
                   </div>
                   <div
                     style={{
@@ -675,11 +898,36 @@ export default function ChatInboxPage({ toast }: Props) {
                       Raised {formatRaisedAt(selectedConversation.createdAt)}
                     </div>
                   )}
+                  {(selectedMeta?.agentName || selectedMeta?.agentEmail) && (
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: 'var(--muted)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Answered by {selectedMeta.agentName || selectedMeta.agentEmail}
+                      {selectedMeta.agentName && selectedMeta.agentEmail
+                        ? ` (${selectedMeta.agentEmail})`
+                        : ''}
+                    </div>
+                  )}
                 </div>
-                <span className={statusBadgeClass(status)}>{status}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                    STATUS
+                  </span>
+                  <span className={statusBadgeClass(status)}>{status}</span>
+                </div>
                 {status === 'OPEN' && (
-                  <button className="btn sm primary" onClick={() => claim(selectedConv)}>
-                    Claim ticket
+                  <button
+                    className="btn sm primary"
+                    style={{ marginLeft: 6 }}
+                    onClick={() => claim(selectedConv)}
+                  >
+                    Answer Ticket
                   </button>
                 )}
                 {status === 'IN_PROGRESS' && (
@@ -692,78 +940,282 @@ export default function ChatInboxPage({ toast }: Props) {
                     </button>
                   </div>
                 )}
+                <button
+                  className="btn sm ghost"
+                  onClick={() => setShowTicketDetails((v) => !v)}
+                  title="Ticket details (subject, category, priority)"
+                  aria-label="Toggle ticket details"
+                  aria-expanded={showTicketDetails}
+                  style={{ padding: '6px 8px' }}
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    style={{ width: 16, height: 16, display: 'block' }}
+                  >
+                    <circle cx="8" cy="3.2" r="0.9" fill="currentColor" stroke="none" />
+                    <circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none" />
+                    <circle cx="8" cy="12.8" r="0.9" fill="currentColor" stroke="none" />
+                  </svg>
+                </button>
               </div>
 
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 12,
-                  alignItems: 'flex-end',
-                  padding: '10px 16px',
-                  borderBottom: '1px solid var(--border)',
-                  flexShrink: 0,
-                  flexWrap: 'wrap',
-                }}
-              >
+              {/* Always visible (not behind the ticket-details toggle below) — a
+                  Shopify merchant's identity and contact details matter for every
+                  reply, not just when an agent is editing subject/category/priority. */}
+              {selectedMeta?.shopDomain && (
                 <div
-                  style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '2 1 200px' }}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    padding: '10px 16px',
+                    borderBottom: '1px solid var(--border)',
+                    flexShrink: 0,
+                  }}
                 >
-                  <label
-                    htmlFor="chat-subject"
-                    style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}
-                  >
-                    SUBJECT
-                  </label>
-                  <input
-                    id="chat-subject"
-                    value={fields.subject}
-                    onChange={(e) => setFields((f) => ({ ...f, subject: e.target.value }))}
-                    onBlur={() => updateFields(selectedConv, { subject: fields.subject })}
-                    placeholder="No subject"
+                  <div
                     style={{
-                      padding: '6px 10px',
-                      fontSize: 13,
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--r)',
-                      background: 'var(--bg)',
-                      color: 'var(--ink)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      flexWrap: 'wrap',
                     }}
-                  />
+                  >
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                      SHOPIFY STORE
+                    </span>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <a
+                        href={`https://${selectedMeta.shopDomain}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--accent)',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        Visit store ↗
+                      </a>
+                      <button
+                        type="button"
+                        className="link"
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--accent)',
+                          textDecoration: 'underline',
+                          background: 'none',
+                          border: 0,
+                          padding: 0,
+                          cursor: 'pointer',
+                        }}
+                        onClick={() =>
+                          navigate(
+                            `/shopify-stores?store=${encodeURIComponent(selectedMeta.shopifyStoreId ?? '')}`,
+                          )
+                        }
+                      >
+                        View in Shopify Stores
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                      gap: '4px 16px',
+                      fontSize: 12,
+                      color: 'var(--ink-2)',
+                    }}
+                  >
+                    <div>
+                      <span style={{ color: 'var(--muted)' }}>Domain: </span>
+                      {selectedMeta.shopDomain}
+                    </div>
+                    {selectedMeta.shopOwnerName && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Owner: </span>
+                        {selectedMeta.shopOwnerName}
+                      </div>
+                    )}
+                    {selectedMeta.shopEmail && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Email: </span>
+                        {selectedMeta.shopEmail}
+                      </div>
+                    )}
+                    {selectedMeta.shopPhone && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Phone: </span>
+                        {selectedMeta.shopPhone}
+                      </div>
+                    )}
+                    {selectedMeta.shopAddress && (
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <span style={{ color: 'var(--muted)' }}>Address: </span>
+                        {selectedMeta.shopAddress}
+                      </div>
+                    )}
+                  </div>
                 </div>
+              )}
+
+              {/* Same treatment for a regular platform user — not a Shopify ticket,
+                  so userEmail here is a real person, not a synthetic store identity. */}
+              {selectedMeta && !selectedMeta.shopDomain && (
                 <div
-                  style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 140px' }}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    padding: '10px 16px',
+                    borderBottom: '1px solid var(--border)',
+                    flexShrink: 0,
+                  }}
                 >
-                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
-                    CATEGORY
-                  </span>
-                  <SearchableSelect
-                    options={CATEGORY_OPTIONS.map((c) => ({ id: c, label: capitalize(c) }))}
-                    value={fields.category}
-                    onChange={(category) => {
-                      setFields((f) => ({ ...f, category }));
-                      updateFields(selectedConv, { category });
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      flexWrap: 'wrap',
                     }}
-                    emptyLabel="Uncategorized"
-                    ariaLabel="Ticket category"
-                  />
+                  >
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                      USER
+                    </span>
+                    <button
+                      type="button"
+                      className="link"
+                      style={{
+                        fontSize: 12,
+                        color: 'var(--accent)',
+                        textDecoration: 'underline',
+                        background: 'none',
+                        border: 0,
+                        padding: 0,
+                        cursor: 'pointer',
+                      }}
+                      onClick={() =>
+                        navigate(`/users?user=${encodeURIComponent(selectedMeta.userId)}`)
+                      }
+                    >
+                      View in Users
+                    </button>
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                      gap: '4px 16px',
+                      fontSize: 12,
+                      color: 'var(--ink-2)',
+                    }}
+                  >
+                    {selectedMeta.userName && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Name: </span>
+                        {selectedMeta.userName}
+                      </div>
+                    )}
+                    <div>
+                      <span style={{ color: 'var(--muted)' }}>Email: </span>
+                      {selectedMeta.userEmail}
+                    </div>
+                    {selectedMeta.userPhone && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Phone: </span>
+                        {selectedMeta.userPhone}
+                      </div>
+                    )}
+                    {selectedMeta.userCompany && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Company: </span>
+                        {selectedMeta.userCompany}
+                      </div>
+                    )}
+                  </div>
                 </div>
+              )}
+
+              {showTicketDetails && (
                 <div
-                  style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 120px' }}
+                  style={{
+                    display: 'flex',
+                    gap: 12,
+                    alignItems: 'flex-end',
+                    padding: '10px 16px',
+                    borderBottom: '1px solid var(--border)',
+                    flexShrink: 0,
+                    flexWrap: 'wrap',
+                  }}
                 >
-                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
-                    PRIORITY
-                  </span>
-                  <SearchableSelect
-                    options={PRIORITY_OPTIONS.map((p) => ({ id: p, label: capitalize(p) }))}
-                    value={fields.priority}
-                    onChange={(priority) => {
-                      setFields((f) => ({ ...f, priority }));
-                      updateFields(selectedConv, { priority });
-                    }}
-                    ariaLabel="Ticket priority"
-                  />
+                  <div
+                    style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '2 1 200px' }}
+                  >
+                    <label
+                      htmlFor="chat-subject"
+                      style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}
+                    >
+                      SUBJECT
+                    </label>
+                    <input
+                      id="chat-subject"
+                      value={fields.subject}
+                      onChange={(e) => setFields((f) => ({ ...f, subject: e.target.value }))}
+                      onBlur={() => updateFields(selectedConv, { subject: fields.subject })}
+                      placeholder="No subject"
+                      style={{
+                        padding: '6px 10px',
+                        fontSize: 13,
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--r)',
+                        background: 'var(--bg)',
+                        color: 'var(--ink)',
+                      }}
+                    />
+                  </div>
+                  <div
+                    style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 140px' }}
+                  >
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                      CATEGORY
+                    </span>
+                    <SearchableSelect
+                      options={CATEGORY_OPTIONS.map((c) => ({ id: c, label: capitalize(c) }))}
+                      value={fields.category}
+                      onChange={(category) => {
+                        setFields((f) => ({ ...f, category }));
+                        updateFields(selectedConv, { category });
+                      }}
+                      emptyLabel="Uncategorized"
+                      ariaLabel="Ticket category"
+                    />
+                  </div>
+                  <div
+                    style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 120px' }}
+                  >
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                      PRIORITY
+                    </span>
+                    <SearchableSelect
+                      options={PRIORITY_OPTIONS.map((p) => ({ id: p, label: capitalize(p) }))}
+                      value={fields.priority}
+                      onChange={(priority) => {
+                        setFields((f) => ({ ...f, priority }));
+                        updateFields(selectedConv, { priority });
+                      }}
+                      ariaLabel="Ticket priority"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div
                 style={{
@@ -963,7 +1415,7 @@ export default function ChatInboxPage({ toast }: Props) {
                   }}
                 >
                   {status === 'OPEN'
-                    ? 'Claim this ticket to start replying.'
+                    ? 'Answer this ticket to start replying.'
                     : `This conversation is ${(status ?? '').toLowerCase()} — no further replies can be sent.`}
                 </div>
               )}

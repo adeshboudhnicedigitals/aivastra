@@ -21,6 +21,11 @@ export const ChatMessage = z.object({
   conversationId: z.string().uuid(),
   role: ChatRole,
   senderId: z.string().uuid().nullable(),
+  // Resolved server-side for role='agent' only — senderId there is
+  // admin_users.id, which carries no name itself, so this is the admin's own
+  // users.displayName (or email, as a fallback), joined in at write/read time
+  // so the customer-facing widget can show who they're actually talking to.
+  senderName: z.string().nullable(),
   content: z.string(),
   attachmentKey: z.string().nullable(),
   attachmentType: z.string().nullable(),

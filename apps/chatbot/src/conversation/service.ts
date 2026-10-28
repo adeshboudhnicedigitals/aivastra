@@ -1,6 +1,7 @@
 import { and, type DB, eq, inArray, isNull, schema, sql } from '@aivastra/db';
 import { chatbotMessagesTotal } from '@aivastra/observability';
 import type { ChatMessageT } from '@aivastra/types';
+import { alias } from 'drizzle-orm/pg-core';
 import type { Redis } from 'ioredis';
 
 export type ConvStatus =
@@ -91,17 +92,54 @@ export async function setSubjectFromFirstMessage(
     );
 }
 
-function toWire(row: typeof schema.chatbotMessages.$inferSelect): ChatMessageT {
+function toWire(
+  row: typeof schema.chatbotMessages.$inferSelect,
+  senderName: string | null = null,
+): ChatMessageT {
   return {
     id: row.id,
     conversationId: row.conversationId,
     role: row.role as ChatMessageT['role'],
     senderId: row.senderId,
+    senderName,
     content: row.content,
     attachmentKey: row.attachmentKey,
     attachmentType: row.attachmentType,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+/**
+ * Resolves one agent's display name for the customer-facing widget.
+ * senderId on an 'agent' message is admin_users.id, which carries no name
+ * itself — this chains through to the underlying users row exactly like
+ * GET /admin/chatbot/conversations does for the admin-side inbox (see
+ * apps/api/src/modules/admin/chatbot.routes.ts). Falls back to email so a
+ * user with no displayName set still shows as a person, not a blank.
+ */
+async function resolveAgentName(db: DB, adminUserId: string): Promise<string | null> {
+  const agentUser = alias(schema.users, 'agent_user');
+  const [row] = await db
+    .select({ name: agentUser.displayName, email: agentUser.email })
+    .from(schema.adminUsers)
+    .innerJoin(agentUser, eq(agentUser.id, schema.adminUsers.userId))
+    .where(eq(schema.adminUsers.id, adminUserId));
+  return row ? (row.name ?? row.email) : null;
+}
+
+/** Batched version of resolveAgentName for a page of messages. */
+async function resolveAgentNames(
+  db: DB,
+  adminUserIds: string[],
+): Promise<Map<string, string | null>> {
+  if (adminUserIds.length === 0) return new Map();
+  const agentUser = alias(schema.users, 'list_agent_user');
+  const rows = await db
+    .select({ id: schema.adminUsers.id, name: agentUser.displayName, email: agentUser.email })
+    .from(schema.adminUsers)
+    .innerJoin(agentUser, eq(agentUser.id, schema.adminUsers.userId))
+    .where(inArray(schema.adminUsers.id, adminUserIds));
+  return new Map(rows.map((r) => [r.id, r.name ?? r.email]));
 }
 
 export async function appendMessage(
@@ -135,7 +173,9 @@ export async function appendMessage(
     .update(schema.chatbotConversations)
     .set({ lastMessageAt: new Date() })
     .where(eq(schema.chatbotConversations.id, convId));
-  const wire = toWire(row);
+  const senderName =
+    msg.role === 'agent' && msg.senderId ? await resolveAgentName(db, msg.senderId) : null;
+  const wire = toWire(row, senderName);
   await publishConv(pub, convId, { type: 'message', message: wire });
   return wire;
 }
@@ -230,5 +270,18 @@ export async function listMessages(
     .where(and(...conds))
     .orderBy(sql`${schema.chatbotMessages.createdAt} DESC`)
     .limit(limit);
-  return rows.reverse().map(toWire);
+  const agentIds = [
+    ...new Set(
+      rows.filter((r) => r.role === 'agent' && r.senderId).map((r) => r.senderId as string),
+    ),
+  ];
+  const nameById = await resolveAgentNames(db, agentIds);
+  return rows
+    .reverse()
+    .map((row) =>
+      toWire(
+        row,
+        row.role === 'agent' && row.senderId ? (nameById.get(row.senderId) ?? null) : null,
+      ),
+    );
 }
