@@ -15,6 +15,7 @@ import {
 import { performanceKey as getPerformanceKey } from '../perf/performance-key.js';
 import { releaseWorker } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
+import type { OwnerToken } from './ownership.js';
 import { submitRecordedPhase } from './submission.js';
 
 export interface MannequinPhaseConfig {
@@ -23,6 +24,8 @@ export interface MannequinPhaseConfig {
   comfyRedis: Redis;
   comfyPollIntervalMs?: number;
   storage: StorageProvider;
+  /** Owner of the paid job this phase runs inside; its intent insert checks it. */
+  owner?: OwnerToken;
 }
 export interface MannequinPhaseParams {
   jobId: string;
@@ -135,6 +138,7 @@ export async function runMannequinPhase(
       attemptId,
     } = await submitRecordedPhase({
       db,
+      owner: cfg.owner,
       jobId,
       phase: 'mannequin',
       worker: w,

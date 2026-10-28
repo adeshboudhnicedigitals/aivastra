@@ -40,6 +40,16 @@ import { encodeCompressedImage, finalizeOutput } from '../workflow/finalize.js';
 import { patchWorkflow } from '../workflow/patcher.js';
 import { resolveWorkflowTemplateVersion } from '../workflow/resolve-template-version.js';
 import { runMannequinPhase } from './mannequin-phase.js';
+import {
+  acquireComfyJob,
+  assertOwnerInTransaction,
+  noteOwnershipLost,
+  OwnershipLostError,
+  type OwnerToken,
+  processSession,
+  takeoverComfyJob,
+  yieldComfyJob,
+} from './ownership.js';
 import { transitionJob } from './state.js';
 import { recordSubmissionOutcome, submitRecordedPhase } from './submission.js';
 
@@ -120,6 +130,8 @@ interface RequeueForNoWorkerArgs {
   jobLog: Logger;
   startedAt: number;
   jobType: string | null;
+  /** Present for every paid-Comfy job; the job is handed back with yieldComfyJob. */
+  owner?: OwnerToken;
 }
 
 /**
@@ -155,8 +167,22 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
     );
   }
   noWorkerRequeuesTotal.inc({ job_type: jobType ?? 'unknown' });
-  await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+  if (args.owner) {
+    // QUEUED while this process still holds the lease: the 10s sleep below is covered
+    // by the renewal interval, and a duplicate delivery sees LiveOwner, not a free job.
+    const owner = args.owner;
+    await db.transaction(async (tx) => {
+      await assertOwnerInTransaction(tx, owner, 'requeue:queued');
+      await tx.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+    });
+  } else {
+    await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+  }
   await new Promise((resolve) => setTimeout(resolve, REQUEUE_BACKOFF_MS));
+  // Retire authority before publishing, so the replacement message — which may be
+  // consumed immediately — finds no live owner. A lost yield means a newer owner
+  // exists: publish nothing and ACK nothing.
+  if (args.owner && (await yieldComfyJob(db, args.owner, {}, jobLog)) === 'lost') return;
   await redis.xadd(
     targetStream,
     'MAXLEN',
@@ -182,6 +208,27 @@ export interface ProcessorConfig {
   pub: Redis;
   storage: StorageProvider;
   log: Logger;
+  /** This process's boot session (ownership.ts `processSession` when unset). */
+  ownerSession?: string;
+  /** Set by processJob once it owns a paid-Comfy job; every owned mutation checks it. */
+  owner?: OwnerToken;
+}
+
+async function publishPreprocessing(
+  pub: Redis,
+  opts: { jobId: string; userId: string; shopifyStoreId?: string },
+): Promise<void> {
+  const channelId = opts.shopifyStoreId ? `store:${opts.shopifyStoreId}` : opts.userId;
+  const payload = JSON.stringify({
+    jobId: opts.jobId,
+    userId: opts.userId,
+    type: 'STATUS',
+    status: 'PREPROCESSING',
+    ...(opts.shopifyStoreId ? { shopifyStoreId: opts.shopifyStoreId } : {}),
+  });
+  const publishes = [pub.publish('sse:events:admin', payload)];
+  if (channelId) publishes.push(pub.publish(`sse:events:${channelId}`, payload));
+  await Promise.all(publishes);
 }
 
 export async function processJob(
@@ -192,7 +239,28 @@ export async function processJob(
   messageId: string,
   retryCount = 0,
 ): Promise<void> {
-  const { db, redis, pub, storage, log } = cfg;
+  try {
+    await processJobOwned(cfg, jobId, userId, stream, messageId, retryCount);
+  } catch (err) {
+    if (!(err instanceof OwnershipLostError)) throw err;
+    // Another process owns this job now. Do not fail, refund or ACK it: the new
+    // owner may hold the same PEL entry, and XACK is not per consumer.
+    if (err.owner) noteOwnershipLost(cfg.log, err.owner, err.site);
+    else cfg.log.warn({ jobId, site: err.site }, 'ownership lost — stopping work on this job');
+  }
+}
+
+async function processJobOwned(
+  baseCfg: ProcessorConfig,
+  jobId: string,
+  userId: string,
+  stream: string,
+  messageId: string,
+  retryCount: number,
+): Promise<void> {
+  // Reassigned to carry the owner token once this process owns the job.
+  let cfg = baseCfg;
+  const { db, redis, pub, storage, log } = baseCfg;
   const jobLog = log.child({ jobId, userId });
   const startedAt = Date.now();
 
@@ -219,39 +287,105 @@ export async function processJob(
     await redis.xack(stream, 'dispatcher-cg', messageId);
     return;
   }
-  if (job.status !== 'QUEUED') {
-    const IN_PROGRESS = ['PREPROCESSING', 'GENERATING', 'UPLOADING'] as const;
-    if ((IN_PROGRESS as readonly string[]).includes(job.status)) {
-      // Dispatcher crashed mid-job — count as a failed attempt so it retries or terminates+refunds
+  const [inputs] = await db
+    .select()
+    .from(schema.jobInputs)
+    .where(eq(schema.jobInputs.jobId, jobId));
+
+  // PixVerse never touches a Comfy worker and keeps its own contract: no control row,
+  // no lease. Widget/Shopify jobs are routed before the video check below, so the
+  // same exclusion applies here.
+  const earlyParams = inputs
+    ? typeof inputs.params === 'string'
+      ? (JSON.parse(inputs.params) as Record<string, unknown>)
+      : ((inputs.params ?? {}) as Record<string, unknown>)
+    : {};
+  const isVideo =
+    !!inputs &&
+    !job.merchantId &&
+    !job.shopifyStoreId &&
+    !inputs.faceId &&
+    !inputs.backgroundId &&
+    !inputs.poseId &&
+    earlyParams.kind === 'video';
+
+  if (isVideo) {
+    if (job.status !== 'QUEUED') {
+      const IN_PROGRESS = ['PREPROCESSING', 'GENERATING', 'UPLOADING'] as const;
+      if ((IN_PROGRESS as readonly string[]).includes(job.status)) {
+        jobLog.warn(
+          { status: job.status },
+          'job found in-progress after reclaim — treating as crash failure',
+        );
+        await handleFailure(
+          cfg,
+          jobId,
+          userId,
+          stream,
+          messageId,
+          jobLog,
+          startedAt,
+          'DISPATCHER_CRASH',
+        );
+      } else {
+        jobLog.warn({ status: job.status }, 'job already terminal — ACKing stale PEL entry');
+        await redis.xack(stream, 'dispatcher-cg', messageId);
+      }
+      return;
+    }
+  } else {
+    // One owner per paid-Comfy job, taken before any provider branch does external work.
+    const session = baseCfg.ownerSession ?? processSession;
+    const acquired = await acquireComfyJob(db, jobId, session, jobLog);
+    if (acquired.kind === 'Terminal') {
+      jobLog.warn({ status: acquired.status }, 'job already terminal — ACKing stale PEL entry');
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
+    if (acquired.kind === 'LiveOwner') {
+      // Another process (or an earlier delivery) is working this job. It owns the
+      // PEL entry too, and XACK is not per consumer, so leave the message alone.
+      jobLog.info('job has a live owner — ignoring this delivery');
+      return;
+    }
+    if (acquired.kind === 'Recoverable') {
+      // Phase B1 keeps the legacy crash policy but runs it under a fresh generation,
+      // so the dead owner's late writes are fenced out. Adoption is Phase D.
       jobLog.warn(
-        { status: job.status },
+        { status: acquired.status },
         'job found in-progress after reclaim — treating as crash failure',
       );
-      await handleFailure(
-        cfg,
-        jobId,
-        userId,
-        stream,
-        messageId,
-        jobLog,
-        startedAt,
-        'DISPATCHER_CRASH',
-      );
-    } else {
-      // Already terminal (COMPLETED, FAILED) — ACK the stale PEL entry and move on
-      jobLog.warn({ status: job.status }, 'job already terminal — ACKing stale PEL entry');
-      await redis.xack(stream, 'dispatcher-cg', messageId);
+      const takeover = await takeoverComfyJob(db, jobId, session);
+      if (takeover.kind === 'Acquired') {
+        await handleFailure(
+          { ...baseCfg, owner: takeover.owner },
+          jobId,
+          userId,
+          stream,
+          messageId,
+          jobLog,
+          startedAt,
+          'DISPATCHER_CRASH',
+        );
+      } else if (takeover.kind === 'Terminal') {
+        await redis.xack(stream, 'dispatcher-cg', messageId);
+      }
+      return;
     }
-    return;
+    cfg = { ...baseCfg, owner: acquired.owner };
+    // The acquisition transaction wrote the PREPROCESSING event; publish what
+    // transitionJob used to, so SSE consumers see the same status stream.
+    const widgetJob = !!(job.merchantId || job.shopifyStoreId);
+    await publishPreprocessing(pub, {
+      jobId,
+      userId: widgetJob ? '' : userId,
+      shopifyStoreId: job.shopifyStoreId ?? undefined,
+    });
   }
 
   // Past the skip checks — this is a real processing attempt.
   if (job.source !== JOB_SOURCE.COMPARISON) jobAttemptsTotal.inc(); // see recordJobOutcome
 
-  const [inputs] = await db
-    .select()
-    .from(schema.jobInputs)
-    .where(eq(schema.jobInputs.jobId, jobId));
   if (!inputs) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_INPUTS', jobLog, startedAt);
     return;
@@ -575,6 +709,7 @@ export async function processJob(
               jobLog.warn('no idle mannequin worker — re-enqueuing with backoff');
               await requeueForNoWorker({
                 db,
+                owner: cfg.owner,
                 redis,
                 jobId,
                 stream,
@@ -677,7 +812,6 @@ export async function processJob(
   }
 
   // 3. Claim a worker
-  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const performanceKey = tmplRoles ? getPerformanceKey(tmplRoles) : undefined;
   const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey, {
     jobId,
@@ -709,6 +843,7 @@ export async function processJob(
       jobLog.warn('no idle worker — re-enqueuing with backoff');
       await requeueForNoWorker({
         db,
+        owner: cfg.owner,
         redis,
         jobId,
         stream,
@@ -868,7 +1003,16 @@ export async function processJob(
     );
 
     // 6. Submit to ComfyUI
-    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
+    await transitionJob(
+      db,
+      pub,
+      jobId,
+      userId,
+      'GENERATING',
+      { workerId: w.id },
+      jobLog,
+      cfg.owner,
+    );
     const comfyStartedAt = Date.now();
     const {
       promptId,
@@ -876,6 +1020,7 @@ export async function processJob(
       attemptId,
     } = await submitRecordedPhase({
       db,
+      owner: cfg.owner,
       jobId,
       phase: 'main',
       worker: w,
@@ -991,7 +1136,7 @@ export async function processJob(
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     // 8. Fetch output metadata + download image
-    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog, cfg.owner);
     const outputImages = await fetchHistory(
       w.url,
       w.apiKey,
@@ -1013,6 +1158,7 @@ export async function processJob(
     // 9. Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
+      owner: cfg.owner,
       imageBytes,
       jobId,
       userId,
@@ -1261,7 +1407,6 @@ async function processTryonDirectJob(
     );
     return;
   }
-  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const performanceKey = template ? getPerformanceKey(template) : undefined;
   const primaryWorkerIds = Array.isArray(params.primaryWorkerIds)
     ? params.primaryWorkerIds.filter((v): v is string => typeof v === 'string')
@@ -1323,6 +1468,7 @@ async function processTryonDirectJob(
       jobLog.warn('no idle worker — re-enqueuing tryon direct job with backoff');
       await requeueForNoWorker({
         db,
+        owner: cfg.owner,
         redis,
         jobId,
         stream,
@@ -1373,7 +1519,16 @@ async function processTryonDirectJob(
       workflow[garmentNodeId].inputs!.image = garmentFile;
     }
 
-    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
+    await transitionJob(
+      db,
+      pub,
+      jobId,
+      userId,
+      'GENERATING',
+      { workerId: w.id },
+      jobLog,
+      cfg.owner,
+    );
     const comfyStartedAt = Date.now();
     const {
       promptId,
@@ -1381,6 +1536,7 @@ async function processTryonDirectJob(
       attemptId,
     } = await submitRecordedPhase({
       db,
+      owner: cfg.owner,
       jobId,
       phase: 'main',
       worker: w,
@@ -1462,7 +1618,7 @@ async function processTryonDirectJob(
       return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
-    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog, cfg.owner);
     const outputImages = await fetchHistory(
       w.url,
       w.apiKey,
@@ -1486,6 +1642,7 @@ async function processTryonDirectJob(
     // Compression); tryon/api_tryon/merchant_tryon default to enabled q90.
     const compression = await getImageCompressionConfig(redis, job.source);
     const finalization = {
+      owner: cfg.owner,
       imageBytes,
       jobId,
       userId,
@@ -1605,7 +1762,6 @@ async function processRegenerateJob(
     return;
   }
 
-  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const performanceKey = template ? getPerformanceKey(template) : undefined;
   const worker = await selectWorker(redis, WORKER_POOL.TRYON, performanceKey, {
     jobId,
@@ -1632,6 +1788,7 @@ async function processRegenerateJob(
       jobLog.warn('no idle worker — re-enqueuing regenerate job with backoff');
       await requeueForNoWorker({
         db,
+        owner: cfg.owner,
         redis,
         jobId,
         stream,
@@ -1688,7 +1845,16 @@ async function processRegenerateJob(
       workflow[promptNodeId].inputs!.instruction = instructionOverride;
     }
 
-    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
+    await transitionJob(
+      db,
+      pub,
+      jobId,
+      userId,
+      'GENERATING',
+      { workerId: w.id },
+      jobLog,
+      cfg.owner,
+    );
     const comfyStartedAt = Date.now();
     const {
       promptId,
@@ -1696,6 +1862,7 @@ async function processRegenerateJob(
       attemptId,
     } = await submitRecordedPhase({
       db,
+      owner: cfg.owner,
       jobId,
       phase: 'main',
       worker: w,
@@ -1777,7 +1944,7 @@ async function processRegenerateJob(
       return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
-    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog, cfg.owner);
     const outputImages = await fetchHistory(
       w.url,
       w.apiKey,
@@ -1798,6 +1965,7 @@ async function processRegenerateJob(
 
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
+      owner: cfg.owner,
       imageBytes,
       jobId,
       userId,
@@ -1934,7 +2102,6 @@ async function processFabricToGarmentJob(
     return;
   }
 
-  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const performanceKey = getPerformanceKey(template);
   const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey, {
     jobId,
@@ -1961,6 +2128,7 @@ async function processFabricToGarmentJob(
       jobLog.warn('no idle worker — re-enqueuing fabric-to-garment job with backoff');
       await requeueForNoWorker({
         db,
+        owner: cfg.owner,
         redis,
         jobId,
         stream,
@@ -2010,7 +2178,16 @@ async function processFabricToGarmentJob(
       workflow[negNodeId].inputs!.prompt = negativePrompt;
     }
 
-    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
+    await transitionJob(
+      db,
+      pub,
+      jobId,
+      userId,
+      'GENERATING',
+      { workerId: w.id },
+      jobLog,
+      cfg.owner,
+    );
     const comfyStartedAt = Date.now();
     const {
       promptId,
@@ -2018,6 +2195,7 @@ async function processFabricToGarmentJob(
       attemptId,
     } = await submitRecordedPhase({
       db,
+      owner: cfg.owner,
       jobId,
       phase: 'main',
       worker: w,
@@ -2098,7 +2276,7 @@ async function processFabricToGarmentJob(
       return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
-    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog, cfg.owner);
     const outputImages = await fetchHistory(
       w.url,
       w.apiKey,
@@ -2119,6 +2297,7 @@ async function processFabricToGarmentJob(
 
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
+      owner: cfg.owner,
       imageBytes,
       jobId,
       userId,
@@ -2345,8 +2524,6 @@ async function processSareeMannequinJob(
     personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
   }
 
-  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-
   const performanceKey = template ? getPerformanceKey(template) : undefined;
   const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey, {
     jobId,
@@ -2371,6 +2548,7 @@ async function processSareeMannequinJob(
       jobLog.warn('no idle saree worker — re-enqueuing with backoff');
       await requeueForNoWorker({
         db,
+        owner: cfg.owner,
         redis,
         jobId,
         stream,
@@ -2427,7 +2605,16 @@ async function processSareeMannequinJob(
       workflow[palluNodeId].inputs!.image = palluFile;
     }
 
-    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
+    await transitionJob(
+      db,
+      pub,
+      jobId,
+      userId,
+      'GENERATING',
+      { workerId: w.id },
+      jobLog,
+      cfg.owner,
+    );
     const comfyStartedAt = Date.now();
     const {
       promptId,
@@ -2435,6 +2622,7 @@ async function processSareeMannequinJob(
       attemptId,
     } = await submitRecordedPhase({
       db,
+      owner: cfg.owner,
       jobId,
       phase: 'mannequin',
       worker: w,
@@ -2523,7 +2711,7 @@ async function processSareeMannequinJob(
       return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
-    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog, cfg.owner);
     const outputImages = await fetchHistory(
       w.url,
       w.apiKey,
@@ -2545,6 +2733,7 @@ async function processSareeMannequinJob(
     // Mannequin images are never delivered to the user — no watermark applies.
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
+      owner: cfg.owner,
       imageBytes,
       jobId,
       userId,
@@ -2657,8 +2846,6 @@ async function processSareeJob(
     return;
   }
 
-  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-
   // Saree jobs route to workers with 'saree' in their allowedJobTypes. Workers
   // self-declare this in the workers table (admin can edit from the Workers page).
   const performanceKey = template ? getPerformanceKey(template) : undefined;
@@ -2685,6 +2872,7 @@ async function processSareeJob(
       jobLog.warn('no idle saree worker — re-enqueuing with backoff');
       await requeueForNoWorker({
         db,
+        owner: cfg.owner,
         redis,
         jobId,
         stream,
@@ -2735,7 +2923,16 @@ async function processSareeJob(
       workflow[sareeNodeId].inputs!.image = sareeFile;
     }
 
-    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
+    await transitionJob(
+      db,
+      pub,
+      jobId,
+      userId,
+      'GENERATING',
+      { workerId: w.id },
+      jobLog,
+      cfg.owner,
+    );
     const comfyStartedAt = Date.now();
     const {
       promptId,
@@ -2743,6 +2940,7 @@ async function processSareeJob(
       attemptId,
     } = await submitRecordedPhase({
       db,
+      owner: cfg.owner,
       jobId,
       phase: 'main',
       worker: w,
@@ -2824,7 +3022,7 @@ async function processSareeJob(
       return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
-    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog, cfg.owner);
     const outputImages = await fetchHistory(
       w.url,
       w.apiKey,
@@ -2846,6 +3044,7 @@ async function processSareeJob(
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
+      owner: cfg.owner,
       imageBytes,
       jobId,
       userId,
@@ -3081,8 +3280,6 @@ async function processWidgetJob(
     return;
   }
 
-  await transitionJob(db, pub, jobId, '', 'PREPROCESSING', {}, jobLog);
-
   // Merchant/kiosk widget jobs route to workers with 'merchant' in their allowedJobTypes
   // (or an empty allowedJobTypes, i.e. "accepts any") — the same admin-managed pool the
   // main studio flow and Shopify jobs use, via selectWorker. See processShopifyJob for
@@ -3115,6 +3312,7 @@ async function processWidgetJob(
       jobLog.warn('no idle merchant worker — re-enqueuing with backoff');
       await requeueForNoWorker({
         db,
+        owner: cfg.owner,
         redis,
         jobId,
         stream,
@@ -3174,7 +3372,7 @@ async function processWidgetJob(
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
       workflow[garmentNodeId2].inputs!.image = secondGarmentFilename;
 
-    await transitionJob(db, pub, jobId, '', 'GENERATING', { workerId: w.id }, jobLog);
+    await transitionJob(db, pub, jobId, '', 'GENERATING', { workerId: w.id }, jobLog, cfg.owner);
     const comfyStartedAt = Date.now();
     const {
       promptId,
@@ -3183,6 +3381,7 @@ async function processWidgetJob(
     } = await measureJobStage(jobLog, 'prompt_submission', () =>
       submitRecordedPhase({
         db,
+        owner: cfg.owner,
         jobId,
         phase: 'main',
         worker: w,
@@ -3279,7 +3478,7 @@ async function processWidgetJob(
     );
 
     await measureJobStage(jobLog, 'uploading_status_transition', () =>
-      transitionJob(db, pub, jobId, '', 'UPLOADING', {}, jobLog),
+      transitionJob(db, pub, jobId, '', 'UPLOADING', {}, jobLog, cfg.owner),
     );
     const outputImages = await measureJobStage(jobLog, 'completion_history_parse', () =>
       fetchHistory(
@@ -3318,7 +3517,7 @@ async function processWidgetJob(
 
     // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
     const completed = await measureJobStage(jobLog, 'completed_status_transition', () =>
-      transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog),
+      transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog, cfg.owner),
     );
     if (!completed) {
       settlePerformanceSample(w, 'cancelled');
@@ -3471,8 +3670,6 @@ async function processShopifyJob(
     return;
   }
 
-  await transitionJob(db, pub, jobId, '', 'PREPROCESSING', { shopifyStoreId }, jobLog);
-
   // Shopify jobs route to workers with 'shopify' in their allowedJobTypes. An admin
   // must configure at least one such worker (or one with an empty allowedJobTypes,
   // i.e. "accepts any") for these jobs to ever be picked up — see selectWorker.
@@ -3503,6 +3700,7 @@ async function processShopifyJob(
       jobLog.warn('no idle shopify worker — re-enqueuing with backoff');
       await requeueForNoWorker({
         db,
+        owner: cfg.owner,
         redis,
         jobId,
         stream,
@@ -3561,6 +3759,7 @@ async function processShopifyJob(
       'GENERATING',
       { workerId: w.id, shopifyStoreId },
       jobLog,
+      cfg.owner,
     );
     const comfyStartedAt = Date.now();
     const {
@@ -3569,6 +3768,7 @@ async function processShopifyJob(
       attemptId,
     } = await submitRecordedPhase({
       db,
+      owner: cfg.owner,
       jobId,
       phase: 'main',
       worker: w,
@@ -3651,7 +3851,7 @@ async function processShopifyJob(
       return;
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
-    await transitionJob(db, pub, jobId, '', 'UPLOADING', { shopifyStoreId }, jobLog);
+    await transitionJob(db, pub, jobId, '', 'UPLOADING', { shopifyStoreId }, jobLog, cfg.owner);
     const outputImages = await fetchHistory(
       w.url,
       w.apiKey,
@@ -3672,6 +3872,7 @@ async function processShopifyJob(
 
     const compression = await getImageCompressionConfig(redis, job.source);
     const { resultKey, completed } = await finalizeOutput({
+      owner: cfg.owner,
       imageBytes,
       jobId,
       userId: '',
@@ -3733,6 +3934,7 @@ async function markWidgetFailed(
   // carry jobs.user_id = null (the shopper is anonymous), so the billing owner is
   // resolved through the merchants row rather than read off the job.
   await db.transaction(async (tx) => {
+    if (cfg.owner) await assertOwnerInTransaction(tx, cfg.owner, 'markWidgetFailed');
     const [owner] = await tx
       .select({ userId: schema.merchants.userId })
       .from(schema.merchants)
@@ -3765,7 +3967,7 @@ async function markWidgetFailed(
       .values({ userId: owner.userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
   });
 
-  await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode }, log);
+  await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode }, log, cfg.owner);
   await pub.publish(
     `sse:events:widget:${merchantId}`,
     JSON.stringify({ jobId, type: 'STATUS', status: 'FAILED', errorCode }),
@@ -3815,6 +4017,7 @@ async function markShopifyFailed(
   // (terminateJob, below).
   if (creditsCharged > 0) {
     await db.transaction(async (tx) => {
+      if (cfg.owner) await assertOwnerInTransaction(tx, cfg.owner, 'markShopifyFailed');
       const existing = await tx
         .select()
         .from(schema.shopifyCreditLedger)
@@ -3838,7 +4041,7 @@ async function markShopifyFailed(
     });
   }
 
-  await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode, shopifyStoreId }, log);
+  await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode, shopifyStoreId }, log, cfg.owner);
   // The credits are back; give the merchant's daily-cap slot back too. A
   // try-on that failed did not run, and the cap counts try-ons that ran.
   // Idempotent per jobId, so a redelivered message cannot inflate the cap.
@@ -3873,6 +4076,8 @@ async function terminateJob(
   const refundReason = status === 'CANCELLED' ? 'JOB_CANCEL_REFUND' : 'JOB_FAIL_REFUND';
 
   const transitioned = await db.transaction(async (tx) => {
+    // Before the first write: a stale process must neither refund nor fail the job.
+    if (cfg.owner) await assertOwnerInTransaction(tx, cfg.owner, `terminate:${status}`);
     const [job] = await tx
       .select({ status: schema.jobs.status })
       .from(schema.jobs)
@@ -3962,11 +4167,20 @@ async function handleFailure(
 ): Promise<void> {
   const { db, redis } = cfg;
 
-  const [current] = await db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-  if (!current) return;
-
-  const newAttempts = current.attempts + 1;
-  await db.update(schema.jobs).set({ attempts: newAttempts }).where(eq(schema.jobs.id, jobId));
+  // The attempt increment is a failure-budget write, so it sits under the same guard
+  // as the status writes and shares their transaction.
+  const counted = await db.transaction(async (tx) => {
+    if (cfg.owner) await assertOwnerInTransaction(tx, cfg.owner, 'handleFailure:attempts');
+    const [row] = await tx.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    if (!row) return undefined;
+    await tx
+      .update(schema.jobs)
+      .set({ attempts: row.attempts + 1 })
+      .where(eq(schema.jobs.id, jobId));
+    return { current: row, newAttempts: row.attempts + 1 };
+  });
+  if (!counted) return;
+  const { current, newAttempts } = counted;
 
   // A deterministic failure (output withheld by the workflow's gate, result node missing from
   // the workflow) would just repeat on the same inputs, so skip the retry and refund now.
@@ -3988,10 +4202,16 @@ async function handleFailure(
   } else {
     // Re-enqueue for retry. The failed attempt must not look adoptable once the job
     // has moved on; resolved_at stays empty because the GPU may still be running it.
-    await db.transaction(async (tx) => {
-      await tx.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      await recordSubmissionOutcome(tx, jobId, 'FAILED', log);
-    });
+    if (cfg.owner) {
+      // Retire authority before the replacement is published; a lost yield means a
+      // newer owner exists, so publish and ACK nothing.
+      if ((await yieldComfyJob(db, cfg.owner, { failedAttempt: true }, log)) === 'lost') return;
+    } else {
+      await db.transaction(async (tx) => {
+        await tx.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+        await recordSubmissionOutcome(tx, jobId, 'FAILED', log);
+      });
+    }
     await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('retried', startedAt, current.source);
