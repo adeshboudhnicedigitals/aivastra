@@ -53,7 +53,7 @@ import {
   untrackOwnedJob,
   yieldComfyJob,
 } from './ownership.js';
-import { settleAndPublish } from './settlement.js';
+import { type SettleAuthority, settleAndPublish } from './settlement.js';
 import { transitionJob } from './state.js';
 import { recordAttemptOutcome, submitRecordedPhase } from './submission.js';
 
@@ -234,6 +234,12 @@ export interface ProcessorConfig {
   ownerSession?: string;
   /** Set by processJob once it owns a paid-Comfy job; every owned mutation checks it. */
   owner?: OwnerToken;
+  /**
+   * Set by processJob for the PixVerse lane only, which keeps no control row or lease. Settling
+   * without an owner is allowed solely under this flag, so a paid-Comfy path that lost its
+   * token fails loudly instead of skipping the fence.
+   */
+  unownedLane?: boolean;
 }
 
 /**
@@ -371,6 +377,7 @@ async function processJobOwned(
   const isVideo = !!inputs && isVideoJob(job, inputs, earlyParams);
 
   if (isVideo) {
+    cfg = { ...baseCfg, unownedLane: true };
     if (job.status !== 'QUEUED') {
       const IN_PROGRESS = ['PREPROCESSING', 'GENERATING', 'UPLOADING'] as const;
       if ((IN_PROGRESS as readonly string[]).includes(job.status)) {
@@ -749,7 +756,6 @@ async function processJobOwned(
               stream,
               messageId,
               'QUEUE_CLEANUP_FAILED',
-              job.creditsCharged,
               jobLog,
               startedAt,
               job.source,
@@ -770,7 +776,6 @@ async function processJobOwned(
                 stream,
                 messageId,
                 'NO_WORKER',
-                job.creditsCharged,
                 jobLog,
                 startedAt,
                 job.source,
@@ -904,7 +909,6 @@ async function processJobOwned(
         stream,
         messageId,
         'NO_WORKER',
-        job.creditsCharged,
         jobLog,
         startedAt,
         job.source,
@@ -1195,7 +1199,6 @@ async function processJobOwned(
           stream,
           messageId,
           'QUEUE_CLEANUP_FAILED',
-          job.creditsCharged,
           jobLog,
           startedAt,
           job.source,
@@ -1260,7 +1263,6 @@ async function processJobOwned(
         stream,
         messageId,
         '',
-        job.creditsCharged,
         jobLog,
         startedAt,
         job.source,
@@ -1513,7 +1515,6 @@ async function processTryonDirectJob(
         stream,
         messageId,
         'PREFERRED_WORKERS_UNAVAILABLE',
-        job.creditsCharged,
         jobLog,
         startedAt,
         job.source,
@@ -1529,7 +1530,6 @@ async function processTryonDirectJob(
         stream,
         messageId,
         'NO_WORKER',
-        job.creditsCharged,
         jobLog,
         startedAt,
         job.source,
@@ -1678,7 +1678,6 @@ async function processTryonDirectJob(
           stream,
           messageId,
           'QUEUE_CLEANUP_FAILED',
-          job.creditsCharged,
           jobLog,
           startedAt,
           job.source,
@@ -1849,7 +1848,6 @@ async function processRegenerateJob(
         stream,
         messageId,
         'NO_WORKER',
-        job.creditsCharged,
         jobLog,
         startedAt,
         job.source,
@@ -2004,7 +2002,6 @@ async function processRegenerateJob(
           stream,
           messageId,
           'QUEUE_CLEANUP_FAILED',
-          job.creditsCharged,
           jobLog,
           startedAt,
           job.source,
@@ -2189,7 +2186,6 @@ async function processFabricToGarmentJob(
         stream,
         messageId,
         'NO_WORKER',
-        job.creditsCharged,
         jobLog,
         startedAt,
         job.source,
@@ -2336,7 +2332,6 @@ async function processFabricToGarmentJob(
           stream,
           messageId,
           'QUEUE_CLEANUP_FAILED',
-          job.creditsCharged,
           jobLog,
           startedAt,
           job.source,
@@ -2609,7 +2604,6 @@ async function processSareeMannequinJob(
         stream,
         messageId,
         'NO_WORKER',
-        0,
         jobLog,
         startedAt,
         job.source,
@@ -2771,7 +2765,6 @@ async function processSareeMannequinJob(
           stream,
           messageId,
           'QUEUE_CLEANUP_FAILED',
-          0,
           jobLog,
           startedAt,
           job.source,
@@ -2933,7 +2926,6 @@ async function processSareeJob(
         stream,
         messageId,
         'NO_WORKER',
-        job.creditsCharged,
         jobLog,
         startedAt,
         job.source,
@@ -3082,7 +3074,6 @@ async function processSareeJob(
           stream,
           messageId,
           'QUEUE_CLEANUP_FAILED',
-          job.creditsCharged,
           jobLog,
           startedAt,
           job.source,
@@ -3172,7 +3163,6 @@ async function processWidgetJob(
   const jobId = job.id;
   // biome-ignore lint/style/noNonNullAssertion: merchantId is guaranteed non-null for widget jobs
   const merchantId = job.merchantId!;
-  const { creditsCharged } = job;
 
   // Shopify widget jobs: job_inputs.params.kind === 'shopify' — route to the dedicated
   // Shopify processor. Both branches below use the shared admin-managed worker pool
@@ -3203,7 +3193,6 @@ async function processWidgetJob(
       cfg,
       jobId,
       merchantId,
-      creditsCharged,
       stream,
       messageId,
       'NO_CUSTOMER_PHOTO',
@@ -3219,7 +3208,6 @@ async function processWidgetJob(
       cfg,
       jobId,
       merchantId,
-      creditsCharged,
       stream,
       messageId,
       'MISSING_GARMENT_INPUT',
@@ -3244,7 +3232,6 @@ async function processWidgetJob(
       cfg,
       jobId,
       merchantId,
-      creditsCharged,
       stream,
       messageId,
       'WIDGET_TEMPLATE_MISSING',
@@ -3271,7 +3258,6 @@ async function processWidgetJob(
       cfg,
       jobId,
       merchantId,
-      creditsCharged,
       stream,
       messageId,
       'WIDGET_TEMPLATE_MISSING',
@@ -3296,7 +3282,6 @@ async function processWidgetJob(
       cfg,
       jobId,
       merchantId,
-      creditsCharged,
       stream,
       messageId,
       'TRYON_NODES_NOT_CONFIGURED',
@@ -3320,7 +3305,6 @@ async function processWidgetJob(
       cfg,
       jobId,
       merchantId,
-      creditsCharged,
       stream,
       messageId,
       'TRYON_NODES_NOT_CONFIGURED',
@@ -3339,7 +3323,6 @@ async function processWidgetJob(
       cfg,
       jobId,
       merchantId,
-      creditsCharged,
       stream,
       messageId,
       'TRYON_NODES_NOT_CONFIGURED',
@@ -3370,7 +3353,6 @@ async function processWidgetJob(
         cfg,
         jobId,
         merchantId,
-        creditsCharged,
         stream,
         messageId,
         'NO_WORKER',
@@ -3532,7 +3514,6 @@ async function processWidgetJob(
           cfg,
           jobId,
           merchantId,
-          creditsCharged,
           stream,
           messageId,
           'QUEUE_CLEANUP_FAILED',
@@ -3632,7 +3613,6 @@ async function processWidgetJob(
       cfg,
       jobId,
       merchantId,
-      creditsCharged,
       stream,
       messageId,
       errMsg.slice(0, 1000),
@@ -3673,7 +3653,6 @@ async function processShopifyJob(
   const jobId = job.id;
   // biome-ignore lint/style/noNonNullAssertion: shopifyStoreId guaranteed non-null for shopify jobs routed through this path
   const shopifyStoreId = job.shopifyStoreId!;
-  const { creditsCharged } = job;
 
   const garmentKey = inputs.upperGarmentKey;
   const customerPhotoKey = job.customerPhotoKey;
@@ -3689,7 +3668,6 @@ async function processShopifyJob(
       cfg,
       jobId,
       shopifyStoreId,
-      creditsCharged,
       stream,
       messageId,
       !workflowTemplateId ? 'NO_WORKFLOW_CONFIGURED' : 'SHOPIFY_INPUTS_MISSING',
@@ -3712,7 +3690,6 @@ async function processShopifyJob(
       cfg,
       jobId,
       shopifyStoreId,
-      creditsCharged,
       stream,
       messageId,
       'WORKFLOW_NOT_FOUND',
@@ -3733,7 +3710,6 @@ async function processShopifyJob(
       cfg,
       jobId,
       shopifyStoreId,
-      creditsCharged,
       stream,
       messageId,
       'SHOPIFY_NODES_NOT_CONFIGURED',
@@ -3762,7 +3738,6 @@ async function processShopifyJob(
         cfg,
         jobId,
         shopifyStoreId,
-        creditsCharged,
         stream,
         messageId,
         'NO_WORKER',
@@ -3912,7 +3887,6 @@ async function processShopifyJob(
           cfg,
           jobId,
           shopifyStoreId,
-          creditsCharged,
           stream,
           messageId,
           'QUEUE_CLEANUP_FAILED',
@@ -3977,7 +3951,6 @@ async function processShopifyJob(
       cfg,
       jobId,
       shopifyStoreId,
-      creditsCharged,
       stream,
       messageId,
       errMsg.slice(0, 1000),
@@ -3991,15 +3964,21 @@ async function processShopifyJob(
   }
 }
 
-/** Same fence for every lane: the owned paid-Comfy paths and the ownerless PixVerse lane. */
-const settleAuthority = (cfg: ProcessorConfig, jobId: string) =>
-  cfg.owner ? { owner: cfg.owner } : { unowned: { jobId } };
+/**
+ * The owner for every paid-Comfy path; `{ unowned }` only for the PixVerse lane, which says so
+ * explicitly. A paid-Comfy path without a token is a bug, and settling it unowned would skip the
+ * fence and leave its lease live, so that throws.
+ */
+function settleAuthority(cfg: ProcessorConfig, jobId: string): SettleAuthority {
+  if (cfg.owner) return { owner: cfg.owner };
+  if (cfg.unownedLane) return { unowned: { jobId } };
+  throw new Error('paid-Comfy settlement reached without an ownership token');
+}
 
 async function markWidgetFailed(
   cfg: ProcessorConfig,
   jobId: string,
   merchantId: string,
-  _creditsCharged: number,
   stream: string,
   messageId: string,
   errorCode: string,
@@ -4051,7 +4030,6 @@ async function markShopifyFailed(
   cfg: ProcessorConfig,
   jobId: string,
   shopifyStoreId: string,
-  _creditsCharged: number,
   stream: string,
   messageId: string,
   errorCode: string,
@@ -4100,8 +4078,7 @@ async function terminateJob(
   stream: string,
   messageId: string,
   errorCode: string,
-  _creditsCharged: number,
-  _log: Logger,
+  log: Logger,
   startedAt: number,
   jobType: string | null,
   status: 'FAILED' | 'CANCELLED' = 'FAILED',
@@ -4109,7 +4086,7 @@ async function terminateJob(
   const { db, redis, pub } = cfg;
 
   const settled = await settleAndPublish(
-    { db, pub, log: _log },
+    { db, pub, log },
     settleAuthority(cfg, jobId),
     status === 'CANCELLED' ? { kind: 'cancelled' } : { kind: 'failed', errorCode },
     { userId },
@@ -4157,7 +4134,6 @@ async function handleFailure(
       stream,
       messageId,
       errorCode,
-      current.creditsCharged,
       log,
       startedAt,
       current.source,
@@ -4211,7 +4187,6 @@ async function markFailed(
     stream,
     messageId,
     errorCode,
-    job?.creditsCharged ?? 0,
     log,
     startedAt,
     job?.source ?? null,

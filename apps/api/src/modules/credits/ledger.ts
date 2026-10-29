@@ -98,7 +98,8 @@ export async function cancelJobAndRefund(
       )
       .returning({ id: schema.jobs.id });
     if (!claimed.length) return { claimed: false, refunded: false };
-    if (!p.userId) return { claimed: true, refunded: false };
+    // Zero cost writes no ledger row, matching the dispatcher's settlement.
+    if (!p.userId || p.amount <= 0) return { claimed: true, refunded: false };
     const [prior] = await tx
       .select({ id: schema.creditLedger.id })
       .from(schema.creditLedger)

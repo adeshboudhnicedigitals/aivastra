@@ -154,6 +154,14 @@ async function settleInTransaction(
 
   let owner: OwnerToken | undefined;
   if ('unowned' in authority) {
+    // Read only, no lock and no write: the PixVerse lane never has a control row, and a job
+    // that has one is never ownerless, so reaching here for it is a caller bug that would
+    // skip the fence and leave the lease live.
+    const [control] = await tx
+      .select({ jobId: schema.dispatcherJobControl.jobId })
+      .from(schema.dispatcherJobControl)
+      .where(eq(schema.dispatcherJobControl.jobId, jobId));
+    if (control) throw new Error(`settle: job ${jobId} has an ownership row but no owner token`);
     owner = undefined;
   } else if ('owner' in authority) {
     try {
@@ -179,7 +187,7 @@ async function settleInTransaction(
 
   const eventPayload: Record<string, unknown> =
     outcome.kind === 'completed'
-      ? { ...outcome.output }
+      ? (({ skipOutputInsert: _skip, ...rest }) => rest)(outcome.output)
       : outcome.kind === 'failed'
         ? {
             errorCode: outcome.errorCode,
@@ -251,13 +259,13 @@ async function settleInTransaction(
 /**
  * The one place the payer is decided. Debits at creation are:
  *  - Shopify store jobs: the store (`atomicDeductStore`)
- *  - merchant/widget jobs: `merchants.user_id` (`atomicMerchantDeduct`)
- *  - everything else, merchant-catalog and dev-API jobs included: `jobs.user_id`
+ *  - any job with a `merchant_id` (widget, merchant-catalog, dev API): `merchants.user_id`
+ *  - everything else: `jobs.user_id`
  * so the refund goes to the same account.
  *
- * For widget jobs `jobs.user_id` is the same account only because widget creation stores
- * `merchantUserId` on the job row; the merchant lookup is authoritative and a test asserts
- * the two agree.
+ * The merchant lookup is authoritative. Production shows `jobs.user_id` and
+ * `merchants.user_id` are the same account for every merchant job (0 of 6,654 differ), and a
+ * test asserts the two agree for widget jobs.
  */
 async function refundInTransaction(
   tx: DbTransaction,

@@ -656,6 +656,35 @@ describe('fenced settlement', () => {
     });
   });
 
+  describe('unowned authority on a job that has a control row', () => {
+    it('throws and changes nothing: a job with a control row is never ownerless', async () => {
+      const seeded = await seedFamily('regular');
+      await env.db
+        .update(schema.jobs)
+        .set({ status: 'GENERATING' })
+        .where(eq(schema.jobs.id, seeded.job.id));
+      await env.db.insert(schema.dispatcherJobControl).values({ jobId: seeded.job.id });
+      const controlBefore = await env.db
+        .select()
+        .from(schema.dispatcherJobControl)
+        .where(eq(schema.dispatcherJobControl.jobId, seeded.job.id));
+
+      await expect(
+        settleComfyJob(env.db, { unowned: { jobId: seeded.job.id } }, failedOutcome, log),
+      ).rejects.toThrow(/ownership row but no owner token/);
+
+      expect(await statusOf(seeded.job.id)).toBe('GENERATING');
+      expect(await ledgerReasons('regular', seeded.job.id)).toEqual([]);
+      expect(await balance('regular', seeded)).toBe(START_BALANCE);
+      expect(
+        await env.db
+          .select()
+          .from(schema.dispatcherJobControl)
+          .where(eq(schema.dispatcherJobControl.jobId, seeded.job.id)),
+      ).toEqual(controlBefore);
+    });
+  });
+
   describe('attempt-write-failure-rolls-back', () => {
     it('a failing attempt update rolls the whole settlement back and ACKs nothing', async () => {
       const seeded = await seedFamily('regular');
