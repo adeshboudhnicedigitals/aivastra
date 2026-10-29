@@ -20,7 +20,12 @@ import type { Redis } from 'ioredis';
 import { downloadOutputImage, fetchHistory, uploadImageToComfy } from '../comfyui/client.js';
 import { handleCompletionResult } from '../comfyui/completion-result.js';
 import { isTerminalJobError } from '../comfyui/output-withheld.js';
-import { getCompletedHistory, JobCancelledError, waitForCompletion } from '../comfyui/progress.js';
+import {
+  getCompletedHistory,
+  JobCancelledError,
+  type WaitForCompletionResult,
+  waitForCompletion,
+} from '../comfyui/progress.js';
 import { getImageCompressionConfig } from '../config/image-compression.js';
 import { loadEnv } from '../env.js';
 import {
@@ -81,6 +86,18 @@ function recordJobOutcome(outcome: JobOutcome, startedAt: number, jobType: strin
   jobProcessingDuration.observe({ outcome, job_type }, (Date.now() - startedAt) / 1000);
 }
 
+// Keyed by the per-job child logger so the stage durations a path measures can be
+// persisted as one TIMING event at completion without threading a collector through
+// every measured call. A requeue or retry gets a fresh logger, hence a fresh record.
+const stageDurations = new WeakMap<Logger, Record<string, number>>();
+
+function logStage(jobLog: Logger, stage: string, durationMs: number): void {
+  const durations = stageDurations.get(jobLog) ?? {};
+  durations[stage] = durationMs;
+  stageDurations.set(jobLog, durations);
+  jobLog.info({ stage, durationMs }, 'job stage timing');
+}
+
 async function measureJobStage<T>(
   jobLog: Logger,
   stage: string,
@@ -90,10 +107,46 @@ async function measureJobStage<T>(
   try {
     return await operation();
   } finally {
-    jobLog.info(
-      { stage, durationMs: Math.round(performance.now() - startedAt) },
-      'job stage timing',
-    );
+    logStage(jobLog, stage, Math.round(performance.now() - startedAt));
+  }
+}
+
+/**
+ * Persist where a completed job's time went: the dispatcher's own stage durations
+ * plus ComfyUI's execution window (from its /history timestamps), so the admin job
+ * page can show it without log access. Telemetry only — a failed insert must never
+ * change the job's outcome.
+ */
+async function recordTimingEvent(
+  db: DB,
+  jobId: string,
+  jobLog: Logger,
+  completion: WaitForCompletionResult,
+  completionObservedAtMs: number,
+): Promise<void> {
+  const timing = completion.status === 'completed' ? completion.executionTiming : undefined;
+  try {
+    await db.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'TIMING',
+      payload: {
+        stagesMs: stageDurations.get(jobLog) ?? {},
+        comfy: timing
+          ? {
+              executionStartMs: timing.executionStartMs,
+              executionSuccessMs: timing.executionSuccessMs,
+              executionMs: timing.executionSuccessMs - timing.executionStartMs,
+              cachedNodeCount: timing.cachedNodeCount,
+              totalNodeCount: timing.totalNodeCount,
+              // Dispatcher clock minus ComfyUI clock: includes the history poll
+              // interval and any clock skew between this host and the worker.
+              detectionLagMs: completionObservedAtMs - timing.executionSuccessMs,
+            }
+          : null,
+      },
+    });
+  } catch (err) {
+    jobLog.warn({ err }, 'could not record job timing event');
   }
 }
 
@@ -813,10 +866,12 @@ async function processJobOwned(
 
   // 3. Claim a worker
   const performanceKey = tmplRoles ? getPerformanceKey(tmplRoles) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey, {
-    jobId,
-    log: jobLog,
-  });
+  const worker = await measureJobStage(jobLog, 'worker_selection', () =>
+    selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey, {
+      jobId,
+      log: jobLog,
+    }),
+  );
   if (!worker) {
     // Released held jobs (queuedAt set) can legitimately wait far longer than
     // MAX_QUEUE_WAIT_MS measured from createdAt would allow — createdAt is
@@ -859,6 +914,9 @@ async function processJobOwned(
   }
   const w = worker;
   jobLog.info({ workerId: w.id }, 'worker claimed');
+  // Wall time from the API inserting the row to a worker being claimed: stream wait
+  // plus any no-worker requeue backoffs, which the per-stage timings below don't cover.
+  logStage(jobLog, 'created_to_worker_claimed', Date.now() - job.createdAt.getTime());
 
   try {
     // 4. Download images from R2, upload to ComfyUI input folder
@@ -942,7 +1000,9 @@ async function processJobOwned(
         ),
       );
     }
-    const uploaded = await Promise.all(baseTasks);
+    const uploaded = await measureJobStage(jobLog, 'input_read_and_upload', () =>
+      Promise.all(baseTasks),
+    );
 
     let idx = 0;
     // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces the pose entry first
@@ -978,81 +1038,10 @@ async function processJobOwned(
     const jobOutputHeight =
       typeof jobParams.outputHeight === 'number' ? jobParams.outputHeight : undefined;
 
-    const { prompt, resultNodeId } = await patchWorkflow(
-      {
-        workflowTemplateId,
-        upperGarmentFile,
-        faceSideFile,
-        poseFile,
-        backgroundFile,
-        lowerGarmentFile,
-        shoeGarmentFile,
-        thirdGarmentFile,
-        fourthGarmentFile,
-        accessoryGarmentFile,
-        promptFacePhase: effectivePromptFacePhase ?? undefined,
-        promptGarmentPhase: effectivePromptGarmentPhase ?? undefined,
-        aspectRatio: jobAspectRatio,
-        outputWidth: jobOutputWidth,
-        outputHeight: jobOutputHeight,
-      },
-      db,
-      jobLog,
-      snapshotVersion,
-      tmplRoles,
-    );
-
-    // 6. Submit to ComfyUI
-    await transitionJob(
-      db,
-      pub,
-      jobId,
-      userId,
-      'GENERATING',
-      { workerId: w.id },
-      jobLog,
-      cfg.owner,
-    );
-    const comfyStartedAt = Date.now();
-    const {
-      promptId,
-      clientId: clientUuid,
-      attemptId,
-    } = await submitRecordedPhase({
-      db,
-      owner: cfg.owner,
-      jobId,
-      phase: 'main',
-      worker: w,
-      prompt: prompt,
-      log: jobLog,
-      contract: {
-        kind: 'regular',
-        workflowTemplateId: workflowTemplateId,
-        outputNodeId: resultNodeId,
-        inputs: inputs,
-        source: job.source,
-        watermark: job.watermark,
-        timeoutMs: 300_000,
-        finalizer: 'standard',
-        compressionSource: job.source,
-      },
-    });
-    jobLog.info({ promptId }, 'prompt submitted to ComfyUI');
-
-    // Store dispatch summary as a job event so admin can inspect what was sent to ComfyUI.
-    // Full workflow JSON is stored under `prompt` — expand in jobs panel to debug node patches.
-    await db.insert(schema.jobEvents).values({
-      jobId,
-      eventType: 'COMFY_DISPATCH',
-      payload: {
-        promptId,
-        attemptId,
-        clientId: clientUuid,
-        workerId: w.id,
-        workerUrl: w.url,
-        workflowTemplateId,
-        inputs: {
+    const { prompt, resultNodeId } = await measureJobStage(jobLog, 'workflow_patch', () =>
+      patchWorkflow(
+        {
+          workflowTemplateId,
           upperGarmentFile,
           faceSideFile,
           poseFile,
@@ -1060,61 +1049,133 @@ async function processJobOwned(
           lowerGarmentFile,
           shoeGarmentFile,
           thirdGarmentFile,
-          fourthGarmentFile: fourthGarmentFile ?? null,
-          accessoryGarmentFile: accessoryGarmentFile ?? null,
-          promptFacePhase: effectivePromptFacePhase ?? null,
-          promptGarmentPhase: effectivePromptGarmentPhase ?? null,
-          aspectRatio: jobAspectRatio ?? null,
-          outputWidth: jobOutputWidth ?? null,
-          outputHeight: jobOutputHeight ?? null,
-          _r2Keys: {
-            upperGarmentKey: inputs.upperGarmentKey,
-            effectiveUpperGarmentKey,
-            faceSideKey,
-            poseKey,
-            bgKey,
-            lowerKey,
-            shoeKey,
-            thirdGarmentKey: inputs.thirdGarmentKey,
-            fourthGarmentKey: inputs.fourthGarmentKey,
-            accessoryCatalogIds: accessoryCatalogIds.length > 0 ? accessoryCatalogIds : null,
-          },
+          fourthGarmentFile,
+          accessoryGarmentFile,
+          promptFacePhase: effectivePromptFacePhase ?? undefined,
+          promptGarmentPhase: effectivePromptGarmentPhase ?? undefined,
+          aspectRatio: jobAspectRatio,
+          outputWidth: jobOutputWidth,
+          outputHeight: jobOutputHeight,
         },
-        prompt,
-      },
-    });
+        db,
+        jobLog,
+        snapshotVersion,
+        tmplRoles,
+      ),
+    );
+
+    // 6. Submit to ComfyUI
+    await measureJobStage(jobLog, 'generating_status_transition', () =>
+      transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog, cfg.owner),
+    );
+    const comfyStartedAt = Date.now();
+    const {
+      promptId,
+      clientId: clientUuid,
+      attemptId,
+    } = await measureJobStage(jobLog, 'prompt_submission', () =>
+      submitRecordedPhase({
+        db,
+        owner: cfg.owner,
+        jobId,
+        phase: 'main',
+        worker: w,
+        prompt: prompt,
+        log: jobLog,
+        contract: {
+          kind: 'regular',
+          workflowTemplateId: workflowTemplateId,
+          outputNodeId: resultNodeId,
+          inputs: inputs,
+          source: job.source,
+          watermark: job.watermark,
+          timeoutMs: 300_000,
+          finalizer: 'standard',
+          compressionSource: job.source,
+        },
+      }),
+    );
+    jobLog.info({ promptId }, 'prompt submitted to ComfyUI');
+
+    // Store dispatch summary as a job event so admin can inspect what was sent to ComfyUI.
+    // Full workflow JSON is stored under `prompt` — expand in jobs panel to debug node patches.
+    await measureJobStage(jobLog, 'dispatch_event_database_write', () =>
+      db.insert(schema.jobEvents).values({
+        jobId,
+        eventType: 'COMFY_DISPATCH',
+        payload: {
+          promptId,
+          attemptId,
+          clientId: clientUuid,
+          workerId: w.id,
+          workerUrl: w.url,
+          workflowTemplateId,
+          inputs: {
+            upperGarmentFile,
+            faceSideFile,
+            poseFile,
+            backgroundFile,
+            lowerGarmentFile,
+            shoeGarmentFile,
+            thirdGarmentFile,
+            fourthGarmentFile: fourthGarmentFile ?? null,
+            accessoryGarmentFile: accessoryGarmentFile ?? null,
+            promptFacePhase: effectivePromptFacePhase ?? null,
+            promptGarmentPhase: effectivePromptGarmentPhase ?? null,
+            aspectRatio: jobAspectRatio ?? null,
+            outputWidth: jobOutputWidth ?? null,
+            outputHeight: jobOutputHeight ?? null,
+            _r2Keys: {
+              upperGarmentKey: inputs.upperGarmentKey,
+              effectiveUpperGarmentKey,
+              faceSideKey,
+              poseKey,
+              bgKey,
+              lowerKey,
+              shoeKey,
+              thirdGarmentKey: inputs.thirdGarmentKey,
+              fourthGarmentKey: inputs.fourthGarmentKey,
+              accessoryCatalogIds: accessoryCatalogIds.length > 0 ? accessoryCatalogIds : null,
+            },
+          },
+          prompt,
+        },
+      }),
+    );
 
     // 7. Wait for completion via WebSocket (5 min max)
     // Checked each configured history-poll tick — see JOB_CANCEL_KEY_PREFIX comment on the
     // /v1/jobs/:id/cancel route (apps/api) for why only 'tryon'-source jobs
     // can set this flag.
     logSelection(cfg.comfyRedis, w, WORKER_POOL.CATALOGUE, performanceKey ?? '', jobLog);
-    const completion = await observeCompletion(
-      cfg.comfyRedis,
-      w,
-      WORKER_POOL.CATALOGUE,
-      performanceKey ?? '',
-      prompt,
-      jobLog,
-      (totalNodeCount) =>
-        waitForCompletion(
-          w.url,
-          w.apiKey,
-          clientUuid,
-          promptId,
-          300_000,
-          (update) => jobLog.debug(update, 'comfyui progress'),
-          {
-            info: jobLog.info.bind(jobLog),
-            debug: jobLog.debug.bind(jobLog),
-            error: jobLog.error.bind(jobLog),
-            warn: jobLog.warn.bind(jobLog),
-          },
-          async () => (await cfg.comfyRedis.exists(`job:cancel:${jobId}`)) === 1,
-          { comfyRedis: cfg.comfyRedis, workerId: w.id },
-          totalNodeCount,
-          cfg.comfyPollIntervalMs,
-        ),
+    const completion = await measureJobStage(jobLog, 'comfy_completion_observation', () =>
+      observeCompletion(
+        cfg.comfyRedis,
+        w,
+        WORKER_POOL.CATALOGUE,
+        performanceKey ?? '',
+        prompt,
+        jobLog,
+        (totalNodeCount) =>
+          waitForCompletion(
+            w.url,
+            w.apiKey,
+            clientUuid,
+            promptId,
+            300_000,
+            (update) => jobLog.debug(update, 'comfyui progress'),
+            {
+              info: jobLog.info.bind(jobLog),
+              debug: jobLog.debug.bind(jobLog),
+              error: jobLog.error.bind(jobLog),
+              warn: jobLog.warn.bind(jobLog),
+            },
+            async () => (await cfg.comfyRedis.exists(`job:cancel:${jobId}`)) === 1,
+            { comfyRedis: cfg.comfyRedis, workerId: w.id },
+            totalNodeCount,
+            cfg.comfyPollIntervalMs,
+          ),
+      ),
     );
     if (
       await handleCompletionResult(completion, async () => {
@@ -1133,47 +1194,52 @@ async function processJobOwned(
       })
     )
       return;
+    const completionObservedAtMs = Date.now();
     await recordComfyDuration(db, jobId, job.source, comfyStartedAt);
 
     // 8. Fetch output metadata + download image
-    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog, cfg.owner);
-    const outputImages = await fetchHistory(
-      w.url,
-      w.apiKey,
-      promptId,
-      jobLog,
-      resultNodeId ?? undefined,
-      getCompletedHistory(completion),
+    await measureJobStage(jobLog, 'uploading_status_transition', () =>
+      transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog, cfg.owner),
+    );
+    const outputImages = await measureJobStage(jobLog, 'completion_history_parse', () =>
+      fetchHistory(
+        w.url,
+        w.apiKey,
+        promptId,
+        jobLog,
+        resultNodeId ?? undefined,
+        getCompletedHistory(completion),
+      ),
     );
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images');
 
-    const imageBytes = await downloadOutputImage(
-      w.url,
-      w.apiKey,
-      firstImage.filename,
-      firstImage.subfolder,
+    const imageBytes = await measureJobStage(jobLog, 'output_download', () =>
+      downloadOutputImage(w.url, w.apiKey, firstImage.filename, firstImage.subfolder),
     );
 
     // 9. Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     const compression = await getImageCompressionConfig(redis, job.source);
-    const { completed } = await finalizeOutput({
-      owner: cfg.owner,
-      imageBytes,
-      jobId,
-      userId,
-      jobWatermark: job.watermark,
-      compression,
-      db,
-      pub,
-      storage,
-      jobLog,
-    });
+    const { completed } = await measureJobStage(jobLog, 'finalize_output', () =>
+      finalizeOutput({
+        owner: cfg.owner,
+        imageBytes,
+        jobId,
+        userId,
+        jobWatermark: job.watermark,
+        compression,
+        db,
+        pub,
+        storage,
+        jobLog,
+      }),
+    );
     if (!completed) {
       settlePerformanceSample(w, 'cancelled');
       await redis.xack(stream, 'dispatcher-cg', messageId);
       return;
     }
+    await recordTimingEvent(db, jobId, jobLog, completion, completionObservedAtMs);
     settlePerformanceSample(w, 'success');
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt, job.source);

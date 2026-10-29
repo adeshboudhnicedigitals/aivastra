@@ -201,6 +201,66 @@ function EventRow({ ev }: { ev: JobEvent }) {
   );
 }
 
+interface TimingPayload {
+  stagesMs?: Record<string, number>;
+  comfy?: { executionMs: number; detectionLagMs: number; cachedNodeCount: number } | null;
+}
+
+const fmtSeconds = (ms: number) => `${(ms / 1000).toFixed(2)}s`;
+
+/**
+ * Where a completed job's time went. Reads the dispatcher's TIMING event, so jobs
+ * that finished before it existed (or on a path that doesn't write one) show nothing.
+ * Wall-clock total is created→completed; the rows are the measured stages in order.
+ */
+function TimingPanel({ job }: { job: JobDetail }) {
+  const timing = job.events?.find((e) => e.eventType === 'TIMING')?.payload as
+    | TimingPayload
+    | undefined;
+  if (!timing) return null;
+  const stages = timing.stagesMs ?? {};
+  const rows: [string, number | undefined][] = [
+    ['Queued until worker claimed', stages.created_to_worker_claimed],
+    ['Upload inputs to ComfyUI', stages.input_read_and_upload],
+    ['Submit prompt to ComfyUI', stages.prompt_submission],
+    ['ComfyUI generation', timing.comfy?.executionMs],
+    ['Noticed after ComfyUI finished', timing.comfy?.detectionLagMs],
+    ['Download output from ComfyUI', stages.output_download],
+    ['Save result', stages.finalize_output],
+  ];
+  const total =
+    job.completedAt && job.createdAt
+      ? new Date(job.completedAt).getTime() - new Date(job.createdAt).getTime()
+      : undefined;
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <div className="card-head">
+        <h3>Timing</h3>
+      </div>
+      <div className="card-body">
+        <div className="kv-grid-2-col">
+          {rows.map(([label, ms]) => (
+            <KV
+              key={label}
+              k={label}
+              v={
+                ms === undefined ? (
+                  '—'
+                ) : (
+                  <span style={label === 'ComfyUI generation' ? { fontWeight: 600 } : undefined}>
+                    {fmtSeconds(ms)}
+                  </span>
+                )
+              }
+            />
+          ))}
+          {total !== undefined && <KV k="Total" v={<strong>{fmtSeconds(total)}</strong>} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   onNav: (
     _page: string,
@@ -834,9 +894,6 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               <KV k="Status" v={<StatusBadge status={j.status} />} />
               <KV k="Credits charged" v={String(j.creditsCharged)} />
               <KV k="Priority" v={j.priority ? 'Priority' : 'Normal'} />
-              <KV k="Face" v={j.faceLabel ?? '—'} />
-              <KV k="Background" v={j.backgroundLabel ?? '—'} />
-              <KV k="Pose" v={j.poseLabel ?? '—'} />
               <KV k="Workflow" v={j.workflowLabel ?? '—'} />
               <KV k="Worker" v={j.workerId ?? '—'} />
               <KV k="Created" v={fmtTs(j.createdAt)} />
@@ -865,6 +922,8 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               )}
               {j.parentJobId && <KV k="Regenerate reason" v={j.regenerateReason ?? '—'} />}
             </div>
+
+            <TimingPanel job={j} />
 
             {((j.inputImages && Object.values(j.inputImages).some(Boolean)) || j.outputUrl) && (
               <div className="card" style={{ marginBottom: 14 }}>
