@@ -222,6 +222,36 @@ async function readApiResponse<T>(res: Response): Promise<T> {
   return (await readResponseBody(res)) as T;
 }
 
+// Bulk admin actions (e.g. FacesTab's sort/continent/body-type mapping) fire a
+// Promise.all of many individual apiFetch calls. If the access token happens to
+// have expired, every one of them hits a 401 at once and — without this — each
+// would independently POST /admin/auth/refresh, which (a) is pure waste when one
+// refresh covers them all, and (b) can tip the per-IP rate limiter (which does
+// apply to /admin/auth/*, unlike most other /admin/* routes) into 429s on large
+// bulk ops, which this module was treating as a hard session failure and logging
+// the admin out mid-save. Coalescing concurrent 401s onto one in-flight refresh
+// call removes the dependency on the rate limiter entirely, regardless of burst size.
+let _refreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = (async () => {
+    const refreshRes = await fetchApi('/admin/auth/refresh', {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!refreshRes.ok) return null;
+    const { accessToken } = await readApiResponse<{ accessToken: string }>(refreshRes);
+    setToken(accessToken);
+    return accessToken;
+  })();
+  try {
+    return await _refreshPromise;
+  } finally {
+    _refreshPromise = null;
+  }
+}
+
 export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const makeHeaders = (token: string | null): HeadersInit => ({
     ...(init.body != null ? { 'Content-Type': 'application/json' } : {}),
@@ -236,13 +266,8 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   });
 
   if (res.status === 401 && _token) {
-    const refreshRes = await fetchApi('/admin/auth/refresh', {
-      method: 'POST',
-      credentials: 'include',
-    });
-    if (refreshRes.ok) {
-      const { accessToken } = await readApiResponse<{ accessToken: string }>(refreshRes);
-      setToken(accessToken);
+    const accessToken = await refreshAccessToken();
+    if (accessToken) {
       const retry = await fetchApi(path, {
         ...init,
         headers: makeHeaders(accessToken),
@@ -275,13 +300,8 @@ export async function apiFetchBlob(path: string, init: RequestInit = {}): Promis
   });
 
   if (res.status === 401 && _token) {
-    const refreshRes = await fetchApi('/admin/auth/refresh', {
-      method: 'POST',
-      credentials: 'include',
-    });
-    if (refreshRes.ok) {
-      const { accessToken } = await readApiResponse<{ accessToken: string }>(refreshRes);
-      setToken(accessToken);
+    const accessToken = await refreshAccessToken();
+    if (accessToken) {
       const retry = await fetchApi(path, {
         ...init,
         headers: makeHeaders(accessToken),
