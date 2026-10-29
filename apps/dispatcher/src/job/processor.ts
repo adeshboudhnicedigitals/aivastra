@@ -676,6 +676,19 @@ export async function processJob(
       );
   }
 
+  // Resolve blouse: a direct fourthGarmentKey upload takes priority over a
+  // catalog-picked blousePoseId — same fourthNodeId role, upload wins, same
+  // dual-source precedence as lower garment above.
+  let blouseKey: string | null = inputs.fourthGarmentKey ?? null;
+  if (!blouseKey && inputs.blousePoseId) {
+    const [blouseRow] = await db
+      .select({ r2Key: schema.blousePoses.r2Key })
+      .from(schema.blousePoses)
+      .where(eq(schema.blousePoses.id, inputs.blousePoseId));
+    if (blouseRow) blouseKey = blouseRow.r2Key;
+    else jobLog.warn({ blousePoseId: inputs.blousePoseId }, 'blouse pose not found — skipping');
+  }
+
   // 3. Claim a worker
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const performanceKey = tmplRoles ? getPerformanceKey(tmplRoles) : undefined;
@@ -794,7 +807,7 @@ export async function processJob(
     if (lowerKey) baseTasks.push(uploadToComfy(lowerKey, 'lower'));
     if (shoeKey) baseTasks.push(uploadToComfy(shoeKey, 'shoe'));
     if (inputs.thirdGarmentKey) baseTasks.push(uploadToComfy(inputs.thirdGarmentKey, 'third'));
-    if (inputs.fourthGarmentKey) baseTasks.push(uploadToComfy(inputs.fourthGarmentKey, 'fourth'));
+    if (blouseKey) baseTasks.push(uploadToComfy(blouseKey, 'fourth'));
     if (accessoryBytes) {
       baseTasks.push(
         uploadImageToComfy(
@@ -818,7 +831,7 @@ export async function processJob(
     const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
     const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
     const thirdGarmentFile = inputs.thirdGarmentKey ? uploaded[idx++] : undefined;
-    const fourthGarmentFile = inputs.fourthGarmentKey ? uploaded[idx++] : undefined;
+    const fourthGarmentFile = blouseKey ? uploaded[idx++] : undefined;
     const accessoryGarmentFile = accessoryBytes ? uploaded[idx++] : undefined;
     jobLog.info(
       {
@@ -932,6 +945,8 @@ export async function processJob(
             shoeKey,
             thirdGarmentKey: inputs.thirdGarmentKey,
             fourthGarmentKey: inputs.fourthGarmentKey,
+            blousePoseId: inputs.blousePoseId,
+            blouseKey,
             accessoryCatalogIds: accessoryCatalogIds.length > 0 ? accessoryCatalogIds : null,
           },
         },

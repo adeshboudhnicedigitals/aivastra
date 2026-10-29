@@ -172,6 +172,40 @@ export interface BodyType {
   updatedAt: string;
 }
 
+export interface BlouseCategory {
+  id: string;
+  genderSlug: GenderSlug | null;
+  label: string;
+  thumbnailKey: string | null;
+  thumbnailUrl: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  poseCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BlousePose {
+  id: string;
+  categoryId: string;
+  label: string;
+  r2Key: string;
+  r2Url: string | null;
+  thumbnailKey: string | null;
+  thumbnailUrl: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BlouseCategoryGarmentTypeMapping {
+  id: string;
+  label: string;
+  thumbnailUrl: string | null;
+  mapped: boolean;
+}
+
 export interface CatalogueTemplateLook {
   id: string;
   poseAssetId: string;

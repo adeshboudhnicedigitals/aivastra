@@ -1010,6 +1010,39 @@ export const PresignBodyTypeThumbnailBody = z.object({
   contentType: AssetContentType,
 });
 
+// ── Blouse category/pose schemas ──────────────────────────────────────────
+
+export const CreateBlouseCategoryBody = z.object({
+  genderSlug: GenderEnum.nullable().optional(),
+  label: z.string().min(1).max(120),
+  thumbnailKey: z.string().optional(),
+  sortOrder: z.number().int().default(0),
+});
+export const PatchBlouseCategoryBody = z.object({
+  label: z.string().min(1).max(120).optional(),
+  thumbnailKey: z.string().nullable().optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+export const PresignBlouseCategoryThumbnailBody = z.object({
+  contentType: AssetContentType,
+});
+export const PresignBlousePoseBody = z.object({
+  contentType: AssetContentType,
+});
+export const ConfirmBlousePoseBody = z.object({
+  categoryId: z.string().uuid(),
+  label: z.string().min(1).max(120),
+  r2Key: z.string().min(1),
+  thumbnailKey: z.string().min(1),
+  sortOrder: z.number().int().default(0),
+});
+export const PatchBlousePoseBody = z.object({
+  label: z.string().min(1).max(120).optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
 export const AdminHeldJobsResponse = z.object({
   total: z.number().int(),
   byUser: z.array(

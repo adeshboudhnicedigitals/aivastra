@@ -4,6 +4,7 @@ import { ImageLightbox } from '../components/ImageLightbox';
 import type { Toast } from './assets/AssetsContext';
 import { AssetsProvider, useAssetsContext } from './assets/AssetsContext';
 import { BackgroundsTab } from './assets/BackgroundsTab';
+import { BlouseCategoriesTab } from './assets/BlouseCategoriesTab';
 import { BodyTypesTab } from './assets/BodyTypesTab';
 import { CatalogTab } from './assets/CatalogTab';
 import { CatalogueTemplatesTab } from './assets/CatalogueTemplatesTab';
@@ -28,6 +29,7 @@ const TABS = [
   { k: 'accessory' as const, l: 'Accessories' },
   { k: 'catalogue-templates' as const, l: 'Templates' },
   { k: 'body-types' as const, l: 'Body Types' },
+  { k: 'blouse-categories' as const, l: 'Blouse' },
   { k: 'saree-styles' as const, l: 'Saree Styles' },
   { k: 'fabric-garment-types' as const, l: 'Fabric Garment Types' },
 ];
@@ -189,6 +191,7 @@ function AssetsShell() {
       )}
       {activeTab === 'catalogue-templates' && <CatalogueTemplatesTab />}
       {activeTab === 'body-types' && <BodyTypesTab />}
+      {activeTab === 'blouse-categories' && <BlouseCategoriesTab />}
       {activeTab === 'saree-styles' && <SareeStylesTab />}
       {activeTab === 'fabric-garment-types' && <FabricGarmentTypesTab />}
 

@@ -267,6 +267,7 @@ export async function resolveTryonPlan(
     lowerGarmentBackKey,
     thirdGarmentKey,
     fourthGarmentKey,
+    blousePoseId,
     shoeCatalogId,
     accessoryCatalogIds: rawAccessoryCatalogIds,
   } = body.inputs;
@@ -349,6 +350,7 @@ export async function resolveTryonPlan(
     lowerNodeId: string | null;
     shoeNodeId: string | null;
     thirdNodeId: string | null;
+    fourthNodeId: string | null;
     sizeNodeIds: string[] | null;
   } | null = null;
   if (garmentTypeId) {
@@ -363,6 +365,7 @@ export async function resolveTryonPlan(
         sareeStep2LowerNodeId: schema.workflowTemplates.lowerNodeId,
         sareeStep2ShoeNodeId: schema.workflowTemplates.shoeNodeId,
         sareeStep2ThirdNodeId: schema.workflowTemplates.thirdNodeId,
+        sareeStep2FourthNodeId: schema.workflowTemplates.fourthNodeId,
         sareeStep2SizeNodeIds: schema.workflowTemplates.sizeNodeIds,
         sareeStep2Version: schema.workflowTemplates.version,
       })
@@ -384,6 +387,7 @@ export async function resolveTryonPlan(
         lowerNodeId: gtRow?.sareeStep2LowerNodeId ?? null,
         shoeNodeId: gtRow?.sareeStep2ShoeNodeId ?? null,
         thirdNodeId: gtRow?.sareeStep2ThirdNodeId ?? null,
+        fourthNodeId: gtRow?.sareeStep2FourthNodeId ?? null,
         sizeNodeIds: gtRow?.sareeStep2SizeNodeIds ?? null,
       };
     }
@@ -418,6 +422,38 @@ export async function resolveTryonPlan(
       throw new AppError('VALIDATION', 400, 'this garment type does not accept a fourth upload');
     }
     await verifyGarmentKey(app, userId, fourthGarmentKey, opts.trustedGarmentKeys);
+  }
+  // Catalog-picked blouse design — admin-curated, so no ownership check (unlike
+  // the uploads above), but its whole category must be mapped to this job's
+  // garment type (see blouse_category_subcategories), mirroring how a catalog
+  // lower/shoe item is validated against garmentTypeId elsewhere in this file.
+  if (blousePoseId) {
+    if (!garmentTypeId) {
+      throw new AppError('VALIDATION', 400, 'garmentTypeId required to select a blouse pose');
+    }
+    const [poseRow] = await app.db
+      .select({ categoryId: schema.blousePoses.categoryId })
+      .from(schema.blousePoses)
+      .where(and(eq(schema.blousePoses.id, blousePoseId), eq(schema.blousePoses.isActive, true)));
+    if (!poseRow) {
+      throw new AppError('BAD_CATALOG', 400, 'blouse pose not found or inactive');
+    }
+    const [mappingRow] = await app.db
+      .select({ id: schema.blouseCategorySubcategories.id })
+      .from(schema.blouseCategorySubcategories)
+      .where(
+        and(
+          eq(schema.blouseCategorySubcategories.categoryId, poseRow.categoryId),
+          eq(schema.blouseCategorySubcategories.subcategoryId, garmentTypeId),
+        ),
+      );
+    if (!mappingRow) {
+      throw new AppError(
+        'BAD_CATALOG',
+        400,
+        'blouse pose category not mapped to this garment type',
+      );
+    }
   }
 
   // Normalize to a single per-look list. This only rejects "neither form present" —
@@ -832,9 +868,10 @@ export async function resolveTryonPlan(
         lowerNodeId: sareeStep2?.lowerNodeId ?? null,
         shoeNodeId: sareeStep2?.shoeNodeId ?? null,
         thirdNodeId: sareeStep2?.thirdNodeId ?? null,
-        // The two-step saree path has no blouse support; null makes the
-        // fourthGarmentKey check below reject it rather than silently drop it.
-        fourthNodeId: null,
+        // sareeStep2's own fourthNodeId — unset (null) on a template that was
+        // never given a blouse node, which makes the fourthGarmentKey/blousePoseId
+        // check below reject rather than silently drop a selection.
+        fourthNodeId: sareeStep2?.fourthNodeId ?? null,
         sizeNodeIds: sareeStep2?.sizeNodeIds ?? null,
         // Saree/mannequin is out of scope for back-view garments (a back-facing
         // mannequin is a different problem — the mannequin base image itself
@@ -984,6 +1021,16 @@ export async function resolveTryonPlan(
         'VALIDATION',
         400,
         "a fourth garment was provided, but this pose's workflow has no fourth garment node " +
+          'configured — fix pose_garment_configs or workflow_templates.fourthNodeId',
+      );
+    }
+    // Same up-front check as fourthGarmentKey above, for the catalog-picked
+    // blouse pose — same fourthNodeId role, just a different source.
+    if (blousePoseId && !pw.fourthNodeId) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        "a blouse pose was selected, but this pose's workflow has no fourth garment node " +
           'configured — fix pose_garment_configs or workflow_templates.fourthNodeId',
       );
     }
@@ -1159,6 +1206,7 @@ export async function createJob(
     lowerGarmentBackKey,
     thirdGarmentKey: requestedThirdGarmentKey,
     fourthGarmentKey,
+    blousePoseId,
   } = body.inputs;
 
   // mannequinJobId vs. upperGarmentKey is XOR'd by zod, but WHICH one is valid
@@ -1277,6 +1325,7 @@ export async function createJob(
         lowerGarmentKey: look.lowerGarmentKey,
         thirdGarmentKey: thirdGarmentKey ?? null,
         fourthGarmentKey: fourthGarmentKey ?? null,
+        blousePoseId: blousePoseId ?? null,
         shoeCatalogId: look.shoeCatalogId,
         accessoryCatalogIds: look.accessoryCatalogIds,
         userHint: promptGuard(body.userHint),

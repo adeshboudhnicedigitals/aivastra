@@ -8,6 +8,7 @@ import { AppError } from '../../lib/errors.js';
 import { getPixverseVideoPricingConfig } from '../../lib/resolution-config.js';
 import {
   listBackgrounds,
+  listBlouseCategories,
   listCatalogueTemplates,
   listFaces,
   listGarmentTypes,
@@ -265,5 +266,19 @@ export async function modelsRoutes(app: FastifyInstance) {
     },
     async (req) =>
       listCatalogueTemplates(app, req.query as { gender: string; garmentTypeId?: string }),
+  );
+
+  app.get(
+    '/v1/models/blouse-categories',
+    {
+      preHandler: app.requireUserOrCatalogApp,
+      schema: {
+        querystring: z.object({ garmentSubcategoryId: z.string().uuid().optional() }),
+      },
+    },
+    async (req) => {
+      const { garmentSubcategoryId } = req.query as { garmentSubcategoryId?: string };
+      return listBlouseCategories(app, garmentSubcategoryId);
+    },
   );
 }
