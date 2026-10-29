@@ -536,40 +536,59 @@ export async function listPoses(
  * gender plus the ones for everyone. Shared by /v1/models/backgrounds and the
  * WhatsApp bot, which draws one per catalogue.
  */
-export async function listBackgrounds(app: FastifyInstance, gender?: string) {
-  return (
-    app.db
-      .select({
-        id: schema.modelBackgrounds.id,
-        label: schema.modelBackgrounds.label,
-        thumbnailKey: schema.modelBackgrounds.thumbnailKey,
-        isWhiteBg: schema.modelBackgrounds.isWhiteBg,
-        categoryId: schema.modelBackgrounds.categoryId,
-        tags: schema.modelBackgrounds.tags,
-        specialTag: schema.modelBackgrounds.specialTag,
-      })
-      .from(schema.modelBackgrounds)
-      .where(
-        and(
-          eq(schema.modelBackgrounds.isActive, true),
-          isNull(schema.modelBackgrounds.deletedAt),
-          // Template-scoped backgrounds are managed only via their owning
-          // catalogue template — never offered in "create your own look".
-          eq(schema.modelBackgrounds.scope, 'general'),
-          gender
-            ? or(
-                isNull(schema.modelBackgrounds.genderSlug),
-                eq(schema.modelBackgrounds.genderSlug, gender),
-              )
-            : undefined,
-        ),
-      )
-      // Admin-curated position (Assets → Backgrounds → Sort order); label/id break
-      // ties so the picker order is stable instead of Postgres heap order.
-      .orderBy(
-        asc(schema.modelBackgrounds.sortOrder),
-        asc(schema.modelBackgrounds.label),
-        asc(schema.modelBackgrounds.id),
-      )
-  );
+export async function listBackgrounds(
+  app: FastifyInstance,
+  gender?: string,
+  garmentTypeId?: string,
+) {
+  const rows = await app.db
+    .select({
+      id: schema.modelBackgrounds.id,
+      label: schema.modelBackgrounds.label,
+      thumbnailKey: schema.modelBackgrounds.thumbnailKey,
+      isWhiteBg: schema.modelBackgrounds.isWhiteBg,
+      categoryId: schema.modelBackgrounds.categoryId,
+      tags: schema.modelBackgrounds.tags,
+      specialTag: schema.modelBackgrounds.specialTag,
+    })
+    .from(schema.modelBackgrounds)
+    .where(
+      and(
+        eq(schema.modelBackgrounds.isActive, true),
+        isNull(schema.modelBackgrounds.deletedAt),
+        // Template-scoped backgrounds are managed only via their owning
+        // catalogue template — never offered in "create your own look".
+        eq(schema.modelBackgrounds.scope, 'general'),
+        gender
+          ? or(
+              isNull(schema.modelBackgrounds.genderSlug),
+              eq(schema.modelBackgrounds.genderSlug, gender),
+            )
+          : undefined,
+      ),
+    )
+    // Admin-curated position (Assets → Backgrounds → Sort order); label/id break
+    // ties so the picker order is stable instead of Postgres heap order.
+    .orderBy(
+      asc(schema.modelBackgrounds.sortOrder),
+      asc(schema.modelBackgrounds.label),
+      asc(schema.modelBackgrounds.id),
+    );
+
+  // No mapping row for this garment type at all = opt-out (every active general
+  // background stays visible). Once any explicit mapping exists for the type,
+  // only mapped backgrounds are shown — same opt-in-once-explicit pattern as
+  // listFaces above.
+  if (garmentTypeId && rows.length > 0) {
+    const mapped = await app.db
+      .select({ backgroundId: schema.modelBackgroundSubcategories.backgroundId })
+      .from(schema.modelBackgroundSubcategories)
+      .where(eq(schema.modelBackgroundSubcategories.subcategoryId, garmentTypeId));
+    if (mapped.length > 0) {
+      const mappedIds = new Set(mapped.map((m) => m.backgroundId));
+      return rows.filter((r) => mappedIds.has(r.id));
+    }
+  }
+
+  return rows;
 }

@@ -937,6 +937,7 @@ export const PatchGarmentTypeBody = z.object({
   mappedShoeCatalogItemIds: z.array(z.string().uuid()).optional(),
   mappedAccessoryCatalogItemIds: z.array(z.string().uuid()).optional(),
   mappedFaceIds: z.array(z.string().uuid()).optional(),
+  mappedBackgroundIds: z.array(z.string().uuid()).optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
   // Distinct from instructionImageKey above — see the schema column comment

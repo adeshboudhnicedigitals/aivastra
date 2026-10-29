@@ -560,6 +560,24 @@ export const modelFaceSubcategories = pgTable(
   }),
 );
 
+// Many-to-many: which garment subcategories a model background is scoped to. No rows
+// for a subcategory = opt-out (every active 'general' background is shown) — mirrors
+// modelFaceSubcategories's opt-out convention exactly.
+export const modelBackgroundSubcategories = pgTable(
+  'model_background_subcategories',
+  {
+    backgroundId: uuid('background_id')
+      .notNull()
+      .references(() => modelBackgrounds.id, { onDelete: 'cascade' }),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.backgroundId, table.subcategoryId] }),
+  }),
+);
+
 // Admin-curated body-type categories (Slim/Regular/Muscular/Plus Size, etc). Each body
 // type is admin-mapped to a set of garment types/faces/poses (see bodyTypeSubcategories,
 // bodyTypeFaces, bodyTypePoses below); selecting one in the studio wizard filters those

@@ -950,8 +950,11 @@ export default function StudioPage(): React.ReactElement {
     isError: backgroundsError,
     refetch: refetchBackgrounds,
   } = useQuery<BackgroundsResponse>({
-    queryKey: ['backgrounds', gender],
-    queryFn: () => api.get(`/v1/models/backgrounds?gender=${gender}`),
+    queryKey: ['backgrounds', gender, garmentTypeId],
+    queryFn: () =>
+      api.get(
+        `/v1/models/backgrounds?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}`,
+      ),
     enabled: !!gender,
     staleTime: 60_000,
     refetchOnWindowFocus: true,

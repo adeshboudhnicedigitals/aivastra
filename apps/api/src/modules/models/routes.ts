@@ -150,13 +150,14 @@ export async function modelsRoutes(app: FastifyInstance) {
       schema: {
         querystring: z.object({
           gender: z.enum(['men', 'women', 'boys', 'girls']).optional(),
+          garmentTypeId: z.string().uuid().optional(),
         }),
       },
     },
     async (req) => {
-      const { gender } = req.query as { gender?: string };
+      const { gender, garmentTypeId } = req.query as { gender?: string; garmentTypeId?: string };
 
-      const rows = await listBackgrounds(app, gender);
+      const rows = await listBackgrounds(app, gender, garmentTypeId);
 
       return {
         items: await Promise.all(

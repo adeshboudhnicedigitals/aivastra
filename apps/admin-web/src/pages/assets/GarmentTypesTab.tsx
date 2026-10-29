@@ -116,6 +116,7 @@ export function GarmentTypesTab() {
     catalogItems,
     setCatalogItems,
     faces,
+    allBackgrounds,
     loading,
     setPreviewUrl,
     toast,
@@ -1269,6 +1270,7 @@ export function GarmentTypesTab() {
           garmentType={editingSubcat}
           catalogItems={catalogItems}
           faces={faces}
+          backgrounds={allBackgrounds}
           tryonCategories={tryonCategories}
           workflows={workflows}
           onSaved={() => {
