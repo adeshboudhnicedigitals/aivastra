@@ -139,6 +139,50 @@ invalid and was discarded after the pixel check failed. The only large saving fo
 `finalizeOutput` (`apps/dispatcher/src/workflow/finalize.ts`) already re-encodes to lossless or
 lossy WebP for storage, so the stored format is unaffected either way.
 
+### 7. Submit-prompt stage: ComfyUI validation, theory not yet proven (2026-10-29)
+
+The "submit prompt" stage (2.0-2.5s) is almost entirely `POST /prompt`, not the dispatcher.
+Job `c5caac33`: `prompt_submission` 2154 ms = Postgres intent commit 23 ms + `POST /prompt`
+2.12 s + receipt update ~12 ms.
+
+Direct timing against w3 (idle, 5 runs each, from the laptop; nothing was queued):
+
+| Request | Time |
+|---|---|
+| `GET /system_stats` | ~0.31s |
+| `POST /prompt`, empty prompt (instant 400) | ~0.30s |
+| `POST /prompt`, the real 58-node, 16.7 KB prompt with missing input images (400 at validation) | 2.03-2.13s |
+
+So the network and payload cost ~0.3s and ComfyUI spends ~1.75s validating the prompt before
+the run starts.
+
+**Theory (unproven).** `/home/aivastra/com/input` on GPU3 holds 30,461 files (48 GB), 29,859
+of them over a day old; `output` holds 8,573 (45 GB). Nothing cleans them up and the disk is
+89% full. ComfyUI's `LoadImage` lists and `stat`s the whole input folder (`nodes.py:1742`)
+each time it builds its inputs, and the prompt has 6 `LoadImage` nodes. A scan of that folder
+takes 130-190 ms on the box, so 6 scans is about 0.8-1.1s, and validation may scan more than
+once per node. That is the right size for the 1.75s but was not measured end to end.
+
+**What would prove it.** Move (not delete) the old input files to a side folder on GPU3 and
+rerun the rejected-POST timing (`postprobe`-style, same payload). If the theory holds, the POST
+drops toward 0.3-0.5s. If it stays near 2s, validation cost is elsewhere (custom node
+`VALIDATE_INPUTS`, model-list scans) and this theory is wrong.
+
+**If it holds:** about 1.5s saved per job with no dispatcher change, via a cleanup job on each
+GPU box (`aivastra-gpu` repo), such as a cron removing input files older than a day. Keep any
+static inputs that option B would reuse out of the cleanup. Other boxes likely share the
+problem and it grows with every job.
+
+### 8. Production queueing (read-only, 2026-10-29)
+
+Aggregate query on `tryon_prod` (30 days, created_at to first `COMFY_DISPATCH`): 9,238 jobs
+(about 372/day); 47% waited over 15s, 21% over 30s; p50 14.6s, p90 108s, p99 575s. Busiest
+hours 278-312 jobs. Only 3 active workers. The fleet saturates at peak, so every second a
+job holds a worker (upload, submit, poll lag, download, finalize: about 8-10s of roughly
+100-110s total) is lost worker capacity, not just user latency. Caveats: the wait includes
+about 3s of dispatcher setup, bulk catalog batches probably dominate the tail, and the
+figures were not split by job source.
+
 ## Options
 
 The websocket and the upload cache are independent and can ship separately.
