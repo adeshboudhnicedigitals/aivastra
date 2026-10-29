@@ -507,8 +507,12 @@ function ItemPicker({
               onToggleMapped={() => onToggleMapped(c.id)}
               label={c.label}
               onClick={() => {
+                // Picture click only stages the item for bulk selection (handled by
+                // PickerTile itself via onToggleBulk) — it must not also flip the
+                // mapped state, or clicking several tiles to select them for the
+                // "Map/Unmap selected" bulk buttons below mutates each one instantly.
+                // Single-item toggling stays on the dedicated Map/Unmap button.
                 if (!hasDefault) {
-                  onToggleMapped(c.id);
                   return;
                 }
                 if (!isItemMapped) {
@@ -750,7 +754,12 @@ function FacePicker({
               }}
               onToggleMapped={() => onToggleMapped(f.id)}
               label={f.label}
-              onClick={() => onToggleMapped(f.id)}
+              // Picture click only stages the item for bulk selection (PickerTile
+              // itself handles onToggleBulk) — the dedicated Map/Unmap button below
+              // is the only thing that flips a single item's mapped state, so
+              // selecting several tiles for the bulk buttons doesn't mutate each
+              // one on the way there.
+              onClick={() => {}}
             >
               <AssetThumb thumbnailUrl={f.thumbnailUrl} label={f.label} w={88} h={88} />
             </PickerTile>
@@ -955,7 +964,9 @@ function BackgroundPicker({
               }}
               onToggleMapped={() => onToggleMapped(b.id)}
               label={b.label}
-              onClick={() => onToggleMapped(b.id)}
+              // See FacePicker's identical comment above: picture click only stages
+              // bulk selection, it must not also flip the mapped state.
+              onClick={() => {}}
             >
               <AssetThumb thumbnailUrl={b.thumbnailUrl} label={b.label} w={88} h={88} />
             </PickerTile>
