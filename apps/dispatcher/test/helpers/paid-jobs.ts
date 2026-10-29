@@ -18,7 +18,16 @@ export type PaidPathKind = (typeof PAID_PATH_KINDS)[number];
 export const PATH_FIXTURE_KEY = 'inputs/paths/image.jpg';
 
 /** One queued paid job of each shape, with just enough rows for its processor to reach the worker. */
-export async function seedPaidJob(env: TestEnv, kind: PaidPathKind) {
+export async function seedPaidJob(
+  env: TestEnv,
+  kind: PaidPathKind,
+  opts: {
+    /** Widget creation stores `merchantUserId` on the job row (`create-tryon-job.ts`); older fixtures leave it null. */
+    merchantUserOnJob?: boolean;
+    /** `jobs.credits_charged` (default 1; saree_mannequin keeps 0). */
+    cost?: number;
+  } = {},
+) {
   const [user] = await env.db
     .insert(schema.users)
     .values({ email: `${randomUUID()}@test.invalid` })
@@ -106,12 +115,12 @@ export async function seedPaidJob(env: TestEnv, kind: PaidPathKind) {
   const [job] = await env.db
     .insert(schema.jobs)
     .values({
-      userId: merchant || store ? null : user.id,
+      userId: store || (merchant && !opts.merchantUserOnJob) ? null : user.id,
       merchantId: merchant?.id,
       shopifyStoreId: store?.id,
       customerPhotoKey: merchant || store ? key : null,
       status: 'QUEUED',
-      creditsCharged: kind === 'saree_mannequin' ? 0 : 1,
+      creditsCharged: opts.cost ?? (kind === 'saree_mannequin' ? 0 : 1),
     })
     .returning();
   if (!job) throw new Error('missing job');

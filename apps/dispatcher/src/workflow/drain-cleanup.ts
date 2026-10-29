@@ -16,8 +16,8 @@ export async function maybeCleanupArchive(
  * Resolves the workflow template + version a just-terminated job was
  * dispatched against, then runs maybeCleanupArchive for it. Shared by every
  * terminal-transition call site (transitionJob's inline update and
- * terminateJob's separate refund+status transaction — the two places a job
- * actually reaches COMPLETED/FAILED/CANCELLED) so the resolution query lives
+ * settleComfyJob's fenced transaction — the two places a job actually
+ * reaches COMPLETED/FAILED/CANCELLED) so the resolution query lives
  * in exactly one place. Never throws — a failure here must not affect the
  * job-termination path it's called from, so callers can invoke this directly
  * without their own try/catch.

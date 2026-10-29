@@ -5,7 +5,6 @@ import { and, eq, notInArray } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
 import { assertOwnerInTransaction, type OwnerToken } from './ownership.js';
-import { recordSubmissionOutcome } from './submission.js';
 
 export type JobStatus =
   | 'PENDING_MANNEQUIN'
@@ -49,6 +48,12 @@ export async function transitionJob(
   /** Required on every paid-Comfy caller; only the sweeper's and API-adjacent callers omit it. */
   owner?: OwnerToken,
 ): Promise<boolean> {
+  // A paid-Comfy terminal outcome has exactly one door, settleComfyJob, which fences status,
+  // output and refund in one transaction. Letting an owned caller finish a job here would
+  // bypass the refund guard, so it is a programming error rather than a silent path.
+  if (owner && (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED')) {
+    throw new Error(`transitionJob: terminal status ${status} must go through settleComfyJob`);
+  }
   const now = new Date();
   const patch: Record<string, unknown> = { status };
   if (opts.workerId !== undefined) patch.workerId = opts.workerId;
@@ -101,14 +106,6 @@ export async function transitionJob(
     await tx
       .insert(schema.jobEvents)
       .values({ jobId, eventType: status, payload: opts as Record<string, unknown> });
-    await recordSubmissionOutcome(tx, jobId, status, log);
-    // A finished job must not stay "live": an admin retry of it, or the sweeper, would
-    // otherwise find a lease that nothing renews and nothing retires.
-    if (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED')
-      await tx
-        .update(schema.dispatcherJobControl)
-        .set({ ownerRetired: true })
-        .where(eq(schema.dispatcherJobControl.jobId, jobId));
     return rows;
   });
   if (!updated.length) {

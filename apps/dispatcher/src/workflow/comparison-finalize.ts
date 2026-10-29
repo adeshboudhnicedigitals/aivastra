@@ -6,7 +6,8 @@ import {
   type WithDbLock,
 } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { settleAndPublish } from '../job/settlement.js';
 import { type FinalizeOutputOpts, finalizeOutput } from './finalize.js';
 
 /** Hold one session lock across preflight, all object writes, and completion. */
@@ -45,10 +46,15 @@ export async function finalizeComparisonOutput(
       if (current?.status === 'COMPLETED') return { completed: false };
       // A stale delivery still needs a terminal job state before it is ACKed.
       // Missing/expired links cannot grant permission to upload shared inputs.
-      await db
-        .update(schema.jobs)
-        .set({ status: 'CANCELLED', errorCode: 'COMPARISON_INVALID', completedAt: new Date() })
-        .where(and(eq(schema.jobs.id, opts.jobId), eq(schema.jobs.source, 'comparison')));
+      // Fenced like every terminal write: a job a stale delivery finds already FAILED or
+      // CANCELLED is left as it is, and a stale owner cannot cancel a job it no longer owns.
+      // Comparison jobs are created with credits_charged = 0, so there is nothing to refund.
+      await settleAndPublish(
+        { db, pub: opts.pub, log: opts.jobLog },
+        { owner: opts.owner },
+        { kind: 'cancelled', errorCode: 'COMPARISON_INVALID' },
+        { userId: opts.userId },
+      );
       await cleanup();
       return { completed: false };
     }
