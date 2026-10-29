@@ -8,10 +8,11 @@ import { Redis } from 'ioredis';
 import sharp from 'sharp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { processJob } from '../../src/job/processor.js';
-import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
 import { finalizeComparisonOutput } from '../../src/workflow/comparison-finalize.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { forceIdle } from '../helpers/workers.js';
 
 const WORKER_ID = 'test-worker-comparison-finalize';
 const PERSON_NODE_ID = '20';
@@ -56,7 +57,7 @@ describe('comparison output finalization fence', () => {
     vi.restoreAllMocks();
     comfy.resetPrompts();
     comfy.setOptions({ outputBytes: realOutputBytes });
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
   });
 
   async function seedTryonDirectJob() {

@@ -13,7 +13,7 @@ import {
   settlePerformanceSample,
 } from '../perf/observe-completion.js';
 import { performanceKey as getPerformanceKey } from '../perf/performance-key.js';
-import { releaseWorker } from '../worker/registry.js';
+import { releaseReservation, reserveWorker } from '../worker/reserve.js';
 import { selectWorker } from '../worker/selector.js';
 import type { OwnerToken } from './ownership.js';
 import { submitRecordedPhase } from './submission.js';
@@ -26,6 +26,7 @@ export interface MannequinPhaseConfig {
   storage: StorageProvider;
   /** Owner of the paid job this phase runs inside; its intent insert checks it. */
   owner?: OwnerToken;
+  uncertainCheckMs?: number;
 }
 export interface MannequinPhaseParams {
   jobId: string;
@@ -47,7 +48,7 @@ export async function runMannequinPhase(
   cfg: MannequinPhaseConfig,
   params: MannequinPhaseParams,
 ): Promise<MannequinPhaseResult> {
-  const { db, redis, storage } = cfg;
+  const { db, redis, storage, owner } = cfg;
   const { jobId, garmentKey, faceId, mannequinWorkflowTemplateId, jobLog, jobType } = params;
 
   // The intermediate is written by one PutObject after the image has fully
@@ -95,12 +96,18 @@ export async function runMannequinPhase(
     personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
   }
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey, {
+  const reservation = await reserveWorker({
+    db,
+    redis,
+    owner,
     jobId,
+    phase: 'mannequin',
     log: jobLog,
+    select: (token) =>
+      selectWorker(redis, WORKER_POOL.SAREE, performanceKey, { jobId, log: jobLog, token }),
   });
-  if (!worker) return { status: 'no_worker' };
-  const w = worker;
+  if (!reservation) return { status: 'no_worker' };
+  const w = reservation.worker;
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
@@ -137,6 +144,7 @@ export async function runMannequinPhase(
       clientId: clientUuid,
       attemptId,
     } = await submitRecordedPhase({
+      attemptId: reservation.attemptId,
       db,
       owner: cfg.owner,
       jobId,
@@ -241,6 +249,9 @@ export async function runMannequinPhase(
     settlePerformanceSample(w, 'workflow_failure');
     throw err;
   } finally {
-    await releaseWorker(redis, w.id, jobLog);
+    await releaseReservation(
+      { db, redis, uncertainCheckMs: cfg.uncertainCheckMs ?? 90_000, log: jobLog },
+      reservation,
+    );
   }
 }

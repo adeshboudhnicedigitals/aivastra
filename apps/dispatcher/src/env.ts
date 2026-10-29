@@ -59,6 +59,10 @@ const Env = z.object({
   VIDEO_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(5),
   /** ComfyUI history poll cadence. Restart the dispatcher to change it. */
   COMFY_POLL_INTERVAL_MS: z.coerce.number().int().min(250).max(3_000).default(500),
+  /** How long a dead owner's SUBMITTING attempt (no receipt) is searched for in the worker's
+   *  queue/history before the worker is considered free. Phase D reuses the same window as its
+   *  bounded-uncertainty retry deadline, so both must read one value. */
+  COMFY_UNCERTAIN_CHECK_MS: z.coerce.number().int().min(60_000).max(120_000).default(90_000),
   // Always-resident garment-recognition service (aivastra-gpu pipeline/classify-service).
   // Unset → the classify lane falls back to a ComfyUI worker allowing `classify`.
   CLASSIFY_SERVICE_URL: optionalUrl(),

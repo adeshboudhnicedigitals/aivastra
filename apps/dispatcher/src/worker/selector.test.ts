@@ -3,16 +3,18 @@ import type { Logger } from '@aivastra/logger';
 import { workerExternalBusyRejectionsTotal } from '@aivastra/observability';
 import type { Redis } from 'ioredis';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { isQueueGateEnabled, releaseWorkerIfBusy } from './registry.js';
+import { isQueueGateEnabled, releaseWorkerIfToken } from './registry.js';
 import { CLAIM_LUA, selectWorker } from './selector.js';
 
 const moduleLog = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock('@aivastra/logger', () => ({ createLogger: () => moduleLog }));
 vi.mock('./registry.js', () => ({
   REGISTRY_KEY: 'worker:registry',
+  RESERVATIONS_KEY: 'worker:reservations',
+  ADMISSION_KEY: 'worker:admission',
   healthKey: (id: string) => `worker:health:${id}`,
   isQueueGateEnabled: vi.fn(async () => true),
-  releaseWorkerIfBusy: vi.fn(async () => {}),
+  releaseWorkerIfToken: vi.fn(async () => true),
 }));
 const credential = 'selector-log-test-credential';
 const privateQuery = 'selector-private-query';
@@ -52,7 +54,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', fetchMock);
   vi.mocked(isQueueGateEnabled).mockResolvedValue(true);
-  vi.mocked(releaseWorkerIfBusy).mockResolvedValue(undefined);
+  vi.mocked(releaseWorkerIfToken).mockResolvedValue(true);
   fetchMock.mockResolvedValue({
     ok: true,
     json: async () => ({ exec_info: { queue_remaining: 1 } }),
@@ -67,7 +69,7 @@ describe('selector logging context', () => {
   it('omitted context uses the module logger and keeps rejection metric labels', async () => {
     const metric = vi.spyOn(workerExternalBusyRejectionsTotal, 'inc');
     const redis = redisWithClaims();
-    expect(await selectWorker(redis, 'tryon')).toBeNull();
+    expect(await selectWorker(redis, 'tryon', undefined, { token: 'token-1' })).toBeNull();
     expect(moduleLog.info).toHaveBeenCalledWith(
       expect.objectContaining({
         workerId: 'w',
@@ -84,14 +86,17 @@ describe('selector logging context', () => {
     expect(jobLog.info).not.toHaveBeenCalled();
     expect(redis.eval).toHaveBeenCalledWith(
       CLAIM_LUA,
-      3,
+      5,
       'worker:registry',
       'worker:health:',
       'worker:rr_cursor',
+      'worker:reservations',
+      'worker:admission',
       expect.any(String),
       'tryon',
       '',
       '0',
+      'token-1',
     );
     assertNoSecrets();
   });
@@ -115,6 +120,7 @@ describe('selector logging context', () => {
     fetchMock.mockResolvedValue(response);
     expect(
       await selectWorker(redisWithClaims(), 'tryon', undefined, {
+        token: 'token-1',
         jobId: 'job',
         log: jobLog as unknown as Logger,
       }),
@@ -137,6 +143,7 @@ describe('selector logging context', () => {
     });
     try {
       const result = selectWorker(redisWithClaims(), 'tryon', undefined, {
+        token: 'token-1',
         jobId: 'job',
         log: jobLog as unknown as Logger,
       });
@@ -153,14 +160,16 @@ describe('selector logging context', () => {
     }
   });
   it('uses the job logger for persistent release failure without exposing the claim', async () => {
-    vi.mocked(releaseWorkerIfBusy).mockRejectedValue(new Error('release unavailable'));
+    vi.mocked(releaseWorkerIfToken).mockRejectedValue(new Error('release unavailable'));
     expect(
       await selectWorker(redisWithClaims(), 'tryon', undefined, {
+        token: 'token-1',
         jobId: 'job',
         log: jobLog as unknown as Logger,
       }),
     ).toBeNull();
-    expect(releaseWorkerIfBusy).toHaveBeenCalledTimes(2);
+    expect(releaseWorkerIfToken).toHaveBeenCalledTimes(2);
+    expect(releaseWorkerIfToken).toHaveBeenCalledWith(expect.anything(), 'w', 'token-1');
     expect(jobLog.error).toHaveBeenCalledWith(
       expect.objectContaining({ workerId: 'w' }),
       'failed to release unused worker — stuck BUSY until restart',
@@ -172,6 +181,7 @@ describe('selector logging context', () => {
     const redis = redisWithClaims(4);
     expect(
       await selectWorker(redis, 'tryon', undefined, {
+        token: 'token-1',
         jobId: 'job',
         log: jobLog as unknown as Logger,
       }),
@@ -197,10 +207,11 @@ describe('selector logging context', () => {
     vi.mocked(isQueueGateEnabled).mockResolvedValue(false);
     expect(
       await selectWorker(redisWithClaims(), 'tryon', undefined, {
+        token: 'token-1',
         jobId: 'job',
         log: jobLog as unknown as Logger,
       }),
-    ).toEqual({ id: 'w', url: claim[1], apiKey: credential });
+    ).toEqual({ id: 'w', url: claim[1], apiKey: credential, token: 'token-1' });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(jobLog.info).not.toHaveBeenCalled();
     expect(moduleLog.info).not.toHaveBeenCalled();
@@ -213,7 +224,7 @@ describe('selector logging context', () => {
       const source = readFileSync(new URL(path, import.meta.url), 'utf8');
       expect(
         source.match(
-          /selectWorker\(redis, (?:WORKER_POOL\.\w+|pool), performanceKey, \{\s*jobId,\s*log: jobLog,?\s*\}\)/g,
+          /selectWorker\(\s*redis,\s*(?:WORKER_POOL\.\w+|pool),\s*performanceKey,\s*\{\s*jobId,\s*log: jobLog,\s*token\s*\}\s*,?\s*\)/g,
         ),
       ).toHaveLength(expected);
     }

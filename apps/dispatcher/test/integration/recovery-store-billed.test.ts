@@ -6,9 +6,10 @@ import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ProcessorConfig } from '../../src/job/processor.js';
 import { recoverPendingJobs } from '../../src/stream/recovery.js';
-import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { forceIdle } from '../helpers/workers.js';
 
 const WORKER_ID = 'test-worker-recovery-store';
 const STREAM = `jobs:recovery-store-${Date.now()}`;
@@ -158,7 +159,7 @@ describe('recoverPendingJobs — store-billed jobs carry no userId field', () =>
   }
 
   it('reprocesses a stranded Shopify job instead of discarding its message', async () => {
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
     const { jobId } = await seedShopifyJob();
 
     // Exactly the fields customer.routes.ts writes — note the absent userId.

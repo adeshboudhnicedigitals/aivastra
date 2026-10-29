@@ -201,7 +201,8 @@ describe('paid-Comfy ownership flows', () => {
         expect(posts).toBe(0);
         expect(await jobRow(job.id)).toMatchObject({ status: 'PREPROCESSING', attempts: 0 });
         expect(await ledgerCount(job.id)).toBe(0);
-        expect(await attemptRows(job.id)).toHaveLength(0);
+        // Only the PREPARING attempt a reservation is keyed to; no submission was recorded.
+        expect((await attemptRows(job.id)).filter((r) => r.state !== 'PREPARING')).toHaveLength(0);
         expect(xack).not.toHaveBeenCalled();
         expect(await controlRow(job.id)).toMatchObject({ owner_session: sessionX, generation: 2 });
       });

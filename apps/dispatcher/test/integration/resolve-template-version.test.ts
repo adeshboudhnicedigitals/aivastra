@@ -119,8 +119,11 @@ describe('resolveWorkflowTemplateVersion', () => {
       }),
     );
     await routingRedis.set('worker:health:snapshot-worker', '1');
+    await routingRedis.set('worker:admission', '1');
     try {
-      expect((await selectWorker(routingRedis, 'catalogue', key))?.id).toBe('snapshot-worker');
+      expect(
+        (await selectWorker(routingRedis, 'catalogue', key, { token: `t-${Math.random()}` }))?.id,
+      ).toBe('snapshot-worker');
       await env.db
         .update(schema.workflowTemplates)
         .set({

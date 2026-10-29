@@ -608,7 +608,7 @@ describe('typed caller enforcement', () => {
       );
       expect(
         source.match(
-          /selectWorker\(redis, (?:WORKER_POOL\.\w+|pool), performanceKey, \{\s*jobId,\s*log: jobLog,?\s*\}\)/g,
+          /selectWorker\(\s*redis,\s*(?:WORKER_POOL\.\w+|pool),\s*performanceKey,\s*\{\s*jobId,\s*log: jobLog,\s*token\s*\}\s*,?\s*\)/g,
         ),
       ).toHaveLength(file === 'processor' ? 8 : 1);
       for (const site of sites)

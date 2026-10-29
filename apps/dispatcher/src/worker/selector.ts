@@ -9,7 +9,14 @@ import type { WorkerPool } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 import type { SelectionMode } from '../perf/config.js';
 import { NODE_COUNT_RULE_RELIABLE } from '../perf/performance-key.js';
-import { healthKey, isQueueGateEnabled, REGISTRY_KEY, releaseWorkerIfBusy } from './registry.js';
+import {
+  ADMISSION_KEY,
+  healthKey,
+  isQueueGateEnabled,
+  REGISTRY_KEY,
+  RESERVATIONS_KEY,
+  releaseWorkerIfToken,
+} from './registry.js';
 
 const log = createLogger('worker-selector');
 
@@ -20,11 +27,16 @@ const RR_CURSOR_KEY = 'worker:rr_cursor';
 // ARGV[1] = Date.now() timestamp, ARGV[2] = jobType ('catalogue' | 'tryon').
 // ARGV[3] = performance key (empty preserves round-robin).
 // ARGV[4] = reliable executable-node rule available.
-// ARGV[5..] = worker ids to skip this selection cycle (found externally busy).
+// ARGV[5] = reservation token written for the claimed worker.
+// ARGV[6..] = worker ids to skip this selection cycle (found externally busy).
+// KEYS[4] = reservation hash, KEYS[5] = admission marker. A worker that already has a token is
+// never claimable whatever its registry status says (an admin edit can write IDLE over a
+// reserved worker), and nothing is claimable while the registry is not rebuilt.
 // Workers with an empty allowedJobTypes array accept any job type EXCEPT 'inhouse',
 // which only workers that list it explicitly may take. 'classify' is an ordinary pool
 // (D52 revised): dedicate a worker by listing only 'classify' on it.
 export const CLAIM_LUA = `
+if redis.call('EXISTS', KEYS[5]) == 0 then return false end
 local fields = redis.call('HGETALL', KEYS[1])
 local n = #fields / 2
 if n == 0 then return false end
@@ -32,12 +44,12 @@ local cursor = redis.call('INCR', KEYS[3])
 local start = cursor % n
 local jobType = ARGV[2]
 local excluded = {}
-for a = 5, #ARGV do excluded[ARGV[a]] = true end
+for a = 6, #ARGV do excluded[ARGV[a]] = true end
 local candidates = {}
 local rankingReadable = true
 local function candidateAt(i, id)
   local ok, val = pcall(cjson.decode, fields[i+1])
-  if ok and val.status == 'IDLE' and not excluded[id] then
+  if ok and val.status == 'IDLE' and not excluded[id] and redis.call('HEXISTS', KEYS[4], id) == 0 then
     if redis.call('EXISTS', KEYS[2] .. id) == 1 then
       local eligible = true
       local allowed = val.allowedJobTypes
@@ -168,6 +180,7 @@ end
 actual.val.status = 'BUSY'
 actual.val.lastSeen = tonumber(ARGV[1])
 redis.call('HSET', KEYS[1], actual.id, cjson.encode(actual.val))
+redis.call('HSET', KEYS[4], actual.id, ARGV[5])
 return {actual.id, actual.val.url, actual.val.apiKey, preferred.id,
   usable and tostring(scores[actual.id] or baseline) or '',
   usable and tostring(scores[preferred.id] or baseline) or '', mode, tostring(backoffMs)}
@@ -177,6 +190,8 @@ export interface ClaimedWorker {
   id: string;
   url: string;
   apiKey: string;
+  /** The reservation hold written by the claim; every release must present it. */
+  token: string;
   performance?: {
     preferredWorker: string;
     actualWorkerScore?: number;
@@ -218,10 +233,15 @@ async function isComfyQueueEmpty(url: string, apiKey: string): Promise<QueueProb
 
 // A worker stuck BUSY is lost capacity until a dispatcher restart, so retry once and
 // make a persistent failure loud.
-async function releaseUnused(redis: Redis, workerId: string, selectorLog: Logger): Promise<void> {
+async function releaseUnused(
+  redis: Redis,
+  workerId: string,
+  token: string,
+  selectorLog: Logger,
+): Promise<void> {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      await releaseWorkerIfBusy(redis, workerId);
+      await releaseWorkerIfToken(redis, workerId, token);
       return;
     } catch (err) {
       if (attempt === 2) {
@@ -239,8 +259,11 @@ async function releaseUnused(redis: Redis, workerId: string, selectorLog: Logger
 // for the job type — sibling to CLAIM_LUA above rather than a modification of
 // it, since a worker-pinning claim has nothing to do with round-robin cursors
 // or performance ranking and should carry none of that blast radius.
-// ARGV[1] = worker id, ARGV[2] = Date.now() timestamp, ARGV[3] = jobType.
+// ARGV[1] = worker id, ARGV[2] = Date.now() timestamp, ARGV[3] = jobType, ARGV[4] = token.
+// KEYS[3] = reservation hash, KEYS[4] = admission marker (same rules as CLAIM_LUA).
 export const CLAIM_SPECIFIC_LUA = `
+if redis.call('EXISTS', KEYS[4]) == 0 then return false end
+if redis.call('HEXISTS', KEYS[3], ARGV[1]) == 1 then return false end
 local raw = redis.call('HGET', KEYS[1], ARGV[1])
 if not raw then return false end
 local ok, val = pcall(cjson.decode, raw)
@@ -259,6 +282,7 @@ end
 val.status = 'BUSY'
 val.lastSeen = tonumber(ARGV[2])
 redis.call('HSET', KEYS[1], ARGV[1], cjson.encode(val))
+redis.call('HSET', KEYS[3], ARGV[1], ARGV[4])
 return {val.url, val.apiKey}
 `;
 
@@ -275,21 +299,24 @@ export async function selectPreferredWorker(
   jobType: WorkerPool,
   primaryIds: string[],
   fallbackIds: string[],
-  ctx?: { jobId?: string; log?: Logger },
+  ctx: { token: string; jobId?: string; log?: Logger },
 ): Promise<ClaimedWorker | null> {
   const healthPrefix = healthKey(''); // "worker:health:"
-  const selectorLog = ctx?.log ?? log;
+  const selectorLog = ctx.log ?? log;
   const tried: string[] = [];
 
   for (const id of [...primaryIds, ...fallbackIds]) {
     const result = (await redis.eval(
       CLAIM_SPECIFIC_LUA,
-      2,
+      4,
       REGISTRY_KEY,
       healthPrefix,
+      RESERVATIONS_KEY,
+      ADMISSION_KEY,
       id,
       String(Date.now()),
       jobType,
+      ctx.token,
     )) as [string, string] | false | null;
 
     if (!result) {
@@ -297,28 +324,28 @@ export async function selectPreferredWorker(
       continue;
     }
     const [url, apiKey] = result;
-    const claimed: ClaimedWorker = { id, url, apiKey };
+    const claimed: ClaimedWorker = { id, url, apiKey, token: ctx.token };
 
     try {
       if (!(await isQueueGateEnabled(redis, id))) return claimed;
       const probe = await isComfyQueueEmpty(url, apiKey);
       if (probe.available) return claimed;
     } catch (err) {
-      await releaseUnused(redis, id, selectorLog);
+      await releaseUnused(redis, id, ctx.token, selectorLog);
       throw err;
     }
 
     workerExternalBusyRejectionsTotal.inc({ reason: 'queue_not_empty_or_unreadable' });
     selectorLog.info(
-      { workerId: id, jobId: ctx?.jobId, pool: jobType },
+      { workerId: id, jobId: ctx.jobId, pool: jobType },
       'pinned worker busy or unreadable in ComfyUI — trying next pinned worker',
     );
     tried.push(id);
-    await releaseUnused(redis, id, selectorLog);
+    await releaseUnused(redis, id, ctx.token, selectorLog);
   }
 
   selectorLog.info(
-    { pool: jobType, jobId: ctx?.jobId, tried, primaryIds, fallbackIds },
+    { pool: jobType, jobId: ctx.jobId, tried, primaryIds, fallbackIds },
     'no pinned worker (primary or fallback) was claimable',
   );
   return null;
@@ -327,16 +354,16 @@ export async function selectPreferredWorker(
 export async function selectWorker(
   redis: Redis,
   jobType: WorkerPool,
-  performanceKey?: string,
-  ctx?: { jobId?: string; log?: Logger },
+  performanceKey: string | undefined,
+  ctx: { token: string; jobId?: string; log?: Logger },
 ): Promise<ClaimedWorker | null> {
   const healthPrefix = healthKey(''); // "worker:health:"
-  const selectorLog = ctx?.log ?? log;
+  const selectorLog = ctx.log ?? log;
   const excluded: string[] = [];
   const reasons: SkipReason[] = [];
   const noWorker = () => {
     selectorLog.info(
-      { pool: jobType, jobId: ctx?.jobId, skippedWorkers: excluded, reasons },
+      { pool: jobType, jobId: ctx.jobId, skippedWorkers: excluded, reasons },
       'no eligible worker after probes',
     );
     return null;
@@ -346,14 +373,17 @@ export async function selectWorker(
   for (let probes = 0; probes < MAX_QUEUE_PROBES; probes++) {
     const result = (await redis.eval(
       CLAIM_LUA,
-      3,
+      5,
       REGISTRY_KEY,
       healthPrefix,
       RR_CURSOR_KEY,
+      RESERVATIONS_KEY,
+      ADMISSION_KEY,
       String(Date.now()),
       jobType,
       performanceKey ?? '',
       NODE_COUNT_RULE_RELIABLE ? '1' : '0',
+      ctx.token,
       ...excluded,
     )) as [string, string, string, string, string, string, SelectionMode, string] | false | null;
 
@@ -373,6 +403,7 @@ export async function selectWorker(
       id,
       url,
       apiKey,
+      token: ctx.token,
       ...(performanceKey
         ? {
             performance: {
@@ -394,7 +425,7 @@ export async function selectWorker(
       probeMs = Date.now() - probeStartedAt;
       if (probe.available) return claimed;
     } catch (err) {
-      await releaseUnused(redis, id, selectorLog);
+      await releaseUnused(redis, id, ctx.token, selectorLog);
       throw err;
     }
 
@@ -402,7 +433,7 @@ export async function selectWorker(
     selectorLog.info(
       {
         workerId: id,
-        jobId: ctx?.jobId,
+        jobId: ctx.jobId,
         pool: jobType,
         attempt: probes + 1,
         reason: probe.reason,
@@ -414,7 +445,7 @@ export async function selectWorker(
     );
     reasons.push(probe.reason);
     excluded.push(id);
-    await releaseUnused(redis, id, selectorLog);
+    await releaseUnused(redis, id, ctx.token, selectorLog);
     if (selectionMode === 'active') {
       try {
         await redis.set(`worker:probe-backoff:${id}`, '1', 'PX', Number(backoffMs));

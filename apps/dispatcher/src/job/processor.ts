@@ -31,8 +31,8 @@ import {
 import { performanceKey as getPerformanceKey } from '../perf/performance-key.js';
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
-import { releaseWorker } from '../worker/registry.js';
-import { selectPreferredWorker, selectWorker } from '../worker/selector.js';
+import { type Reservation, releaseReservation, reserveWorker } from '../worker/reserve.js';
+import { type ClaimedWorker, selectPreferredWorker, selectWorker } from '../worker/selector.js';
 import { stackAccessoryImages } from '../workflow/accessory-stack.js';
 import { finalizeComparisonOutput } from '../workflow/comparison-finalize.js';
 import { encodeCompressedImage, finalizeOutput } from '../workflow/finalize.js';
@@ -58,6 +58,7 @@ import { transitionJob } from './state.js';
 import { recordAttemptOutcome, submitRecordedPhase } from './submission.js';
 
 const MAX_ATTEMPTS = 2;
+const DEFAULT_UNCERTAIN_CHECK_MS = 90_000;
 const MAX_QUEUE_WAIT_MS = 3 * 60 * 60 * 1000; // 3 h — dead-letter if no worker found this long
 
 // Redis Streams have no reinsert-at-position primitive — a re-XADD after finding no
@@ -234,6 +235,8 @@ export interface ProcessorConfig {
   ownerSession?: string;
   /** Set by processJob once it owns a paid-Comfy job; every owned mutation checks it. */
   owner?: OwnerToken;
+  /** `COMFY_UNCERTAIN_CHECK_MS`; the default applies where a test builds the config by hand. */
+  uncertainCheckMs?: number;
   /**
    * Set by processJob for the PixVerse lane only, which keeps no control row or lease. Settling
    * without an owner is allowed solely under this flag, so a paid-Comfy path that lost its
@@ -250,6 +253,43 @@ export interface ProcessorConfig {
 function requireOwner(cfg: ProcessorConfig): OwnerToken {
   if (!cfg.owner) throw new Error('paid-Comfy completion reached without an ownership token');
   return cfg.owner;
+}
+
+function reserveFor(
+  cfg: ProcessorConfig,
+  args: {
+    jobId: string;
+    log: Logger;
+    select: (token: string) => Promise<ClaimedWorker | null>;
+    phase?: 'main' | 'mannequin';
+  },
+): Promise<Reservation | null> {
+  return reserveWorker({
+    db: cfg.db,
+    redis: cfg.redis,
+    owner: cfg.owner,
+    jobId: args.jobId,
+    phase: args.phase ?? 'main',
+    log: args.log,
+    select: args.select,
+  });
+}
+
+/** Frees the handler's own hold only on evidence; otherwise the reconciler finishes the job. */
+async function releaseHeldWorker(
+  cfg: ProcessorConfig,
+  reservation: Reservation,
+  log: Logger,
+): Promise<void> {
+  await releaseReservation(
+    {
+      db: cfg.db,
+      redis: cfg.redis,
+      uncertainCheckMs: cfg.uncertainCheckMs ?? DEFAULT_UNCERTAIN_CHECK_MS,
+      log,
+    },
+    reservation,
+  );
 }
 
 async function publishPreprocessing(
@@ -888,11 +928,13 @@ async function processJobOwned(
 
   // 3. Claim a worker
   const performanceKey = tmplRoles ? getPerformanceKey(tmplRoles) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey, {
+  const reservation = await reserveFor(cfg, {
     jobId,
     log: jobLog,
+    select: (token) =>
+      selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey, { jobId, log: jobLog, token }),
   });
-  if (!worker) {
+  if (!reservation) {
     // Released held jobs (queuedAt set) can legitimately wait far longer than
     // MAX_QUEUE_WAIT_MS measured from createdAt would allow — createdAt is
     // days old by the time an admin releases a batch. Mirror the sweeper's own
@@ -931,7 +973,7 @@ async function processJobOwned(
     }
     return;
   }
-  const w = worker;
+  const w = reservation.worker;
   jobLog.info({ workerId: w.id }, 'worker claimed');
 
   try {
@@ -1093,6 +1135,7 @@ async function processJobOwned(
       clientId: clientUuid,
       attemptId,
     } = await submitRecordedPhase({
+      attemptId: reservation.attemptId,
       db,
       owner: cfg.owner,
       jobId,
@@ -1291,7 +1334,7 @@ async function processJobOwned(
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
   } finally {
-    await releaseWorker(redis, w.id, jobLog);
+    await releaseHeldWorker(cfg, reservation, jobLog);
   }
 }
 
@@ -1490,16 +1533,19 @@ async function processTryonDirectJob(
   // Set by the dev API only for allowlisted accounts; claims then require a worker that
   // lists 'inhouse', and production pools can never take these jobs in return.
   const pool = params.inhouse === true ? WORKER_POOL.INHOUSE : WORKER_POOL.TRYON;
-  const worker = hasPinnedWorkers
-    ? await selectPreferredWorker(redis, pool, primaryWorkerIds, fallbackWorkerIds, {
-        jobId,
-        log: jobLog,
-      })
-    : await selectWorker(redis, pool, performanceKey, {
-        jobId,
-        log: jobLog,
-      });
-  if (!worker) {
+  const reservation = await reserveFor(cfg, {
+    jobId,
+    log: jobLog,
+    select: (token) =>
+      hasPinnedWorkers
+        ? selectPreferredWorker(redis, pool, primaryWorkerIds, fallbackWorkerIds, {
+            jobId,
+            log: jobLog,
+            token,
+          })
+        : selectWorker(redis, pool, performanceKey, { jobId, log: jobLog, token }),
+  });
+  if (!reservation) {
     if (hasPinnedWorkers) {
       // Caller pinned this job to specific workers — no silent fallback to the
       // normal pool and no requeue/backoff retry loop, per that feature's
@@ -1552,7 +1598,7 @@ async function processTryonDirectJob(
     }
     return;
   }
-  const w = worker;
+  const w = reservation.worker;
   jobLog.info({ workerId: w.id }, 'worker claimed for tryon direct');
 
   try {
@@ -1605,6 +1651,7 @@ async function processTryonDirectJob(
       clientId: clientUuid,
       attemptId,
     } = await submitRecordedPhase({
+      attemptId: reservation.attemptId,
       db,
       owner: cfg.owner,
       jobId,
@@ -1741,7 +1788,7 @@ async function processTryonDirectJob(
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
   } finally {
-    await releaseWorker(redis, w.id, jobLog);
+    await releaseHeldWorker(cfg, reservation, jobLog);
   }
 }
 
@@ -1832,11 +1879,13 @@ async function processRegenerateJob(
   }
 
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.TRYON, performanceKey, {
+  const reservation = await reserveFor(cfg, {
     jobId,
     log: jobLog,
+    select: (token) =>
+      selectWorker(redis, WORKER_POOL.TRYON, performanceKey, { jobId, log: jobLog, token }),
   });
-  if (!worker) {
+  if (!reservation) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
         'no idle tryon worker — regenerate job exceeded max queue wait, terminating with refund',
@@ -1870,7 +1919,7 @@ async function processRegenerateJob(
     }
     return;
   }
-  const w = worker;
+  const w = reservation.worker;
   jobLog.info({ workerId: w.id }, 'worker claimed for regenerate');
 
   try {
@@ -1929,6 +1978,7 @@ async function processRegenerateJob(
       clientId: clientUuid,
       attemptId,
     } = await submitRecordedPhase({
+      attemptId: reservation.attemptId,
       db,
       owner: cfg.owner,
       jobId,
@@ -2058,7 +2108,7 @@ async function processRegenerateJob(
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
   } finally {
-    await releaseWorker(redis, w.id, jobLog);
+    await releaseHeldWorker(cfg, reservation, jobLog);
   }
 }
 
@@ -2170,11 +2220,13 @@ async function processFabricToGarmentJob(
   }
 
   const performanceKey = getPerformanceKey(template);
-  const worker = await selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey, {
+  const reservation = await reserveFor(cfg, {
     jobId,
     log: jobLog,
+    select: (token) =>
+      selectWorker(redis, WORKER_POOL.CATALOGUE, performanceKey, { jobId, log: jobLog, token }),
   });
-  if (!worker) {
+  if (!reservation) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
         'no idle catalogue worker — fabric-to-garment job exceeded max queue wait, terminating with refund',
@@ -2208,7 +2260,7 @@ async function processFabricToGarmentJob(
     }
     return;
   }
-  const w = worker;
+  const w = reservation.worker;
   jobLog.info({ workerId: w.id }, 'worker claimed for fabric_to_garment');
 
   try {
@@ -2260,6 +2312,7 @@ async function processFabricToGarmentJob(
       clientId: clientUuid,
       attemptId,
     } = await submitRecordedPhase({
+      attemptId: reservation.attemptId,
       db,
       owner: cfg.owner,
       jobId,
@@ -2388,7 +2441,7 @@ async function processFabricToGarmentJob(
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
   } finally {
-    await releaseWorker(redis, w.id, jobLog);
+    await releaseHeldWorker(cfg, reservation, jobLog);
   }
 }
 
@@ -2590,11 +2643,14 @@ async function processSareeMannequinJob(
   }
 
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey, {
+  const reservation = await reserveFor(cfg, {
     jobId,
+    phase: 'mannequin',
     log: jobLog,
+    select: (token) =>
+      selectWorker(redis, WORKER_POOL.SAREE, performanceKey, { jobId, log: jobLog, token }),
   });
-  if (!worker) {
+  if (!reservation) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — mannequin job exceeded max queue wait, terminating');
       await terminateJob(
@@ -2626,7 +2682,7 @@ async function processSareeMannequinJob(
     }
     return;
   }
-  const w = worker;
+  const w = reservation.worker;
   jobLog.info({ workerId: w.id }, 'worker claimed for saree mannequin');
 
   try {
@@ -2685,6 +2741,7 @@ async function processSareeMannequinJob(
       clientId: clientUuid,
       attemptId,
     } = await submitRecordedPhase({
+      attemptId: reservation.attemptId,
       db,
       owner: cfg.owner,
       jobId,
@@ -2822,7 +2879,7 @@ async function processSareeMannequinJob(
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
   } finally {
-    await releaseWorker(redis, w.id, jobLog);
+    await releaseHeldWorker(cfg, reservation, jobLog);
   }
 }
 
@@ -2912,11 +2969,13 @@ async function processSareeJob(
   // Saree jobs route to workers with 'saree' in their allowedJobTypes. Workers
   // self-declare this in the workers table (admin can edit from the Workers page).
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey, {
+  const reservation = await reserveFor(cfg, {
     jobId,
     log: jobLog,
+    select: (token) =>
+      selectWorker(redis, WORKER_POOL.SAREE, performanceKey, { jobId, log: jobLog, token }),
   });
-  if (!worker) {
+  if (!reservation) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn('no idle saree worker — job exceeded max queue wait, terminating with refund');
       await terminateJob(
@@ -2948,7 +3007,7 @@ async function processSareeJob(
     }
     return;
   }
-  const w = worker;
+  const w = reservation.worker;
   jobLog.info({ workerId: w.id }, 'worker claimed for saree');
 
   try {
@@ -3001,6 +3060,7 @@ async function processSareeJob(
       clientId: clientUuid,
       attemptId,
     } = await submitRecordedPhase({
+      attemptId: reservation.attemptId,
       db,
       owner: cfg.owner,
       jobId,
@@ -3131,7 +3191,7 @@ async function processSareeJob(
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
   } finally {
-    await releaseWorker(redis, w.id, jobLog);
+    await releaseHeldWorker(cfg, reservation, jobLog);
   }
 }
 
@@ -3338,13 +3398,15 @@ async function processWidgetJob(
   // main studio flow and Shopify jobs use, via selectWorker. See processShopifyJob for
   // the precedent this mirrors.
   const performanceKey = templateRow ? getPerformanceKey(templateRow) : undefined;
-  const worker = await measureJobStage(jobLog, 'worker_selection', () =>
-    selectWorker(redis, WORKER_POOL.MERCHANT, performanceKey, {
+  const reservation = await measureJobStage(jobLog, 'worker_selection', () =>
+    reserveFor(cfg, {
       jobId,
       log: jobLog,
+      select: (token) =>
+        selectWorker(redis, WORKER_POOL.MERCHANT, performanceKey, { jobId, log: jobLog, token }),
     }),
   );
-  if (!worker) {
+  if (!reservation) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
         'no idle merchant worker — job exceeded max queue wait, terminating with widget refund',
@@ -3378,7 +3440,7 @@ async function processWidgetJob(
     }
     return;
   }
-  const w = worker;
+  const w = reservation.worker;
   jobLog.info({ workerId: w.id }, 'worker claimed for merchant widget job');
 
   try {
@@ -3432,6 +3494,7 @@ async function processWidgetJob(
       attemptId,
     } = await measureJobStage(jobLog, 'prompt_submission', () =>
       submitRecordedPhase({
+        attemptId: reservation.attemptId,
         db,
         owner: cfg.owner,
         jobId,
@@ -3621,7 +3684,9 @@ async function processWidgetJob(
       job.source,
     );
   } finally {
-    await measureJobStage(jobLog, 'worker_release', () => releaseWorker(redis, w.id, jobLog));
+    await measureJobStage(jobLog, 'worker_release', () =>
+      releaseHeldWorker(cfg, reservation, jobLog),
+    );
   }
 }
 
@@ -3725,11 +3790,13 @@ async function processShopifyJob(
   // must configure at least one such worker (or one with an empty allowedJobTypes,
   // i.e. "accepts any") for these jobs to ever be picked up — see selectWorker.
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.SHOPIFY, performanceKey, {
+  const reservation = await reserveFor(cfg, {
     jobId,
     log: jobLog,
+    select: (token) =>
+      selectWorker(redis, WORKER_POOL.SHOPIFY, performanceKey, { jobId, log: jobLog, token }),
   });
-  if (!worker) {
+  if (!reservation) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
       jobLog.warn(
         'no idle shopify worker — job exceeded max queue wait, terminating with widget refund',
@@ -3764,7 +3831,7 @@ async function processShopifyJob(
     }
     return;
   }
-  const w = worker;
+  const w = reservation.worker;
   jobLog.info({ workerId: w.id }, 'worker claimed for shopify');
 
   try {
@@ -3817,6 +3884,7 @@ async function processShopifyJob(
       clientId: clientUuid,
       attemptId,
     } = await submitRecordedPhase({
+      attemptId: reservation.attemptId,
       db,
       owner: cfg.owner,
       jobId,
@@ -3960,7 +4028,7 @@ async function processShopifyJob(
       params.storeCapKey,
     );
   } finally {
-    await releaseWorker(redis, w.id, jobLog);
+    await releaseHeldWorker(cfg, reservation, jobLog);
   }
 }
 

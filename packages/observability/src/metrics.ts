@@ -59,6 +59,39 @@ export const dispatcherSettlementsTotal = new Counter({
   registers: [register],
 });
 
+// Worker-reservation reconciliation (Phase C). `outcome` is one of released, held_running,
+// held_unavailable, held_unverified, receipt_discovered, receipt_conflict, skipped_live_owner,
+// cleared_stale or error. Labelled by outcome only: the per-worker view is the gauges below.
+export const dispatcherReservationReconcileTotal = new Counter({
+  name: 'dispatcher_reservation_reconcile_total',
+  help: 'Dispatcher worker-reservation reconcile decisions by outcome',
+  labelNames: ['outcome'] as const,
+  registers: [register],
+});
+
+// The three alerting gauges. All are per worker id and 0 when the condition is absent.
+//  stale: seconds since a held reservation last had a successful queue/history read.
+//  finished_hold: seconds a token has been held for a prompt known to have finished or failed.
+//  unknown_hold: seconds a token has been held with no discovered receipt for its attempt.
+export const dispatcherReservationReconcileStaleSeconds = new Gauge({
+  name: 'dispatcher_reservation_reconcile_stale_seconds',
+  help: 'Seconds since a held worker reservation was last verified against its worker',
+  labelNames: ['worker_id'] as const,
+  registers: [register],
+});
+export const dispatcherReservationFinishedHoldSeconds = new Gauge({
+  name: 'dispatcher_reservation_finished_hold_seconds',
+  help: 'Seconds a worker token has been held for a prompt that already finished or failed',
+  labelNames: ['worker_id'] as const,
+  registers: [register],
+});
+export const dispatcherReservationUnknownHoldSeconds = new Gauge({
+  name: 'dispatcher_reservation_unknown_hold_seconds',
+  help: 'Seconds a worker token has been held with no discovered prompt receipt',
+  labelNames: ['worker_id'] as const,
+  registers: [register],
+});
+
 export const auditLogWriteFailuresTotal = new Counter({
   name: 'audit_log_write_failures_total',
   help: 'Count of failed audit log write attempts inside admin mutation transactions',

@@ -13,8 +13,6 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_TLS_REJECT_UNAUTHO
 }
 
 import { schema } from '@aivastra/db';
-import type { WorkerPool } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
 import { runClassifyConsumer } from './classify/consumer.js';
 import { createServiceResolver } from './classify/service-config.js';
 import { loadEnv } from './env.js';
@@ -32,7 +30,12 @@ import { runSweeper } from './stream/sweeper.js';
 import { runVideoConsumer } from './stream/video-consumer.js';
 import { runWebhooksConsumer } from './stream/webhooks.js';
 import { startHealthMonitor } from './worker/health-monitor.js';
-import { registerWorkers } from './worker/registry.js';
+import {
+  claimDispatcherSession,
+  rebuildWorkerRegistry,
+  releaseDispatcherSession,
+  startReservationReconciler,
+} from './worker/reservation-reconciler.js';
 import { initWatermarkTile } from './workflow/watermark.js';
 
 // Containers here have no IPv6 route, but external hosts we call (ComfyUI
@@ -83,24 +86,27 @@ async function main(): Promise<void> {
   await comfyRedis.connect();
   const storage = makeStorage(env, log);
 
-  // Load workers from DB (source of truth — managed via admin panel)
-  const dbWorkers = await db.select().from(schema.workers).where(eq(schema.workers.isActive, true));
-  const workers = dbWorkers.map((w) => ({
-    id: w.id,
-    url: w.url,
-    apiKey: w.apiKey,
-    // schema.workers.allowedJobTypes is a raw `text[]` column (Drizzle types it as
-    // string[]); values are only constrained to WorkerPool by workerPoolSchema at
-    // the admin API write boundary (apps/api/src/modules/admin/workers.routes.ts),
-    // not by the DB/schema layer itself. Cast here, at the one place a DB read
-    // crosses into the precisely-typed dispatcher registry, rather than widening
-    // WorkerEntry/registerWorkers back to string[].
-    allowedJobTypes: (w.allowedJobTypes ?? []) as WorkerPool[],
-  }));
+  // One live dispatcher per Redis; a SIGKILLed predecessor only delays this until its marker lapses.
+  await claimDispatcherSession(redis, processSession, log);
+
+  // Load workers from DB (source of truth — managed via admin panel). Inactive workers are
+  // registered too, as DRAINING, so a plain admin reactivation finds them after this restart;
+  // unresolved remote work is rebuilt as a hold before any worker is claimable.
+  const loadWorkers = () =>
+    db
+      .select()
+      .from(schema.workers)
+      // schema.workers.allowedJobTypes is a raw `text[]` column (Drizzle types it as string[]);
+      // values are only constrained to WorkerPool by workerPoolSchema at the admin API write
+      // boundary (apps/api/src/modules/admin/workers.routes.ts). rebuildWorkerRegistry casts at
+      // the one place a DB read crosses into the precisely-typed dispatcher registry.
+      .orderBy(schema.workers.createdAt);
+  const allWorkers = await loadWorkers();
+  const workers = allWorkers.filter((w) => w.isActive);
   if (workers.length === 0) {
     log.warn('No active workers found in DB — add workers via admin panel');
   }
-  await registerWorkers(redis, workers);
+  await rebuildWorkerRegistry({ db, redis, log, workers: allWorkers });
   log.info({ workerIds: workers.map((w) => w.id) }, 'workers registered from DB');
 
   // Startup connectivity check — verify each worker is reachable before accepting jobs
@@ -136,6 +142,7 @@ async function main(): Promise<void> {
     storage,
     log,
     ownerSession: processSession,
+    uncertainCheckMs: env.COMFY_UNCERTAIN_CHECK_MS,
   };
   log.info({ session: processSession }, 'dispatcher ownership session started');
 
@@ -145,6 +152,20 @@ async function main(): Promise<void> {
   // Start subsystems
   const stopPerformanceRefresh = startPerformanceRefresh(comfyRedis);
   const stopHealthMonitor = startHealthMonitor(comfyRedis, log);
+  // Immediately, then every 10 s: frees holds whose remote work has ended and keeps the
+  // alert gauges fresh. Also rebuilds the registry if a Redis reset removed it.
+  const stopReservationReconciler = startReservationReconciler(
+    {
+      db,
+      redis,
+      log,
+      uncertainCheckMs: env.COMFY_UNCERTAIN_CHECK_MS,
+      session: processSession,
+    },
+    async () => {
+      await rebuildWorkerRegistry({ db, redis, log, workers: await loadWorkers() });
+    },
+  );
   const stopConsumer = await runConsumer(redis, processorCfg, log);
   // Separate lane: PixVerse video jobs need no GPU worker, so they must not be
   // gated by the GPU consumer's registry-derived in-flight cap.
@@ -202,8 +223,10 @@ async function main(): Promise<void> {
     stopWebhooks();
     stopPerformanceRefresh();
     stopHealthMonitor();
+    stopReservationReconciler();
     stopHealthServer();
     comfyRedis.disconnect();
+    await releaseDispatcherSession(redis, processSession).catch(() => {});
     await closeRedis();
     await closeDb();
     process.exit(0);
