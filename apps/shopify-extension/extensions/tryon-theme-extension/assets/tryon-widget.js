@@ -1884,9 +1884,19 @@
     }, 3000);
   }
 
+  // A merchant who adds the app block wants the button exactly there, so the
+  // block wins and the embed's copy is dropped before anything is placed or
+  // initialised — otherwise the product page would show two buttons.
+  if (document.querySelector('.aivastra-tryon[data-source="block"]')) {
+    const embeds = document.querySelectorAll('.aivastra-tryon[data-source="embed"]');
+    for (let i = 0; i < embeds.length; i++) embeds[i].remove();
+  }
+
   const widgets = document.querySelectorAll('.aivastra-tryon');
   for (let i = 0; i < widgets.length; i++) {
-    placeWhenReady(widgets[i]);
+    // A block is already where the merchant put it; only the embed needs
+    // moving into the product form.
+    if (widgets[i].dataset.source !== 'block') placeWhenReady(widgets[i]);
     // Contained per widget. initWidget reads a good deal of merchant-controlled
     // markup, and a theme that strips or renames one element used to throw out
     // of the whole loop — so one broken block on a page took every other block

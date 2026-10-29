@@ -33,6 +33,13 @@ const SaveContactBody = z.object({
 const TRYON_BLOCK_HANDLE = 'tryon-button';
 
 /**
+ * Handle of the optional app block, `blocks/tryon-button-block.liquid`. Same
+ * rename trap as the embed handle above. When present on a product page it wins
+ * over the embed (tryon-widget.js drops the embed's button).
+ */
+const TRYON_APP_BLOCK_HANDLE = 'tryon-button-block';
+
+/**
  * Pure parse: does the live theme's `config/settings_data.json` (verbatim
  * Admin API content) contain our app embed block, switched on?
  *
@@ -159,6 +166,21 @@ export function buildThemeEditorDeepLink(shopDomain: string, apiKey: string): st
   return (
     `https://${shopDomain}/admin/themes/current/editor` +
     `?context=apps&template=product&activateAppId=${apiKey}/${TRYON_BLOCK_HANDLE}`
+  );
+}
+
+/**
+ * Deep link that opens the product template in the theme editor with the Try It
+ * On app block staged, for merchants who want the button at an exact spot
+ * instead of the embed's automatic placement. Offered from Settings only, after
+ * onboarding — onboarding itself still sends merchants to the embed. The
+ * merchant drags the staged block where they want it and presses Save.
+ * `addAppBlockId` is `{client_id}/{block handle}`.
+ */
+export function buildAppBlockDeepLink(shopDomain: string, apiKey: string): string {
+  return (
+    `https://${shopDomain}/admin/themes/current/editor` +
+    `?template=product&addAppBlockId=${apiKey}/${TRYON_APP_BLOCK_HANDLE}&target=mainSection`
   );
 }
 
@@ -330,6 +352,12 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
       return { url: buildThemeEditorDeepLink(store.shopDomain, app.env.SHOPIFY_API_KEY) };
     },
   );
+
+  app.get('/v1/shopify/theme-block-url', { preHandler: app.requireShopifySession }, (req) => {
+    const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+    if (!app.env.SHOPIFY_API_KEY) throw new AppError('CONFIG', 500, 'SHOPIFY_API_KEY missing');
+    return { url: buildAppBlockDeepLink(store.shopDomain, app.env.SHOPIFY_API_KEY) };
+  });
 
   // On-demand alternative to waiting for a shopper's storefront visit — the
   // "Refresh status" button on the onboarding theme page calls this before

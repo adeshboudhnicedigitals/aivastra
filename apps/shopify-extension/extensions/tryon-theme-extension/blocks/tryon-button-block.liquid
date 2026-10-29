@@ -1,0 +1,66 @@
+{% comment %}
+  Try It On button as an app BLOCK: the merchant drags it into the product
+  template wherever they want it (Theme editor -> product page -> Add block).
+
+  Optional alternative to the app embed (tryon-button.liquid). If both are
+  present the block wins and the embed's button is removed by tryon-widget.js,
+  so a merchant who adds this block never ends up with two buttons. Markup is
+  shared via snippets/tryon-widget.liquid.
+{% endcomment %}
+
+{% render 'tryon-widget', settings: block.settings, source: 'block' %}
+
+{% schema %}
+{
+  "name": "Try It On button",
+  "target": "section",
+  "available_on": {
+    "templates": ["product"]
+  },
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Adding this block replaces the Try It On app embed's button. It is shown exactly where you place it."
+    },
+    {
+      "type": "text",
+      "id": "api_base",
+      "label": "API base URL",
+      "default": "https://app.aivastra.com"
+    },
+    {
+      "type": "text",
+      "id": "promo_text",
+      "label": "Promotional text above button"
+    },
+    {
+      "type": "text",
+      "id": "button_text",
+      "label": "Button text",
+      "default": "Try It On"
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Text color",
+      "default": "#FFFFFF"
+    },
+    {
+      "type": "color",
+      "id": "button_color",
+      "label": "Button color",
+      "default": "#000000"
+    },
+    {
+      "type": "range",
+      "id": "border_radius",
+      "label": "Border radius",
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "unit": "px",
+      "default": 4
+    }
+  ]
+}
+{% endschema %}
