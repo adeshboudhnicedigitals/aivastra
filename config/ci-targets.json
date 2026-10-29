@@ -59,6 +59,7 @@
     }
   ],
   "testablePackages": ["@aivastra/api", "@aivastra/dispatcher"],
+  "testOnlyDependents": { "@aivastra/api": ["@aivastra/dispatcher"] },
   "docsPaths": ["docs/**", "*.md", "LICENSE"],
   "ciPaths": [".github/**", "config/ci-targets.json", "scripts/ci/**", "vitest.config.ts"],
   "infraPaths": ["infra/**"],

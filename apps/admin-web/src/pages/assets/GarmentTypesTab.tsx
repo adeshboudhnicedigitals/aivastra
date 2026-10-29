@@ -2327,6 +2327,19 @@ function PoseConfigsPanel({
   const [editPromptOverrideEnabled, setEditPromptOverrideEnabled] = useState(false);
   const [editSortOrder, setEditSortOrder] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // This panel has no `key` on it, so switching which garment type's configs are
+  // open (sub.id changes) reuses this same instance rather than remounting it —
+  // selectedIds would otherwise still hold pose IDs checked while viewing a
+  // DIFFERENT garment type. Those stale IDs aren't in this type's `items`, so
+  // findIndex-based lookups (e.g. applyMapToGarmentType's sourceRank) silently
+  // miss them, which is how a "map selected poses" action could end up applying
+  // to leftover poses from an earlier view, or dropping sortOrder for ones it
+  // can't find.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on id only, see comment above
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [sub.id]);
   const [bulkWorkflow, setBulkWorkflow] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
   const [multiSortOrder, setMultiSortOrder] = useState<number | ''>(1);
@@ -2488,30 +2501,34 @@ function PoseConfigsPanel({
           return [id, res.items] as const;
         }),
       );
-      await Promise.all(
-        entries.map(([poseId, configs]) => {
-          const cfg = configs.find((c) => c.id === mapTargetId);
-          // Carry the pose's current effective rank in this garment type across
-          // to the target. items is already in effective sort order (per-type
-          // override wins over global), so findIndex + 1 gives the 1-based
-          // position the admin sees — the same source of truth openEdit uses.
-          const sourceRank = items.findIndex((i) => i.id === poseId) + 1;
-          return apiFetch(`/admin/assets/garment-types/${mapTargetId}/pose-configs/${poseId}`, {
-            method: 'PATCH',
-            body: JSON.stringify({
-              workflowTemplateId: cfg?.config?.workflowTemplateId ?? null,
-              promptGarmentPhase: cfg?.config?.promptGarmentPhase ?? null,
-              promptFacePhase: cfg?.config?.promptFacePhase ?? null,
-              isActive: true,
-              // Only send sortOrder when the pose is actually in the current
-              // list (sourceRank > 0). Poses that aren't in items (shouldn't
-              // happen, but defensive) get no position override, preserving
-              // existing target order rather than silently placing them at 0.
-              ...(sourceRank > 0 ? { sortOrder: sourceRank } : {}),
-            }),
-          });
-        }),
-      );
+      // Sequential, not Promise.all: a sortOrder PATCH re-snapshots and rewrites
+      // EVERY mapped pose's position for mapTargetId in one transaction (see the
+      // API route). Firing these concurrently races that snapshot-and-shift logic
+      // against itself on the same subcategory rows — no row locking guards it —
+      // so batches above the shared DB pool size (`max: 10`) would deadlock and
+      // silently drop everything past whichever ~10 happened to win the race.
+      for (const [poseId, configs] of entries) {
+        const cfg = configs.find((c) => c.id === mapTargetId);
+        // Carry the pose's current effective rank in this garment type across
+        // to the target. items is already in effective sort order (per-type
+        // override wins over global), so findIndex + 1 gives the 1-based
+        // position the admin sees — the same source of truth openEdit uses.
+        const sourceRank = items.findIndex((i) => i.id === poseId) + 1;
+        await apiFetch(`/admin/assets/garment-types/${mapTargetId}/pose-configs/${poseId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            workflowTemplateId: cfg?.config?.workflowTemplateId ?? null,
+            promptGarmentPhase: cfg?.config?.promptGarmentPhase ?? null,
+            promptFacePhase: cfg?.config?.promptFacePhase ?? null,
+            isActive: true,
+            // Only send sortOrder when the pose is actually in the current
+            // list (sourceRank > 0). Poses that aren't in items (shouldn't
+            // happen, but defensive) get no position override, preserving
+            // existing target order rather than silently placing them at 0.
+            ...(sourceRank > 0 ? { sortOrder: sourceRank } : {}),
+          }),
+        });
+      }
       toast({
         title: `${selectedIds.length} pose${selectedIds.length !== 1 ? 's' : ''} mapped to ${
           garmentTypeOptions.find((g) => g.id === mapTargetId)?.label ?? 'garment type'

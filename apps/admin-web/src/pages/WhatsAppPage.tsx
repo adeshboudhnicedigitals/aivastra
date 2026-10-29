@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../components/Icons';
-import { ImageLightbox } from '../components/ImageLightbox';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { useUrlState } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../lib/data';
-import { AssetsProvider, useAssetsContext } from './assets/AssetsContext';
-import { WhatsappPosesTab } from './assets/WhatsappPosesTab';
 import GarmentRecognitionsPage from './GarmentRecognitionsPage';
 import { BasketsTab } from './whatsapp/BasketsTab';
 import { ConversationsTab } from './whatsapp/ConversationsTab';
@@ -41,7 +38,6 @@ interface LogItem {
 const TABS = [
   { id: 'overview', label: 'Classifier' },
   { id: 'baskets', label: 'Baskets' },
-  { id: 'whatsapp-poses', label: 'Poses' },
   { id: 'requests', label: 'Requests' },
   { id: 'conversations', label: 'Conversations' },
   { id: 'logs', label: 'Logs' },
@@ -708,19 +704,6 @@ function Logs({ toast }: Props) {
   );
 }
 
-// The poses tab was built against the Assets page's shared context (workflow
-// list, toast, preview lightbox), so it keeps that provider rather than being
-// rewritten; it is mounted only on this tab so the other tabs load nothing extra.
-function PosesPane() {
-  const { previewUrl, setPreviewUrl } = useAssetsContext();
-  return (
-    <>
-      <WhatsappPosesTab embedded />
-      {previewUrl && <ImageLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />}
-    </>
-  );
-}
-
 export default function WhatsAppPage({ toast }: Props) {
   const [tabParam, setTab] = useUrlState('tab');
   const tab: TabId = TABS.some((t) => t.id === tabParam) ? (tabParam as TabId) : 'overview';
@@ -767,11 +750,6 @@ export default function WhatsAppPage({ toast }: Props) {
 
       {tab === 'overview' && <Overview toast={toast} />}
       {tab === 'baskets' && <BasketsTab toast={toast} />}
-      {tab === 'whatsapp-poses' && (
-        <AssetsProvider toast={toast}>
-          <PosesPane />
-        </AssetsProvider>
-      )}
       {tab === 'requests' && <GarmentRecognitionsPage toast={toast} embedded />}
       {tab === 'conversations' && <ConversationsTab toast={toast} />}
       {tab === 'logs' && <Logs toast={toast} />}

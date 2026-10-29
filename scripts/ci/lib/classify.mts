@@ -164,7 +164,13 @@ export function classify(input: ClassifyInput): DetectResult {
   result.changedPackages = [...changedPackages].sort();
 
   const testable = new Set(config.testablePackages);
-  result.testTargets = result.affectedPackages.filter((pkg) => testable.has(pkg));
+  const tested = new Set(result.affectedPackages.filter((pkg) => testable.has(pkg)));
+  for (const pkg of result.affectedPackages) {
+    for (const dependent of config.testOnlyDependents?.[pkg] ?? []) {
+      if (testable.has(dependent)) tested.add(dependent);
+    }
+  }
+  result.testTargets = [...tested].sort();
 
   return result;
 }

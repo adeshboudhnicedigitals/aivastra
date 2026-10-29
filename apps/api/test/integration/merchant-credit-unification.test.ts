@@ -3,8 +3,9 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getTryonCreditCost } from '../../src/lib/resolution-config.js';
+import { cancelJobAndRefund, refund } from '../../src/modules/credits/ledger.js';
 import { createMerchantTryonJob } from '../../src/modules/merchant/create-tryon-job.js';
-import { atomicMerchantDeduct, merchantRefund } from '../../src/modules/merchant/ledger.js';
+import { atomicMerchantDeduct } from '../../src/modules/merchant/ledger.js';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
 import { createTestMerchant, createTestTryonCategory } from '../helpers/merchant.js';
@@ -51,8 +52,8 @@ describe('merchant credit unification', () => {
     const merchant = await createTestMerchant(app, { balance: 100 });
     const jobId = randomUUID();
 
-    await merchantRefund(app.db, merchant.merchantId, 25, jobId, 'JOB_FAIL_REFUND');
-    await merchantRefund(app.db, merchant.merchantId, 25, jobId, 'JOB_FAIL_REFUND');
+    await refund(app.db, merchant.userId, 25, jobId, 'JOB_FAIL_REFUND');
+    await refund(app.db, merchant.userId, 25, jobId, 'JOB_FAIL_REFUND');
 
     const [credits] = await app.db
       .select({ balance: schema.userCredits.balance })
@@ -65,6 +66,33 @@ describe('merchant credit unification', () => {
       .from(schema.creditLedger)
       .where(eq(schema.creditLedger.jobId, jobId));
     expect(ledger).toHaveLength(1);
+  });
+
+  it('a zero-cost cancel claims the job but writes no ledger row', async () => {
+    const merchant = await createTestMerchant(app, { balance: 100 });
+    const jobId = await createMerchantTryonJob(app, {
+      merchantId: merchant.merchantId,
+      merchantUserId: merchant.userId,
+      upperGarmentKey: 'test/garment.jpg',
+      customerPhotoKey: 'test/photo.jpg',
+      workflowTemplateId: workflowTemplateId,
+    });
+    const ledgerBefore = await app.db
+      .select()
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.jobId, jobId));
+
+    const result = await cancelJobAndRefund(app.db, {
+      jobId,
+      userId: merchant.userId,
+      amount: 0,
+      refundReason: 'REFUND_CANCELLED',
+    });
+
+    expect(result.claimed).toBe(true);
+    expect(
+      await app.db.select().from(schema.creditLedger).where(eq(schema.creditLedger.jobId, jobId)),
+    ).toHaveLength(ledgerBefore.length);
   });
 
   it('deducting more than the balance throws and leaves the balance untouched', async () => {

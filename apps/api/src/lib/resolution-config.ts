@@ -98,17 +98,6 @@ export async function getResolutionTierConfig(
   }
 }
 
-/** The workflow every WhatsApp bot job runs, from `config:system` (admin: WhatsApp Poses tab). */
-export async function getWhatsappTryonWorkflowId(app: FastifyInstance): Promise<string | null> {
-  try {
-    const raw = await app.redis.get(CONFIG_KEY);
-    const id = (raw ? JSON.parse(raw) : {}).whatsappTryon?.workflowTemplateId;
-    return typeof id === 'string' ? id : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Reads the admin-configured credit cost for a virtual try-on job (simple
  * tryon + saree) from the same `config:system` Redis key the admin panel

@@ -2,9 +2,12 @@ import { type DB, type DbTransaction, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { ComfyPromptHttpError, submitPrompt } from '../comfyui/client.js';
+import { assertOwnerInTransaction, type OwnerToken } from './ownership.js';
 
 interface SubmissionOptions {
   db: DB;
+  /** Present for every paid-Comfy submit; classify has no owner. */
+  owner?: OwnerToken;
   jobId?: string;
   requestId?: string;
   phase: 'main' | 'mannequin' | 'classify';
@@ -34,6 +37,8 @@ export async function submitRecordedPhase(opts: SubmissionOptions): Promise<{
         .where(eq(schema.jobs.id, jobId))
         .for('update');
       if (!job) throw new Error('submission job not found');
+      // jobs is already locked above, matching the lock order everywhere else.
+      if (opts.owner) await assertOwnerInTransaction(tx, opts.owner, `submit:${phase}`);
     } else {
       // Classify has no charged jobs row and records its result after execution.
       await tx.execute(
@@ -69,6 +74,17 @@ export async function submitRecordedPhase(opts: SubmissionOptions): Promise<{
       })
       .returning({ id: schema.executionAttempts.id, clientId: schema.executionAttempts.clientId });
     if (!row) throw new Error('submission intent insert returned no row');
+    // The only attempt allowed to publish is the newest one under the current owner.
+    if (opts.owner)
+      await tx
+        .update(schema.dispatcherJobControl)
+        .set({ activeAttemptId: row.id })
+        .where(
+          and(
+            eq(schema.dispatcherJobControl.jobId, opts.owner.jobId),
+            eq(schema.dispatcherJobControl.ownerSession, opts.owner.session),
+          ),
+        );
     if (jobId)
       await tx.insert(schema.jobEvents).values({
         jobId,
@@ -139,40 +155,35 @@ function isDefiniteRejection(err: unknown): boolean {
 }
 
 /**
- * Telemetry only; the caller's existing transaction still decides the job.
+ * Records how the job's active attempt ended, inside the caller's transaction.
  *
- * Phase A only: the attempt row is a record, so it runs in a savepoint and a
- * failure is logged instead of rolling back the terminal transition. Phase B2
- * makes the attempt authoritative for settlement; remove the savepoint then.
+ * The attempt row is authoritative for settlement (plan §3), so there is no savepoint: a
+ * failed write rolls the whole settlement or yield back instead of being logged and lost.
+ * It targets `control.active_attempt_id` rather than "latest by attempt_no", and verifies
+ * the attempt belongs to this job. Only attempts that reached ACCEPTED or OUTPUT_READY move;
+ * one still SUBMITTING stays so adoption can search for its prompt.
  */
-export async function recordSubmissionOutcome(
+export async function recordAttemptOutcome(
   tx: DB | DbTransaction,
   jobId: string,
-  status: string,
-  log: Logger,
+  status: 'COMPLETED' | 'FAILED' | 'CANCELLED',
 ): Promise<void> {
-  if (!['COMPLETED', 'FAILED', 'CANCELLED'].includes(status)) return;
-  try {
-    await tx.transaction(async (sp) => {
-      await sp
-        .update(schema.executionAttempts)
-        .set({
-          state: status === 'COMPLETED' ? 'SUCCEEDED' : 'FAILED',
-          updatedAt: new Date(),
-          // Failure/cancel/retry may leave a remote prompt alive. Do not certify it ended.
-          ...(status === 'COMPLETED' ? { resolvedAt: new Date() } : {}),
-        })
-        .where(
-          and(
-            eq(
-              schema.executionAttempts.id,
-              sql`(select id from execution_attempts where job_id = ${jobId} order by attempt_no desc limit 1)`,
-            ),
-            inArray(schema.executionAttempts.state, ['ACCEPTED', 'OUTPUT_READY']),
-          ),
-        );
-    });
-  } catch (err) {
-    log.warn({ err, jobId, status }, 'could not record submission outcome');
-  }
+  await tx
+    .update(schema.executionAttempts)
+    .set({
+      state: status === 'COMPLETED' ? 'SUCCEEDED' : 'FAILED',
+      updatedAt: new Date(),
+      // Failure/cancel/retry may leave a remote prompt alive. Do not certify it ended.
+      ...(status === 'COMPLETED' ? { resolvedAt: new Date() } : {}),
+    })
+    .where(
+      and(
+        eq(schema.executionAttempts.jobId, jobId),
+        eq(
+          schema.executionAttempts.id,
+          sql`(select active_attempt_id from dispatcher_job_control where job_id = ${jobId})`,
+        ),
+        inArray(schema.executionAttempts.state, ['ACCEPTED', 'OUTPUT_READY']),
+      ),
+    );
 }
