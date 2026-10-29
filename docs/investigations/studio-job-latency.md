@@ -117,6 +117,28 @@ What it shows:
   went idle after about 90 seconds. That supports w3 being shared, which is one explanation for the
   118s queue wait in `be786fbe`.
 
+### 6. Smaller output, lossless only (option D)
+
+Quality comes first, so only lossless re-encodes were tried, on three real outputs (3.7–5.4 MB PNG),
+with decoded pixels compared byte for byte against the original. Encode times are from a 16-core
+laptop with sharp 0.33; the GPU box's CPU was not measured.
+
+| Re-encode (pixels identical) | Size vs ComfyUI PNG | Encode time | Transfer saved at 1.65 MB/s |
+|---|---|---|---|
+| PNG, sharp default levels 4–9 | 32–39% **larger** | 0.3–1.4s | none, it is worse |
+| PNG, level 9 with adaptive filtering | 13% smaller | 5.7–17s | about 0.4s |
+| WebP lossless, effort 4 | 31–34% smaller | 2.4–7.4s | 0.7–1.1s |
+
+ComfyUI's own PNGs are already smaller than anything sharp's PNG encoder produces, so there is no
+free PNG recompression. Lossless WebP is the only real saving (about a third), and its encode time
+is two to seven times what it saves. Two measurement notes: sharp's PNG `effort` option silently
+turns on a 256-colour palette, which is lossy, so the first set of PNG numbers (55–66% smaller) was
+invalid and was discarded after the pixel check failed. The only large saving found is lossy WebP
+(134 KB at quality 90), which is ruled out by the quality requirement.
+
+`finalizeOutput` (`apps/dispatcher/src/workflow/finalize.ts`) already re-encodes to lossless or
+lossy WebP for storage, so the stored format is unaffected either way.
+
 ## Options
 
 The websocket and the upload cache are independent and can ship separately.
@@ -126,15 +148,88 @@ The websocket and the upload cache are independent and can ship separately.
 | A. Websocket completion signal, `/history` kept as fallback | about 2s | Moderate: `comfyui/progress.ts` needs a socket client, reconnect, silence timeout and cancel handling; polling stays so reliability is unchanged | About 2s faster per job |
 | B. Skip re-uploading static inputs (stable name per asset hash, upload only if the worker lacks it) | about 1–2.5s | Moderate: per-worker knowledge of what is present, a changed asset needs a new name, worker input folders can be cleaned or a worker replaced | About 1–2.5s faster, less MinIO read |
 | C. Fewer or overlapped requests (start the upload while the worker is being selected, send the prompt without waiting for the upload to settle where safe) | up to about 1s | Higher: ordering invariants around ownership and submission | Small |
-| D. Smaller output over the wire (lossless WebP saved by the workflow) | about 0.6s per MB removed; needs a size test on real outputs | Changes the GPU repo (`aivastra-gpu`) and the finalize step | Faster download, same quality if lossless |
+| D. Smaller output over the wire, lossless only (re-encode on the GPU box) | nothing: the encode costs more than the transfer saves (section 6) | Changes the GPU repo (`aivastra-gpu`) and the finalize step | Slower, not faster |
 | E. Faster tunnel / different transport | not shown | Large; HTTP/2 and parallel ranges gave nothing | None demonstrated |
+| G. Worker talks to storage directly (presigned pull and push through a custom node or sidecar). Called C in a separate review | Estimate from that review: about 4s or more. Not measured here. Overlaps B for inputs | Largest: 7 boxes and the workflow change in `aivastra-gpu`, w3 must reach storage, presigned URL expiry and size limits | Biggest latency win if the path from w3 to storage is faster than the path through the dispatcher; not shown |
+| H. Release the worker before download and finalize. Called D in that review | Estimate: about 3s of throughput per queued job, nothing for a single idle job. Not measured here | Small, dispatcher only; worker accounting and failure paths need care | Only helps when jobs queue behind each other |
 | F. RPC protocol to workers | not shown | Large; the cost is the per-request hop and w3's stall, not framing | None demonstrated |
 
 Recommendation: A and B first (about 3.3–4s of the 8–10s). D is the only download lever the VPS test
 leaves open, because the limit is w3's outbound bandwidth: next, measure that bandwidth on GPU3 and
 the size of a lossless WebP for a real output before deciding.
 
+### Assessment of G and H against the measurements
+
+- **G does not shorten the output path.** The limit is the 248 ms distance between GPU3 and the VPS,
+  not Cloudflare or the box. A push from w3 to storage on the VPS sends from GPU3 over that same path
+  in the same direction as today's download, so it would run at the same 1.4–2 MB/s. G would only help
+  if storage sat close to GPU3, which moves the problem to the dispatcher and the user's fetch.
+- **G's input side is mostly B.** Once static inputs stop being re-sent, the remaining input bytes
+  are the 21 KB garment, so G adds almost nothing there. Its "4s or more" counts the 1.4s that B
+  already gets plus the 2.3–3.2s download, and the download part is the unproven one.
+- **G keeps quality and removes the dispatcher from the byte path.** `finalizeOutput` would read
+  the original from storage on the same host instead of from w3.
+- **H matches the code's shape.** The worker stays busy from selection to finish, so the GPU sits
+  idle during the download and finalize (about 2.7–3.1s). It does not shorten a single job.
+- **H needs a failure check.** Today a failed download retries only the download. After an early
+  release the output must still be on w3's disk when the retry runs, and the next job's traffic
+  competes with it.
+
+### Where the download limit comes from (measured 2026-10-29, w3 idle)
+
+GPU3 checks, same 3.89 MB output:
+
+| Path | Result |
+|---|---|
+| ComfyUI direct on the box (`127.0.0.1:8339`) | 5 ms, about 700 MB/s |
+| nginx on the box | 26 ms, about 145 MB/s |
+| The box's own public hostname (through Cloudflare) | 0.12–0.15s, 25–32 MB/s |
+| Box to Cloudflare, 8 MB upload | 22–32 MB/s |
+| Cloudflare to box, 10 MB download | 14–58 MB/s |
+
+From the production VPS:
+
+| Path | Result |
+|---|---|
+| Ping VPS to GPU3 | **248 ms** round trip, 0% loss |
+| Download through Cloudflare | 2.31–2.36s, about 1.65 MB/s (response starts after 0.56–0.84s) |
+| Download straight to the origin, no Cloudflare | 2.73s, 2.78s, 4.91s, about 1.4 MB/s (0.25s to connect, response starts after 1.0s) |
+| Small request straight to the origin | 0.75–0.80s (connect 0.25s plus TLS plus response) |
+| Straight to the origin with 1, 2, 4, 8 parallel streams | 2.8s, 2.5s, 2.35s, 2.1s |
+| Through Cloudflare with 1, 4, 8 streams | 2.36s, 2.68s, 2.12s |
+
+Conclusions:
+- **The box, its software and its line are not the limit.** w3 serves itself and Cloudflare at
+  25 MB/s or more.
+- **Cloudflare is not the limit and does not slow it.** Going straight to the origin is slower
+  (about 1.4 MB/s, and every new connection pays about 0.75s of handshake), so a different tunnel
+  or a direct path would not help.
+- **Distance is the limit.** The VPS and GPU3 are 248 ms apart. One TCP stream over that path moves
+  about 1.4–2 MB/s, and eight parallel streams only reach about 3.5 MB/s. About 1s of each download
+  is waiting for the response to start; the rest is moving bytes.
+- **GPU3 sends with `cubic`** (`bbr` is not in its available list; `reno cubic` only), the `pfifo_fast`
+  queue and a 4 MB send-buffer ceiling.
+
+### BBR on GPU3 (tested, no gain)
+
+GPU3 was switched to `bbr` + `fq` (confirmed with `sysctl`), then the VPS download was rerun against
+the same 3.9 MB output:
+
+| Path | cubic (before) | bbr (after) |
+|---|---|---|
+| Cloudflare, 1 stream | 2.31-2.36s | 2.25-2.96s (about 1.3-1.7 MB/s) |
+| Direct to origin, 1 stream | 2.73-2.78s (4.91s once) | 2.78-2.85s (about 1.4 MB/s) |
+| Direct, 8 streams | 2.1s | 2.07-2.15s |
+
+The 248 ms RTT is unchanged. Congestion control is not the limit, so the ceiling is the path and
+only sending fewer bytes or moving them closer will help. Revert (runtime only) with
+`sudo sysctl -w net.ipv4.tcp_congestion_control=cubic net.core.default_qdisc=pfifo_fast`.
+
 ## Open questions
+
+- ComfyUI generation time for the same workflow varied from 47s to 150s across today's jobs
+  (46.7s, 61.5s, 80.1s, 93.2s, 150.5s), more than all the transfer stages combined. Cause not
+  established; w3 was seen busy with a job from outside the local stack.
 
 - Why does the dispatcher poll instead of using the websocket? `docs/progress.md` and CLAUDE.md say
   it is deliberate; the reason was not found. Ask before building A.
