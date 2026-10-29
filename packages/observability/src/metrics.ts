@@ -50,6 +50,15 @@ export const dispatcherOwnershipEventsTotal = new Counter({
   registers: [register],
 });
 
+// One fenced settlement per paid-Comfy terminal outcome. result: settled, already_terminal
+// or lost; status: the outcome requested (COMPLETED, FAILED or CANCELLED).
+export const dispatcherSettlementsTotal = new Counter({
+  name: 'dispatcher_settlements_total',
+  help: 'Dispatcher fenced job settlements by result and requested status',
+  labelNames: ['result', 'status'] as const,
+  registers: [register],
+});
+
 export const auditLogWriteFailuresTotal = new Counter({
   name: 'audit_log_write_failures_total',
   help: 'Count of failed audit log write attempts inside admin mutation transactions',

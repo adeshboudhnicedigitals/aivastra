@@ -15,7 +15,7 @@ import {
   PIXVERSE_QUALITIES,
   WORKER_POOL,
 } from '@aivastra/types';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { downloadOutputImage, fetchHistory, uploadImageToComfy } from '../comfyui/client.js';
 import { handleCompletionResult } from '../comfyui/completion-result.js';
@@ -35,7 +35,6 @@ import { releaseWorker } from '../worker/registry.js';
 import { selectPreferredWorker, selectWorker } from '../worker/selector.js';
 import { stackAccessoryImages } from '../workflow/accessory-stack.js';
 import { finalizeComparisonOutput } from '../workflow/comparison-finalize.js';
-import { checkAndCleanupArchiveForJob } from '../workflow/drain-cleanup.js';
 import { encodeCompressedImage, finalizeOutput } from '../workflow/finalize.js';
 import { patchWorkflow } from '../workflow/patcher.js';
 import { resolveWorkflowTemplateVersion } from '../workflow/resolve-template-version.js';
@@ -54,8 +53,9 @@ import {
   untrackOwnedJob,
   yieldComfyJob,
 } from './ownership.js';
+import { settleAndPublish } from './settlement.js';
 import { transitionJob } from './state.js';
-import { recordSubmissionOutcome, submitRecordedPhase } from './submission.js';
+import { recordAttemptOutcome, submitRecordedPhase } from './submission.js';
 
 const MAX_ATTEMPTS = 2;
 const MAX_QUEUE_WAIT_MS = 3 * 60 * 60 * 1000; // 3 h — dead-letter if no worker found this long
@@ -234,6 +234,16 @@ export interface ProcessorConfig {
   ownerSession?: string;
   /** Set by processJob once it owns a paid-Comfy job; every owned mutation checks it. */
   owner?: OwnerToken;
+}
+
+/**
+ * Completion of a paid-Comfy job goes through the fenced settlement, which needs the owner.
+ * Reaching it without one is a bug, so it fails loudly instead of falling back to an
+ * unfenced transition.
+ */
+function requireOwner(cfg: ProcessorConfig): OwnerToken {
+  if (!cfg.owner) throw new Error('paid-Comfy completion reached without an ownership token');
+  return cfg.owner;
 }
 
 async function publishPreprocessing(
@@ -1218,7 +1228,7 @@ async function processJobOwned(
     // 9. Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
-      owner: cfg.owner,
+      owner: requireOwner(cfg),
       imageBytes,
       jobId,
       userId,
@@ -1702,7 +1712,7 @@ async function processTryonDirectJob(
     // Compression); tryon/api_tryon/merchant_tryon default to enabled q90.
     const compression = await getImageCompressionConfig(redis, job.source);
     const finalization = {
-      owner: cfg.owner,
+      owner: requireOwner(cfg),
       imageBytes,
       jobId,
       userId,
@@ -2025,7 +2035,7 @@ async function processRegenerateJob(
 
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
-      owner: cfg.owner,
+      owner: requireOwner(cfg),
       imageBytes,
       jobId,
       userId,
@@ -2357,7 +2367,7 @@ async function processFabricToGarmentJob(
 
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
-      owner: cfg.owner,
+      owner: requireOwner(cfg),
       imageBytes,
       jobId,
       userId,
@@ -2793,7 +2803,7 @@ async function processSareeMannequinJob(
     // Mannequin images are never delivered to the user — no watermark applies.
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
-      owner: cfg.owner,
+      owner: requireOwner(cfg),
       imageBytes,
       jobId,
       userId,
@@ -3104,7 +3114,7 @@ async function processSareeJob(
     // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
-      owner: cfg.owner,
+      owner: requireOwner(cfg),
       imageBytes,
       jobId,
       userId,
@@ -3577,7 +3587,12 @@ async function processWidgetJob(
 
     // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
     const completed = await measureJobStage(jobLog, 'completed_status_transition', () =>
-      transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog, cfg.owner),
+      settleAndPublish(
+        { db, pub, log: jobLog },
+        settleAuthority(cfg, jobId),
+        { kind: 'completed', output: { resultKey } },
+        { userId: '' },
+      ).then((r) => r.kind === 'settled'),
     );
     if (!completed) {
       settlePerformanceSample(w, 'cancelled');
@@ -3932,7 +3947,7 @@ async function processShopifyJob(
 
     const compression = await getImageCompressionConfig(redis, job.source);
     const { resultKey, completed } = await finalizeOutput({
-      owner: cfg.owner,
+      owner: requireOwner(cfg),
       imageBytes,
       jobId,
       userId: '',
@@ -3976,11 +3991,15 @@ async function processShopifyJob(
   }
 }
 
+/** Same fence for every lane: the owned paid-Comfy paths and the ownerless PixVerse lane. */
+const settleAuthority = (cfg: ProcessorConfig, jobId: string) =>
+  cfg.owner ? { owner: cfg.owner } : { unowned: { jobId } };
+
 async function markWidgetFailed(
   cfg: ProcessorConfig,
   jobId: string,
   merchantId: string,
-  creditsCharged: number,
+  _creditsCharged: number,
   stream: string,
   messageId: string,
   errorCode: string,
@@ -3990,44 +4009,20 @@ async function markWidgetFailed(
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
-  // Refund to the merchant's owning user — one credit pool per human. Kiosk jobs
-  // carry jobs.user_id = null (the shopper is anonymous), so the billing owner is
-  // resolved through the merchants row rather than read off the job.
-  await db.transaction(async (tx) => {
-    if (cfg.owner) await assertOwnerInTransaction(tx, cfg.owner, 'markWidgetFailed');
-    const [owner] = await tx
-      .select({ userId: schema.merchants.userId })
-      .from(schema.merchants)
-      .where(eq(schema.merchants.id, merchantId))
-      .limit(1);
-    if (!owner?.userId) {
-      // Throwing aborts the transaction AND this function before the caller
-      // transitions the job to FAILED or ACKs the stream message — a job that
-      // silently loses its refund is worse than one that stays pending for
-      // recovery/XPENDING redelivery. merchants.userId is NOT NULL in the
-      // schema, so this only fires on a genuine data-integrity anomaly.
-      throw new Error(`markWidgetFailed: merchant ${merchantId} has no owning user (job ${jobId})`);
-    }
-    const existing = await tx
-      .select()
-      .from(schema.creditLedger)
-      .where(
-        and(
-          eq(schema.creditLedger.jobId, jobId),
-          eq(schema.creditLedger.reason, 'JOB_FAIL_REFUND'),
-        ),
-      );
-    if (existing.length) return;
-    await tx
-      .update(schema.userCredits)
-      .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
-      .where(eq(schema.userCredits.userId, owner.userId));
-    await tx
-      .insert(schema.creditLedger)
-      .values({ userId: owner.userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
-  });
-
-  await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode }, log, cfg.owner);
+  // Refund to the merchant's owning user (one credit pool per human) happens inside the
+  // settlement transaction, which resolves the payer from the job's merchant. Kiosk-shaped
+  // jobs with a null jobs.user_id are billed the same way.
+  const settled = await settleAndPublish(
+    { db, pub, log },
+    settleAuthority(cfg, jobId),
+    { kind: 'failed', errorCode },
+    { userId: '' },
+  );
+  if (settled.kind !== 'settled') {
+    // Already finished (an API cancel won): nothing to announce, refund or release.
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    return;
+  }
   await pub.publish(
     `sse:events:widget:${merchantId}`,
     JSON.stringify({ jobId, type: 'STATUS', status: 'FAILED', errorCode }),
@@ -4056,7 +4051,7 @@ async function markShopifyFailed(
   cfg: ProcessorConfig,
   jobId: string,
   shopifyStoreId: string,
-  creditsCharged: number,
+  _creditsCharged: number,
   stream: string,
   messageId: string,
   errorCode: string,
@@ -4068,40 +4063,19 @@ async function markShopifyFailed(
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
-  // tryon.creditCost is admin-tunable and can legitimately be 0 — skipping the
-  // ledger write entirely (not just writing a zero-delta row) keeps the
-  // ledger free of phantom JOB_FAIL_REFUND rows with a zero delta, which
-  // would otherwise pollute the admin ledger view on every failed job billed
-  // at zero cost. The status transition below still runs unconditionally
-  // regardless. Mirrors the equivalent guard on the non-Shopify refund path
-  // (terminateJob, below).
-  if (creditsCharged > 0) {
-    await db.transaction(async (tx) => {
-      if (cfg.owner) await assertOwnerInTransaction(tx, cfg.owner, 'markShopifyFailed');
-      const existing = await tx
-        .select()
-        .from(schema.shopifyCreditLedger)
-        .where(
-          and(
-            eq(schema.shopifyCreditLedger.jobId, jobId),
-            eq(schema.shopifyCreditLedger.reason, 'JOB_FAIL_REFUND'),
-          ),
-        );
-      if (existing.length) return;
-      await tx
-        .update(schema.shopifyStoreCredits)
-        .set({ balance: sql`${schema.shopifyStoreCredits.balance} + ${creditsCharged}` })
-        .where(eq(schema.shopifyStoreCredits.storeId, shopifyStoreId));
-      await tx.insert(schema.shopifyCreditLedger).values({
-        storeId: shopifyStoreId,
-        delta: creditsCharged,
-        reason: 'JOB_FAIL_REFUND',
-        jobId,
-      });
-    });
+  // tryon.creditCost is admin-tunable and can legitimately be 0; the settlement writes no
+  // ledger row at zero cost, so the ledger stays free of phantom zero-delta refunds.
+  const settled = await settleAndPublish(
+    { db, pub, log },
+    settleAuthority(cfg, jobId),
+    { kind: 'failed', errorCode },
+    { userId: '', shopifyStoreId },
+  );
+  if (settled.kind !== 'settled') {
+    // An API cancel already finished this job and released its cap slot.
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    return;
   }
-
-  await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode, shopifyStoreId }, log, cfg.owner);
   // The credits are back; give the merchant's daily-cap slot back too. A
   // try-on that failed did not run, and the cap counts try-ons that ran.
   // Idempotent per jobId, so a redelivered message cannot inflate the cap.
@@ -4115,8 +4089,9 @@ async function markShopifyFailed(
 
 // Shared terminal path: refund credits + mark FAILED atomically, then ACK.
 // Called by both markFailed (pre-flight) and handleFailure (max retries).
-// The refund and status transition share one DB transaction so a crash between
-// them can't leave the job refunded-but-not-failed or failed-but-not-refunded.
+// Status, terminal event, refund and attempt record share one fenced transaction
+// (settleComfyJob), so a crash can't leave the job refunded-but-not-failed or the reverse,
+// and a job an admin already cancelled is neither rewritten nor refunded again.
 // SSE publish is after the transaction — best-effort; clients reconnect on miss.
 async function terminateJob(
   cfg: ProcessorConfig,
@@ -4125,99 +4100,23 @@ async function terminateJob(
   stream: string,
   messageId: string,
   errorCode: string,
-  creditsCharged: number,
+  _creditsCharged: number,
   _log: Logger,
   startedAt: number,
   jobType: string | null,
   status: 'FAILED' | 'CANCELLED' = 'FAILED',
 ): Promise<void> {
   const { db, redis, pub } = cfg;
-  const now = new Date();
-  const refundReason = status === 'CANCELLED' ? 'JOB_CANCEL_REFUND' : 'JOB_FAIL_REFUND';
 
-  const transitioned = await db.transaction(async (tx) => {
-    // Before the first write: a stale process must neither refund nor fail the job.
-    if (cfg.owner) await assertOwnerInTransaction(tx, cfg.owner, `terminate:${status}`);
-    const [job] = await tx
-      .select({ status: schema.jobs.status })
-      .from(schema.jobs)
-      .where(eq(schema.jobs.id, jobId))
-      .for('update');
-    if (!job || job.status === 'COMPLETED') return false;
-    const [priorRefund] = await tx
-      .select({ id: schema.creditLedger.id })
-      .from(schema.creditLedger)
-      .where(
-        and(
-          eq(schema.creditLedger.jobId, jobId),
-          inArray(schema.creditLedger.reason, [
-            'JOB_FAIL_REFUND',
-            'JOB_CANCEL_REFUND',
-            'REFUND_ADMIN_CANCEL',
-          ]),
-        ),
-      )
-      .limit(1);
-    // Insert ledger row first — unique index on (job_id, reason) prevents double-refund.
-    // A conflict (already refunded, e.g. this job was retried via admin after a prior
-    // terminal fail) must only skip the balance update — the status transition below
-    // still has to run, or the job is left orphaned in a non-terminal status forever.
-    if (creditsCharged > 0 && !priorRefund) {
-      const inserted = await tx
-        .insert(schema.creditLedger)
-        .values({ userId, delta: creditsCharged, reason: refundReason, jobId })
-        .onConflictDoNothing()
-        .returning({ id: schema.creditLedger.id });
-      if (inserted.length) {
-        await tx
-          .update(schema.userCredits)
-          .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
-          .where(eq(schema.userCredits.userId, userId));
-      }
-    }
-
-    // Status transition — inlined so it's atomic with the refund above
-    await tx
-      .update(schema.jobs)
-      .set({
-        status,
-        errorCode: status === 'CANCELLED' ? null : errorCode,
-        completedAt: now,
-      } as Parameters<ReturnType<typeof tx.update>['set']>[0])
-      .where(eq(schema.jobs.id, jobId));
-    await tx.insert(schema.jobEvents).values({
-      jobId,
-      eventType: status,
-      payload: (status === 'CANCELLED' ? {} : { errorCode }) as Record<string, unknown>,
-    });
-    await recordSubmissionOutcome(tx, jobId, status, _log);
-    // Finished jobs hold no lease: see transitionJob.
-    await tx
-      .update(schema.dispatcherJobControl)
-      .set({ ownerRetired: true })
-      .where(eq(schema.dispatcherJobControl.jobId, jobId));
-    return true;
-  });
-  if (!transitioned) {
-    await redis.xack(stream, 'dispatcher-cg', messageId);
-    return;
-  }
-
-  // SSE publish after commit — not critical, clients reconnect on miss
-  const ssePayload = JSON.stringify(
-    status === 'CANCELLED'
-      ? { jobId, userId, type: 'STATUS', status: 'CANCELLED' }
-      : { jobId, userId, type: 'STATUS', status: 'FAILED', errorCode },
+  const settled = await settleAndPublish(
+    { db, pub, log: _log },
+    settleAuthority(cfg, jobId),
+    status === 'CANCELLED' ? { kind: 'cancelled' } : { kind: 'failed', errorCode },
+    { userId },
   );
-  await Promise.all([
-    pub.publish(`sse:events:${userId}`, ssePayload),
-    pub.publish('sse:events:admin', ssePayload),
-  ]);
-
   await redis.xack(stream, 'dispatcher-cg', messageId);
+  if (settled.kind !== 'settled') return;
   recordJobOutcome(status === 'CANCELLED' ? 'cancelled' : 'failed', startedAt, jobType);
-
-  await checkAndCleanupArchiveForJob(db, jobId, _log);
 }
 
 async function handleFailure(
@@ -4281,7 +4180,7 @@ async function handleFailure(
     } else {
       await db.transaction(async (tx) => {
         await tx.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-        await recordSubmissionOutcome(tx, jobId, 'FAILED', log);
+        await recordAttemptOutcome(tx, jobId, 'FAILED');
       });
     }
     await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);

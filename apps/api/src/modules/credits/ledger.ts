@@ -1,7 +1,8 @@
 import type { DB, DbTransaction } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { creditsDeductedTotal, creditsRefundedTotal } from '@aivastra/observability';
-import { and, eq, gte, inArray, sql } from 'drizzle-orm';
+import { JOB_REFUND_REASONS } from '@aivastra/types';
+import { and, eq, gte, inArray, notInArray, sql } from 'drizzle-orm';
 import { AppError } from '../../lib/errors.js';
 import { getActiveUnlimitedPlan } from './unlimited-plan.js';
 
@@ -64,6 +65,58 @@ export async function applyRefundTx(
   return true;
 }
 
+// A job in one of these states is finished: a cancel must not rewrite it or refund it.
+const TERMINAL_JOB_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED'];
+
+/**
+ * Cancel a job and return its credits in ONE transaction, for cancels that can reach a job
+ * the dispatcher is still running (admin cancel of an in-flight job, widget cancel).
+ *
+ * The status claim is a conditional UPDATE, so a cancel that races the dispatcher's own
+ * terminal write is a no-op rather than a refund of a job that completed (the customer
+ * keeps the image AND gets the credits) or a rewrite of a FAILED job. The claim also locks
+ * the jobs row, which is the lock the dispatcher's settlement takes first, so either side
+ * can win once. The refund is skipped when ANY refund reason already exists for the job.
+ * `userId` null (a job with no billing owner) claims the status and refunds nothing.
+ */
+export async function cancelJobAndRefund(
+  db: DB,
+  p: {
+    jobId: string;
+    userId: string | null;
+    amount: number;
+    refundReason: string;
+    errorCode?: string;
+  },
+): Promise<{ claimed: boolean }> {
+  const result = await db.transaction(async (tx) => {
+    const claimed = await tx
+      .update(schema.jobs)
+      .set({ status: 'CANCELLED', ...(p.errorCode ? { errorCode: p.errorCode } : {}) })
+      .where(
+        and(eq(schema.jobs.id, p.jobId), notInArray(schema.jobs.status, TERMINAL_JOB_STATUSES)),
+      )
+      .returning({ id: schema.jobs.id });
+    if (!claimed.length) return { claimed: false, refunded: false };
+    if (!p.userId) return { claimed: true, refunded: false };
+    const [prior] = await tx
+      .select({ id: schema.creditLedger.id })
+      .from(schema.creditLedger)
+      .where(
+        and(
+          eq(schema.creditLedger.jobId, p.jobId),
+          inArray(schema.creditLedger.reason, [...JOB_REFUND_REASONS]),
+        ),
+      )
+      .limit(1);
+    if (prior) return { claimed: true, refunded: false };
+    const refunded = await applyRefundTx(tx, p.userId, p.amount, p.jobId, p.refundReason);
+    return { claimed: true, refunded };
+  });
+  if (result.refunded) creditsRefundedTotal.inc(p.amount);
+  return { claimed: result.claimed };
+}
+
 export async function refund(
   db: DB,
   userId: string,
@@ -85,11 +138,7 @@ export async function refund(
         .where(
           and(
             eq(schema.creditLedger.jobId, jobId),
-            inArray(schema.creditLedger.reason, [
-              'JOB_FAIL_REFUND',
-              'JOB_CANCEL_REFUND',
-              'REFUND_ADMIN_CANCEL',
-            ]),
+            inArray(schema.creditLedger.reason, [...JOB_REFUND_REASONS]),
           ),
         )
         .limit(1);

@@ -209,6 +209,13 @@ describe('test targets', () => {
   it('selects no test targets for a frontend-only change', () => {
     expect(run(['apps/admin-web/src/App.tsx']).testTargets).toEqual([]);
   });
+
+  it('tests the dispatcher, without deploying it, when only the API changes', () => {
+    // Its settlement tests import apps/api credit helpers by relative path.
+    const result = run(['apps/api/src/modules/credits/ledger.ts']);
+    expect(result.services).toEqual(['api']);
+    expect(result.testTargets).toEqual(['@aivastra/api', '@aivastra/dispatcher']);
+  });
 });
 
 describe('reasons', () => {
