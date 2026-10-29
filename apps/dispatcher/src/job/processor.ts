@@ -43,11 +43,15 @@ import { runMannequinPhase } from './mannequin-phase.js';
 import {
   acquireComfyJob,
   assertOwnerInTransaction,
+  isTerminalStatus,
   noteOwnershipLost,
   OwnershipLostError,
   type OwnerToken,
   processSession,
+  retireOwnership,
   takeoverComfyJob,
+  trackOwnedJob,
+  untrackOwnedJob,
   yieldComfyJob,
 } from './ownership.js';
 import { transitionJob } from './state.js';
@@ -171,10 +175,18 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
     // QUEUED while this process still holds the lease: the 10s sleep below is covered
     // by the renewal interval, and a duplicate delivery sees LiveOwner, not a free job.
     const owner = args.owner;
-    await db.transaction(async (tx) => {
-      await assertOwnerInTransaction(tx, owner, 'requeue:queued');
+    const finished = await db.transaction(async (tx) => {
+      const status = await assertOwnerInTransaction(tx, owner, 'requeue:queued');
+      if (isTerminalStatus(status)) return true;
       await tx.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+      return false;
     });
+    if (finished) {
+      jobLog.info('job finished before its requeue — ACKing without re-adding it');
+      await retireOwnership(db, owner);
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
   } else {
     await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
   }
@@ -182,7 +194,17 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
   // Retire authority before publishing, so the replacement message — which may be
   // consumed immediately — finds no live owner. A lost yield means a newer owner
   // exists: publish nothing and ACK nothing.
-  if (args.owner && (await yieldComfyJob(db, args.owner, {}, jobLog)) === 'lost') return;
+  if (args.owner) {
+    const yielded = await yieldComfyJob(db, args.owner, {}, jobLog);
+    if (yielded === 'lost') return;
+    if (yielded === 'terminal') {
+      // Cancelled while we slept (the user cancel route only cancels QUEUED jobs):
+      // acknowledge, but never put a refunded job back on the queue.
+      jobLog.info('job finished during the no-worker wait — ACKing without re-adding it');
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
+  }
   await redis.xadd(
     targetStream,
     'MAXLEN',
@@ -239,15 +261,50 @@ export async function processJob(
   messageId: string,
   retryCount = 0,
 ): Promise<void> {
+  let owned: OwnerToken | undefined;
   try {
-    await processJobOwned(cfg, jobId, userId, stream, messageId, retryCount);
+    await processJobOwned(cfg, jobId, userId, stream, messageId, retryCount, (owner) => {
+      owned = owner;
+      trackOwnedJob(owner, { db: cfg.db, log: cfg.log });
+    });
   } catch (err) {
     if (!(err instanceof OwnershipLostError)) throw err;
     // Another process owns this job now. Do not fail, refund or ACK it: the new
     // owner may hold the same PEL entry, and XACK is not per consumer.
     if (err.owner) noteOwnershipLost(cfg.log, err.owner, err.site);
     else cfg.log.warn({ jobId, site: err.site }, 'ownership lost — stopping work on this job');
+  } finally {
+    // Whatever the exit — success, ownership loss or an unexpected error that is about
+    // to propagate — this handler is done with the job. Stop renewing it and retire its
+    // lease (generation-matched, so a newer owner is untouched), so a job whose handler
+    // died is visible to the sweeper and recovery again instead of looking live.
+    if (owned) {
+      untrackOwnedJob(owned);
+      await retireOwnership(cfg.db, owned).catch((err) => {
+        cfg.log.warn(
+          { err, jobId },
+          'could not retire ownership; the lease will expire on its own',
+        );
+      });
+    }
   }
+}
+
+// One definition for "this job goes to PixVerse, not ComfyUI": the ownership gate and
+// the router below must agree, or a video job would get a lease it never releases.
+function isVideoJob(
+  job: { merchantId: string | null; shopifyStoreId: string | null },
+  inputs: { faceId: string | null; backgroundId: string | null; poseId: string | null },
+  params: Record<string, unknown>,
+): boolean {
+  return (
+    !job.merchantId &&
+    !job.shopifyStoreId &&
+    !inputs.faceId &&
+    !inputs.backgroundId &&
+    !inputs.poseId &&
+    params.kind === 'video'
+  );
 }
 
 async function processJobOwned(
@@ -257,6 +314,7 @@ async function processJobOwned(
   stream: string,
   messageId: string,
   retryCount: number,
+  onOwned: (owner: OwnerToken) => void,
 ): Promise<void> {
   // Reassigned to carry the owner token once this process owns the job.
   let cfg = baseCfg;
@@ -300,14 +358,7 @@ async function processJobOwned(
       ? (JSON.parse(inputs.params) as Record<string, unknown>)
       : ((inputs.params ?? {}) as Record<string, unknown>)
     : {};
-  const isVideo =
-    !!inputs &&
-    !job.merchantId &&
-    !job.shopifyStoreId &&
-    !inputs.faceId &&
-    !inputs.backgroundId &&
-    !inputs.poseId &&
-    earlyParams.kind === 'video';
+  const isVideo = !!inputs && isVideoJob(job, inputs, earlyParams);
 
   if (isVideo) {
     if (job.status !== 'QUEUED') {
@@ -336,7 +387,14 @@ async function processJobOwned(
   } else {
     // One owner per paid-Comfy job, taken before any provider branch does external work.
     const session = baseCfg.ownerSession ?? processSession;
-    const acquired = await acquireComfyJob(db, jobId, session, jobLog);
+    const acquired = await acquireComfyJob(
+      db,
+      jobId,
+      session,
+      jobLog,
+      // Shopify's PREPROCESSING event has always carried its store id.
+      job.shopifyStoreId ? { shopifyStoreId: job.shopifyStoreId } : {},
+    );
     if (acquired.kind === 'Terminal') {
       jobLog.warn({ status: acquired.status }, 'job already terminal — ACKing stale PEL entry');
       await redis.xack(stream, 'dispatcher-cg', messageId);
@@ -357,6 +415,7 @@ async function processJobOwned(
       );
       const takeover = await takeoverComfyJob(db, jobId, session);
       if (takeover.kind === 'Acquired') {
+        onOwned(takeover.owner);
         await handleFailure(
           { ...baseCfg, owner: takeover.owner },
           jobId,
@@ -372,6 +431,7 @@ async function processJobOwned(
       }
       return;
     }
+    onOwned(acquired.owner);
     cfg = { ...baseCfg, owner: acquired.owner };
     // The acquisition transaction wrote the PREPROCESSING event; publish what
     // transitionJob used to, so SSE consumers see the same status stream.
@@ -404,7 +464,7 @@ async function processJobOwned(
       : ((inputs.params ?? {}) as Record<string, unknown>);
 
   // Catalog-video jobs use PixVerse image-to-video and never require a ComfyUI worker.
-  if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.kind === 'video') {
+  if (isVideoJob(job, inputs, rawParams)) {
     await processVideoJob(
       cfg,
       jobId,
@@ -4131,6 +4191,11 @@ async function terminateJob(
       payload: (status === 'CANCELLED' ? {} : { errorCode }) as Record<string, unknown>,
     });
     await recordSubmissionOutcome(tx, jobId, status, _log);
+    // Finished jobs hold no lease: see transitionJob.
+    await tx
+      .update(schema.dispatcherJobControl)
+      .set({ ownerRetired: true })
+      .where(eq(schema.dispatcherJobControl.jobId, jobId));
     return true;
   });
   if (!transitioned) {
@@ -4205,7 +4270,14 @@ async function handleFailure(
     if (cfg.owner) {
       // Retire authority before the replacement is published; a lost yield means a
       // newer owner exists, so publish and ACK nothing.
-      if ((await yieldComfyJob(db, cfg.owner, { failedAttempt: true }, log)) === 'lost') return;
+      const yielded = await yieldComfyJob(db, cfg.owner, { failedAttempt: true }, log);
+      if (yielded === 'lost') return;
+      if (yielded === 'terminal') {
+        // Cancelled (admin or user) while it ran: ACK, and never re-queue a finished job.
+        log.info({ jobId }, 'job finished during its run — ACKing without re-adding it');
+        await redis.xack(stream, 'dispatcher-cg', messageId);
+        return;
+      }
     } else {
       await db.transaction(async (tx) => {
         await tx.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));

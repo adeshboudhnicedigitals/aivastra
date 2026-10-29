@@ -102,6 +102,13 @@ export async function transitionJob(
       .insert(schema.jobEvents)
       .values({ jobId, eventType: status, payload: opts as Record<string, unknown> });
     await recordSubmissionOutcome(tx, jobId, status, log);
+    // A finished job must not stay "live": an admin retry of it, or the sweeper, would
+    // otherwise find a lease that nothing renews and nothing retires.
+    if (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED')
+      await tx
+        .update(schema.dispatcherJobControl)
+        .set({ ownerRetired: true })
+        .where(eq(schema.dispatcherJobControl.jobId, jobId));
     return rows;
   });
   if (!updated.length) {
