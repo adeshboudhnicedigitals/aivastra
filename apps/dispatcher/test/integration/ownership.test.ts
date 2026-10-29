@@ -10,6 +10,7 @@ import {
   OwnershipLostError,
   renewLeases,
   takeoverComfyJob,
+  trackOwnedJob,
   yieldComfyJob,
 } from '../../src/job/ownership.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
@@ -150,7 +151,7 @@ describe('paid-Comfy job ownership', () => {
       env.db.transaction((tx) => assertOwnerInTransaction(tx, owner, 'test'));
 
     it('passes for the live current owner', async () => {
-      await expect(check(await owned())).resolves.toBeUndefined();
+      await expect(check(await owned())).resolves.toBe('PREPROCESSING');
     });
 
     it('rejects a wrong session, wrong generation, expired and retired lease', async () => {
@@ -176,7 +177,7 @@ describe('paid-Comfy job ownership', () => {
         .update(schema.jobs)
         .set({ status: 'CANCELLED' })
         .where(eq(schema.jobs.id, owner.jobId));
-      await expect(check(owner)).resolves.toBeUndefined();
+      await expect(check(owner)).resolves.toBe('CANCELLED');
     });
 
     it('rejects an owner that was superseded by a takeover', async () => {
@@ -190,7 +191,9 @@ describe('paid-Comfy job ownership', () => {
   describe('renewLeases', () => {
     it('extends a live lease', async () => {
       const id = await job();
-      await acquireComfyJob(env.db, id, sessionA, log);
+      const acquired = await acquireComfyJob(env.db, id, sessionA, log);
+      if (acquired.kind !== 'Acquired') throw new Error('fixture acquire');
+      trackOwnedJob(acquired.owner);
       await env.db.execute(
         sql`update dispatcher_job_control set lease_until = clock_timestamp() + interval '2 seconds' where job_id = ${id}`,
       );
@@ -202,11 +205,17 @@ describe('paid-Comfy job ownership', () => {
     });
 
     it('never revives an expired or retired lease, nor another session', async () => {
+      // Both are tracked as in flight, so only the SQL guards stand between them and a revival.
+      const track = async (id: string, session: string) => {
+        const a = await acquireComfyJob(env.db, id, session, log);
+        if (a.kind !== 'Acquired') throw new Error('fixture acquire');
+        trackOwnedJob(a.owner);
+      };
       const expired = await job();
-      await acquireComfyJob(env.db, expired, sessionB, log);
+      await track(expired, sessionB);
       await expireLease(expired);
       const retired = await job();
-      await acquireComfyJob(env.db, retired, sessionB, log);
+      await track(retired, sessionB);
       await env.db.execute(
         sql`update dispatcher_job_control set owner_retired = true, lease_until = clock_timestamp() + interval '2 seconds' where job_id = ${retired}`,
       );
@@ -221,7 +230,7 @@ describe('paid-Comfy job ownership', () => {
       // Renewal must not have extended the retired lease at all.
       expect(after[0]?.lease_until).toEqual(before[0]?.lease_until);
       const mine = await job();
-      await acquireComfyJob(env.db, mine, sessionA, log);
+      await track(mine, sessionA);
       await expireLease(mine);
       await renewLeases(env.db, sessionB);
       expect((await control(mine))?.live).toBe(false);

@@ -9,6 +9,7 @@ import {
   acquireComfyJob,
   OwnershipLostError,
   type OwnerToken,
+  renewLeases,
   takeoverComfyJob,
 } from '../../src/job/ownership.js';
 import { processJob } from '../../src/job/processor.js';
@@ -419,6 +420,157 @@ describe('paid-Comfy ownership flows', () => {
       await processJob({ ...cfg(), ownerSession: sessionX }, job.id, user.id, 'jobs:normal', id);
       expect(await jobRow(job.id)).toMatchObject({ status: 'GENERATING', attempts: 0 });
       expect(await ledgerCount(job.id)).toBe(0);
+    });
+  });
+  describe('lease lifecycle', () => {
+    const fail = (jobId: string, userId: string, id: string, session: string) =>
+      processJob({ ...cfg(), ownerSession: session }, jobId, userId, 'jobs:normal', id);
+
+    it('admin-retry-after-failure-acquires: a finished job is not "live" to its own process', async () => {
+      const session = randomUUID();
+      const { user, job } = await seedPaidJob(env, 'regular');
+      const id = await redis.xadd('jobs:normal', '*', 'jobId', job.id, 'userId', user.id);
+      if (!id) throw new Error('missing stream entry');
+      await fail(job.id, user.id, id, session);
+      await fail(job.id, user.id, id, session);
+      expect((await jobRow(job.id))?.status).toBe('FAILED');
+      const before = (await controlRow(job.id))?.generation as number;
+
+      // POST /admin/jobs/:id/retry: FAILED -> QUEUED, attempts reset, message re-added.
+      await env.db
+        .update(schema.jobs)
+        .set({ status: 'QUEUED', errorCode: null, attempts: 0 })
+        .where(eq(schema.jobs.id, job.id));
+      await fail(job.id, user.id, id, session);
+      expect((await controlRow(job.id))?.generation).toBe(before + 1);
+      expect(await jobRow(job.id)).toMatchObject({ status: 'QUEUED', attempts: 1 });
+    });
+
+    it('renewal-only-in-flight: renewal touches only jobs being worked, none after completion', async () => {
+      const session = randomUUID();
+      const { user, job } = await seedPaidJob(env, 'regular');
+      const id = await redis.xadd('jobs:normal', '*', 'jobId', job.id, 'userId', user.id);
+      if (!id) throw new Error('missing stream entry');
+      const g = armUploadGate();
+      const running = fail(job.id, user.id, id, session);
+      await g.seen;
+      expect(await renewLeases(env.db, session)).toBe(1);
+      g.release();
+      await running;
+      await fail(job.id, user.id, id, session);
+      expect((await jobRow(job.id))?.status).toBe('FAILED');
+      expect(await renewLeases(env.db, session)).toBe(0);
+      expect((await controlRow(job.id))?.owner_retired).toBe(true);
+    });
+
+    it('long-job-keeps-ownership: the processor renews its own in-flight lease, no index.ts timer needed', async () => {
+      const session = randomUUID();
+      const { user, job } = await seedPaidJob(env, 'regular');
+      const id = await redis.xadd('jobs:normal', '*', 'jobId', job.id, 'userId', user.id);
+      if (!id) throw new Error('missing stream entry');
+      const g = armUploadGate();
+      const running = fail(job.id, user.id, id, session);
+      await g.seen;
+      // Shrink the lease below one renewal period: only the processor's own timer can
+      // save it. Without in-process renewal a job outliving 30s would lose ownership.
+      await env.db.execute(
+        sql`update dispatcher_job_control set lease_until = clock_timestamp() + interval '7 seconds' where job_id = ${job.id}`,
+      );
+      const deadline = Date.now() + 9_000;
+      let remainingMs = 0;
+      while (Date.now() < deadline && remainingMs < 20_000) {
+        await new Promise((r) => setTimeout(r, 250));
+        const rows = await env.db.execute(
+          sql`select extract(epoch from (lease_until - clock_timestamp())) * 1000 as ms from dispatcher_job_control where job_id = ${job.id}`,
+        );
+        remainingMs = Number((rows[0] as { ms: string }).ms);
+      }
+      expect(remainingMs).toBeGreaterThan(20_000);
+      g.release();
+      await running;
+      expect((await controlRow(job.id))?.owner_retired).toBe(true);
+    }, 30_000);
+
+    it('handler-throws-lease-expires: an unexpected error does not keep the lease alive', async () => {
+      const session = randomUUID();
+      const { user, job } = await seedPaidJob(env, 'regular');
+      const id = await redis.xadd('jobs:normal', '*', 'jobId', job.id, 'userId', user.id);
+      if (!id) throw new Error('missing stream entry');
+      // A database failure inside handleFailure: not an ownership loss, so it escapes.
+      await env.db.execute(
+        sql`create function reject_attempts() returns trigger language plpgsql as $$ begin raise exception 'attempts unavailable'; end $$`,
+      );
+      await env.db.execute(
+        sql`create trigger reject_attempts before update on jobs for each row when (new.attempts > old.attempts) execute function reject_attempts()`,
+      );
+      try {
+        await expect(fail(job.id, user.id, id, session)).rejects.toThrow();
+      } finally {
+        await env.db.execute(sql`drop trigger reject_attempts on jobs`);
+        await env.db.execute(sql`drop function reject_attempts()`);
+      }
+      expect(await renewLeases(env.db, session)).toBe(0);
+
+      await env.db.execute(
+        sql`update dispatcher_job_control set lease_until = clock_timestamp() - interval '1 second' where job_id = ${job.id}`,
+      );
+      await env.db
+        .update(schema.jobs)
+        .set({ startedAt: new Date(Date.now() - 20 * 60_000), creditsCharged: 1 })
+        .where(eq(schema.jobs.id, job.id));
+      await runSweeper(env.db, redis, redis, log, sessionX);
+      await runSweeper(env.db, redis, redis, log, sessionX);
+      expect((await jobRow(job.id))?.status).toBe('FAILED');
+      expect(await ledgerCount(job.id)).toBe(1);
+    });
+
+    it('cancel-during-no-worker-sleep: a user cancel is not overwritten by the yield', async () => {
+      await deregisterWorker(redis, workerId);
+      const { user, job } = await seedPaidJob(env, 'regular');
+      const id = await redis.xadd('jobs:normal', '*', 'jobId', job.id, 'userId', user.id);
+      if (!id) throw new Error('missing stream entry');
+      const xadd = vi.spyOn(redis, 'xadd');
+      const xack = vi.spyOn(redis, 'xack');
+      const running = fail(job.id, user.id, id, randomUUID());
+      await waitFor(async () => {
+        const c = await controlRow(job.id);
+        return (await jobRow(job.id))?.status === 'QUEUED' && c?.live === true;
+      });
+      // POST /v1/jobs/:id/cancel only cancels QUEUED jobs, which is exactly this window.
+      await env.db
+        .update(schema.jobs)
+        .set({ status: 'CANCELLED' })
+        .where(eq(schema.jobs.id, job.id));
+      await running;
+      expect((await jobRow(job.id))?.status).toBe('CANCELLED');
+      expect(xadd).not.toHaveBeenCalled();
+      expect(xack).toHaveBeenCalledWith('jobs:normal', 'dispatcher-cg', id);
+      expect((await controlRow(job.id))?.owner_retired).toBe(true);
+    }, 30_000);
+
+    it('an admin cancel during a failing run is not overwritten by the retry yield', async () => {
+      comfy.setOptions({
+        fail: true,
+        completionDelayMs: 2_000,
+        onRequest: async (method, path) => {
+          if (method === 'POST' && path === '/prompt') posts++;
+        },
+      });
+      const { user, job } = await seedPaidJob(env, 'regular');
+      const id = await redis.xadd('jobs:normal', '*', 'jobId', job.id, 'userId', user.id);
+      if (!id) throw new Error('missing stream entry');
+      const xadd = vi.spyOn(redis, 'xadd');
+      const xack = vi.spyOn(redis, 'xack');
+      const running = fail(job.id, user.id, id, randomUUID());
+      await waitFor(async () => (await attemptRows(job.id)).some((r) => r.state === 'ACCEPTED'));
+      await env.db
+        .update(schema.jobs)
+        .set({ status: 'CANCELLED' })
+        .where(eq(schema.jobs.id, job.id));
+      await running;
+      expect((await jobRow(job.id))?.status).toBe('CANCELLED');
+      expect(xadd).not.toHaveBeenCalled();
+      expect(xack).toHaveBeenCalledWith('jobs:normal', 'dispatcher-cg', id);
     });
   });
 });
