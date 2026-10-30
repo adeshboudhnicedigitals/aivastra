@@ -13,7 +13,13 @@ import {
   takeoverComfyJob,
 } from '../../src/job/ownership.js';
 import { processJob } from '../../src/job/processor.js';
-import { isParked, resetParked } from '../../src/stream/parked.js';
+import {
+  isParked,
+  registerLane,
+  resetParked,
+  resumeEnded,
+  startParkedScheduler,
+} from '../../src/stream/parked.js';
 import { runSweeper } from '../../src/stream/sweeper.js';
 import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
@@ -526,28 +532,45 @@ describe('paid-Comfy ownership flows', () => {
       expect(await ledgerCount(job.id)).toBe(1);
     });
 
-    it('cancel-during-no-worker-sleep: a user cancel is not overwritten by the yield', async () => {
+    it('cancel-during-no-worker-wait: a user cancel is not overwritten, and the parked message is ACKed', async () => {
       await deregisterWorker(redis, workerId);
       const { user, job } = await seedPaidJob(env, 'regular');
       const id = await redis.xadd('jobs:normal', '*', 'jobId', job.id, 'userId', user.id);
       if (!id) throw new Error('missing stream entry');
       const xadd = vi.spyOn(redis, 'xadd');
       const xack = vi.spyOn(redis, 'xack');
-      const running = fail(job.id, user.id, id, randomUUID());
-      await waitFor(async () => {
-        const c = await controlRow(job.id);
-        return (await jobRow(job.id))?.status === 'QUEUED' && c?.live === true;
-      });
-      // POST /v1/jobs/:id/cancel only cancels QUEUED jobs, which is exactly this window.
+      await fail(job.id, user.id, id, randomUUID());
+      // Parked: QUEUED with a live lease, which is exactly the window the cancel route allows.
+      expect(isParked(job.id)).toBe(true);
       await env.db
         .update(schema.jobs)
         .set({ status: 'CANCELLED' })
         .where(eq(schema.jobs.id, job.id));
-      await running;
+      // The scheduler notices the finished job and resumes it, which ACKs without a worker.
+      registerLane('gpu', {
+        tryStart(parkedJob) {
+          void processJob(
+            { ...parkedJob.cfg, resumeOwner: parkedJob.owner },
+            parkedJob.jobId,
+            parkedJob.userId,
+            parkedJob.stream,
+            parkedJob.messageId,
+            parkedJob.retryCount,
+          ).finally(() => resumeEnded(parkedJob.jobId));
+          return true;
+        },
+      });
+      const stop = startParkedScheduler({ db: env.db, redis, log });
+      try {
+        await waitFor(async () => xack.mock.calls.length > 0);
+      } finally {
+        stop();
+        resetParked();
+      }
       expect((await jobRow(job.id))?.status).toBe('CANCELLED');
       expect(xadd).not.toHaveBeenCalled();
       expect(xack).toHaveBeenCalledWith('jobs:normal', 'dispatcher-cg', id);
-      expect((await controlRow(job.id))?.owner_retired).toBe(true);
+      await waitFor(async () => (await controlRow(job.id))?.owner_retired === true);
     }, 30_000);
 
     it('an admin cancel during a failing run is not overwritten by the retry yield', async () => {
