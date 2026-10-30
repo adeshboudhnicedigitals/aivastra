@@ -128,6 +128,26 @@ function welcomeHtml(name?: string | null): string {
   return emailShell(content);
 }
 
+function shopifyWelcomeHtml(freeTryOns: number, name?: string | null): string {
+  const content = `
+    ${banner('Thanks for installing Ai Vastra 🎉')}
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">${greeting(name)}</p>
+    <p style="font-size:14px;color:#555;line-height:1.6;margin:0 0 16px;">Thank you for installing <strong style="color:#1a1a1a;">Ai Vastra AI Virtual Try-On</strong> on your Shopify store! We're excited to help you bring a new shopping experience to your customers.</p>
+    <div style="background:#F8F7FD;border:1px solid #ECE9F7;border-radius:14px;padding:20px 18px;margin:0 0 20px;text-align:center;">
+      <p style="margin:0 0 6px;font-size:16px;font-weight:700;color:#1a1a1a;">Enjoy ${freeTryOns} FREE Virtual Try-Ons!</p>
+      <p style="margin:0;font-size:13px;color:#666;line-height:1.5;">Sign up and configure the Ai Vastra Virtual Try-On app to claim your ${freeTryOns} FREE Virtual Try-Ons!</p>
+    </div>
+    <p style="font-size:14px;color:#555;line-height:1.6;margin:0 0 24px;">Give your customers the ability to virtually try on outfits and see how they look before making a purchase.</p>
+    <p style="font-size:14px;color:#555;margin:0 0 8px;">Need help with installation, configuration, or activation? Our team is happy to assist you! Get in touch with us:</p>
+    <p style="font-size:14px;color:#555;margin:0 0 4px;">1. Live Chat: chat with our team directly</p>
+    <p style="font-size:14px;color:#555;margin:0 0 4px;">2. Email: <a href="mailto:support@aivastra.com" style="color:${ACCENT};">support@aivastra.com</a></p>
+    <p style="font-size:14px;color:#555;margin:0 0 24px;">3. WhatsApp: <a href="${WHATSAPP_LINK}" style="color:${ACCENT};">${WHATSAPP_DISPLAY}</a></p>
+    <p style="font-size:14px;color:#555;margin:0 0 24px;">Let's transform the way your customers shop!</p>
+    ${signOff()}
+  `;
+  return emailShell(content);
+}
+
 function resetHtml(link: string, name?: string | null): string {
   const content = `
     ${banner('Reset your password')}
@@ -222,6 +242,20 @@ export async function sendWelcomeEmail(
     to,
     subject: 'Thank You for Signing Up with AI Vastra',
     html: welcomeHtml(displayName),
+  });
+}
+
+export async function sendShopifyWelcomeEmail(
+  apiKey: string,
+  from: string,
+  to: string,
+  params: { freeTryOns: number; name?: string | null },
+): Promise<void> {
+  await send(apiKey, {
+    from,
+    to,
+    subject: 'Thank you for installing Ai Vastra Virtual Try-On',
+    html: shopifyWelcomeHtml(params.freeTryOns, params.name),
   });
 }
 

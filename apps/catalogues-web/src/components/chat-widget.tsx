@@ -149,6 +149,9 @@ export function ChatWidget() {
   const convRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const unmountedRef = useRef(false);
 
   // Shares the 'me' query cache with UserMenu, so the "you" bubble shows the
   // same initials as the account avatar in the header (e.g. "CH"), not a
@@ -161,6 +164,7 @@ export function ChatWidget() {
   const myDisplayName = me?.displayName || me?.email?.split('@')[0] || 'You';
 
   const connect = useCallback(async () => {
+    if (unmountedRef.current) return;
     const token = getToken();
     if (!token) return;
     const tRes = await fetch(`${CHATBOT_URL}/ws-ticket`, {
@@ -169,6 +173,7 @@ export function ChatWidget() {
     });
     if (!tRes.ok) return;
     const { ticket } = (await tRes.json()) as { ticket: string };
+    if (unmountedRef.current) return;
     const ws = new WebSocket(`${CHATBOT_URL.replace(/^http/, 'ws')}/ws?ticket=${ticket}`);
     ws.onmessage = async (ev) => {
       const f = JSON.parse(ev.data) as WsServerFrameT;
@@ -179,6 +184,10 @@ export function ChatWidget() {
           `${CHATBOT_URL}/conversations/${f.conversationId}/messages?limit=50`,
           { headers: { authorization: `Bearer ${getToken()}` } },
         );
+        // Replaces the whole list wholesale (not just appends), so a reconnect
+        // after a drop always re-derives who the live agent is from scratch —
+        // otherwise the header keeps naming whoever replied last before the
+        // drop, even once someone else has since taken over the ticket.
         if (h.ok) setMessages(((await h.json()) as { messages: ChatMessageT[] }).messages);
       } else if (f.type === 'message') {
         setTyping(null);
@@ -191,8 +200,19 @@ export function ChatWidget() {
         setTimeout(() => setTyping(null), 4000);
       }
     };
+    ws.onopen = () => {
+      reconnectAttemptRef.current = 0;
+    };
     ws.onclose = () => {
       wsRef.current = null;
+      if (unmountedRef.current) return;
+      // A dropped connection (network blip, an idle proxy closing the socket,
+      // the device sleeping) must reconnect on its own — otherwise the widget
+      // freezes on whatever it last received, including which agent's name the
+      // header shows as "live", until the customer happens to reload the page.
+      const delay = Math.min(1_000 * 2 ** reconnectAttemptRef.current, 15_000);
+      reconnectAttemptRef.current += 1;
+      reconnectTimerRef.current = setTimeout(() => void connect(), delay);
     };
     wsRef.current = ws;
   }, []);
@@ -200,6 +220,15 @@ export function ChatWidget() {
   useEffect(() => {
     if (open && !wsRef.current) void connect();
   }, [open, connect]);
+
+  useEffect(
+    () => () => {
+      unmountedRef.current = true;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      wsRef.current?.close();
+    },
+    [],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages.length is a deliberate trigger, not referenced in the body
   useEffect(() => {
@@ -275,6 +304,11 @@ export function ChatWidget() {
     setStatus('OPEN');
     setMessages([]);
     setError(null);
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    reconnectAttemptRef.current = 0;
+    // Detach onclose first so this deliberate close doesn't also trigger the
+    // auto-reconnect path above and race the explicit connect() below.
+    if (wsRef.current) wsRef.current.onclose = null;
     wsRef.current?.close();
     wsRef.current = null;
     convRef.current = null;

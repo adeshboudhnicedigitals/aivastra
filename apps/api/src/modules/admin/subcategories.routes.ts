@@ -289,6 +289,9 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           if (defaultLower && !mappedLowerCatalogItemIds.includes(defaultLower as string)) {
             effectiveFields.defaultLowerCatalogId = null;
           }
+          // Set regardless of resulting count — see explicitLowerMappingsConfigured's
+          // schema comment for why row count alone can't carry this signal.
+          effectiveFields.explicitLowerMappingsConfigured = true;
         }
 
         if (mappedShoeCatalogItemIds !== undefined) {
@@ -325,6 +328,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           if (defaultShoe && !mappedShoeCatalogItemIds.includes(defaultShoe as string)) {
             effectiveFields.defaultShoeCatalogId = null;
           }
+          effectiveFields.explicitShoeMappingsConfigured = true;
         }
 
         if (mappedAccessoryCatalogItemIds !== undefined) {
@@ -369,6 +373,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
               .values(mappedFaceIds.map((faceId) => ({ faceId, subcategoryId: id })))
               .onConflictDoNothing();
           }
+          effectiveFields.explicitFaceMappingsConfigured = true;
         }
 
         if (mappedBackgroundIds !== undefined) {
@@ -383,6 +388,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
               )
               .onConflictDoNothing();
           }
+          effectiveFields.explicitBackgroundMappingsConfigured = true;
         }
       };
 
@@ -1189,6 +1195,10 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .select({
           id: schema.garmentSubcategories.id,
           genderSlug: schema.garmentSubcategories.genderSlug,
+          explicitLowerMappingsConfigured:
+            schema.garmentSubcategories.explicitLowerMappingsConfigured,
+          explicitShoeMappingsConfigured:
+            schema.garmentSubcategories.explicitShoeMappingsConfigured,
         })
         .from(schema.garmentSubcategories)
         .where(eq(schema.garmentSubcategories.id, id));
@@ -1214,9 +1224,14 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
 
       return {
         mappedLowerIds,
-        hasExplicitLowerMappings: mappedLowerIds.length > 0,
+        // Accessories keep the plain row-count check (strictly opt-in, no
+        // "show everything" fallback to ever misreport). Lower/shoe read the
+        // persisted flag, not row count — see explicitLowerMappingsConfigured's
+        // schema comment for why row count alone can't distinguish "never
+        // configured" from "explicitly configured to zero".
+        hasExplicitLowerMappings: sub.explicitLowerMappingsConfigured,
         mappedShoeIds,
-        hasExplicitShoeMappings: mappedShoeIds.length > 0,
+        hasExplicitShoeMappings: sub.explicitShoeMappingsConfigured,
         mappedAccessoryIds,
         hasExplicitAccessoryMappings: mappedAccessoryIds.length > 0,
       };
@@ -1248,7 +1263,24 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .where(eq(schema.catalogItems.id, catalogItemId));
       if (!item) throw new AppError('NOT_FOUND', 404, 'catalog item not found');
 
+      // Set the moment any explicit lower/shoe mapping action happens for this
+      // garment type — independent of the resulting row count, so a later unmap
+      // down to zero stays distinguishable from "never configured" (see schema
+      // comment on explicitLowerMappingsConfigured).
+      const configuredFlagField =
+        item.type === 'lower'
+          ? ('explicitLowerMappingsConfigured' as const)
+          : item.type === 'shoe'
+            ? ('explicitShoeMappingsConfigured' as const)
+            : null;
+
       await app.db.transaction(async (tx) => {
+        if (configuredFlagField) {
+          await tx
+            .update(schema.garmentSubcategories)
+            .set({ [configuredFlagField]: true })
+            .where(eq(schema.garmentSubcategories.id, id));
+        }
         if (mapped) {
           await tx
             .insert(schema.catalogItemSubcategories)
@@ -1341,7 +1373,11 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const [sub] = await app.db
-        .select({ id: schema.garmentSubcategories.id })
+        .select({
+          id: schema.garmentSubcategories.id,
+          explicitFaceMappingsConfigured:
+            schema.garmentSubcategories.explicitFaceMappingsConfigured,
+        })
         .from(schema.garmentSubcategories)
         .where(eq(schema.garmentSubcategories.id, id));
       if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
@@ -1355,7 +1391,9 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
 
       return {
         mappedFaceIds,
-        hasExplicitFaceMappings: mappedFaceIds.length > 0,
+        // Reads the persisted flag, not row count — see explicitLowerMappingsConfigured's
+        // schema comment for why.
+        hasExplicitFaceMappings: sub.explicitFaceMappingsConfigured,
       };
     },
   );
@@ -1367,7 +1405,11 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const [sub] = await app.db
-        .select({ id: schema.garmentSubcategories.id })
+        .select({
+          id: schema.garmentSubcategories.id,
+          explicitBackgroundMappingsConfigured:
+            schema.garmentSubcategories.explicitBackgroundMappingsConfigured,
+        })
         .from(schema.garmentSubcategories)
         .where(eq(schema.garmentSubcategories.id, id));
       if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
@@ -1381,7 +1423,9 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
 
       return {
         mappedBackgroundIds,
-        hasExplicitBackgroundMappings: mappedBackgroundIds.length > 0,
+        // Reads the persisted flag, not row count — see explicitLowerMappingsConfigured's
+        // schema comment for why.
+        hasExplicitBackgroundMappings: sub.explicitBackgroundMappingsConfigured,
       };
     },
   );
@@ -1412,6 +1456,13 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       if (!face) throw new AppError('NOT_FOUND', 404, 'face not found');
 
       await app.db.transaction(async (tx) => {
+        // Set the moment any explicit face-mapping action happens for this
+        // garment type, independent of the resulting row count — see schema
+        // comment on explicitFaceMappingsConfigured.
+        await tx
+          .update(schema.garmentSubcategories)
+          .set({ explicitFaceMappingsConfigured: true })
+          .where(eq(schema.garmentSubcategories.id, id));
         if (mapped) {
           await tx
             .insert(schema.modelFaceSubcategories)
