@@ -37,7 +37,3 @@ export function canShowPostProductsPage(step: OnboardingStep | null): boolean {
 export function isTryOnOff(me: ShopifyMe): boolean {
   return me.stats.enabledProductCount === 0;
 }
-export function needsEmbedEnable(me: ShopifyMe): boolean {
-  const { themeBlockConfirmed, themeEmbedConfirmed } = me.store.settings;
-  return (themeBlockConfirmed ?? false) && !(themeEmbedConfirmed ?? false);
-}

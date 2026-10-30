@@ -221,10 +221,9 @@ export default function SettingsPage() {
                     Choose where the button goes
                   </Text>
                   <Text as="p" tone="subdued">
-                    By default the Try It On app embed places the button above your Add to cart
-                    button automatically. If you want it somewhere else, add the Try It On button
-                    block to your product page and drag it to the exact spot. Once the block is on
-                    the page it replaces the embed's button, so shoppers never see two.
+                    The Try It On button is an app block: add it to your product page and drag it
+                    where you want it. The Try It On app embed adds a small icon on your product
+                    photos that opens the same try-on window.
                   </Text>
                   <InlineStack>
                     <Button loading={openingEditor} onClick={openBlockEditor}>

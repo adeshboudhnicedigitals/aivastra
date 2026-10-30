@@ -87,6 +87,35 @@ export function findThemeEmbedEnabled(content: string): boolean {
   }
 }
 
+/**
+ * Pure parse: does the live theme's `templates/product.json` place our button
+ * block, enabled? App blocks live in a section's `blocks`, typed
+ * `shopify://apps/{app}/blocks/{handle}/{uid}`; only the block handle is
+ * matched because Shopify's app identifier is not stable. Only an explicit
+ * `disabled: true` turns a block off. Never throws.
+ */
+export function findThemeBlockPresent(content: string): boolean {
+  try {
+    const stripped = content.replace(/^\s*\/\*[\s\S]*?\*\//, '');
+    const parsed: unknown = JSON.parse(stripped);
+    const sections = (parsed as { sections?: Record<string, unknown> } | null)?.sections ?? {};
+    const pattern = new RegExp(`^shopify://apps/[^/]+/blocks/${TRYON_APP_BLOCK_HANDLE}/`);
+    return Object.values(sections).some((section) => {
+      if (typeof section !== 'object' || section === null) return false;
+      const blocks = (section as { blocks?: Record<string, unknown> }).blocks ?? {};
+      return Object.values(blocks).some((block) => {
+        if (typeof block !== 'object' || block === null) return false;
+        const typed = block as { type?: unknown; disabled?: unknown };
+        return (
+          typeof typed.type === 'string' && pattern.test(typed.type) && typed.disabled !== true
+        );
+      });
+    });
+  } catch {
+    return false;
+  }
+}
+
 const MAIN_THEME_SETTINGS_QUERY = `
   query MainThemeSettingsData($filenames: [String!]!) {
     themes(first: 1, roles: [MAIN]) {
@@ -119,33 +148,36 @@ interface MainThemeSettingsData {
 /**
  * Live Admin API check for whether the app embed is switched on in the
  * merchant's published theme — an on-demand alternative to waiting for a
- * shopper to actually load a storefront page (see markThemeEmbedSeen below).
+ * shopper to actually load a storefront page (see markThemeSurfaceSeen below).
  * Needs `read_themes`. A store that has not yet seen Shopify's one-time
  * "additional permissions" prompt gets ACCESS_DENIED back from Shopify as a
  * normal GraphQL error (HTTP 200, not 401/403), so this never risks tripping
  * shopifyAdminFetch's SHOPIFY_REAUTH_REQUIRED mapping — every failure mode
  * here, scope included, is just logged and reported as "not detected".
  */
-export async function checkThemeEmbedLive(
+export async function checkThemeLive(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
-): Promise<boolean> {
+): Promise<{ block: boolean; embed: boolean }> {
   try {
     const accessToken = await getValidAccessToken(app, store);
     const data = await shopifyGraphQL<MainThemeSettingsData>(
       store.shopDomain,
       accessToken,
       MAIN_THEME_SETTINGS_QUERY,
-      { filenames: ['config/settings_data.json'] },
+      { filenames: ['config/settings_data.json', 'templates/product.json'] },
     );
-    const content = data.themes.nodes[0]?.files.nodes.find(
-      (f) => f.filename === 'config/settings_data.json',
-    )?.body?.content;
-    if (!content) return false;
-    return findThemeEmbedEnabled(content);
+    const files = data.themes.nodes[0]?.files.nodes ?? [];
+    const embedContent = files.find((f) => f.filename === 'config/settings_data.json')?.body
+      ?.content;
+    const blockContent = files.find((f) => f.filename === 'templates/product.json')?.body?.content;
+    return {
+      embed: embedContent ? findThemeEmbedEnabled(embedContent) : false,
+      block: blockContent ? findThemeBlockPresent(blockContent) : false,
+    };
   } catch (err) {
-    app.log.warn({ err, storeId: store.id }, 'theme embed live-check failed');
-    return false;
+    app.log.warn({ err, storeId: store.id }, 'theme live-check failed');
+    return { block: false, embed: false };
   }
 }
 
@@ -154,7 +186,7 @@ export async function checkThemeEmbedLive(
  * panel with our embed switched on (the merchant still has to press Save).
  *
  * Deliberately builds a URL instead of asking the Admin API for the theme ID,
- * even though the app now holds `read_themes` (added for checkThemeEmbedLive
+ * even though the app now holds `read_themes` (added for checkThemeLive
  * below) — a REST `GET /themes.json?role=main` lookup here would still 403
  * for any store that has not yet seen Shopify's one-time scope-upgrade
  * prompt, and `shopifyAdminFetch` turns every 403 into SHOPIFY_REAUTH_REQUIRED,
@@ -204,18 +236,27 @@ export function buildAppBlockDeepLink(shopDomain: string, apiKey: string): strin
  * Cheap on purpose — this rides on a per-page-view request, so once the flag is
  * set it returns without touching the database.
  */
-export async function markThemeEmbedSeen(
+export type ThemeSeenSource = 'block' | 'embed';
+
+/**
+ * Records which storefront surface is live. `block` ends onboarding and marks
+ * the button block as seen; `embed` only marks the corner icon as seen.
+ */
+export async function markThemeSurfaceSeen(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
+  source: ThemeSeenSource,
 ): Promise<void> {
-  if (store.settings?.themeEmbedConfirmed) return;
+  const settings = store.settings ?? {};
+  if (source === 'block' ? settings.themeButtonBlockSeen : settings.themeEmbedConfirmed) return;
+  const patch =
+    source === 'block'
+      ? { themeBlockConfirmed: true, themeButtonBlockSeen: true }
+      : { themeEmbedConfirmed: true };
   await app.db
     .update(schema.shopifyStores)
     .set({
-      settings: mergeStoreSettingsObject(storeSettingsJson(), [], {
-        themeBlockConfirmed: true,
-        themeEmbedConfirmed: true,
-      }),
+      settings: mergeStoreSettingsObject(storeSettingsJson(), [], patch),
       updatedAt: new Date(),
     })
     .where(eq(schema.shopifyStores.id, store.id));
@@ -362,7 +403,9 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
       // Not `?? ''`: an empty key builds a link that opens the editor but
       // silently activates nothing, which looks like the extension is broken.
       if (!app.env.SHOPIFY_API_KEY) throw new AppError('CONFIG', 500, 'SHOPIFY_API_KEY missing');
-      return { url: buildThemeEditorDeepLink(store.shopDomain, app.env.SHOPIFY_API_KEY) };
+      const blockUrl = buildAppBlockDeepLink(store.shopDomain, app.env.SHOPIFY_API_KEY);
+      const embedUrl = buildThemeEditorDeepLink(store.shopDomain, app.env.SHOPIFY_API_KEY);
+      return { url: blockUrl, blockUrl, embedUrl };
     },
   );
 
@@ -382,14 +425,24 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
     { preHandler: app.requireShopifySession },
     async (req) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-      if (store.settings?.themeEmbedConfirmed) return { themeEmbedConfirmed: true };
-      const confirmed = await checkThemeEmbedLive(app, store);
-      if (confirmed) {
-        await markThemeEmbedSeen(app, store).catch((err) =>
-          app.log.warn({ err, storeId: store.id }, 'could not persist app embed as seen'),
-        );
+      const settings = store.settings ?? {};
+      if (settings.themeButtonBlockSeen && settings.themeEmbedConfirmed) {
+        return { themeBlockConfirmed: true, themeEmbedConfirmed: true };
       }
-      return { themeEmbedConfirmed: confirmed };
+      const live = await checkThemeLive(app, store);
+      const persist = (source: ThemeSeenSource) =>
+        markThemeSurfaceSeen(app, store, source).catch((err) =>
+          app.log.warn(
+            { err, storeId: store.id, source },
+            'could not persist theme surface as seen',
+          ),
+        );
+      if (live.block) await persist('block');
+      if (live.embed) await persist('embed');
+      return {
+        themeBlockConfirmed: Boolean(settings.themeButtonBlockSeen) || live.block,
+        themeEmbedConfirmed: Boolean(settings.themeEmbedConfirmed) || live.embed,
+      };
     },
   );
 }

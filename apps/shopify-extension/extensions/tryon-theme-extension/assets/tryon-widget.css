@@ -2,15 +2,15 @@
   margin-bottom: 19px;
 }
 
-/* Last resort when the theme's product form can't be found (see placeWidget in
-   tryon-widget.js): a fixed bottom-left button so it is still reachable.
-   Bottom-left because the modal opens bottom-right. */
+/* Last resort when the theme's product media can't be found: a fixed corner
+   icon so it is still reachable. */
 .aivastra-tryon--floating {
   position: fixed;
-  inset: auto auto 24px 24px;
-  z-index: 2147483645;
+  inset: auto 16px 16px auto;
+  z-index: 2147483000;
   margin: 0;
-  max-width: 220px;
+  width: auto;
+  max-width: none;
 }
 
 /* Bottom-right corner, nowhere near a theme's top nav bar to begin with, and
@@ -1055,4 +1055,54 @@
 .aivastra-tryon__share-flash[hidden],
 .aivastra-tryon__view-cart[hidden] {
   display: none;
+}
+
+/* theme block + icon (plan 4) */
+.aivastra-tryon__btn-icon {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  margin-right: 0.5em;
+  vertical-align: -0.2em;
+  background-color: currentColor;
+  -webkit-mask: var(--aivastra-icon-url) center / contain no-repeat;
+  mask: var(--aivastra-icon-url) center / contain no-repeat;
+}
+
+/* The embed's icon: a round badge on the product image. The glyph takes the
+   text colour, the disc the button colour, so it reads on any photo. */
+.aivastra-tryon--icon {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  margin: 0;
+  width: auto;
+}
+.aivastra-tryon--icon.aivastra-tryon--floating {
+  position: fixed;
+  top: auto;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483000;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--aivastra-icon-size, 40px);
+  height: var(--aivastra-icon-size, 40px);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--aivastra-text-color, #fff);
+  background: var(--aivastra-button-color, #000);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__btn-icon {
+  width: 60%;
+  height: 60%;
+  margin: 0;
+  vertical-align: baseline;
 }

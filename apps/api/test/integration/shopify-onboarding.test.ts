@@ -5,6 +5,7 @@ import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
 import {
   buildThemeEditorDeepLink,
   findThemeEmbedEnabled,
+  markThemeSurfaceSeen,
 } from '../../src/modules/shopify/onboarding.routes.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
@@ -154,7 +155,13 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
             nodes: [
               {
                 files: {
-                  nodes: [{ filename: 'config/settings_data.json', body: { content } }],
+                  nodes: [
+                    { filename: 'config/settings_data.json', body: { content } },
+                    {
+                      filename: 'templates/product.json',
+                      body: { content: JSON.stringify({ sections: {} }) },
+                    },
+                  ],
                 },
               },
             ],
@@ -209,7 +216,13 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
     confirmedToken = signSessionToken('confirmed.myshopify.com', API_SECRET, API_KEY);
     await app.db
       .update(schema.shopifyStores)
-      .set({ settings: { themeEmbedConfirmed: true, themeBlockConfirmed: true } })
+      .set({
+        settings: {
+          themeEmbedConfirmed: true,
+          themeBlockConfirmed: true,
+          themeButtonBlockSeen: true,
+        },
+      })
       .where(eq(schema.shopifyStores.id, confirmedStoreId));
 
     const fresh = await upsertShopifyStore(
@@ -266,7 +279,7 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
       headers: { authorization: `Bearer ${confirmedToken}` },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ themeEmbedConfirmed: true });
+    expect(res.json()).toEqual({ themeBlockConfirmed: true, themeEmbedConfirmed: true });
   });
 
   it('confirms and persists when the Admin API shows the block enabled', async () => {
@@ -282,14 +295,14 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
         headers: { authorization: `Bearer ${freshToken}` },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ themeEmbedConfirmed: true });
+      expect(res.json()).toEqual({ themeBlockConfirmed: false, themeEmbedConfirmed: true });
 
       const [row] = await app.db
         .select({ settings: schema.shopifyStores.settings })
         .from(schema.shopifyStores)
         .where(eq(schema.shopifyStores.id, freshStoreId));
       expect(row.settings.themeEmbedConfirmed).toBe(true);
-      expect(row.settings.themeBlockConfirmed).toBe(true);
+      expect(row.settings.themeBlockConfirmed ?? false).toBe(false);
     } finally {
       global.fetch = originalFetch;
     }
@@ -308,7 +321,7 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
         headers: { authorization: `Bearer ${disabledToken}` },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ themeEmbedConfirmed: false });
+      expect(res.json()).toEqual({ themeBlockConfirmed: false, themeEmbedConfirmed: false });
 
       const [row] = await app.db
         .select({ settings: schema.shopifyStores.settings })
@@ -333,7 +346,7 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
         headers: { authorization: `Bearer ${scopeDeniedToken}` },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ themeEmbedConfirmed: false });
+      expect(res.json()).toEqual({ themeBlockConfirmed: false, themeEmbedConfirmed: false });
 
       const [row] = await app.db
         .select({ settings: schema.shopifyStores.settings })
@@ -363,7 +376,7 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
         headers: { authorization: `Bearer ${scopeDeniedToken}` },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ themeEmbedConfirmed: false });
+      expect(res.json()).toEqual({ themeBlockConfirmed: false, themeEmbedConfirmed: false });
     } finally {
       global.fetch = originalFetch;
     }
@@ -380,9 +393,67 @@ describe('GET /v1/shopify/onboarding/theme-editor-url', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().url).toBe(
-      `https://o.myshopify.com/admin/themes/current/editor?context=apps&template=product&activateAppId=${API_KEY}/tryon-button`,
-    );
+    const body = res.json();
+    expect(body.url).toBe(body.blockUrl);
+    expect(body.blockUrl).toContain('addAppBlockId=');
+    expect(body.blockUrl).toContain('tryon-button-block');
+    expect(body.blockUrl).toContain('target=mainSection');
+    expect(body.embedUrl).toContain('activateAppId=');
+    expect(body.embedUrl).toContain('context=apps');
+    expect(body.embedUrl).toContain('tryon-button');
+    expect(body.embedUrl).not.toContain('tryon-button-block');
+  });
+});
+
+describe('theme surface flags', () => {
+  it('records the block and icon surfaces independently and idempotently', async () => {
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `surface-${Date.now()}-${Math.random()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+        settings: {},
+      })
+      .returning();
+    await markThemeSurfaceSeen(app, store, 'block');
+    const [blockRow] = await app.db
+      .select({
+        settings: schema.shopifyStores.settings,
+        updatedAt: schema.shopifyStores.updatedAt,
+      })
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(blockRow.settings).toMatchObject({
+      themeBlockConfirmed: true,
+      themeButtonBlockSeen: true,
+    });
+    expect(blockRow.settings).not.toHaveProperty('themeEmbedConfirmed');
+    const updatedAt = blockRow.updatedAt;
+    await markThemeSurfaceSeen(app, { ...store, settings: blockRow.settings }, 'block');
+    const [again] = await app.db
+      .select({ updatedAt: schema.shopifyStores.updatedAt })
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(again.updatedAt).toEqual(updatedAt);
+
+    const [embedStore] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `embed-surface-${Date.now()}-${Math.random()}.myshopify.com`,
+        shopifyShopId: Date.now() + 1,
+        accessToken: 'enc',
+        scope: 'read_products',
+        settings: {},
+      })
+      .returning();
+    await markThemeSurfaceSeen(app, embedStore, 'embed');
+    const [embedRow] = await app.db
+      .select({ settings: schema.shopifyStores.settings })
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, embedStore.id));
+    expect(embedRow.settings).toEqual({ themeEmbedConfirmed: true });
   });
 });
 

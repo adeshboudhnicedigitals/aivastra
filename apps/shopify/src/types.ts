@@ -24,6 +24,8 @@ export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
   themeEmbedConfirmed?: boolean;
+  // true only once a storefront rendered the Try It On *block*; legacy stores that passed onboarding under the embed rule lack it
+  themeButtonBlockSeen?: boolean;
   onboardingRoutingConfirmed?: boolean;
   onboardingCompletedOnce?: boolean;
   emailBonusClaimed?: boolean;

@@ -32,7 +32,7 @@ import {
   reserveStoreDailySlot,
   ShopperLimitRaceRefusal,
 } from './limits.js';
-import { markThemeEmbedSeen } from './onboarding.routes.js';
+import { markThemeSurfaceSeen } from './onboarding.routes.js';
 import { resolveShopper } from './shopper.js';
 import { formatResetTime, windowEnd } from './store-day.js';
 import { shopifyStoreLifecycleLockKey } from './store-lock.js';
@@ -679,7 +679,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       // different way, not righter.
       if (enabled && garment && !(await resolveShopifyWorkflow(app))) enabled = false;
 
-      // This call doubles as the "the app embed is live" signal that ends
+      // This call doubles as the "the Try It On block (or icon embed) is live" signal that ends
       // onboarding's theme step. It only counts when Shopify itself signed the
       // request (the App Proxy path — the legacy X-Widget-Key is a public value
       // in the page HTML, so anyone could send it) and when the widget did not
@@ -688,8 +688,9 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       // write must never break the storefront widget.
       const query = req.query as Record<string, string | undefined>;
       if (typeof query.signature === 'string' && query.dm !== '1') {
-        markThemeEmbedSeen(app, store).catch((err) =>
-          req.log.warn({ err, storeId }, 'could not record app embed as seen'),
+        const seenSource = query.source === 'block' ? 'block' : 'embed';
+        markThemeSurfaceSeen(app, store, seenSource).catch((err) =>
+          req.log.warn({ err, storeId }, 'could not record theme surface as seen'),
         );
       }
 

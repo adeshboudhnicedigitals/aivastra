@@ -1,11 +1,7 @@
 {% comment %}
-  Try It On button as an app BLOCK: the merchant drags it into the product
-  template wherever they want it (Theme editor -> product page -> Add block).
-
-  Optional alternative to the app embed (tryon-button.liquid). If both are
-  present the block wins and the embed's button is removed by tryon-widget.js,
-  so a merchant who adds this block never ends up with two buttons. Markup is
-  shared via snippets/tryon-widget.liquid.
+  The Try It On button as an app BLOCK; the merchant adds it in the product
+  template (Add block). The corner icon on the product image comes from the Try
+  It On app embed (App embeds panel) and opens the same try-on window.
 {% endcomment %}
 
 {% render 'tryon-widget', settings: block.settings, source: 'block' %}
@@ -18,7 +14,7 @@
   "settings": [
     {
       "type": "paragraph",
-      "content": "Adding this block replaces the Try It On app embed's button. It is shown exactly where you place it."
+      "content": "The Try It On button, shown exactly where you place it. Turn on the Try It On app embed too if you want a try-on icon on the product image."
     },
     {
       "type": "text",
@@ -36,6 +32,12 @@
       "id": "button_text",
       "label": "Button text",
       "default": "Try It On"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_icon",
+      "label": "Show icon on the button",
+      "default": true
     },
     {
       "type": "color",

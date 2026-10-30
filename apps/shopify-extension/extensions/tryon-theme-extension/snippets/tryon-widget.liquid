@@ -1,7 +1,7 @@
 {% comment %}
-  Shared markup for the Try It On button + modal, rendered by both the app
-  embed (blocks/tryon-button.liquid) and the app block
-  (blocks/tryon-button-block.liquid).
+  Shared markup for the Try It On button (rendered by the app block) and the
+  icon (rendered by the app embed). `source` is `block` or `embed`; tryon-widget.js
+  shares one modal between them.
 
   `settings` is the caller's `block.settings` — `block` itself is not visible
   inside a rendered snippet. `source` is "embed" or "block"; tryon-widget.js
@@ -11,6 +11,15 @@
 
 {%- assign widget_key = shop.metafields.aivastra.widget_key -%}
 {%- assign cfg = shop.metafields.aivastra.widget_config.value -%}
+{%- liquid
+  if source == 'embed'
+    assign accent_bg = settings.icon_background | default: '#000000'
+    assign accent_fg = settings.icon_color | default: '#FFFFFF'
+  else
+    assign accent_bg = settings.button_color
+    assign accent_fg = settings.text_color
+  endif
+-%}
 {%- if product != blank and widget_key != blank -%}
   <div
     class="aivastra-tryon"
@@ -33,17 +42,25 @@
     {% endif %}
     data-api-base="{{ settings.api_base | default: 'https://app.aivastra.com' | escape }}"
     data-login-url="{{ routes.account_login_url }}?return_url={{ product.url | url_encode }}"
-    data-placement-selector="{{ settings.placement_selector | escape }}"
+    data-media-selector="{{ settings.media_selector | escape }}"
     data-source="{{ source }}"
-    style="--aivastra-button-color: {{ settings.button_color }}; --aivastra-text-color: {{ settings.text_color }}; --aivastra-border-radius: {{ settings.border_radius }}px;{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
+    style="--aivastra-button-color: {{ accent_bg }}; --aivastra-text-color: {{ accent_fg }}; --aivastra-border-radius: {{ settings.border_radius }}px; --aivastra-icon-size: {{ settings.icon_size | default: 40 }}px; --aivastra-icon-url: url('{{ 'tryon-icon.png' | asset_url }}');{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
   >
-    {%- if settings.promo_text != blank -%}
-      <p class="aivastra-tryon__promo">{{ settings.promo_text | escape }}</p>
+    {%- if source == 'embed' -%}
+      <button type="button" class="aivastra-tryon__button aivastra-tryon__icon-btn" aria-label="Try it on">
+        <span class="aivastra-tryon__btn-icon" aria-hidden="true"></span>
+      </button>
+    {%- else -%}
+      {%- if settings.promo_text != blank -%}
+        <p class="aivastra-tryon__promo">{{ settings.promo_text | escape }}</p>
+      {%- endif -%}
+      <button type="button" class="aivastra-tryon__button">
+        {%- if settings.show_icon -%}
+          <span class="aivastra-tryon__btn-icon" aria-hidden="true"></span>
+        {%- endif -%}
+        {{ settings.button_text | default: 'Try It On' | escape }}
+      </button>
     {%- endif -%}
-
-    <button type="button" class="aivastra-tryon__button">
-      {{ settings.button_text | default: 'Try It On' | escape }}
-    </button>
 
     <div class="aivastra-tryon__modal" hidden>
       <div class="aivastra-tryon__modal-content">
