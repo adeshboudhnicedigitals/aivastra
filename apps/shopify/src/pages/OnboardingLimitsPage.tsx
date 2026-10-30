@@ -20,10 +20,9 @@ const ONBOARDING_TRYON_CAP_PRESELECTED = 5;
  * Onboarding's try-on-usage step: a simplified try-ons-per-day limit and a
  * plain require/don't-require toggle for login, both writing the same
  * `ShopifyStoreLimits` fields Settings → Limits edits with its fuller controls
- * (any window, "ask after N tries" instead of a flat require). Everything
- * defaults to off, so Continue with no changes writes nothing and leaves the
- * store exactly as it was. Not a gate: nothing here feeds the derived
- * onboarding step.
+ * (any window, "ask after N tries" instead of a flat require). The limit
+ * defaults to off and login to required for a store with no saved choice. Not a gate: nothing here feeds the
+ * derived onboarding step.
  */
 export default function OnboardingLimitsPage({
   me,
@@ -34,7 +33,12 @@ export default function OnboardingLimitsPage({
 }) {
   const navigate = useNavigate();
   const saved = me.store.settings.limits ?? {};
-  const [limits, setLimits] = useState<ShopifyStoreLimits>(saved);
+  // Login required starts ticked for a store that never chose either way, so
+  // Continue saves it; a saved choice (true or false) is kept as is.
+  const [limits, setLimits] = useState<ShopifyStoreLimits>({
+    ...saved,
+    loginRequired: saved.loginRequired ?? true,
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ClassifiedError | null>(null);
 
@@ -75,7 +79,14 @@ export default function OnboardingLimitsPage({
     try {
       await apiFetch('/v1/shopify/settings', {
         method: 'PATCH',
-        body: JSON.stringify({ limits: draft }),
+        // The API accepts an absent window but not a null one.
+        body: JSON.stringify({
+          limits: {
+            perShopperCap: draft.perShopperCap,
+            ...(draft.perShopperWindow ? { perShopperWindow: draft.perShopperWindow } : {}),
+            loginRequired: draft.loginRequired,
+          },
+        }),
       });
       await onRefresh();
       navigate('/onboarding/theme');
@@ -125,8 +136,8 @@ export default function OnboardingLimitsPage({
               />
             </BlockStack>
             <Checkbox
-              label="Make Login Required"
-              helpText="Customers must log in to your store before using virtual try-on. We'll ask for their email and phone number if their account doesn't have them."
+              label="Only logged-in shoppers can try on"
+              helpText="Shoppers sign in to your store first, so you know who is trying on. If their account has no email or phone number, we ask for it before their first try-on."
               checked={loginRequired}
               onChange={(checked) => patchLimits(loginRequiredPatch(checked))}
             />
