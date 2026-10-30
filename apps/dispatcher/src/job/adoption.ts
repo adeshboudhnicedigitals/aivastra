@@ -147,8 +147,7 @@ export async function adoptComfyJob(args: AdoptArgs): Promise<AdoptionOutcome> {
   // its own outcome. The mannequin phase is restarted too; its intermediate checkpoint is reused
   // from storage, so the restart only repeats work that was not saved.
   if (
-    !attempt ||
-    attempt.phase !== 'main' ||
+    attempt?.phase !== 'main' ||
     !['SUBMITTING', 'ACCEPTED', 'OUTPUT_READY'].includes(attempt.state) ||
     !attempt.workerId
   ) {
