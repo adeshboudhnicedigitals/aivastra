@@ -164,7 +164,6 @@ describe('analyticsCards', () => {
     expect(cards.uniqueShoppers).toBe(2);
     expect(cards.addedToCart).toBe(1);
     expect(cards.emailsCaptured).toBe(1);
-    expect(cards.phonesCaptured).toBe(1);
     // total = storeCap + shopperCap only; emailGate is a soft gate (shopper
     // typically submits their email and gets the try-on anyway) so it is
     // reported separately and excluded from the "turned away" total.

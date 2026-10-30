@@ -305,7 +305,6 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         shopifyCustomerId,
         email,
         emailConsent,
-        phone,
       } = req.body as {
         customerPhotoKey: string;
         shopifyProductId: number;
@@ -313,7 +312,6 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         shopifyCustomerId?: number;
         email?: string;
         emailConsent?: boolean;
-        phone?: string;
       };
 
       // Identity: Shopify's signed logged-in customer id beats anything in the
@@ -413,7 +411,6 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           clientId,
           shopifyCustomerId: effectiveCustomerId,
           email: email ?? null,
-          phone: phone ?? null,
         });
         if (email && emailConsent && !shopper.emailConsent) {
           await app.db

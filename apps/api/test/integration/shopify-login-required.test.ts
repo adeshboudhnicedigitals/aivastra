@@ -9,7 +9,6 @@ import { type Containers, startContainers } from '../helpers/containers.js';
 const SECRET = 'login-required-test-secret';
 const PRODUCT_ID = 7001;
 const EMAIL = 'shopper@example.com';
-const PHONE = '+91 98765-43210';
 
 function signAppProxyQuery(params: Record<string, string>): Record<string, string> {
   const msg = Object.keys(params)
@@ -176,7 +175,6 @@ describe('Shopify login-required try-on creation', () => {
         body(photo, {
           shopifyCustomerId: 111,
           email: EMAIL,
-          phone: PHONE,
         }),
         { signed: false },
       ),
@@ -193,7 +191,6 @@ describe('Shopify login-required try-on creation', () => {
         body(photo, {
           shopifyCustomerId: 111,
           email: EMAIL,
-          phone: PHONE,
         }),
         { signed: true, loggedInCustomerId: '' },
       ),
@@ -210,7 +207,6 @@ describe('Shopify login-required try-on creation', () => {
         body(photo, {
           shopifyCustomerId: 111,
           email: EMAIL,
-          phone: PHONE,
         }),
         { signed: true },
       ),
@@ -226,7 +222,6 @@ describe('Shopify login-required try-on creation', () => {
         customerPhotoKey: photo,
         shopifyProductId: PRODUCT_ID,
         email: EMAIL,
-        phone: PHONE,
       },
       { signed: true, loggedInCustomerId: '111' },
     );
@@ -235,7 +230,7 @@ describe('Shopify login-required try-on creation', () => {
     expect(await balanceFor(store.id)).toBe(100);
   });
 
-  it('refuses a logged-in shopper without email or phone', async () => {
+  it('refuses a logged-in shopper without an email', async () => {
     const store = await seedStore();
     const photo = await uploadPhoto(store);
     const response = await postJob(store, body(photo), { signed: true, loggedInCustomerId: '111' });
@@ -249,17 +244,17 @@ describe('Shopify login-required try-on creation', () => {
     expect(await balanceFor(store.id)).toBe(100);
   });
 
-  it('accepts email and phone on a retry by the same logged-in shopper', async () => {
+  it('accepts an email on a retry by the same logged-in shopper', async () => {
     const store = await seedStore();
     const photo = await uploadPhoto(store);
     const clientId = randomUUID();
-    const first = await postJob(store, body(photo, { clientId, email: EMAIL }), {
+    const first = await postJob(store, body(photo, { clientId }), {
       signed: true,
       loggedInCustomerId: '111',
     });
     expect(first.statusCode).toBe(202);
     expect(first.json().reason).toBe('contact_required');
-    const second = await postJob(store, body(photo, { clientId, email: EMAIL, phone: PHONE }), {
+    const second = await postJob(store, body(photo, { clientId, email: EMAIL }), {
       signed: true,
       loggedInCustomerId: '111',
     });
@@ -274,14 +269,14 @@ describe('Shopify login-required try-on creation', () => {
           eq(schema.shopifyShoppers.clientId, clientId),
         ),
       );
-    expect(shopper).toMatchObject({ email: EMAIL, phone: PHONE, shopifyCustomerId: 111 });
+    expect(shopper).toMatchObject({ email: EMAIL, shopifyCustomerId: 111 });
   });
 
   it('does not carry the previous customer contact to a different customer on the same browser', async () => {
     const store = await seedStore();
     const photo = await uploadPhoto(store);
     const clientId = randomUUID();
-    const first = await postJob(store, body(photo, { clientId, email: EMAIL, phone: PHONE }), {
+    const first = await postJob(store, body(photo, { clientId, email: EMAIL }), {
       signed: true,
       loggedInCustomerId: '111',
     });
@@ -302,7 +297,7 @@ describe('Shopify login-required try-on creation', () => {
           eq(schema.shopifyShoppers.clientId, clientId),
         ),
       );
-    expect(shopper).toMatchObject({ shopifyCustomerId: 222, email: null, phone: null });
+    expect(shopper).toMatchObject({ shopifyCustomerId: 222, email: null });
   });
 
   it('uses the signed customer id when the body claims another id', async () => {
@@ -313,7 +308,6 @@ describe('Shopify login-required try-on creation', () => {
       body(photo, {
         shopifyCustomerId: 999,
         email: EMAIL,
-        phone: PHONE,
       }),
       { signed: true, loggedInCustomerId: '111' },
     );
@@ -358,12 +352,12 @@ describe('Shopify login-required try-on creation', () => {
       perShopperWindow: 'day',
     });
     const photo = await uploadPhoto(store);
-    const first = await postJob(store, body(photo, { email: EMAIL, phone: PHONE }), {
+    const first = await postJob(store, body(photo, { email: EMAIL }), {
       signed: true,
       loggedInCustomerId: '111',
     });
     expect(first.statusCode).toBe(201);
-    const second = await postJob(store, body(photo, { email: EMAIL, phone: PHONE }), {
+    const second = await postJob(store, body(photo, { email: EMAIL }), {
       signed: true,
       loggedInCustomerId: '111',
     });

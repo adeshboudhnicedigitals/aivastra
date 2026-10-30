@@ -360,38 +360,15 @@
     const emailConsentInput = root.querySelector('.aivastra-tryon__email-consent-input');
     const emailSubmit = root.querySelector('.aivastra-tryon__email-submit');
     const emailError = root.querySelector('.aivastra-tryon__email-error');
-    const phoneInput = root.querySelector('.aivastra-tryon__phone-input');
     const emailLead = root.querySelector('.aivastra-tryon__email-lead');
     const emailConsentLabel = root.querySelector('.aivastra-tryon__email-consent');
     let awaitingEmailForPhotoKey = null;
 
-    // Same rule as the API (packages/types/src/phone.ts): digits, space and
-    // + ( ) - . only, at least 7 digits, at most 30 characters.
-    function phoneLooksValid(value) {
-      return (
-        value.length <= 30 && /^[0-9+()\-.\s]+$/.test(value) && value.replace(/\D/g, '').length >= 7
-      );
-    }
-
-    function configureContactStep({ needEmail, needPhone }) {
-      // Nothing missing client-side yet the server still wants contact data:
-      // show both fields rather than an empty step the shopper cannot leave.
-      if (!needEmail && !needPhone) {
-        needEmail = true;
-        needPhone = true;
-      }
-      if (emailInput) emailInput.hidden = !needEmail;
-      if (emailConsentLabel) emailConsentLabel.hidden = !needEmail;
-      if (phoneInput) phoneInput.hidden = !needPhone;
-      if (phoneInput && needPhone && shopperPhone) phoneInput.value = shopperPhone;
-      if (emailLead) {
-        emailLead.textContent =
-          needEmail && needPhone
-            ? 'Enter your email and phone number to continue.'
-            : needPhone
-              ? 'Enter your phone number to continue.'
-              : 'Enter your email to continue.';
-      }
+    // The email field is the whole contact step: always shown, never empty.
+    function configureContactStep() {
+      if (emailInput) emailInput.hidden = false;
+      if (emailConsentLabel) emailConsentLabel.hidden = false;
+      if (emailLead) emailLead.textContent = 'Enter your email to continue.';
     }
 
     function showEmailError(message) {
@@ -413,7 +390,7 @@
      */
     function returnToEmailStep(photoKey, message) {
       awaitingEmailForPhotoKey = photoKey;
-      configureContactStep({ needEmail: true, needPhone: false });
+      configureContactStep();
       showStep('email');
       showEmailError(message);
     }
@@ -563,7 +540,6 @@
     const shopifyCustomerId = root.dataset.customerId ? Number(root.dataset.customerId) : undefined;
     // Prefill only. The server never trusts this for authorization.
     let shopperEmail = root.dataset.customerEmail || null;
-    let shopperPhone = root.dataset.customerPhone || null;
     let shopperEmailConsent = false;
     // Whether the shopper actually submitted the email-gate step, as opposed to
     // us merely knowing their address because Liquid rendered it for a
@@ -574,10 +550,6 @@
     let emailConfirmedByShopper = false;
 
     if (emailInput && shopperEmail) emailInput.value = shopperEmail;
-    // A phone prefilled from the customer account can be in a shape the API
-    // rejects; ask for it again rather than sending it and dead-ending.
-    if (shopperPhone && !phoneLooksValid(shopperPhone.trim())) shopperPhone = null;
-    if (phoneInput && shopperPhone) phoneInput.value = shopperPhone;
 
     if (emailSubmit) {
       emailSubmit.addEventListener('click', () => {
@@ -593,14 +565,6 @@
           shopperEmail = value;
           shopperEmailConsent = !!emailConsentInput?.checked;
           emailConfirmedByShopper = true;
-        }
-        if (phoneInput && !phoneInput.hidden) {
-          const phoneValue = (phoneInput.value || '').trim();
-          if (!phoneLooksValid(phoneValue)) {
-            showEmailError('Enter a valid phone number (at least 7 digits).');
-            return;
-          }
-          shopperPhone = phoneValue;
         }
         // This click is the affirmative action. Until it happens, createJob
         // sends no email at all, even for a logged-in customer whose address
@@ -1365,7 +1329,6 @@
       // Whether this request carries a shopper-supplied address, which decides
       // whether a VALIDATION refusal below can be attributed to it.
       const sentEmail = !!(shopperEmail && (emailConfirmedByShopper || loginRequired));
-      const sentPhone = !!(loginRequired && shopperPhone);
       let res;
       try {
         res = await fetchWithTimeout(
@@ -1385,7 +1348,6 @@
               // logged-in customer, so keying off it captured their address on the
               // very first try-on without ever showing them the consent checkbox.
               ...(sentEmail ? { email: shopperEmail, emailConsent: shopperEmailConsent } : {}),
-              ...(sentPhone ? { phone: shopperPhone.trim() } : {}),
             }),
           }),
           CREATE_JOB_TIMEOUT_MS,
@@ -1664,7 +1626,7 @@
           }
           if (jobResult.reason === 'contact_required') {
             awaitingEmailForPhotoKey = customerPhotoKey;
-            configureContactStep({ needEmail: !shopperEmail, needPhone: !shopperPhone });
+            configureContactStep();
             showStep('email');
             return;
           }
@@ -1672,7 +1634,7 @@
             // Hold the photo key: the retry reuses the same upload (its Redis
             // ownership record lives 600s), so nothing is re-uploaded.
             awaitingEmailForPhotoKey = customerPhotoKey;
-            configureContactStep({ needEmail: true, needPhone: false });
+            configureContactStep();
             showStep('email');
             return;
           }

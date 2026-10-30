@@ -91,10 +91,10 @@ export async function checkShopperLimits(
   const limits = store.settings.limits;
   if (!limits) return null;
 
-  if (limits.loginRequired === true && (!shopper.email || !shopper.phone)) {
+  if (limits.loginRequired === true && !shopper.email) {
     return {
       reason: 'contact_required',
-      message: 'Enter your email and phone number to continue.',
+      message: 'Enter your email to continue.',
     };
   }
 

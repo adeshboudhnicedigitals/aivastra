@@ -28,20 +28,7 @@ describe('checkShopperLimits contact gate', () => {
   const db = {} as never; // Never reached: the contact refusal returns before any query.
 
   it('refuses a login-required shopper with no email', async () => {
-    const r = await checkShopperLimits(
-      db,
-      store({ loginRequired: true }),
-      shopper({ phone: '555 0100 123' }),
-    );
-    expect(r).toMatchObject({ reason: 'contact_required' });
-  });
-
-  it('refuses a login-required shopper with no phone', async () => {
-    const r = await checkShopperLimits(
-      db,
-      store({ loginRequired: true }),
-      shopper({ email: 'a@b.co' }),
-    );
+    const r = await checkShopperLimits(db, store({ loginRequired: true }), shopper());
     expect(r).toMatchObject({ reason: 'contact_required' });
   });
 });

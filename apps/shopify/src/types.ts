@@ -190,7 +190,6 @@ export interface ShopifyAnalyticsCards {
   addedToCart: number;
   addToCartRate: number;
   emailsCaptured: number;
-  phonesCaptured: number;
   turnedAway: { total: number; storeCap: number; shopperCap: number; emailGate: number };
 }
 
