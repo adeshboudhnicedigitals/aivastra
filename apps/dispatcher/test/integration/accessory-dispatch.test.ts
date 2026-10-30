@@ -6,9 +6,10 @@ import { Redis } from 'ioredis';
 import sharp from 'sharp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { processJob } from '../../src/job/processor.js';
-import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { forceIdle } from '../helpers/workers.js';
 
 const WORKER_ID = 'test-worker-accessory-dispatch';
 const FACE_NODE_ID = 'f';
@@ -49,7 +50,7 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
   beforeEach(async () => {
     comfy.resetPrompts();
     comfy.setOptions({});
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
   });
 
   /**
@@ -303,7 +304,7 @@ describe('dispatcher — accessory image resolve, stack, and dispatch', () => {
     expect(after1?.status).toBe('QUEUED');
     expect(after1?.attempts).toBe(1);
 
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
 
     // Second attempt — the item is still missing, so this exhausts
     // MAX_ATTEMPTS and the job terminates FAILED with a credit refund.

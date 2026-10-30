@@ -287,7 +287,11 @@ dispatcher startup. No env changes.
 3. Consumer concurrency refreshes from the registry within ~5s.
 
 To remove one: mark inactive in admin, then restart the dispatcher.
-After a dispatcher restart, reactivate with `isActive: true` plus the unchanged
+Since Phase C the dispatcher registers inactive workers as DRAINING at startup (it no longer
+deletes them), so after a restart a plain `isActive: true` reactivates a worker. A worker that
+still has unresolved remote work stays held (BUSY or DRAINING) behind a reservation token until
+the reconciler confirms the prompt ended; an admin status edit cannot make it claimable.
+Before Phase C is deployed, reactivate with `isActive: true` plus the unchanged
 `allowedJobTypes`; an activity-only toggle leaves a deleted worker out of Redis.
 
 ### Dispatcher modules (`apps/dispatcher/src/`)

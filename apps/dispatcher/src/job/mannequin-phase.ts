@@ -13,19 +13,23 @@ import {
   settlePerformanceSample,
 } from '../perf/observe-completion.js';
 import { performanceKey as getPerformanceKey } from '../perf/performance-key.js';
-import { releaseWorker } from '../worker/registry.js';
+import { releaseReservation, reserveWorker } from '../worker/reserve.js';
 import { selectWorker } from '../worker/selector.js';
 import type { OwnerToken } from './ownership.js';
+import { beginProcessing } from './start.js';
 import { submitRecordedPhase } from './submission.js';
 
 export interface MannequinPhaseConfig {
   db: DB;
   redis: Redis;
+  /** SSE publisher for the PREPROCESSING status change made when the first worker is reserved. */
+  pub: Redis;
   comfyRedis: Redis;
   comfyPollIntervalMs?: number;
   storage: StorageProvider;
   /** Owner of the paid job this phase runs inside; its intent insert checks it. */
   owner?: OwnerToken;
+  uncertainCheckMs?: number;
 }
 export interface MannequinPhaseParams {
   jobId: string;
@@ -47,7 +51,7 @@ export async function runMannequinPhase(
   cfg: MannequinPhaseConfig,
   params: MannequinPhaseParams,
 ): Promise<MannequinPhaseResult> {
-  const { db, redis, storage } = cfg;
+  const { db, redis, storage, owner } = cfg;
   const { jobId, garmentKey, faceId, mannequinWorkflowTemplateId, jobLog, jobType } = params;
 
   // The intermediate is written by one PutObject after the image has fully
@@ -95,12 +99,23 @@ export async function runMannequinPhase(
     personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
   }
   const performanceKey = template ? getPerformanceKey(template) : undefined;
-  const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey, {
+  const reservation = await reserveWorker({
+    db,
+    redis,
+    owner,
     jobId,
+    phase: 'mannequin',
     log: jobLog,
+    select: (token) =>
+      selectWorker(redis, WORKER_POOL.SAREE, performanceKey, { jobId, log: jobLog, token }),
+    // The job leaves QUEUED when this first worker is reserved, not when it was admitted.
+    onBound: owner ? () => beginProcessing({ db, pub: cfg.pub, owner, log: jobLog }) : undefined,
   });
-  if (!worker) return { status: 'no_worker' };
-  const w = worker;
+  if (!reservation) return { status: 'no_worker' };
+  const w = reservation.worker;
+  // Inputs are named per attempt: a late upload from an older attempt must not overwrite the
+  // file a replacement prompt reads.
+  const reservedAttemptId = reservation.attemptId;
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
@@ -111,7 +126,14 @@ export async function runMannequinPhase(
       const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
       const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
       const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+      return uploadImageToComfy(
+        w.url,
+        w.apiKey,
+        bytes,
+        `${prefix}_${jobId}_${reservedAttemptId}.${ext}`,
+        mime,
+        jobLog,
+      );
     }
     jobLog.info('uploading mannequin-phase inputs to ComfyUI');
     const [personFile, garmentFile] = await Promise.all([
@@ -137,6 +159,7 @@ export async function runMannequinPhase(
       clientId: clientUuid,
       attemptId,
     } = await submitRecordedPhase({
+      attemptId: reservation.attemptId,
       db,
       owner: cfg.owner,
       jobId,
@@ -191,7 +214,7 @@ export async function runMannequinPhase(
             error: jobLog.error.bind(jobLog),
           },
           undefined,
-          { comfyRedis: cfg.comfyRedis, workerId: w.id },
+          { comfyRedis: cfg.comfyRedis, workerId: w.id, jobId },
           totalNodeCount,
           cfg.comfyPollIntervalMs,
         ),
@@ -241,6 +264,9 @@ export async function runMannequinPhase(
     settlePerformanceSample(w, 'workflow_failure');
     throw err;
   } finally {
-    await releaseWorker(redis, w.id, jobLog);
+    await releaseReservation(
+      { db, redis, uncertainCheckMs: cfg.uncertainCheckMs ?? 90_000, log: jobLog },
+      reservation,
+    );
   }
 }
