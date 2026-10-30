@@ -4,6 +4,8 @@ import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
+import { sendShopifyWelcomeEmail } from '../../lib/mailer.js';
+import { getShopifyTrialCredits } from '../../lib/resolution-config.js';
 import { writeWidgetKeyMetafield } from './metafields.js';
 import { numericIdFromGid, shopifyGraphQL, verifyQueryHmac } from './service.js';
 import { type TokenGrant, toTokenGrant } from './token.js';
@@ -216,7 +218,19 @@ export async function provisionShopifyStore(
     partnerDevelopment: s.plan?.partnerDevelopment === true,
   };
 
+  // Decided before the upsert, which would otherwise erase the difference. A
+  // reinstall keeps its row (and its already-claimed welcome credits), so only a
+  // shop we have never seen gets the welcome email. Provisioning is serialized
+  // per shop (plugins/shopify-auth.ts), so two concurrent first contacts cannot
+  // both see "new".
+  const [prior] = await app.db
+    .select({ id: schema.shopifyStores.id })
+    .from(schema.shopifyStores)
+    .where(eq(schema.shopifyStores.shopifyShopId, details.shopifyShopId))
+    .limit(1);
+
   const store = await upsertShopifyStore(app, details, accessToken, scope, grant);
+  if (!prior) await sendInstallWelcomeEmail(app, store, log);
   await writeWidgetKeyMetafield(shop, accessToken, details.shopifyShopId, store.storeKey, log);
   // Reauthorization can be reached only after a widget-config PATCH has
   // already committed Postgres and Shopify rejected the old token. Publish
@@ -238,6 +252,31 @@ export async function provisionShopifyStore(
 
   log.info({ storeId: store.id, shop }, 'shopify store installed');
   return store;
+}
+
+/**
+ * Tolerant like the other post-upsert steps: a mail failure must never discard a
+ * valid token. There is no retry, so a failed send is lost — it is logged with
+ * the store id so it can be resent by hand.
+ */
+async function sendInstallWelcomeEmail(
+  app: FastifyInstance,
+  store: { id: string; shopEmail: string | null; shopOwnerName: string | null },
+  log: FastifyBaseLogger,
+) {
+  if (!store.shopEmail) {
+    log.warn({ storeId: store.id }, 'shopify welcome email skipped — no shop email on record');
+    return;
+  }
+  try {
+    await sendShopifyWelcomeEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, store.shopEmail, {
+      // The amount the Dashboard actually grants, not a number frozen into copy.
+      freeTryOns: await getShopifyTrialCredits(app),
+      name: store.shopOwnerName,
+    });
+  } catch (err) {
+    log.error({ err, storeId: store.id }, 'failed to send shopify welcome email');
+  }
 }
 
 export async function shopifyAuthRoutes(app: FastifyInstance) {

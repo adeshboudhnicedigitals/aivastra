@@ -184,8 +184,8 @@ if (process.argv[1]?.endsWith('detect-affected.mts')) {
       appendFileSync(
         process.env.GITHUB_OUTPUT,
         [
-          'services=["admin","api","chatbot","dispatcher","shopify-admin","web"]',
-          'compose_services=admin api chatbot dispatcher shopify-admin web',
+          'services=["admin","api","chatbot","dispatcher","shopify-admin","support","web"]',
+          'compose_services=admin api chatbot dispatcher shopify-admin support web',
           'docs_only=false',
           'fallback_to_all=true',
           'has_deployable=true',

@@ -163,6 +163,11 @@ describe('messaging conversation (real deps)', () => {
     app.storage.headObject = realHeadObject;
   });
   afterAll(async () => {
+    // Redis DB indices are leased from a shared pool and reused by later test
+    // files without being flushed (test/helpers/containers.ts) — leaving this
+    // file's config:system override in place leaks a creditCost-5 2K tier into
+    // whichever file claims this index next.
+    await app?.redis.del('config:system');
     await app?.close();
     await c?.stop();
   });
