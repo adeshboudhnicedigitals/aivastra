@@ -1,8 +1,11 @@
 import { hostname } from 'node:os';
+import { schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
+import { eq, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import type { ProcessorConfig } from '../job/processor.js';
 import { processJob } from '../job/processor.js';
+import { pruneLaneOccupancy, takeTicket } from './lane-tickets.js';
 
 const GROUP = 'dispatcher-cg';
 const CONSUMER = hostname();
@@ -19,12 +22,82 @@ const DEFAULT_STREAMS = [
 
 type PendingEntry = [string, string, number, number]; // [id, consumer, idleMs, deliveries]
 
+/** A consumer that drained at shutdown: everything it left pending is recoverable at once. */
+const retiredKey = (consumer: string) => `dispatcher:retired-consumer:${consumer}`;
+
+export async function markConsumerRetired(redis: Redis): Promise<void> {
+  // An hour is far longer than any recovery lag; the marker is only a hint, the database
+  // decides who may take the job.
+  await redis.set(retiredKey(CONSUMER), '1', 'EX', 3600);
+}
+
+/**
+ * Whether a pending entry may be claimed now, without waiting for the idle threshold. Only a hint
+ * to claim: processJob's acquisition is decisive, so a wrong "yes" costs one ignored delivery.
+ */
+async function eligibleNow(
+  redis: Redis,
+  cfg: ProcessorConfig,
+  stream: string,
+  messageId: string,
+  consumer: string,
+): Promise<boolean> {
+  if (await redis.exists(retiredKey(consumer))) return true;
+  const [entry] = (await redis.xrange(stream, messageId, messageId)) as Array<[string, string[]]>;
+  const fields = entry?.[1] ?? [];
+  const jobId = fields[fields.indexOf('jobId') + 1];
+  if (!jobId || fields.indexOf('jobId') < 0) return false;
+  const [row] = await cfg.db
+    .select({
+      free: sql<boolean>`(${schema.dispatcherJobControl.ownerRetired}
+        or ${schema.dispatcherJobControl.leaseUntil} is null
+        or ${schema.dispatcherJobControl.leaseUntil} <= clock_timestamp())`,
+    })
+    .from(schema.dispatcherJobControl)
+    .where(eq(schema.dispatcherJobControl.jobId, jobId));
+  return row?.free === true;
+}
+
+const BACKGROUND_CAP = 2;
+const background = new Set<Promise<void>>();
+let scanning = false;
+
+/**
+ * The recovery tick: never overlaps itself, never blocks on a job (an adoption can wait minutes),
+ * and runs at most a couple of recovered jobs at a time. Everything it runs is tracked as an
+ * owned job, so the shutdown drain sees it.
+ */
+export function startRecoveryScheduler(
+  redis: Redis,
+  cfg: ProcessorConfig,
+  thresholdMs: number,
+  log: Logger,
+  intervalMs = 5_000,
+): () => void {
+  const tick = async () => {
+    if (scanning) return;
+    scanning = true;
+    try {
+      await pruneLaneOccupancy(redis, log);
+      await recoverPendingJobs(redis, cfg, thresholdMs, log, DEFAULT_STREAMS, { background: true });
+    } catch (err) {
+      log.error({ err }, 'recovery scan failed');
+    } finally {
+      scanning = false;
+    }
+  };
+  void tick();
+  const timer = setInterval(() => void tick(), intervalMs);
+  return () => clearInterval(timer);
+}
+
 export async function recoverPendingJobs(
   redis: Redis,
   cfg: ProcessorConfig,
   thresholdMs: number,
   log: Logger,
   streams: readonly string[] = DEFAULT_STREAMS,
+  opts: { background?: boolean } = {},
 ): Promise<void> {
   for (const stream of streams) {
     let startId = '-';
@@ -38,14 +111,19 @@ export async function recoverPendingJobs(
       }
       if (!pending.length) break;
 
-      for (const [messageId, , idleMs] of pending) {
-        if (idleMs < thresholdMs) continue;
-        log.warn({ stream, messageId, idleMs }, 'claiming stale pending entry');
+      for (const [messageId, consumer, idleMs] of pending) {
+        if (opts.background && background.size >= BACKGROUND_CAP) return;
+        // The idle threshold is the fallback for an entry nothing else explains; a retired
+        // consumer or a retired/expired control row makes it claimable at once.
+        const early =
+          idleMs < thresholdMs && (await eligibleNow(redis, cfg, stream, messageId, consumer));
+        if (idleMs < thresholdMs && !early) continue;
+        log.warn({ stream, messageId, idleMs, early }, 'claiming pending entry');
         const claimed = (await redis.xclaim(
           stream,
           GROUP,
           CONSUMER,
-          thresholdMs,
+          early ? 0 : thresholdMs,
           messageId,
         )) as Array<[string, string[]]>;
         if (!claimed.length) continue;
@@ -73,14 +151,27 @@ export async function recoverPendingJobs(
         }
         log.info({ jobId: fieldMap.jobId }, 'reprocessing claimed pending job');
         const retryCount = Number.parseInt(fieldMap.retryCount ?? '0', 10);
-        await processJob(
+        // Taken before the first await on the job, so the lane counts it from here on and
+        // whatever the cap is: this is observation of work that already occupies a worker.
+        const release = takeTicket(stream, messageId);
+        const run = processJob(
           cfg,
           fieldMap.jobId,
           fieldMap.userId ?? '',
           stream,
           messageId,
           Number.isFinite(retryCount) ? retryCount : 0,
-        );
+        ).finally(release);
+        if (!opts.background) {
+          await run;
+          continue;
+        }
+        const tracked: Promise<void> = run
+          .catch((err) => log.error({ err, jobId: fieldMap.jobId }, 'recovered job failed'))
+          .finally(() => {
+            background.delete(tracked);
+          });
+        background.add(tracked);
       }
 
       const lastId = pending[pending.length - 1]?.[0];

@@ -38,6 +38,10 @@ const Env = z.object({
   DISPATCHER_HEALTH_PORT: z.coerce.number().default(4100),
   // How long a pending stream entry must be idle before recovery claims it (ms)
   XPENDING_CLAIM_THRESHOLD_MS: z.coerce.number().default(60_000),
+  // Bounds the boot-time read of pending entries that are counted as lane occupancy.
+  LANE_RESTORE_MAX: z.coerce.number().int().min(1).default(200),
+  /** Application drain on SIGTERM (ms, capped at 5000). The container stop grace must exceed it. */
+  SHUTDOWN_DRAIN_MS: z.coerce.number().int().min(0).max(5_000).default(5_000),
   SENTRY_DSN: optionalUrl(),
   ENABLE_WATERMARKING: z.coerce.boolean().default(true),
   PIXVERSE_API_KEY: z.string().optional(),

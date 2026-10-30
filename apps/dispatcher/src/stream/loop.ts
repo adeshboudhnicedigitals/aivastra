@@ -1,6 +1,7 @@
 import type { Logger } from '@aivastra/logger';
 import type { ProcessorConfig } from '../job/processor.js';
 import { processJob } from '../job/processor.js';
+import { type Lane, laneOccupancy } from './lane-tickets.js';
 
 export const DISPATCHER_GROUP = 'dispatcher-cg';
 
@@ -40,7 +41,7 @@ export function parseMessage(stream: string, result: XReadGroupResult): StreamMe
 
 export interface StreamLoopOptions {
   /** Lane name, bound to every log line so the two loops are distinguishable. */
-  name: string;
+  name: Lane;
   /** Reads at most one message; checks isRunning before any further claims after an await. */
   read: (isRunning: () => boolean) => Promise<StreamMessage | null>;
   /** Current in-flight cap. Called on every slot check — implementations cache. */
@@ -67,7 +68,9 @@ export function runStreamLoop(
   async function waitForSlot(): Promise<void> {
     while (running) {
       const concurrency = await opts.getConcurrency();
-      if (inFlight < concurrency) return;
+      // Recovery tickets occupy slots too: work a previous dispatcher left on a worker counts
+      // against the cap, so a fresh read cannot start new execution on top of it.
+      if (inFlight + laneOccupancy(opts.name) < concurrency) return;
       await new Promise((r) => setTimeout(r, 50));
     }
   }

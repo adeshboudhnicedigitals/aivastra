@@ -309,6 +309,31 @@ export async function assertStorageWriteLease(
   throw new OwnershipLostError(owner.jobId, site, owner);
 }
 
+/** Paid jobs this process is working on right now (the drain waits for this to reach zero). */
+export function ownedJobCount(): number {
+  return inFlight.size;
+}
+
+/**
+ * Shutdown: retire every control row this session owns, so a replacement may take the jobs at
+ * once instead of waiting out the 30 s lease. Keyed on the session, which is unique to this
+ * process, so no other owner's row can match. Business state is untouched; an owner whose
+ * handler is still running loses its next fenced write rather than failing or refunding.
+ */
+export async function retireSessionOwnership(db: DB, session: string): Promise<number> {
+  const rows = await db
+    .update(schema.dispatcherJobControl)
+    .set({ ownerRetired: true })
+    .where(
+      and(
+        eq(schema.dispatcherJobControl.ownerSession, session),
+        eq(schema.dispatcherJobControl.ownerRetired, false),
+      ),
+    )
+    .returning({ jobId: schema.dispatcherJobControl.jobId });
+  return rows.length;
+}
+
 /**
  * Ends this handler's authority once it is done with the job, whatever the exit
  * (an unexpected error included), so a finished or crashed handler never leaves a

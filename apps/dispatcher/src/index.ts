@@ -23,9 +23,11 @@ import { makeDb } from './lib/db.js';
 import { makeComfyRedis, makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
 import { runShopifyRetention } from './shopify/retention.js';
+import { drainAndRetire } from './shutdown.js';
 import { runConsumer } from './stream/consumer.js';
 import { runInhouseConsumer } from './stream/inhouse-consumer.js';
-import { recoverPendingJobs } from './stream/recovery.js';
+import { restoreLaneOccupancy } from './stream/lane-tickets.js';
+import { startRecoveryScheduler } from './stream/recovery.js';
 import { runSweeper } from './stream/sweeper.js';
 import { runVideoConsumer } from './stream/video-consumer.js';
 import { runWebhooksConsumer } from './stream/webhooks.js';
@@ -147,7 +149,6 @@ async function main(): Promise<void> {
   log.info({ session: processSession }, 'dispatcher ownership session started');
 
   // Crash recovery: reclaim stale XPENDING entries from a previous run
-  await recoverPendingJobs(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
 
   // Start subsystems
   const stopPerformanceRefresh = startPerformanceRefresh(comfyRedis);
@@ -166,6 +167,8 @@ async function main(): Promise<void> {
       await rebuildWorkerRegistry({ db, redis, log, workers: await loadWorkers() });
     },
   );
+  // Before any lane reads: entries a previous dispatcher left pending still occupy workers.
+  await restoreLaneOccupancy(redis, log, env.LANE_RESTORE_MAX);
   const stopConsumer = await runConsumer(redis, processorCfg, log);
   // Separate lane: PixVerse video jobs need no GPU worker, so they must not be
   // gated by the GPU consumer's registry-derived in-flight cap.
@@ -191,9 +194,14 @@ async function main(): Promise<void> {
     5 * 60 * 1000,
   );
 
-  const recoveryInterval = setInterval(() => {
-    void recoverPendingJobs(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
-  }, 60_000);
+  // Immediately and then every 5 s, in the background: an adoption can wait minutes and must not
+  // hold up boot or the next scan. Retired rows and drained consumers are eligible at once.
+  const stopRecovery = startRecoveryScheduler(
+    redis,
+    processorCfg,
+    env.XPENDING_CLAIM_THRESHOLD_MS,
+    log,
+  );
 
   const sareeStep2Interval = setInterval(() => {
     void promoteSareeStep2Jobs(processorCfg);
@@ -213,7 +221,7 @@ async function main(): Promise<void> {
   async function shutdown(signal: string): Promise<void> {
     log.info({ signal }, 'shutting down dispatcher');
     clearInterval(sweeperInterval);
-    clearInterval(recoveryInterval);
+    stopRecovery();
     clearInterval(sareeStep2Interval);
     clearInterval(shopifyRetentionInterval);
     stopConsumer();
@@ -224,6 +232,13 @@ async function main(): Promise<void> {
     stopPerformanceRefresh();
     stopHealthMonitor();
     stopReservationReconciler();
+    await drainAndRetire({
+      db,
+      redis,
+      log,
+      session: processSession,
+      drainMs: env.SHUTDOWN_DRAIN_MS,
+    });
     stopHealthServer();
     comfyRedis.disconnect();
     await releaseDispatcherSession(redis, processSession).catch(() => {});
