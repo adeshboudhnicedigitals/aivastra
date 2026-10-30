@@ -277,6 +277,34 @@ describe('Shopify login-required try-on creation', () => {
     expect(shopper).toMatchObject({ email: EMAIL, phone: PHONE, shopifyCustomerId: 111 });
   });
 
+  it('does not carry the previous customer contact to a different customer on the same browser', async () => {
+    const store = await seedStore();
+    const photo = await uploadPhoto(store);
+    const clientId = randomUUID();
+    const first = await postJob(store, body(photo, { clientId, email: EMAIL, phone: PHONE }), {
+      signed: true,
+      loggedInCustomerId: '111',
+    });
+    expect(first.statusCode).toBe(201);
+    // Customer 222 logs in on the same browser and supplies no contact data.
+    const second = await postJob(store, body(photo, { clientId }), {
+      signed: true,
+      loggedInCustomerId: '222',
+    });
+    expect(second.statusCode).toBe(202);
+    expect(second.json().reason).toBe('contact_required');
+    const [shopper] = await app.db
+      .select()
+      .from(schema.shopifyShoppers)
+      .where(
+        and(
+          eq(schema.shopifyShoppers.storeId, store.id),
+          eq(schema.shopifyShoppers.clientId, clientId),
+        ),
+      );
+    expect(shopper).toMatchObject({ shopifyCustomerId: 222, email: null, phone: null });
+  });
+
   it('uses the signed customer id when the body claims another id', async () => {
     const store = await seedStore();
     const photo = await uploadPhoto(store);

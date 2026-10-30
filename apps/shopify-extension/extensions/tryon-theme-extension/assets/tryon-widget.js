@@ -359,7 +359,21 @@
     const emailConsentLabel = root.querySelector('.aivastra-tryon__email-consent');
     let awaitingEmailForPhotoKey = null;
 
+    // Same rule as the API (packages/types/src/phone.ts): digits, space and
+    // + ( ) - . only, at least 7 digits, at most 30 characters.
+    function phoneLooksValid(value) {
+      return (
+        value.length <= 30 && /^[0-9+()\-.\s]+$/.test(value) && value.replace(/\D/g, '').length >= 7
+      );
+    }
+
     function configureContactStep({ needEmail, needPhone }) {
+      // Nothing missing client-side yet the server still wants contact data:
+      // show both fields rather than an empty step the shopper cannot leave.
+      if (!needEmail && !needPhone) {
+        needEmail = true;
+        needPhone = true;
+      }
       if (emailInput) emailInput.hidden = !needEmail;
       if (emailConsentLabel) emailConsentLabel.hidden = !needEmail;
       if (phoneInput) phoneInput.hidden = !needPhone;
@@ -554,6 +568,9 @@
     let emailConfirmedByShopper = false;
 
     if (emailInput && shopperEmail) emailInput.value = shopperEmail;
+    // A phone prefilled from the customer account can be in a shape the API
+    // rejects; ask for it again rather than sending it and dead-ending.
+    if (shopperPhone && !phoneLooksValid(shopperPhone.trim())) shopperPhone = null;
     if (phoneInput && shopperPhone) phoneInput.value = shopperPhone;
 
     if (emailSubmit) {
@@ -573,11 +590,7 @@
         }
         if (phoneInput && !phoneInput.hidden) {
           const phoneValue = (phoneInput.value || '').trim();
-          if (
-            phoneValue.length > 30 ||
-            !/^[0-9+()\-.\s]+$/.test(phoneValue) ||
-            phoneValue.replace(/\D/g, '').length < 7
-          ) {
+          if (!phoneLooksValid(phoneValue)) {
             showEmailError('Enter a valid phone number (at least 7 digits).');
             return;
           }
