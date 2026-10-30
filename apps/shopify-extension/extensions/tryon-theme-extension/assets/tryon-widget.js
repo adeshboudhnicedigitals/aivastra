@@ -363,6 +363,7 @@
       if (emailInput) emailInput.hidden = !needEmail;
       if (emailConsentLabel) emailConsentLabel.hidden = !needEmail;
       if (phoneInput) phoneInput.hidden = !needPhone;
+      if (phoneInput && needPhone && shopperPhone) phoneInput.value = shopperPhone;
       if (emailLead) {
         emailLead.textContent =
           needEmail && needPhone
@@ -553,6 +554,7 @@
     let emailConfirmedByShopper = false;
 
     if (emailInput && shopperEmail) emailInput.value = shopperEmail;
+    if (phoneInput && shopperPhone) phoneInput.value = shopperPhone;
 
     if (emailSubmit) {
       emailSubmit.addEventListener('click', () => {
