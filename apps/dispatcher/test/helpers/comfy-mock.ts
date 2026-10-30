@@ -32,6 +32,8 @@ export interface ComfyMockOptions {
   historyBody?: string;
   /** Pads the GET /history listing with this many foreign entries (500 looks truncated). */
   historyPadding?: number;
+  /** Raw extra /history entries (e.g. one with no status), keyed by prompt id. */
+  historyExtra?: Record<string, unknown>;
   /** Accept POST /prompt but never answer it: the submitter's reply is lost. */
   holdPromptResponse?: boolean;
   /** Replaces the default SaveImage output in /history — e.g. { '4': { text: ['wa-kurti'] } }
@@ -251,6 +253,7 @@ export function startComfyMock(): Promise<ComfyMock> {
           };
         for (const [promptId, entry] of Object.entries(histories))
           listing[promptId] = { prompt: entryFor(promptId), ...(entry as object) };
+        Object.assign(listing, opts.historyExtra ?? {});
         res.end(JSON.stringify(Object.fromEntries(Object.entries(listing).slice(-max))));
         return;
       }

@@ -360,7 +360,10 @@ describe('worker reservation: lost-receipt discovery', () => {
       { queueBody: 'not json' },
       { queueBody: '{"queue_running": [[0, "x"]], "queue_pending": []}' },
       { historyBody: '[]' },
-      { historyBody: '{"p": {"prompt": [0, "p", {}, {"client_id": "c"}, []]}}' },
+      {
+        historyBody:
+          '{"p": {"prompt": [0, "q", {}, {"client_id": "c"}, []], "status": {"status_str": "success"}}}',
+      },
       { historyStatus: 500 },
       { historyPadding: 500 },
     ]) {
@@ -369,6 +372,80 @@ describe('worker reservation: lost-receipt discovery', () => {
       expect(await heldToken(), JSON.stringify(options)).toBe(owner.token);
     }
     await expectNoBusinessEffect(owner);
+  });
+
+  // A worker that was away and comes back has more than a page of newer history: the held
+  // prompt is pushed out of it. The queue read is complete and does not list it, so it is not
+  // executing; only its result is unknown.
+  it('full-history-known-prompt: a full history page does not keep a worker reserved for a held prompt', async () => {
+    const owner = await loseReceipt();
+    comfy.forgetPrompt(owner.promptId);
+    await expireLease(owner.seeded.job.id);
+    await env.db
+      .update(schema.executionAttempts)
+      .set({ state: 'ACCEPTED', promptId: owner.promptId })
+      .where(eq(schema.executionAttempts.id, owner.attemptId));
+    comfy.setOptions({ historyPadding: 600 });
+
+    await reconcileWorkerReservations(cfg());
+
+    expect(await heldToken()).toBeNull();
+    const attempt = await attemptRow(owner.attemptId);
+    expect(attempt.resolvedAt).not.toBeNull();
+    // The result stays unknown: nothing is claimed about how the prompt ended.
+    expect(attempt.state).toBe('ACCEPTED');
+    const [resolved] = await events(owner.seeded.job.id, 'COMFY_RESERVATION_RESOLVED');
+    expect(resolved?.payload).toMatchObject({ rule: 'known_prompt_absent', truncated: true });
+    await expectNoBusinessEffect(owner);
+  });
+
+  it('full-history-receiptless: a miss on a full page by client id stays unavailable', async () => {
+    const owner = await loseReceipt();
+    comfy.forgetPrompt(owner.promptId);
+    await expireLease(owner.seeded.job.id);
+    await passDeadline(owner.attemptId);
+    comfy.setOptions({ historyPadding: 600 });
+
+    await reconcileWorkerReservations(cfg());
+    expect(await heldToken()).toBe(owner.token);
+  });
+
+  const noVerdict = (promptId: string, clientId: string) => ({
+    prompt: [0, promptId, {}, { client_id: clientId }, []],
+    outputs: {},
+    status: { completed: false, messages: [] },
+  });
+
+  it('history-entry-without-verdict: an unrelated one is skipped and counted, not fatal', async () => {
+    const owner = await loseReceipt();
+    comfy.forgetPrompt(owner.promptId);
+    await expireLease(owner.seeded.job.id);
+    await passDeadline(owner.attemptId);
+    comfy.setOptions({ historyExtra: { other: noVerdict('other', 'someone-else') } });
+
+    await reconcileWorkerReservations(cfg());
+    expect(await heldToken()).toBeNull();
+    expect((await attemptRow(owner.attemptId)).resolvedAt).not.toBeNull();
+  });
+
+  it('history-entry-without-verdict: one for the searched client or prompt holds the worker', async () => {
+    const owner = await loseReceipt();
+    comfy.forgetPrompt(owner.promptId);
+    await expireLease(owner.seeded.job.id);
+    await passDeadline(owner.attemptId);
+    const { clientId } = await attemptRow(owner.attemptId);
+    comfy.setOptions({ historyExtra: { mine: noVerdict('mine', clientId) } });
+    await reconcileWorkerReservations(cfg());
+    expect(await heldToken()).toBe(owner.token);
+
+    // Same for a known prompt id.
+    await env.db
+      .update(schema.executionAttempts)
+      .set({ state: 'ACCEPTED', promptId: owner.promptId })
+      .where(eq(schema.executionAttempts.id, owner.attemptId));
+    comfy.setOptions({ historyExtra: { [owner.promptId]: noVerdict(owner.promptId, clientId) } });
+    await reconcileWorkerReservations(cfg());
+    expect(await heldToken()).toBe(owner.token);
   });
 
   it('foreign-queue-does-not-block-release: other clients in the queue do not hold the worker', async () => {

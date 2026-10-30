@@ -12,8 +12,14 @@
  *    The client id is `prompt[3].client_id`.
  *
  * Anything that does not parse into exactly that is "unavailable", never "absent": absence is
- * only claimed from a fully parsed queue followed by a fully parsed, untruncated history.
+ * only claimed from a fully parsed queue followed by a fully parsed history, untruncated unless
+ * the prompt id is already known. A history entry with no verdict is skipped, not fatal.
  */
+
+/** The slice of a pino logger this module needs; skipped history entries are counted there. */
+export interface SkipLog {
+  warn(obj: Record<string, unknown>, msg: string): void;
+}
 
 export type PromptObservation = 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -25,6 +31,12 @@ export interface FoundReceipt {
 /** No entry matched, after a complete queue read and a complete history read made after it. */
 export interface NotFound {
   kind: 'not_found';
+  /**
+   * Set when the answer came from a full history page. Only a prompt-id search may answer that
+   * way: the id is already held, so a queue that does not list it proves it stopped running,
+   * and only its result (not that it ended) is unknown.
+   */
+  truncated?: boolean;
 }
 /** A read failed, was malformed or truncated, or matched ambiguously. Never evidence of absence. */
 export interface Unavailable {
@@ -45,6 +57,8 @@ const READ_TIMEOUT_MS = 10_000;
 
 type QueueEntry = { promptId: string; clientId: string | null };
 type HistoryEntry = QueueEntry & { observation: 'succeeded' | 'failed' };
+/** An entry with no success/error verdict: seen, but never classified. */
+type SkippedEntry = QueueEntry;
 
 class Unparseable extends Error {}
 
@@ -92,21 +106,36 @@ async function readQueue(
 async function readHistory(
   worker: ReconcileWorker,
   deadline: Date | undefined,
-): Promise<{ entries: HistoryEntry[]; truncated: boolean }> {
+  log?: SkipLog,
+): Promise<{ entries: HistoryEntry[]; skipped: SkippedEntry[]; truncated: boolean }> {
   const body = await readJson(worker, `/history?max_items=${HISTORY_PAGE_LIMIT}`, deadline);
   if (!isRecord(body)) throw new Unparseable('history object');
   const entries: HistoryEntry[] = [];
+  const skipped: SkippedEntry[] = [];
   for (const [key, value] of Object.entries(body)) {
     if (!isRecord(value)) throw new Unparseable('history entry');
     const base = parseEntry(value.prompt);
     if (base.promptId !== key) throw new Unparseable('history key mismatch');
     const status = isRecord(value.status) ? value.status.status_str : undefined;
-    // A history row exists only once the prompt ran to an end. Anything without an explicit
-    // verdict is not classified as success or failure.
-    if (status !== 'success' && status !== 'error') throw new Unparseable('history status');
+    // A history row exists only once the prompt ran to an end. One without an explicit verdict
+    // is never classified as success or failure, but it must not make every other prompt on
+    // the worker unreadable: it is skipped and counted, and only blocks a search for itself.
+    if (status !== 'success' && status !== 'error') {
+      skipped.push(base);
+      continue;
+    }
     entries.push({ ...base, observation: status === 'success' ? 'succeeded' : 'failed' });
   }
-  return { entries, truncated: entries.length >= HISTORY_PAGE_LIMIT };
+  if (skipped.length > 0)
+    log?.warn(
+      { stage: 'reservation_reconcile', skippedHistoryEntries: skipped.length },
+      'history entries without a success/error verdict were skipped',
+    );
+  return {
+    entries,
+    skipped,
+    truncated: entries.length + skipped.length >= HISTORY_PAGE_LIMIT,
+  };
 }
 
 function failure(err: unknown): Unavailable {
@@ -124,6 +153,7 @@ export async function findPromptByClientId(
   worker: ReconcileWorker,
   clientId: string,
   deadline?: Date,
+  log?: SkipLog,
 ): Promise<PromptSearchResult> {
   try {
     const queue = await readQueue(worker, deadline);
@@ -137,7 +167,9 @@ export async function findPromptByClientId(
     if (running[0]) return { kind: 'found', promptId: running[0].promptId, observation: 'running' };
     if (pending[0]) return { kind: 'found', promptId: pending[0].promptId, observation: 'queued' };
 
-    const history = await readHistory(worker, deadline);
+    const history = await readHistory(worker, deadline, log);
+    if (history.skipped.some((e) => e.clientId === clientId))
+      return { kind: 'unavailable', reason: 'history entry for this client has no verdict' };
     const done = history.entries.filter((e) => e.clientId === clientId);
     if (done.length > 1)
       return {
@@ -154,13 +186,15 @@ export async function findPromptByClientId(
 }
 
 /**
- * The same observation for a prompt id we already hold. `not_found` here means the prompt is in
- * neither the queue nor the (untruncated) history, i.e. it cannot still be executing.
+ * The same observation for a prompt id we already hold. `not_found` here means the prompt is not
+ * in the queue and not in the history page, i.e. it cannot still be executing (`truncated` says
+ * the page was full, so only its result is unknown).
  */
 export async function findPromptById(
   worker: ReconcileWorker,
   promptId: string,
   deadline?: Date,
+  log?: SkipLog,
 ): Promise<PromptSearchResult> {
   try {
     const queue = await readQueue(worker, deadline);
@@ -168,11 +202,14 @@ export async function findPromptById(
       return { kind: 'found', promptId, observation: 'running' };
     if (queue.pending.some((e) => e.promptId === promptId))
       return { kind: 'found', promptId, observation: 'queued' };
-    const history = await readHistory(worker, deadline);
+    const history = await readHistory(worker, deadline, log);
+    if (history.skipped.some((e) => e.promptId === promptId))
+      return { kind: 'unavailable', reason: 'history entry for this prompt has no verdict' };
     const done = history.entries.find((e) => e.promptId === promptId);
     if (done) return { kind: 'found', promptId, observation: done.observation };
-    if (history.truncated) return { kind: 'unavailable', reason: 'history page may be truncated' };
-    return { kind: 'not_found' };
+    // The queue was read completely and does not list the prompt, so it is not executing; a
+    // full history page only means its result may have been pushed out of the page.
+    return history.truncated ? { kind: 'not_found', truncated: true } : { kind: 'not_found' };
   } catch (err) {
     return failure(err);
   }

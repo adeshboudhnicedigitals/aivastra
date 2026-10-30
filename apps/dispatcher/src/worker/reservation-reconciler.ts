@@ -245,6 +245,7 @@ async function markResolved(
   attempt: Attempt,
   workerId: string,
   rule: string,
+  extra: Record<string, unknown> = {},
 ): Promise<void> {
   if (!RESOLVING_RULES.has(rule)) return;
   await db.transaction(async (tx) => {
@@ -262,7 +263,7 @@ async function markResolved(
       await tx.insert(schema.jobEvents).values({
         jobId: attempt.jobId,
         eventType: 'COMFY_RESERVATION_RESOLVED',
-        payload: { rule, attemptId: attempt.id, clientId: attempt.clientId, workerId },
+        payload: { rule, attemptId: attempt.id, clientId: attempt.clientId, workerId, ...extra },
       });
   });
 }
@@ -273,11 +274,12 @@ async function releaseExact(
   token: string,
   attempt: Attempt,
   reason: string,
+  extra: Record<string, unknown> = {},
 ): Promise<ReconcileOutcome> {
   // Resolve first: a crash between the two leaves a held token over a resolved attempt, which
   // the next tick releases, never a free worker over unresolved remote work.
   // A PREPARING attempt never reached a worker, and one already resolved needs nothing more.
-  await markResolved(cfg.db, attempt, workerId, reason);
+  await markResolved(cfg.db, attempt, workerId, reason, extra);
   const released = await releaseWorkerIfToken(cfg.redis, workerId, token);
   if (!released) return 'token_replaced';
   clearHold(workerId);
@@ -362,12 +364,12 @@ export async function reconcileReservation(
   // pass searches once the owner has retired.
   if (mode === 'owner' && !promptId) return 'held_search';
   if (promptId) {
-    observed = await findPromptById(identity, promptId);
+    observed = await findPromptById(identity, promptId, undefined, cfg.log);
   } else {
     // A receipt-less attempt is searched for by its persisted client id until the persisted
     // deadline; a live owner was filtered out above.
     const deadline = await ensureDeadline(cfg, attempt.id);
-    observed = await findPromptByClientId(identity, attempt.clientId, deadline);
+    observed = await findPromptByClientId(identity, attempt.clientId, deadline, cfg.log);
     clock.unknownSince ??= nowMs();
     if (observed.kind === 'found') {
       const recorded = await recordDiscoveredReceipt(
@@ -406,7 +408,15 @@ export async function reconcileReservation(
 
   // not_found with a known prompt: it is in neither the queue nor the history, so it cannot
   // still be executing.
-  if (promptId) return releaseExact(cfg, workerId, token, attempt, 'known_prompt_absent');
+  if (promptId)
+    return releaseExact(
+      cfg,
+      workerId,
+      token,
+      attempt,
+      'known_prompt_absent',
+      observed.truncated ? { truncated: true } : {},
+    );
   // not_found without a receipt: only a fresh complete queue/history check made after the
   // persisted deadline frees the worker. Earlier clean checks never do.
   if (await deadlinePassed(cfg.db, attempt.id))
@@ -461,13 +471,19 @@ async function resolveSupersededAttempts(
           if (control?.live) return;
           const identity = await workerIdentity(cfg.redis, attempt.workerId, attempt);
           if (!identity || identity === 'quarantined') return;
-          const observed = await findPromptById(identity, attempt.promptId);
+          const observed = await findPromptById(identity, attempt.promptId, undefined, cfg.log);
           if (observed.kind === 'unavailable') return;
           if (observed.kind === 'found') {
             if (observed.observation === 'queued' || observed.observation === 'running') return;
             await markResolved(cfg.db, attempt, attempt.workerId, `prompt_${observed.observation}`);
           } else {
-            await markResolved(cfg.db, attempt, attempt.workerId, 'known_prompt_absent');
+            await markResolved(
+              cfg.db,
+              attempt,
+              attempt.workerId,
+              'known_prompt_absent',
+              observed.truncated ? { truncated: true } : {},
+            );
           }
         } catch (err) {
           cfg.log.warn({ err, attemptId: attempt.id }, 'could not resolve superseded attempt');
