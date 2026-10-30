@@ -24,6 +24,8 @@ export interface ShopifyStoreLimits {
   perShopperWindow?: 'day' | 'week' | 'month';
   /** null = never ask. 0 = ask before the first generation. */
   emailAfterNTryOns?: number | null;
+  // Shoppers must be logged in to the storefront (verified via App Proxy) and have email + phone on file.
+  loginRequired?: boolean;
 }
 
 export interface ShopifyStoreRetention {
@@ -465,7 +467,8 @@ export const shopifyWidgetEvents = pgTable(
     // Client-reported, forgeable:
     //   button_click | upload | result_view | add_to_cart | share
     // Server-written, unforgeable:
-    //   refused_store_cap | refused_shopper_cap | refused_email_gate
+    //   refused_store_cap | refused_shopper_cap | refused_email_gate |
+    //   refused_login_gate | refused_contact_gate
     type: text('type').notNull(),
     device: text('device'), // 'mobile' | 'desktop'
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

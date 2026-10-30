@@ -6,6 +6,7 @@ export interface ShopifyStoreLimits {
   perShopperWindow?: 'day' | 'week' | 'month';
   /** null = never ask. 0 = ask before the first generation. */
   emailAfterNTryOns?: number | null;
+  loginRequired?: boolean;
 }
 
 export interface ShopifyStoreRetention {
