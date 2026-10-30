@@ -788,9 +788,11 @@ export default function StudioPage(): React.ReactElement {
   const [lowerCatalogId, setLowerCatalogId] = useState('');
   const [shoeCatalogId, setShoeCatalogId] = useState('');
   const [accessoryCatalogIds, setAccessoryCatalogIds] = useState<string[]>([]);
+  const [blousePoseId, setBlousePoseId] = useState('');
   const [lowerItemsOpen, setLowerItemsOpen] = useState(false);
   const [shoeItemsOpen, setShoeItemsOpen] = useState(false);
   const [accessoryItemsOpen, setAccessoryItemsOpen] = useState(false);
+  const [blouseItemsOpen, setBlouseItemsOpen] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -948,8 +950,11 @@ export default function StudioPage(): React.ReactElement {
     isError: backgroundsError,
     refetch: refetchBackgrounds,
   } = useQuery<BackgroundsResponse>({
-    queryKey: ['backgrounds', gender],
-    queryFn: () => api.get(`/v1/models/backgrounds?gender=${gender}`),
+    queryKey: ['backgrounds', gender, garmentTypeId],
+    queryFn: () =>
+      api.get(
+        `/v1/models/backgrounds?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}`,
+      ),
     enabled: !!gender,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
@@ -1394,6 +1399,35 @@ export default function StudioPage(): React.ReactElement {
   const visibleAccessoryIds = accessoryCatalogIds.filter((id) =>
     accessoryCategories.some((c) => c.items.some((i) => i.id === id)),
   );
+  // Not gated on pose selection like lower/shoe/accessory — a category's
+  // visibility is purely a garment-type↔category mapping (see admin "Blouse
+  // categories" panel), so this only needs the garment subcategory id.
+  const { data: blouseCategoriesData } = useQuery<{
+    items: {
+      id: string;
+      label: string;
+      thumbnailUrl: string | null;
+      poses: { id: string; label: string; thumbnailUrl: string | null }[];
+    }[];
+  }>({
+    queryKey: ['models', 'blouse-categories', garmentTypeId],
+    queryFn: () => api.get(`/v1/models/blouse-categories?garmentSubcategoryId=${garmentTypeId}`),
+    enabled: !!garmentTypeId,
+  });
+  const blouseCategories = blouseCategoriesData?.items ?? [];
+  const hasBlouseCategories = blouseCategories.length > 0;
+  const blousePoses = useMemo(
+    () => blouseCategories.flatMap((c) => c.poses.map((p) => ({ ...p, categoryId: c.id }))),
+    [blouseCategories],
+  );
+  const blouseGroupOptions = useMemo(
+    () => blouseCategories.map((c) => ({ id: c.id, label: c.label })),
+    [blouseCategories],
+  );
+  const [blouseGroupFilter, setBlouseGroupFilter] = useState('');
+  const selectedBlousePose = blousePoseId
+    ? blousePoses.find((p) => p.id === blousePoseId)
+    : undefined;
   const lowerNodes = useMemo(
     () => lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [],
     [lowerCatalog],
@@ -1863,6 +1897,7 @@ export default function StudioPage(): React.ReactElement {
     if (isSubmittingRef.current) return;
     if (!garmentKey || !faceId || !resolution) return;
     if (sareeTwoInputActive && !palluGarmentKey) return;
+    if (hasBlouseCategories && !blousePoseId) return;
     if (catalogueTemplateId === 'custom') {
       if (!backgroundId || poseIds.length === 0) return;
     } else {
@@ -1905,6 +1940,7 @@ export default function StudioPage(): React.ReactElement {
           ? thirdGarmentKey || undefined
           : undefined,
         fourthGarmentKey: allowsFourthUpload ? fourthGarmentKey || undefined : undefined,
+        blousePoseId: hasBlouseCategories ? blousePoseId || undefined : undefined,
       };
       const step2Inputs =
         catalogueTemplateId === 'custom'
@@ -2007,7 +2043,11 @@ export default function StudioPage(): React.ReactElement {
   const allowsFourthUpload =
     !!selectedGarmentType?.allowsFourthUpload && !selectedGarmentType.requiresMannequinStep;
   const hasMultipleUploadBoxes =
-    requiresLowerUpload || requiresThirdUpload || sareeTwoInputActive || allowsFourthUpload;
+    requiresLowerUpload ||
+    requiresThirdUpload ||
+    sareeTwoInputActive ||
+    allowsFourthUpload ||
+    hasBlouseCategories;
 
   const creditCost = resolution
     ? (resolutionConfig[resolution]?.creditCost ?? RESOLUTION_COSTS[resolution]) * selectedCount
@@ -2020,6 +2060,7 @@ export default function StudioPage(): React.ReactElement {
     (!needsLowerBack || (lowerOnlyIsBack ? !!upperGarmentBackKey : !!lowerGarmentBackKey)) &&
     (!requiresThirdUpload || !!thirdGarmentKey) &&
     (!sareeTwoInputActive || !!palluGarmentKey) &&
+    (!hasBlouseCategories || !!blousePoseId) &&
     !!faceId &&
     (catalogueTemplateId === 'custom' ? !!backgroundId : true) &&
     customDimsReady &&
@@ -2056,13 +2097,15 @@ export default function StudioPage(): React.ReactElement {
                 ? 'Upload the third garment image first'
                 : sareeTwoInputActive && !palluGarmentKey
                   ? 'Upload the pallu image first'
-                  : selectedCount === 0
-                    ? catalogueTemplateId === 'custom'
-                      ? 'Select at least one pose'
-                      : 'Select at least one look'
-                    : !customDimsReady
-                      ? 'Enter a valid width and height'
-                      : '';
+                  : hasBlouseCategories && !blousePoseId
+                    ? 'Choose a blouse design first'
+                    : selectedCount === 0
+                      ? catalogueTemplateId === 'custom'
+                        ? 'Select at least one pose'
+                        : 'Select at least one look'
+                      : !customDimsReady
+                        ? 'Enter a valid width and height'
+                        : '';
 
   // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
   // are always visible and keep their static stepNumber. Everything after that is
@@ -2438,6 +2481,7 @@ export default function StudioPage(): React.ReactElement {
                     setGarmentTypeId('');
                     setBodyTypeId('');
                     setAccessoryCatalogIds([]);
+                    setBlousePoseId('');
                   }}
                 />
               ))}
@@ -2621,6 +2665,7 @@ export default function StudioPage(): React.ReactElement {
                         setGarmentTypeId('');
                         setBodyTypeId('');
                         setAccessoryCatalogIds([]);
+                        setBlousePoseId('');
                         setCatalogueTemplateId('custom');
                         setGarmentModalOpen(false);
                       }}
@@ -2753,6 +2798,7 @@ export default function StudioPage(): React.ReactElement {
                                 setLowerCatalogId('');
                                 setShoeCatalogId('');
                                 setAccessoryCatalogIds([]);
+                                setBlousePoseId('');
                                 setSareeUploadMode('two_input');
                                 setPalluGarmentFile(null);
                                 setPalluGarmentKey('');
@@ -3726,6 +3772,154 @@ export default function StudioPage(): React.ReactElement {
                                 <XIcon size={14} />
                               </button>
                             </div>
+                          )}
+                        </div>
+                      )}
+
+                      {hasBlouseCategories && (
+                        // biome-ignore lint/a11y/noStaticElementInteractions: contains a nested remove button; parent click opens the picker
+                        <div
+                          onClick={() => {
+                            setBlouseGroupFilter('');
+                            setBlouseItemsOpen(true);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              setBlouseGroupFilter('');
+                              setBlouseItemsOpen(true);
+                            }
+                          }}
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 12,
+                            background: C.card,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 8,
+                            padding: 12,
+                            cursor: 'pointer',
+                            boxSizing: 'border-box',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {selectedBlousePose ? (
+                            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                              {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                              <img
+                                src={selectedBlousePose.thumbnailUrl ?? ''}
+                                alt={selectedBlousePose.label}
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'contain',
+                                  borderRadius: 6,
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setBlousePoseId('');
+                                }}
+                                style={{
+                                  position: 'absolute',
+                                  top: 6,
+                                  right: 6,
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: '50%',
+                                  background: 'rgba(0,0,0,0.5)',
+                                  border: 'none',
+                                  color: 'white',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <XIcon size={14} />
+                              </button>
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: 8,
+                                  left: 8,
+                                  background: C.mint,
+                                  color: 'white',
+                                  borderRadius: 6,
+                                  padding: '3px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <CheckIcon color="#fff" size={10} /> Selected
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: '100%',
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    lineHeight: '100%',
+                                    color: C.text,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  Blouse
+                                </span>
+                                <span
+                                  style={{
+                                    width: '100%',
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                    lineHeight: '140%',
+                                    color: C.mid,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  {blousePoses.length === 0
+                                    ? 'No designs available yet'
+                                    : 'Choose a design'}
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 6,
+                                }}
+                              >
+                                <ImagePlusIcon size={14} />
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    lineHeight: '18px',
+                                    color: C.text,
+                                  }}
+                                >
+                                  Choose
+                                </span>
+                              </div>
+                            </>
                           )}
                         </div>
                       )}
@@ -6085,6 +6279,7 @@ export default function StudioPage(): React.ReactElement {
               setLowerCatalogId('');
               setShoeCatalogId('');
               setAccessoryCatalogIds([]);
+              setBlousePoseId('');
             }
           }}
           onClose={() => setGarmentModalOpen(false)}
@@ -6114,6 +6309,28 @@ export default function StudioPage(): React.ReactElement {
             setBatchGarmentModalOpen(false);
           }}
           onClose={() => setBatchGarmentModalOpen(false)}
+        />
+      )}
+
+      {/* Blouse items modal — categories act as group-filter pills */}
+      {blouseItemsOpen && (
+        <SelectGridModal
+          title="Choose a blouse design"
+          aspect={215.2 / 212.67}
+          columns={5}
+          hideLabels
+          items={blousePoses}
+          selectedIds={blousePoseId ? [blousePoseId] : []}
+          groupOptions={blouseGroupOptions.length > 1 ? blouseGroupOptions : undefined}
+          activeGroup={blouseGroupFilter}
+          onGroupChange={setBlouseGroupFilter}
+          groupOf={(p) => p.categoryId}
+          allGroupsLabel="categories"
+          onSelect={(id) => {
+            setBlousePoseId(id);
+            setBlouseItemsOpen(false);
+          }}
+          onClose={() => setBlouseItemsOpen(false)}
         />
       )}
 

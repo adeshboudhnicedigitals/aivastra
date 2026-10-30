@@ -13,6 +13,7 @@ import { useUrlState, useUrlStateMulti } from '../../hooks/use-url-state';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type {
+  BlouseCategoryGarmentTypeMapping,
   BodyType,
   CatalogItem,
   GarmentType,
@@ -115,6 +116,7 @@ export function GarmentTypesTab() {
     catalogItems,
     setCatalogItems,
     faces,
+    allBackgrounds,
     loading,
     setPreviewUrl,
     toast,
@@ -576,8 +578,18 @@ export function GarmentTypesTab() {
               borderTop: '1px solid var(--border)',
             }}
           >
+            <BlouseCategoryMappingPanel sub={subView.sub} toast={toast} />
+          </div>
+
+          <div
+            style={{
+              marginTop: 32,
+              paddingTop: 24,
+              borderTop: '1px solid var(--border)',
+            }}
+          >
             <SectionHeader
-              n={3}
+              n={4}
               title="Custom look poses"
               description="Configure standalone poses used by Create your own look. Template workflows are configured inside each mapped template above."
               right={
@@ -1256,8 +1268,10 @@ export function GarmentTypesTab() {
       {editingSubcat && (
         <EditGarmentTypeModal
           garmentType={editingSubcat}
+          garmentTypes={garmentTypes}
           catalogItems={catalogItems}
           faces={faces}
+          backgrounds={allBackgrounds}
           tryonCategories={tryonCategories}
           workflows={workflows}
           onSaved={() => {
@@ -1747,6 +1761,168 @@ function GarmentTemplateMappingPanel({
           toast={toast}
           onClose={() => setEditingTemplate(null)}
         />
+      )}
+    </section>
+  );
+}
+
+interface BlouseCategoryMappingPanelProps {
+  sub: GarmentType;
+  toast: (opts: { kind?: 'error'; title: string; body?: string }) => void;
+}
+
+function BlouseCategoryMappingPanel({ sub, toast }: BlouseCategoryMappingPanelProps) {
+  const [items, setItems] = useState<BlouseCategoryGarmentTypeMapping[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ items: BlouseCategoryGarmentTypeMapping[] }>(
+        `/admin/assets/garment-types/${sub.id}/blouse-categories`,
+      );
+      setItems(res.items);
+    } catch (error) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load blouse categories',
+        body: (error as Error).message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [sub.id, toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const toggleMapped = async (categoryId: string, mapped: boolean) => {
+    const previous = items;
+    setSavingId(categoryId);
+    setItems((current) =>
+      current.map((item) => (item.id === categoryId ? { ...item, mapped } : item)),
+    );
+    try {
+      await apiFetch(`/admin/assets/garment-types/${sub.id}/blouse-categories/${categoryId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ mapped }),
+      });
+    } catch (error) {
+      setItems(previous);
+      toast({
+        kind: 'error',
+        title: 'Failed to update blouse category mapping',
+        body: (error as Error).message,
+      });
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <section>
+      <SectionHeader
+        n={3}
+        title="Blouse categories"
+        description={`Select the blouse categories offered for ${sub.label}. An unmapped category never shows for it, even if it's the only garment type.`}
+        right={
+          !loading && (
+            <span className="badge">
+              {items.filter((item) => item.mapped).length} of {items.length} mapped
+            </span>
+          )
+        }
+      />
+      {loading ? (
+        <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}>
+          Loading…
+        </div>
+      ) : items.length === 0 ? (
+        <div
+          className="card"
+          style={{ marginTop: 14, padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}
+        >
+          No blouse categories exist for {sub.genderSlug}.
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+            gap: 12,
+            marginTop: 14,
+          }}
+        >
+          {items.map((item) => (
+            <div
+              key={item.id}
+              className="card"
+              style={{
+                padding: 0,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                outline: item.mapped ? '2px solid var(--pink)' : undefined,
+                opacity: savingId === item.id ? 0.7 : 1,
+              }}
+            >
+              <div
+                style={{
+                  background: 'var(--surface2, #1a1a1a)',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  aspectRatio: '3/4',
+                }}
+              >
+                {item.thumbnailUrl ? (
+                  // biome-ignore lint/performance/noImgElement: admin panel
+                  <img
+                    src={item.thumbnailUrl}
+                    alt={item.label}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <Icon.Image />
+                )}
+              </div>
+              <div style={{ padding: '9px 10px 10px' }}>
+                <p
+                  title={item.label}
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {item.label}
+                </p>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: 9,
+                  }}
+                >
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    {item.mapped ? 'Offered' : 'Not offered'}
+                  </span>
+                  <Switch
+                    checked={item.mapped}
+                    disabled={savingId === item.id}
+                    onChange={() => void toggleMapped(item.id, !item.mapped)}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </section>
   );

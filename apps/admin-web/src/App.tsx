@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
+import type { SupportPage as SupportTab } from './components/SupportSidebar';
+import { SupportSidebar } from './components/SupportSidebar';
 import { ToastStack } from './components/ToastStack';
 import { Topbar } from './components/Topbar';
 import { useAuth } from './context/AuthContext';
@@ -28,6 +30,7 @@ import SettingsPage from './pages/SettingsPage';
 import ShopifyFunnelsPage from './pages/ShopifyFunnelsPage';
 import ShopifyPurchasesPage from './pages/ShopifyPurchasesPage';
 import ShopifyStoresPage from './pages/ShopifyStoresPage';
+import SupportPage from './pages/SupportPage';
 import TelemetryPage from './pages/TelemetryPage';
 import TryonPage from './pages/TryonPage';
 import UsersPage from './pages/UsersPage';
@@ -54,6 +57,7 @@ const PATH_LABELS: Record<string, string> = {
   'dev-api': 'Dev API',
   'chat-inbox': 'Chat Inbox',
   'chatbot-qna': 'Chatbot Q&A',
+  support: 'Support',
   'recycle-bin': 'Recycle bin',
   contacts: 'Contact Requests',
   settings: 'Settings',
@@ -87,6 +91,7 @@ export default function App() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [supportTab, setSupportTab] = useState<SupportTab>('dashboard');
   const idRef = useRef(0);
   const navigate = useNavigate();
   const location = useLocation();
@@ -233,6 +238,51 @@ export default function App() {
   const pageProps = { onNav: handleNavWithFilter, toast };
   const settingsProps = { onNav: handleNavWithFilter, toast, theme, setTheme };
 
+  // Support is meant to stand on its own (eventually its own app/domain), so
+  // it gets its own sidebar+topbar+content shell — same .app grid, same
+  // Topbar/ToastStack — rather than reusing the admin panel's own Sidebar and
+  // its many unrelated nav items.
+  if (segment === 'support') {
+    const supportTabLabels: Record<SupportTab, string> = {
+      dashboard: 'Dashboard',
+      tickets: 'Tickets',
+      jobs: 'Jobs',
+      users: 'Users',
+    };
+    const supportTrail = [
+      { label: 'Aivastra', href: '/dashboard' },
+      { label: 'Support', href: '/support' },
+      { label: supportTabLabels[supportTab], href: '/support' },
+    ];
+    return (
+      <div className="app">
+        <SupportSidebar
+          page={supportTab}
+          onNav={setSupportTab}
+          onExit={() => navigate('/dashboard')}
+          mobileOpen={mobileNavOpen}
+          onCloseMobile={() => setMobileNavOpen(false)}
+        />
+        {mobileNavOpen && (
+          <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />
+        )}
+        <div className="main">
+          <Topbar
+            trail={supportTrail}
+            onNavTrail={(href) => navigate(href)}
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            onOpenMobileNav={() => setMobileNavOpen(true)}
+          />
+          <main className="content">
+            <SupportPage {...pageProps} tab={supportTab} onNavigateTab={setSupportTab} />
+          </main>
+        </div>
+        <ToastStack items={toasts} onDismiss={dismissToast} />
+      </div>
+    );
+  }
+
   return (
     <div className={`app${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       <Sidebar
@@ -290,6 +340,8 @@ export default function App() {
             <Route path="/saree" element={<SareePage {...pageProps} />} />
             <Route path="/chat-inbox" element={<ChatInboxPage {...pageProps} />} />
             <Route path="/chatbot-qna" element={<ChatbotQnaPage {...pageProps} />} />
+            {/* /support is handled by its own early return above (no Sidebar) — this
+                Route entry would never be reached, so it's intentionally omitted. */}
             <Route path="/contacts" element={<ContactRequestsPage {...pageProps} />} />
             <Route path="/recycle-bin" element={<RecycleBinPage {...pageProps} />} />
             <Route path="/settings" element={<SettingsPage {...settingsProps} />} />

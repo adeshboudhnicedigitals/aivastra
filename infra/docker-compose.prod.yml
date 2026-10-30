@@ -201,6 +201,23 @@ services:
     networks:
       - aivastra-net
 
+  # Standalone Support app (Dashboard/Tickets/Jobs/Users) — served at
+  # support.aivastra.com, its own subdomain. Calls the same /admin/* API as
+  # the `admin` service above; the vhost must proxy /admin/* to the `api`
+  # service the same way admin.aivastra.com does.
+  support:
+    build:
+      context: ..
+      dockerfile: apps/support-web/Dockerfile
+      args:
+        VITE_CHATBOT_URL: ${VITE_CHATBOT_URL}
+    container_name: aivastra-prod-support
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3008:80"
+    networks:
+      - aivastra-net
+
   # Embedded Shopify admin SPA — served at admin.aivastra.com/shopify-admin (edge
   # strips the prefix before proxying here; see apps/shopify/nginx.conf). Shares
   # the admin.aivastra.com domain with the `admin` service above rather than

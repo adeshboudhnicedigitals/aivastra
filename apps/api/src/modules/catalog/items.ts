@@ -59,12 +59,32 @@ export async function selectCatalogItems(
       ),
     );
   } else if ((type === 'lower' || type === 'shoe') && garmentTypeId) {
-    const [hasExplicitMappings] = await app.db
+    const [gt] = await app.db
+      .select({
+        defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
+        defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
+        explicitLowerMappingsConfigured:
+          schema.garmentSubcategories.explicitLowerMappingsConfigured,
+        explicitShoeMappingsConfigured: schema.garmentSubcategories.explicitShoeMappingsConfigured,
+      })
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+
+    // "Configured" is the persisted flag OR a mapped row actually existing —
+    // never a bare row-count alone. The flag alone can't tell "never configured"
+    // apart from "explicitly configured to zero" (see explicitLowerMappingsConfigured's
+    // schema comment), which used to make unmapping every lower/shoe item for a
+    // garment type silently revert the studio picker to "show everything"; a
+    // row-count alone misses a type that was just unmapped down to zero. Checking
+    // both means whichever one is true is trusted.
+    const configuredFlag =
+      type === 'lower' ? gt?.explicitLowerMappingsConfigured : gt?.explicitShoeMappingsConfigured;
+    const [anyMappedRow] = await app.db
       .select({ one: schema.catalogItemSubcategories.catalogItemId })
       .from(schema.catalogItemSubcategories)
       .innerJoin(
         schema.catalogItems,
-        eq(schema.catalogItemSubcategories.catalogItemId, schema.catalogItems.id),
+        eq(schema.catalogItems.id, schema.catalogItemSubcategories.catalogItemId),
       )
       .where(
         and(
@@ -73,15 +93,9 @@ export async function selectCatalogItems(
         ),
       )
       .limit(1);
+    const hasExplicitMappings = configuredFlag || Boolean(anyMappedRow);
 
     if (hasExplicitMappings) {
-      const [gt] = await app.db
-        .select({
-          defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
-          defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
-        })
-        .from(schema.garmentSubcategories)
-        .where(eq(schema.garmentSubcategories.id, garmentTypeId));
       const defaultId = type === 'lower' ? gt?.defaultLowerCatalogId : gt?.defaultShoeCatalogId;
 
       const isMapped = exists(

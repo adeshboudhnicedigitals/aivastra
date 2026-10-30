@@ -6,6 +6,8 @@ export interface EditDrawerSection {
   title: string;
   children: ReactNode;
   flush?: boolean;
+  /** Rendered right-aligned beside the title, e.g. a per-section "Map to…" control. */
+  headerAction?: ReactNode;
 }
 
 export interface EditDrawerTag {
@@ -87,10 +89,15 @@ export function EditDrawer({
 
         <div className="drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           {sections
-            ? sections.map((s) => (
-                <div className="card" key={s.title}>
+            ? sections.map((s, i) => (
+                // Keyed by index, not s.title: several callers build a title that embeds a
+                // live count (e.g. "Backgrounds (3 unmapped)"), which changes on every toggle
+                // inside that section. Keying by title made React remount the section (and
+                // wipe any local state in it, like a picker's bulk-selection) on each toggle.
+                <div className="card" key={i}>
                   <div className="card-head">
                     <h3>{s.title}</h3>
+                    {s.headerAction && <div className="tools">{s.headerAction}</div>}
                   </div>
                   <div className={`card-body${s.flush ? ' flush' : ''}`}>{s.children}</div>
                 </div>

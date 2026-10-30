@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTargets, matchAny } from './lib/targets.mts';
 
 describe('loadTargets', () => {
-  it('loads the six deployable targets', () => {
+  it('loads the seven deployable targets', () => {
     const config = loadTargets('config/ci-targets.json');
     expect(config.schemaVersion).toBe(1);
     expect(config.targets.map((t) => t.name).sort()).toEqual([
@@ -11,6 +11,7 @@ describe('loadTargets', () => {
       'chatbot',
       'dispatcher',
       'shopify-admin',
+      'support',
       'web',
     ]);
   });
@@ -24,6 +25,8 @@ describe('loadTargets', () => {
     expect(byName.get('admin')?.packageName).toBe('@aivastra/admin');
     expect(byName.get('shopify-admin')?.dir).toBe('apps/shopify');
     expect(byName.get('shopify-admin')?.packageName).toBe('@aivastra/shopify-admin');
+    expect(byName.get('support')?.dir).toBe('apps/support-web');
+    expect(byName.get('support')?.packageName).toBe('@aivastra/support');
   });
 
   it('declares the separate release surfaces', () => {

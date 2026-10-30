@@ -26,6 +26,7 @@ import { AppError } from './lib/errors.js';
 import { isShopifyPreviewOrigin } from './lib/shopify-origin.js';
 import { adminAuditRoutes } from './modules/admin/audit.routes.js';
 import { adminAuthRoutes } from './modules/admin/auth.routes.js';
+import { adminBlouseCategoriesRoutes } from './modules/admin/blouse-categories.routes.js';
 import { adminBodyTypesRoutes } from './modules/admin/body-types.routes.js';
 import { adminCatalogRoutes } from './modules/admin/catalog.routes.js';
 import { adminCatalogueTemplatesRoutes } from './modules/admin/catalogue-templates.routes.js';
@@ -482,6 +483,7 @@ export async function buildServer(env: Env) {
   await app.register(adminFabricGarmentTypesRoutes);
   await app.register(adminCatalogueTemplatesRoutes);
   await app.register(adminBodyTypesRoutes);
+  await app.register(adminBlouseCategoriesRoutes);
   await app.register(adminShopifyFunnelsRoutes);
   await app.register(adminShopifyFunnelRulesRoutes);
   await app.register(adminShopifyStoresRoutes);

@@ -217,6 +217,19 @@ services:
     networks:
       - aivastra-staging-net
 
+  support:
+    build:
+      context: ..
+      dockerfile: apps/support-web/Dockerfile
+      args:
+        VITE_CHATBOT_URL: ${VITE_CHATBOT_URL}
+    container_name: aivastra-staging-support
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3108:80"
+    networks:
+      - aivastra-staging-net
+
   shopify-admin:
     build:
       context: ..
