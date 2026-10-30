@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { laneOccupancy } from '../../src/stream/lane-tickets.js';
+import { runStreamLoop } from '../../src/stream/loop.js';
 import { runSweeper, sweeperIdle } from '../../src/stream/sweeper.js';
 import { adoptionFixture } from '../helpers/adoption-fixture.js';
 
@@ -158,6 +160,36 @@ describe('sweeper routes expired paid jobs through adoption', () => {
     await sweeperIdle();
     expect((await f.jobRow(slow.seeded.job.id)).status).toBe('COMPLETED');
   }, 90_000);
+
+  it('sweeper-counts-against-the-cap: an adopted job occupies a slot of its lane while it runs, so a full cap admits no fresh read', async () => {
+    f.comfy.setOptions({ completionDelayMs: 600_000 });
+    const o = await f.crashedOwner({ withReceipt: true });
+    await expire(o.seeded.job.id);
+
+    await tick();
+    expect(laneOccupancy('gpu')).toBe(1);
+
+    // One worker, one slot: the lane is full while the adoption runs.
+    let reads = 0;
+    const stop = runStreamLoop(f.processorCfg() as never, f.log, {
+      name: 'gpu',
+      read: async () => {
+        reads++;
+        await new Promise((r) => setTimeout(r, 20));
+        return null;
+      },
+      getConcurrency: async () => 1,
+    });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(reads).toBe(0);
+
+    f.comfy.finishPrompt(o.promptId);
+    await sweeperIdle();
+    expect(laneOccupancy('gpu')).toBe(0);
+    await new Promise((r) => setTimeout(r, 400));
+    stop();
+    expect(reads).toBeGreaterThan(0);
+  }, 60_000);
 
   it('a job with no attempt record keeps the age rule', async () => {
     const seeded = await (await import('../helpers/paid-jobs.js')).seedPaidJob(f.env, 'regular');

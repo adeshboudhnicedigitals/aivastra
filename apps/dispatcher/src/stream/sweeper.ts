@@ -7,6 +7,7 @@ import { type ProcessorConfig, processJob } from '../job/processor.js';
 import { settleAndPublish } from '../job/settlement.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 import { NO_MESSAGE_ID } from './delivery.js';
+import { takeTicket } from './lane-tickets.js';
 
 // In-flight jobs whose work started (or, for PREPROCESSING, were created) longer ago than
 // this are stuck — a normal try-on completes in ~30-60s, so 15m means the dispatcher died
@@ -136,14 +137,19 @@ export async function runSweeper(
  * final failure is failed and refunded, through settleComfyJob.
  */
 function startAdoption(cfg: ProcessorConfig, job: StuckJob, log: Logger): void {
+  const stream = `jobs:${job.queueStream}`;
+  // The job has no queue entry for the lane to count, so it takes a ticket of its own: while it
+  // runs it occupies a slot of its lane exactly like a recovered job, whatever the cap is.
+  const release = takeTicket(stream, `sweep:${job.id}`);
   const run: Promise<void> = processJob(
     cfg,
     job.id,
     job.userId ?? '',
-    `jobs:${job.queueStream}`,
+    stream,
     NO_MESSAGE_ID,
     job.attempts,
   )
+    .finally(release)
     .catch((err) => log.error({ err, jobId: job.id }, 'sweeper adoption failed'))
     .finally(() => {
       adopting.delete(job.id);
