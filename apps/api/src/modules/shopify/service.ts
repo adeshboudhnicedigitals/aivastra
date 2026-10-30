@@ -333,6 +333,8 @@ export interface ProductSyncStatus {
   state: 'running' | 'idle';
   startedAt: number;
   completedAt: number | null;
+  /** Shopify's product count when the run started; null if that lookup failed. */
+  total: number | null;
 }
 
 const PRODUCT_SYNC_STATUS_KEY = (storeId: string) => `shopify:sync:status:${storeId}`;
@@ -349,8 +351,17 @@ const PRODUCT_SYNC_STATUS_TTL_SECONDS = 60 * 60;
  * collection tasks: those run continuously in the background and have no UI
  * waiting on a single run's completion.
  */
-export async function markProductSyncRunning(redis: Redis, storeId: string): Promise<void> {
-  const status: ProductSyncStatus = { state: 'running', startedAt: Date.now(), completedAt: null };
+export async function markProductSyncRunning(
+  redis: Redis,
+  storeId: string,
+  total: number | null = null,
+): Promise<void> {
+  const status: ProductSyncStatus = {
+    state: 'running',
+    startedAt: Date.now(),
+    completedAt: null,
+    total,
+  };
   await redis.set(
     PRODUCT_SYNC_STATUS_KEY(storeId),
     JSON.stringify(status),
@@ -362,8 +373,14 @@ export async function markProductSyncRunning(redis: Redis, storeId: string): Pro
 export async function markProductSyncIdle(redis: Redis, storeId: string): Promise<void> {
   const key = PRODUCT_SYNC_STATUS_KEY(storeId);
   const raw = await redis.get(key);
-  const startedAt = raw ? (JSON.parse(raw) as ProductSyncStatus).startedAt : Date.now();
-  const status: ProductSyncStatus = { state: 'idle', startedAt, completedAt: Date.now() };
+  const previous = raw ? (JSON.parse(raw) as ProductSyncStatus) : null;
+  const startedAt = previous?.startedAt ?? Date.now();
+  const status: ProductSyncStatus = {
+    state: 'idle',
+    startedAt,
+    completedAt: Date.now(),
+    total: previous?.total ?? null,
+  };
   await redis.set(key, JSON.stringify(status), 'EX', PRODUCT_SYNC_STATUS_TTL_SECONDS);
 }
 
@@ -373,7 +390,7 @@ export async function getProductSyncStatus(
   storeId: string,
 ): Promise<ProductSyncStatus> {
   const raw = await redis.get(PRODUCT_SYNC_STATUS_KEY(storeId));
-  if (!raw) return { state: 'idle', startedAt: 0, completedAt: null };
+  if (!raw) return { state: 'idle', startedAt: 0, completedAt: null, total: null };
   return JSON.parse(raw) as ProductSyncStatus;
 }
 

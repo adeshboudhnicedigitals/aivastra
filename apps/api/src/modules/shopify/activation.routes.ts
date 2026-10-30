@@ -4,7 +4,6 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { countEffectivelyEnabled } from './activation.js';
 import { searchCollections, syncCollectionMembership } from './collections.sync.js';
-import { countUnroutedProducts } from './funnel-resolution.js';
 import { enqueueSync, shopifyGraphQL } from './service.js';
 import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
 import { getValidAccessToken } from './token.js';
@@ -24,7 +23,7 @@ const PRODUCTS_COUNT_QUERY = `
  * breaks the rest of the Manage page — the "synced / total" figure just falls
  * back to showing the synced count alone.
  */
-async function fetchTotalProductCount(
+export async function fetchTotalProductCount(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
 ): Promise<number | null> {
@@ -100,26 +99,7 @@ async function summaryCounts(
       ),
     );
 
-  // Effective enablement, not the `enabled` column: a product turned on by
-  // global mode or by an enabled collection counts here, and an excluded one
-  // never does. See countEffectivelyEnabled for why this is SQL.
-  //
-  // Then subtract products that are effectively enabled but resolve to no
-  // basket (no pin, no matching store/global rule) — those can never actually
-  // complete a try-on (customer.routes.ts refuses them before enqueue), so
-  // counting them here would overstate what "Try-On Enabled" means. Left
-  // uncorrected (unroutedCounts.countsOmitted) for catalogs over the routing
-  // scan's product cap, same degradation the Routing tab already accepts.
-  //
-  // countUnroutedProducts is a full per-product routing scan (up to 10,000
-  // rows) — skip it entirely when there's nothing to correct.
-  const rawTryonEnabledProducts = await countEffectivelyEnabled(app, store);
-  const unroutedCounts =
-    rawTryonEnabledProducts > 0 ? await countUnroutedProducts(app, store) : null;
-  const tryonEnabledProducts =
-    !unroutedCounts || unroutedCounts.countsOmitted
-      ? rawTryonEnabledProducts
-      : rawTryonEnabledProducts - (unroutedCounts.unroutedEnabled ?? 0);
+  const tryonEnabledProducts = await countEffectivelyEnabled(app, store);
 
   const totalProductCount = await fetchTotalProductCount(app, store);
 

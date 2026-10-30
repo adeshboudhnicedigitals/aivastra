@@ -15,38 +15,6 @@ let app: TestApp;
 let storeId: string;
 let otherStoreId: string;
 let auth: { authorization: string };
-let basketId: string;
-let inactiveBasketId: string;
-
-async function seedBasket(active: boolean): Promise<string> {
-  const tag = `${Date.now()}-${Math.random()}`;
-  const [workflow] = await app.db
-    .insert(schema.workflowTemplates)
-    .values({
-      slug: `bulk-wf-${tag}`,
-      label: 'Bulk test workflow',
-      jsonContent: {},
-      poseNodeId: '2',
-      upperNodeIds: ['4'],
-      garmentPhasePromptNode: '6',
-      workflowType: 'tryon',
-      tryonPersonNodeId: '10',
-      tryonGarmentNodeId: '11',
-      tryonOutputNodeId: '12',
-    })
-    .returning();
-  const [basket] = await app.db
-    .insert(schema.shopifyFunnelTemplates)
-    .values({
-      slug: `bulk-basket-${tag}`,
-      label: 'Bulk basket',
-      workflowTemplateId: workflow.id,
-      isActive: active,
-    })
-    .returning();
-  return basket.id;
-}
-
 async function seed(
   forStoreId: string,
   id: number,
@@ -115,8 +83,6 @@ beforeAll(async () => {
   auth = {
     authorization: `Bearer ${signSessionToken('bulk-a.myshopify.com', API_SECRET, API_KEY)}`,
   };
-  basketId = await seedBasket(true);
-  inactiveBasketId = await seedBasket(false);
 });
 
 // Fresh rows per test so no test depends on another's writes.
@@ -189,52 +155,12 @@ describe('POST /v1/shopify/products/bulk — enabling', () => {
   });
 });
 
-describe('POST /v1/shopify/products/bulk — baskets', () => {
-  it('pins the target products to a basket and records the source as manual', async () => {
-    const res = await bulk({ target: { ids: [1, 2] }, funnelTemplateId: basketId });
-    expect(res.json().updated).toBe(2);
-    const r = await row(storeId, 1);
-    expect(r.funnelTemplateId).toBe(basketId);
-    expect(r.funnelAssignmentSource).toBe('manual');
-    expect((await row(storeId, 3)).funnelTemplateId).toBeNull();
-  });
-
-  it('enables and pins in one call', async () => {
-    await bulk({ target: { ids: [1] }, enabled: true, funnelTemplateId: basketId });
-    const r = await row(storeId, 1);
-    expect(r.enabled).toBe(true);
-    expect(r.funnelTemplateId).toBe(basketId);
-  });
-
-  it('clears a pin and its source with null', async () => {
-    await bulk({ target: { ids: [1] }, funnelTemplateId: basketId });
-    await bulk({ target: { ids: [1] }, funnelTemplateId: null });
-    const r = await row(storeId, 1);
-    expect(r.funnelTemplateId).toBeNull();
-    expect(r.funnelAssignmentSource).toBeNull();
-  });
-
-  it('rejects an inactive or unknown basket with 404 and changes nothing', async () => {
-    const inactive = await bulk({
-      target: { ids: [1] },
-      enabled: true,
-      funnelTemplateId: inactiveBasketId,
-    });
-    expect(inactive.statusCode).toBe(404);
-    const unknown = await bulk({
-      target: { ids: [1] },
-      funnelTemplateId: '00000000-0000-4000-8000-000000000000',
-    });
-    expect(unknown.statusCode).toBe(404);
-    const r = await row(storeId, 1);
-    expect(r.enabled).toBe(false);
-    expect(r.funnelTemplateId).toBeNull();
-  });
-});
-
 describe('POST /v1/shopify/products/bulk — validation', () => {
-  it('requires enabled or funnelTemplateId', async () => {
+  it('requires enabled', async () => {
     expect((await bulk({ target: { ids: [1] } })).statusCode).toBe(400);
+    expect((await bulk({ target: { ids: [1] }, funnelTemplateId: 'ignored' })).statusCode).toBe(
+      400,
+    );
   });
 
   it('rejects an empty ids list', async () => {

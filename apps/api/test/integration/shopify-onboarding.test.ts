@@ -440,12 +440,41 @@ describe('POST /v1/shopify/onboarding/complete', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().settings.onboardingCompletedOnce).toBe(true);
+    expect(res.json().settings.activation.mode).toBe('global');
 
     const [row] = await app.db
       .select()
       .from(schema.shopifyStores)
       .where(eq(schema.shopifyStores.id, storeId));
     expect(row.settings.onboardingCompletedOnce).toBe(true);
+  });
+
+  it('does not override a previously selected selective mode', async () => {
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: { activation: { mode: 'selective' }, onboardingCompletedOnce: true } })
+      .where(eq(schema.shopifyStores.id, storeId));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/onboarding/complete',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().settings.activation.mode).toBe('selective');
+  });
+
+  it('does not override an explicitly selected mode on first completion', async () => {
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: { activation: { mode: 'selective' }, onboardingCompletedOnce: false } })
+      .where(eq(schema.shopifyStores.id, storeId));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/onboarding/complete',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().settings.activation.mode).toBe('selective');
   });
 
   it('is idempotent — calling it twice does not error', async () => {

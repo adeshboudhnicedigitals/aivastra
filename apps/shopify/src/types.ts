@@ -73,8 +73,6 @@ export interface ShopifyStats {
   totalTryOns: number;
   syncedProductCount: number;
   enabledProductCount: number;
-  // Enabled products that still resolve to no basket. Null when the API skipped
-  // the routing scan for a very large catalogue.
   statusCounts: { active: number; processing: number; failed: number; disabled: number };
   todayTryOns: number;
   storeDailyCap: number | null;
@@ -129,17 +127,6 @@ export interface ShopifyProductListItem {
   status: string;
   enabled: boolean;
   excluded: boolean;
-  /** Transitional fields retained until ManagePage basket UI is removed. */
-  basket?: { id: string; label: string; source: 'manual' | 'rule' } | null;
-  pinnedBasketId?: string | null;
-  // null means no basket resolved — the state where try-on is refused for
-  // this product (see customer.routes.ts). No default-basket fallback exists
-  // anymore (see funnel-resolution.ts's resolveBasketFrom).
-  // The raw pin on this row, independent of whether it's currently being honored.
-  // Non-null with basket.source !== 'manual' means the pinned basket was
-  // deactivated and resolution fell through to a rule — a stale pin that's
-  // still clearable via "Reset to automatic" even though it's invisible in
-  // `basket` itself.
   productType: string | null;
   vendor: string | null;
   tags: string[] | null;

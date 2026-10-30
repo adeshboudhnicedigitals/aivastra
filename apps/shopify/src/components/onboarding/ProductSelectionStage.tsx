@@ -7,18 +7,15 @@ import {
   IndexTable,
   IndexTableSelectionType,
   InlineStack,
-  Select,
   Text,
   Thumbnail,
 } from '@shopify/polaris';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../lib/api';
-import { type Basket, basketOptions } from '../../lib/baskets';
 import { type ClassifiedError, classifyError } from '../../lib/errors';
 import { resolveImageUrl } from '../../lib/images';
 import {
   EMPTY_SELECTION,
-  effectiveBasket,
   isSelected,
   type Selection,
   selectAllMatching,
@@ -47,10 +44,6 @@ export interface StagePick {
   total: number;
   /** Every product the picker has loaded, so the page can list the ticked ones without refetching. */
   items: ShopifyProductListItem[];
-  /** Basket chosen for one product, by id; beats `defaultBasket`. Empty when the picker has no basket column. */
-  baskets: Record<number, string>;
-  /** Basket chosen for every selected product ('' = none). */
-  defaultBasket: string;
 }
 
 type ListKey = 'productType' | 'vendor' | 'tag' | 'collection' | 'category';
@@ -81,7 +74,6 @@ export function ProductSelectionStage({
   startFilter = DEFAULT_SELECTION_FILTER,
   locked,
   allowSelectAll = true,
-  baskets,
 }: {
   onPickChange: (pick: StagePick) => void;
   /** Where to start from — reopening the picker restores the last confirmed pick. */
@@ -100,19 +92,6 @@ export function ProductSelectionStage({
    * paging), for callers that need concrete product ids rather than a filter.
    */
   allowSelectAll?: boolean;
-  /**
-   * Adds a last "Garment type" column, one basket picker per row. When given,
-   * this same table doubles as the one place a merchant sees their products:
-   * an already-enabled row loads ticked
-   * with its current style seeded in (see the fetch effect), so it reads and
-   * behaves exactly like a fresh pick — ticking, unticking and changing style
-   * are all just local draft edits here, nothing is sent to the server until
-   * the caller commits the reported `selection`/`baskets` (onboarding's
-   * Continue button does this once, not per edit — see OnboardingProductsPage).
-   * Omit for pickers that only choose products and stage everything anyway
-   * (Manage's eligibility lists).
-   */
-  baskets?: Basket[];
 }) {
   const [userFilter, setFilter] = useState<ProductFilterState>(initial?.filter ?? startFilter);
   const filter = useMemo(() => ({ ...userFilter, ...locked }), [userFilter, locked]);
@@ -123,22 +102,10 @@ export function ProductSelectionStage({
   const [seen, setSeen] = useState<Map<number, ShopifyProductListItem>>(
     () => new Map((initial?.items ?? []).map((i) => [i.shopifyProductId, i])),
   );
-  const [basketChoices, setBasketChoices] = useState<Record<number, string>>(
-    initial?.baskets ?? {},
-  );
-  // No longer set by anything since the "apply to all" control was removed —
-  // still read as the per-row fallback in effectiveBasket, and reported in
-  // StagePick, so it stays a value seeded from `initial` rather than a plain
-  // const.
-  const [defaultBasket] = useState(initial?.defaultBasket ?? '');
   const [data, setData] = useState<ShopifyProductsResponse | null>(null);
   const [facets, setFacets] = useState<ShopifyProductFacets | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ClassifiedError | null>(null);
-  // Each already-enabled id is ticked (and its style seeded) the first time it's
-  // seen, then never again — otherwise a page refetch after the merchant's own
-  // untick would stomp the tick right back in.
-  const seededRef = useRef<Set<number>>(new Set());
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -153,10 +120,8 @@ export function ProductSelectionStage({
       filter,
       total,
       items: seenItems,
-      baskets: basketChoices,
-      defaultBasket,
     });
-  }, [selection, filter, total, seenItems, basketChoices, defaultBasket, onPickChange]);
+  }, [selection, filter, total, seenItems, onPickChange]);
 
   const updateFilter = useCallback((patch: Partial<ProductFilterState>) => {
     setFilter((prev) => ({ ...prev, ...patch }));
@@ -195,20 +160,6 @@ export function ProductSelectionStage({
           for (const item of res.items) next.set(item.shopifyProductId, item);
           return next;
         });
-        // Seed ticks/styles for products that were already enabled before this
-        // table ever loaded them, once each — only relevant when this table
-        // doubles as the merchant's whole product list (baskets given).
-        if (baskets) {
-          for (const item of res.items) {
-            if (seededRef.current.has(item.shopifyProductId)) continue;
-            seededRef.current.add(item.shopifyProductId);
-            if (!item.enabled) continue;
-            const id = item.shopifyProductId;
-            const basketId = item.basket?.id;
-            setSelection((s) => (isSelected(s, id) ? s : setMany(s, [id], true)));
-            if (basketId) setBasketChoices((prev) => ({ ...prev, [id]: basketId }));
-          }
-        }
         setError(null);
       })
       .catch((err) => {
@@ -220,7 +171,7 @@ export function ProductSelectionStage({
     return () => {
       cancelled = true;
     };
-  }, [filter, page, baskets]);
+  }, [filter, page]);
 
   const pageIds = items.map((i) => i.shopifyProductId);
 
@@ -254,12 +205,6 @@ export function ProductSelectionStage({
         setSelection((s) => setMany(s, pageIds.slice(from, to + 1), selecting));
       }
     }
-  }
-
-  // Picking a basket for a row is also picking the product.
-  function chooseBasket(id: number, basketId: string) {
-    setBasketChoices((prev) => ({ ...prev, [id]: basketId }));
-    setSelection((s) => (isSelected(s, id) ? s : setMany(s, [id], true)));
   }
 
   const facetOptions = (list: FacetList | undefined) =>
@@ -389,11 +334,7 @@ export function ProductSelectionStage({
         // Polaris defaults this to "Select all {itemCount}", i.e. the page size, not the match count.
         paginatedSelectAllActionText={`Select all ${total} matching products`}
         loading={loading}
-        headings={[
-          { title: 'Product' },
-          { title: 'Status' },
-          ...(baskets ? [{ title: 'Garment type' }] : []),
-        ]}
+        headings={[{ title: 'Product' }, { title: 'Status' }]}
         pagination={{
           hasPrevious: page > 1,
           hasNext: page * PAGE_SIZE < total,
@@ -423,26 +364,6 @@ export function ProductSelectionStage({
             <IndexTable.Cell>
               <Badge tone={STATUS_TONE[item.status]}>{item.status}</Badge>
             </IndexTable.Cell>
-            {baskets && (
-              <IndexTable.Cell>
-                {/* Keeps a click on the dropdown from also toggling the row's tick. */}
-                {/* biome-ignore lint/a11y/noStaticElementInteractions: click is only stopped from bubbling to the row; the Select inside is the interactive control */}
-                <div
-                  role="presentation"
-                  style={{ minWidth: 180 }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Select
-                    label="Garment type"
-                    labelHidden
-                    options={basketOptions(baskets)}
-                    value={effectiveBasket(item.shopifyProductId, basketChoices, defaultBasket)}
-                    disabled={baskets.length === 0}
-                    onChange={(value) => chooseBasket(item.shopifyProductId, value)}
-                  />
-                </div>
-              </IndexTable.Cell>
-            )}
           </IndexTable.Row>
         ))}
       </IndexTable>

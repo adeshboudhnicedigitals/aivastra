@@ -21,7 +21,7 @@ import { PackGrid } from '../components/PackGrid';
 import { PendingPaymentBanner } from '../components/PendingPaymentBanner';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import { isTryOnOff, needsEmbedEnable, unroutedWarningCount } from '../lib/onboarding';
+import { isTryOnOff, needsEmbedEnable } from '../lib/onboarding';
 import type { ShopifyMe, ShopifyStats, ShopifyWelcomeCreditsResponse } from '../types';
 
 // Uses useNavigate() directly rather than accepting navigate as a prop: both
@@ -247,7 +247,6 @@ export default function DashboardPage() {
   // "off" banner is for the true condition — nothing enabled resolves to a
   // basket — and the partial case gets its own, milder warning below.
   const tryOnOff = me != null && isTryOnOff(me);
-  const unroutedCount = me ? unroutedWarningCount(me) : 0;
   const embedNeeded = me != null && needsEmbedEnable(me);
   return (
     <AppFont>
@@ -286,20 +285,6 @@ export default function DashboardPage() {
               <Text as="p">
                 No products are enabled right now, so shoppers won't see the try-on button. Turn it
                 back on in Manage.
-              </Text>
-            </Banner>
-          )}
-
-          {unroutedCount > 0 && (
-            <Banner
-              tone="warning"
-              title="Some products have no try-on style"
-              action={{ content: 'Go to Manage', onAction: () => navigate('/manage') }}
-            >
-              <Text as="p">
-                {unroutedCount === 1
-                  ? "1 enabled product has no try-on style, so try-on can't run on it — assign one in Manage."
-                  : `${unroutedCount} enabled products have no try-on style, so try-on can't run on them — assign one in Manage.`}
               </Text>
             </Banner>
           )}

@@ -113,9 +113,9 @@ export default function App() {
     const exempt = onOnboardingRoute || GATE_EXEMPT_PATHS.includes(location.pathname);
     // The hard gate (redirect + hidden nav) only applies until a store
     // finishes onboarding for the very first time. getOnboardingStep is
-    // derived live from /me (isSelectionDone/isBasketsDone in
+    // derived live from /me (isProductsDone in
     // lib/onboarding.ts) — a store that later disables every product, or adds
-    // one with no basket, would otherwise be yanked back into a locked wizard
+    // one with no enabled products, would otherwise be yanked back into a locked wizard
     // with no way out. onboardingCompletedOnce latches
     // permanently once true, so a later regression is surfaced as a normal
     // Dashboard banner instead (see DashboardPage.tsx), not a re-triggered

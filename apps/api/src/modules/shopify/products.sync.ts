@@ -585,8 +585,8 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
       // Only for the collections/update webhook path (see SyncTask.refreshProducts).
       // syncCollectionMembership above already refreshed shopify_collection_products;
       // this is what refreshes each affected member's OWN
-      // shopify_product_garments.collections title array — the field routing
-      // (funnel-resolution.ts) actually reads. Refreshing the symmetric
+      // shopify_product_garments.collections title array — the field activation
+      // logic actually reads. Refreshing the symmetric
       // difference (previous membership vs current membership), not just
       // current members, is what catches a product that was just REMOVED —
       // it won't be in productIds, but it will be in previousMemberRows, so

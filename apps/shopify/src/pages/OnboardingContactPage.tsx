@@ -5,7 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { OnboardingLayout } from '../components/OnboardingLayout';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import { canShowPostBasketPage, getOnboardingStep, onboardingPath } from '../lib/onboarding';
+import { canShowPostProductsPage, getOnboardingStep, onboardingPath } from '../lib/onboarding';
 import { isValidPhone, PHONE_ERROR } from '../lib/phone';
 import type { ShopifyMe } from '../types';
 
@@ -39,7 +39,7 @@ export default function OnboardingContactPage({
   const [error, setError] = useState<ClassifiedError | null>(null);
 
   const currentStep = getOnboardingStep(me);
-  if (!canShowPostBasketPage(currentStep)) {
+  if (!canShowPostProductsPage(currentStep)) {
     return <Navigate to={onboardingPath(currentStep)} replace />;
   }
 

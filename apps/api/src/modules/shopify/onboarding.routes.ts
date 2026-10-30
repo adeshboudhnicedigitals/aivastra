@@ -321,7 +321,12 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
     { preHandler: app.requireShopifySession },
     async (req) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-      const settings = mergeStoreSettingsObject(storeSettingsJson(), [], {
+      const firstCompletion = !(store.settings.onboardingCompletedOnce ?? false);
+      const withActivation =
+        firstCompletion && !store.settings.activation?.mode
+          ? mergeStoreSettingsObject(storeSettingsJson(), ['activation'], { mode: 'global' })
+          : storeSettingsJson();
+      const settings = mergeStoreSettingsObject(withActivation, [], {
         onboardingCompletedOnce: true,
       });
 

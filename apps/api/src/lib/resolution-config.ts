@@ -247,6 +247,24 @@ export async function getShopifyWorkflowTemplateId(app: FastifyInstance): Promis
 }
 
 /**
+ * Repoints the Shopify workflow when the workflow it names is replaced. Called
+ * after the replacing transaction commits (config lives in Redis, not Postgres).
+ * A no-op when the pointer names some other workflow.
+ */
+export async function repointShopifyWorkflow(
+  app: FastifyInstance,
+  fromId: string,
+  toId: string,
+): Promise<boolean> {
+  const raw = await app.redis.get(CONFIG_KEY);
+  const cfg = raw ? JSON.parse(raw) : {};
+  if (cfg.shopifyWorkflowTemplateId !== fromId) return false;
+  cfg.shopifyWorkflowTemplateId = toId;
+  await app.redis.set(CONFIG_KEY, JSON.stringify(cfg));
+  return true;
+}
+
+/**
  * Reads the admin-configured credit grant for one credit pack from the same
  * `config:system` Redis key the admin panel edits. Returns null for an id we
  * don't sell — same "unrecognized means grant nothing" behaviour the plan

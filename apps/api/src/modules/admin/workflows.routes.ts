@@ -14,6 +14,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getShopifyWorkflowTemplateId } from '../../lib/resolution-config.js';
 import { verifyPassword } from '../auth/service.js';
 import { notComparisonJob } from '../comparison/exclusion.js';
 import { recordAudit } from './audit.js';
@@ -2146,6 +2147,13 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           .from(schema.shopifyFunnelTemplates)
           .where(eq(schema.shopifyFunnelTemplates.workflowTemplateId, id));
         const funnelCount = Number(funnelCountRow?.cnt ?? 0);
+        if ((await getShopifyWorkflowTemplateId(app)) === id) {
+          throw new AppError(
+            'CONFLICT',
+            409,
+            'Cannot delete: this is the workflow every Shopify try-on runs. Choose another on the Shopify workflow page first.',
+          );
+        }
         if (funnelCount > 0) {
           throw new AppError(
             'CONFLICT',
