@@ -5,8 +5,8 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { OnboardingLayout } from '../components/OnboardingLayout';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import { numericOptions, OFF, resolveNumericLimit } from '../lib/limits';
-import { canShowPostBasketPage, getOnboardingStep, onboardingPath } from '../lib/onboarding';
+import { loginRequiredPatch, numericOptions, OFF, resolveNumericLimit } from '../lib/limits';
+import { canShowPostProductsPage, getOnboardingStep, onboardingPath } from '../lib/onboarding';
 import type { ShopifyMe, ShopifyStoreLimits } from '../types';
 
 // Onboarding's own subset of Settings → Limits' full PER_SHOPPER_CAP_OPTIONS —
@@ -18,7 +18,7 @@ const ONBOARDING_TRYON_CAP_PRESELECTED = 5;
 
 /**
  * Onboarding's try-on-usage step: a simplified try-ons-per-day limit and a
- * plain require/don't-require toggle for email, both writing the same
+ * plain require/don't-require toggle for login, both writing the same
  * `ShopifyStoreLimits` fields Settings → Limits edits with its fuller controls
  * (any window, "ask after N tries" instead of a flat require). Everything
  * defaults to off, so Continue with no changes writes nothing and leaves the
@@ -39,7 +39,7 @@ export default function OnboardingLimitsPage({
   const [error, setError] = useState<ClassifiedError | null>(null);
 
   const currentStep = getOnboardingStep(me);
-  if (!canShowPostBasketPage(currentStep)) {
+  if (!canShowPostProductsPage(currentStep)) {
     return <Navigate to={onboardingPath(currentStep)} replace />;
   }
 
@@ -53,16 +53,16 @@ export default function OnboardingLimitsPage({
   const draft = {
     perShopperCap: limits.perShopperCap ?? null,
     perShopperWindow: limits.perShopperCap == null ? (saved.perShopperWindow ?? null) : 'day',
-    emailAfterNTryOns: limits.emailAfterNTryOns ?? null,
+    loginRequired: limits.loginRequired === true,
   };
   const changed =
     draft.perShopperCap !== (saved.perShopperCap ?? null) ||
     draft.perShopperWindow !== (saved.perShopperWindow ?? null) ||
-    draft.emailAfterNTryOns !== (saved.emailAfterNTryOns ?? null);
+    draft.loginRequired !== (saved.loginRequired === true);
   // "Required" only reads true for the immediate/"before first try-on" threshold
   // (0) — any other saved value (e.g. "ask after 2", set from Settings' fuller
   // control) reads as not-required here rather than collapsing onto it.
-  const emailRequired = limits.emailAfterNTryOns === 0;
+  const loginRequired = limits.loginRequired === true;
 
   async function saveAndContinue() {
     if (saving) return;
@@ -125,10 +125,10 @@ export default function OnboardingLimitsPage({
               />
             </BlockStack>
             <Checkbox
-              label="Make Email Required"
-              helpText="When enabled, customers must enter their email address to continue."
-              checked={emailRequired}
-              onChange={(checked) => patchLimits({ emailAfterNTryOns: checked ? 0 : null })}
+              label="Make Login Required"
+              helpText="Customers must log in to your store before using virtual try-on. We'll ask for their email and phone number if their account doesn't have them."
+              checked={loginRequired}
+              onChange={(checked) => patchLimits(loginRequiredPatch(checked))}
             />
             <Text as="p" tone="subdued" alignment="center">
               You can change these limits anytime under Settings → Limits.

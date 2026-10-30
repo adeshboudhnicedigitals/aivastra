@@ -13,7 +13,11 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { AppFont } from '../components/AppFont';
 import { ErrorBanner } from '../components/ErrorBanner';
-import { AskForEmailCard, PerShopperLimitCard } from '../components/ShopperLimitCards';
+import {
+  AskForEmailCard,
+  LoginRequiredCard,
+  PerShopperLimitCard,
+} from '../components/ShopperLimitCards';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import {
@@ -139,6 +143,8 @@ export default function SettingsPage() {
                 </Card>
 
                 <PerShopperLimitCard limits={limits} onChange={patchLimits} />
+
+                <LoginRequiredCard limits={limits} onChange={patchLimits} />
 
                 <AskForEmailCard limits={limits} onChange={patchLimits} />
 
