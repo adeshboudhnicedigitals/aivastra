@@ -177,12 +177,24 @@ export async function listFaces(
   // this gender stays visible). Once any explicit mapping exists for the type,
   // only mapped faces are shown — same opt-in-once-explicit pattern as lower/shoe
   // catalog items (see hasExplicitLowerMappings in admin/subcategories.routes.ts).
+  // "Configured" is the persisted explicitFaceMappingsConfigured flag OR a mapped
+  // row actually existing — never a bare row-count alone. The flag alone can't
+  // tell "never configured" apart from "explicitly configured to zero" (that's
+  // what used to make unmapping every face for a garment type silently revert
+  // the picker to "show everyone"); a row-count alone misses a type that was
+  // just unmapped down to zero. Checking both means whichever one is true wins.
   if (garmentTypeId && items.length > 0) {
+    const [gt] = await app.db
+      .select({
+        explicitFaceMappingsConfigured: schema.garmentSubcategories.explicitFaceMappingsConfigured,
+      })
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
     const mapped = await app.db
       .select({ faceId: schema.modelFaceSubcategories.faceId })
       .from(schema.modelFaceSubcategories)
       .where(eq(schema.modelFaceSubcategories.subcategoryId, garmentTypeId));
-    if (mapped.length > 0) {
+    if (gt?.explicitFaceMappingsConfigured || mapped.length > 0) {
       const mappedIds = new Set(mapped.map((m) => m.faceId));
       items = items.filter((i) => mappedIds.has(i.id));
     }
@@ -578,13 +590,26 @@ export async function listBackgrounds(
   // No mapping row for this garment type at all = opt-out (every active general
   // background stays visible). Once any explicit mapping exists for the type,
   // only mapped backgrounds are shown — same opt-in-once-explicit pattern as
-  // listFaces above.
+  // listFaces above. "Configured" is the persisted explicitBackgroundMappingsConfigured
+  // flag OR a mapped row actually existing — never a bare row-count alone. The
+  // flag alone can't tell "never configured" apart from "explicitly configured
+  // to zero" (that's what used to make unmapping every background for a garment
+  // type silently revert the picker to "show everything"); a row-count alone
+  // misses a type that was just unmapped down to zero. Checking both means
+  // whichever one is true wins.
   if (garmentTypeId && rows.length > 0) {
+    const [gt] = await app.db
+      .select({
+        explicitBackgroundMappingsConfigured:
+          schema.garmentSubcategories.explicitBackgroundMappingsConfigured,
+      })
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
     const mapped = await app.db
       .select({ backgroundId: schema.modelBackgroundSubcategories.backgroundId })
       .from(schema.modelBackgroundSubcategories)
       .where(eq(schema.modelBackgroundSubcategories.subcategoryId, garmentTypeId));
-    if (mapped.length > 0) {
+    if (gt?.explicitBackgroundMappingsConfigured || mapped.length > 0) {
       const mappedIds = new Set(mapped.map((m) => m.backgroundId));
       return rows.filter((r) => mappedIds.has(r.id));
     }
