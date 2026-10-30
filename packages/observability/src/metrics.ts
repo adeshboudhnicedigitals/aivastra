@@ -355,6 +355,12 @@ export const comfyQueueCleanupFailed = new Counter({
   labelNames: ['workerId'] as const,
   registers: [register],
 });
+export const dispatcherProgressPollFailures = new Counter({
+  name: 'dispatcher_progress_poll_failures_total',
+  help: 'Progress polls of a worker that failed or timed out (the job keeps polling), by kind',
+  labelNames: ['workerId', 'kind'] as const,
+  registers: [register],
+});
 export const comfyLegacyFallback = new Counter({
   name: 'comfy_legacy_fallback_total',
   help: 'Submission based timeout mode entries',

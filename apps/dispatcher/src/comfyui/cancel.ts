@@ -20,6 +20,9 @@ export type ComfyLog = Pick<Logger, 'info' | 'debug' | 'error'> & Partial<Pick<L
 export interface CompletionContext {
   comfyRedis: Redis;
   workerId: string;
+  /** Correlation fields for the poll-failure log; optional so existing callers are unchanged. */
+  jobId?: string;
+  attemptId?: string;
 }
 
 export class JobCancelledError extends Error {

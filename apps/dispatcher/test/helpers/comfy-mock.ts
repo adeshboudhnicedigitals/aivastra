@@ -34,6 +34,9 @@ export interface ComfyMockOptions {
   historyPadding?: number;
   /** Raw extra /history entries (e.g. one with no status), keyed by prompt id. */
   historyExtra?: Record<string, unknown>;
+  /** Makes the n-th (1-based) GET /history/:id poll misbehave: never answer it (the client's
+   *  request timeout fires), drop the socket, or answer 500. Anything else answers normally. */
+  historyPollFault?: (n: number) => 'hang' | 'drop' | '500' | undefined;
   /** Accept POST /prompt but never answer it: the submitter's reply is lost. */
   holdPromptResponse?: boolean;
   /** Replaces the default SaveImage output in /history — e.g. { '4': { text: ['wa-kurti'] } }
@@ -95,6 +98,8 @@ export function startComfyMock(): Promise<ComfyMock> {
       [],
     ];
     const timers = new Set<ReturnType<typeof setTimeout>>();
+    let historyPolls = 0;
+    const hung = new Set<ServerResponse>();
 
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = new URL(req.url ?? '/', 'http://localhost');
@@ -260,6 +265,20 @@ export function startComfyMock(): Promise<ComfyMock> {
 
       if (req.method === 'GET' && url.pathname.startsWith('/history/')) {
         const promptId = url.pathname.split('/').pop() ?? '';
+        historyPolls++;
+        const fault = opts.historyPollFault?.(historyPolls);
+        if (fault === 'hang') {
+          hung.add(res);
+          return;
+        }
+        if (fault === 'drop') {
+          req.socket.destroy();
+          return;
+        }
+        if (fault === '500') {
+          res.writeHead(500).end();
+          return;
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         // {} for an id the worker never saw or has evicted, as ComfyUI answers.
         const entry = histories[promptId] ?? opts.historyExtra?.[promptId];
@@ -395,6 +414,9 @@ export function startComfyMock(): Promise<ComfyMock> {
           // tests assert per-call order with .at(-1).
           lastPromptId = null;
           lastPrompt = null;
+          historyPolls = 0;
+          for (const r of hung) r.destroy();
+          hung.clear();
         },
         setOptions: (newOpts) => {
           opts = newOpts;
@@ -402,6 +424,7 @@ export function startComfyMock(): Promise<ComfyMock> {
         close: () =>
           new Promise<void>((r) => {
             for (const timer of timers) clearTimeout(timer);
+            for (const pending of hung) pending.destroy();
             wss.close();
             server.close(() => r());
           }),

@@ -372,7 +372,12 @@ async function finishKnownPrompt(a: {
           warn: log.warn.bind(log),
         },
         async () => (await redis.exists(`job:cancel:${job.id}`)) === 1,
-        { comfyRedis: cfg.comfyRedis, workerId: attempt.workerId ?? '' },
+        {
+          comfyRedis: cfg.comfyRedis,
+          workerId: attempt.workerId ?? '',
+          jobId: attempt.jobId ?? undefined,
+          attemptId: attempt.id,
+        },
         0,
         cfg.comfyPollIntervalMs,
       );

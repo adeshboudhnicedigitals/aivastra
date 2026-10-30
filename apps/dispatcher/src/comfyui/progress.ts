@@ -4,6 +4,7 @@ import {
   comfyLegacyFallback,
   comfyPromptQueueWait,
   comfyQueueCleanupFailed,
+  dispatcherProgressPollFailures,
 } from '@aivastra/observability';
 import type { CapabilityRead } from '@aivastra/types';
 import {
@@ -19,6 +20,30 @@ import { type ComfyHistoryEntry, deleteQueuedPrompt, fetchPromptQueueState } fro
 import { type ExecutionTiming, executionTiming } from './execution-timing.js';
 
 export { JobCancelledError } from './cancel.js';
+
+/** Polls kept failing past the outage limit; the message carries the count and last error. */
+export class ComfyPollOutageError extends Error {
+  constructor(
+    promptId: string,
+    readonly failures: number,
+    readonly outageMs: number,
+    readonly lastError: string,
+  ) {
+    super(
+      `ComfyUI history polling outage: ${failures} consecutive failed polls over ${Math.round(outageMs / 1000)}s for prompt ${promptId}; last error: ${lastError}`,
+    );
+    this.name = 'ComfyPollOutageError';
+  }
+}
+
+type PollFailureKind = 'timeout' | 'network' | 'http_5xx' | 'http_4xx' | 'parse';
+
+function pollFailureKind(err: unknown): PollFailureKind {
+  const name = err instanceof Error ? err.name : '';
+  if (name === 'TimeoutError' || name === 'AbortError') return 'timeout';
+  if (err instanceof SyntaxError) return 'parse';
+  return 'network';
+}
 
 export interface ProgressUpdate {
   node: string | null;
@@ -103,6 +128,31 @@ export async function waitForCompletion(
   let deadline = submittedAt + timeoutMs;
   let unknownSince: number | undefined;
   let consecutiveQueueErrors = 0;
+  // A failed /history poll is "unknown this round", not a failure of the job.
+  let pollFailures = 0;
+  let lastPollSuccessAt = submittedAt;
+  const pollFailed = (kind: PollFailureKind, detail: string, durationMs: number) => {
+    pollFailures++;
+    dispatcherProgressPollFailures.inc({ workerId, kind });
+    (log?.warn ?? log?.info)?.(
+      {
+        stage: 'progress_poll_failed',
+        workerId,
+        promptId,
+        jobId: context?.jobId,
+        attemptId: context?.attemptId,
+        kind,
+        consecutive: pollFailures,
+        sinceLastSuccessMs: Date.now() - lastPollSuccessAt,
+        durationMs,
+        err: detail,
+      },
+      'ComfyUI progress poll failed — will retry',
+    );
+    const outageMs = Date.now() - lastPollSuccessAt;
+    if (pollFailures >= config.pollOutageMinFailures && outageMs >= config.pollOutageMs)
+      throw new ComfyPollOutageError(promptId, pollFailures, outageMs, detail);
+  };
   if (!enabled) comfyLegacyFallback.inc({ workerId, entry: 'start' });
   log?.info(
     { workerId, promptId, mode: enabled ? 'queue_aware' : 'legacy', reason, ...config },
@@ -140,18 +190,38 @@ export async function waitForCompletion(
       config.maxQueueWaitMs !== undefined &&
       Date.now() > submittedAt + config.maxQueueWaitMs;
     let res: Response;
+    const pollStartedAt = Date.now();
     try {
       res = await fetch(url, {
         headers: { 'X-Api-Key': apiKey },
-        signal: AbortSignal.timeout(queueBudgetExhausted ? config.requestTimeoutMs : 10_000),
+        signal: AbortSignal.timeout(
+          queueBudgetExhausted ? config.requestTimeoutMs : config.pollRequestTimeoutMs,
+        ),
       });
     } catch (err) {
-      if (!queueBudgetExhausted) throw err;
+      if (!queueBudgetExhausted) {
+        pollFailed(
+          pollFailureKind(err),
+          err instanceof Error ? err.message : String(err),
+          Date.now() - pollStartedAt,
+        );
+        if (
+          (mode === 'RUNNING' && Date.now() > deadline) ||
+          (mode === 'LEGACY_FALLBACK' && Date.now() >= deadline)
+        )
+          throw executionTimedOut();
+        continue;
+      }
       res = new Response('{}');
     }
 
     if (!res.ok && !queueBudgetExhausted) {
       log?.debug({ status: res.status }, 'ComfyUI /history not ready yet');
+      pollFailed(
+        res.status >= 500 ? 'http_5xx' : 'http_4xx',
+        `HTTP ${res.status}`,
+        Date.now() - pollStartedAt,
+      );
       if (
         (mode === 'RUNNING' && Date.now() > deadline) ||
         (mode === 'LEGACY_FALLBACK' && Date.now() >= deadline)
@@ -165,8 +235,19 @@ export async function waitForCompletion(
     let history: Record<string, unknown>;
     try {
       history = (res.ok ? await res.json() : {}) as Record<string, unknown>;
+      if (res.ok) {
+        pollFailures = 0;
+        lastPollSuccessAt = Date.now();
+      }
     } catch (err) {
-      if (!queueBudgetExhausted) throw err;
+      if (!queueBudgetExhausted) {
+        pollFailed(
+          pollFailureKind(err),
+          err instanceof Error ? err.message : String(err),
+          Date.now() - pollStartedAt,
+        );
+        continue;
+      }
       history = {};
     }
     const entry = history[promptId] as ComfyHistoryEntry | undefined;

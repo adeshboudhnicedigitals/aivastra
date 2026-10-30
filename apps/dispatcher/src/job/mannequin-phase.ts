@@ -209,7 +209,7 @@ export async function runMannequinPhase(
             error: jobLog.error.bind(jobLog),
           },
           undefined,
-          { comfyRedis: cfg.comfyRedis, workerId: w.id },
+          { comfyRedis: cfg.comfyRedis, workerId: w.id, jobId },
           totalNodeCount,
           cfg.comfyPollIntervalMs,
         ),
