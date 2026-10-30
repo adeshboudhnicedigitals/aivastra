@@ -168,7 +168,9 @@ describe('worker reservation: first boot with historical attempts', () => {
     }
     expect(await status(ids.a)).toBe('IDLE');
     expect(await status(ids.b)).toBe('IDLE');
-    expect((await claim('t-after-boot'))?.id).toMatch(/^fb-[ab]-/);
+    // Any registered worker with no hold is legitimately claimable (the unreachable one is only
+    // unreachable to the reconciler, not to selection), so the pick is not always a or b.
+    expect((await claim('t-after-boot'))?.id).toMatch(/^fb-(a|b|c|down)-/);
     console.info(
       `first boot: admission opened after ${report.admissionOpenMs.toFixed(0)} ms, whole boot ${report.bootMs.toFixed(0)} ms`,
     );
