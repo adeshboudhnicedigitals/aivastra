@@ -183,7 +183,9 @@ export async function checkThemeLive(
 
 /**
  * Deep link into the merchant's live theme editor, opened on the App embeds
- * panel with our embed switched on (the merchant still has to press Save).
+ * panel with our embed left off. The product-image icon is optional, so the
+ * merchant switches it on themselves rather than us passing `activateAppId`
+ * (which would flip it on and leave only Save).
  *
  * Deliberately builds a URL instead of asking the Admin API for the theme ID,
  * even though the app now holds `read_themes` (added for checkThemeLive
@@ -195,18 +197,14 @@ export async function checkThemeLive(
  * question for every store, re-consented or not.
  *
  * `themes/current` resolves the published theme server-side, so no theme ID is
- * needed. `activateAppId` is `{client_id}/{embed handle}` and `context=apps`
- * opens the App embeds panel; `template=product` makes the preview a product
+ * needed. `context=apps` opens the App embeds panel; `template=product` makes the preview a product
  * page, which is the only page the embed draws on. History: this was an
  * `addAppBlockId` app-block link from 2026-07-31 until the embed came back;
  * blocks are placed by the merchant, embeds are injected globally by Shopify,
  * and the two use different parameters.
  */
-export function buildThemeEditorDeepLink(shopDomain: string, apiKey: string): string {
-  return (
-    `https://${shopDomain}/admin/themes/current/editor` +
-    `?context=apps&template=product&activateAppId=${apiKey}/${TRYON_BLOCK_HANDLE}`
-  );
+export function buildThemeEditorDeepLink(shopDomain: string): string {
+  return `https://${shopDomain}/admin/themes/current/editor?context=apps&template=product`;
 }
 
 /**
@@ -404,7 +402,7 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
       // silently activates nothing, which looks like the extension is broken.
       if (!app.env.SHOPIFY_API_KEY) throw new AppError('CONFIG', 500, 'SHOPIFY_API_KEY missing');
       const blockUrl = buildAppBlockDeepLink(store.shopDomain, app.env.SHOPIFY_API_KEY);
-      const embedUrl = buildThemeEditorDeepLink(store.shopDomain, app.env.SHOPIFY_API_KEY);
+      const embedUrl = buildThemeEditorDeepLink(store.shopDomain);
       return { url: blockUrl, blockUrl, embedUrl };
     },
   );

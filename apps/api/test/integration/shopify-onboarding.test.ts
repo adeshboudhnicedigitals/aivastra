@@ -47,14 +47,14 @@ afterAll(async () => {
 });
 
 describe('buildThemeEditorDeepLink', () => {
-  it('targets themes/current and switches the app embed on', () => {
-    expect(buildThemeEditorDeepLink('o.myshopify.com', 'abc123')).toBe(
-      'https://o.myshopify.com/admin/themes/current/editor?context=apps&template=product&activateAppId=abc123/tryon-button',
+  it('targets themes/current and leaves the app embed off', () => {
+    expect(buildThemeEditorDeepLink('o.myshopify.com')).toBe(
+      'https://o.myshopify.com/admin/themes/current/editor?context=apps&template=product',
     );
   });
 
   it('never needs a theme ID — avoids a REST lookup that would 403 pre-consent', () => {
-    const url = buildThemeEditorDeepLink('o.myshopify.com', 'abc123');
+    const url = buildThemeEditorDeepLink('o.myshopify.com');
     expect(url).toContain('/themes/current/');
     expect(url).not.toMatch(/\/themes\/\d+\//);
   });
@@ -398,10 +398,9 @@ describe('GET /v1/shopify/onboarding/theme-editor-url', () => {
     expect(body.blockUrl).toContain('addAppBlockId=');
     expect(body.blockUrl).toContain('tryon-button-block');
     expect(body.blockUrl).toContain('target=mainSection');
-    expect(body.embedUrl).toContain('activateAppId=');
     expect(body.embedUrl).toContain('context=apps');
-    expect(body.embedUrl).toContain('tryon-button');
-    expect(body.embedUrl).not.toContain('tryon-button-block');
+    expect(body.embedUrl).not.toContain('activateAppId');
+    expect(body.embedUrl).not.toContain('addAppBlockId');
   });
 });
 

@@ -45,16 +45,16 @@ describe('findThemeBlockPresent', () => {
 });
 
 describe('buildThemeEditorDeepLink', () => {
-  it('opens the App embeds panel with the tryon embed switched on', () => {
-    const url = buildThemeEditorDeepLink('s.myshopify.com', 'apikey123');
+  it('opens the App embeds panel without switching the tryon embed on', () => {
+    const url = buildThemeEditorDeepLink('s.myshopify.com');
     expect(url).toBe(
-      'https://s.myshopify.com/admin/themes/current/editor' +
-        '?context=apps&template=product&activateAppId=apikey123/tryon-button',
+      'https://s.myshopify.com/admin/themes/current/editor?context=apps&template=product',
     );
+    expect(url).not.toContain('activateAppId');
   });
 
   it('no longer stages an app block', () => {
-    const url = buildThemeEditorDeepLink('s.myshopify.com', 'k');
+    const url = buildThemeEditorDeepLink('s.myshopify.com');
     expect(url).not.toContain('addAppBlockId');
     expect(url).not.toContain('target=');
   });
