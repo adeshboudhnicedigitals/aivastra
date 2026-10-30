@@ -6,7 +6,6 @@ import { eq, sql } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  acquireComfyJob,
   renewLeases,
   takeoverComfyJob,
   trackOwnedJob,
@@ -16,6 +15,7 @@ import { processJob } from '../../src/job/processor.js';
 import { settleComfyJob } from '../../src/job/settlement.js';
 import { runSweeper } from '../../src/stream/sweeper.js';
 import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
+import { acquireAndStart } from '../helpers/acquire.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
 import { PATH_FIXTURE_KEY, type PaidPathKind, seedPaidJob } from '../helpers/paid-jobs.js';
@@ -242,7 +242,7 @@ describe('fenced settlement', () => {
   ] as const;
 
   async function acquire(jobId: string, session = randomUUID()) {
-    const a = await acquireComfyJob(env.db, jobId, session, log);
+    const a = await acquireAndStart(env.db, redis, jobId, session, log);
     if (a.kind !== 'Acquired') throw new Error(`not acquired: ${a.kind}`);
     return a.owner;
   }
@@ -800,6 +800,7 @@ describe('fenced settlement', () => {
               PATH: process.env.PATH,
               NODE_ENV: 'test',
               SETTLE_TEST_DATABASE_URL: env.databaseUrl,
+              SETTLE_TEST_REDIS_URL: env.redisUrl,
               SETTLE_TEST_SESSION: randomUUID(),
               SETTLE_TEST_JOB_ID: seeded.job.id,
               SETTLE_TEST_GATE_POINT: point,

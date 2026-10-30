@@ -5,6 +5,7 @@ import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { forceIdle } from '../helpers/workers.js';
 
 // Force the WatermarkService to fail for every job in this file — this is the
 // spec's fail-closed requirement: if applying the watermark throws for a
@@ -19,7 +20,7 @@ vi.mock('../../src/workflow/watermark.js', () => ({
 }));
 
 import { processJob } from '../../src/job/processor.js';
-import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
 
@@ -50,7 +51,7 @@ describe('finalizeOutput — fail-closed on watermark failure', () => {
 
   beforeEach(async () => {
     comfy.setOptions({});
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
   });
 
   // Saree jobs are the smallest job "kind" the dispatcher supports — no
@@ -181,7 +182,7 @@ describe('finalizeOutput — fail-closed on watermark failure', () => {
     const stream = `jobs:test-${jobId}`;
 
     await processJob(cfg, jobId, userId, stream, '2-1');
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
     await processJob(cfg, jobId, userId, stream, '3-1');
 
     const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));

@@ -235,10 +235,13 @@ describe('execution clock and Stage 1 queue exhaustion', () => {
       'ComfyUI execution error for prompt ours: SaveImage (node 10): missing input',
     );
   });
-  it('history transport failures still escape (pre-existing behavior)', async () => {
+  it('history transport failures are tolerated until a sustained outage', async () => {
     enable();
     hangPath = '/history/ours';
-    expect((await settle(wait())).error?.message).toBe('aborted');
+    // Each hung poll aborts at the request timeout; only the outage limit ends the wait.
+    expect((await settle(wait())).error?.message).toMatch(
+      /history polling outage: \d+ consecutive failed polls .*last error: aborted/,
+    );
   });
   it('snapshots budgets at submission', async () => {
     enable();
@@ -608,7 +611,7 @@ describe('typed caller enforcement', () => {
       );
       expect(
         source.match(
-          /selectWorker\(redis, (?:WORKER_POOL\.\w+|pool), performanceKey, \{\s*jobId,\s*log: jobLog,?\s*\}\)/g,
+          /selectWorker\(\s*redis,\s*(?:WORKER_POOL\.\w+|pool),\s*performanceKey,\s*\{\s*jobId,\s*log: jobLog,\s*token\s*\}\s*,?\s*\)/g,
         ),
       ).toHaveLength(file === 'processor' ? 8 : 1);
       for (const site of sites)

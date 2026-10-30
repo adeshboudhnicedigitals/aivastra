@@ -20,7 +20,7 @@ import type { ImageCompressionJobConfig } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 import sharp from 'sharp';
 import { loadEnv } from '../env.js';
-import type { OwnerToken } from '../job/ownership.js';
+import { assertStorageWriteLease, OwnershipLostError, type OwnerToken } from '../job/ownership.js';
 import { settleAndPublish } from '../job/settlement.js';
 import { applyWatermark, WATERMARK_VERSION } from './watermark.js';
 
@@ -56,6 +56,8 @@ export async function encodeCompressedImage(
 export interface FinalizeOutputOpts {
   /** Paid-Comfy owner token; completion goes through the fenced settlement and needs it. */
   owner: OwnerToken;
+  /** The attempt this output belongs to; a replacement attempt makes this finalizer stale. */
+  attemptId?: string;
   /** Raw image bytes downloaded from ComfyUI. */
   imageBytes: Uint8Array;
   jobId: string;
@@ -121,6 +123,8 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
     contentType,
   } = await encodeCompressedImage(finalBuffer, opts.compression);
   const resultKey = keys.output(jobId, outputFormat);
+  // After the encoding above and with nothing slow in between: a stale owner starts no PUT.
+  await assertStorageWriteLease(db, opts.owner, 'finalize:output', { attemptId: opts.attemptId });
   await storage.putObject(resultKey, resultBuffer, contentType);
 
   // Generate and upload thumbnail (512px, JPEG) from the final buffer.
@@ -134,6 +138,9 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
       .jpeg({ quality: 80 })
       .toBuffer();
     thumbnailKey = keys.outputThumb(jobId);
+    await assertStorageWriteLease(db, opts.owner, 'finalize:thumbnail', {
+      attemptId: opts.attemptId,
+    });
     await storage.putObject(thumbnailKey, thumbBytes, 'image/jpeg');
     jobLog.info(
       {
@@ -150,6 +157,8 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
       'finalizeOutput complete',
     );
   } catch (thumbErr) {
+    // Losing ownership is not a thumbnail problem: it must not become a completion without one.
+    if (thumbErr instanceof OwnershipLostError) throw thumbErr;
     jobLog.warn({ err: thumbErr }, 'thumbnail generation failed — proceeding without thumbnail');
     thumbnailKey = undefined;
   }
