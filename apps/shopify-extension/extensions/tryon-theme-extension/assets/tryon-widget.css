@@ -2,15 +2,15 @@
   margin-bottom: 19px;
 }
 
-/* Last resort when the theme's product form can't be found (see placeWidget in
-   tryon-widget.js): a fixed bottom-left button so it is still reachable.
-   Bottom-left because the modal opens bottom-right. */
+/* Last resort when the theme's product media can't be found: a fixed corner
+   icon so it is still reachable. */
 .aivastra-tryon--floating {
   position: fixed;
-  inset: auto auto 24px 24px;
-  z-index: 2147483645;
+  inset: auto 16px 16px auto;
+  z-index: 2147483000;
   margin: 0;
-  max-width: 220px;
+  width: auto;
+  max-width: none;
 }
 
 /* Bottom-right corner, nowhere near a theme's top nav bar to begin with, and
@@ -920,7 +920,7 @@
 }
 
 .aivastra-tryon__button {
-  background: var(--aivastra-button-color, #000000);
+  background: var(--aivastra-button-background, var(--aivastra-button-color, #000000));
   color: var(--aivastra-text-color, #ffffff);
   border: none;
   border-radius: var(--aivastra-border-radius, 4px);
@@ -977,6 +977,17 @@
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* login-required (plan 3) */
+.aivastra-tryon__login-cta {
+  box-sizing: border-box;
+  text-decoration: none;
+}
+
+/* display above would otherwise beat the hidden attribute on the two upload CTAs. */
+.aivastra-tryon__choose-btn[hidden] {
+  display: none;
 }
 
 .aivastra-tryon__result-actions {
@@ -1041,4 +1052,84 @@
 .aivastra-tryon__share-flash[hidden],
 .aivastra-tryon__view-cart[hidden] {
   display: none;
+}
+
+/* theme block + icon (plan 4) */
+.aivastra-tryon__btn-icon {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  margin-right: 0.5em;
+  vertical-align: -0.2em;
+  background-color: currentColor;
+  -webkit-mask: var(--aivastra-icon-url) center / contain no-repeat;
+  mask: var(--aivastra-icon-url) center / contain no-repeat;
+}
+
+/* The block's button fills its parent, so it matches the theme's Add to cart and
+   Buy it now buttons stacked with it. The icon badge keeps its own size. */
+.aivastra-tryon .aivastra-tryon__button:not(.aivastra-tryon__icon-btn) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--aivastra-button-width, 100%);
+  min-height: var(--aivastra-button-height, 48px);
+  /* Text scales with the height so a short button does not clip it. */
+  font-size: clamp(12px, calc(var(--aivastra-button-height, 48px) * 0.36), 22px);
+  box-sizing: border-box;
+}
+
+/* The embed's icon: a badge on the product image.
+   !important on the box rules on purpose: themes style the direct children of
+   their media wrapper (Dawn: `.media > *` is absolute, top/left 0, 100% x 100%),
+   which stretched this wrapper over the whole image with the icon stuck at its
+   top-left. Only the button inside takes clicks, so the wrapper never blocks the
+   image. */
+.aivastra-tryon--icon {
+  position: absolute !important;
+  top: 12px !important;
+  right: 12px !important;
+  bottom: auto !important;
+  left: auto !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  margin: 0 !important;
+  /* High enough to sit above a theme's gallery slides, zoom buttons and badges.
+     placeIcon isolates the image container, so this only competes inside it and
+     never covers the sticky header or the cart drawer. */
+  z-index: 100;
+  pointer-events: none;
+}
+.aivastra-tryon--icon .aivastra-tryon__icon-btn {
+  pointer-events: auto;
+}
+.aivastra-tryon--icon.aivastra-tryon--floating {
+  position: fixed !important;
+  top: auto !important;
+  right: 16px !important;
+  bottom: 16px !important;
+  z-index: 2147483000;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--aivastra-icon-size, 40px);
+  height: var(--aivastra-icon-size, 40px);
+  padding: 0;
+  border: 0;
+  /* A rounded square; the radius is the embed's "Icon corner radius" setting. */
+  border-radius: var(--aivastra-border-radius, 10px);
+  overflow: hidden;
+  cursor: pointer;
+  color: var(--aivastra-text-color, #fff);
+  background: var(--aivastra-button-color, #000);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
 }

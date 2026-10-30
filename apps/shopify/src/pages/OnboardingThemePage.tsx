@@ -26,15 +26,15 @@ const TALL_BUTTONS_CSS = `
 const THEME_STEPS = [
   {
     title: 'Open Theme Settings',
-    description: 'Click the button below to open your theme settings.',
+    description: 'Click the button below. The Try It On button is added to your product page.',
   },
   {
-    title: 'Enable the Try It On button',
-    description: 'Make sure Try It On is switched on.',
+    title: 'Position the Try It On button',
+    description: 'Drag it where you want it on the product page, then click Save.',
   },
   {
-    title: 'Save your changes',
-    description: 'Click Save to apply the changes',
+    title: 'Optional: turn on the product image icon',
+    description: 'Use the second button to add a try-on icon on your product photos.',
   },
 ];
 
@@ -46,16 +46,15 @@ export default function OnboardingThemePage({
   onRefresh: () => Promise<ShopifyMe>;
 }) {
   const navigate = useNavigate();
-  const [openingEditor, setOpeningEditor] = useState(false);
+  const [openingEditor, setOpeningEditor] = useState<'block' | 'embed' | null>(null);
   const [checking, setChecking] = useState(false);
   // Set once the merchant has pressed Refresh and it still isn't detected, so the
   // page can say so instead of leaving them wondering whether anything happened.
   const [checkedNotFound, setCheckedNotFound] = useState(false);
   const [error, setError] = useState<ClassifiedError | null>(null);
 
-  // Both flags are set together by the storefront ping (see markThemeEmbedSeen
-  // in the API), so the newer one is the one this page waits on.
-  const themeEmbedDone = me.store.settings.themeEmbedConfirmed ?? false;
+  const blockDone = me.store.settings.themeBlockConfirmed ?? false;
+  const iconDone = me.store.settings.themeEmbedConfirmed ?? false;
 
   // The embed is switched on in another tab and detected the first time the
   // widget loads on a live product page, so there is nothing to click here —
@@ -66,7 +65,7 @@ export default function OnboardingThemePage({
   // API rate-limit budget for no benefit; that check is reserved for the
   // explicit, human-paced "Refresh status" click.
   useEffect(() => {
-    if (themeEmbedDone) return;
+    if (blockDone) return;
     const refresh = () => {
       if (document.visibilityState === 'visible') void onRefresh().catch(() => {});
     };
@@ -76,7 +75,7 @@ export default function OnboardingThemePage({
       clearInterval(timer);
       document.removeEventListener('visibilitychange', refresh);
     };
-  }, [themeEmbedDone, onRefresh]);
+  }, [blockDone, onRefresh]);
 
   // The merchant enables the embed in the theme editor's own tab and comes back
   // to this page, which stays open. Refresh re-reads the store's status now
@@ -105,16 +104,18 @@ export default function OnboardingThemePage({
     return <Navigate to={onboardingPath(currentStep)} replace />;
   }
 
-  async function openThemeEditor() {
-    setOpeningEditor(true);
+  async function openThemeEditor(which: 'block' | 'embed') {
+    setOpeningEditor(which);
     setError(null);
     try {
-      const { url } = await apiFetch<{ url: string }>('/v1/shopify/onboarding/theme-editor-url');
-      window.open(url, '_blank', 'noopener');
+      const links = await apiFetch<{ blockUrl: string; embedUrl: string }>(
+        '/v1/shopify/onboarding/theme-editor-url',
+      );
+      window.open(which === 'block' ? links.blockUrl : links.embedUrl, '_blank', 'noopener');
     } catch (err) {
       setError(classifyError(err));
     } finally {
-      setOpeningEditor(false);
+      setOpeningEditor(null);
     }
   }
 
@@ -125,7 +126,7 @@ export default function OnboardingThemePage({
       hideBack={currentStep === null}
       continueLabel="Finish Setup"
       onContinue={() => navigate('/')}
-      continueDisabled={!themeEmbedDone}
+      continueDisabled={!blockDone}
       fullWidth
       padding="var(--p-space-600) var(--p-space-1600)"
     >
@@ -190,11 +191,20 @@ export default function OnboardingThemePage({
                     size="large"
                     fullWidth
                     icon={ExternalIcon}
-                    onClick={openThemeEditor}
-                    loading={openingEditor}
-                    disabled={themeEmbedDone}
+                    onClick={() => openThemeEditor('block')}
+                    loading={openingEditor === 'block'}
+                    disabled={blockDone}
                   >
                     Open theme settings
+                  </Button>
+                  <Button
+                    size="large"
+                    fullWidth
+                    onClick={() => openThemeEditor('embed')}
+                    loading={openingEditor === 'embed'}
+                    disabled={iconDone}
+                  >
+                    Add try-on icon to product images (optional)
                   </Button>
                   <Button
                     size="large"
@@ -202,7 +212,7 @@ export default function OnboardingThemePage({
                     icon={RefreshIcon}
                     onClick={checkStatus}
                     loading={checking}
-                    disabled={themeEmbedDone}
+                    disabled={blockDone && iconDone}
                   >
                     Refresh status
                   </Button>
@@ -211,7 +221,7 @@ export default function OnboardingThemePage({
               <div
                 style={{ background: GREY_FILL, borderRadius: 12, padding: 'var(--p-space-400)' }}
               >
-                {themeEmbedDone ? (
+                {blockDone ? (
                   <InlineStack gap="200" blockAlign="center" wrap={false}>
                     {/* Polaris Icon has `margin: auto`, which in a flex row soaks up the free
                         space and drifts the icon (and the text after it) to the middle of
@@ -219,9 +229,16 @@ export default function OnboardingThemePage({
                     <div style={{ display: 'flex', flex: 'none' }}>
                       <Icon source={CheckCircleIcon} tone="success" />
                     </div>
-                    <Text as="span" tone="success" fontWeight="semibold">
-                      AI Vastra virtual try-on activated
-                    </Text>
+                    <BlockStack gap="100">
+                      <Text as="span" tone="success" fontWeight="semibold">
+                        AI Vastra Try It On button activated
+                      </Text>
+                      <Text as="p" tone="subdued">
+                        {iconDone
+                          ? 'Product image icon on'
+                          : 'Product image icon: optional, not turned on'}
+                      </Text>
+                    </BlockStack>
                   </InlineStack>
                 ) : (
                   <InlineStack gap="300" blockAlign="start" wrap={false}>
@@ -230,14 +247,15 @@ export default function OnboardingThemePage({
                     </div>
                     <BlockStack gap="200">
                       <Text as="p" tone="subdued">
-                        If Save is greyed out, it's already enabled. Press Refresh status and we'll
+                        If Save is greyed out, it's already added. Press Refresh status and we'll
                         detect it automatically.
                       </Text>
                       {checkedNotFound && (
                         <Text as="p" tone="caution">
-                          Not detected yet. Make sure the embed is saved, then try Refresh status
-                          again in a moment — or open any product page on your live store (not the
-                          theme editor preview), which also confirms it automatically.
+                          Not detected yet. Make sure the Try It On button is saved to your product
+                          page, then press Refresh status again in a moment — or open any product
+                          page on your live store (not the theme editor preview), which also
+                          confirms it automatically.
                         </Text>
                       )}
                     </BlockStack>
@@ -251,7 +269,7 @@ export default function OnboardingThemePage({
             {/* biome-ignore lint/performance/noImgElement: Polaris has no plain image component */}
             <img
               src={tutorialImage}
-              alt="The theme editor's App embeds panel with the Try It On switch marked 1 and the Save button marked 2"
+              alt="The theme editor's App embeds panel with the Try It On switch marked 1 and the Save button marked 2 (optional icon step)"
               style={{
                 display: 'block',
                 width: '100%',

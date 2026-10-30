@@ -6,6 +6,7 @@ export interface ShopifyStoreLimits {
   perShopperWindow?: 'day' | 'week' | 'month';
   /** null = never ask. 0 = ask before the first generation. */
   emailAfterNTryOns?: number | null;
+  loginRequired?: boolean;
 }
 
 export interface ShopifyStoreRetention {
@@ -23,6 +24,8 @@ export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
   themeEmbedConfirmed?: boolean;
+  // true only once a storefront rendered the Try It On *block*; legacy stores that passed onboarding under the embed rule lack it
+  themeButtonBlockSeen?: boolean;
   onboardingRoutingConfirmed?: boolean;
   onboardingCompletedOnce?: boolean;
   emailBonusClaimed?: boolean;
@@ -72,9 +75,6 @@ export interface ShopifyStats {
   totalTryOns: number;
   syncedProductCount: number;
   enabledProductCount: number;
-  // Enabled products that still resolve to no basket. Null when the API skipped
-  // the routing scan for a very large catalogue.
-  unroutedEnabledCount: number | null;
   statusCounts: { active: number; processing: number; failed: number; disabled: number };
   todayTryOns: number;
   storeDailyCap: number | null;
@@ -129,16 +129,6 @@ export interface ShopifyProductListItem {
   status: string;
   enabled: boolean;
   excluded: boolean;
-  // null means no basket resolved — the state where try-on is refused for
-  // this product (see customer.routes.ts). No default-basket fallback exists
-  // anymore (see funnel-resolution.ts's resolveBasketFrom).
-  basket: { id: string; label: string; source: 'manual' | 'rule' } | null;
-  // The raw pin on this row, independent of whether it's currently being honored.
-  // Non-null with basket.source !== 'manual' means the pinned basket was
-  // deactivated and resolution fell through to a rule — a stale pin that's
-  // still clearable via "Reset to automatic" even though it's invisible in
-  // `basket` itself.
-  pinnedBasketId: string | null;
   productType: string | null;
   vendor: string | null;
   tags: string[] | null;
@@ -151,6 +141,14 @@ export interface ShopifyProductsResponse {
   pageSize: number;
   total: number;
   items: ShopifyProductListItem[];
+}
+
+export interface ShopifySyncStatus {
+  state: 'running' | 'idle';
+  startedAt: number;
+  completedAt: number | null;
+  total: number | null;
+  imported: number;
 }
 
 export interface FacetList {
@@ -181,6 +179,7 @@ export interface ShopifyShopperListItem {
   id: string;
   email: string;
   emailConsent: boolean;
+  phone: string | null;
   firstSeenAt: string;
   tryOnCount: number;
 }

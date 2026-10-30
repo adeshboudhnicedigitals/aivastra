@@ -121,6 +121,126 @@ describe('requireShopifyStoreKey', () => {
     await (decorated.requireShopifyStoreKey as (req: unknown) => Promise<void>)(req);
     expect(req.shopifyStoreId).toBe('store-1');
   });
+
+  it('exposes the customer id from a validly signed app proxy request', async () => {
+    const { shopifyWidgetAuthPlugin } = await import('./shopify-widget-auth.js');
+    const decorated: Record<string, unknown> = {};
+    const store = { id: 'store-1', uninstalledAt: null, shopDomain: 'a.myshopify.com' };
+    const limit = vi.fn().mockResolvedValue([store]);
+    const where = vi.fn().mockReturnValue({ limit });
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    const app = {
+      decorate: (name: string, fn: unknown) => {
+        decorated[name] = fn;
+      },
+      db: { select },
+      env: { SHOPIFY_API_SECRET: SECRET },
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: test mock — Fastify plugin type is opaque
+    await (shopifyWidgetAuthPlugin as any)(app, {}, () => {});
+    const query = signAppProxyQuery({
+      shop: 'a.myshopify.com',
+      timestamp: String(Math.floor(Date.now() / 1000)),
+      logged_in_customer_id: '8123456789',
+    });
+    const req = { headers: {}, query } as {
+      shopifyLoggedInCustomerId?: number | null;
+      query: unknown;
+    };
+    await (decorated.requireShopifyStoreKey as (req: unknown) => Promise<void>)(req);
+    expect(req.shopifyLoggedInCustomerId).toBe(8123456789);
+  });
+
+  it('sets customer id to null for a signed app proxy request with an empty customer id', async () => {
+    const { shopifyWidgetAuthPlugin } = await import('./shopify-widget-auth.js');
+    const decorated: Record<string, unknown> = {};
+    const store = { id: 'store-1', uninstalledAt: null, shopDomain: 'a.myshopify.com' };
+    const limit = vi.fn().mockResolvedValue([store]);
+    const where = vi.fn().mockReturnValue({ limit });
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    const app = {
+      decorate: (name: string, fn: unknown) => {
+        decorated[name] = fn;
+      },
+      db: { select },
+      env: { SHOPIFY_API_SECRET: SECRET },
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: test mock — Fastify plugin type is opaque
+    await (shopifyWidgetAuthPlugin as any)(app, {}, () => {});
+    const query = signAppProxyQuery({
+      shop: 'a.myshopify.com',
+      timestamp: String(Math.floor(Date.now() / 1000)),
+      logged_in_customer_id: '',
+    });
+    const req = { headers: {}, query } as {
+      shopifyLoggedInCustomerId?: number | null;
+      query: unknown;
+    };
+    await (decorated.requireShopifyStoreKey as (req: unknown) => Promise<void>)(req);
+    expect(req.shopifyLoggedInCustomerId).toBeNull();
+  });
+
+  it('ignores a customer id on the unsigned legacy widget-key path', async () => {
+    const { shopifyWidgetAuthPlugin } = await import('./shopify-widget-auth.js');
+    const decorated: Record<string, unknown> = {};
+    const store = {
+      id: 'store-1',
+      uninstalledAt: null,
+      storeKey: '11111111-1111-1111-1111-111111111111',
+      allowedOrigins: [],
+    };
+    const limit = vi.fn().mockResolvedValue([store]);
+    const where = vi.fn().mockReturnValue({ limit });
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    const app = {
+      decorate: (name: string, fn: unknown) => {
+        decorated[name] = fn;
+      },
+      db: { select },
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: test mock — Fastify plugin type is opaque
+    await (shopifyWidgetAuthPlugin as any)(app, {}, () => {});
+    const req = {
+      headers: { 'x-widget-key': store.storeKey },
+      query: { logged_in_customer_id: '8123456789' },
+    } as { shopifyLoggedInCustomerId?: number | null; headers: unknown; query: unknown };
+    await (decorated.requireShopifyStoreKey as (req: unknown) => Promise<void>)(req);
+    expect(req.shopifyLoggedInCustomerId).toBeNull();
+  });
+
+  it('sets customer id to null for a signed app proxy request with a non-numeric customer id', async () => {
+    const { shopifyWidgetAuthPlugin } = await import('./shopify-widget-auth.js');
+    const decorated: Record<string, unknown> = {};
+    const store = { id: 'store-1', uninstalledAt: null, shopDomain: 'a.myshopify.com' };
+    const limit = vi.fn().mockResolvedValue([store]);
+    const where = vi.fn().mockReturnValue({ limit });
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    const app = {
+      decorate: (name: string, fn: unknown) => {
+        decorated[name] = fn;
+      },
+      db: { select },
+      env: { SHOPIFY_API_SECRET: SECRET },
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: test mock — Fastify plugin type is opaque
+    await (shopifyWidgetAuthPlugin as any)(app, {}, () => {});
+    const query = signAppProxyQuery({
+      shop: 'a.myshopify.com',
+      timestamp: String(Math.floor(Date.now() / 1000)),
+      logged_in_customer_id: 'abc',
+    });
+    const req = { headers: {}, query } as {
+      shopifyLoggedInCustomerId?: number | null;
+      query: unknown;
+    };
+    await (decorated.requireShopifyStoreKey as (req: unknown) => Promise<void>)(req);
+    expect(req.shopifyLoggedInCustomerId).toBeNull();
+  });
+
   // Gap 15: an allowedOrigins mismatch is a merchant misconfiguration, and it
   // used to be reported with the same FORBIDDEN code the routes use for
   // "upload session expired". The widget branches on that code to decide

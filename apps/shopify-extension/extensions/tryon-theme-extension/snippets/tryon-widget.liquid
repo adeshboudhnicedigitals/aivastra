@@ -1,7 +1,7 @@
 {% comment %}
-  Shared markup for the Try It On button + modal, rendered by both the app
-  embed (blocks/tryon-button.liquid) and the app block
-  (blocks/tryon-button-block.liquid).
+  Shared markup for the Try It On button (rendered by the app block) and the
+  icon (rendered by the app embed). `source` is `block` or `embed`; tryon-widget.js
+  shares one modal between them.
 
   `settings` is the caller's `block.settings` — `block` itself is not visible
   inside a rendered snippet. `source` is "embed" or "block"; tryon-widget.js
@@ -11,6 +11,28 @@
 
 {%- assign widget_key = shop.metafields.aivastra.widget_key -%}
 {%- assign cfg = shop.metafields.aivastra.widget_config.value -%}
+{%- liquid
+  if source == 'embed'
+    assign accent_bg = settings.icon_background | default: '#FFFFFF'
+    assign accent_fg = '#FFFFFF'
+  else
+    assign accent_bg = settings.button_color
+    assign accent_fg = settings.text_color
+  endif
+  # routes.account_login_url can already carry a query string (locale, region), so the
+  # return_url joins with & then; a second ? made Shopify drop it.
+  assign login_sep = '?'
+  if routes.account_login_url contains '?'
+    assign login_sep = '&'
+  endif
+  assign return_to = product.url | url_encode
+  assign login_url = routes.account_login_url | append: login_sep | append: 'return_url=' | append: return_to
+  # A gradient (Shopify's background picker) replaces the solid color; blank keeps the color.
+  assign button_background = accent_bg
+  if source == 'block' and settings.button_gradient != blank
+    assign button_background = settings.button_gradient
+  endif
+-%}
 {%- if product != blank and widget_key != blank -%}
   <div
     class="aivastra-tryon"
@@ -31,17 +53,26 @@
       data-customer-email="{{ customer.email }}"
     {% endif %}
     data-api-base="{{ settings.api_base | default: 'https://app.aivastra.com' | escape }}"
-    data-placement-selector="{{ settings.placement_selector | escape }}"
+    data-login-url="{{ login_url }}"
+    data-media-selector="{{ settings.media_selector | escape }}"
     data-source="{{ source }}"
-    style="--aivastra-button-color: {{ settings.button_color }}; --aivastra-text-color: {{ settings.text_color }}; --aivastra-border-radius: {{ settings.border_radius }}px;{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
+    style="--aivastra-button-color: {{ accent_bg }}; --aivastra-button-background: {{ button_background | escape }}; --aivastra-text-color: {{ accent_fg }}; --aivastra-border-radius: {{ settings.border_radius }}px; --aivastra-button-width: {{ settings.button_width | default: 100 }}%; --aivastra-button-height: {{ settings.button_height | default: 48 }}px; --aivastra-icon-size: {{ settings.icon_size | default: 40 }}px; --aivastra-icon-url: url('{{ 'tryon-icon.png' | asset_url }}');{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
   >
-    {%- if settings.promo_text != blank -%}
-      <p class="aivastra-tryon__promo">{{ settings.promo_text | escape }}</p>
+    {%- if source == 'embed' -%}
+      <button type="button" class="aivastra-tryon__button aivastra-tryon__icon-btn" aria-label="Try it on">
+        <img class="aivastra-tryon__icon-img" src="{{ 'tryon-icon-color.png' | asset_url }}" alt="" width="256" height="256" loading="lazy">
+      </button>
+    {%- else -%}
+      {%- if settings.promo_text != blank -%}
+        <p class="aivastra-tryon__promo">{{ settings.promo_text | escape }}</p>
+      {%- endif -%}
+      <button type="button" class="aivastra-tryon__button">
+        {%- if settings.show_icon -%}
+          <span class="aivastra-tryon__btn-icon" aria-hidden="true"></span>
+        {%- endif -%}
+        {{ settings.button_text | default: 'Try It On' | escape }}
+      </button>
     {%- endif -%}
-
-    <button type="button" class="aivastra-tryon__button">
-      {{ settings.button_text | default: 'Try It On' | escape }}
-    </button>
 
     <div class="aivastra-tryon__modal" hidden>
       <div class="aivastra-tryon__modal-content">
@@ -84,6 +115,11 @@
                   <strong>{{ cfg.copy.chooseLabel | default: 'Choose Your Photo' | escape }}</strong>
                   <input type="file" accept="image/*" class="aivastra-tryon__file-input" />
                 </label>
+                {%- comment -%} Shown instead of the label above when the store requires login and the shopper is logged out. {%- endcomment -%}
+                <a class="aivastra-tryon__choose-btn aivastra-tryon__login-cta" href="{{ login_url }}" hidden>
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/></svg>
+                  <strong>Login to continue</strong>
+                </a>
               </div>
 
               <p class="aivastra-tryon__legal aivastra-tryon__legal--brand">Your Virtual Try-On Experience Powered by Ai Vastra - <a href="https://aivastra.com/shopify-virtual-try-on-app/" target="_blank" rel="noopener noreferrer">www.aivastra.com</a></p>

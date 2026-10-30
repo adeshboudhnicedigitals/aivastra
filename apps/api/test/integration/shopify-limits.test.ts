@@ -86,6 +86,10 @@ describe('shopify shopper limits', () => {
         workflowTemplateId: workflow.id,
       })
       .returning();
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ shopifyWorkflowTemplateId: workflow.id }),
+    );
     cachedFunnelTemplateId = funnel.id;
     return cachedFunnelTemplateId;
   }

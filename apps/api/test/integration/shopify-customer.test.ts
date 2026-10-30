@@ -82,6 +82,10 @@ describe('shopify customer routes', () => {
         workflowTemplateId: workflow.id,
       })
       .returning();
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ shopifyWorkflowTemplateId: workflow.id }),
+    );
     cachedFunnelTemplateId = funnel.id;
     cachedWorkflowTemplateId = workflow.id;
     return cachedFunnelTemplateId;
@@ -526,7 +530,7 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: true, verboseErrors: false });
+      expect(res.json()).toEqual({ enabled: true, verboseErrors: false, loginRequired: false });
     });
 
     it('stays disabled under global mode for a product excluded despite it', async () => {
@@ -551,7 +555,7 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: false, verboseErrors: false });
+      expect(res.json()).toEqual({ enabled: false, verboseErrors: false, loginRequired: false });
     });
 
     it('is disabled under selective mode for a product with no individual/collection enable', async () => {
@@ -573,7 +577,7 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: false, verboseErrors: false });
+      expect(res.json()).toEqual({ enabled: false, verboseErrors: false, loginRequired: false });
     });
 
     it('is enabled under selective mode for an individually enabled, routed product', async () => {
@@ -586,13 +590,11 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: true, verboseErrors: false });
+      expect(res.json()).toEqual({ enabled: true, verboseErrors: false, loginRequired: false });
     });
 
-    it('is disabled once synced when effectively enabled but resolving to no basket', async () => {
+    it('is enabled once synced with no basket or rule, since every product runs the one workflow', async () => {
       const store = await seedStore(null);
-      // enabled: true, no funnelTemplateId pin, and no funnel rule configured
-      // for this store — resolveBasket can never resolve for it.
       await seedGarment(store.id, 905);
 
       const res = await app.inject({
@@ -601,7 +603,7 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: false, verboseErrors: false });
+      expect(res.json()).toEqual({ enabled: true, verboseErrors: false, loginRequired: false });
     });
 
     it('rejects a non-numeric product id', async () => {

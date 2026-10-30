@@ -173,21 +173,39 @@ describe('shopify /enabled — app embed detection', () => {
     await new Promise((r) => setTimeout(r, 300));
   }
 
-  it('marks the embed as seen on a signed live product-page view', async () => {
+  it('marks the button block as seen on a signed live product-page view', async () => {
     const store = await seedStore();
-    expect((await ping(store.shopDomain)).statusCode).toBe(200);
+    expect((await ping(store.shopDomain, { source: 'block' })).statusCode).toBe(200);
     await settle();
     expect(await settingsOf(store.id)).toMatchObject({
-      themeEmbedConfirmed: true,
       themeBlockConfirmed: true,
+      themeButtonBlockSeen: true,
     });
+  });
+
+  it('marks only the icon embed as seen for an embed source', async () => {
+    const store = await seedStore();
+    expect((await ping(store.shopDomain, { source: 'embed' })).statusCode).toBe(200);
+    await settle();
+    expect(await settingsOf(store.id)).toEqual({ themeEmbedConfirmed: true });
+  });
+
+  it('treats absent and unknown sources as the embed', async () => {
+    const absent = await seedStore();
+    await ping(absent.shopDomain);
+    const garbage = await seedStore();
+    await ping(garbage.shopDomain, { source: 'garbage' });
+    await settle();
+    expect(await settingsOf(absent.id)).toEqual({ themeEmbedConfirmed: true });
+    expect(await settingsOf(garbage.id)).toEqual({ themeEmbedConfirmed: true });
   });
 
   it('ignores the theme editor / unpublished-theme preview (dm=1)', async () => {
     const store = await seedStore();
-    expect((await ping(store.shopDomain, { dm: '1' })).statusCode).toBe(200);
+    expect((await ping(store.shopDomain, { dm: '1', source: 'block' })).statusCode).toBe(200);
     await settle();
     expect(await settingsOf(store.id)).not.toHaveProperty('themeEmbedConfirmed');
+    expect(await settingsOf(store.id)).not.toHaveProperty('themeButtonBlockSeen');
   });
 
   it('ignores the legacy X-Widget-Key path, whose key is public in the page HTML', async () => {

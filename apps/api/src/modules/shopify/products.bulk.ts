@@ -18,10 +18,9 @@ export const BulkBodySchema = z
     enabled: z.literal(true).optional(),
     // null clears the pin. `.optional()` alone would make an absent key and an
     // explicit null indistinguishable, so `.nullable()` is load-bearing.
-    funnelTemplateId: z.string().uuid().nullable().optional(),
   })
-  .refine((b) => b.enabled !== undefined || b.funnelTemplateId !== undefined, {
-    message: 'at least one of enabled or funnelTemplateId is required',
+  .refine((b) => b.enabled !== undefined, {
+    message: 'enabled is required',
   });
 export type BulkBody = z.infer<typeof BulkBodySchema>;
 
@@ -45,19 +44,6 @@ export async function bulkUpdateProducts(
 
   // Checked before anything is written so a stale basket can never leave the
   // products half-updated. Same 404 the single-product PATCH gives.
-  if (body.funnelTemplateId) {
-    const [basket] = await app.db
-      .select({ id: schema.shopifyFunnelTemplates.id })
-      .from(schema.shopifyFunnelTemplates)
-      .where(
-        and(
-          eq(schema.shopifyFunnelTemplates.id, body.funnelTemplateId),
-          eq(schema.shopifyFunnelTemplates.isActive, true),
-        ),
-      )
-      .limit(1);
-    if (!basket) throw new AppError('NOT_FOUND', 404, 'basket not found');
-  }
 
   let matched: SQL;
   if ('ids' in body.target) {
@@ -97,10 +83,6 @@ export async function bulkUpdateProducts(
 
     const patch: Partial<typeof t.$inferInsert> = {};
     if (body.enabled) patch.enabled = true;
-    if (body.funnelTemplateId !== undefined) {
-      patch.funnelTemplateId = body.funnelTemplateId;
-      patch.funnelAssignmentSource = body.funnelTemplateId === null ? null : 'manual';
-    }
 
     const rows = await tx.update(t).set(patch).where(eligible).returning({ id: t.id });
     return {

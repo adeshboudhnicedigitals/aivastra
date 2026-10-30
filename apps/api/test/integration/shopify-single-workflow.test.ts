@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
 
-describe('shopify try-on routes through basket resolution', () => {
+describe('shopify try-on uses one configured workflow', () => {
   let c: Containers;
   let app: TestApp;
 
@@ -13,10 +13,8 @@ describe('shopify try-on routes through basket resolution', () => {
   // in shopify-funnel-loader.test.ts. Stores and garments are per-test (see
   // seedStore/seedGarment below), following shopify-refusal-events.test.ts:70-100,
   // so job/credit assertions in one test never see rows created by another.
-  let defaultWorkflowId: string;
-  let sareeWorkflowId: string;
-  let upperWorkflowId: string;
-  let upperBasketId: string;
+  let workflowId: string;
+  let workflowVersion: number;
 
   let storeCounter = 0;
 
@@ -24,61 +22,23 @@ describe('shopify try-on routes through basket resolution', () => {
     c = await startContainers();
     app = await buildTestApp(c);
 
-    async function seedWorkflow(slug: string) {
-      const [wf] = await app.db
-        .insert(schema.workflowTemplates)
-        .values({
-          slug,
-          label: slug,
-          jsonContent: {},
-          poseNodeId: '2',
-          upperNodeIds: ['4'],
-          garmentPhasePromptNode: '6',
-          workflowType: 'tryon',
-          tryonPersonNodeId: '10',
-          tryonGarmentNodeId: '11',
-          tryonOutputNodeId: '12',
-        })
-        .returning();
-      return wf.id;
-    }
-
-    defaultWorkflowId = await seedWorkflow(`basket-routing-default-${Date.now()}`);
-    sareeWorkflowId = await seedWorkflow(`basket-routing-saree-${Date.now()}`);
-    upperWorkflowId = await seedWorkflow(`basket-routing-upper-${Date.now()}`);
-
-    await app.db.insert(schema.shopifyFunnelTemplates).values({
-      slug: `basket-routing-default-basket-${Date.now()}`,
-      label: 'Default',
-      workflowTemplateId: defaultWorkflowId,
-    });
-
-    const [sareeBasket] = await app.db
-      .insert(schema.shopifyFunnelTemplates)
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
       .values({
-        slug: `basket-routing-saree-basket-${Date.now()}`,
-        label: 'Saree',
-        workflowTemplateId: sareeWorkflowId,
+        slug: `single-workflow-${Date.now()}`,
+        label: 'Single workflow',
+        jsonContent: {},
+        poseNodeId: '2',
+        upperNodeIds: ['4'],
+        garmentPhasePromptNode: '6',
+        workflowType: 'tryon',
+        tryonPersonNodeId: '10',
+        tryonGarmentNodeId: '11',
+        tryonOutputNodeId: '12',
       })
       .returning();
-
-    const [upperBasket] = await app.db
-      .insert(schema.shopifyFunnelTemplates)
-      .values({
-        slug: `basket-routing-upper-basket-${Date.now()}`,
-        label: 'Upper',
-        workflowTemplateId: upperWorkflowId,
-      })
-      .returning();
-    upperBasketId = upperBasket.id;
-
-    // Global rule: any product tagged "saree" routes to the saree basket.
-    await app.db.insert(schema.shopifyFunnelRules).values({
-      storeId: null,
-      funnelTemplateId: sareeBasket.id,
-      conditions: [{ field: 'tags', operator: 'contains', value: 'saree' }],
-      priority: 10,
-    });
+    workflowId = workflow.id;
+    workflowVersion = workflow.version;
   });
 
   afterAll(async () => {
@@ -159,42 +119,49 @@ describe('shopify try-on routes through basket resolution', () => {
     return row.balance;
   }
 
-  it('runs the basket resolved by a global rule, not the default', async () => {
+  it('runs a product with no funnel data through the configured workflow', async () => {
     const store = await seedStore();
-    const sareeProductId = 5001;
-    // garment tagged "saree"; global rule tags contains "saree" -> saree basket
-    await seedGarment(store.id, sareeProductId, ['saree']);
+    await app.redis.set('config:system', JSON.stringify({ shopifyWorkflowTemplateId: workflowId }));
+    const productId = 5001;
+    await seedGarment(store.id, productId);
 
-    const res = await createTryon(store, { shopifyProductId: sareeProductId });
+    const res = await createTryon(store, { shopifyProductId: productId });
     expect(res.statusCode).toBe(201);
     const [inputs] = await app.db
       .select()
       .from(schema.jobInputs)
       .where(eq(schema.jobInputs.jobId, res.json().jobId));
-    expect((inputs.params as { workflowTemplateId?: string }).workflowTemplateId).toBe(
-      sareeWorkflowId,
-    );
-    expect((inputs.params as { workflowTemplateId?: string }).workflowTemplateId).not.toBe(
-      defaultWorkflowId,
+    expect((inputs.params as { workflowTemplateId?: string }).workflowTemplateId).toBe(workflowId);
+    expect((inputs.params as { dispatchTemplateVersion?: number }).dispatchTemplateVersion).toBe(
+      workflowVersion,
     );
   });
 
-  it('honours a manual pin over a matching rule', async () => {
+  it('pins the same workflow for products with different product metadata', async () => {
     const store = await seedStore();
-    const sareeProductId = 5001;
-    const garment = await seedGarment(store.id, sareeProductId, ['saree']);
+    await app.redis.set('config:system', JSON.stringify({ shopifyWorkflowTemplateId: workflowId }));
+    await seedGarment(store.id, 5001, ['saree']);
+    const second = await seedGarment(store.id, 5002, ['shirt']);
     await app.db
       .update(schema.shopifyProductGarments)
-      .set({ funnelTemplateId: upperBasketId, funnelAssignmentSource: 'manual' })
-      .where(eq(schema.shopifyProductGarments.id, garment.id));
+      .set({ productType: 'tops', vendor: 'other', collections: ['new'] })
+      .where(eq(schema.shopifyProductGarments.id, second.id));
 
-    const res = await createTryon(store, { shopifyProductId: sareeProductId });
-    const [inputs] = await app.db
+    const firstRes = await createTryon(store, { shopifyProductId: 5001 });
+    const secondRes = await createTryon(store, { shopifyProductId: 5002 });
+    const [firstInputs] = await app.db
       .select()
       .from(schema.jobInputs)
-      .where(eq(schema.jobInputs.jobId, res.json().jobId));
-    expect((inputs.params as { workflowTemplateId?: string }).workflowTemplateId).toBe(
-      upperWorkflowId,
+      .where(eq(schema.jobInputs.jobId, firstRes.json().jobId));
+    const [secondInputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, secondRes.json().jobId));
+    expect((firstInputs.params as { workflowTemplateId?: string }).workflowTemplateId).toBe(
+      workflowId,
+    );
+    expect((secondInputs.params as { workflowTemplateId?: string }).workflowTemplateId).toBe(
+      workflowId,
     );
   });
 
@@ -203,6 +170,7 @@ describe('shopify try-on routes through basket resolution', () => {
     const store = await seedStore();
     const untaggedProductId = 5003;
     await seedGarment(store.id, untaggedProductId);
+    await app.redis.del('config:system');
 
     const before = await storeBalance(store.id);
     const res = await createTryon(store, { shopifyProductId: untaggedProductId });
