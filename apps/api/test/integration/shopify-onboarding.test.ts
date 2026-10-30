@@ -346,13 +346,40 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
         headers: { authorization: `Bearer ${scopeDeniedToken}` },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ themeBlockConfirmed: false, themeEmbedConfirmed: false });
+      expect(res.json()).toEqual({
+        themeBlockConfirmed: false,
+        themeEmbedConfirmed: false,
+        reason: 'scope',
+      });
 
       const [row] = await app.db
         .select({ settings: schema.shopifyStores.settings })
         .from(schema.shopifyStores)
         .where(eq(schema.shopifyStores.id, scopeDeniedStoreId));
       expect(row.settings.themeEmbedConfirmed ?? false).toBe(false);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('reports reason "error", not "scope", when Shopify fails for another reason', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async (url: string) => {
+      if (String(url).includes('/graphql.json')) return new Response('boom', { status: 500 });
+      throw new Error(`unexpected fetch to ${url}`);
+    }) as typeof fetch;
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/shopify/onboarding/check-theme-embed',
+        headers: { authorization: `Bearer ${scopeDeniedToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        themeBlockConfirmed: false,
+        themeEmbedConfirmed: false,
+        reason: 'error',
+      });
     } finally {
       global.fetch = originalFetch;
     }
