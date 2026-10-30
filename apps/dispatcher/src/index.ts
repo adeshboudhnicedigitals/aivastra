@@ -26,6 +26,7 @@ import { runShopifyRetention } from './shopify/retention.js';
 import { drainAndRetire } from './shutdown.js';
 import { runConsumer } from './stream/consumer.js';
 import { runInhouseConsumer } from './stream/inhouse-consumer.js';
+import { restoreLaneOccupancy } from './stream/lane-tickets.js';
 import { startRecoveryScheduler } from './stream/recovery.js';
 import { runSweeper } from './stream/sweeper.js';
 import { runVideoConsumer } from './stream/video-consumer.js';
@@ -166,6 +167,8 @@ async function main(): Promise<void> {
       await rebuildWorkerRegistry({ db, redis, log, workers: await loadWorkers() });
     },
   );
+  // Before any lane reads: entries a previous dispatcher left pending still occupy workers.
+  await restoreLaneOccupancy(redis, log, env.LANE_RESTORE_MAX);
   const stopConsumer = await runConsumer(redis, processorCfg, log);
   // Separate lane: PixVerse video jobs need no GPU worker, so they must not be
   // gated by the GPU consumer's registry-derived in-flight cap.

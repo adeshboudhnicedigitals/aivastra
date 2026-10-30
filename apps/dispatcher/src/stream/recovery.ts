@@ -5,6 +5,7 @@ import { eq, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import type { ProcessorConfig } from '../job/processor.js';
 import { processJob } from '../job/processor.js';
+import { pruneLaneOccupancy, takeTicket } from './lane-tickets.js';
 
 const GROUP = 'dispatcher-cg';
 const CONSUMER = hostname();
@@ -77,6 +78,7 @@ export function startRecoveryScheduler(
     if (scanning) return;
     scanning = true;
     try {
+      await pruneLaneOccupancy(redis, log);
       await recoverPendingJobs(redis, cfg, thresholdMs, log, DEFAULT_STREAMS, { background: true });
     } catch (err) {
       log.error({ err }, 'recovery scan failed');
@@ -149,6 +151,9 @@ export async function recoverPendingJobs(
         }
         log.info({ jobId: fieldMap.jobId }, 'reprocessing claimed pending job');
         const retryCount = Number.parseInt(fieldMap.retryCount ?? '0', 10);
+        // Taken before the first await on the job, so the lane counts it from here on and
+        // whatever the cap is: this is observation of work that already occupies a worker.
+        const release = takeTicket(stream, messageId);
         const run = processJob(
           cfg,
           fieldMap.jobId,
@@ -156,7 +161,7 @@ export async function recoverPendingJobs(
           stream,
           messageId,
           Number.isFinite(retryCount) ? retryCount : 0,
-        );
+        ).finally(release);
         if (!opts.background) {
           await run;
           continue;
