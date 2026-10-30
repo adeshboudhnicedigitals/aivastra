@@ -186,7 +186,7 @@ async function main(): Promise<void> {
 
   const sweeperInterval = setInterval(
     () => {
-      void runSweeper(db, redis, pub, log);
+      void runSweeper(db, redis, pub, log, undefined, processorCfg);
     },
     5 * 60 * 1000,
   );
