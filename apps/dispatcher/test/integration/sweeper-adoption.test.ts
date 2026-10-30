@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { runSweeper } from '../../src/stream/sweeper.js';
+import { runSweeper, sweeperIdle } from '../../src/stream/sweeper.js';
 import { adoptionFixture } from '../helpers/adoption-fixture.js';
 
 // The stuck-job sweeper hands an expired paid-Comfy job to the same adoption path recovery
@@ -16,7 +16,12 @@ describe('sweeper routes expired paid jobs through adoption', () => {
   beforeEach(() => f.reset());
   afterAll(() => f.close());
 
-  const sweep = () => runSweeper(f.env.db, f.redis, f.redis, f.log, randomUUID(), f.processorCfg());
+  const tick = () => runSweeper(f.env.db, f.redis, f.redis, f.log, randomUUID(), f.processorCfg());
+  /** One tick, then the adoptions it started (they run in the background). */
+  const sweep = async () => {
+    await tick();
+    await sweeperIdle();
+  };
 
   /** Past the 15 minute SLA, with the dead owner's lease expired. */
   async function expire(jobId: string) {
@@ -52,13 +57,13 @@ describe('sweeper routes expired paid jobs through adoption', () => {
     await expire(o.seeded.job.id);
 
     const before = (await f.jobRow(o.seeded.job.id)).status;
-    const swept = sweep();
+    await tick();
     await new Promise((r) => setTimeout(r, 1500));
     expect(await f.jobRow(o.seeded.job.id)).toMatchObject({ status: before, attempts: 0 });
     expect(await f.balance(o.seeded.user.id)).toBe(4);
 
     f.comfy.finishPrompt(o.promptId);
-    await swept;
+    await sweeperIdle();
     expect(await f.jobRow(o.seeded.job.id)).toMatchObject({ status: 'COMPLETED' });
     expect(await f.outputs(o.seeded.job.id)).toHaveLength(1);
     expect(await f.balance(o.seeded.user.id)).toBe(4);
@@ -114,6 +119,45 @@ describe('sweeper routes expired paid jobs through adoption', () => {
     expect(await f.outputs(o.seeded.job.id)).toEqual([]);
     expect(await f.balance(o.seeded.user.id)).toBe(5);
   }, 60_000);
+
+  it('a running prompt does not block the tick: another stuck job is handled in the same tick, and a second tick skips the first', async () => {
+    f.comfy.setOptions({ completionDelayMs: 600_000 });
+    const slow = await f.crashedOwner({ withReceipt: true });
+    const slowPrompt = slow.promptId;
+    await expire(slow.seeded.job.id);
+    // A second stuck job whose prompt already finished, on a worker with a hold of its own.
+    await f.reset();
+    f.comfy.setOptions({ completionDelayMs: 600_000 });
+    const quick = await f.crashedOwner({ withReceipt: true });
+    f.comfy.finishPrompt(quick.promptId);
+    await expire(quick.seeded.job.id);
+
+    const startedAt = Date.now();
+    await tick();
+    // The tick returned although the first adoption is still waiting on its prompt.
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    for (let i = 0; i < 100; i++) {
+      if ((await f.jobRow(quick.seeded.job.id)).status === 'COMPLETED') break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect((await f.jobRow(quick.seeded.job.id)).status).toBe('COMPLETED');
+    const slowRow = await f.jobRow(slow.seeded.job.id);
+    expect(['PREPROCESSING', 'GENERATING']).toContain(slowRow.status);
+
+    // The adopted job holds a live lease: another tick leaves it alone (no second takeover).
+    const before = await f.env.db.execute(
+      sql`select generation::int g from dispatcher_job_control where job_id = ${slow.seeded.job.id}`,
+    );
+    await tick();
+    const after = await f.env.db.execute(
+      sql`select generation::int g from dispatcher_job_control where job_id = ${slow.seeded.job.id}`,
+    );
+    expect(after[0]?.g).toBe(before[0]?.g);
+
+    f.comfy.finishPrompt(slowPrompt);
+    await sweeperIdle();
+    expect((await f.jobRow(slow.seeded.job.id)).status).toBe('COMPLETED');
+  }, 90_000);
 
   it('a job with no attempt record keeps the age rule', async () => {
     const seeded = await (await import('../helpers/paid-jobs.js')).seedPaidJob(f.env, 'regular');
