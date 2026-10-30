@@ -10,6 +10,7 @@ import {
 import { eq, sql } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { findPromptById } from '../../src/comfyui/reconcile.js';
 import { REGISTRY_KEY, RESERVATIONS_KEY } from '../../src/worker/registry.js';
 import {
   rebuildWorkerRegistry,
@@ -374,10 +375,10 @@ describe('worker reservation: lost-receipt discovery', () => {
     await expectNoBusinessEffect(owner);
   });
 
-  // A worker that was away and comes back has more than a page of newer history: the held
-  // prompt is pushed out of it. The queue read is complete and does not list it, so it is not
-  // executing; only its result is unknown.
-  it('full-history-known-prompt: a full history page does not keep a worker reserved for a held prompt', async () => {
+  // A worker that was away and comes back has more than a page of newer history. The held
+  // prompt is looked up by id, so the page size is irrelevant: the worker has no record of it
+  // and the queue does not list it, so it is not executing; its result is unknown.
+  it('unknown-prompt-id: a worker with a long history and no record of the held prompt is released', async () => {
     const owner = await loseReceipt();
     comfy.forgetPrompt(owner.promptId);
     await expireLease(owner.seeded.job.id);
@@ -395,8 +396,28 @@ describe('worker reservation: lost-receipt discovery', () => {
     // The result stays unknown: nothing is claimed about how the prompt ended.
     expect(attempt.state).toBe('ACCEPTED');
     const [resolved] = await events(owner.seeded.job.id, 'COMFY_RESERVATION_RESOLVED');
-    expect(resolved?.payload).toMatchObject({ rule: 'known_prompt_absent', truncated: true });
+    expect(resolved?.payload).toMatchObject({ rule: 'known_prompt_absent' });
     await expectNoBusinessEffect(owner);
+  });
+
+  it('prompt-id-lookup: a held prompt is found by id even when a full page of newer history hides it', async () => {
+    const owner = await loseReceipt();
+    comfy.finishPrompt(owner.promptId, 'success');
+    await expireLease(owner.seeded.job.id);
+    await env.db
+      .update(schema.executionAttempts)
+      .set({ state: 'ACCEPTED', promptId: owner.promptId })
+      .where(eq(schema.executionAttempts.id, owner.attemptId));
+    // 600 newer foreign entries push it out of any 500-entry page.
+    comfy.setOptions({ historyPadding: 600 });
+    const worker = { url: comfy.url, apiKey: 'fixture' };
+    expect(await findPromptById(worker, owner.promptId)).toEqual({
+      kind: 'found',
+      promptId: owner.promptId,
+      observation: 'succeeded',
+    });
+    // The worker answers {} for an id it never saw or has evicted.
+    expect(await findPromptById(worker, 'never-seen-prompt-id')).toEqual({ kind: 'not_found' });
   });
 
   it('full-history-receiptless: a miss on a full page by client id stays unavailable', async () => {

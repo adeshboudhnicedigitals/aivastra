@@ -408,15 +408,7 @@ export async function reconcileReservation(
 
   // not_found with a known prompt: it is in neither the queue nor the history, so it cannot
   // still be executing.
-  if (promptId)
-    return releaseExact(
-      cfg,
-      workerId,
-      token,
-      attempt,
-      'known_prompt_absent',
-      observed.truncated ? { truncated: true } : {},
-    );
+  if (promptId) return releaseExact(cfg, workerId, token, attempt, 'known_prompt_absent');
   // not_found without a receipt: only a fresh complete queue/history check made after the
   // persisted deadline frees the worker. Earlier clean checks never do.
   if (await deadlinePassed(cfg.db, attempt.id))
@@ -477,13 +469,7 @@ async function resolveSupersededAttempts(
             if (observed.observation === 'queued' || observed.observation === 'running') return;
             await markResolved(cfg.db, attempt, attempt.workerId, `prompt_${observed.observation}`);
           } else {
-            await markResolved(
-              cfg.db,
-              attempt,
-              attempt.workerId,
-              'known_prompt_absent',
-              observed.truncated ? { truncated: true } : {},
-            );
+            await markResolved(cfg.db, attempt, attempt.workerId, 'known_prompt_absent');
           }
         } catch (err) {
           cfg.log.warn({ err, attemptId: attempt.id }, 'could not resolve superseded attempt');

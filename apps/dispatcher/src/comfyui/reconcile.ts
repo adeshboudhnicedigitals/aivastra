@@ -11,9 +11,12 @@
  *    status: { status_str: 'success' | 'error', completed: boolean, messages: [...] } } }
  *    The client id is `prompt[3].client_id`.
  *
+ *  - GET /history/{prompt_id} -> { [prompt_id]: <same entry> } or {} when the worker has no
+ *    record of it. Used when the prompt id is already held: one small read instead of a page.
+ *
  * Anything that does not parse into exactly that is "unavailable", never "absent": absence is
- * only claimed from a fully parsed queue followed by a fully parsed history, untruncated unless
- * the prompt id is already known. A history entry with no verdict is skipped, not fatal.
+ * only claimed from a fully parsed queue followed by a fully parsed history (a full page by
+ * client id is never absence). A history entry with no verdict is skipped, not fatal.
  */
 
 /** The slice of a pino logger this module needs; skipped history entries are counted there. */
@@ -31,12 +34,6 @@ export interface FoundReceipt {
 /** No entry matched, after a complete queue read and a complete history read made after it. */
 export interface NotFound {
   kind: 'not_found';
-  /**
-   * Set when the answer came from a full history page. Only a prompt-id search may answer that
-   * way: the id is already held, so a queue that does not list it proves it stopped running,
-   * and only its result (not that it ended) is unknown.
-   */
-  truncated?: boolean;
 }
 /** A read failed, was malformed or truncated, or matched ambiguously. Never evidence of absence. */
 export interface Unavailable {
@@ -54,6 +51,9 @@ export interface ReconcileWorker {
 // it is not absence. ComfyUI honours `max_items` and returns the newest entries.
 export const HISTORY_PAGE_LIMIT = 500;
 const READ_TIMEOUT_MS = 10_000;
+// The full history page (500 entries with their workflows) is megabytes on a busy worker and
+// regularly outruns the 10 s cap that suits the small reads.
+const HISTORY_PAGE_TIMEOUT_MS = 30_000;
 
 type QueueEntry = { promptId: string; clientId: string | null };
 type HistoryEntry = QueueEntry & { observation: 'succeeded' | 'failed' };
@@ -77,11 +77,13 @@ async function readJson(
   worker: ReconcileWorker,
   path: string,
   deadline: Date | undefined,
+  capMs = READ_TIMEOUT_MS,
 ): Promise<unknown> {
-  // Never wait past the persisted deadline's own tick: a 10 s read is the cap, shorter when the
-  // caller is already late so one slow worker cannot stall the whole batch.
-  const remaining = deadline ? deadline.getTime() - Date.now() : READ_TIMEOUT_MS;
-  const timeoutMs = Math.min(READ_TIMEOUT_MS, Math.max(2_000, remaining));
+  // Never wait past the persisted deadline's own tick: the cap (10 s for the small reads) is
+  // the ceiling, shorter when the caller is already late so one slow worker cannot stall the
+  // whole batch.
+  const remaining = deadline ? deadline.getTime() - Date.now() : capMs;
+  const timeoutMs = Math.min(capMs, Math.max(2_000, remaining));
   const res = await fetch(`${worker.url.replace(/\/$/, '')}${path}`, {
     headers: { 'X-Api-Key': worker.apiKey },
     signal: AbortSignal.timeout(timeoutMs),
@@ -103,12 +105,21 @@ async function readQueue(
   };
 }
 
+function verdictOf(entry: Record<string, unknown>): unknown {
+  return isRecord(entry.status) ? entry.status.status_str : undefined;
+}
+
 async function readHistory(
   worker: ReconcileWorker,
   deadline: Date | undefined,
   log?: SkipLog,
-): Promise<{ entries: HistoryEntry[]; skipped: SkippedEntry[]; truncated: boolean }> {
-  const body = await readJson(worker, `/history?max_items=${HISTORY_PAGE_LIMIT}`, deadline);
+): Promise<{ entries: HistoryEntry[]; skipped: SkippedEntry[] }> {
+  const body = await readJson(
+    worker,
+    `/history?max_items=${HISTORY_PAGE_LIMIT}`,
+    deadline,
+    HISTORY_PAGE_TIMEOUT_MS,
+  );
   if (!isRecord(body)) throw new Unparseable('history object');
   const entries: HistoryEntry[] = [];
   const skipped: SkippedEntry[] = [];
@@ -116,7 +127,7 @@ async function readHistory(
     if (!isRecord(value)) throw new Unparseable('history entry');
     const base = parseEntry(value.prompt);
     if (base.promptId !== key) throw new Unparseable('history key mismatch');
-    const status = isRecord(value.status) ? value.status.status_str : undefined;
+    const status = verdictOf(value);
     // A history row exists only once the prompt ran to an end. One without an explicit verdict
     // is never classified as success or failure, but it must not make every other prompt on
     // the worker unreadable: it is skipped and counted, and only blocks a search for itself.
@@ -131,11 +142,7 @@ async function readHistory(
       { stage: 'reservation_reconcile', skippedHistoryEntries: skipped.length },
       'history entries without a success/error verdict were skipped',
     );
-  return {
-    entries,
-    skipped,
-    truncated: entries.length + skipped.length >= HISTORY_PAGE_LIMIT,
-  };
+  return { entries, skipped };
 }
 
 function failure(err: unknown): Unavailable {
@@ -178,7 +185,10 @@ export async function findPromptByClientId(
       };
     if (done[0])
       return { kind: 'found', promptId: done[0].promptId, observation: done[0].observation };
-    if (history.truncated) return { kind: 'unavailable', reason: 'history page may be truncated' };
+    // A page of exactly the limit may have been cut off by the worker; a miss in it is not
+    // absence.
+    if (history.entries.length + history.skipped.length >= HISTORY_PAGE_LIMIT)
+      return { kind: 'unavailable', reason: 'history page may be truncated' };
     return { kind: 'not_found' };
   } catch (err) {
     return failure(err);
@@ -187,8 +197,8 @@ export async function findPromptByClientId(
 
 /**
  * The same observation for a prompt id we already hold. `not_found` here means the prompt is not
- * in the queue and not in the history page, i.e. it cannot still be executing (`truncated` says
- * the page was full, so only its result is unknown).
+ * in the queue and the worker has no history record of it, i.e. it cannot still be executing.
+ * The history read is by id, so a worker with a long history cannot push the entry out of view.
  */
 export async function findPromptById(
   worker: ReconcileWorker,
@@ -202,14 +212,22 @@ export async function findPromptById(
       return { kind: 'found', promptId, observation: 'running' };
     if (queue.pending.some((e) => e.promptId === promptId))
       return { kind: 'found', promptId, observation: 'queued' };
-    const history = await readHistory(worker, deadline, log);
-    if (history.skipped.some((e) => e.promptId === promptId))
+    // Read after the queue, same ordering argument as findPromptByClientId.
+    const body = await readJson(worker, `/history/${encodeURIComponent(promptId)}`, deadline);
+    if (!isRecord(body)) throw new Unparseable('history object');
+    const keys = Object.keys(body);
+    if (keys.length === 0) return { kind: 'not_found' };
+    const entry = body[promptId];
+    if (keys.length !== 1 || !isRecord(entry)) throw new Unparseable('history key mismatch');
+    const status = verdictOf(entry);
+    if (status !== 'success' && status !== 'error') {
+      log?.warn(
+        { stage: 'reservation_reconcile', promptId },
+        'history entry without a success/error verdict',
+      );
       return { kind: 'unavailable', reason: 'history entry for this prompt has no verdict' };
-    const done = history.entries.find((e) => e.promptId === promptId);
-    if (done) return { kind: 'found', promptId, observation: done.observation };
-    // The queue was read completely and does not list the prompt, so it is not executing; a
-    // full history page only means its result may have been pushed out of the page.
-    return history.truncated ? { kind: 'not_found', truncated: true } : { kind: 'not_found' };
+    }
+    return { kind: 'found', promptId, observation: status === 'success' ? 'succeeded' : 'failed' };
   } catch (err) {
     return failure(err);
   }

@@ -261,7 +261,9 @@ export function startComfyMock(): Promise<ComfyMock> {
       if (req.method === 'GET' && url.pathname.startsWith('/history/')) {
         const promptId = url.pathname.split('/').pop() ?? '';
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(histories[promptId] ? { [promptId]: histories[promptId] } : {}));
+        // {} for an id the worker never saw or has evicted, as ComfyUI answers.
+        const entry = histories[promptId] ?? opts.historyExtra?.[promptId];
+        res.end(JSON.stringify(entry ? { [promptId]: entry } : {}));
         return;
       }
 
