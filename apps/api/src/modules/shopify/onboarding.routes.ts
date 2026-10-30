@@ -1,4 +1,10 @@
 import { schema } from '@aivastra/db';
+import {
+  PHONE_CHARS_RE,
+  PHONE_MAX_LENGTH,
+  PHONE_MIN_DIGITS,
+  phoneDigitCount,
+} from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -8,20 +14,22 @@ import { shopifyGraphQL } from './service.js';
 import { mergeStoreSettingsObject, storeSettingsJson } from './settings-json.js';
 import { getValidAccessToken } from './token.js';
 
-// Onboarding's contact step. Name and email are required; phone is optional and
-// a blank one is stored as null so "no phone" has one shape. Digits and the usual
-// separators only — this is a number to ring in an emergency, not free text.
+// Onboarding's contact step. Name, email and phone are all required. The phone is
+// a number to ring in an emergency, not free text, so it is digits and the usual
+// separators with at least PHONE_MIN_DIGITS digits (the same rule the page
+// applies, so a value the form lets through is not bounced here).
 const SaveContactBody = z.object({
   name: z.string().trim().min(1).max(120),
   email: z.string().trim().email().max(254),
   phone: z
     .string()
     .trim()
-    .max(30)
-    .regex(/^[0-9+()\-.\s]*$/, 'phone number may only contain digits and + ( ) - .')
-    .transform((v) => (v === '' ? null : v))
-    .nullable()
-    .optional(),
+    .min(1, 'phone number is required')
+    .max(PHONE_MAX_LENGTH)
+    .regex(PHONE_CHARS_RE, 'phone number may only contain digits and + ( ) - .')
+    .refine((v) => phoneDigitCount(v) >= PHONE_MIN_DIGITS, {
+      message: `phone number needs at least ${PHONE_MIN_DIGITS} digits`,
+    }),
 });
 
 /**
@@ -273,7 +281,7 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
         .set({
           shopOwnerName: name,
           shopEmail: email,
-          shopPhone: phone ?? null,
+          shopPhone: phone,
           updatedAt: new Date(),
         })
         .where(eq(schema.shopifyStores.id, store.id))

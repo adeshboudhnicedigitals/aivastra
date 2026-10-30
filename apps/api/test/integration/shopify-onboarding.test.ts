@@ -502,21 +502,32 @@ describe('POST /v1/shopify/onboarding/contact', () => {
     });
   });
 
-  it('stores a blank or missing phone as null, replacing an earlier one', async () => {
-    await post({ name: 'Asha', email: 'asha@example.com', phone: '12345' });
-    expect((await post({ name: 'Asha', email: 'asha@example.com', phone: '  ' })).statusCode).toBe(
-      200,
-    );
-    expect((await storeRow()).shopPhone).toBeNull();
-    await post({ name: 'Asha', email: 'asha@example.com', phone: '12345' });
-    expect((await post({ name: 'Asha', email: 'asha@example.com' })).statusCode).toBe(200);
-    expect((await storeRow()).shopPhone).toBeNull();
+  it('requires a phone: missing, blank, short or letter-only values are rejected and nothing is overwritten', async () => {
+    await post({ name: 'Asha', email: 'asha@example.com', phone: '555 0100' });
+
+    for (const phone of [undefined, '', '   ', '123456', '+()- .', 'call me']) {
+      const payload: Record<string, unknown> = { name: 'Asha', email: 'asha@example.com' };
+      if (phone !== undefined) payload.phone = phone;
+      expect((await post(payload)).statusCode, `phone=${JSON.stringify(phone)}`).toBe(400);
+    }
+    // The rejected attempts left the earlier valid number alone.
+    expect((await storeRow()).shopPhone).toBe('555 0100');
+  });
+
+  it('stores the phone trimmed', async () => {
+    const res = await post({ name: 'Asha', email: 'asha@example.com', phone: '  98765 43210  ' });
+    expect(res.statusCode).toBe(200);
+    expect((await storeRow()).shopPhone).toBe('98765 43210');
   });
 
   it('requires a name and a valid email, and rejects letters in the phone', async () => {
-    expect((await post({ name: '   ', email: 'asha@example.com' })).statusCode).toBe(400);
-    expect((await post({ email: 'asha@example.com' })).statusCode).toBe(400);
-    expect((await post({ name: 'Asha', email: 'not-an-email' })).statusCode).toBe(400);
+    expect(
+      (await post({ name: '   ', email: 'asha@example.com', phone: '555 0100' })).statusCode,
+    ).toBe(400);
+    expect((await post({ email: 'asha@example.com', phone: '555 0100' })).statusCode).toBe(400);
+    expect(
+      (await post({ name: 'Asha', email: 'not-an-email', phone: '555 0100' })).statusCode,
+    ).toBe(400);
     expect(
       (await post({ name: 'Asha', email: 'asha@example.com', phone: 'call me' })).statusCode,
     ).toBe(400);
@@ -580,7 +591,7 @@ describe('POST /v1/shopify/onboarding/welcome-credits', () => {
       method: 'POST',
       url: '/v1/shopify/onboarding/contact',
       headers: { authorization: `Bearer ${bonusToken}` },
-      payload: { name: 'Asha', email: 'asha@example.com' },
+      payload: { name: 'Asha', email: 'asha@example.com', phone: '555 0100' },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).not.toHaveProperty('creditsGranted');
