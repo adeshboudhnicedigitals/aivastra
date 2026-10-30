@@ -8,6 +8,7 @@ export interface ShopperIdentityInput {
   clientId: string;
   shopifyCustomerId?: number | null;
   email?: string | null;
+  phone?: string | null;
 }
 
 export type CountingIdentity =
@@ -19,6 +20,13 @@ export type CountingIdentity =
  *  two counting buckets. Returns null for blank/absent input. */
 export function normalizeEmail(email?: string | null): string | null {
   const trimmed = email?.trim().toLowerCase();
+  return trimmed ? trimmed : null;
+}
+
+/** Trimmed phone, or null for blank/absent. Format is validated at the request
+ * boundary (ShopifyCustomerJobRequest); this only normalises. */
+export function normalizePhone(phone?: string | null): string | null {
+  const trimmed = phone?.trim();
   return trimmed ? trimmed : null;
 }
 
@@ -62,6 +70,7 @@ export async function resolveShopper(
   input: ShopperIdentityInput,
 ): Promise<ShopperRow> {
   const email = normalizeEmail(input.email);
+  const phone = normalizePhone(input.phone);
   const now = new Date();
 
   const patch: Record<string, unknown> = { lastSeenAt: now };
@@ -69,6 +78,10 @@ export async function resolveShopper(
   if (email) {
     patch.email = email;
     patch.emailCapturedAt = now;
+  }
+  if (phone) {
+    patch.phone = phone;
+    patch.phoneCapturedAt = now;
   }
 
   const [row] = await app.db
@@ -79,6 +92,8 @@ export async function resolveShopper(
       shopifyCustomerId: input.shopifyCustomerId ?? null,
       email,
       emailCapturedAt: email ? now : null,
+      phone,
+      phoneCapturedAt: phone ? now : null,
     })
     .onConflictDoUpdate({
       target: [schema.shopifyShoppers.storeId, schema.shopifyShoppers.clientId],

@@ -421,6 +421,11 @@ export const shopifyShoppers = pgTable(
     // per-shopper cap), but only consented rows are marketable.
     emailConsent: boolean('email_consent').notNull().default(false),
     emailCapturedAt: timestamp('email_captured_at', { withTimezone: true }),
+    // Contact phone, shopper-asserted (like email). Collected for login-required
+    // stores. Never part of the counting identity: the limit identity stays
+    // customer id > email > client id.
+    phone: text('phone'),
+    phoneCapturedAt: timestamp('phone_captured_at', { withTimezone: true }),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
     // Set when a GDPR customers_redact names this shopper, and only ever
