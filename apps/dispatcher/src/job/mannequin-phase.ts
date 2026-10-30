@@ -16,11 +16,14 @@ import { performanceKey as getPerformanceKey } from '../perf/performance-key.js'
 import { releaseReservation, reserveWorker } from '../worker/reserve.js';
 import { selectWorker } from '../worker/selector.js';
 import type { OwnerToken } from './ownership.js';
+import { beginProcessing } from './start.js';
 import { submitRecordedPhase } from './submission.js';
 
 export interface MannequinPhaseConfig {
   db: DB;
   redis: Redis;
+  /** SSE publisher for the PREPROCESSING status change made when the first worker is reserved. */
+  pub: Redis;
   comfyRedis: Redis;
   comfyPollIntervalMs?: number;
   storage: StorageProvider;
@@ -105,6 +108,8 @@ export async function runMannequinPhase(
     log: jobLog,
     select: (token) =>
       selectWorker(redis, WORKER_POOL.SAREE, performanceKey, { jobId, log: jobLog, token }),
+    // The job leaves QUEUED when this first worker is reserved, not when it was admitted.
+    onBound: owner ? () => beginProcessing({ db, pub: cfg.pub, owner, log: jobLog }) : undefined,
   });
   if (!reservation) return { status: 'no_worker' };
   const w = reservation.worker;

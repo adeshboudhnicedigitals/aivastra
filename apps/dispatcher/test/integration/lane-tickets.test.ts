@@ -31,7 +31,9 @@ describe('lane tickets', () => {
   const run = randomUUID();
   const prefix = `lane-tickets:${run}:`;
   let redis: Redis;
-  const cfg = {} as ProcessorConfig;
+  // Recovery asks the database whether a live lease covers an entry; none of these jobs exist.
+  const noRows = { select: () => ({ from: () => ({ where: async () => [] }) }) };
+  const cfg = { db: noRows } as unknown as ProcessorConfig;
 
   beforeAll(async () => {
     redis = new Redis('redis://127.0.0.1:6379', { keyPrefix: prefix });

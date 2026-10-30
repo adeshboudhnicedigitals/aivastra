@@ -58,6 +58,34 @@ async function eligibleNow(
   return row?.free === true;
 }
 
+/**
+ * Whether a live, unretired lease covers the entry's job. A job parked for a worker (or running
+ * for longer than the idle threshold) keeps its message pending under this consumer; claiming it
+ * would move the message to another consumer name, break the handoff's "pending under this
+ * consumer" test, raise its delivery count and repeat every threshold for as long as it waits.
+ * Checked before any claim, whatever else made the entry eligible.
+ */
+async function leaseIsLive(
+  redis: Redis,
+  cfg: ProcessorConfig,
+  stream: string,
+  messageId: string,
+): Promise<boolean> {
+  const [entry] = (await redis.xrange(stream, messageId, messageId)) as Array<[string, string[]]>;
+  const fields = entry?.[1] ?? [];
+  const at = fields.indexOf('jobId');
+  const jobId = at < 0 ? undefined : fields[at + 1];
+  if (!jobId) return false;
+  const [row] = await cfg.db
+    .select({
+      live: sql<boolean>`(not ${schema.dispatcherJobControl.ownerRetired}
+        and ${schema.dispatcherJobControl.leaseUntil} > clock_timestamp())`,
+    })
+    .from(schema.dispatcherJobControl)
+    .where(eq(schema.dispatcherJobControl.jobId, jobId));
+  return row?.live === true;
+}
+
 const BACKGROUND_CAP = 2;
 const background = new Set<Promise<void>>();
 let scanning = false;
@@ -118,6 +146,7 @@ export async function recoverPendingJobs(
         const early =
           idleMs < thresholdMs && (await eligibleNow(redis, cfg, stream, messageId, consumer));
         if (idleMs < thresholdMs && !early) continue;
+        if (await leaseIsLive(redis, cfg, stream, messageId)) continue;
         log.warn({ stream, messageId, idleMs, early }, 'claiming pending entry');
         const claimed = (await redis.xclaim(
           stream,

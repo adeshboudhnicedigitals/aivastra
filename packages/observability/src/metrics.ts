@@ -361,6 +361,19 @@ export const dispatcherProgressPollFailures = new Counter({
   labelNames: ['workerId', 'kind'] as const,
   registers: [register],
 });
+export const dispatcherParkedJobs = new Gauge({
+  name: 'dispatcher_parked_jobs',
+  help: 'Jobs parked waiting for a worker of their pool (they hold no lane slot)',
+  labelNames: ['pool'] as const,
+  registers: [register],
+});
+export const dispatcherWorkerReleaseToPostSeconds = new Histogram({
+  name: 'dispatcher_worker_release_to_post_seconds',
+  help: 'Time from a worker being released to the next job POSTing a prompt to it, per pool',
+  labelNames: ['pool'] as const,
+  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
+  registers: [register],
+});
 export const comfyLegacyFallback = new Counter({
   name: 'comfy_legacy_fallback_total',
   help: 'Submission based timeout mode entries',

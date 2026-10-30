@@ -1,10 +1,10 @@
 import { createDb } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
 import { Redis } from 'ioredis';
-import { acquireComfyJob } from '../../src/job/ownership.js';
 import { submitRecordedPhase } from '../../src/job/submission.js';
 import { reserveWorker } from '../../src/worker/reserve.js';
 import { selectWorker } from '../../src/worker/selector.js';
+import { acquireAndStart } from './acquire.js';
 
 // A real dispatcher-side process that owns a job, reserves a worker and sends the one POST
 // against the parent's fake worker. The fake is told to accept the prompt and never answer,
@@ -20,7 +20,7 @@ const redis = new Redis(need('RES_TEST_REDIS_URL'), { keyPrefix: need('RES_TEST_
 const log = createLogger('reservation-child');
 const jobId = need('RES_TEST_JOB_ID');
 
-const acquired = await acquireComfyJob(db, jobId, need('RES_TEST_SESSION'), log);
+const acquired = await acquireAndStart(db, redis, jobId, need('RES_TEST_SESSION'), log);
 if (acquired.kind !== 'Acquired') throw new Error(`could not acquire: ${acquired.kind}`);
 const reservation = await reserveWorker({
   db,

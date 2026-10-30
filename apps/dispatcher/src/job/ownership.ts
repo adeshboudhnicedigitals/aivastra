@@ -89,7 +89,6 @@ async function acquireInTransaction(
   jobId: string,
   session: string,
   takeover: boolean,
-  eventPayload: Record<string, unknown> = {},
 ): Promise<Acquisition> {
   const [job] = await tx
     .select({ status: schema.jobs.status })
@@ -114,12 +113,9 @@ async function acquireInTransaction(
   }
 
   const generation = await bumpGeneration(tx, jobId, session);
-  if (!takeover) {
-    await tx.update(schema.jobs).set({ status: 'PREPROCESSING' }).where(eq(schema.jobs.id, jobId));
-    await tx
-      .insert(schema.jobEvents)
-      .values({ jobId, eventType: 'PREPROCESSING', payload: eventPayload });
-  }
+  // The job stays QUEUED while it owns the lease: a job that finds no worker would otherwise
+  // report PREPROCESSING once per retry. The QUEUED to PREPROCESSING change, its event and its
+  // SSE happen when a worker is actually reserved (job/start.ts).
   return { kind: 'Acquired', owner: { jobId, session, generation } };
 }
 
@@ -128,13 +124,9 @@ export async function acquireComfyJob(
   jobId: string,
   session: string,
   log: Logger,
-  /** PREPROCESSING event payload; Shopify jobs carry `{ shopifyStoreId }` as before. */
-  eventPayload: Record<string, unknown> = {},
 ): Promise<Acquisition> {
   const startedAt = performance.now();
-  const result = await db.transaction((tx) =>
-    acquireInTransaction(tx, jobId, session, false, eventPayload),
-  );
+  const result = await db.transaction((tx) => acquireInTransaction(tx, jobId, session, false));
   const outcome = {
     Acquired: 'acquired',
     LiveOwner: 'live_owner',
@@ -155,6 +147,32 @@ export async function acquireComfyJob(
   else if (result.kind === 'LiveOwner') countEvent('live_owner');
   else if (result.kind === 'Recoverable') countEvent('recoverable');
   return result;
+}
+
+/**
+ * A parked job's own re-entry: no new generation, no status change. The caller's token must
+ * still hold the live, unretired lease (a job nobody else can have taken, since a live lease
+ * refuses every other acquisition); a terminal job is reported so the caller ACKs it.
+ */
+export async function resumeComfyJob(db: DB, owner: OwnerToken): Promise<Acquisition> {
+  return db.transaction(async (tx) => {
+    const [job] = await tx
+      .select({ status: schema.jobs.status })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, owner.jobId))
+      .for('update');
+    if (!job) return { kind: 'Terminal', status: 'MISSING' } as const;
+    if (TERMINAL.includes(job.status)) return { kind: 'Terminal', status: job.status } as const;
+    const control = await lockControl(tx, owner.jobId);
+    if (
+      !control ||
+      control.ownerSession !== owner.session ||
+      control.generation !== owner.generation ||
+      !control.live
+    )
+      return { kind: 'LiveOwner' } as const;
+    return { kind: 'Acquired', owner } as const;
+  });
 }
 
 /** Fresh generation for a job found in flight with no live owner (legacy recovery). */
@@ -309,9 +327,23 @@ export async function assertStorageWriteLease(
   throw new OwnershipLostError(owner.jobId, site, owner);
 }
 
+// Jobs parked waiting for a worker (stream/parked.ts) keep their lease renewed like any owned
+// job, but they have no write or PUT in progress, so the shutdown drain does not wait on them:
+// retiring their ownership hands them back.
+const parkedKeys = new Set<string>();
+const parkedKey = (owner: OwnerToken) => `${owner.jobId}:${owner.generation}`;
+export function markParked(owner: OwnerToken): void {
+  parkedKeys.add(parkedKey(owner));
+}
+export function unmarkParked(owner: OwnerToken): void {
+  parkedKeys.delete(parkedKey(owner));
+}
+
 /** Paid jobs this process is working on right now (the drain waits for this to reach zero). */
 export function ownedJobCount(): number {
-  return inFlight.size;
+  let parked = 0;
+  for (const [jobId, v] of inFlight) if (parkedKeys.has(`${jobId}:${v.generation}`)) parked++;
+  return inFlight.size - parked;
 }
 
 /**

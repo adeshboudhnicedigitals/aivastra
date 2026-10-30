@@ -1,11 +1,12 @@
 import { createDb } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
 import { Redis } from 'ioredis';
-import { acquireComfyJob, trackOwnedJob } from '../../src/job/ownership.js';
+import { trackOwnedJob } from '../../src/job/ownership.js';
 import { submitRecordedPhase } from '../../src/job/submission.js';
 import { drainAndRetire } from '../../src/shutdown.js';
 import { reserveWorker } from '../../src/worker/reserve.js';
 import { selectWorker } from '../../src/worker/selector.js';
+import { acquireAndStart } from './acquire.js';
 
 // A dispatcher-shaped process: owns one paid job (tracked as in flight, as processJob does),
 // has its prompt accepted by the parent's fake worker, then handles SIGTERM with the same
@@ -21,7 +22,7 @@ const log = createLogger('shutdown-child');
 const jobId = need('RES_TEST_JOB_ID');
 const session = need('RES_TEST_SESSION');
 
-const acquired = await acquireComfyJob(db, jobId, session, log);
+const acquired = await acquireAndStart(db, redis, jobId, session, log);
 if (acquired.kind !== 'Acquired') throw new Error(`could not acquire: ${acquired.kind}`);
 trackOwnedJob(acquired.owner);
 

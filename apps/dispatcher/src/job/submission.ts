@@ -2,6 +2,7 @@ import { type DB, type DbTransaction, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { ComfyPromptHttpError, submitPrompt } from '../comfyui/client.js';
+import { observeReleaseToPost } from '../worker/registry.js';
 import { assertOwnerInTransaction, type OwnerToken } from './ownership.js';
 
 interface AttemptParent {
@@ -245,6 +246,7 @@ export async function submitRecordedPhase(opts: SubmissionOptions): Promise<{
         });
     throw err;
   }
+  observeReleaseToPost(worker.id);
   // The worker already accepted the prompt. Failing here would send the caller
   // into a retry that runs it a second time, so record the receipt best-effort.
   // The attempt stays SUBMITTING and a later reconciler finds it by client ID.

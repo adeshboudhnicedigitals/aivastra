@@ -77,6 +77,11 @@ describe('storage writes are lease-checked and attempt-scoped', () => {
     const other = await seedPaidJob(f.env, 'regular');
     const stale = await acquireComfyJob(f.env.db, other.job.id, randomUUID(), log);
     if (stale.kind !== 'Acquired') throw new Error('not acquired');
+    // The superseded owner had reserved a worker, so the job was past QUEUED.
+    await f.env.db
+      .update(schema.jobs)
+      .set({ status: 'PREPROCESSING' })
+      .where(eq(schema.jobs.id, other.job.id));
     await f.expireLease(other.job.id);
     const second = await takeoverComfyJob(f.env.db, other.job.id, randomUUID());
     expect(second.kind).toBe('Acquired');

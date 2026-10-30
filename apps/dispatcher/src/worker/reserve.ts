@@ -25,6 +25,11 @@ interface ReserveArgs {
   /** Claims a worker with the given token, or null when none is eligible. */
   select: (token: string) => Promise<ClaimedWorker | null>;
   log: Logger;
+  /**
+   * Runs once the worker is bound to the attempt and before anything is uploaded or sent. If it
+   * throws (the job finished while it waited, ownership was lost) the hold is released.
+   */
+  onBound?: () => Promise<void>;
 }
 
 /**
@@ -54,6 +59,7 @@ export async function reserveWorker(args: ReserveArgs): Promise<Reservation | nu
       attemptId: attempt.attemptId,
       worker,
     });
+    await args.onBound?.();
   } catch (err) {
     // Nothing was uploaded or sent, so the hold has no remote work behind it.
     await releaseWorker(redis, worker.id, token, log);

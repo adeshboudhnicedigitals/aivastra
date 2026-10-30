@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import type { Logger } from '@aivastra/logger';
-import { workerReleaseFailuresTotal } from '@aivastra/observability';
+import {
+  dispatcherWorkerReleaseToPostSeconds,
+  workerReleaseFailuresTotal,
+} from '@aivastra/observability';
 import type { WorkerPool } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 import { boundedRead } from './bounded-read.js';
@@ -93,6 +97,28 @@ end
 return 1
 `;
 
+/**
+ * Fired when a worker is released (job end, reconciler, any caller of releaseWorkerIfToken). The
+ * parked-job scheduler wakes on it, so a freed worker is offered to the job that has waited
+ * longest within milliseconds instead of at the next poll.
+ */
+export const workerReleased = new EventEmitter();
+/** When each worker was last released here: the start of the release-to-POST measurement. */
+export const lastReleaseAt = new Map<string, number>();
+/** The pool each worker was last claimed for, to label the release-to-POST measurement. */
+export const lastClaimPool = new Map<string, string>();
+
+/** Called after a prompt is accepted: the time since this worker's last release, once per release. */
+export function observeReleaseToPost(workerId: string): void {
+  const releasedAt = lastReleaseAt.get(workerId);
+  if (releasedAt === undefined) return;
+  lastReleaseAt.delete(workerId);
+  dispatcherWorkerReleaseToPostSeconds.observe(
+    { pool: lastClaimPool.get(workerId) ?? 'unknown' },
+    (Date.now() - releasedAt) / 1000,
+  );
+}
+
 /** True when the caller's token was the one held and is now released. */
 export async function releaseWorkerIfToken(
   redis: Redis,
@@ -108,6 +134,10 @@ export async function releaseWorkerIfToken(
     token,
     String(Date.now()),
   );
+  if (released === 1) {
+    lastReleaseAt.set(workerId, Date.now());
+    workerReleased.emit('released', workerId);
+  }
   return released === 1;
 }
 

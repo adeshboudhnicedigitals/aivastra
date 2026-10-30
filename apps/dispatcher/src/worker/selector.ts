@@ -13,6 +13,7 @@ import {
   ADMISSION_KEY,
   healthKey,
   isQueueGateEnabled,
+  lastClaimPool,
   REGISTRY_KEY,
   RESERVATIONS_KEY,
   releaseWorkerIfToken,
@@ -351,6 +352,53 @@ export async function selectPreferredWorker(
   return null;
 }
 
+// Read-only twin of CLAIM_LUA's eligibility test, for the parked-job scheduler: which workers
+// could a claim for this job type take right now. It claims nothing and probes nothing, so
+// asking costs one Redis call. Keep the conditions identical to candidateAt in CLAIM_LUA (a test
+// holds the two to the same answers). ARGV[1] = job type, ARGV[2..] = worker ids to leave out.
+const CLAIMABLE_LUA = `
+if redis.call('EXISTS', KEYS[4]) == 0 then return {} end
+local fields = redis.call('HGETALL', KEYS[1])
+local jobType = ARGV[1]
+local excluded = {}
+for a = 2, #ARGV do excluded[ARGV[a]] = true end
+local found = {}
+for i = 1, #fields, 2 do
+  local id = fields[i]
+  local ok, val = pcall(cjson.decode, fields[i+1])
+  if ok and val.status == 'IDLE' and not excluded[id] and redis.call('HEXISTS', KEYS[3], id) == 0
+    and redis.call('EXISTS', KEYS[2] .. id) == 1 then
+    local eligible = true
+    local allowed = val.allowedJobTypes
+    if (allowed and #allowed > 0) or jobType == 'inhouse' then
+      eligible = false
+      for _, t in ipairs(allowed or {}) do
+        if t == jobType then eligible = true break end
+      end
+    end
+    if eligible then table.insert(found, id) end
+  end
+end
+return found
+`;
+
+export async function listClaimableWorkers(
+  redis: Redis,
+  jobType: WorkerPool,
+  excluded: readonly string[] = [],
+): Promise<string[]> {
+  return (await redis.eval(
+    CLAIMABLE_LUA,
+    4,
+    REGISTRY_KEY,
+    healthKey(''),
+    RESERVATIONS_KEY,
+    ADMISSION_KEY,
+    jobType,
+    ...excluded,
+  )) as string[];
+}
+
 export async function selectWorker(
   redis: Redis,
   jobType: WorkerPool,
@@ -399,6 +447,7 @@ export async function selectWorker(
       backoffMs,
     ] = result;
     perfSelectionMode.inc({ mode: selectionMode, pool: jobType });
+    lastClaimPool.set(id, jobType);
     const claimed: ClaimedWorker = {
       id,
       url,

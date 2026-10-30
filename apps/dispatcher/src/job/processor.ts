@@ -33,6 +33,7 @@ import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
 import { deliveryFields } from '../stream/delivery.js';
 import { handoffMessage } from '../stream/handoff.js';
+import { isParked, park } from '../stream/parked.js';
 import { type Reservation, releaseReservation, reserveWorker } from '../worker/reserve.js';
 import { type ClaimedWorker, selectPreferredWorker, selectWorker } from '../worker/selector.js';
 import { stackAccessoryImages } from '../workflow/accessory-stack.js';
@@ -47,36 +48,27 @@ import {
   acquireComfyJob,
   assertOwnerInTransaction,
   isTerminalStatus,
+  markParked,
   noteOwnershipLost,
   OwnershipLostError,
   type OwnerToken,
   processSession,
+  resumeComfyJob,
   retireOwnership,
   takeoverComfyJob,
   trackOwnedJob,
+  unmarkParked,
   untrackOwnedJob,
   yieldComfyJob,
 } from './ownership.js';
 import { type SettleAuthority, settleAndPublish } from './settlement.js';
+import { beginProcessing, JobFinishedBeforeStartError } from './start.js';
 import { transitionJob } from './state.js';
 import { recordAttemptOutcome, submitRecordedPhase } from './submission.js';
 
 const MAX_ATTEMPTS = 2;
 const DEFAULT_UNCERTAIN_CHECK_MS = 90_000;
 const MAX_QUEUE_WAIT_MS = 3 * 60 * 60 * 1000; // 3 h — dead-letter if no worker found this long
-
-// Redis Streams have no reinsert-at-position primitive — a re-XADD after finding no
-// free worker always lands at the tail of its lane, so a job can in principle be
-// leapfrogged forever by every job that arrives after it. After this many failed
-// claim attempts (~3 min at the 10s backoff below) we age it into the priority lane
-// so sustained starvation is bounded, without disturbing lane semantics for the
-// common case of a brief worker-busy moment.
-const PROMOTE_TO_PRIORITY_AFTER_RETRIES = 18;
-const PRIORITY_STREAM = 'jobs:priority';
-// Never promoted to priority: that stream is read by the shared GPU consumer, which has
-// no inhouse workers in its cap, so a promoted inhouse job would just keep requeueing.
-const INHOUSE_STREAM = 'jobs:inhouse';
-const REQUEUE_BACKOFF_MS = 10_000;
 
 type JobOutcome = 'success' | 'failed' | 'retried' | 'cancelled';
 
@@ -129,85 +121,75 @@ async function recordComfyDuration(
 interface RequeueForNoWorkerArgs {
   db: DB;
   redis: Redis;
+  cfg: ProcessorConfig;
   jobId: string;
+  userId: string;
   stream: string;
   messageId: string;
   retryCount: number;
   jobLog: Logger;
   startedAt: number;
   jobType: string | null;
-  /** Present for every paid-Comfy job; the job is handed back with yieldComfyJob. */
-  owner?: OwnerToken;
+  /** The pool the claim that found no worker was for. */
+  pool: string;
+  /** Every paid-Comfy job has one; the job keeps it while it waits. */
+  owner: OwnerToken | undefined;
 }
 
 /**
- * Requeues a job that found no free worker this attempt. Retries on the same
- * priority lane it arrived on (so normal/low jobs never jump ahead of priority
- * jobs), but promotes it to jobs:priority after PROMOTE_TO_PRIORITY_AFTER_RETRIES
- * consecutive misses — see the constant's comment for why that's needed at all.
+ * A job that found no free worker this attempt parks (stream/parked.ts) instead of sleeping in
+ * its lane slot and re-adding itself: it keeps its lease and its pending message, shows QUEUED,
+ * and is resumed in arrival order when a worker of its pool frees up. Starvation is bounded by
+ * the scheduler's promotion after PROMOTE_AFTER_MS and by the 3 h limit the claim sites check on
+ * every resume, so nothing here re-adds the message to a stream.
  */
 async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
-  const { db, redis, jobId, stream, messageId, retryCount, jobLog, startedAt, jobType } = args;
-  const nextRetryCount = retryCount + 1;
-  const targetStream =
-    stream !== PRIORITY_STREAM &&
-    stream !== INHOUSE_STREAM &&
-    nextRetryCount >= PROMOTE_TO_PRIORITY_AFTER_RETRIES
-      ? PRIORITY_STREAM
-      : stream;
-  if (targetStream !== stream) {
-    jobLog.warn(
-      { fromStream: stream, retryCount: nextRetryCount },
-      'job starved of a worker for too long — promoting to priority lane',
-    );
-  }
+  const { db, redis, jobId, stream, messageId, jobLog, jobType, owner } = args;
+  if (!owner) throw new Error(`no-worker park of job ${jobId} has no owner`);
   noWorkerRequeuesTotal.inc({ job_type: jobType ?? 'unknown' });
-  if (args.owner) {
-    // QUEUED while this process still holds the lease: the 10s sleep below is covered
-    // by the renewal interval, and a duplicate delivery sees LiveOwner, not a free job.
-    const owner = args.owner;
-    const finished = await db.transaction(async (tx) => {
-      const status = await assertOwnerInTransaction(tx, owner, 'requeue:queued');
-      if (isTerminalStatus(status)) return true;
-      await tx.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-      return false;
-    });
-    if (finished) {
-      jobLog.info('job finished before its requeue — ACKing without re-adding it');
-      await retireOwnership(db, owner);
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      return;
-    }
-  } else {
-    await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-  }
-  await new Promise((resolve) => setTimeout(resolve, REQUEUE_BACKOFF_MS));
-  // Retire authority before publishing, so the replacement message — which may be
-  // consumed immediately — finds no live owner. A lost yield means a newer owner
-  // exists: publish nothing and ACK nothing.
-  if (args.owner) {
-    const yielded = await yieldComfyJob(db, args.owner, {}, jobLog);
-    if (yielded === 'lost') return;
-    if (yielded === 'terminal') {
-      // Cancelled while we slept (the user cancel route only cancels QUEUED jobs):
-      // acknowledge, but never put a refunded job back on the queue.
-      jobLog.info('job finished during the no-worker wait — ACKing without re-adding it');
-      await redis.xack(stream, 'dispatcher-cg', messageId);
-      return;
-    }
-  }
-  await handoffMessage(redis, {
-    sourceStream: stream,
-    targetStream,
-    messageId,
-    overrides: { retryCount: String(nextRetryCount) },
-    fields: await deliveryFields(db, jobId, messageId),
+  // QUEUED while this process still holds the lease: a duplicate delivery sees LiveOwner, the
+  // user's cancel (which only cancels QUEUED jobs) still lands, and the sweeper and recovery skip
+  // a live lease. A job cancelled meanwhile is never reopened.
+  const parkedJob = await db.transaction(async (tx) => {
+    const status = await assertOwnerInTransaction(tx, owner, 'requeue:queued');
+    if (isTerminalStatus(status)) return undefined;
+    await tx.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+    const [row] = await tx
+      .select({ queuedAt: schema.jobs.queuedAt, createdAt: schema.jobs.createdAt })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, jobId));
+    return row;
   });
-  recordJobOutcome('retried', startedAt, jobType);
+  if (!parkedJob) {
+    jobLog.info('job finished before its wait — ACKing without parking it');
+    await retireOwnership(db, owner);
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    return;
+  }
+  const queuedAtMs = (parkedJob.queuedAt ?? parkedJob.createdAt).getTime();
+  await park(
+    {
+      owner,
+      cfg: { ...args.cfg, owner: undefined, resumeOwner: undefined },
+      jobId,
+      userId: args.userId,
+      stream,
+      messageId,
+      retryCount: args.retryCount,
+      pool: args.pool,
+      queuedAtMs,
+      expiresAtMs: queuedAtMs + MAX_QUEUE_WAIT_MS,
+      parkedAtMs: Date.now(),
+    },
+    db,
+    jobLog,
+  );
 }
 
 export interface ProcessorConfig {
   db: DB;
+  /** Set only when a parked job re-enters: its own token, no new generation (stream/parked.ts). */
+  resumeOwner?: OwnerToken;
   withAdvisoryLock?: WithDbLock;
   redis: Redis;
   comfyRedis: Redis;
@@ -258,6 +240,15 @@ function reserveFor(
     phase: args.phase ?? 'main',
     log: args.log,
     select: args.select,
+    onBound: cfg.owner
+      ? () =>
+          beginProcessing({
+            db: cfg.db,
+            pub: cfg.pub,
+            owner: cfg.owner as OwnerToken,
+            log: args.log,
+          })
+      : undefined,
   });
 }
 
@@ -278,23 +269,6 @@ async function releaseHeldWorker(
   );
 }
 
-async function publishPreprocessing(
-  pub: Redis,
-  opts: { jobId: string; userId: string; shopifyStoreId?: string },
-): Promise<void> {
-  const channelId = opts.shopifyStoreId ? `store:${opts.shopifyStoreId}` : opts.userId;
-  const payload = JSON.stringify({
-    jobId: opts.jobId,
-    userId: opts.userId,
-    type: 'STATUS',
-    status: 'PREPROCESSING',
-    ...(opts.shopifyStoreId ? { shopifyStoreId: opts.shopifyStoreId } : {}),
-  });
-  const publishes = [pub.publish('sse:events:admin', payload)];
-  if (channelId) publishes.push(pub.publish(`sse:events:${channelId}`, payload));
-  await Promise.all(publishes);
-}
-
 export async function processJob(
   cfg: ProcessorConfig,
   jobId: string,
@@ -307,9 +281,17 @@ export async function processJob(
   try {
     await processJobOwned(cfg, jobId, userId, stream, messageId, retryCount, (owner) => {
       owned = owner;
+      unmarkParked(owner);
       trackOwnedJob(owner, { db: cfg.db, log: cfg.log });
     });
   } catch (err) {
+    if (err instanceof JobFinishedBeforeStartError) {
+      // Finished while it waited (a cancel). The reservation was released on the way out; there
+      // is no upload, no POST and nothing to settle: acknowledge the message.
+      cfg.log.info({ jobId }, 'job finished before processing started — ACKing');
+      await cfg.redis.xack(stream, 'dispatcher-cg', messageId);
+      return;
+    }
     if (!(err instanceof OwnershipLostError)) throw err;
     // Another process owns this job now. Do not fail, refund or ACK it: the new
     // owner may hold the same PEL entry, and XACK is not per consumer.
@@ -320,7 +302,11 @@ export async function processJob(
     // to propagate — this handler is done with the job. Stop renewing it and retire its
     // lease (generation-matched, so a newer owner is untouched), so a job whose handler
     // died is visible to the sweeper and recovery again instead of looking live.
-    if (owned) {
+    // A job parked for a worker is the exception: it keeps its lease (renewed, but not part of
+    // the shutdown drain) so duplicate deliveries, the sweeper and recovery still see a live owner.
+    if (owned && isParked(jobId)) {
+      markParked(owned);
+    } else if (owned) {
       untrackOwnedJob(owned);
       await retireOwnership(cfg.db, owned).catch((err) => {
         cfg.log.warn(
@@ -430,14 +416,24 @@ async function processJobOwned(
   } else {
     // One owner per paid-Comfy job, taken before any provider branch does external work.
     const session = baseCfg.ownerSession ?? processSession;
-    const acquired = await acquireComfyJob(
-      db,
-      jobId,
-      session,
-      jobLog,
-      // Shopify's PREPROCESSING event has always carried its store id.
-      job.shopifyStoreId ? { shopifyStoreId: job.shopifyStoreId } : {},
-    );
+    // A parked job re-enters under the token it parked with (no new generation, no status
+    // change); anything else is a fresh admission.
+    const acquired = baseCfg.resumeOwner
+      ? await resumeComfyJob(db, baseCfg.resumeOwner)
+      : await acquireComfyJob(db, jobId, session, jobLog);
+    if (acquired.kind === 'Terminal' || acquired.kind === 'LiveOwner') {
+      // A parked job that comes back to find its job finished (a cancel) or its lease lost has
+      // no running handler to clean up after it: stop renewing and, if it is still ours, retire.
+      if (baseCfg.resumeOwner) {
+        const parkedOwner = baseCfg.resumeOwner;
+        unmarkParked(parkedOwner);
+        untrackOwnedJob(parkedOwner);
+        if (acquired.kind === 'Terminal')
+          await retireOwnership(db, parkedOwner).catch((err) =>
+            jobLog.warn({ err }, 'could not retire a cancelled parked job'),
+          );
+      }
+    }
     if (acquired.kind === 'Terminal') {
       jobLog.warn({ status: acquired.status }, 'job already terminal — ACKing stale PEL entry');
       await redis.xack(stream, 'dispatcher-cg', messageId);
@@ -538,14 +534,6 @@ async function processJobOwned(
     const owner = adoptedOwner ?? (acquired as { owner: OwnerToken }).owner;
     if (!adoptedOwner) onOwned(owner);
     cfg = { ...baseCfg, owner };
-    // The acquisition transaction wrote the PREPROCESSING event; publish what
-    // transitionJob used to, so SSE consumers see the same status stream.
-    const widgetJob = !!(job.merchantId || job.shopifyStoreId);
-    await publishPreprocessing(pub, {
-      jobId,
-      userId: widgetJob ? '' : userId,
-      shopifyStoreId: job.shopifyStoreId ?? undefined,
-    });
   }
 
   // Past the skip checks — this is a real processing attempt.
@@ -873,6 +861,9 @@ async function processJobOwned(
               await requeueForNoWorker({
                 db,
                 owner: cfg.owner,
+                cfg,
+                userId,
+                pool: WORKER_POOL.SAREE,
                 redis,
                 jobId,
                 stream,
@@ -887,6 +878,7 @@ async function processJobOwned(
           }
           effectiveUpperGarmentKey = mannequin.key;
         } catch (err) {
+          if (err instanceof JobFinishedBeforeStartError) throw err;
           jobLog.error({ err }, 'mannequin phase failed');
           const errMsg = err instanceof Error ? err.message : String(err);
           await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
@@ -1007,6 +999,9 @@ async function processJobOwned(
       await requeueForNoWorker({
         db,
         owner: cfg.owner,
+        cfg,
+        userId,
+        pool: WORKER_POOL.CATALOGUE,
         redis,
         jobId,
         stream,
@@ -1642,6 +1637,9 @@ async function processTryonDirectJob(
       await requeueForNoWorker({
         db,
         owner: cfg.owner,
+        cfg,
+        userId,
+        pool: pool,
         redis,
         jobId,
         stream,
@@ -1973,6 +1971,9 @@ async function processRegenerateJob(
       await requeueForNoWorker({
         db,
         owner: cfg.owner,
+        cfg,
+        userId,
+        pool: WORKER_POOL.TRYON,
         redis,
         jobId,
         stream,
@@ -2324,6 +2325,9 @@ async function processFabricToGarmentJob(
       await requeueForNoWorker({
         db,
         owner: cfg.owner,
+        cfg,
+        userId,
+        pool: WORKER_POOL.CATALOGUE,
         redis,
         jobId,
         stream,
@@ -2756,6 +2760,9 @@ async function processSareeMannequinJob(
       await requeueForNoWorker({
         db,
         owner: cfg.owner,
+        cfg,
+        userId,
+        pool: WORKER_POOL.SAREE,
         redis,
         jobId,
         stream,
@@ -3091,6 +3098,9 @@ async function processSareeJob(
       await requeueForNoWorker({
         db,
         owner: cfg.owner,
+        cfg,
+        userId,
+        pool: WORKER_POOL.SAREE,
         redis,
         jobId,
         stream,
@@ -3534,6 +3544,9 @@ async function processWidgetJob(
       await requeueForNoWorker({
         db,
         owner: cfg.owner,
+        cfg,
+        userId: '',
+        pool: WORKER_POOL.MERCHANT,
         redis,
         jobId,
         stream,
@@ -3907,6 +3920,9 @@ async function processShopifyJob(
       await requeueForNoWorker({
         db,
         owner: cfg.owner,
+        cfg,
+        userId: '',
+        pool: WORKER_POOL.SHOPIFY,
         redis,
         jobId,
         stream,
