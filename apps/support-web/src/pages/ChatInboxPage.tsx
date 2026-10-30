@@ -218,7 +218,7 @@ export default function ChatInboxPage({ toast }: Props) {
     category: '',
     priority: 'normal',
   });
-  const wsRef = useRef<Awaited<ReturnType<typeof connectAgentWs>> | null>(null);
+  const wsRef = useRef<ReturnType<typeof connectAgentWs> | null>(null);
   const selectedRef = useRef(selectedConv);
   selectedRef.current = selectedConv;
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -251,25 +251,33 @@ export default function ChatInboxPage({ toast }: Props) {
 
   useEffect(() => {
     void load();
-    const p = connectAgentWs((f: WsServerFrameT) => {
-      const cur = selectedRef.current;
-      if (f.type === 'message' && cur && f.message.conversationId === cur) {
-        setMessages((m) => [...m, f.message]);
-        markSeen(cur, f.message.createdAt);
-      } else if (f.type === 'state_change') {
-        if (f.conversationId === cur) setStatus(f.status);
-        void load();
-      } else if (f.type === 'queue_update') {
-        void load();
-      } else if (f.type === 'typing' && f.conversationId === cur) {
-        setTyping(f.role);
-        setTimeout(() => setTyping(null), 4000);
-      }
-    });
-    p.then((w) => {
-      wsRef.current = w;
-      setWsReady(true);
-    });
+    // onConnectionChange flips wsReady false→true on both the first connect and
+    // every reconnect, so the join-on-select effect below re-fires and re-sends
+    // `join` for whatever conversation is open — the server only tracks a
+    // subscription for the socket that's currently connected.
+    wsRef.current = connectAgentWs(
+      (f: WsServerFrameT) => {
+        const cur = selectedRef.current;
+        if (f.type === 'message' && cur && f.message.conversationId === cur) {
+          setMessages((m) => [...m, f.message]);
+          markSeen(cur, f.message.createdAt);
+        } else if (f.type === 'state_change') {
+          if (f.conversationId === cur) setStatus(f.status);
+          void load();
+        } else if (f.type === 'queue_update') {
+          void load();
+        } else if (f.type === 'typing' && f.conversationId === cur) {
+          setTyping(f.role);
+          setTimeout(() => setTyping(null), 4000);
+        }
+      },
+      (connected) => {
+        setWsReady(connected);
+        // A reconnect means presence (and possibly a claim) may have lapsed
+        // while disconnected — refresh the queues rather than trust stale state.
+        if (connected) void load();
+      },
+    );
     return () => {
       wsRef.current?.close();
     };
