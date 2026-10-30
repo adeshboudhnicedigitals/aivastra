@@ -238,6 +238,7 @@ export default function AnalyticsPage() {
                       loading={!shoppers}
                       headings={[
                         { title: 'Email' },
+                        { title: 'Phone' },
                         { title: 'Consent' },
                         { title: 'First seen' },
                         { title: 'Try-ons' },
@@ -246,6 +247,7 @@ export default function AnalyticsPage() {
                       {(shoppers ?? []).map((s, index) => (
                         <IndexTable.Row id={s.id} key={s.id} position={index}>
                           <IndexTable.Cell>{s.email}</IndexTable.Cell>
+                          <IndexTable.Cell>{s.phone ?? '—'}</IndexTable.Cell>
                           <IndexTable.Cell>
                             <Badge tone={s.emailConsent ? 'success' : undefined}>
                               {s.emailConsent ? 'Consented' : 'No consent'}

@@ -75,7 +75,6 @@ export interface ShopifyStats {
   enabledProductCount: number;
   // Enabled products that still resolve to no basket. Null when the API skipped
   // the routing scan for a very large catalogue.
-  unroutedEnabledCount: number | null;
   statusCounts: { active: number; processing: number; failed: number; disabled: number };
   todayTryOns: number;
   storeDailyCap: number | null;
@@ -130,16 +129,17 @@ export interface ShopifyProductListItem {
   status: string;
   enabled: boolean;
   excluded: boolean;
+  /** Transitional fields retained until ManagePage basket UI is removed. */
+  basket?: { id: string; label: string; source: 'manual' | 'rule' } | null;
+  pinnedBasketId?: string | null;
   // null means no basket resolved — the state where try-on is refused for
   // this product (see customer.routes.ts). No default-basket fallback exists
   // anymore (see funnel-resolution.ts's resolveBasketFrom).
-  basket: { id: string; label: string; source: 'manual' | 'rule' } | null;
   // The raw pin on this row, independent of whether it's currently being honored.
   // Non-null with basket.source !== 'manual' means the pinned basket was
   // deactivated and resolution fell through to a rule — a stale pin that's
   // still clearable via "Reset to automatic" even though it's invisible in
   // `basket` itself.
-  pinnedBasketId: string | null;
   productType: string | null;
   vendor: string | null;
   tags: string[] | null;
@@ -152,6 +152,14 @@ export interface ShopifyProductsResponse {
   pageSize: number;
   total: number;
   items: ShopifyProductListItem[];
+}
+
+export interface ShopifySyncStatus {
+  state: 'running' | 'idle';
+  startedAt: number;
+  completedAt: number | null;
+  total: number | null;
+  imported: number;
 }
 
 export interface FacetList {
@@ -182,6 +190,7 @@ export interface ShopifyShopperListItem {
   id: string;
   email: string;
   emailConsent: boolean;
+  phone: string | null;
   firstSeenAt: string;
   tryOnCount: number;
 }
