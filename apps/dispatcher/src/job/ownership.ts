@@ -265,6 +265,50 @@ export async function renewLeases(db: DB, session: string): Promise<number> {
   return rows.length;
 }
 
+export const STORAGE_WRITE_MIN_LEASE_MS = 10_000;
+
+/**
+ * Authorization to START one output or thumbnail PUT: the caller's session and generation still
+ * hold an unretired lease with at least `minimumRemainingMs` left (database time), the job is not
+ * terminal and, when given, the attempt is still the job's active one. It is not a storage fence:
+ * the provider allows a 60 s request and cannot be cancelled, so a PUT already issued can still
+ * complete after the lease is lost. Any database error propagates, so an unreachable database
+ * means no PUT starts. A short lease gets one renewal before the recheck.
+ */
+export async function assertStorageWriteLease(
+  db: DB,
+  owner: OwnerToken,
+  site: string,
+  opts: { attemptId?: string; minimumRemainingMs?: number } = {},
+): Promise<void> {
+  const minimumMs = opts.minimumRemainingMs ?? STORAGE_WRITE_MIN_LEASE_MS;
+  const check = async () => {
+    const rows = await db
+      .select({ jobId: schema.dispatcherJobControl.jobId })
+      .from(schema.dispatcherJobControl)
+      .innerJoin(schema.jobs, eq(schema.jobs.id, schema.dispatcherJobControl.jobId))
+      .where(
+        and(
+          eq(schema.dispatcherJobControl.jobId, owner.jobId),
+          eq(schema.dispatcherJobControl.ownerSession, owner.session),
+          sql`${schema.dispatcherJobControl.generation} = ${owner.generation}`,
+          eq(schema.dispatcherJobControl.ownerRetired, false),
+          sql`${schema.dispatcherJobControl.leaseUntil} - clock_timestamp() >= (${minimumMs}::double precision * interval '1 millisecond')`,
+          sql`${schema.jobs.status} not in ('COMPLETED', 'FAILED', 'CANCELLED')`,
+          opts.attemptId
+            ? eq(schema.dispatcherJobControl.activeAttemptId, opts.attemptId)
+            : sql`true`,
+        ),
+      );
+    return rows.length > 0;
+  };
+  if (await check()) return;
+  await renewLeases(db, owner.session);
+  if (await check()) return;
+  dispatcherOwnershipEventsTotal.inc({ event: 'storage_write_denied' });
+  throw new OwnershipLostError(owner.jobId, site, owner);
+}
+
 /**
  * Ends this handler's authority once it is done with the job, whatever the exit
  * (an unexpected error included), so a finished or crashed handler never leaves a

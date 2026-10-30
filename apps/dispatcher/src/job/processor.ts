@@ -35,13 +35,16 @@ import { type Reservation, releaseReservation, reserveWorker } from '../worker/r
 import { type ClaimedWorker, selectPreferredWorker, selectWorker } from '../worker/selector.js';
 import { stackAccessoryImages } from '../workflow/accessory-stack.js';
 import { finalizeComparisonOutput } from '../workflow/comparison-finalize.js';
-import { encodeCompressedImage, finalizeOutput } from '../workflow/finalize.js';
+import { finalizeOutput } from '../workflow/finalize.js';
 import { patchWorkflow } from '../workflow/patcher.js';
 import { resolveWorkflowTemplateVersion } from '../workflow/resolve-template-version.js';
+import { announceWidgetCompleted, finalizeWidgetOutput } from '../workflow/widget-finalize.js';
+import { adoptComfyJob } from './adoption.js';
 import { runMannequinPhase } from './mannequin-phase.js';
 import {
   acquireComfyJob,
   assertOwnerInTransaction,
+  assertStorageWriteLease,
   isTerminalStatus,
   noteOwnershipLost,
   OwnershipLostError,
@@ -237,6 +240,8 @@ export interface ProcessorConfig {
   owner?: OwnerToken;
   /** `COMFY_UNCERTAIN_CHECK_MS`; the default applies where a test builds the config by hand. */
   uncertainCheckMs?: number;
+  /** Poll period while adoption searches for a receipt-less attempt; tests shrink it. */
+  adoptionSearchPollMs?: number;
   /**
    * Set by processJob for the PixVerse lane only, which keeps no control row or lease. Settling
    * without an owner is allowed solely under this flag, so a paid-Comfy path that lost its
@@ -463,33 +468,95 @@ async function processJobOwned(
       jobLog.info('job has a live owner — ignoring this delivery');
       return;
     }
+    let adoptedOwner: OwnerToken | undefined;
     if (acquired.kind === 'Recoverable') {
-      // Phase B1 keeps the legacy crash policy but runs it under a fresh generation,
-      // so the dead owner's late writes are fenced out. Adoption is Phase D.
-      jobLog.warn(
-        { status: acquired.status },
-        'job found in-progress after reclaim — treating as crash failure',
-      );
+      // A previous owner died with the job in flight. A fresh generation fences its late
+      // writes; what happens next depends on what is running on the worker (adoption.ts).
+      jobLog.warn({ status: acquired.status }, 'job found in-progress after reclaim — adopting');
       const takeover = await takeoverComfyJob(db, jobId, session);
-      if (takeover.kind === 'Acquired') {
-        onOwned(takeover.owner);
-        await handleFailure(
-          { ...baseCfg, owner: takeover.owner },
-          jobId,
-          userId,
-          stream,
-          messageId,
-          jobLog,
-          startedAt,
-          'DISPATCHER_CRASH',
-        );
-      } else if (takeover.kind === 'Terminal') {
+      if (takeover.kind === 'Terminal') {
         await redis.xack(stream, 'dispatcher-cg', messageId);
+        return;
       }
-      return;
+      if (takeover.kind !== 'Acquired') return;
+      onOwned(takeover.owner);
+      adoptedOwner = takeover.owner;
+      const adoptCfg = { ...baseCfg, owner: takeover.owner };
+      const storeCapKey = earlyParams.storeCapKey;
+      const outcome = await adoptComfyJob({
+        cfg: adoptCfg,
+        job,
+        log: jobLog,
+        searchPollMs: baseCfg.adoptionSearchPollMs,
+        hooks: {
+          fail: (errorCode) =>
+            job.shopifyStoreId
+              ? markShopifyFailed(
+                  adoptCfg,
+                  jobId,
+                  job.shopifyStoreId,
+                  stream,
+                  messageId,
+                  errorCode,
+                  jobLog,
+                  startedAt,
+                  job.source,
+                  storeCapKey,
+                )
+              : job.merchantId
+                ? markWidgetFailed(
+                    adoptCfg,
+                    jobId,
+                    job.merchantId,
+                    stream,
+                    messageId,
+                    errorCode,
+                    jobLog,
+                    startedAt,
+                    job.source,
+                  )
+                : handleFailure(
+                    adoptCfg,
+                    jobId,
+                    userId,
+                    stream,
+                    messageId,
+                    jobLog,
+                    startedAt,
+                    errorCode,
+                  ),
+          cancelled: async () => {
+            await redis.del(`job:cancel:${jobId}`);
+            await terminateJob(
+              adoptCfg,
+              jobId,
+              userId,
+              stream,
+              messageId,
+              '',
+              jobLog,
+              startedAt,
+              job.source,
+              'CANCELLED',
+            );
+          },
+        },
+      });
+      if (outcome.kind === 'pending') {
+        jobLog.warn({ reason: outcome.reason }, 'adoption undecided — leaving the message pending');
+        return;
+      }
+      if (outcome.kind === 'failed') return;
+      if (outcome.kind === 'finished') {
+        await redis.xack(stream, 'dispatcher-cg', messageId);
+        if (outcome.completed) recordJobOutcome('success', startedAt, job.source);
+        return;
+      }
+      // Nothing is running remotely: restart the normal flow under the new owner.
     }
-    onOwned(acquired.owner);
-    cfg = { ...baseCfg, owner: acquired.owner };
+    const owner = adoptedOwner ?? (acquired as { owner: OwnerToken }).owner;
+    if (!adoptedOwner) onOwned(owner);
+    cfg = { ...baseCfg, owner };
     // The acquisition transaction wrote the PREPROCESSING event; publish what
     // transitionJob used to, so SSE consumers see the same status stream.
     const widgetJob = !!(job.merchantId || job.shopifyStoreId);
@@ -974,6 +1041,9 @@ async function processJobOwned(
     return;
   }
   const w = reservation.worker;
+  // Inputs are named per attempt: a late upload from an older attempt must not overwrite the
+  // file a replacement prompt reads.
+  const reservedAttemptId = reservation.attemptId;
   jobLog.info({ workerId: w.id }, 'worker claimed');
 
   try {
@@ -991,7 +1061,14 @@ async function processJobOwned(
       const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
       const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
       const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+      return uploadImageToComfy(
+        w.url,
+        w.apiKey,
+        bytes,
+        `${prefix}_${jobId}_${reservedAttemptId}.${ext}`,
+        mime,
+        jobLog,
+      );
     }
 
     // Resolve selected accessory catalog items → fetch bytes, vertically stack
@@ -1052,7 +1129,7 @@ async function processJobOwned(
           w.url,
           w.apiKey,
           accessoryBytes,
-          `accessory_${jobId}.png`,
+          `accessory_${jobId}_${reservedAttemptId}.png`,
           'image/png',
           jobLog,
         ),
@@ -1275,6 +1352,7 @@ async function processJobOwned(
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
       owner: requireOwner(cfg),
+      attemptId,
       imageBytes,
       jobId,
       userId,
@@ -1599,6 +1677,9 @@ async function processTryonDirectJob(
     return;
   }
   const w = reservation.worker;
+  // Inputs are named per attempt: a late upload from an older attempt must not overwrite the
+  // file a replacement prompt reads.
+  const reservedAttemptId = reservation.attemptId;
   jobLog.info({ workerId: w.id }, 'worker claimed for tryon direct');
 
   try {
@@ -1611,7 +1692,14 @@ async function processTryonDirectJob(
       const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
       const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
       const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+      return uploadImageToComfy(
+        w.url,
+        w.apiKey,
+        bytes,
+        `${prefix}_${jobId}_${reservedAttemptId}.${ext}`,
+        mime,
+        jobLog,
+      );
     }
 
     jobLog.info('uploading tryon direct inputs to ComfyUI');
@@ -1759,6 +1847,7 @@ async function processTryonDirectJob(
     const compression = await getImageCompressionConfig(redis, job.source);
     const finalization = {
       owner: requireOwner(cfg),
+      attemptId,
       imageBytes,
       jobId,
       userId,
@@ -1920,6 +2009,9 @@ async function processRegenerateJob(
     return;
   }
   const w = reservation.worker;
+  // Inputs are named per attempt: a late upload from an older attempt must not overwrite the
+  // file a replacement prompt reads.
+  const reservedAttemptId = reservation.attemptId;
   jobLog.info({ workerId: w.id }, 'worker claimed for regenerate');
 
   try {
@@ -1932,7 +2024,14 @@ async function processRegenerateJob(
       const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
       const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
       const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+      return uploadImageToComfy(
+        w.url,
+        w.apiKey,
+        bytes,
+        `${prefix}_${jobId}_${reservedAttemptId}.${ext}`,
+        mime,
+        jobLog,
+      );
     }
 
     jobLog.info('uploading regenerate source image to ComfyUI');
@@ -2083,6 +2182,7 @@ async function processRegenerateJob(
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
       owner: requireOwner(cfg),
+      attemptId,
       imageBytes,
       jobId,
       userId,
@@ -2261,6 +2361,9 @@ async function processFabricToGarmentJob(
     return;
   }
   const w = reservation.worker;
+  // Inputs are named per attempt: a late upload from an older attempt must not overwrite the
+  // file a replacement prompt reads.
+  const reservedAttemptId = reservation.attemptId;
   jobLog.info({ workerId: w.id }, 'worker claimed for fabric_to_garment');
 
   try {
@@ -2273,7 +2376,14 @@ async function processFabricToGarmentJob(
       const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
       const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
       const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+      return uploadImageToComfy(
+        w.url,
+        w.apiKey,
+        bytes,
+        `${prefix}_${jobId}_${reservedAttemptId}.${ext}`,
+        mime,
+        jobLog,
+      );
     }
 
     jobLog.info('uploading fabric photo to ComfyUI');
@@ -2416,6 +2526,7 @@ async function processFabricToGarmentJob(
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
       owner: requireOwner(cfg),
+      attemptId,
       imageBytes,
       jobId,
       userId,
@@ -2683,6 +2794,9 @@ async function processSareeMannequinJob(
     return;
   }
   const w = reservation.worker;
+  // Inputs are named per attempt: a late upload from an older attempt must not overwrite the
+  // file a replacement prompt reads.
+  const reservedAttemptId = reservation.attemptId;
   jobLog.info({ workerId: w.id }, 'worker claimed for saree mannequin');
 
   try {
@@ -2695,7 +2809,14 @@ async function processSareeMannequinJob(
       const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
       const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
       const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+      return uploadImageToComfy(
+        w.url,
+        w.apiKey,
+        bytes,
+        `${prefix}_${jobId}_${reservedAttemptId}.${ext}`,
+        mime,
+        jobLog,
+      );
     }
 
     jobLog.info('uploading mannequin inputs to ComfyUI');
@@ -2854,6 +2975,7 @@ async function processSareeMannequinJob(
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
       owner: requireOwner(cfg),
+      attemptId,
       imageBytes,
       jobId,
       userId,
@@ -3008,6 +3130,9 @@ async function processSareeJob(
     return;
   }
   const w = reservation.worker;
+  // Inputs are named per attempt: a late upload from an older attempt must not overwrite the
+  // file a replacement prompt reads.
+  const reservedAttemptId = reservation.attemptId;
   jobLog.info({ workerId: w.id }, 'worker claimed for saree');
 
   try {
@@ -3020,7 +3145,14 @@ async function processSareeJob(
       const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
       const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
       const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+      return uploadImageToComfy(
+        w.url,
+        w.apiKey,
+        bytes,
+        `${prefix}_${jobId}_${reservedAttemptId}.${ext}`,
+        mime,
+        jobLog,
+      );
     }
 
     jobLog.info('uploading saree inputs to ComfyUI');
@@ -3166,6 +3298,7 @@ async function processSareeJob(
     const compression = await getImageCompressionConfig(redis, job.source);
     const { completed } = await finalizeOutput({
       owner: requireOwner(cfg),
+      attemptId,
       imageBytes,
       jobId,
       userId,
@@ -3441,6 +3574,9 @@ async function processWidgetJob(
     return;
   }
   const w = reservation.worker;
+  // Inputs are named per attempt: a late upload from an older attempt must not overwrite the
+  // file a replacement prompt reads.
+  const reservedAttemptId = reservation.attemptId;
   jobLog.info({ workerId: w.id }, 'worker claimed for merchant widget job');
 
   try {
@@ -3453,7 +3589,14 @@ async function processWidgetJob(
       const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
       const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
       const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+      return uploadImageToComfy(
+        w.url,
+        w.apiKey,
+        bytes,
+        `${prefix}_${jobId}_${reservedAttemptId}.${ext}`,
+        mime,
+        jobLog,
+      );
     }
 
     jobLog.info('uploading merchant widget inputs to ComfyUI');
@@ -3617,27 +3760,18 @@ async function processWidgetJob(
     const compression = await measureJobStage(jobLog, 'compression_config_redis_read', () =>
       getImageCompressionConfig(redis, job.source),
     );
-    const {
-      buffer: encodedBuffer,
-      format: outputFormat,
-      contentType,
-    } = await measureJobStage(jobLog, 'output_encode', () =>
-      encodeCompressedImage(imageBytes, compression),
-    );
-    const resultKey = keys.widgetOutput(jobId, outputFormat);
-    await measureJobStage(jobLog, 'output_storage_put', () =>
-      storage.putObject(resultKey, encodedBuffer, contentType),
-    );
-
-    // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
-    const completed = await measureJobStage(jobLog, 'completed_status_transition', () =>
-      settleAndPublish(
-        { db, pub, log: jobLog },
-        settleAuthority(cfg, jobId),
-        { kind: 'completed', output: { resultKey } },
-        { userId: '' },
-      ).then((r) => r.kind === 'settled'),
-    );
+    const { completed, resultKey } = await finalizeWidgetOutput({
+      owner: requireOwner(cfg),
+      attemptId,
+      imageBytes,
+      jobId,
+      compression,
+      db,
+      pub,
+      storage,
+      jobLog,
+      stage: (name, fn) => measureJobStage(jobLog, name, fn),
+    });
     if (!completed) {
       settlePerformanceSample(w, 'cancelled');
       await redis.xack(stream, 'dispatcher-cg', messageId);
@@ -3645,25 +3779,7 @@ async function processWidgetJob(
     }
     settlePerformanceSample(w, 'success');
     await measureJobStage(jobLog, 'completion_notifications_and_ack', async () => {
-      await pub.publish(
-        `sse:events:widget:${merchantId}`,
-        JSON.stringify({ jobId, type: 'STATUS', status: 'COMPLETED', resultKey }),
-      );
-      await redis.xadd(
-        'webhooks:outbound',
-        'MAXLEN',
-        '~',
-        10000,
-        '*',
-        'jobId',
-        jobId,
-        'merchantId',
-        merchantId,
-        'status',
-        'COMPLETED',
-        'resultKey',
-        resultKey,
-      );
+      await announceWidgetCompleted(pub, redis, { jobId, merchantId, resultKey });
       await redis.xack(stream, 'dispatcher-cg', messageId);
     });
     recordJobOutcome('success', startedAt, job.source);
@@ -3832,6 +3948,9 @@ async function processShopifyJob(
     return;
   }
   const w = reservation.worker;
+  // Inputs are named per attempt: a late upload from an older attempt must not overwrite the
+  // file a replacement prompt reads.
+  const reservedAttemptId = reservation.attemptId;
   jobLog.info({ workerId: w.id }, 'worker claimed for shopify');
 
   try {
@@ -3844,7 +3963,14 @@ async function processShopifyJob(
       const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
       const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
       const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+      return uploadImageToComfy(
+        w.url,
+        w.apiKey,
+        bytes,
+        `${prefix}_${jobId}_${reservedAttemptId}.${ext}`,
+        mime,
+        jobLog,
+      );
     }
 
     jobLog.info('uploading shopify inputs to ComfyUI');
@@ -3990,6 +4116,7 @@ async function processShopifyJob(
     const compression = await getImageCompressionConfig(redis, job.source);
     const { resultKey, completed } = await finalizeOutput({
       owner: requireOwner(cfg),
+      attemptId,
       imageBytes,
       jobId,
       userId: '',

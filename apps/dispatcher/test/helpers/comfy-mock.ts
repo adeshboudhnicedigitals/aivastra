@@ -367,7 +367,7 @@ export function startComfyMock(): Promise<ComfyMock> {
                 }
               : {
                   status: { status_str: 'success', completed: true, messages: [] },
-                  outputs: {
+                  outputs: opts.outputs ?? {
                     '10': { images: [{ filename: 'result.png', subfolder: '', type: 'output' }] },
                   },
                 };

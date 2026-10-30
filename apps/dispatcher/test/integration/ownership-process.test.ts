@@ -154,19 +154,25 @@ describe('owner process death', () => {
       expect(await jobRow(job.id)).toMatchObject({ status: 'PREPROCESSING', attempts: 0 });
       expect(posts).toBe(0);
 
+      // The dead owner's parked upload is gone; the replacement's own uploads must not park.
+      uploadGate = null;
       // Lease expiry is simulated on Postgres time; waiting the real 30s adds no coverage.
       await env.db.execute(
         sql`update dispatcher_job_control set lease_until = clock_timestamp() - interval '1 second' where job_id = ${job.id}`,
       );
+      // Nothing had been submitted, so the replacement restarts the job under generation 2
+      // (Phase D) instead of failing it as a crash. The fixture worker then fails the prompt,
+      // which is the one counted failure.
       await replacementProcess(job.id, user.id, id);
       expect(await jobRow(job.id)).toMatchObject({ status: 'QUEUED', attempts: 1 });
       expect(await control(job.id)).toMatchObject({ generation: 2, owner_retired: true });
-      expect(posts).toBe(0);
+      expect(posts).toBe(1);
     }, 60_000);
 
-    it(`${signal} after acceptance: same policy, and the accepted attempt is marked FAILED when requeued`, async () => {
+    it(`${signal} after acceptance: the replacement adopts the running prompt and completes it with no second POST`, async () => {
       comfy.setOptions({
-        fail: true,
+        // The seeded template's result node.
+        outputs: { '4': { images: [{ filename: 'result.png', subfolder: '', type: 'output' }] } },
         completionDelayMs: 60_000,
         onRequest: async (method, path) => {
           if (method === 'POST' && path === '/prompt') posts++;
@@ -184,9 +190,13 @@ describe('owner process death', () => {
       await env.db.execute(
         sql`update dispatcher_job_control set lease_until = clock_timestamp() - interval '1 second' where job_id = ${job.id}`,
       );
+      // The worker finishes the prompt the dead owner submitted; adoption must not POST again.
+      const accepted = comfy.accepted().at(-1);
+      if (!accepted) throw new Error('worker saw no prompt');
+      setTimeout(() => comfy.finishPrompt(accepted.promptId, 'success'), 500);
       await replacementProcess(job.id, user.id, id);
-      expect(await jobRow(job.id)).toMatchObject({ status: 'QUEUED', attempts: 1 });
-      expect(await attempts(job.id)).toEqual([{ state: 'FAILED', resolved: false }]);
+      expect(await jobRow(job.id)).toMatchObject({ status: 'COMPLETED', attempts: 0 });
+      expect((await attempts(job.id))[0]).toMatchObject({ resolved: true });
       expect(posts).toBe(1);
     }, 60_000);
   }

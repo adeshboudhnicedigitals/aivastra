@@ -111,6 +111,52 @@ export async function releaseWorkerIfToken(
   return released === 1;
 }
 
+// Hands a hold to the adopting owner. The hold is named by the attempt, so the dead owner's
+// session and generation need not be known: the same attempt re-keys, an absent hold is
+// re-established (and the worker marked BUSY so it cannot be claimed), and a hold that
+// belongs to a different attempt is never touched.
+const ADOPT_RESERVATION_LUA = `
+local held = redis.call('HGET', KEYS[2], ARGV[1])
+if held == ARGV[3] then return 'same' end
+if not held then
+  redis.call('HSET', KEYS[2], ARGV[1], ARGV[3])
+  local raw = redis.call('HGET', KEYS[1], ARGV[1])
+  if raw then
+    local ok, val = pcall(cjson.decode, raw)
+    if ok and val.status == 'IDLE' then
+      val.status = 'BUSY'
+      redis.call('HSET', KEYS[1], ARGV[1], cjson.encode(val))
+    end
+  end
+  return 'set'
+end
+local suffix = ':' .. ARGV[2]
+if string.sub(held, -string.len(suffix)) == suffix then
+  redis.call('HSET', KEYS[2], ARGV[1], ARGV[3])
+  return 'rekeyed'
+end
+return 'conflict'
+`;
+
+export type AdoptReservationResult = 'same' | 'set' | 'rekeyed' | 'conflict';
+
+export async function adoptWorkerReservation(
+  redis: Redis,
+  workerId: string,
+  attemptId: string,
+  newToken: string,
+): Promise<AdoptReservationResult> {
+  return (await redis.eval(
+    ADOPT_RESERVATION_LUA,
+    2,
+    REGISTRY_KEY,
+    RESERVATIONS_KEY,
+    workerId,
+    attemptId,
+    newToken,
+  )) as AdoptReservationResult;
+}
+
 export async function getReservations(redis: Redis): Promise<Map<string, string>> {
   return new Map(Object.entries(await redis.hgetall(RESERVATIONS_KEY)));
 }
