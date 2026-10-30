@@ -6,17 +6,18 @@ import { OnboardingLayout } from '../components/OnboardingLayout';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import { canShowPostBasketPage, getOnboardingStep, onboardingPath } from '../lib/onboarding';
+import { isValidPhone, PHONE_ERROR } from '../lib/phone';
 import type { ShopifyMe } from '../types';
 
-// Same shape the API accepts, so an address the form lets through is not
-// bounced by the server for a reason the merchant can't see.
+// Same shape the API accepts (phone: lib/phone.ts mirrors packages/types/src/phone.ts),
+// so a value the form lets through is not bounced by the server for a reason the
+// merchant can't see.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE_RE = /^[0-9+()\-.\s]*$/;
 
 /**
- * Onboarding's contact step: who to reach if something urgent comes up. Name and
- * email are required and prefilled from what Shopify gave us at install; phone is
- * optional. There is no skip — Continue is disabled until the required fields are
+ * Onboarding's contact step: who to reach if something urgent comes up. Name,
+ * email and phone are required and prefilled from what Shopify gave us at
+ * install. There is no skip — Continue is disabled until the required fields are
  * valid. The step is not part of the derived onboarding step (lib/onboarding.ts),
  * so a reload of a later page never sends the merchant back to it.
  */
@@ -44,7 +45,7 @@ export default function OnboardingContactPage({
 
   const nameError = name.trim() === '' ? 'Enter your name' : undefined;
   const emailError = !EMAIL_RE.test(email.trim()) ? 'Enter a valid email address' : undefined;
-  const phoneError = !PHONE_RE.test(phone) ? 'Use digits, spaces and + ( ) - . only' : undefined;
+  const phoneError = !isValidPhone(phone) ? PHONE_ERROR : undefined;
   const valid = !nameError && !emailError && !phoneError;
 
   const unchanged =
@@ -113,6 +114,7 @@ export default function OnboardingContactPage({
             />
             <TextField
               label="Phone Number"
+              requiredIndicator
               type="tel"
               autoComplete="tel"
               value={phone}
