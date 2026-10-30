@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
 import { cleanupComparisonReplay, schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
 import { keys } from '@aivastra/storage';
@@ -152,7 +153,34 @@ describe('comparison output finalization fence', () => {
   }
 
   const log = createLogger('test');
-  async function run(jobId: string, userId: string) {
+  // The requeue hands the original off atomically, so the message must really be pending
+  // under this host's consumer; a made-up id now correctly counts as already handed off.
+  async function deliver(jobId: string, userId: string) {
+    // ioredis does not prefix XGROUP's key, so spell the prefix out; BUSYGROUP means it exists.
+    await redis
+      .call(
+        'XGROUP',
+        'CREATE',
+        `comfy-stage1:${WORKER_ID}:jobs:normal`,
+        'dispatcher-cg',
+        '$',
+        'MKSTREAM',
+      )
+      .catch(() => undefined);
+    const id = (await redis.xadd('jobs:normal', '*', 'jobId', jobId, 'userId', userId)) as string;
+    await redis.xreadgroup(
+      'GROUP',
+      'dispatcher-cg',
+      hostname(),
+      'COUNT',
+      1,
+      'STREAMS',
+      'jobs:normal',
+      '>',
+    );
+    return id;
+  }
+  async function run(jobId: string, userId: string, messageId = `${Date.now()}-0`) {
     await processJob(
       {
         comfyRedis: redis,
@@ -166,7 +194,7 @@ describe('comparison output finalization fence', () => {
       jobId,
       userId,
       'jobs:normal',
-      `${Date.now()}-0`,
+      messageId,
     );
   }
   async function hasOutput(jobId: string) {
@@ -220,7 +248,7 @@ describe('comparison output finalization fence', () => {
   it('does not recreate outputs while cleanup owns the session lock', async () => {
     const s = await seedTryonDirectJob();
     await env.withAdvisoryLock(`workflow-comparison:output:${s.jobId}`, async () => {
-      await run(s.jobId, s.userId);
+      await run(s.jobId, s.userId, await deliver(s.jobId, s.userId));
       expect(await hasOutput(s.jobId)).toBe(false);
       const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, s.jobId));
       expect(job?.status).toBe('QUEUED');
