@@ -1,3 +1,19 @@
+## 2026-10-30 — Shopify simplification (branch feat/shopify-simplification, release 1)
+
+- **Done:**
+  - Single workflow: every Shopify try-on runs `config:system.shopifyWorkflowTemplateId` (top-level key, set on the admin Shopify workflow page). Funnel/basket/routing UI and API removed. A shim falls back to the one workflow shared by all active funnel templates. A replacement change request repoints the key after commit, and DELETE refuses the configured workflow. Onboarding page 1 is import-only with a progress bar; first completion sets activation to `global`.
+  - Contact phone is mandatory on onboarding page 2 (page and API, 7+ digits; shared rule in `packages/types/src/phone.ts`).
+  - Make Login Required replaces Make Email Required. It is enforced from Shopify's signed App Proxy `logged_in_customer_id`; direct widget-key requests are refused with `login_required`. Shopper email and phone come from the account or are asked in the widget. Migration 0239 adds `shopify_shoppers.phone`/`phone_captured_at`. A different customer on the same browser no longer inherits the previous contact data.
+  - Theme: the Try It On button is an app block (primary). The app embed is now a corner icon on the product's main image. The button gets the icon (`show_icon`). The theme step completes when the block is seen live (`themeButtonBlockSeen`). The icon asset is `assets/tryon-icon.png`; `jsdom` is a new devDependency of `apps/shopify`.
+- **Verified locally:** API typecheck, Shopify typecheck, API unit 1027/1027, Shopify app tests 89/89, Shopify integration suite green after fixes. Not browser-tested or run on a dev store.
+- **Not done:** release 2 (drop `shopify_funnel_templates`, `shopify_funnel_rules`, `shopify_store_disabled_funnel_rules`, `shopify_product_garments.funnel_*`; remove the shim and the funnel guards in workflows routes). Nothing deployed: `make shopify-deploy-staging` has not been run.
+- **Open / check on a dev store:**
+  - Whether new customer accounts send a non-null `logged_in_customer_id` (the login gate fails closed without it).
+  - Live stores that use the embed button will see it become an icon until the merchant adds the block; the tutorial screenshot is outdated.
+  - Analytics does not chart `refused_login_gate` / `refused_contact_gate` yet.
+  - Contact data is shopper-asserted; only the customer id is verified.
+  - The admin must choose the Shopify workflow before release 2.
+
 ## 2026-10-29 — Change 2a Phase B2: fenced settlement + cross-reason refund guard (PR into dev, for review)
 
 - **Why:** two bugs on `main` (found by review). (1) After an admin cancel, the dispatcher's widget and Shopify failure paths refunded again, because their already-refunded check looked only at `JOB_FAIL_REFUND` while the API cancel writes `REFUND_ADMIN_CANCEL`. (2) `terminateJob` rewrote a CANCELLED job to FAILED. Read-only production evidence (queries in the PR): 21 user jobs and 1 store job refunded twice (356 + 5 credits, 2026-05-24 → 09-30), and 120 jobs (2,125 credits, 2026-06-17 → 10-02) admin-refunded and then completed with an output, because the dispatcher overwrote CANCELLED with COMPLETED until about 10-02. None of the double refunds are after B1.
