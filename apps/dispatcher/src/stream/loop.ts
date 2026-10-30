@@ -1,6 +1,16 @@
 import type { Logger } from '@aivastra/logger';
 import type { ProcessorConfig } from '../job/processor.js';
 import { processJob } from '../job/processor.js';
+import { type Lane, laneOccupancy } from './lane-tickets.js';
+import {
+  kick,
+  maxParkedJobs,
+  type ParkedJob,
+  parkedCount,
+  registerLane,
+  resumeEnded,
+  unregisterLane,
+} from './parked.js';
 
 export const DISPATCHER_GROUP = 'dispatcher-cg';
 
@@ -40,7 +50,7 @@ export function parseMessage(stream: string, result: XReadGroupResult): StreamMe
 
 export interface StreamLoopOptions {
   /** Lane name, bound to every log line so the two loops are distinguishable. */
-  name: string;
+  name: Lane;
   /** Reads at most one message; checks isRunning before any further claims after an await. */
   read: (isRunning: () => boolean) => Promise<StreamMessage | null>;
   /** Current in-flight cap. Called on every slot check — implementations cache. */
@@ -61,16 +71,59 @@ export function runStreamLoop(
   const laneLog = log.child({ lane: opts.name });
   let running = true;
   let inFlight = 0;
+  // The last cap read, for the synchronous slot test a parked job's resume makes.
+  let knownConcurrency = 0;
 
   // Caps in-flight jobs so reads don't race ahead of capacity. Blocks indefinitely
   // while concurrency is 0, resuming automatically once capacity appears.
   async function waitForSlot(): Promise<void> {
     while (running) {
       const concurrency = await opts.getConcurrency();
-      if (inFlight < concurrency) return;
+      knownConcurrency = concurrency;
+      // Parked jobs hold no slot, but each costs a lease renewal and memory, so past MAX_PARKED
+      // nothing new is read and the messages stay in the stream.
+      // In-flight jobs count too: each may be about to park, and reads made while it does so
+      // would overshoot the bound.
+      if (parkedCount() + inFlight >= maxParkedJobs()) {
+        await new Promise((r) => setTimeout(r, 50));
+        continue;
+      }
+      // Recovery tickets occupy slots too: work a previous dispatcher left on a worker counts
+      // against the cap, so a fresh read cannot start new execution on top of it.
+      if (inFlight + laneOccupancy(opts.name) < concurrency) return;
       await new Promise((r) => setTimeout(r, 50));
     }
   }
+
+  // A parked job whose worker is free resumes through its lane, so it is counted against the
+  // cap like any other running job; it is started only while a slot is free.
+  registerLane(opts.name, {
+    tryStart(job: ParkedJob) {
+      if (!running) return false;
+      if (inFlight + laneOccupancy(opts.name) >= knownConcurrency) {
+        void opts.getConcurrency().then((c) => {
+          knownConcurrency = c;
+        });
+        return false;
+      }
+      inFlight++;
+      processJob(
+        { ...job.cfg, resumeOwner: job.owner },
+        job.jobId,
+        job.userId,
+        job.stream,
+        job.messageId,
+        job.retryCount,
+      )
+        .catch((err) => laneLog.error({ err, jobId: job.jobId }, 'resumed job failed'))
+        .finally(() => {
+          inFlight--;
+          resumeEnded(job.jobId);
+          kick();
+        });
+      return true;
+    },
+  });
 
   async function loop(): Promise<void> {
     while (running) {
@@ -90,6 +143,8 @@ export function runStreamLoop(
           .catch((err) => laneLog.error({ err, jobId }, 'job processing failed'))
           .finally(() => {
             inFlight--;
+            // A slot is free: a parked job that is ready to resume may be waiting for one.
+            kick();
           });
       } catch (err) {
         if (!running) break;
@@ -103,5 +158,6 @@ export function runStreamLoop(
 
   return () => {
     running = false;
+    unregisterLane(opts.name);
   };
 }

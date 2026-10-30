@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm';
 import { fetchPromptOutcome, uploadImageToComfy } from '../comfyui/client.js';
 import type { ProcessorConfig } from '../job/processor.js';
 import { submitRecordedPhase } from '../job/submission.js';
-import { releaseWorker } from '../worker/registry.js';
+import { releaseReservation, reserveWorker } from '../worker/reserve.js';
 import { selectWorker } from '../worker/selector.js';
 import { recordRecognition } from './record.js';
 import {
@@ -162,13 +162,21 @@ export async function processRecognitionRequest(
     }
   }
 
-  const worker = await selectWorker(cfg.redis, WORKER_POOL.CLASSIFY, undefined, { log }).catch(
-    (err) => {
-      log.warn({ err }, 'classify worker selection failed');
-      return null;
-    },
-  );
-  if (!worker) return finish(null, 'no_worker', { workflowTemplateId: template.id });
+  // Classify keeps no durable reservation (plan §9): the attempt row is intent evidence only,
+  // and the hold carries a transient token so its release cannot free a paid job's hold.
+  const reservation = await reserveWorker({
+    db: cfg.db,
+    redis: cfg.redis,
+    requestId: request.requestId,
+    phase: 'classify',
+    log,
+    select: (token) => selectWorker(cfg.redis, WORKER_POOL.CLASSIFY, undefined, { log, token }),
+  }).catch((err) => {
+    log.warn({ err }, 'classify worker selection failed');
+    return null;
+  });
+  if (!reservation) return finish(null, 'no_worker', { workflowTemplateId: template.id });
+  const worker = reservation.worker;
 
   try {
     const bytes = await cfg.storage.getObject(request.garmentKey);
@@ -182,6 +190,7 @@ export async function processRecognitionRequest(
     );
     const prompt = buildClassifyPrompt(template, filename, request.options);
     const { promptId, attemptId } = await submitRecordedPhase({
+      attemptId: reservation.attemptId,
       db: cfg.db,
       requestId: request.requestId,
       phase: 'classify',
@@ -236,6 +245,9 @@ export async function processRecognitionRequest(
     log.warn({ err, workerId: worker.id }, 'classify request failed');
     return finish(null, 'failed', { workerId: worker.id, workflowTemplateId: template.id });
   } finally {
-    await releaseWorker(cfg.redis, worker.id, log);
+    await releaseReservation(
+      { db: cfg.db, redis: cfg.redis, uncertainCheckMs: 90_000, log },
+      reservation,
+    );
   }
 }

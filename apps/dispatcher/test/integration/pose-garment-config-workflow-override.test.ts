@@ -5,9 +5,10 @@ import { and, eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { processJob } from '../../src/job/processor.js';
-import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { forceIdle } from '../helpers/workers.js';
 
 const WORKER_ID = 'test-worker-pose-garment-config-override';
 
@@ -29,7 +30,7 @@ describe('dispatcher — pose_garment_configs workflow override (non-snapshot st
     comfy = await startComfyMock();
 
     await registerWorkers(redis, [{ id: WORKER_ID, url: comfy.url, apiKey: 'test-key' }]);
-    await redis.setex(`worker:health:${WORKER_ID}`, 30, '1');
+    await redis.setex(`worker:health:${WORKER_ID}`, 120, '1');
   }, 60_000);
 
   afterAll(async () => {
@@ -42,7 +43,7 @@ describe('dispatcher — pose_garment_configs workflow override (non-snapshot st
 
   beforeEach(async () => {
     comfy.setOptions({});
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
   });
 
   function workflowFields(

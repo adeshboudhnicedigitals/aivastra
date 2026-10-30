@@ -25,7 +25,8 @@ async function setup(mode: 'off' | 'observe' | 'active') {
       cacheExcludeThreshold: 5,
     }),
   );
-  await redis.del('worker:registry', 'worker:rr_cursor');
+  await redis.del('worker:registry', 'worker:rr_cursor', 'worker:reservations');
+  await redis.set('worker:admission', '1');
   for (const [id, mock] of [
     ['A', a],
     ['B', b],
@@ -75,7 +76,7 @@ describe('post-claim performance backoff', () => {
     control.disconnect();
   });
   it('ACTIVE releases and excludes a failed probe, writing a bounded TTL', async () => {
-    const worker = await selectWorker(redis, 'tryon', key);
+    const worker = await selectWorker(redis, 'tryon', key, { token: `t-${Math.random()}` });
     expect(worker?.id).toBe('B');
     expect(worker?.performance?.selectionMode).toBe('active');
     expect(await redis.pttl('worker:probe-backoff:A')).toBeGreaterThan(15_000);
@@ -84,9 +85,9 @@ describe('post-claim performance backoff', () => {
   });
   it('OFF/OBSERVE route identically after failed probes and OBSERVE writes no backoff', async () => {
     await setup('off');
-    const off = await selectWorker(redis, 'tryon', key);
+    const off = await selectWorker(redis, 'tryon', key, { token: `t-${Math.random()}` });
     await setup('observe');
-    const observe = await selectWorker(redis, 'tryon', key);
+    const observe = await selectWorker(redis, 'tryon', key, { token: `t-${Math.random()}` });
     expect(observe?.id).toBe(off?.id);
     expect(await redis.exists('worker:probe-backoff:A', 'worker:probe-backoff:B')).toBe(0);
     expect(await control.exists('worker:probe-backoff:A', 'worker:probe-backoff:B')).toBe(0);
@@ -100,7 +101,7 @@ describe('post-claim performance backoff', () => {
       'worker:rr_cursor',
       String((order.indexOf('A') - 1 + order.length) % order.length),
     );
-    const worker = await selectWorker(redis, 'tryon', key);
+    const worker = await selectWorker(redis, 'tryon', key, { token: `t-${Math.random()}` });
     expect(worker?.id).toBe('B');
     expect(worker?.performance?.selectionMode).toBe('observe');
     expect(await redis.exists('worker:probe-backoff:A', 'worker:probe-backoff:B')).toBe(0);
@@ -108,7 +109,9 @@ describe('post-claim performance backoff', () => {
   });
   it('health exclusion never writes probe backoff', async () => {
     await redis.del('worker:health:A');
-    expect((await selectWorker(redis, 'tryon', key))?.id).toBe('B');
+    expect((await selectWorker(redis, 'tryon', key, { token: `t-${Math.random()}` }))?.id).toBe(
+      'B',
+    );
     expect(await redis.exists('worker:probe-backoff:A')).toBe(0);
   });
 });

@@ -1,7 +1,8 @@
 import { createDb } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
-import { acquireComfyJob } from '../../src/job/ownership.js';
+import { Redis } from 'ioredis';
 import { settleComfyJob } from '../../src/job/settlement.js';
+import { acquireAndStart } from './acquire.js';
 
 // A real dispatcher-side process that owns a job and settles it as FAILED. The parent sets
 // SETTLE_TEST_GATE_POINT, so the settlement transaction parks on an advisory lock after one
@@ -15,7 +16,13 @@ const need = (name: string) => {
 const { db } = createDb(need('SETTLE_TEST_DATABASE_URL'));
 const log = createLogger('settle-child');
 const jobId = need('SETTLE_TEST_JOB_ID');
-const acquired = await acquireComfyJob(db, jobId, need('SETTLE_TEST_SESSION'), log);
+const acquired = await acquireAndStart(
+  db,
+  new Redis(need('SETTLE_TEST_REDIS_URL')),
+  jobId,
+  need('SETTLE_TEST_SESSION'),
+  log,
+);
 if (acquired.kind !== 'Acquired') throw new Error(`child did not acquire: ${acquired.kind}`);
 process.send?.({ acquired: true });
 await settleComfyJob(

@@ -22,7 +22,7 @@ const run = (changedFiles: string[], fallbackReason?: string) =>
     fallbackReason,
   });
 
-const ALL_SERVICES = ['admin', 'api', 'chatbot', 'dispatcher', 'shopify-admin', 'web'];
+const ALL_SERVICES = ['admin', 'api', 'chatbot', 'dispatcher', 'shopify-admin', 'support', 'web'];
 
 describe('documentation changes', () => {
   it('classifies a docs-only change as docsOnly with no services', () => {

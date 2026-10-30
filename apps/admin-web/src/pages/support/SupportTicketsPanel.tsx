@@ -1,0 +1,1323 @@
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { ImageLightbox } from '../../components/ImageLightbox';
+import { SearchableSelect } from '../../components/SearchableSelect';
+import { useCloseOverlay } from '../../hooks/use-close-overlay';
+import { useUrlState } from '../../hooks/use-url-state';
+import type { ChatMessageT, WsAgentFrameT, WsServerFrameT } from '../../lib/chatws';
+import { connectAgentWs, fetchChatbot } from '../../lib/chatws';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
+
+// This panel mirrors ChatInboxPage's design and ticket workflow (same tabs, row
+// layout, badges, message bubbles, claim/resolve/close actions) so Support has
+// full feature parity rather than a stripped-down monitoring view — it calls
+// the exact same admin chatbot endpoints ChatInboxPage does, nothing new.
+
+// Renders the light markdown subset the bot model emits (**bold**, numbered/bulleted
+// lists) — mirrors apps/catalogues-web/src/components/chat-widget.tsx so agents see the
+// same formatting a user sees, without pulling in a markdown library for one widget.
+function renderInline(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+  return parts.map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') ? (
+      // biome-ignore lint/suspicious/noArrayIndexKey: static text-parse output, never reordered
+      <strong key={i}>{part.slice(2, -2)}</strong>
+    ) : (
+      // biome-ignore lint/suspicious/noArrayIndexKey: static text-parse output, never reordered
+      <Fragment key={i}>{part}</Fragment>
+    ),
+  );
+}
+
+function renderMessageContent(content: string) {
+  const lines = content.split('\n');
+  const blocks: React.ReactNode[] = [];
+  let list: { ordered: boolean; items: string[] } | null = null;
+
+  const flushList = () => {
+    if (!list) return;
+    const Tag = list.ordered ? 'ol' : 'ul';
+    blocks.push(
+      <Tag key={blocks.length} style={{ margin: '4px 0', paddingLeft: '20px' }}>
+        {list.items.map((item, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: static text-parse output, never reordered
+          <li key={i}>{renderInline(item)}</li>
+        ))}
+      </Tag>,
+    );
+    list = null;
+  };
+
+  for (const line of lines) {
+    const ordered = line.match(/^\s*\d+\.\s+(.*)/);
+    const bulleted = line.match(/^\s*[-*]\s+(.*)/);
+    if (ordered) {
+      if (!list?.ordered) {
+        flushList();
+        list = { ordered: true, items: [] };
+      }
+      list.items.push(ordered[1] ?? '');
+    } else if (bulleted) {
+      if (!list || list.ordered) {
+        flushList();
+        list = { ordered: false, items: [] };
+      }
+      list.items.push(bulleted[1] ?? '');
+    } else {
+      flushList();
+      if (line.trim()) blocks.push(<div key={blocks.length}>{renderInline(line)}</div>);
+    }
+  }
+  flushList();
+  return blocks;
+}
+
+function timeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return 'now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d`;
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function formatRaisedAt(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? 'Unknown'
+    : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function statusBadgeClass(status: string | null): string {
+  switch (status) {
+    case 'OPEN':
+      return 'badge info';
+    case 'IN_PROGRESS':
+      return 'badge accent';
+    case 'RESOLVED':
+      return 'badge success';
+    default:
+      return 'badge';
+  }
+}
+
+// Mirrors the row shape GET /admin/chatbot/conversations already returns
+// (see apps/api/src/modules/admin/chatbot.routes.ts) — same fields
+// ChatInboxPage's own ConvRow uses.
+interface ConvRow {
+  id: string;
+  userId: string;
+  status: string;
+  category: string | null;
+  priority: string;
+  subject: string | null;
+  lastMessageAt: string;
+  createdAt: string;
+  userEmail: string;
+  userName: string | null;
+  userPhone: string | null;
+  userCompany: string | null;
+  agentName: string | null;
+  agentEmail: string | null;
+  shopifyStoreId: string | null;
+  shopDomain: string | null;
+  shopName: string | null;
+  shopOwnerName: string | null;
+  shopEmail: string | null;
+  shopPhone: string | null;
+  shopAddress: string | null;
+}
+
+// Same browser-local read-tracking key ChatInboxPage uses — sharing it means
+// "seen" state stays consistent whichever of the two pages an admin opens a
+// ticket from, since it's the same underlying ticket set either way.
+const SEEN_STORAGE_KEY = 'aivastra-chat-inbox-seen-at';
+
+function loadSeenMap(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(SEEN_STORAGE_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveSeenMap(map: Record<string, string>): void {
+  try {
+    localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // Storage can throw (private browsing, quota) — this is a convenience, drop it.
+  }
+}
+
+function isUnread(c: ConvRow, seenMap: Record<string, string>): boolean {
+  const seenAt = seenMap[c.id];
+  return !seenAt || new Date(c.lastMessageAt).getTime() > new Date(seenAt).getTime();
+}
+
+const CATEGORY_OPTIONS = ['billing', 'bug', 'order', 'account', 'other'] as const;
+const PRIORITY_OPTIONS = ['low', 'normal', 'high', 'urgent'] as const;
+const PRIORITY_COLOR: Record<string, string> = {
+  urgent: 'var(--danger)',
+  high: 'var(--warn)',
+  normal: 'var(--muted-2)',
+  low: 'var(--muted-2)',
+};
+
+interface Props {
+  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+  onNav: (_page: string) => void;
+}
+
+export default function SupportTicketsPanel({ toast, onNav }: Props) {
+  const [queue, setQueue] = useState<ConvRow[]>([]);
+  const [claimed, setClaimed] = useState<ConvRow[]>([]);
+  const [myTickets, setMyTickets] = useState<ConvRow[]>([]);
+  const [resolvedTickets, setResolvedTickets] = useState<ConvRow[]>([]);
+  const [closedTickets, setClosedTickets] = useState<ConvRow[]>([]);
+  const [onDuty, setOnDuty] = useState(false);
+  const [activeTab, setActiveTab] = useState<
+    'unclaimed' | 'claimed' | 'mine' | 'resolved' | 'closed'
+  >('unclaimed');
+  const [search, setSearch] = useState('');
+  const [selectedConv, setSelectedConv] = useUrlState('conv');
+  const closeConv = useCloseOverlay(['conv']);
+  const [messages, setMessages] = useState<ChatMessageT[]>([]);
+  const [messagesConvId, setMessagesConvId] = useState<string | null>(null);
+  const [resolvedConvId, setResolvedConvId] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [selectedMeta, setSelectedMeta] = useState<{
+    userId: string;
+    userEmail: string;
+    userName: string | null;
+    userPhone: string | null;
+    userCompany: string | null;
+    agentName: string | null;
+    agentEmail: string | null;
+    shopifyStoreId: string | null;
+    shopDomain: string | null;
+    shopName: string | null;
+    shopOwnerName: string | null;
+    shopEmail: string | null;
+    shopPhone: string | null;
+    shopAddress: string | null;
+  } | null>(null);
+  const [seenMap, setSeenMap] = useState<Record<string, string>>(() => loadSeenMap());
+  const [input, setInput] = useState('');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [showTicketDetails, setShowTicketDetails] = useState(false);
+  const [typing, setTyping] = useState<string | null>(null);
+  const [wsReady, setWsReady] = useState(false);
+  const [fields, setFields] = useState<{ subject: string; category: string; priority: string }>({
+    subject: '',
+    category: '',
+    priority: 'normal',
+  });
+  const wsRef = useRef<ReturnType<typeof connectAgentWs> | null>(null);
+  const selectedRef = useRef(selectedConv);
+  selectedRef.current = selectedConv;
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const markSeen = useCallback((id: string, at: string) => {
+    setSeenMap((prev) => {
+      if (prev[id] && new Date(prev[id]).getTime() >= new Date(at).getTime()) return prev;
+      const next = { ...prev, [id]: at };
+      saveSeenMap(next);
+      return next;
+    });
+  }, []);
+
+  const load = useCallback(async () => {
+    const [q, c, m, r, cl, d] = await Promise.all([
+      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=OPEN'),
+      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=IN_PROGRESS'),
+      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=IN_PROGRESS&mine=true'),
+      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=RESOLVED'),
+      apiFetch<{ rows: ConvRow[] }>('/admin/chatbot/conversations?status=CLOSED'),
+      apiFetch<{ on: boolean }>('/admin/chatbot/duty'),
+    ]);
+    setQueue(q.rows);
+    setClaimed(c.rows);
+    setMyTickets(m.rows);
+    setResolvedTickets(r.rows);
+    setClosedTickets(cl.rows);
+    setOnDuty(d.on);
+  }, []);
+
+  useEffect(() => {
+    void load();
+    wsRef.current = connectAgentWs(
+      (f: WsServerFrameT) => {
+        const cur = selectedRef.current;
+        if (f.type === 'message' && cur && f.message.conversationId === cur) {
+          setMessages((m) => [...m, f.message]);
+          markSeen(cur, f.message.createdAt);
+        } else if (f.type === 'state_change') {
+          if (f.conversationId === cur) setStatus(f.status);
+          void load();
+        } else if (f.type === 'queue_update') {
+          void load();
+        } else if (f.type === 'typing' && f.conversationId === cur) {
+          setTyping(f.role);
+          setTimeout(() => setTyping(null), 4000);
+        }
+      },
+      (connected) => {
+        setWsReady(connected);
+        if (connected) void load();
+      },
+    );
+    return () => {
+      wsRef.current?.close();
+    };
+  }, [load, markSeen]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: needed to trigger scroll on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
+    if (!selectedConv || messagesConvId === selectedConv) return;
+    let cancelled = false;
+    (async () => {
+      const msgs = await fetchChatbot<{ messages: ChatMessageT[] }>(
+        `/conversations/${selectedConv}/messages?limit=100`,
+      );
+      if (!cancelled) {
+        setMessages(msgs.messages);
+        setMessagesConvId(selectedConv);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedConv, messagesConvId]);
+
+  useEffect(() => {
+    if (!selectedConv || resolvedConvId === selectedConv) return;
+    const conv = [...queue, ...claimed, ...myTickets, ...resolvedTickets, ...closedTickets].find(
+      (c) => c.id === selectedConv,
+    );
+    if (!conv) return;
+    setStatus(conv.status);
+    setFields({
+      subject: conv.subject ?? '',
+      category: conv.category ?? '',
+      priority: conv.priority,
+    });
+    setSelectedMeta({
+      userId: conv.userId,
+      userEmail: conv.userEmail,
+      userName: conv.userName,
+      userPhone: conv.userPhone,
+      userCompany: conv.userCompany,
+      agentName: conv.agentName,
+      agentEmail: conv.agentEmail,
+      shopifyStoreId: conv.shopifyStoreId,
+      shopDomain: conv.shopDomain,
+      shopName: conv.shopName,
+      shopOwnerName: conv.shopOwnerName,
+      shopEmail: conv.shopEmail,
+      shopPhone: conv.shopPhone,
+      shopAddress: conv.shopAddress,
+    });
+    setResolvedConvId(selectedConv);
+    markSeen(selectedConv, conv.lastMessageAt);
+  }, [
+    selectedConv,
+    queue,
+    claimed,
+    myTickets,
+    resolvedTickets,
+    closedTickets,
+    resolvedConvId,
+    markSeen,
+  ]);
+
+  useEffect(() => {
+    if (!selectedConv || !wsReady) return;
+    wsRef.current?.send({ type: 'join', conversationId: selectedConv } as WsAgentFrameT);
+  }, [selectedConv, wsReady]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedConv is the trigger, not a value read in the body
+  useEffect(() => {
+    setShowTicketDetails(false);
+  }, [selectedConv]);
+
+  async function claim(id: string) {
+    try {
+      await apiFetch(`/admin/chatbot/conversations/${id}/claim`, { method: 'POST' });
+      toast({ title: 'Answered' });
+      void load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to answer conversation',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  }
+
+  async function endConv(id: string) {
+    try {
+      await apiFetch(`/admin/chatbot/conversations/${id}/end`, { method: 'POST' });
+      toast({ title: 'Closed' });
+      closeConv();
+      void load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to close conversation',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  }
+
+  async function resolveConv(id: string) {
+    try {
+      await apiFetch(`/admin/chatbot/conversations/${id}/resolve`, { method: 'POST' });
+      toast({ title: 'Resolved' });
+      void load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to resolve',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  }
+
+  async function updateFields(
+    id: string,
+    updates: { subject?: string; category?: string; priority?: string },
+  ) {
+    try {
+      await apiFetch(`/admin/chatbot/conversations/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      });
+      void load();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update ticket',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  }
+
+  async function toggleDuty() {
+    try {
+      const r = await apiFetch<{ on: boolean }>('/admin/chatbot/duty', {
+        method: 'POST',
+        body: JSON.stringify({ on: !onDuty }),
+      });
+      setOnDuty(r.on);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to toggle duty',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    }
+  }
+
+  function sendMsg() {
+    if (!input.trim() || !selectedConv || status !== 'IN_PROGRESS') return;
+    wsRef.current?.send({
+      type: 'message',
+      conversationId: selectedConv,
+      content: input,
+    } as WsAgentFrameT);
+    setInput('');
+  }
+
+  const byRecency = (a: ConvRow, b: ConvRow) =>
+    new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
+  const q = search.trim().toLowerCase();
+  const matchesSearch = (c: ConvRow) =>
+    !q || c.userEmail.toLowerCase().includes(q) || (c.subject ?? '').toLowerCase().includes(q);
+  const sortedQueue = [...queue].sort(byRecency).filter(matchesSearch);
+  const sortedClaimed = [...claimed].sort(byRecency).filter(matchesSearch);
+  const sortedMine = [...myTickets].sort(byRecency).filter(matchesSearch);
+  const sortedResolved = [...resolvedTickets].sort(byRecency).filter(matchesSearch);
+  const sortedClosed = [...closedTickets].sort(byRecency).filter(matchesSearch);
+  const list =
+    activeTab === 'unclaimed'
+      ? sortedQueue
+      : activeTab === 'claimed'
+        ? sortedClaimed
+        : activeTab === 'mine'
+          ? sortedMine
+          : activeTab === 'resolved'
+            ? sortedResolved
+            : sortedClosed;
+  const selectedConversation = [
+    ...queue,
+    ...claimed,
+    ...myTickets,
+    ...resolvedTickets,
+    ...closedTickets,
+  ].find((c) => c.id === selectedConv);
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: 'calc(100vh - 210px)',
+        maxHeight: 'calc(100vh - 210px)',
+        overflow: 'hidden',
+        gap: 12,
+      }}
+    >
+      <div className="page-head" style={{ flexShrink: 0 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>Tickets</h2>
+          <div className="lede" style={{ margin: '2px 0 0' }}>
+            Replies from Contact Us, the Support form and the live chat widget land here.
+          </div>
+        </div>
+        <button
+          className="btn"
+          onClick={toggleDuty}
+          title={
+            onDuty
+              ? 'You can answer new tickets. Click to go offline.'
+              : 'Go online to start answering new tickets.'
+          }
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: onDuty ? 'var(--success)' : 'var(--muted-2)',
+              display: 'inline-block',
+            }}
+          />
+          {onDuty ? 'Online' : 'Offline'}
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0 }}>
+        {/* Conversation list */}
+        <div
+          style={{
+            width: 480,
+            flexShrink: 0,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--r-lg)',
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ padding: '10px 12px 0', flexShrink: 0 }}>
+            <input
+              className="input"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by email or subject…"
+              style={{ fontSize: 13, padding: '7px 10px' }}
+            />
+          </div>
+          <div
+            className="tabs"
+            style={{ margin: '10px 12px 0', flexShrink: 0, flexWrap: 'nowrap' }}
+          >
+            {(
+              [
+                ['unclaimed', 'Unclaimed', queue.length],
+                ['claimed', 'Answered', claimed.length],
+                ['mine', 'My tickets', myTickets.length],
+                ['resolved', 'Resolved', resolvedTickets.length],
+                ['closed', 'Closed', closedTickets.length],
+              ] as const
+            ).map(([key, label, n]) => (
+              <button
+                key={key}
+                className={`tab ${activeTab === key ? 'active' : ''}`}
+                onClick={() => setActiveTab(key)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '9px 8px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {label}
+                <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
+                  {n}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+            {list.length === 0 ? (
+              <div className="empty" style={{ padding: '32px 16px' }}>
+                {search
+                  ? 'No tickets match your search.'
+                  : activeTab === 'unclaimed'
+                    ? 'No unclaimed tickets. You’re all caught up.'
+                    : activeTab === 'claimed'
+                      ? 'No tickets answered right now.'
+                      : activeTab === 'mine'
+                        ? 'You have no tickets assigned yet.'
+                        : activeTab === 'resolved'
+                          ? 'No resolved tickets yet.'
+                          : 'No closed tickets yet.'}
+              </div>
+            ) : (
+              list.map((c) => {
+                const unread = isUnread(c, seenMap);
+                return (
+                  <div
+                    key={c.id}
+                    className={`chat-row ${selectedConv === c.id ? 'active' : ''}`}
+                    onClick={() => setSelectedConv(c.id)}
+                  >
+                    <div className="chat-avatar">
+                      {(c.userEmail || '?').charAt(0).toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {unread && (
+                          <span
+                            title="Unread"
+                            style={{
+                              width: 7,
+                              height: 7,
+                              borderRadius: '50%',
+                              background: 'var(--accent)',
+                              flexShrink: 0,
+                            }}
+                          />
+                        )}
+                        <span
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            fontSize: 13,
+                            fontWeight: unread ? 700 : 500,
+                            color: 'var(--ink)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {c.shopDomain ? c.shopName || c.shopDomain : c.userEmail}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: unread ? 'var(--accent)' : 'var(--muted-2)',
+                            fontWeight: unread ? 600 : 400,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {timeAgo(c.lastMessageAt)}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: unread ? 'var(--ink-2)' : 'var(--muted)',
+                          fontWeight: unread ? 500 : 400,
+                          marginTop: 2,
+                          marginLeft: unread ? 13 : 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {c.subject || 'No subject'}
+                      </div>
+                      <div
+                        title={c.createdAt}
+                        style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 3 }}
+                      >
+                        Raised {formatRaisedAt(c.createdAt)}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                        <span
+                          title={`Priority: ${c.priority}`}
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            background: PRIORITY_COLOR[c.priority] ?? 'var(--muted-2)',
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span className="badge accent" style={{ fontSize: 11, padding: '1px 7px' }}>
+                          {c.shopDomain ? 'Shopify' : 'Web'}
+                        </span>
+                        {c.category && (
+                          <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
+                            {c.category}
+                          </span>
+                        )}
+                        {activeTab === 'unclaimed' ? (
+                          <button
+                            className="btn sm primary"
+                            style={{ marginLeft: 'auto', padding: '3px 10px', fontSize: 11 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              claim(c.id);
+                            }}
+                          >
+                            Answer
+                          </button>
+                        ) : (
+                          <span
+                            className={statusBadgeClass(c.status)}
+                            style={{ marginLeft: 'auto', fontSize: 11, padding: '1px 7px' }}
+                          >
+                            {c.status}
+                          </span>
+                        )}
+                      </div>
+                      {activeTab !== 'unclaimed' && (c.agentName || c.agentEmail) && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: 'var(--muted)',
+                            marginTop: 4,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          Answered by {c.agentName || c.agentEmail}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Conversation pane */}
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--r-lg)',
+            overflow: 'hidden',
+          }}
+        >
+          {selectedConv ? (
+            <>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '12px 16px',
+                  borderBottom: '1px solid var(--border)',
+                  flexShrink: 0,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div className="chat-avatar" style={{ width: 32, height: 32, fontSize: 12 }}>
+                  {(
+                    (selectedMeta?.shopDomain
+                      ? selectedMeta.shopName || selectedMeta.shopDomain
+                      : selectedMeta?.userEmail) || '?'
+                  )
+                    .charAt(0)
+                    .toUpperCase()}
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: 'var(--ink)',
+                    }}
+                  >
+                    <span
+                      style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      {selectedMeta?.shopDomain
+                        ? selectedMeta.shopName || selectedMeta.shopDomain
+                        : (selectedMeta?.userEmail ?? '—')}
+                    </span>
+                    {selectedMeta && (
+                      <span className="badge accent" style={{ fontSize: 11, padding: '1px 7px' }}>
+                        {selectedMeta.shopDomain ? 'Shopify' : 'Web'}
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--muted)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {fields.subject || 'No subject'}
+                  </div>
+                  {selectedConversation && (
+                    <div
+                      title={selectedConversation.createdAt}
+                      style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 2 }}
+                    >
+                      Raised {formatRaisedAt(selectedConversation.createdAt)}
+                    </div>
+                  )}
+                  {(selectedMeta?.agentName || selectedMeta?.agentEmail) && (
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: 'var(--muted)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Answered by {selectedMeta.agentName || selectedMeta.agentEmail}
+                      {selectedMeta.agentName && selectedMeta.agentEmail
+                        ? ` (${selectedMeta.agentEmail})`
+                        : ''}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                    STATUS
+                  </span>
+                  <span className={statusBadgeClass(status)}>{status}</span>
+                </div>
+                {status === 'OPEN' && (
+                  <button
+                    className="btn sm primary"
+                    style={{ marginLeft: 6 }}
+                    onClick={() => claim(selectedConv)}
+                  >
+                    Answer Ticket
+                  </button>
+                )}
+                {status === 'IN_PROGRESS' && (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn sm ghost" onClick={() => resolveConv(selectedConv)}>
+                      Resolve
+                    </button>
+                    <button className="btn sm ghost" onClick={() => endConv(selectedConv)}>
+                      Close
+                    </button>
+                  </div>
+                )}
+                <button
+                  className="btn sm ghost"
+                  onClick={() => setShowTicketDetails((v) => !v)}
+                  title="Ticket details (subject, category, priority)"
+                  aria-label="Toggle ticket details"
+                  aria-expanded={showTicketDetails}
+                  style={{ padding: '6px 8px' }}
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    style={{ width: 16, height: 16, display: 'block' }}
+                  >
+                    <circle cx="8" cy="3.2" r="0.9" fill="currentColor" stroke="none" />
+                    <circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none" />
+                    <circle cx="8" cy="12.8" r="0.9" fill="currentColor" stroke="none" />
+                  </svg>
+                </button>
+              </div>
+
+              {selectedMeta?.shopDomain && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    padding: '10px 16px',
+                    borderBottom: '1px solid var(--border)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                      SHOPIFY STORE
+                    </span>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <a
+                        href={`https://${selectedMeta.shopDomain}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--accent)',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        Visit store ↗
+                      </a>
+                      <button
+                        type="button"
+                        className="link"
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--accent)',
+                          textDecoration: 'underline',
+                          background: 'none',
+                          border: 0,
+                          padding: 0,
+                          cursor: 'pointer',
+                        }}
+                        onClick={() =>
+                          onNav(
+                            `shopify-stores?store=${encodeURIComponent(selectedMeta.shopifyStoreId ?? '')}`,
+                          )
+                        }
+                      >
+                        View in Shopify Stores
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                      gap: '4px 16px',
+                      fontSize: 12,
+                      color: 'var(--ink-2)',
+                    }}
+                  >
+                    <div>
+                      <span style={{ color: 'var(--muted)' }}>Domain: </span>
+                      {selectedMeta.shopDomain}
+                    </div>
+                    {selectedMeta.shopOwnerName && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Owner: </span>
+                        {selectedMeta.shopOwnerName}
+                      </div>
+                    )}
+                    {selectedMeta.shopEmail && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Email: </span>
+                        {selectedMeta.shopEmail}
+                      </div>
+                    )}
+                    {selectedMeta.shopPhone && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Phone: </span>
+                        {selectedMeta.shopPhone}
+                      </div>
+                    )}
+                    {selectedMeta.shopAddress && (
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <span style={{ color: 'var(--muted)' }}>Address: </span>
+                        {selectedMeta.shopAddress}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {selectedMeta && !selectedMeta.shopDomain && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    padding: '10px 16px',
+                    borderBottom: '1px solid var(--border)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                      USER
+                    </span>
+                    <button
+                      type="button"
+                      className="link"
+                      style={{
+                        fontSize: 12,
+                        color: 'var(--accent)',
+                        textDecoration: 'underline',
+                        background: 'none',
+                        border: 0,
+                        padding: 0,
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => onNav(`users?user=${encodeURIComponent(selectedMeta.userId)}`)}
+                    >
+                      View in Users
+                    </button>
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                      gap: '4px 16px',
+                      fontSize: 12,
+                      color: 'var(--ink-2)',
+                    }}
+                  >
+                    {selectedMeta.userName && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Name: </span>
+                        {selectedMeta.userName}
+                      </div>
+                    )}
+                    <div>
+                      <span style={{ color: 'var(--muted)' }}>Email: </span>
+                      {selectedMeta.userEmail}
+                    </div>
+                    {selectedMeta.userPhone && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Phone: </span>
+                        {selectedMeta.userPhone}
+                      </div>
+                    )}
+                    {selectedMeta.userCompany && (
+                      <div>
+                        <span style={{ color: 'var(--muted)' }}>Company: </span>
+                        {selectedMeta.userCompany}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {showTicketDetails && (
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 12,
+                    alignItems: 'flex-end',
+                    padding: '10px 16px',
+                    borderBottom: '1px solid var(--border)',
+                    flexShrink: 0,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div
+                    style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '2 1 200px' }}
+                  >
+                    <label
+                      htmlFor="support-ticket-subject"
+                      style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}
+                    >
+                      SUBJECT
+                    </label>
+                    <input
+                      id="support-ticket-subject"
+                      value={fields.subject}
+                      onChange={(e) => setFields((f) => ({ ...f, subject: e.target.value }))}
+                      onBlur={() => updateFields(selectedConv, { subject: fields.subject })}
+                      placeholder="No subject"
+                      style={{
+                        padding: '6px 10px',
+                        fontSize: 13,
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--r)',
+                        background: 'var(--bg)',
+                        color: 'var(--ink)',
+                      }}
+                    />
+                  </div>
+                  <div
+                    style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 140px' }}
+                  >
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                      CATEGORY
+                    </span>
+                    <SearchableSelect
+                      options={CATEGORY_OPTIONS.map((c) => ({ id: c, label: capitalize(c) }))}
+                      value={fields.category}
+                      onChange={(category) => {
+                        setFields((f) => ({ ...f, category }));
+                        updateFields(selectedConv, { category });
+                      }}
+                      emptyLabel="Uncategorized"
+                      ariaLabel="Ticket category"
+                    />
+                  </div>
+                  <div
+                    style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 120px' }}
+                  >
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                      PRIORITY
+                    </span>
+                    <SearchableSelect
+                      options={PRIORITY_OPTIONS.map((p) => ({ id: p, label: capitalize(p) }))}
+                      value={fields.priority}
+                      onChange={(priority) => {
+                        setFields((f) => ({ ...f, priority }));
+                        updateFields(selectedConv, { priority });
+                      }}
+                      ariaLabel="Ticket priority"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflowY: 'auto',
+                  padding: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                {messages.map((m, idx) => {
+                  if (m.role === 'system') {
+                    return (
+                      <div
+                        key={m.id}
+                        style={{
+                          alignSelf: 'center',
+                          maxWidth: '85%',
+                          textAlign: 'center',
+                          fontSize: 11.5,
+                          color: 'var(--muted)',
+                          background: 'var(--surface-2)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 999,
+                          padding: '4px 12px',
+                        }}
+                      >
+                        {m.content}
+                        <span style={{ color: 'var(--muted-2)', marginLeft: 6 }}>
+                          {new Date(m.createdAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                    );
+                  }
+                  const mine = m.role === 'agent';
+                  const prev = messages[idx - 1];
+                  const showLabel = !prev || prev.role !== m.role;
+                  return (
+                    <div
+                      key={m.id}
+                      style={{
+                        alignSelf: mine ? 'flex-end' : 'flex-start',
+                        maxWidth: '70%',
+                        marginTop: showLabel && idx > 0 ? 6 : 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          background: mine ? 'var(--accent-soft)' : 'var(--surface-2)',
+                          borderRadius: 'var(--r-lg)',
+                          padding: '8px 12px',
+                          fontSize: 13,
+                        }}
+                      >
+                        {showLabel && (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: 'var(--muted)',
+                              marginBottom: 2,
+                            }}
+                          >
+                            {mine ? 'You' : m.role === 'bot' ? 'Bot' : 'User'}
+                          </div>
+                        )}
+                        <div style={{ lineHeight: 1.5 }}>{renderMessageContent(m.content)}</div>
+                        {m.attachmentKey &&
+                          (!m.attachmentType || m.attachmentType.startsWith('image/') ? (
+                            // biome-ignore lint/performance/noImgElement: chatbot attachment preview, not a Next.js app
+                            <img
+                              src={`/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                              alt="attachment"
+                              style={{
+                                maxWidth: '100%',
+                                borderRadius: 6,
+                                marginTop: 4,
+                                cursor: 'zoom-in',
+                              }}
+                              onClick={() =>
+                                setPreviewUrl(
+                                  `/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey as string)}`,
+                                )
+                              }
+                            />
+                          ) : (
+                            <a
+                              href={`/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: 'inline-block',
+                                marginTop: 4,
+                                fontSize: 12,
+                                color: 'var(--accent)',
+                                textDecoration: 'underline',
+                              }}
+                            >
+                              View attachment
+                            </a>
+                          ))}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: 'var(--muted-2)',
+                          marginTop: 3,
+                          textAlign: mine ? 'right' : 'left',
+                        }}
+                      >
+                        {new Date(m.createdAt).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                {typing && (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--muted)',
+                      fontStyle: 'italic',
+                      padding: '4px 0',
+                    }}
+                  >
+                    {typing === 'user' ? 'User' : typing === 'agent' ? 'You' : 'Bot'} is typing…
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {status === 'IN_PROGRESS' ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    padding: '12px 16px',
+                    borderTop: '1px solid var(--border)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && sendMsg()}
+                    placeholder="Type a reply…"
+                    style={{
+                      flex: 1,
+                      padding: '10px 14px',
+                      fontSize: 13,
+                      border: '1px solid var(--border)',
+                      borderRadius: 999,
+                      background: 'var(--bg)',
+                      color: 'var(--ink)',
+                    }}
+                  />
+                  <button
+                    className="btn primary"
+                    onClick={sendMsg}
+                    disabled={!input.trim()}
+                    style={{ borderRadius: 999, padding: '10px 18px' }}
+                  >
+                    Send
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    padding: '12px 16px',
+                    borderTop: '1px solid var(--border)',
+                    flexShrink: 0,
+                    fontSize: 12,
+                    color: 'var(--muted)',
+                    textAlign: 'center',
+                  }}
+                >
+                  {status === 'OPEN'
+                    ? 'Answer this ticket to start replying.'
+                    : `This conversation is ${(status ?? '').toLowerCase()} — no further replies can be sent.`}
+                </div>
+              )}
+            </>
+          ) : (
+            <div
+              className="empty"
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <div className="ico">
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  style={{ width: 32, height: 32 }}
+                >
+                  <path d="M2 3h12v9H5l-3 2V3z" />
+                </svg>
+              </div>
+              Select a conversation to start chatting.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {previewUrl && <ImageLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />}
+    </div>
+  );
+}
