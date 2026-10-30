@@ -13,8 +13,16 @@ import { NO_MESSAGE_ID } from './delivery.js';
 // mid-flight.
 const IN_FLIGHT_SLA_MS = 15 * 60 * 1000;
 const IN_FLIGHT_STATES = ['PREPROCESSING', 'GENERATING', 'UPLOADING'];
-// Adoptions can wait on a running prompt, so only a few run at once.
-const ADOPT_PARALLEL = 3;
+// An adoption can wait minutes on a running prompt, so it runs in the background like a
+// recovered job: the tick never waits on it, and only a few run at once. The rest wait for the
+// next tick (a job already adopted holds a live lease, so a later tick skips it).
+const ADOPT_BACKGROUND_CAP = 3;
+const adopting = new Map<string, Promise<void>>();
+
+/** Resolves once every adoption the sweeper has started has finished (tests, shutdown). */
+export async function sweeperIdle(): Promise<void> {
+  while (adopting.size > 0) await Promise.allSettled([...adopting.values()]);
+}
 
 interface StuckJob {
   id: string;
@@ -28,6 +36,8 @@ interface StuckJob {
   liveOwner: boolean;
   /** Retries already spent (`jobs.attempts`). */
   attempts: number;
+  /** The lane the job was enqueued on; a requeue goes back to it. */
+  queueStream: string;
   /** A paid-Comfy job with an attempt record: what is running on its worker can be looked up. */
   hasAttempt: boolean;
 }
@@ -39,10 +49,11 @@ const SELECT_COLS = {
   shopifyStoreId: schema.jobs.shopifyStoreId,
   creditsCharged: schema.jobs.creditsCharged,
   params: schema.jobInputs.params,
+  attempts: schema.jobs.attempts,
+  queueStream: schema.jobs.queueStream,
+  hasAttempt: sql<boolean>`exists (select 1 from execution_attempts ea where ea.job_id = ${schema.jobs.id})`,
   // Postgres time, like every other lease comparison. A job with no control row
   // (in flight before ownership existed) is not live.
-  attempts: schema.jobs.attempts,
-  hasAttempt: sql<boolean>`exists (select 1 from execution_attempts ea where ea.job_id = ${schema.jobs.id})`,
   liveOwner: sql<boolean>`coalesce(not ${schema.dispatcherJobControl.ownerRetired}
     and ${schema.dispatcherJobControl.leaseUntil} > clock_timestamp(), false)`,
 };
@@ -93,7 +104,6 @@ export async function runSweeper(
     if (inFlight.length === 0) return;
     log.info({ inFlight: inFlight.length }, 'sweeping stuck jobs');
 
-    const toAdopt: StuckJob[] = [];
     for (const job of inFlight) {
       if (job.liveOwner) {
         log.info({ jobId: job.id }, 'sweeper skipping job with a live ownership lease');
@@ -103,15 +113,15 @@ export async function runSweeper(
       // Video jobs and jobs from before attempts were tracked have nothing to look up and
       // keep the age rule.
       if (cfg && job.hasAttempt) {
-        toAdopt.push(job);
+        if (adopting.has(job.id)) continue;
+        if (adopting.size >= ADOPT_BACKGROUND_CAP) {
+          log.info({ jobId: job.id }, 'sweeper adoption slots full — left for the next tick');
+          continue;
+        }
+        startAdoption(cfg, job, log);
         continue;
       }
       await failAndRefund(db, redis, pub, job, 'STUCK_IN_FLIGHT', log, session);
-    }
-    for (let i = 0; i < toAdopt.length; i += ADOPT_PARALLEL) {
-      await Promise.all(
-        toAdopt.slice(i, i + ADOPT_PARALLEL).map((job) => adopt(cfg as ProcessorConfig, job, log)),
-      );
     }
   } catch (err) {
     log.error({ err }, 'failed to sweep stuck jobs');
@@ -120,16 +130,25 @@ export async function runSweeper(
 
 /**
  * The same takeover, adoption and settlement path recovery uses, with no stream message behind
- * it: nothing to ACK, and a requeue appends a fresh message. A finished prompt is finalized, a
- * running one is waited on and settled when it ends, and only a real final failure is failed
- * and refunded, through settleComfyJob.
+ * it: nothing to ACK, and a requeue appends a fresh message. It runs as an ordinary owned job
+ * (lease renewed while it runs, generation retired on exit), in the background. A finished
+ * prompt is finalized, a running one is waited on and settled when it ends, and only a real
+ * final failure is failed and refunded, through settleComfyJob.
  */
-async function adopt(cfg: ProcessorConfig, job: StuckJob, log: Logger): Promise<void> {
-  try {
-    await processJob(cfg, job.id, job.userId ?? '', 'jobs:normal', NO_MESSAGE_ID, job.attempts);
-  } catch (err) {
-    log.error({ err, jobId: job.id }, 'sweeper adoption failed');
-  }
+function startAdoption(cfg: ProcessorConfig, job: StuckJob, log: Logger): void {
+  const run: Promise<void> = processJob(
+    cfg,
+    job.id,
+    job.userId ?? '',
+    `jobs:${job.queueStream}`,
+    NO_MESSAGE_ID,
+    job.attempts,
+  )
+    .catch((err) => log.error({ err, jobId: job.id }, 'sweeper adoption failed'))
+    .finally(() => {
+      adopting.delete(job.id);
+    });
+  adopting.set(job.id, run);
 }
 
 /**
