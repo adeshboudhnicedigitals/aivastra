@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { type DB, type DbTransaction, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
 import { dispatcherOwnershipEventsTotal } from '@aivastra/observability';
-import { and, eq, inArray, sql } from 'drizzle-orm';
-import { recordSubmissionOutcome } from './submission.js';
+import { and, eq, or, sql } from 'drizzle-orm';
+import { recordAttemptOutcome } from './submission.js';
 
 // A 30s lease renewed every 5s tolerates several missed ticks (GC pause, a slow
 // Postgres round trip) before a live process loses its jobs, yet a SIGKILLed one
@@ -233,16 +233,29 @@ export function untrackOwnedJob(owner: OwnerToken): void {
   }
 }
 
-/** Extends only live leases of jobs in flight here; an expired or retired lease is never revived. */
+/**
+ * Extends only live leases of jobs in flight here; an expired or retired lease is never revived.
+ *
+ * Matches on (job_id, generation) pairs, not job_id alone: an entry left over from an earlier
+ * generation of the same job (the retry that re-acquired it) must never extend the newer
+ * generation's lease.
+ */
 export async function renewLeases(db: DB, session: string): Promise<number> {
-  const ids = [...inFlight].filter(([, v]) => v.session === session).map(([jobId]) => jobId);
-  if (ids.length === 0) return 0;
+  const pairs = [...inFlight].filter(([, v]) => v.session === session);
+  if (pairs.length === 0) return 0;
   const rows = await db
     .update(schema.dispatcherJobControl)
     .set({ leaseUntil: LEASE_EXPIRY })
     .where(
       and(
-        inArray(schema.dispatcherJobControl.jobId, ids),
+        or(
+          ...pairs.map(([jobId, v]) =>
+            and(
+              eq(schema.dispatcherJobControl.jobId, jobId),
+              sql`${schema.dispatcherJobControl.generation} = ${v.generation}`,
+            ),
+          ),
+        ),
         eq(schema.dispatcherJobControl.ownerSession, session),
         eq(schema.dispatcherJobControl.ownerRetired, false),
         sql`${schema.dispatcherJobControl.leaseUntil} > clock_timestamp()`,
@@ -322,7 +335,7 @@ export async function yieldComfyJob(
         return 'terminal' as const;
       }
       await tx.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, owner.jobId));
-      if (patch.failedAttempt) await recordSubmissionOutcome(tx, owner.jobId, 'FAILED', log);
+      if (patch.failedAttempt) await recordAttemptOutcome(tx, owner.jobId, 'FAILED');
       await retireOwnership(tx, owner);
       return 'yielded' as const;
     });

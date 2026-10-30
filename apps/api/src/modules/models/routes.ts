@@ -8,6 +8,7 @@ import { AppError } from '../../lib/errors.js';
 import { getPixverseVideoPricingConfig } from '../../lib/resolution-config.js';
 import {
   listBackgrounds,
+  listBlouseCategories,
   listCatalogueTemplates,
   listFaces,
   listGarmentTypes,
@@ -149,13 +150,14 @@ export async function modelsRoutes(app: FastifyInstance) {
       schema: {
         querystring: z.object({
           gender: z.enum(['men', 'women', 'boys', 'girls']).optional(),
+          garmentTypeId: z.string().uuid().optional(),
         }),
       },
     },
     async (req) => {
-      const { gender } = req.query as { gender?: string };
+      const { gender, garmentTypeId } = req.query as { gender?: string; garmentTypeId?: string };
 
-      const rows = await listBackgrounds(app, gender);
+      const rows = await listBackgrounds(app, gender, garmentTypeId);
 
       return {
         items: await Promise.all(
@@ -265,5 +267,19 @@ export async function modelsRoutes(app: FastifyInstance) {
     },
     async (req) =>
       listCatalogueTemplates(app, req.query as { gender: string; garmentTypeId?: string }),
+  );
+
+  app.get(
+    '/v1/models/blouse-categories',
+    {
+      preHandler: app.requireUserOrCatalogApp,
+      schema: {
+        querystring: z.object({ garmentSubcategoryId: z.string().uuid().optional() }),
+      },
+    },
+    async (req) => {
+      const { garmentSubcategoryId } = req.query as { garmentSubcategoryId?: string };
+      return listBlouseCategories(app, garmentSubcategoryId);
+    },
   );
 }

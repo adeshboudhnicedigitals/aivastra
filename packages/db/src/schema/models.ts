@@ -559,6 +559,24 @@ export const modelFaceSubcategories = pgTable(
   }),
 );
 
+// Many-to-many: which garment subcategories a model background is scoped to. No rows
+// for a subcategory = opt-out (every active 'general' background is shown) — mirrors
+// modelFaceSubcategories's opt-out convention exactly.
+export const modelBackgroundSubcategories = pgTable(
+  'model_background_subcategories',
+  {
+    backgroundId: uuid('background_id')
+      .notNull()
+      .references(() => modelBackgrounds.id, { onDelete: 'cascade' }),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.backgroundId, table.subcategoryId] }),
+  }),
+);
+
 // Admin-curated body-type categories (Slim/Regular/Muscular/Plus Size, etc). Each body
 // type is admin-mapped to a set of garment types/faces/poses (see bodyTypeSubcategories,
 // bodyTypeFaces, bodyTypePoses below); selecting one in the studio wizard filters those
@@ -743,6 +761,71 @@ export const catalogueTemplatePoseWorkflows = pgTable(
       table.poseAssetId,
     ),
     mappingIdx: index('catalogue_template_pose_workflows_mapping_id_idx').on(table.mappingId),
+  }),
+);
+
+// Blouse feature — admin-curated catalog of selectable blouse design images,
+// grouped into categories. Structurally mirrors catalogueTemplates/
+// catalogueTemplateLooks/catalogueTemplateSubcategories (category contains
+// items, whole category maps to a garment type) rather than the item-level
+// catalog_types/catalog_items (lower/shoe/accessory) shape, because mapping
+// here is category-level: an admin maps a whole Blouse Category to Saree, not
+// individual blouse images. See docs/superpowers/specs/ for the design.
+export const blouseCategories = pgTable('blouse_categories', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  genderSlug: text('gender_slug'), // 'men' | 'women' | 'boys' | 'girls' — nullable, validated at zod layer
+  label: text('label').notNull(),
+  thumbnailKey: text('thumbnail_key'),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// A selectable blouse design image ("pose" in admin/shopper-facing copy) inside
+// a category — plain image items, not model_pose_assets pose+background pairs:
+// the user picks a blouse design, not a body pose.
+export const blousePoses = pgTable(
+  'blouse_poses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => blouseCategories.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    r2Key: text('r2_key').notNull(),
+    thumbnailKey: text('thumbnail_key'),
+    isActive: boolean('is_active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    categoryIdx: index('blouse_poses_category_id_idx').on(table.categoryId),
+  }),
+);
+
+// Category-to-garment-type mapping — whole Blouse Category mapped to a garment
+// type (e.g. Saree), mirroring catalogueTemplateSubcategories.
+export const blouseCategorySubcategories = pgTable(
+  'blouse_category_subcategories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => blouseCategories.id, { onDelete: 'cascade' }),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    uniqCategorySubcategory: unique('blouse_category_subcategories_category_subcategory_unique').on(
+      table.categoryId,
+      table.subcategoryId,
+    ),
+    subcategoryIdx: index('blouse_category_subcategories_subcategory_id_idx').on(
+      table.subcategoryId,
+    ),
   }),
 );
 

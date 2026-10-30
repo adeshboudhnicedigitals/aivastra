@@ -5,6 +5,7 @@ import type {
   CatalogCategory,
   CatalogItem,
   GarmentType,
+  ModelBackground,
   ModelFace,
   TryonCategory,
   WorkflowOption,
@@ -20,6 +21,7 @@ interface Props {
   garmentType: GarmentType;
   catalogItems: CatalogItem[];
   faces: ModelFace[];
+  backgrounds: ModelBackground[];
   tryonCategories: TryonCategory[];
   workflows: WorkflowOption[];
   onSaved: (patch: Record<string, unknown>) => void;
@@ -139,7 +141,10 @@ function PickerTile({
     >
       <button
         type="button"
-        onClick={onClick}
+        onClick={() => {
+          onClick();
+          onToggleBulk?.();
+        }}
         title={label}
         style={{
           display: 'flex',
@@ -769,10 +774,478 @@ function FacePicker({
   );
 }
 
+function BackgroundPicker({
+  gender,
+  backgrounds,
+  mappedIds,
+  onToggleMapped,
+  onBulkSetMapped,
+}: {
+  gender: string;
+  backgrounds: ModelBackground[];
+  mappedIds: Set<string>;
+  onToggleMapped: (id: string) => void;
+  onBulkSetMapped: (ids: string[], mapped: boolean) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'mapped' | 'unmapped'>('all');
+  const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
+
+  // 'general' only, same scope as GET /v1/models/backgrounds — 'template' backgrounds
+  // are managed only via their owning catalogue template. genderSlug null = shown for
+  // every gender.
+  const scoped = useMemo(
+    () =>
+      backgrounds.filter(
+        (b) =>
+          b.isActive && b.scope === 'general' && (b.genderSlug === null || b.genderSlug === gender),
+      ),
+    [backgrounds, gender],
+  );
+
+  const mappedCount = useMemo(
+    () => scoped.filter((b) => mappedIds.has(b.id)).length,
+    [scoped, mappedIds],
+  );
+  const unmappedCount = scoped.length - mappedCount;
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return scoped.filter((b) => {
+      const isMapped = mappedIds.has(b.id);
+      const matchesSearch = !q || b.label.toLowerCase().includes(q);
+      const matchesStatus =
+        statusFilter === 'all' ? true : statusFilter === 'mapped' ? isMapped : !isMapped;
+      return matchesSearch && matchesStatus;
+    });
+  }, [scoped, search, statusFilter, mappedIds]);
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+          padding: '10px 16px',
+          borderBottom: '1px solid var(--border)',
+        }}
+      >
+        <div className="search" style={{ width: 180 }}>
+          <Icon.Search />
+          <input
+            placeholder="Search backgrounds…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 2 }}>Show:</span>
+          <button
+            type="button"
+            className={`badge ${statusFilter === 'all' ? 'accent' : ''}`}
+            style={{ cursor: 'pointer', border: 'none' }}
+            onClick={() => setStatusFilter('all')}
+          >
+            All ({scoped.length})
+          </button>
+          <button
+            type="button"
+            className={`badge ${statusFilter === 'mapped' ? 'accent' : ''}`}
+            style={{ cursor: 'pointer', border: 'none' }}
+            onClick={() => setStatusFilter('mapped')}
+          >
+            Mapped ({mappedCount})
+          </button>
+          <button
+            type="button"
+            className={`badge ${statusFilter === 'unmapped' ? 'accent' : ''}`}
+            style={{ cursor: 'pointer', border: 'none' }}
+            onClick={() => setStatusFilter('unmapped')}
+          >
+            Unmapped ({unmappedCount})
+          </button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 16px',
+          background: 'var(--surface-2)',
+          borderBottom: '1px solid var(--border)',
+          fontSize: 12,
+        }}
+      >
+        <button
+          type="button"
+          className="btn xs ghost"
+          onClick={() => {
+            const visibleIds = filtered.map((b) => b.id);
+            const allSelected =
+              visibleIds.length > 0 && visibleIds.every((id) => selectedBulkIds.includes(id));
+            setSelectedBulkIds(
+              allSelected
+                ? selectedBulkIds.filter((id) => !visibleIds.includes(id))
+                : Array.from(new Set([...selectedBulkIds, ...visibleIds])),
+            );
+          }}
+        >
+          {filtered.length > 0 && filtered.every((b) => selectedBulkIds.includes(b.id))
+            ? 'Deselect visible'
+            : 'Select all visible'}
+        </button>
+        {selectedBulkIds.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="btn xs danger"
+              onClick={() => {
+                onBulkSetMapped(selectedBulkIds, false);
+                setSelectedBulkIds([]);
+              }}
+            >
+              <Icon.Trash /> Unmap selected ({selectedBulkIds.length})
+            </button>
+            <button
+              type="button"
+              className="btn xs"
+              onClick={() => {
+                onBulkSetMapped(selectedBulkIds, true);
+                setSelectedBulkIds([]);
+              }}
+            >
+              Map selected ({selectedBulkIds.length})
+            </button>
+            <button type="button" className="btn xs ghost" onClick={() => setSelectedBulkIds([])}>
+              Clear
+            </button>
+          </>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>
+          {filtered.length} visible
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))',
+          gap: 10,
+          padding: 16,
+          maxHeight: 300,
+          overflowY: 'auto',
+        }}
+      >
+        {filtered.map((b) => {
+          const isBackgroundMapped = mappedIds.has(b.id);
+          return (
+            <PickerTile
+              key={b.id}
+              selected={false}
+              isMapped={isBackgroundMapped}
+              isBulkSelected={selectedBulkIds.includes(b.id)}
+              onToggleBulk={() => {
+                setSelectedBulkIds((prev) =>
+                  prev.includes(b.id) ? prev.filter((id) => id !== b.id) : [...prev, b.id],
+                );
+              }}
+              onToggleMapped={() => onToggleMapped(b.id)}
+              label={b.label}
+              onClick={() => onToggleMapped(b.id)}
+            >
+              <AssetThumb thumbnailUrl={b.thumbnailUrl} label={b.label} w={88} h={88} />
+            </PickerTile>
+          );
+        })}
+        {filtered.length === 0 && (
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              padding: '20px 0',
+              textAlign: 'center',
+              color: 'var(--muted)',
+              fontSize: 13,
+            }}
+          >
+            No backgrounds match.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface BlouseCategoryItem {
+  id: string;
+  label: string;
+  thumbnailUrl: string | null;
+  mapped: boolean;
+}
+
+// Unlike Lower/Shoe/Faces/Accessories above, there's no batch mapping field on
+// PATCH /admin/assets/garment-types/:id for blouse categories — only the
+// single-row PATCH .../blouse-categories/:categoryId (see
+// apps/api/src/modules/admin/blouse-categories.routes.ts). So this picker saves
+// each toggle immediately rather than staging it for the drawer's Save button,
+// same as the BlouseCategoryMappingPanel on the garment type's Setup page.
+function BlousePicker({
+  garmentTypeId,
+  toast,
+}: {
+  garmentTypeId: string;
+  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+}) {
+  const [items, setItems] = useState<BlouseCategoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'mapped' | 'unmapped'>('all');
+  const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    apiFetch<{ items: BlouseCategoryItem[] }>(
+      `/admin/assets/garment-types/${garmentTypeId}/blouse-categories`,
+    )
+      .then((res) => {
+        if (!cancelled) setItems(res.items);
+      })
+      .catch((error) => {
+        toast({
+          kind: 'error',
+          title: 'Failed to load blouse categories',
+          body: apiErrorMessage(error, 'Please try again.'),
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [garmentTypeId, toast]);
+
+  const mappedCount = items.filter((i) => i.mapped).length;
+  const unmappedCount = items.length - mappedCount;
+
+  const filtered = items.filter((i) => {
+    const q = search.trim().toLowerCase();
+    const matchesSearch = !q || i.label.toLowerCase().includes(q);
+    const matchesStatus =
+      statusFilter === 'all' ? true : statusFilter === 'mapped' ? i.mapped : !i.mapped;
+    return matchesSearch && matchesStatus;
+  });
+
+  const setMapped = async (ids: string[], mapped: boolean) => {
+    const previous = items;
+    setSavingIds((prev) => new Set([...prev, ...ids]));
+    setItems((current) => current.map((i) => (ids.includes(i.id) ? { ...i, mapped } : i)));
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          apiFetch(`/admin/assets/garment-types/${garmentTypeId}/blouse-categories/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ mapped }),
+          }),
+        ),
+      );
+    } catch (error) {
+      setItems(previous);
+      toast({
+        kind: 'error',
+        title: 'Failed to update blouse category mapping',
+        body: apiErrorMessage(error, 'Please try again.'),
+      });
+    } finally {
+      setSavingIds((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}>Loading…</div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}>
+        No blouse categories exist for this gender.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+          padding: '10px 16px',
+          borderBottom: '1px solid var(--border)',
+        }}
+      >
+        <div className="search" style={{ width: 180 }}>
+          <Icon.Search />
+          <input
+            placeholder="Search categories…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 2 }}>Show:</span>
+          <button
+            type="button"
+            className={`badge ${statusFilter === 'all' ? 'accent' : ''}`}
+            style={{ cursor: 'pointer', border: 'none' }}
+            onClick={() => setStatusFilter('all')}
+          >
+            All ({items.length})
+          </button>
+          <button
+            type="button"
+            className={`badge ${statusFilter === 'mapped' ? 'accent' : ''}`}
+            style={{ cursor: 'pointer', border: 'none' }}
+            onClick={() => setStatusFilter('mapped')}
+          >
+            Mapped ({mappedCount})
+          </button>
+          <button
+            type="button"
+            className={`badge ${statusFilter === 'unmapped' ? 'accent' : ''}`}
+            style={{ cursor: 'pointer', border: 'none' }}
+            onClick={() => setStatusFilter('unmapped')}
+          >
+            Unmapped ({unmappedCount})
+          </button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 16px',
+          background: 'var(--surface-2)',
+          borderBottom: '1px solid var(--border)',
+          fontSize: 12,
+        }}
+      >
+        <button
+          type="button"
+          className="btn xs ghost"
+          onClick={() => {
+            const visibleIds = filtered.map((i) => i.id);
+            const allSelected =
+              visibleIds.length > 0 && visibleIds.every((id) => selectedBulkIds.includes(id));
+            setSelectedBulkIds(
+              allSelected
+                ? selectedBulkIds.filter((id) => !visibleIds.includes(id))
+                : Array.from(new Set([...selectedBulkIds, ...visibleIds])),
+            );
+          }}
+        >
+          {filtered.length > 0 && filtered.every((i) => selectedBulkIds.includes(i.id))
+            ? 'Deselect visible'
+            : 'Select all visible'}
+        </button>
+        {selectedBulkIds.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="btn xs danger"
+              onClick={() => {
+                void setMapped(selectedBulkIds, false);
+                setSelectedBulkIds([]);
+              }}
+            >
+              <Icon.Trash /> Unmap selected ({selectedBulkIds.length})
+            </button>
+            <button
+              type="button"
+              className="btn xs"
+              onClick={() => {
+                void setMapped(selectedBulkIds, true);
+                setSelectedBulkIds([]);
+              }}
+            >
+              Map selected ({selectedBulkIds.length})
+            </button>
+            <button type="button" className="btn xs ghost" onClick={() => setSelectedBulkIds([])}>
+              Clear
+            </button>
+          </>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>
+          {filtered.length} visible
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))',
+          gap: 10,
+          padding: 16,
+          maxHeight: 300,
+          overflowY: 'auto',
+        }}
+      >
+        {filtered.map((i) => (
+          <div key={i.id} style={{ opacity: savingIds.has(i.id) ? 0.6 : 1 }}>
+            <PickerTile
+              selected={false}
+              isMapped={i.mapped}
+              isBulkSelected={selectedBulkIds.includes(i.id)}
+              onToggleBulk={() => {
+                setSelectedBulkIds((prev) =>
+                  prev.includes(i.id) ? prev.filter((id) => id !== i.id) : [...prev, i.id],
+                );
+              }}
+              onToggleMapped={() => void setMapped([i.id], !i.mapped)}
+              label={i.label}
+              onClick={() => void setMapped([i.id], !i.mapped)}
+            >
+              <AssetThumb thumbnailUrl={i.thumbnailUrl} label={i.label} w={88} h={88} />
+            </PickerTile>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              padding: '20px 0',
+              textAlign: 'center',
+              color: 'var(--muted)',
+              fontSize: 13,
+            }}
+          >
+            No blouse categories match.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function EditGarmentTypeModal({
   garmentType,
   catalogItems,
   faces,
+  backgrounds,
   tryonCategories,
   workflows,
   onSaved,
@@ -888,13 +1361,30 @@ export function EditGarmentTypeModal({
   const [mappedFaceIds, setMappedFaceIds] = useState<Set<string>>(new Set());
   const [initialMappedFaceIds, setInitialMappedFaceIds] = useState<Set<string>>(new Set());
 
+  // 'general' only, genderSlug null = shown for every gender — same scope
+  // FacePicker/BackgroundPicker apply, mirroring listBackgrounds on the API side.
+  const allBackgrounds = useMemo(
+    () =>
+      backgrounds.filter(
+        (b) =>
+          b.isActive &&
+          b.scope === 'general' &&
+          (b.genderSlug === null || b.genderSlug === garmentType.genderSlug),
+      ),
+    [backgrounds, garmentType.genderSlug],
+  );
+  const [mappedBackgroundIds, setMappedBackgroundIds] = useState<Set<string>>(new Set());
+  const [initialMappedBackgroundIds, setInitialMappedBackgroundIds] = useState<Set<string>>(
+    new Set(),
+  );
+
   // The mapping-fetch effect below reads these through refs instead of closing
-  // over allLowers/allShoes/allAccessories/allFaces directly. catalogItems (an
-  // AssetsContext-owned array) can get a new reference while this modal is open
-  // — e.g. a refetch triggered by opening it — which would otherwise re-run that
-  // effect mid-session, firing a second /catalog-mappings and /face-mappings
-  // request that races the admin's in-progress toggles and can silently revert
-  // one right before Save is clicked.
+  // over allLowers/allShoes/allAccessories/allFaces/allBackgrounds directly.
+  // catalogItems (an AssetsContext-owned array) can get a new reference while
+  // this modal is open — e.g. a refetch triggered by opening it — which would
+  // otherwise re-run that effect mid-session, firing a second /catalog-mappings,
+  // /face-mappings and /background-mappings request that races the admin's
+  // in-progress toggles and can silently revert one right before Save is clicked.
   const allLowersRef = useRef(allLowers);
   allLowersRef.current = allLowers;
   const allShoesRef = useRef(allShoes);
@@ -903,17 +1393,20 @@ export function EditGarmentTypeModal({
   allAccessoriesRef.current = allAccessories;
   const allFacesRef = useRef(allFaces);
   allFacesRef.current = allFaces;
+  const allBackgroundsRef = useRef(allBackgrounds);
+  allBackgroundsRef.current = allBackgrounds;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: this must run exactly once per garment type, not whenever allLowers/allShoes/allAccessories/allFaces get a new reference (see the refs above) — initialMapped{Lower,Shoe,Accessory,Face}Ids are likewise read once to snapshot the pre-fetch baseline, not reacted to
+  // biome-ignore lint/correctness/useExhaustiveDependencies: this must run exactly once per garment type, not whenever allLowers/allShoes/allAccessories/allFaces/allBackgrounds get a new reference (see the refs above) — initialMapped{Lower,Shoe,Accessory,Face,Background}Ids are likewise read once to snapshot the pre-fetch baseline, not reacted to
   useEffect(() => {
     // Snapshot the pre-fetch baseline so a toggle made by the admin while this
     // request is in flight isn't silently discarded when the authoritative
     // mapping data lands — replay it on top of the real baseline instead of
-    // overwriting mappedLower/Shoe/Accessory/FaceIds outright.
+    // overwriting mappedLower/Shoe/Accessory/Face/BackgroundIds outright.
     const guessedInitialLower = initialMappedLowerIds;
     const guessedInitialShoe = initialMappedShoeIds;
     const guessedInitialAccessory = initialMappedAccessoryIds;
     const guessedInitialFace = initialMappedFaceIds;
+    const guessedInitialBackground = initialMappedBackgroundIds;
 
     apiFetch<{
       mappedLowerIds: string[];
@@ -990,6 +1483,27 @@ export function EditGarmentTypeModal({
           return next;
         });
         setInitialMappedFaceIds(new Set(faceSet));
+      })
+      .catch(() => {});
+
+    apiFetch<{ mappedBackgroundIds: string[]; hasExplicitBackgroundMappings: boolean }>(
+      `/admin/assets/garment-types/${garmentType.id}/background-mappings`,
+    )
+      .then((res) => {
+        const backgroundSet = res.hasExplicitBackgroundMappings
+          ? new Set(res.mappedBackgroundIds)
+          : new Set(allBackgroundsRef.current.map((b) => b.id));
+        setMappedBackgroundIds((prevMapped) => {
+          const next = new Set(backgroundSet);
+          for (const id of prevMapped) {
+            if (!guessedInitialBackground.has(id)) next.add(id);
+          }
+          for (const id of guessedInitialBackground) {
+            if (!prevMapped.has(id)) next.delete(id);
+          }
+          return next;
+        });
+        setInitialMappedBackgroundIds(new Set(backgroundSet));
       })
       .catch(() => {});
   }, [garmentType.id]);
@@ -1102,6 +1616,32 @@ export function EditGarmentTypeModal({
     });
   };
 
+  const toggleMappedBackground = (id: string) => {
+    setMappedBackgroundIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const bulkSetMappedBackground = (ids: string[], mapped: boolean) => {
+    setMappedBackgroundIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (mapped) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
+      }
+      return next;
+    });
+  };
+
   const lowerMappingDirty = useMemo(() => {
     if (initialMappedLowerIds.size !== mappedLowerIds.size) return true;
     for (const id of mappedLowerIds) {
@@ -1133,6 +1673,14 @@ export function EditGarmentTypeModal({
     }
     return false;
   }, [initialMappedFaceIds, mappedFaceIds]);
+
+  const backgroundMappingDirty = useMemo(() => {
+    if (initialMappedBackgroundIds.size !== mappedBackgroundIds.size) return true;
+    for (const id of mappedBackgroundIds) {
+      if (!initialMappedBackgroundIds.has(id)) return true;
+    }
+    return false;
+  }, [initialMappedBackgroundIds, mappedBackgroundIds]);
 
   useEffect(() => {
     apiFetch<CatalogCategory[]>('/admin/catalog/categories')
@@ -1182,7 +1730,8 @@ export function EditGarmentTypeModal({
     lowerMappingDirty ||
     shoeMappingDirty ||
     accessoryMappingDirty ||
-    faceMappingDirty;
+    faceMappingDirty ||
+    backgroundMappingDirty;
 
   const save = async () => {
     setSaving(true);
@@ -1298,6 +1847,9 @@ export function EditGarmentTypeModal({
       }
       if (faceMappingDirty) {
         patchBody.mappedFaceIds = Array.from(mappedFaceIds);
+      }
+      if (backgroundMappingDirty) {
+        patchBody.mappedBackgroundIds = Array.from(mappedBackgroundIds);
       }
 
       if (Object.keys(patchBody).length > 0) {
@@ -1627,6 +2179,24 @@ export function EditGarmentTypeModal({
               mappedIds={mappedFaceIds}
               onToggleMapped={toggleMappedFace}
               onBulkSetMapped={bulkSetMappedFace}
+            />
+          ),
+        },
+        {
+          title: 'Blouse Categories',
+          flush: true,
+          children: <BlousePicker garmentTypeId={garmentType.id} toast={toast} />,
+        },
+        {
+          title: `Backgrounds${allBackgrounds.length - mappedBackgroundIds.size > 0 ? ` (${allBackgrounds.length - mappedBackgroundIds.size} unmapped)` : ''}`,
+          flush: true,
+          children: (
+            <BackgroundPicker
+              gender={garmentType.genderSlug}
+              backgrounds={backgrounds}
+              mappedIds={mappedBackgroundIds}
+              onToggleMapped={toggleMappedBackground}
+              onBulkSetMapped={bulkSetMappedBackground}
             />
           ),
         },

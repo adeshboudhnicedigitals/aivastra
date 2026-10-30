@@ -20,6 +20,7 @@ export type AssetTab =
   | 'pose-assets'
   | 'catalogue-templates'
   | 'body-types'
+  | 'blouse-categories'
   | 'saree-styles'
   | 'fabric-garment-types';
 export type GenderFilter = 'all' | GenderSlug;
@@ -34,6 +35,7 @@ const VALID_TABS: AssetTab[] = [
   'pose-assets',
   'catalogue-templates',
   'body-types',
+  'blouse-categories',
   'saree-styles',
   'fabric-garment-types',
 ];

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service';
 import { buildTestApp, type TestApp } from '../helpers/api';
@@ -467,6 +467,85 @@ describe('merchant try-on jobs', () => {
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, merchantUser.id));
     expect(creditsAfterSecondCancel.balance).toBe(100); // unaffected by failed second cancel
+  });
+  it('a widget cancel racing a completion neither cancels nor refunds the completed job', async () => {
+    // Production: a widget job COMPLETED with an output and also refunded (REFUND_CANCELLED),
+    // because the cancel's status check ran outside its write. The completion is held
+    // uncommitted; the cancel reads the old status, blocks on its conditional UPDATE, and
+    // must then find a job that is no longer cancellable.
+    const { merchant, merchantUser } = await createMerchant(app, 'tryon-race@example.com');
+    const auth = await authHeader(merchantUser.id);
+    const garmentType = await seedGarmentTypeWithWorkflow(app);
+    const item = await seedCatalogItem(app, merchant.id, garmentType.id);
+    const presigned = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/presign',
+      headers: auth,
+      payload: { contentType: 'image/jpeg', contentLength: 1024 },
+    });
+    const { r2Key } = presigned.json() as { r2Key: string };
+    await app.storage.putObject(r2Key, Buffer.from('photo'), 'image/jpeg');
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: auth,
+      payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+    });
+    const { jobId } = created.json() as { jobId: string };
+
+    let release: () => void = () => {};
+    let locked: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const completion = app.db.transaction(async (tx) => {
+      await tx.update(schema.jobs).set({ status: 'COMPLETED' }).where(eq(schema.jobs.id, jobId));
+      await tx
+        .insert(schema.jobOutputs)
+        .values({ jobId, resultKey: 'private/race.png', assetKind: 'ORIGINAL' });
+      locked();
+      await held;
+    });
+    await lockTaken;
+    const cancelling = app.inject({
+      method: 'DELETE',
+      url: `/v1/merchant/tryon/jobs/${jobId}`,
+      headers: auth,
+    });
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const waiting = await app.db.execute(
+        sql`select 1 from pg_stat_activity where wait_event_type = 'Lock' and query ilike '%update "jobs"%'`,
+      );
+      if (waiting.length > 0) break;
+      if (Date.now() > deadline) throw new Error('cancel never reached its blocked status write');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    release();
+    await completion;
+    expect((await cancelling).statusCode).toBe(409);
+
+    const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job.status).toBe('COMPLETED');
+    expect(
+      await app.db
+        .select()
+        .from(schema.creditLedger)
+        .where(
+          and(
+            eq(schema.creditLedger.jobId, jobId),
+            eq(schema.creditLedger.reason, 'REFUND_CANCELLED'),
+          ),
+        ),
+    ).toEqual([]);
+    const [credits] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, merchantUser.id));
+    expect(credits.balance).toBe(95); // charged once, never returned: the result was delivered
   });
   it('rejects a job when the garment type has no tryon category configured', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-d@example.com');

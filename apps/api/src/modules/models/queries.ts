@@ -65,6 +65,87 @@ export async function listGarmentTypes(app: FastifyInstance, gender: string, bod
   };
 }
 
+/**
+ * Shopper-facing blouse category list for a garment type (e.g. Saree) —
+ * strict opt-in, same as catalogue templates: a category with no mapping row
+ * for this garment type is not offered at all. Unlike catalogue templates,
+ * blouse poses don't carry a per-pose workflow — they patch into whichever
+ * fourthNodeId the job's own resolved workflow already has — so no
+ * pose-workflow join is needed here, just active categories and their active
+ * poses.
+ */
+export async function listBlouseCategories(app: FastifyInstance, garmentTypeId?: string) {
+  if (!garmentTypeId) return { items: [] };
+
+  const categories = await app.db
+    .select({
+      id: schema.blouseCategories.id,
+      label: schema.blouseCategories.label,
+      thumbnailKey: schema.blouseCategories.thumbnailKey,
+    })
+    .from(schema.blouseCategories)
+    .innerJoin(
+      schema.blouseCategorySubcategories,
+      and(
+        eq(schema.blouseCategorySubcategories.categoryId, schema.blouseCategories.id),
+        eq(schema.blouseCategorySubcategories.subcategoryId, garmentTypeId),
+      ),
+    )
+    .where(eq(schema.blouseCategories.isActive, true))
+    .orderBy(asc(schema.blouseCategories.sortOrder), asc(schema.blouseCategories.label));
+
+  if (categories.length === 0) return { items: [] };
+  const categoryIds = categories.map((c) => c.id);
+
+  const poseRows = await app.db
+    .select({
+      id: schema.blousePoses.id,
+      categoryId: schema.blousePoses.categoryId,
+      label: schema.blousePoses.label,
+      r2Key: schema.blousePoses.r2Key,
+      thumbnailKey: schema.blousePoses.thumbnailKey,
+    })
+    .from(schema.blousePoses)
+    .where(
+      and(
+        inArray(schema.blousePoses.categoryId, categoryIds),
+        eq(schema.blousePoses.isActive, true),
+      ),
+    )
+    .orderBy(asc(schema.blousePoses.sortOrder), asc(schema.blousePoses.label));
+
+  const posesByCategory = new Map<string, typeof poseRows>();
+  for (const row of poseRows) {
+    if (!posesByCategory.has(row.categoryId)) posesByCategory.set(row.categoryId, []);
+    posesByCategory.get(row.categoryId)?.push(row);
+  }
+
+  const items = (
+    await Promise.all(
+      categories.map(async (c) => {
+        const rows = posesByCategory.get(c.id) ?? [];
+        const poses = await Promise.all(
+          rows.map(async (r) => ({
+            id: r.id,
+            label: r.label,
+            thumbnailUrl: (await app.storage.presignGet(r.thumbnailKey ?? r.r2Key, 3600)).url,
+          })),
+        );
+        return {
+          id: c.id,
+          label: c.label,
+          thumbnailUrl: c.thumbnailKey
+            ? (await app.storage.presignGet(c.thumbnailKey, 3600)).url
+            : (poses[0]?.thumbnailUrl ?? null),
+          poses,
+        };
+      }),
+    )
+  ).filter((c) => c.poses.length > 0);
+
+  return { items };
+}
+
 export async function listFaces(
   app: FastifyInstance,
   {
@@ -455,40 +536,59 @@ export async function listPoses(
  * gender plus the ones for everyone. Shared by /v1/models/backgrounds and the
  * WhatsApp bot, which draws one per catalogue.
  */
-export async function listBackgrounds(app: FastifyInstance, gender?: string) {
-  return (
-    app.db
-      .select({
-        id: schema.modelBackgrounds.id,
-        label: schema.modelBackgrounds.label,
-        thumbnailKey: schema.modelBackgrounds.thumbnailKey,
-        isWhiteBg: schema.modelBackgrounds.isWhiteBg,
-        categoryId: schema.modelBackgrounds.categoryId,
-        tags: schema.modelBackgrounds.tags,
-        specialTag: schema.modelBackgrounds.specialTag,
-      })
-      .from(schema.modelBackgrounds)
-      .where(
-        and(
-          eq(schema.modelBackgrounds.isActive, true),
-          isNull(schema.modelBackgrounds.deletedAt),
-          // Template-scoped backgrounds are managed only via their owning
-          // catalogue template — never offered in "create your own look".
-          eq(schema.modelBackgrounds.scope, 'general'),
-          gender
-            ? or(
-                isNull(schema.modelBackgrounds.genderSlug),
-                eq(schema.modelBackgrounds.genderSlug, gender),
-              )
-            : undefined,
-        ),
-      )
-      // Admin-curated position (Assets → Backgrounds → Sort order); label/id break
-      // ties so the picker order is stable instead of Postgres heap order.
-      .orderBy(
-        asc(schema.modelBackgrounds.sortOrder),
-        asc(schema.modelBackgrounds.label),
-        asc(schema.modelBackgrounds.id),
-      )
-  );
+export async function listBackgrounds(
+  app: FastifyInstance,
+  gender?: string,
+  garmentTypeId?: string,
+) {
+  const rows = await app.db
+    .select({
+      id: schema.modelBackgrounds.id,
+      label: schema.modelBackgrounds.label,
+      thumbnailKey: schema.modelBackgrounds.thumbnailKey,
+      isWhiteBg: schema.modelBackgrounds.isWhiteBg,
+      categoryId: schema.modelBackgrounds.categoryId,
+      tags: schema.modelBackgrounds.tags,
+      specialTag: schema.modelBackgrounds.specialTag,
+    })
+    .from(schema.modelBackgrounds)
+    .where(
+      and(
+        eq(schema.modelBackgrounds.isActive, true),
+        isNull(schema.modelBackgrounds.deletedAt),
+        // Template-scoped backgrounds are managed only via their owning
+        // catalogue template — never offered in "create your own look".
+        eq(schema.modelBackgrounds.scope, 'general'),
+        gender
+          ? or(
+              isNull(schema.modelBackgrounds.genderSlug),
+              eq(schema.modelBackgrounds.genderSlug, gender),
+            )
+          : undefined,
+      ),
+    )
+    // Admin-curated position (Assets → Backgrounds → Sort order); label/id break
+    // ties so the picker order is stable instead of Postgres heap order.
+    .orderBy(
+      asc(schema.modelBackgrounds.sortOrder),
+      asc(schema.modelBackgrounds.label),
+      asc(schema.modelBackgrounds.id),
+    );
+
+  // No mapping row for this garment type at all = opt-out (every active general
+  // background stays visible). Once any explicit mapping exists for the type,
+  // only mapped backgrounds are shown — same opt-in-once-explicit pattern as
+  // listFaces above.
+  if (garmentTypeId && rows.length > 0) {
+    const mapped = await app.db
+      .select({ backgroundId: schema.modelBackgroundSubcategories.backgroundId })
+      .from(schema.modelBackgroundSubcategories)
+      .where(eq(schema.modelBackgroundSubcategories.subcategoryId, garmentTypeId));
+    if (mapped.length > 0) {
+      const mappedIds = new Set(mapped.map((m) => m.backgroundId));
+      return rows.filter((r) => mappedIds.has(r.id));
+    }
+  }
+
+  return rows;
 }

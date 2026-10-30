@@ -122,12 +122,14 @@ export function BatchMode({
       ).items,
     enabled: !!gender,
   });
-  // /v1/models/backgrounds has no faceId param either — it filters by `gender`,
-  // same as studio/page.tsx's backgrounds query.
   const backgrounds = useQuery({
-    queryKey: ['batch-backgrounds', gender],
+    queryKey: ['batch-backgrounds', gender, garmentTypeId],
     queryFn: async () =>
-      (await api.get<{ items: PickerItem[] }>(`/v1/models/backgrounds?gender=${gender}`)).items,
+      (
+        await api.get<{ items: PickerItem[] }>(
+          `/v1/models/backgrounds?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}`,
+        )
+      ).items,
     enabled: !!gender,
   });
   const poses = useQuery({

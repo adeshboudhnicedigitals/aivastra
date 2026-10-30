@@ -60,7 +60,9 @@ const ResultsQuery = z.object({
   // JOB_SOURCE.REGENERATE, 'tryon' is everything else (tryon, merchant_tryon, api_tryon,
   // wordpress_tryon, shopify, saree*) — explicitly excluding regenerate jobs, which would
   // otherwise fall into this bucket by default since they don't match '%catalog%' either.
-  jobType: z.enum(['all', 'tryon', 'catalog', 'regeneration']).default('all'),
+  // 'shopify' narrows further to exactly JOB_SOURCE.SHOPIFY — those jobs still match the
+  // 'tryon' bucket too (it's an orthogonal pick, not a disjoint partition).
+  jobType: z.enum(['all', 'tryon', 'catalog', 'regeneration', 'shopify']).default('all'),
   gender: z.enum(['all', 'men', 'women', 'boys', 'girls']).default('all'),
   garmentTypeId: z.string().uuid().optional(),
 });
@@ -197,6 +199,7 @@ export async function resultsRoutes(app: FastifyInstance) {
         conditions.push(
           sql`${jobTypeSql()} NOT ILIKE ${'%catalog%'} AND ${jobTypeSql()} <> ${JOB_SOURCE.REGENERATE}`,
         );
+      else if (jobType === 'shopify') conditions.push(sql`${jobTypeSql()} = ${JOB_SOURCE.SHOPIFY}`);
 
       if (status === 'completed') {
         conditions.push(eq(schema.jobs.status, 'COMPLETED'));
@@ -218,6 +221,7 @@ export async function resultsRoutes(app: FastifyInstance) {
         conditions.push(
           or(
             ilike(schema.users.email, `%${search}%`),
+            ilike(schema.shopifyShoppers.email, `%${search}%`),
             ilike(sql`${schema.jobs.id}::text`, `%${search}%`),
           ),
         );
@@ -249,6 +253,11 @@ export async function resultsRoutes(app: FastifyInstance) {
         )
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
         .leftJoin(
+          schema.shopifyShoppers,
+          eq(schema.shopifyShoppers.id, schema.jobs.shopifyShopperId),
+        )
+        .leftJoin(schema.shopifyStores, eq(schema.shopifyStores.id, schema.jobs.shopifyStoreId))
+        .leftJoin(
           schema.garmentSubcategories,
           eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
         )
@@ -263,6 +272,18 @@ export async function resultsRoutes(app: FastifyInstance) {
           userPhone: schema.users.phone,
           userTier: schema.users.tier,
           userCreatedAt: schema.users.createdAt,
+          // Shopify storefront jobs carry no `users` row (jobs.userId is null —
+          // identity is tracked via shopifyShopperId instead), and shopify_shoppers
+          // has no name column at all — email + the shop's own numeric customer id
+          // are the only identifying fields that exist for these jobs.
+          shopifyShopperEmail: schema.shopifyShoppers.email,
+          shopifyCustomerId: schema.shopifyShoppers.shopifyCustomerId,
+          // Shopify has no subscription plan/tier (billing is prepaid credit packs,
+          // see CLAUDE.md) — these are the closest store-level equivalents: whether
+          // it's a real merchant vs a Shopify partner dev store, and whether it has
+          // opted into the recurring auto-refill subscription.
+          shopifyStorePartnerDevelopment: schema.shopifyStores.partnerDevelopment,
+          shopifyStoreAutorefillEnabled: sql<boolean>`${schema.shopifyStores.autorefillSubscriptionId} is not null`,
           creditsCharged: schema.jobs.creditsCharged,
           createdAt: schema.jobs.createdAt,
           durationSeconds: jobDurationSecondsSql(),
@@ -309,6 +330,17 @@ export async function resultsRoutes(app: FastifyInstance) {
           shoeFullKey: sql<
             string | null
           >`(select ${schema.catalogItems.r2Key} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
+          // Catalog-picked blouse design (job_inputs.blousePoseId) — the other
+          // source for the same fourthNodeId role as fourthGarmentKey below;
+          // the dispatcher prefers a direct upload when both are present (see
+          // apps/dispatcher/src/job/processor.ts), so this is only read when
+          // fourthGarmentKey is null (see presignGarments below).
+          blousePoseThumbKey: sql<
+            string | null
+          >`(select coalesce(${schema.blousePoses.thumbnailKey}, ${schema.blousePoses.r2Key}) from ${schema.blousePoses} where ${schema.blousePoses.id} = ${schema.jobInputs.blousePoseId})`,
+          blousePoseFullKey: sql<
+            string | null
+          >`(select ${schema.blousePoses.r2Key} from ${schema.blousePoses} where ${schema.blousePoses.id} = ${schema.jobInputs.blousePoseId})`,
           outputKey: schema.jobOutputs.resultKey,
           // Stored 512px JPEG written by the dispatcher at finalize time
           // (apps/dispatcher/src/workflow/finalize.ts). NULL for jobs that
@@ -327,6 +359,11 @@ export async function resultsRoutes(app: FastifyInstance) {
         )
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
         .leftJoin(schema.workers, eq(schema.workers.id, schema.jobs.workerId))
+        .leftJoin(
+          schema.shopifyShoppers,
+          eq(schema.shopifyShoppers.id, schema.jobs.shopifyShopperId),
+        )
+        .leftJoin(schema.shopifyStores, eq(schema.shopifyStores.id, schema.jobs.shopifyStoreId))
         .leftJoin(
           schema.garmentSubcategories,
           eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
@@ -356,22 +393,67 @@ export async function resultsRoutes(app: FastifyInstance) {
           lowerGarmentKey: string | null;
           thirdGarmentKey: string | null;
           fourthGarmentKey: string | null;
+          blousePoseThumbKey: string | null;
+          blousePoseFullKey: string | null;
         },
       ) => {
-        const slots: { key: string | null; label: string; slot: string }[] = [
-          { key: r.upperGarmentKey, label: 'Upper', slot: 'garment-upper' },
-          { key: r.lowerGarmentKey, label: 'Lower', slot: 'garment-lower' },
-          { key: r.thirdGarmentKey, label: 'Third', slot: 'garment-third' },
-          { key: r.fourthGarmentKey, label: 'Fourth', slot: 'garment-fourth' },
-        ];
-        const present = slots.filter(
-          (s): s is { key: string; label: string; slot: string } => s.key !== null,
-        );
+        type Slot =
+          | { key: string; label: string; kind: 'upload'; slot: string }
+          | { key: string; label: string; kind: 'catalog'; slot: string };
+        const slots: Slot[] = [];
+        if (r.upperGarmentKey) {
+          slots.push({
+            key: r.upperGarmentKey,
+            label: 'Upper',
+            kind: 'upload',
+            slot: 'garment-upper',
+          });
+        }
+        if (r.lowerGarmentKey) {
+          slots.push({
+            key: r.lowerGarmentKey,
+            label: 'Lower',
+            kind: 'upload',
+            slot: 'garment-lower',
+          });
+        }
+        if (r.thirdGarmentKey) {
+          slots.push({
+            key: r.thirdGarmentKey,
+            label: 'Third',
+            kind: 'upload',
+            slot: 'garment-third',
+          });
+        }
+        // fourthGarmentKey is the blouse upload slot — labeled "Blouse" (not
+        // "Fourth") since that's the only thing it's ever used for. A
+        // catalog-picked blouse pose (blousePoseId) only shows when there's
+        // no direct upload — same upload-wins precedence the dispatcher
+        // applies when resolving which image actually reaches fourthNodeId.
+        if (r.fourthGarmentKey) {
+          slots.push({
+            key: r.fourthGarmentKey,
+            label: 'Blouse',
+            kind: 'upload',
+            slot: 'garment-fourth',
+          });
+        } else if (r.blousePoseFullKey) {
+          slots.push({
+            key: r.blousePoseFullKey,
+            label: 'Blouse',
+            kind: 'catalog',
+            slot: 'garment-fourth',
+          });
+        }
         return Promise.all(
-          present.map(async (s) => ({
+          slots.map(async (s) => ({
             url: await presign(s.key),
-            thumbUrl: `/results/${jobId}/thumb/${s.slot}`,
-            label: present.length > 1 ? s.label : null,
+            thumbUrl:
+              s.kind === 'upload'
+                ? `/results/${jobId}/thumb/${s.slot}`
+                : await presign(r.blousePoseThumbKey ?? s.key),
+            label: slots.length > 1 ? s.label : null,
+            slot: s.slot,
           })),
         );
       };
@@ -385,6 +467,10 @@ export async function resultsRoutes(app: FastifyInstance) {
           userPhone: r.userPhone,
           userTier: r.userTier,
           userCreatedAt: r.userCreatedAt,
+          shopifyShopperEmail: r.shopifyShopperEmail,
+          shopifyCustomerId: r.shopifyCustomerId,
+          shopifyStorePartnerDevelopment: r.shopifyStorePartnerDevelopment,
+          shopifyStoreAutorefillEnabled: r.shopifyStoreAutorefillEnabled,
           creditsCharged: r.creditsCharged,
           createdAt: r.createdAt,
           durationSeconds: r.durationSeconds,
@@ -542,6 +628,106 @@ export async function resultsRoutes(app: FastifyInstance) {
         .type('image/jpeg')
         .header('Cache-Control', 'private, max-age=31536000, immutable')
         .send(thumb);
+    },
+  );
+
+  const DownloadSlot = z.object({
+    id: z.string().uuid(),
+    slot: z.enum([
+      'garment-upper',
+      'garment-lower',
+      'garment-third',
+      'garment-fourth',
+      'pose',
+      'background',
+      'shoes',
+      'output',
+    ]),
+  });
+
+  // Full-resolution "download" link target. Every url baked into /results/data
+  // (presign(), 3600s TTL) is signed once at page-load/filter-apply time, so a
+  // tab left open past an hour hits R2's ExpiredRequest on click — reported in
+  // production for an output download. Resolve the key fresh per click instead
+  // of trusting a baked URL, and stream bytes through the API (same getObject
+  // idiom as /results/:id/thumb/:slot and the bundle route below) so there is
+  // no presigned-URL expiry window at all, and the browser gets a real
+  // Content-Disposition filename regardless of cross-origin download-attribute
+  // support.
+  app.get(
+    '/results/:id/download/:slot',
+    {
+      preHandler: requireResultsUser,
+      schema: { params: DownloadSlot },
+      config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const { id, slot } = req.params as z.infer<typeof DownloadSlot>;
+
+      const [row] = await app.db
+        .select({
+          upperGarmentKey: schema.jobInputs.upperGarmentKey,
+          lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+          thirdGarmentKey: schema.jobInputs.thirdGarmentKey,
+          fourthGarmentKey: schema.jobInputs.fourthGarmentKey,
+          blousePoseKey: sql<
+            string | null
+          >`(select ${schema.blousePoses.r2Key} from ${schema.blousePoses} where ${schema.blousePoses.id} = ${schema.jobInputs.blousePoseId})`,
+          poseAssetKey: schema.modelPoseAssets.r2Key,
+          personOrSourceKey: sql<
+            string | null
+          >`COALESCE(${schema.jobs.customerPhotoKey}, ${schema.jobInputs.params}->>'personKey', ${schema.jobInputs.params}->>'sourceImageKey')`,
+          backgroundKey: schema.modelBackgrounds.r2Key,
+          shoeKey: sql<
+            string | null
+          >`(select ${schema.catalogItems.r2Key} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
+          outputKey: schema.jobOutputs.resultKey,
+        })
+        .from(schema.jobs)
+        .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
+        .leftJoin(
+          schema.modelBackgrounds,
+          eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
+        )
+        .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(eq(schema.jobs.id, id));
+      if (!row) throw new AppError('NOT_FOUND', 404, 'job not found');
+
+      const key =
+        slot === 'garment-upper'
+          ? row.upperGarmentKey
+          : slot === 'garment-lower'
+            ? row.lowerGarmentKey
+            : slot === 'garment-third'
+              ? row.thirdGarmentKey
+              : slot === 'garment-fourth'
+                ? // Upload wins over a catalog-picked blouse pose — same precedence
+                  // presignGarments() and the dispatcher apply.
+                  (row.fourthGarmentKey ?? row.blousePoseKey)
+                : slot === 'pose'
+                  ? (row.poseAssetKey ?? row.personOrSourceKey)
+                  : slot === 'background'
+                    ? row.backgroundKey
+                    : slot === 'shoes'
+                      ? row.shoeKey
+                      : row.outputKey;
+      if (!key) throw new AppError('NOT_FOUND', 404, 'no image for this slot');
+
+      let buf: Buffer;
+      try {
+        buf = await app.storage.getObject(key);
+      } catch {
+        throw new AppError('NOT_FOUND', 404, 'image not found in storage');
+      }
+
+      const dot = key.lastIndexOf('.');
+      const ext = dot >= 0 && key.length - dot <= 6 ? key.slice(dot) : '.jpg';
+      return reply
+        .type('application/octet-stream')
+        .header('Content-Disposition', `attachment; filename="${slot}${ext}"`)
+        .header('Cache-Control', 'private, no-store')
+        .send(buf);
     },
   );
 
@@ -1360,6 +1546,7 @@ ${commonCss()}
         <option value="tryon">Try-on</option>
         <option value="catalog">Catalogue</option>
         <option value="regeneration">Regeneration</option>
+        <option value="shopify">Shopify</option>
       </select>
     </div>
     <div class="filter-group" style="min-width:130px;flex:0">
@@ -1686,16 +1873,12 @@ function appJs(): string {
         rows.push(
           '<tr class="' + rowClass + '" title="' + esc(rowTitle) + '">' +
           '<td class="col-id"><div class="id-num">' + rev + '</div><div class="id-sub">#' + seq + '</div></td>' +
-          '<td class="col-user"><div class="user-name">' + esc(item.userDisplayName || item.userEmail || '—') + '</div>' +
-          '<div class="user-email">' + esc(item.userEmail || '—') + '</div>' +
-          '<div class="user-phone">' + esc(item.userPhone || 'No phone') + '</div>' +
-          '<div class="user-since">Member since ' + fmtDate(item.userCreatedAt) + '</div>' +
-          '<div class="user-tier">Plan: ' + esc(item.userTier || 'free') + '</div></td>' +
-          '<td class="col-garments">' + renderGarmentCell(item.garments) + '</td>' +
-          '<td class="col-img">' + renderThumb(item.personThumbUrl || item.poseUrl, poseLabel, item.poseTag ? poseLabel : null, false, item.poseFullUrl || item.poseUrl) + '</td>' +
-          '<td class="col-img">' + renderThumb(item.backgroundUrl, 'Background', null, false, item.backgroundFullUrl) + '</td>' +
-          '<td class="col-img">' + renderThumb(item.shoeUrl, 'Shoes', null, false, item.shoeFullUrl) + '</td>' +
-          '<td class="col-img">' + renderThumb(item.outputThumbUrl || item.outputUrl, 'Output', null, false, item.outputUrl) + '</td>' +
+          '<td class="col-user">' + renderUserCell(item) + '</td>' +
+          '<td class="col-garments">' + renderGarmentCell(item.id, item.garments) + '</td>' +
+          '<td class="col-img">' + renderThumb(item.personThumbUrl || item.poseUrl, poseLabel, item.poseTag ? poseLabel : null, false, item.poseFullUrl || item.poseUrl, '/results/' + item.id + '/download/pose') + '</td>' +
+          '<td class="col-img">' + renderThumb(item.backgroundUrl, 'Background', null, false, item.backgroundFullUrl, '/results/' + item.id + '/download/background') + '</td>' +
+          '<td class="col-img">' + renderThumb(item.shoeUrl, 'Shoes', null, false, item.shoeFullUrl, '/results/' + item.id + '/download/shoes') + '</td>' +
+          '<td class="col-img">' + renderThumb(item.outputThumbUrl || item.outputUrl, 'Output', null, false, item.outputUrl, '/results/' + item.id + '/download/output') + '</td>' +
           '<td class="col-credits"><span class="credits-num">' + item.creditsCharged + '</span></td>' +
           '<td class="col-when"><span class="when-text">' + fmtDate(item.createdAt) + '</span></td>' +
           '<td class="col-duration">' + fmtDuration(item.durationSeconds) + '</td>' +
@@ -1771,9 +1954,17 @@ function appJs(): string {
   // lightbox and the download badge point at. Video detection runs on the
   // full URL — an output thumbnail falls back to the .mp4 itself, and a
   // future video-poster thumbnail must not change which element renders.
-  function renderThumb(url, label, tag, small, fullUrl) {
+  // dlHref is the on-demand /results/:id/download/:slot endpoint, which
+  // re-presigns fresh at click time (see that route) — never the baked
+  // fullUrl, which can be over an hour stale by the time someone clicks it.
+  // The lightbox zoom (data-lb) still uses fullUrl: it's opened immediately
+  // after a thumbnail click, so staleness isn't a practical risk there, and
+  // routing it through the download endpoint too would force a content-type
+  // of application/octet-stream, breaking inline image/video preview.
+  function renderThumb(url, label, tag, small, fullUrl, dlHref) {
     if (!url) return '<div class="thumb-placeholder' + (small ? ' sm' : '') + '">—</div>';
     var full = fullUrl || url;
+    var dl = dlHref || full;
     var video = isVideoUrl(full);
     var media = video
       ? '<video class="thumb" src="' + esc(url) + '" muted playsinline preload="metadata" data-lb="' + esc(full) + '"></video>'
@@ -1782,11 +1973,40 @@ function appJs(): string {
       '<div class="thumb-img' + (small ? ' sm' : '') + (video ? ' thumb-video' : '') + '">' +
         (tag ? '<span class="thumb-tag">' + esc(tag) + '</span>' : '') +
         media +
-        '<a class="thumb-dl" href="' + esc(full) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.' + extOf(full) + '" title="Download">' +
+        '<a class="thumb-dl" href="' + esc(dl) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.' + extOf(full) + '" title="Download">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>' +
         '</a>' +
       '</div>' +
     '</div>';
+  }
+
+  // Platform-account jobs join schema.users (userEmail/userDisplayName/...);
+  // Shopify storefront jobs have no users row at all (jobs.userId is null —
+  // identity is jobs.shopifyShopperId instead), and shopify_shoppers has no
+  // name column, only email + the shop's own numeric customer id. Fall back
+  // to those so a Shopify job isn't shown as a blank/anonymous user.
+  function renderUserCellBody(item) {
+    var isShopify = !item.userEmail && (item.shopifyShopperEmail || item.shopifyCustomerId);
+    var name = item.userDisplayName || item.userEmail || (isShopify ? 'Shopify shopper' : '—');
+    var email = item.userEmail || item.shopifyShopperEmail || '—';
+    var html =
+      '<div class="user-name">' + esc(name) + '</div>' +
+      '<div class="user-email">' + esc(email) + '</div>';
+    if (isShopify) {
+      html += '<div class="user-phone">' + (item.shopifyCustomerId ? 'Shopify customer #' + esc(String(item.shopifyCustomerId)) : 'No Shopify customer ID') + '</div>';
+      // Shopify has no plan/tier (prepaid credit packs, not subscriptions) — show the
+      // closest store-level equivalents instead: dev vs live store, and auto-refill opt-in.
+      html += '<div class="user-tier">' + (item.shopifyStorePartnerDevelopment ? 'Dev store' : 'Live store') + ' · Auto-refill ' + (item.shopifyStoreAutorefillEnabled ? 'on' : 'off') + '</div>';
+    } else {
+      html +=
+        '<div class="user-phone">' + esc(item.userPhone || 'No phone') + '</div>' +
+        '<div class="user-since">Member since ' + fmtDate(item.userCreatedAt) + '</div>' +
+        '<div class="user-tier">Plan: ' + esc(item.userTier || 'free') + '</div>';
+    }
+    return html;
+  }
+  function renderUserCell(item) {
+    return '<div class="user-name-wrap">' + renderUserCellBody(item) + '</div>';
   }
 
   // A job's garments array holds every uploaded garment slot present (upper,
@@ -1794,11 +2014,11 @@ function appJs(): string {
   // other single-image column, but 2- and 3-input jobs render every uploaded
   // image side by side instead of only the first one. Each entry carries the
   // full object (url) plus its on-demand thumbnail (thumbUrl).
-  function renderGarmentCell(garments, small) {
+  function renderGarmentCell(jobId, garments, small) {
     if (!garments || garments.length === 0) return '<div class="thumb-placeholder' + (small ? ' sm' : '') + '">—</div>';
-    if (garments.length === 1) return renderThumb(garments[0].thumbUrl || garments[0].url, garments[0].label || 'Garment', null, small, garments[0].url);
+    if (garments.length === 1) return renderThumb(garments[0].thumbUrl || garments[0].url, garments[0].label || 'Garment', null, small, garments[0].url, '/results/' + jobId + '/download/' + garments[0].slot);
     return '<div class="garments-row">' + garments.map(function(g) {
-      return renderThumb(g.thumbUrl || g.url, g.label || 'Garment', g.label, true, g.url);
+      return renderThumb(g.thumbUrl || g.url, g.label || 'Garment', g.label, true, g.url, '/results/' + jobId + '/download/' + g.slot);
     }).join('') + '</div>';
   }
 
@@ -1829,21 +2049,17 @@ function appJs(): string {
     if (flagMeta) html += '<div class="card-flag-meta">' + flagMeta + '</div>';
     html +=
       '<div class="card-user">' +
-        '<div class="card-avatar">' + esc(cardInitials(item.userDisplayName, item.userEmail)) + '</div>' +
-        '<div class="card-user-info">' +
-          '<div class="user-name">' + esc(item.userDisplayName || item.userEmail || '—') + '</div>' +
-          '<div class="user-email">' + esc(item.userEmail || '—') + '</div>' +
-          '<div class="user-since">Member since ' + fmtDate(item.userCreatedAt) + '</div>' +
-          '<div class="user-tier">Plan: ' + esc(item.userTier || 'free') + '</div>' +
+        '<div class="card-avatar">' + esc(cardInitials(item.userDisplayName, item.userEmail || item.shopifyShopperEmail)) + '</div>' +
+        '<div class="card-user-info">' + renderUserCellBody(item) +
         '</div>' +
         '<div class="card-credits"><span class="card-credits-label">Credits</span><span class="credits-num">' + item.creditsCharged + '</span></div>' +
       '</div>' +
       '<div class="card-thumbs">' +
-        '<div class="card-thumb-col"><span class="card-thumb-label">Garment</span>' + renderGarmentCell(item.garments, true) + '</div>' +
-        '<div class="card-thumb-col"><span class="card-thumb-label">' + esc(poseLabel) + '</span>' + renderThumb(item.personThumbUrl || item.poseUrl, poseLabel, null, true, item.poseFullUrl || item.poseUrl) + '</div>' +
-        '<div class="card-thumb-col"><span class="card-thumb-label">Background</span>' + renderThumb(item.backgroundUrl, 'Background', null, true, item.backgroundFullUrl) + '</div>' +
-        '<div class="card-thumb-col"><span class="card-thumb-label">Shoes</span>' + renderThumb(item.shoeUrl, 'Shoes', null, true, item.shoeFullUrl) + '</div>' +
-        '<div class="card-thumb-col"><span class="card-thumb-label">Output</span>' + renderThumb(item.outputThumbUrl || item.outputUrl, 'Output', null, true, item.outputUrl) + '</div>' +
+        '<div class="card-thumb-col"><span class="card-thumb-label">Garment</span>' + renderGarmentCell(item.id, item.garments, true) + '</div>' +
+        '<div class="card-thumb-col"><span class="card-thumb-label">' + esc(poseLabel) + '</span>' + renderThumb(item.personThumbUrl || item.poseUrl, poseLabel, null, true, item.poseFullUrl || item.poseUrl, '/results/' + item.id + '/download/pose') + '</div>' +
+        '<div class="card-thumb-col"><span class="card-thumb-label">Background</span>' + renderThumb(item.backgroundUrl, 'Background', null, true, item.backgroundFullUrl, '/results/' + item.id + '/download/background') + '</div>' +
+        '<div class="card-thumb-col"><span class="card-thumb-label">Shoes</span>' + renderThumb(item.shoeUrl, 'Shoes', null, true, item.shoeFullUrl, '/results/' + item.id + '/download/shoes') + '</div>' +
+        '<div class="card-thumb-col"><span class="card-thumb-label">Output</span>' + renderThumb(item.outputThumbUrl || item.outputUrl, 'Output', null, true, item.outputUrl, '/results/' + item.id + '/download/output') + '</div>' +
       '</div>';
     var flagActions = renderFlagActions(item);
     if (flagActions) html += '<div class="card-actions">' + flagActions + '</div>';

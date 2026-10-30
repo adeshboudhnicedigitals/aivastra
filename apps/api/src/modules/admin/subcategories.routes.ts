@@ -241,11 +241,13 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         | string[]
         | undefined;
       const mappedFaceIds = body.mappedFaceIds as string[] | undefined;
+      const mappedBackgroundIds = body.mappedBackgroundIds as string[] | undefined;
       const {
         mappedLowerCatalogItemIds: _lower,
         mappedShoeCatalogItemIds: _shoe,
         mappedAccessoryCatalogItemIds: _accessory,
         mappedFaceIds: _faces,
+        mappedBackgroundIds: _backgrounds,
         ...garmentFields
       } = body;
 
@@ -368,6 +370,20 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
               .onConflictDoNothing();
           }
         }
+
+        if (mappedBackgroundIds !== undefined) {
+          await tx
+            .delete(schema.modelBackgroundSubcategories)
+            .where(eq(schema.modelBackgroundSubcategories.subcategoryId, id));
+          if (mappedBackgroundIds.length > 0) {
+            await tx
+              .insert(schema.modelBackgroundSubcategories)
+              .values(
+                mappedBackgroundIds.map((backgroundId) => ({ backgroundId, subcategoryId: id })),
+              )
+              .onConflictDoNothing();
+          }
+        }
       };
 
       // genderSlug isn't patchable, so a sortOrder move never has to cross
@@ -427,6 +443,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
                 mappedShoeCatalogItemIds,
                 mappedAccessoryCatalogItemIds,
                 mappedFaceIds,
+                mappedBackgroundIds,
               },
               request: req,
             });
@@ -462,6 +479,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             mappedShoeCatalogItemIds,
             mappedAccessoryCatalogItemIds,
             mappedFaceIds,
+            mappedBackgroundIds,
           },
           request: req,
         });
@@ -1338,6 +1356,32 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       return {
         mappedFaceIds,
         hasExplicitFaceMappings: mappedFaceIds.length > 0,
+      };
+    },
+  );
+
+  // ── Per-garment-type model background mappings ─────────────────────────────
+  app.get(
+    '/admin/assets/garment-types/:id/background-mappings',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [sub] = await app.db
+        .select({ id: schema.garmentSubcategories.id })
+        .from(schema.garmentSubcategories)
+        .where(eq(schema.garmentSubcategories.id, id));
+      if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+
+      const mappings = await app.db
+        .select({ backgroundId: schema.modelBackgroundSubcategories.backgroundId })
+        .from(schema.modelBackgroundSubcategories)
+        .where(eq(schema.modelBackgroundSubcategories.subcategoryId, id));
+
+      const mappedBackgroundIds = mappings.map((m) => m.backgroundId);
+
+      return {
+        mappedBackgroundIds,
+        hasExplicitBackgroundMappings: mappedBackgroundIds.length > 0,
       };
     },
   );
