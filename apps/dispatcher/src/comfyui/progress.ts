@@ -132,7 +132,10 @@ export async function waitForCompletion(
   let pollFailures = 0;
   let lastPollSuccessAt = submittedAt;
   const pollFailed = (kind: PollFailureKind, detail: string, durationMs: number) => {
-    pollFailures++;
+    // A 4xx is an answer, not an outage (a bad key or route will not heal by waiting, and the
+    // execution deadline still bounds it). It is logged and counted per worker but never moves
+    // the outage clock, so a worker answering 4xx between network errors cannot trip it either.
+    if (kind !== 'http_4xx') pollFailures++;
     dispatcherProgressPollFailures.inc({ workerId, kind });
     (log?.warn ?? log?.info)?.(
       {
@@ -149,6 +152,7 @@ export async function waitForCompletion(
       },
       'ComfyUI progress poll failed — will retry',
     );
+    if (kind === 'http_4xx') return;
     const outageMs = Date.now() - lastPollSuccessAt;
     if (pollFailures >= config.pollOutageMinFailures && outageMs >= config.pollOutageMs)
       throw new ComfyPollOutageError(promptId, pollFailures, outageMs, detail);

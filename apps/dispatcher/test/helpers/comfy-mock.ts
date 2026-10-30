@@ -35,8 +35,9 @@ export interface ComfyMockOptions {
   /** Raw extra /history entries (e.g. one with no status), keyed by prompt id. */
   historyExtra?: Record<string, unknown>;
   /** Makes the n-th (1-based) GET /history/:id poll misbehave: never answer it (the client's
-   *  request timeout fires), drop the socket, or answer 500. Anything else answers normally. */
-  historyPollFault?: (n: number) => 'hang' | 'drop' | '500' | undefined;
+   *  request timeout fires), drop the socket, answer 500, or answer 403
+   *  (a 4xx). Anything else answers normally. */
+  historyPollFault?: (n: number) => 'hang' | 'drop' | '500' | '403' | undefined;
   /** Accept POST /prompt but never answer it: the submitter's reply is lost. */
   holdPromptResponse?: boolean;
   /** Replaces the default SaveImage output in /history — e.g. { '4': { text: ['wa-kurti'] } }
@@ -277,6 +278,10 @@ export function startComfyMock(): Promise<ComfyMock> {
         }
         if (fault === '500') {
           res.writeHead(500).end();
+          return;
+        }
+        if (fault === '403') {
+          res.writeHead(403).end();
           return;
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -63,6 +63,18 @@ describe('progress poll tolerance', () => {
     expect(await refunds(s.job.id)).toHaveLength(0);
   }, 60_000);
 
+  it('4xx-is-not-an-outage: polls answered 4xx for longer than the outage limit do not fail the job', async () => {
+    // 50 ms interval x 60 polls is ~3 s of 403s, twice the 1.5 s limit; the job then completes.
+    f.comfy.setOptions({
+      outputs,
+      completionDelayMs: 300,
+      historyPollFault: (n) => (n <= 60 ? '403' : undefined),
+    });
+    const s = await run({}, { attempts: 1 });
+    expect(await f.jobRow(s.job.id)).toMatchObject({ status: 'COMPLETED', attempts: 1 });
+    expect(await refunds(s.job.id)).toHaveLength(0);
+  }, 60_000);
+
   it('sustained-poll-outage: polls failing past the limit fail the job through the normal path with one refund, and name the count and last error', async () => {
     f.comfy.setOptions({ completionDelayMs: 60_000, historyPollFault: () => 'drop' });
     // The job's one retry is already spent, so this failure is final.

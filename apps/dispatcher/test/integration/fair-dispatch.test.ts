@@ -113,7 +113,7 @@ describe('fair dispatch', () => {
 
   async function enqueue(
     kind: PaidPathKind,
-    opts: { stream?: (typeof FAIR_STREAMS)[number]; ageMin?: number } = {},
+    opts: { stream?: (typeof FAIR_STREAMS)[number]; ageMin?: number; leading?: string[] } = {},
   ) {
     const { user, job } = await seedPaidJob(env, kind);
     await env.db
@@ -123,6 +123,7 @@ describe('fair dispatch', () => {
     await redis.xadd(
       opts.stream ?? 'jobs:normal',
       '*',
+      ...(opts.leading ?? []),
       'jobId',
       job.id,
       ...(kind === 'shopify' ? [] : ['userId', user.id]),
@@ -410,6 +411,35 @@ describe('fair dispatch', () => {
     await enqueue('regular');
     await waitFor(async () => (await posted()).length === 1, 'first job running');
     const waiter = await enqueue('regular');
+    await waitFor(() => parkedCount() === 1, 'parked');
+    const entry = async () => {
+      const rows = (await redis.xpending('jobs:normal', 'dispatcher-cg', '-', '+', 10)) as Array<
+        [string, string, number, number]
+      >;
+      const messages = await redis.xrange('jobs:normal', '-', '+');
+      const id = messages.find(([, f]) => f.includes(waiter.job.id))?.[0];
+      return rows.find(([mid]) => mid === id);
+    };
+    const before = await entry();
+    expect(before?.[1]).toBe(hostname());
+    // Threshold zero: every pending entry is old enough to claim. The live lease must stop it.
+    for (let i = 0; i < 3; i++) {
+      await recoverPendingJobs(redis, cfg(), 0, log, ['jobs:normal'], { background: true });
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    const after = await entry();
+    expect(after?.[1]).toBe(before?.[1]);
+    expect(after?.[3]).toBe(before?.[3]);
+    expect(parkedJobIds()).toContain(waiter.job.id);
+  }, 60_000);
+
+  it('parked-message-not-reclaimed-odd-field: a field VALUE reading "jobId" never stands in for the job id', async () => {
+    await setWorkers([{ id: 'cat', pools: ['catalogue'] }]);
+    startLane(2);
+    await enqueue('regular');
+    await waitFor(async () => (await posted()).length === 1, 'first job running');
+    // The entry reads [note, jobId, jobId, <id>]: indexOf('jobId') lands on the value of `note`.
+    const waiter = await enqueue('regular', { leading: ['note', 'jobId'] });
     await waitFor(() => parkedCount() === 1, 'parked');
     const entry = async () => {
       const rows = (await redis.xpending('jobs:normal', 'dispatcher-cg', '-', '+', 10)) as Array<

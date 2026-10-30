@@ -45,8 +45,8 @@ async function eligibleNow(
   if (await redis.exists(retiredKey(consumer))) return true;
   const [entry] = (await redis.xrange(stream, messageId, messageId)) as Array<[string, string[]]>;
   const fields = entry?.[1] ?? [];
-  const jobId = fields[fields.indexOf('jobId') + 1];
-  if (!jobId || fields.indexOf('jobId') < 0) return false;
+  const jobId = entryJobId(fields);
+  if (!jobId) return false;
   const [row] = await cfg.db
     .select({
       free: sql<boolean>`(${schema.dispatcherJobControl.ownerRetired}
@@ -56,6 +56,15 @@ async function eligibleNow(
     .from(schema.dispatcherJobControl)
     .where(eq(schema.dispatcherJobControl.jobId, jobId));
   return row?.free === true;
+}
+
+/**
+ * The job id of a stream entry. XRANGE returns a flat [name, value, name, value, ...] list, so
+ * a name is only ever at an even index: a value that happens to read "jobId" must not match.
+ */
+function entryJobId(fields: string[]): string | undefined {
+  for (let i = 0; i + 1 < fields.length; i += 2) if (fields[i] === 'jobId') return fields[i + 1];
+  return undefined;
 }
 
 /**
@@ -73,8 +82,7 @@ async function leaseIsLive(
 ): Promise<boolean> {
   const [entry] = (await redis.xrange(stream, messageId, messageId)) as Array<[string, string[]]>;
   const fields = entry?.[1] ?? [];
-  const at = fields.indexOf('jobId');
-  const jobId = at < 0 ? undefined : fields[at + 1];
+  const jobId = entryJobId(fields);
   if (!jobId) return false;
   const [row] = await cfg.db
     .select({
