@@ -97,27 +97,23 @@ export async function adoptionFixture(label: string) {
       .set({ leaseUntil: sql`clock_timestamp() - interval '1 second'` })
       .where(eq(schema.dispatcherJobControl.jobId, jobId));
 
+  const processorCfg = (extra: Record<string, unknown> = {}) => ({
+    db: env.db,
+    redis,
+    comfyRedis: redis,
+    pub: redis,
+    storage: env.storage,
+    log,
+    ownerSession: randomUUID(),
+    uncertainCheckMs: 90_000,
+    adoptionSearchPollMs: 100,
+    comfyPollIntervalMs: 100,
+    ...extra,
+  });
+
   /** The replacement dispatcher's delivery of the dead owner's PEL entry. */
   const replacement = (jobId: string, userId: string, extra: Record<string, unknown> = {}) =>
-    processJob(
-      {
-        db: env.db,
-        redis,
-        comfyRedis: redis,
-        pub: redis,
-        storage: env.storage,
-        log,
-        ownerSession: randomUUID(),
-        uncertainCheckMs: 90_000,
-        adoptionSearchPollMs: 100,
-        comfyPollIntervalMs: 100,
-        ...extra,
-      },
-      jobId,
-      userId,
-      'jobs:normal',
-      '0-1',
-    );
+    processJob(processorCfg(extra), jobId, userId, 'jobs:normal', '0-1');
 
   const jobRow = async (id: string) => {
     const [row] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
@@ -159,6 +155,8 @@ export async function adoptionFixture(label: string) {
     crashedOwner,
     expireLease,
     replacement,
+    processorCfg,
+    log,
     jobRow,
     attemptRow,
     outputs,

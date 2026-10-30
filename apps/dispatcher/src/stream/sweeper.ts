@@ -3,14 +3,18 @@ import type { Logger } from '@aivastra/logger';
 import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import { processSession } from '../job/ownership.js';
+import { type ProcessorConfig, processJob } from '../job/processor.js';
 import { settleAndPublish } from '../job/settlement.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
+import { NO_MESSAGE_ID } from './delivery.js';
 
 // In-flight jobs whose work started (or, for PREPROCESSING, were created) longer ago than
 // this are stuck — a normal try-on completes in ~30-60s, so 15m means the dispatcher died
 // mid-flight.
 const IN_FLIGHT_SLA_MS = 15 * 60 * 1000;
 const IN_FLIGHT_STATES = ['PREPROCESSING', 'GENERATING', 'UPLOADING'];
+// Adoptions can wait on a running prompt, so only a few run at once.
+const ADOPT_PARALLEL = 3;
 
 interface StuckJob {
   id: string;
@@ -22,6 +26,10 @@ interface StuckJob {
   params: unknown;
   /** True while a dispatcher holds an unretired, unexpired lease on the job. */
   liveOwner: boolean;
+  /** Retries already spent (`jobs.attempts`). */
+  attempts: number;
+  /** A paid-Comfy job with an attempt record: what is running on its worker can be looked up. */
+  hasAttempt: boolean;
 }
 
 const SELECT_COLS = {
@@ -33,6 +41,8 @@ const SELECT_COLS = {
   params: schema.jobInputs.params,
   // Postgres time, like every other lease comparison. A job with no control row
   // (in flight before ownership existed) is not live.
+  attempts: schema.jobs.attempts,
+  hasAttempt: sql<boolean>`exists (select 1 from execution_attempts ea where ea.job_id = ${schema.jobs.id})`,
   liveOwner: sql<boolean>`coalesce(not ${schema.dispatcherJobControl.ownerRetired}
     and ${schema.dispatcherJobControl.leaseUntil} > clock_timestamp(), false)`,
 };
@@ -43,6 +53,9 @@ export async function runSweeper(
   pub: Redis,
   log: Logger,
   session: string = processSession,
+  // When given, expired paid-Comfy jobs with an attempt record go through adoption instead of
+  // being failed by age.
+  cfg?: ProcessorConfig,
 ): Promise<void> {
   const now = Date.now();
   // COALESCE(started_at, created_at): started_at is only set at GENERATING, so a job stuck
@@ -80,15 +93,42 @@ export async function runSweeper(
     if (inFlight.length === 0) return;
     log.info({ inFlight: inFlight.length }, 'sweeping stuck jobs');
 
+    const toAdopt: StuckJob[] = [];
     for (const job of inFlight) {
       if (job.liveOwner) {
         log.info({ jobId: job.id }, 'sweeper skipping job with a live ownership lease');
         continue;
       }
+      // Age says nothing about what the worker did: the GPU may have finished the image.
+      // Video jobs and jobs from before attempts were tracked have nothing to look up and
+      // keep the age rule.
+      if (cfg && job.hasAttempt) {
+        toAdopt.push(job);
+        continue;
+      }
       await failAndRefund(db, redis, pub, job, 'STUCK_IN_FLIGHT', log, session);
+    }
+    for (let i = 0; i < toAdopt.length; i += ADOPT_PARALLEL) {
+      await Promise.all(
+        toAdopt.slice(i, i + ADOPT_PARALLEL).map((job) => adopt(cfg as ProcessorConfig, job, log)),
+      );
     }
   } catch (err) {
     log.error({ err }, 'failed to sweep stuck jobs');
+  }
+}
+
+/**
+ * The same takeover, adoption and settlement path recovery uses, with no stream message behind
+ * it: nothing to ACK, and a requeue appends a fresh message. A finished prompt is finalized, a
+ * running one is waited on and settled when it ends, and only a real final failure is failed
+ * and refunded, through settleComfyJob.
+ */
+async function adopt(cfg: ProcessorConfig, job: StuckJob, log: Logger): Promise<void> {
+  try {
+    await processJob(cfg, job.id, job.userId ?? '', 'jobs:normal', NO_MESSAGE_ID, job.attempts);
+  } catch (err) {
+    log.error({ err, jobId: job.id }, 'sweeper adoption failed');
   }
 }
 
