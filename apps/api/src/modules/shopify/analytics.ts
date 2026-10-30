@@ -17,6 +17,7 @@ export interface AnalyticsCards {
   /** 0..1. Named add-to-cart, never "conversion" — it is not a sale. */
   addToCartRate: number;
   emailsCaptured: number;
+  phonesCaptured: number;
   turnedAway: { total: number; storeCap: number; shopperCap: number; emailGate: number };
 }
 
@@ -83,6 +84,18 @@ export async function analyticsCards(
       ),
     );
 
+  const [phoneRow] = await db
+    .select({ n: int(sql`count(*)`) })
+    .from(schema.shopifyShoppers)
+    .where(
+      and(
+        eq(schema.shopifyShoppers.storeId, storeId),
+        isNotNull(schema.shopifyShoppers.phone),
+        gte(schema.shopifyShoppers.phoneCapturedAt, range.from),
+        lt(schema.shopifyShoppers.phoneCapturedAt, range.to),
+      ),
+    );
+
   const identified = identifiedRow.n;
   return {
     tryOns: jobRow.tryOns,
@@ -90,6 +103,7 @@ export async function analyticsCards(
     addedToCart: eventRow.addedToCart,
     addToCartRate: identified === 0 ? 0 : eventRow.addedToCart / identified,
     emailsCaptured: emailRow.n,
+    phonesCaptured: phoneRow.n,
     turnedAway: {
       // Deliberately excludes emailGate: a shopper who hits the email gate
       // typically submits their email and gets their try-on anyway (a soft

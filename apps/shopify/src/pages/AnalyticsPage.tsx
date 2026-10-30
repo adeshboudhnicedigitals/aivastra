@@ -198,6 +198,7 @@ export default function AnalyticsPage() {
                 {/* Never "Conversion rate" — a merchant reads that as purchased. */}
                 <StatTile label="Add-to-cart rate" value={pct(data.cards.addToCartRate)} />
                 <StatTile label="Emails captured" value={String(data.cards.emailsCaptured)} />
+                <StatTile label="Phones captured" value={String(data.cards.phonesCaptured)} />
                 {/* A soft gate — most shoppers asked for an email submit it and
                   get their try-on anyway, so this is deliberately not part of
                   "Turned away" (which only counts genuinely lost traffic). */}
@@ -212,7 +213,7 @@ export default function AnalyticsPage() {
                 <BlockStack gap="300">
                   <InlineStack align="space-between" blockAlign="center">
                     <Text as="h2" variant="headingMd">
-                      Collected emails
+                      Collected contacts
                     </Text>
                     <Button
                       onClick={exportCsv}
@@ -223,12 +224,16 @@ export default function AnalyticsPage() {
                     </Button>
                   </InlineStack>
                   <Text as="p" tone="subdued">
-                    Only shoppers who ticked the consent box have agreed to marketing. Check the
-                    Consent column before adding an address to a mailing list.
+                    Email and phone number of shoppers who tried on. Only shoppers who ticked the
+                    consent box have agreed to marketing; shoppers who logged in were not asked, so
+                    check the Consent column before adding an address to a mailing list.
                   </Text>
                   {shoppers && shoppers.length === 0 ? (
-                    <EmptyState heading="No emails collected yet" image="">
-                      <p>Turn on "Ask for an email" under Settings to start collecting.</p>
+                    <EmptyState heading="No contacts collected yet" image="">
+                      <p>
+                        Turn on "Only logged-in shoppers can try on" or "Ask for an email" under
+                        Settings → Limits to start collecting.
+                      </p>
                     </EmptyState>
                   ) : (
                     <IndexTable
