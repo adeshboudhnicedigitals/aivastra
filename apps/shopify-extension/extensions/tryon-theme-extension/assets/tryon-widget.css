@@ -1079,21 +1079,36 @@
   box-sizing: border-box;
 }
 
-/* The embed's icon: a round badge on the product image. The glyph takes the
-   text colour, the disc the button colour, so it reads on any photo. */
+/* The embed's icon: a badge on the product image.
+   !important on the box rules on purpose: themes style the direct children of
+   their media wrapper (Dawn: `.media > *` is absolute, top/left 0, 100% x 100%),
+   which stretched this wrapper over the whole image with the icon stuck at its
+   top-left. Only the button inside takes clicks, so the wrapper never blocks the
+   image. */
 .aivastra-tryon--icon {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 3;
-  margin: 0;
-  width: auto;
+  position: absolute !important;
+  top: 12px !important;
+  right: 12px !important;
+  bottom: auto !important;
+  left: auto !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  margin: 0 !important;
+  /* High enough to sit above a theme's gallery slides, zoom buttons and badges.
+     placeIcon isolates the image container, so this only competes inside it and
+     never covers the sticky header or the cart drawer. */
+  z-index: 100;
+  pointer-events: none;
+}
+.aivastra-tryon--icon .aivastra-tryon__icon-btn {
+  pointer-events: auto;
 }
 .aivastra-tryon--icon.aivastra-tryon--floating {
-  position: fixed;
-  top: auto;
-  right: 16px;
-  bottom: 16px;
+  position: fixed !important;
+  top: auto !important;
+  right: 16px !important;
+  bottom: 16px !important;
   z-index: 2147483000;
 }
 .aivastra-tryon .aivastra-tryon__icon-btn {
@@ -1104,15 +1119,17 @@
   height: var(--aivastra-icon-size, 40px);
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  /* A rounded square; the radius is the embed's "Icon corner radius" setting. */
+  border-radius: var(--aivastra-border-radius, 10px);
+  overflow: hidden;
   cursor: pointer;
   color: var(--aivastra-text-color, #fff);
   background: var(--aivastra-button-color, #000);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
-.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__btn-icon {
-  width: 60%;
-  height: 60%;
-  margin: 0;
-  vertical-align: baseline;
+.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
 }

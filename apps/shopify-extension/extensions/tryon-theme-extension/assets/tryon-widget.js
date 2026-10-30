@@ -1867,6 +1867,13 @@
   const THUMBNAIL_SELECTOR =
     '[class*="thumb" i], [data-thumbnail], header, footer, nav, [class*="cart" i], [class*="recommend" i]';
 
+  // The theme's hidden zoom dialog repeats the product images at full size. An
+  // icon placed in it is invisible, so its images are never candidates. Matched on
+  // the dialog itself, not on any class containing "modal": Dawn wraps the visible
+  // gallery image in a "product__modal-opener".
+  const DIALOG_SELECTOR =
+    'dialog, [role="dialog"], product-modal, .media-modal, [class*="lightbox" i]';
+
   function safeQuery(scope, selector) {
     try {
       return scope.querySelector(selector);
@@ -1904,7 +1911,7 @@
     const wanted = opts.productImage ? imageKey(opts.productImage, win.location.href) : '';
     const imgs = Array.prototype.slice
       .call(doc.querySelectorAll('img'))
-      .filter((img) => !img.closest(THUMBNAIL_SELECTOR));
+      .filter((img) => !img.closest(THUMBNAIL_SELECTOR) && !img.closest(DIALOG_SELECTOR));
     let candidates = wanted
       ? imgs.filter((img) =>
           imageSources(img).some((src) => imageKey(src, win.location.href) === wanted),
@@ -1917,6 +1924,10 @@
       if (scope) candidates = imgs.filter((img) => scope.contains(img));
     }
     if (candidates.length === 0) return null;
+    // Laid-out images beat ones with no box (display:none slides, collapsed
+    // tabs); with none laid out (or no layout engine) keep them all.
+    const shown = candidates.filter((img) => img.getBoundingClientRect().width > 0);
+    if (shown.length > 0) candidates = shown;
     let best = candidates[0];
     let bestWidth = best.getBoundingClientRect().width;
     for (let i = 1; i < candidates.length; i++) {
@@ -1948,6 +1959,9 @@
     });
     if (!found) return false;
     if (found.needsRelative) found.el.style.position = 'relative';
+    // A stacking context of its own, so the icon's z-index outranks the gallery
+    // inside it without ever competing with the rest of the page.
+    found.el.style.isolation = 'isolate';
     found.el.appendChild(root);
     root.classList.add('aivastra-tryon--icon');
     return true;

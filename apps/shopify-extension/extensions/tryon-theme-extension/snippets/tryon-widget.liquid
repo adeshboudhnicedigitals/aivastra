@@ -13,8 +13,8 @@
 {%- assign cfg = shop.metafields.aivastra.widget_config.value -%}
 {%- liquid
   if source == 'embed'
-    assign accent_bg = settings.icon_background | default: '#000000'
-    assign accent_fg = settings.icon_color | default: '#FFFFFF'
+    assign accent_bg = settings.icon_background | default: '#FFFFFF'
+    assign accent_fg = '#FFFFFF'
   else
     assign accent_bg = settings.button_color
     assign accent_fg = settings.text_color
@@ -60,7 +60,7 @@
   >
     {%- if source == 'embed' -%}
       <button type="button" class="aivastra-tryon__button aivastra-tryon__icon-btn" aria-label="Try it on">
-        <span class="aivastra-tryon__btn-icon" aria-hidden="true"></span>
+        <img class="aivastra-tryon__icon-img" src="{{ 'tryon-icon-color.png' | asset_url }}" alt="" width="256" height="256" loading="lazy">
       </button>
     {%- else -%}
       {%- if settings.promo_text != blank -%}

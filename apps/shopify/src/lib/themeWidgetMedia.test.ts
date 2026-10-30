@@ -76,6 +76,25 @@ describe('findMediaContainer', () => {
     expect(found?.needsRelative).toBe(true);
   });
 
+  it('ignores the theme zoom dialog that repeats the product image', () => {
+    document.body.innerHTML = `
+      <product-modal class="product-media-modal media-modal" style="position:fixed">
+        <div><img src="/files/shirt_1800x.jpg"></div>
+      </product-modal>
+      <div class="product__media-wrapper"><img src="/files/shirt_900x.jpg"></div>`;
+    const found = find({ productImage: '/files/shirt_200x.jpg' });
+    expect(found?.el.className).toBe('product__media-wrapper');
+  });
+
+  it('does not treat a gallery image wrapped by a modal-opener as a dialog', () => {
+    document.body.innerHTML = `
+      <div class="product__media-wrapper" style="position:relative">
+        <modal-opener class="product__modal-opener"><img src="/files/shirt_900x.jpg"></modal-opener>
+      </div>`;
+    const found = find({ productImage: '/files/shirt_200x.jpg' });
+    expect(found?.el.className).toBe('product__media-wrapper');
+  });
+
   it('returns null when the page has no usable image', () => {
     document.body.innerHTML = '<header><img src="/logo.png"></header><p>hello</p>';
     expect(find({ productImage: '/files/shirt.jpg' })).toBeNull();
