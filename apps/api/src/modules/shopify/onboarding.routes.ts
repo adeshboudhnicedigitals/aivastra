@@ -135,6 +135,13 @@ const MAIN_THEME_SETTINGS_QUERY = `
   }
 `;
 
+/**
+ * Why a live theme check could not look: the store has not granted `read_themes`
+ * yet, or Shopify failed some other way. Reported to the caller so the Dashboard
+ * can say so instead of looking like a button that does nothing.
+ */
+export type ThemeCheckFailure = 'scope' | 'error';
+
 interface MainThemeSettingsData {
   themes: {
     nodes: Array<{
@@ -158,7 +165,7 @@ interface MainThemeSettingsData {
 export async function checkThemeLive(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
-): Promise<{ block: boolean; embed: boolean }> {
+): Promise<{ block: boolean; embed: boolean; failure?: ThemeCheckFailure }> {
   try {
     const accessToken = await getValidAccessToken(app, store);
     const data = await shopifyGraphQL<MainThemeSettingsData>(
@@ -177,7 +184,14 @@ export async function checkThemeLive(
     };
   } catch (err) {
     app.log.warn({ err, storeId: store.id }, 'theme live-check failed');
-    return { block: false, embed: false };
+    // Shopify reports a missing scope as a GraphQL error message, not a status
+    // code, so the text is all there is to tell it apart from a transient failure.
+    const message = err instanceof Error ? err.message : '';
+    return {
+      block: false,
+      embed: false,
+      failure: /access denied|read_themes/i.test(message) ? 'scope' : 'error',
+    };
   }
 }
 
@@ -440,6 +454,7 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
       return {
         themeBlockConfirmed: Boolean(settings.themeButtonBlockSeen) || live.block,
         themeEmbedConfirmed: Boolean(settings.themeEmbedConfirmed) || live.embed,
+        ...(live.failure ? { reason: live.failure } : {}),
       };
     },
   );
