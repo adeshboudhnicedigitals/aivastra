@@ -55,13 +55,18 @@ export async function adoptionFixture(label: string) {
   });
 
   /** An owner that reserved the worker and POSTed; killed once the worker holds the prompt. */
-  async function crashedOwner(opts: { withReceipt: boolean }) {
+  async function crashedOwner(opts: {
+    withReceipt: boolean;
+    leaveRunning?: boolean;
+    child?: string;
+    env?: Record<string, string>;
+  }) {
     const seeded = await seedPaidJob(env, 'regular');
     const session = randomUUID();
-    const child = fork(new URL('./reservation-child.ts', import.meta.url), [], {
+    const child = fork(new URL(opts.child ?? './reservation-child.ts', import.meta.url), [], {
       execArgv: ['--import', 'tsx'],
       silent: true,
-      env: childEnv({ RES_TEST_JOB_ID: seeded.job.id, RES_TEST_SESSION: session }),
+      env: childEnv({ RES_TEST_JOB_ID: seeded.job.id, RES_TEST_SESSION: session, ...opts.env }),
     });
     children.add(child);
     const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()));
@@ -86,9 +91,11 @@ export async function adoptionFixture(label: string) {
         await new Promise((r) => setTimeout(r, 25));
     const accepted = comfy.accepted().at(-1);
     if (!accepted) throw new Error('worker saw no POST');
-    child.kill('SIGKILL');
-    await exited;
-    return { seeded, session, attemptId, clientId, promptId: accepted.promptId };
+    if (!opts.leaveRunning) {
+      child.kill('SIGKILL');
+      await exited;
+    }
+    return { exited, seeded, session, attemptId, clientId, promptId: accepted.promptId, child };
   }
 
   const expireLease = (jobId: string) =>
@@ -157,6 +164,7 @@ export async function adoptionFixture(label: string) {
     replacement,
     processorCfg,
     log,
+    childEnv,
     jobRow,
     attemptRow,
     outputs,
