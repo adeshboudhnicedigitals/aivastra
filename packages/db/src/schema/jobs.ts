@@ -13,7 +13,13 @@ import {
 import { apiKeys } from './api-keys.js';
 import { catalogItems } from './catalog.js';
 import { merchants } from './merchant.js';
-import { garmentSubcategories, modelBackgrounds, modelFaces, modelPoseAssets } from './models.js';
+import {
+  blousePoses,
+  garmentSubcategories,
+  modelBackgrounds,
+  modelFaces,
+  modelPoseAssets,
+} from './models.js';
 import { shopifyShoppers, shopifyStores } from './shopify.js';
 import { users } from './users.js';
 
@@ -123,6 +129,11 @@ export const jobInputs = pgTable('job_inputs', {
   thirdGarmentKey: text('third_garment_key'),
   // Optional saree blouse upload — see garmentSubcategories.allowsFourthUpload.
   fourthGarmentKey: text('fourth_garment_key'),
+  // Catalog-picked blouse design (see blousePoses) — a second, admin-curated
+  // source for the same fourthNodeId role as fourthGarmentKey above. The
+  // dispatcher prefers a direct fourthGarmentKey upload when both are present
+  // (see apps/dispatcher/src/job/processor.ts).
+  blousePoseId: uuid('blouse_pose_id').references(() => blousePoses.id, { onDelete: 'set null' }),
   shoeCatalogId: uuid('shoe_catalog_id').references(() => catalogItems.id),
   // Selected accessory catalog items (at most one per category, zero or more
   // categories) — never mandatory, unlike lower/shoe. The dispatcher resolves

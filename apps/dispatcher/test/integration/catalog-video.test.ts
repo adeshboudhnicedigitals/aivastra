@@ -115,6 +115,13 @@ describe('catalog video job (PixVerse)', () => {
 
     const [updated] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(updated.status).toBe('COMPLETED');
+    // PixVerse keeps its pre-ownership contract: no control row, no attempt rows.
+    expect(
+      await env.db
+        .select()
+        .from(schema.dispatcherJobControl)
+        .where(eq(schema.dispatcherJobControl.jobId, jobId)),
+    ).toEqual([]);
 
     const [output] = await env.db
       .select()
@@ -192,6 +199,25 @@ describe('catalog video job (PixVerse)', () => {
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, userId));
     expect(bal.balance).toBe(20);
+    // The ownerless lane settles through the same terminal fence and all-reasons refund check,
+    // but never locks, creates or writes dispatcher_job_control, and records no attempt.
+    expect(
+      await env.db
+        .select()
+        .from(schema.dispatcherJobControl)
+        .where(eq(schema.dispatcherJobControl.jobId, jobId)),
+    ).toEqual([]);
+    expect(
+      await env.db
+        .select()
+        .from(schema.executionAttempts)
+        .where(eq(schema.executionAttempts.jobId, jobId)),
+    ).toEqual([]);
+    const ledger = await env.db
+      .select()
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.jobId, jobId));
+    expect(ledger.map((row) => row.reason)).toEqual(['JOB_FAIL_REFUND']);
   });
 
   it('fails fast with PIXVERSE_NOT_CONFIGURED when the API key is missing', async () => {

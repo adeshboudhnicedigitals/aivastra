@@ -156,7 +156,7 @@ describe('engine: menu and global commands', () => {
   it('a Menu button on each photo request and on the confirm step leaves the flow', async () => {
     const { deps } = fakeDeps();
     const ask = await run(deps, [(r) => tap(r, 'menu', 'new')]);
-    expect(buttonTitles(ask.messages.at(-1))).toEqual(['Exit']);
+    expect(buttonTitles(ask.messages.at(-1))).toEqual(['Menu']);
     const out = await handle(ask.session, tap(ask, 'menu', 'menu'), CTX, deps);
     expect(out.session.state).toBe('MAIN_MENU');
   });
@@ -176,6 +176,10 @@ describe('engine: menu and global commands', () => {
 
 // Recognised as the "Tops" basket (Shirt is its representative), with a
 // "Lowers" alternative behind "No, different item".
+const ALL_BASKETS = [
+  { key: 'b:tops', name: 'Tops' },
+  { key: 'b:lowers', name: 'Lowers' },
+];
 const BASKETS = {
   recognizeBaskets: async () => [
     { key: 'b:tops', name: 'Tops' },
@@ -258,23 +262,26 @@ describe('engine: photo, gender and garment type', () => {
     expect(r.session).toMatchObject({ state: 'ASK_POSE_COUNT', garmentType: { id: 'gt-shirt' } });
   });
 
-  it('No shows the alternatives and something else, and counts a correction', async () => {
-    const { deps, calls } = fakeDeps(BASKETS);
+  it('No opens the full basket list and counts a correction', async () => {
+    const { deps, calls } = fakeDeps({ ...BASKETS, listBaskets: async () => ALL_BASKETS });
     const r = await run(deps, [
       () => photo(1),
       (x) => tap(x, 'gender', 'women'),
       (x) => tap(x, 'change'),
     ]);
     expect(calls.corrected).toBe(1);
-    expect(r.session.state).toBe('CHOOSE_BASKET');
-    expect(listOf(r)?.rows.map((x) => x.title)).toEqual(['Lowers', 'Something else']);
-    const other = await handle(r.session, tap(r, 'other'), CTX, deps);
-    expect(other.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
+    expect(r.session).toMatchObject({ state: 'ASK_GARMENT_TYPE', gender: 'women' });
+    // Every basket, the rejected guess included.
+    expect(listOf(r)?.rows.map((x) => x.title)).toEqual(['Tops', 'Lowers']);
   });
 
   it('an alternative picked from the list runs as its own representative', async () => {
     const trouser = { ...GT_SHIRT, id: 'gt-trouser', label: 'Trouser' };
-    const { deps } = fakeDeps({ ...BASKETS, listGarmentTypes: async () => [GT_SHIRT, trouser] });
+    const { deps } = fakeDeps({
+      ...BASKETS,
+      listBaskets: async () => ALL_BASKETS,
+      listGarmentTypes: async () => [GT_SHIRT, trouser],
+    });
     const r = await run(deps, [
       () => photo(1),
       (x) => tap(x, 'gender', 'women'),
@@ -282,23 +289,6 @@ describe('engine: photo, gender and garment type', () => {
       (x) => tap(x, 'basket', 'b:lowers'),
     ]);
     expect(r.session).toMatchObject({ state: 'ASK_POSE_COUNT', garmentType: { id: 'gt-trouser' } });
-  });
-
-  it('a stale or hand-made basket id is not accepted', async () => {
-    const { deps } = fakeDeps(BASKETS);
-    const at = await run(deps, [
-      () => photo(1),
-      (x) => tap(x, 'gender', 'women'),
-      (x) => tap(x, 'change'),
-    ]);
-    // The guess itself is not among the alternatives.
-    const r = await handle(
-      at.session,
-      { type: 'reply', id: encodeReplyId(at.session.nonce, 'basket', 'b:tops') },
-      CTX,
-      deps,
-    );
-    expect(r.session.state).toBe('CHOOSE_BASKET');
   });
 
   it('No with no alternatives goes straight to the type list', async () => {
@@ -416,7 +406,11 @@ describe('engine: photo, gender and garment type', () => {
     ] as const) {
       const { deps, calls } = fakeDeps(over);
       const list = await run(deps, [() => photo(1), (x) => tap(x, 'gender', 'women')]);
-      const r = await handle(list.session, tap(list, 'basket', 't:gt-shirt'), CTX, deps);
+      const notes: string[] = [];
+      const ctx = { ...CTX, note: async (title: string) => void notes.push(title) };
+      const r = await handle(list.session, tap(list, 'basket', 't:gt-shirt'), ctx, deps);
+      // The admin Conversations tab shows the same reason next to the hand-off.
+      expect(notes).toEqual([`Shirt not offered: ${reason}`]);
       expect(texts(r.messages)[0]).toMatch(/^Shirt catalogs can't be made on WhatsApp yet/);
       expect(r.session.state).toBe('ASK_GARMENT_TYPE');
       expect(r.session.gender).toBe('women');
@@ -1213,7 +1207,7 @@ describe('engine: step lock', () => {
   });
 
   it('the lists carry no Back or Exit rows', async () => {
-    const { deps } = fakeDeps(BASKETS);
+    const { deps } = fakeDeps({ ...BASKETS, listBaskets: async () => ALL_BASKETS });
     const gender = await run(deps, [() => photo(1)]);
     const alt = await run(
       deps,

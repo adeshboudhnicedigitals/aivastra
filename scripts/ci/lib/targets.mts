@@ -18,6 +18,13 @@ export interface TargetsConfig {
   targets: TargetDef[];
   separateSurfaces: SeparateSurface[];
   testablePackages: string[];
+  /**
+   * Packages whose tests must also run when the key package changes, without being
+   * rebuilt or deployed. The dispatcher's settlement tests import apps/api's credit
+   * helpers by relative path, which the workspace dependency graph cannot see; a deploy
+   * edge there would restart the dispatcher on every API-only release.
+   */
+  testOnlyDependents?: Record<string, string[]>;
   docsPaths: string[];
   ciPaths: string[];
   infraPaths: string[];

@@ -108,6 +108,11 @@ export const CreateTryOnJobInputsBase = z.object({
   // Optional saree blouse upload — only accepted for garment types with
   // allowsFourthUpload whose resolved workflow maps a fourthNodeId.
   fourthGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
+  // Catalog-picked blouse design (see blouse_poses) — a second, admin-curated
+  // source for the same fourthNodeId role as fourthGarmentKey above. Never
+  // both at once in practice, but XOR is not enforced here: createJob prefers
+  // a direct upload when both happen to be present (see processor.ts).
+  blousePoseId: z.string().uuid().optional(),
   shoeCatalogId: z.string().uuid().optional(),
   // Selected accessory catalog items — at most one per category, zero or
   // more categories, never mandatory. Capped generously; the studio wizard

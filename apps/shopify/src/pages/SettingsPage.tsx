@@ -33,6 +33,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ClassifiedError | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [openingEditor, setOpeningEditor] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -68,6 +69,22 @@ export default function SettingsPage() {
     }
   }
 
+  // Opens the product template with the Try It On app block staged. The
+  // merchant drags it into place and presses Save in the theme editor.
+  async function openBlockEditor() {
+    if (openingEditor) return;
+    setOpeningEditor(true);
+    setError(null);
+    try {
+      const { url } = await apiFetch<{ url: string }>('/v1/shopify/theme-block-url');
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      setError(classifyError(err));
+    } finally {
+      setOpeningEditor(false);
+    }
+  }
+
   const patchLimits = (patch: Partial<ShopifyStoreLimits>) =>
     setLimits((prev) => ({ ...prev, ...patch }));
 
@@ -82,6 +99,7 @@ export default function SettingsPage() {
   const tabs = [
     { id: 'limits', content: 'Limits' },
     { id: 'privacy', content: 'Privacy' },
+    { id: 'placement', content: 'Button placement' },
   ];
 
   return (
@@ -184,6 +202,27 @@ export default function SettingsPage() {
                   <InlineStack align="end">
                     <Button variant="primary" size="large" loading={saving} onClick={save}>
                       Save
+                    </Button>
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+            )}
+
+            {selectedTab === 2 && (
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">
+                    Choose where the button goes
+                  </Text>
+                  <Text as="p" tone="subdued">
+                    By default the Try It On app embed places the button above your Add to cart
+                    button automatically. If you want it somewhere else, add the Try It On button
+                    block to your product page and drag it to the exact spot. Once the block is on
+                    the page it replaces the embed's button, so shoppers never see two.
+                  </Text>
+                  <InlineStack>
+                    <Button loading={openingEditor} onClick={openBlockEditor}>
+                      Add the button block
                     </Button>
                   </InlineStack>
                 </BlockStack>

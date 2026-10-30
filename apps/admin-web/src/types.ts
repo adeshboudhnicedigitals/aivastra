@@ -41,6 +41,7 @@ export interface ModelBackground {
   publicApiSlug: string | null;
   isActive: boolean;
   isWhiteBg: boolean;
+  whatsappPool: boolean;
   sortOrder: number;
   genderSlug: string | null;
   scope: 'general' | 'template';
@@ -169,6 +170,40 @@ export interface BodyType {
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BlouseCategory {
+  id: string;
+  genderSlug: GenderSlug | null;
+  label: string;
+  thumbnailKey: string | null;
+  thumbnailUrl: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  poseCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BlousePose {
+  id: string;
+  categoryId: string;
+  label: string;
+  r2Key: string;
+  r2Url: string | null;
+  thumbnailKey: string | null;
+  thumbnailUrl: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BlouseCategoryGarmentTypeMapping {
+  id: string;
+  label: string;
+  thumbnailUrl: string | null;
+  mapped: boolean;
 }
 
 export interface CatalogueTemplateLook {
@@ -442,8 +477,6 @@ export interface ModelPoseAsset {
   shotType: 'full' | 'half' | 'closeup' | null;
   publicApiSlug: string | null;
   scope: 'general' | 'template';
-  /** In the WhatsApp bot's draw pool (WhatsApp → Poses). */
-  whatsappPool?: boolean;
   isActive: boolean;
   sortOrder: number;
   deletedAt: string | null;

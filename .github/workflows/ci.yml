@@ -6,9 +6,11 @@ on:
   pull_request:
     branches: [main, dev]
   schedule:
-    # 02:30 UTC daily — validates the whole monorepo regardless of any diff, so a
-    # detector misclassification surfaces within a day instead of at the next incident.
-    - cron: '30 2 * * *'
+    # 02:30 UTC Mondays — validates the whole monorepo regardless of any diff, so a
+    # detector misclassification surfaces within a week instead of at the next incident.
+    # Weekly rather than daily to save hosted-runner minutes; restore to daily
+    # ('30 2 * * *') once CI moves to self-hosted runners.
+    - cron: '30 2 * * 1'
   workflow_dispatch:
     inputs:
       force_all:
@@ -212,8 +214,14 @@ jobs:
   test-integration:
     name: Integration tests (${{ matrix.package }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15, not 10: with two shards per suite each shard carries more tests, and an
+    # unsharded api run was already seen at ~10 min.
+    timeout-minutes: 15
     needs: [detect]
+    # See lint's comment — skip on push, already validated at PR time. Every step
+    # below carries the same event check, but without it here each of the four
+    # shards still starts a runner, runs no steps, and is billed a full minute.
+    if: github.event_name != 'push'
     # See test's comment — contents: read has to be listed alongside
     # packages: read or the job-level override drops checkout's access.
     permissions:
@@ -223,24 +231,22 @@ jobs:
       fail-fast: false
       matrix:
         # Only apps/api and apps/dispatcher have a test:integration script.
-        # Both suites are split across three runners with Vitest's --shard.
+        # Both suites are split across two runners with Vitest's --shard.
         # Every shard gets its own docker stack, so shards share nothing even
         # though the dispatcher suite runs its files serially within a shard
         # (singleFork). Each shard repeats install/build/docker startup, which
-        # is the price of cutting wall time from ~7-10 min to a few.
+        # is the price of cutting wall time. Two shards, not three: billed time
+        # is the sum of every job, so each extra shard adds another copy of that
+        # setup.
         include:
           - package: '@aivastra/api'
-            shard: 1/3
+            shard: 1/2
           - package: '@aivastra/api'
-            shard: 2/3
-          - package: '@aivastra/api'
-            shard: 3/3
+            shard: 2/2
           - package: '@aivastra/dispatcher'
-            shard: 1/3
+            shard: 1/2
           - package: '@aivastra/dispatcher'
-            shard: 2/3
-          - package: '@aivastra/dispatcher'
-            shard: 3/3
+            shard: 2/2
     # `matrix` isn't in the allowed-context list for a job-level `if:` (only
     # github/inputs/needs/vars are — see actionlint's expression check), so the
     # per-package skip has to live on every step instead of the job. A skipped

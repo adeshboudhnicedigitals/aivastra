@@ -20,7 +20,8 @@ import type { ImageCompressionJobConfig } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 import sharp from 'sharp';
 import { loadEnv } from '../env.js';
-import { transitionJob } from '../job/state.js';
+import type { OwnerToken } from '../job/ownership.js';
+import { settleAndPublish } from '../job/settlement.js';
 import { applyWatermark, WATERMARK_VERSION } from './watermark.js';
 
 const WEBP_QUALITY: Record<Exclude<ImageCompressionJobConfig['level'], 'lossless'>, number> = {
@@ -53,6 +54,8 @@ export async function encodeCompressedImage(
 }
 
 export interface FinalizeOutputOpts {
+  /** Paid-Comfy owner token; completion goes through the fenced settlement and needs it. */
+  owner: OwnerToken;
   /** Raw image bytes downloaded from ComfyUI. */
   imageBytes: Uint8Array;
   jobId: string;
@@ -153,15 +156,22 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
 
   // Output metadata and completion are committed together after the cancellation guard.
   const assetKind = watermarkApplied ? 'WATERMARKED' : 'ORIGINAL';
-  const completed = await transitionJob(
-    db,
-    pub,
-    jobId,
-    userId,
-    'COMPLETED',
-    { resultKey, thumbnailKey, assetKind, watermarkVersion, shopifyStoreId: opts.shopifyStoreId },
-    jobLog,
-  );
+  const output = {
+    resultKey,
+    thumbnailKey,
+    assetKind,
+    watermarkVersion,
+    shopifyStoreId: opts.shopifyStoreId,
+  } as const;
+  const completed =
+    (
+      await settleAndPublish(
+        { db, pub, log: jobLog },
+        { owner: opts.owner },
+        { kind: 'completed', output },
+        { userId, shopifyStoreId: opts.shopifyStoreId },
+      )
+    ).kind === 'settled';
 
   return { resultKey, thumbnailKey, completed };
 }

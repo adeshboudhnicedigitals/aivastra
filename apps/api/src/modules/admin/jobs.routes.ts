@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { verifyPassword } from '../auth/service.js';
 import { eraseComparisonsForSourceJobs } from '../comparison/erase.js';
-import { refund } from '../credits/ledger.js';
+import { cancelJobAndRefund, refund } from '../credits/ledger.js';
 import { refundStoreAndMarkCancelled } from '../credits/shopify-ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
 import { releaseStoreDailySlot } from '../shopify/limits.js';
@@ -688,13 +688,16 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         return { ok: true };
       }
 
-      await app.db
-        .update(schema.jobs)
-        .set({ status: 'CANCELLED', errorCode: 'ADMIN_CANCEL' })
-        .where(eq(schema.jobs.id, id));
-      if (job.userId) {
-        await refund(app.db, job.userId, job.creditsCharged, id, 'REFUND_ADMIN_CANCEL');
-      }
+      // The status read above is outside any transaction, so the dispatcher can finish the
+      // job before this write. The claim and the refund are one transaction with a
+      // conditional status update: a job that completed or failed meanwhile is left alone.
+      await cancelJobAndRefund(app.db, {
+        jobId: id,
+        userId: job.userId,
+        amount: job.creditsCharged,
+        refundReason: 'REFUND_ADMIN_CANCEL',
+        errorCode: 'ADMIN_CANCEL',
+      });
       return { ok: true };
     },
   );

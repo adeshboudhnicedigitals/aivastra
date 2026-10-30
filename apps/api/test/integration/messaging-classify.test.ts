@@ -154,6 +154,35 @@ describe('garment recognition (api side)', () => {
     expect(ranked).toBeNull();
   });
 
+  it('records why in the trace: the scores against the cutoff, a timeout, the flag off', async () => {
+    const notes: { title: string; lines: string[] }[] = [];
+    const note = async (title: string, lines: string[]) => {
+      notes.push({ title, lines });
+    };
+    const since = await lastId();
+    await Promise.all([
+      recognizeBaskets(app, KEY, 'women', { note }),
+      answerNext(since, {
+        answer: 'wa-kurti',
+        error: null,
+        ranked: [
+          { slug: 'wa-kurti', p: 0.45 },
+          { slug: 'wa-top', p: 0.3 },
+        ],
+      }),
+    ]);
+    expect(notes[0]?.title).toBe('Recognition not confident → list');
+    const text = notes[0]?.lines.join(' | ') ?? '';
+    expect(text).toContain('Cutoff 0.5: top basket 0.4500 → below');
+    expect(text).toContain('Baskets by score: Kurti 0.450 · Tops 0.300');
+    expect(text).toContain('wa-kurti 0.450');
+
+    notes.length = 0;
+    await recognizeBaskets(app, KEY, 'women', { budgetMs: 300, note });
+    expect(notes[0]?.title).toBe('Recognition failed → list');
+    expect(notes[0]?.lines[0]).toContain('No answer within 300 ms');
+  });
+
   it('a backend that cannot rank: the single matched answer is the guess', async () => {
     const since = await lastId();
     const [ranked] = await Promise.all([
@@ -215,7 +244,11 @@ describe('garment recognition (api side)', () => {
   it('with the flag off nothing is requested', async () => {
     const before = await app.redis.xlen(GARMENT_RECOGNITION_STREAM);
     const off = { ...app, env: { ...app.env, GARMENT_RECOGNITION_ENABLED: false } } as TestApp;
-    expect(await recognizeBaskets(off, KEY, 'women')).toBeNull();
+    const notes: string[] = [];
+    expect(
+      await recognizeBaskets(off, KEY, 'women', { note: async (t) => void notes.push(t) }),
+    ).toBeNull();
+    expect(notes).toEqual(['Recognition skipped → list']);
     expect(await app.redis.xlen(GARMENT_RECOGNITION_STREAM)).toBe(before);
   });
 });

@@ -1,7 +1,8 @@
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { creditsDeductedTotal, creditsRefundedTotal } from '@aivastra/observability';
-import { and, eq, gte, notInArray, sql } from 'drizzle-orm';
+import { JOB_REFUND_REASONS } from '@aivastra/types';
+import { and, eq, gte, inArray, notInArray, sql } from 'drizzle-orm';
 import { AppError } from '../../lib/errors.js';
 
 /** Store-scoped equivalent of ledger.ts's atomicDeduct — bills a Shopify store's own balance instead of any user's. */
@@ -109,6 +110,20 @@ export async function refundStoreAndMarkCancelled(
     // ledger write rather than record a zero-delta row, matching the guard in
     // the dispatcher's markShopifyFailed.
     if (amount <= 0) return { compensated: true, refunded: false };
+
+    // The status claim above covers an admin cancel racing a dispatcher failure that
+    // committed first, but a refund of another reason can already exist; check them all.
+    const [prior] = await tx
+      .select({ id: schema.shopifyCreditLedger.id })
+      .from(schema.shopifyCreditLedger)
+      .where(
+        and(
+          eq(schema.shopifyCreditLedger.jobId, jobId),
+          inArray(schema.shopifyCreditLedger.reason, [...JOB_REFUND_REASONS]),
+        ),
+      )
+      .limit(1);
+    if (prior) return { compensated: true, refunded: false };
 
     const inserted = await tx
       .insert(schema.shopifyCreditLedger)

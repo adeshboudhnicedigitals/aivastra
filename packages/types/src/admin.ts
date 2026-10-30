@@ -144,9 +144,6 @@ export const SystemConfigBody = z.object({
   // a burst of submissions the current worker pool can't drain is rejected up front
   // instead of accepted and left to queue indefinitely.
   maxQueueDepth: z.number().int().min(1).max(5000).optional(),
-  // The single try-on workflow every WhatsApp bot job runs (poses carry no workflow of
-  // their own there). Null/absent = not configured, so the bot offers no poses.
-  whatsappTryon: z.object({ workflowTemplateId: z.string().uuid().nullable() }).optional(),
   // Admin-fixed inputs for merchant catalogue-manager's constrained "flat garment
   // -> catalogue image" generation. Keyed by category so studio-style face/background
   // variety per gender is preserved without per-merchant or per-item picking.
@@ -366,6 +363,7 @@ export const PatchModelBackgroundBody = z.object({
   genderSlug: GenderEnum.nullable().optional(),
   isActive: z.boolean().optional(),
   isWhiteBg: z.boolean().optional(),
+  whatsappPool: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   r2Key: z.string().optional(),
   bgComfyR2Key: z.string().nullable().optional(),
@@ -936,6 +934,7 @@ export const PatchGarmentTypeBody = z.object({
   mappedShoeCatalogItemIds: z.array(z.string().uuid()).optional(),
   mappedAccessoryCatalogItemIds: z.array(z.string().uuid()).optional(),
   mappedFaceIds: z.array(z.string().uuid()).optional(),
+  mappedBackgroundIds: z.array(z.string().uuid()).optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
   // Distinct from instructionImageKey above — see the schema column comment
@@ -1007,6 +1006,39 @@ export const PatchBodyTypeBody = z.object({
 });
 export const PresignBodyTypeThumbnailBody = z.object({
   contentType: AssetContentType,
+});
+
+// ── Blouse category/pose schemas ──────────────────────────────────────────
+
+export const CreateBlouseCategoryBody = z.object({
+  genderSlug: GenderEnum.nullable().optional(),
+  label: z.string().min(1).max(120),
+  thumbnailKey: z.string().optional(),
+  sortOrder: z.number().int().default(0),
+});
+export const PatchBlouseCategoryBody = z.object({
+  label: z.string().min(1).max(120).optional(),
+  thumbnailKey: z.string().nullable().optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+export const PresignBlouseCategoryThumbnailBody = z.object({
+  contentType: AssetContentType,
+});
+export const PresignBlousePoseBody = z.object({
+  contentType: AssetContentType,
+});
+export const ConfirmBlousePoseBody = z.object({
+  categoryId: z.string().uuid(),
+  label: z.string().min(1).max(120),
+  r2Key: z.string().min(1),
+  thumbnailKey: z.string().min(1),
+  sortOrder: z.number().int().default(0),
+});
+export const PatchBlousePoseBody = z.object({
+  label: z.string().min(1).max(120).optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
 });
 
 export const AdminHeldJobsResponse = z.object({

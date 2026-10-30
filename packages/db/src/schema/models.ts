@@ -55,6 +55,10 @@ export const modelBackgrounds = pgTable(
     tags: text('tags').array().notNull().default(sql`ARRAY[]::text[]`), // free-form entity tags, independent of category (e.g. "warm tone")
     specialTag: text('special_tag'), // 'featured' | 'trending' | 'popular' | null — per-asset, moved off category level
     genderSlug: text('gender_slug'), // nullable — null means shown for all genders
+    // WhatsApp bot membership, not visibility: once any background has this set the
+    // bot draws only from those; none set = every studio background (same
+    // opt-in-once-explicit rule as face and catalog mappings). The studio ignores it.
+    whatsappPool: boolean('whatsapp_pool').notNull().default(false),
     // 'general' = visible in the admin Backgrounds tab and studio "create your own look";
     // 'template' = uploaded from within a catalogue template's looks builder, hidden from
     // both (managed only via the template that owns it); 'user' = uploaded by a user into
@@ -474,9 +478,8 @@ export const modelPoseAssets = pgTable('model_pose_assets', {
   // 'template' = uploaded from within a catalogue template's looks builder, hidden from
   // both (managed only via the template that owns it).
   scope: text('scope').notNull().default('general'),
-  // The WhatsApp bot draws only from poses with this set (spec
-  // 2026-10-22-whatsapp-tryon-flow-design). A membership flag, not a visibility
-  // flag: the studio and catalogue templates ignore it.
+  // Unused: the WhatsApp pose-pool UI was removed. Column kept so no data is dropped;
+  // a later migration can drop it.
   whatsappPool: boolean('whatsapp_pool').notNull().default(false),
   // See modelFaces.publicApiSlug.
   publicApiSlug: text('public_api_slug'),
@@ -553,6 +556,24 @@ export const modelFaceSubcategories = pgTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.faceId, table.subcategoryId] }),
+  }),
+);
+
+// Many-to-many: which garment subcategories a model background is scoped to. No rows
+// for a subcategory = opt-out (every active 'general' background is shown) — mirrors
+// modelFaceSubcategories's opt-out convention exactly.
+export const modelBackgroundSubcategories = pgTable(
+  'model_background_subcategories',
+  {
+    backgroundId: uuid('background_id')
+      .notNull()
+      .references(() => modelBackgrounds.id, { onDelete: 'cascade' }),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.backgroundId, table.subcategoryId] }),
   }),
 );
 
@@ -740,6 +761,71 @@ export const catalogueTemplatePoseWorkflows = pgTable(
       table.poseAssetId,
     ),
     mappingIdx: index('catalogue_template_pose_workflows_mapping_id_idx').on(table.mappingId),
+  }),
+);
+
+// Blouse feature — admin-curated catalog of selectable blouse design images,
+// grouped into categories. Structurally mirrors catalogueTemplates/
+// catalogueTemplateLooks/catalogueTemplateSubcategories (category contains
+// items, whole category maps to a garment type) rather than the item-level
+// catalog_types/catalog_items (lower/shoe/accessory) shape, because mapping
+// here is category-level: an admin maps a whole Blouse Category to Saree, not
+// individual blouse images. See docs/superpowers/specs/ for the design.
+export const blouseCategories = pgTable('blouse_categories', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  genderSlug: text('gender_slug'), // 'men' | 'women' | 'boys' | 'girls' — nullable, validated at zod layer
+  label: text('label').notNull(),
+  thumbnailKey: text('thumbnail_key'),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// A selectable blouse design image ("pose" in admin/shopper-facing copy) inside
+// a category — plain image items, not model_pose_assets pose+background pairs:
+// the user picks a blouse design, not a body pose.
+export const blousePoses = pgTable(
+  'blouse_poses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => blouseCategories.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    r2Key: text('r2_key').notNull(),
+    thumbnailKey: text('thumbnail_key'),
+    isActive: boolean('is_active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    categoryIdx: index('blouse_poses_category_id_idx').on(table.categoryId),
+  }),
+);
+
+// Category-to-garment-type mapping — whole Blouse Category mapped to a garment
+// type (e.g. Saree), mirroring catalogueTemplateSubcategories.
+export const blouseCategorySubcategories = pgTable(
+  'blouse_category_subcategories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => blouseCategories.id, { onDelete: 'cascade' }),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    uniqCategorySubcategory: unique('blouse_category_subcategories_category_subcategory_unique').on(
+      table.categoryId,
+      table.subcategoryId,
+    ),
+    subcategoryIdx: index('blouse_category_subcategories_subcategory_id_idx').on(
+      table.subcategoryId,
+    ),
   }),
 );
 

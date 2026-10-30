@@ -584,18 +584,21 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           ids: z.array(z.string().uuid()).min(1),
           categoryId: z.number().int().positive().nullable().optional(),
           genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
+          whatsappPool: z.boolean().optional(),
         }),
       },
     },
     async (req) => {
-      const { ids, categoryId, genderSlug } = req.body as {
+      const { ids, categoryId, genderSlug, whatsappPool } = req.body as {
         ids: string[];
         categoryId?: number | null;
         genderSlug?: string | null;
+        whatsappPool?: boolean;
       };
       const patch: Record<string, unknown> = { updatedAt: new Date() };
       if (categoryId !== undefined) patch.categoryId = categoryId;
       if (genderSlug !== undefined) patch.genderSlug = genderSlug;
+      if (whatsappPool !== undefined) patch.whatsappPool = whatsappPool;
       // isWhiteBg is intentionally excluded — it must stay unique across all backgrounds.
       await app.db.transaction(async (tx) => {
         await tx
@@ -813,7 +816,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           publicApiSlug: schema.modelPoseAssets.publicApiSlug,
           isActive: schema.modelPoseAssets.isActive,
           sortOrder: schema.modelPoseAssets.sortOrder,
-          whatsappPool: schema.modelPoseAssets.whatsappPool,
           createdAt: schema.modelPoseAssets.createdAt,
         })
         .from(schema.modelPoseAssets)
@@ -1090,8 +1092,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           promptFacePhase: z.string().nullable().optional(),
           isActive: z.boolean().optional(),
           sortOrder: z.number().int().optional(),
-          whatsappPool: z.boolean().optional(),
-          // Legacy poses were uploaded before shot types existed; the WhatsApp pool needs one.
+          // Legacy poses were uploaded before shot types existed.
           shotType: z.enum(['full', 'half', 'closeup']).optional(),
           publicApiSlug: PublicApiSlugField,
         }),
@@ -1110,7 +1111,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         promptFacePhase?: string | null;
         isActive?: boolean;
         sortOrder?: number;
-        whatsappPool?: boolean;
         shotType?: 'full' | 'half' | 'closeup';
         publicApiSlug?: string | null;
       };
@@ -1151,7 +1151,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (body.promptFacePhase !== undefined) set.promptFacePhase = body.promptFacePhase || null;
       if (body.isActive !== undefined) set.isActive = body.isActive;
       if (body.sortOrder !== undefined) set.sortOrder = body.sortOrder;
-      if (body.whatsappPool !== undefined) set.whatsappPool = body.whatsappPool;
       if (body.shotType !== undefined) set.shotType = body.shotType;
       // Already normalized ('' -> null) by PublicApiSlugField.
       if (body.publicApiSlug !== undefined) set.publicApiSlug = body.publicApiSlug;

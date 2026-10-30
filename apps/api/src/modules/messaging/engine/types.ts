@@ -172,7 +172,12 @@ export interface EngineContext {
   accountId: string;
   // Meta's message id of the inbound event; the idempotency key for a run.
   messageId: string;
+  // Admin debug trace: records why the bot decided something (never sent to the
+  // seller). Best effort; absent where there is no trace (tests, other flows).
+  note?: Note;
 }
+
+export type Note = (title: string, lines: string[]) => Promise<void>;
 
 export interface Quote {
   images: number;
@@ -199,7 +204,7 @@ export interface EngineDeps {
   listGarmentTypes(gender: Gender): Promise<GarmentTypeOption[]>;
   // Awaited once the gender is tapped: the photo's baskets best first, or null —
   // for every failure and a weak guess, never an error — and the list is the way out.
-  recognizeBaskets(garmentKey: string, gender: Gender): Promise<BasketChoice[] | null>;
+  recognizeBaskets(garmentKey: string, gender: Gender, note?: Note): Promise<BasketChoice[] | null>;
   // The types a basket stands for, representative first; empty when it is gone.
   basketTypes(gender: Gender, key: string): Promise<{ id: string; label: string }[]>;
   // The pick list when there is no guess: baskets, then types in none, each with

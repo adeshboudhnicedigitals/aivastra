@@ -18,7 +18,7 @@ import {
   type RankedBasket,
   rankBaskets,
 } from './baskets.js';
-import type { Gender } from './engine/types.js';
+import type { Gender, Note } from './engine/types.js';
 
 // Spec 8a: the most the seller waits after tapping the gender, before the
 // basket guess (or the list) is shown.
@@ -111,9 +111,13 @@ export async function recognizeBaskets(
   app: FastifyInstance,
   garmentKey: string,
   gender: Gender,
-  opts: { budgetMs?: number } = {},
+  opts: { budgetMs?: number; note?: Note } = {},
 ): Promise<RankedBasket[] | null> {
-  if (app.env.GARMENT_RECOGNITION_ENABLED !== true) return null;
+  const note = opts.note ?? (async () => {});
+  if (app.env.GARMENT_RECOGNITION_ENABLED !== true) {
+    await note('Recognition skipped → list', ['GARMENT_RECOGNITION_ENABLED is not true']);
+    return null;
+  }
   const budgetMs = opts.budgetMs ?? RECOGNITION_BUDGET_MS;
   try {
     const { types, baskets } = await loadBasketTypes(app, gender);
@@ -122,7 +126,12 @@ export async function recognizeBaskets(
     );
     // Nothing a photo could be recognised as: straight to the list, without a
     // request no one can answer usefully.
-    if (candidates.length === 0) return null;
+    if (candidates.length === 0) {
+      await note('Recognition skipped → list', [
+        `No ${gender} type has a public slug to recognise the photo among`,
+      ]);
+      return null;
+    }
     const requestId = randomUUID();
     const request: GarmentRecognitionRequest = {
       requestId,
@@ -143,10 +152,17 @@ export async function recognizeBaskets(
     const result = await waitForResult(app, requestId, budgetMs);
     if (!result || result.error === 'expired') {
       count('timeout');
+      await note('Recognition failed → list', [
+        `No answer within ${budgetMs} ms (${result ? 'request expired in the queue' : 'timed out waiting'})`,
+      ]);
       return null;
     }
     if (result.error) {
       count(result.error);
+      await note('Recognition failed → list', [
+        `Classifier error: ${result.error}`,
+        `${result.ms} ms`,
+      ]);
       return null;
     }
     const single = result.ranked ? null : matchAnswer(result.answer, candidates);
@@ -158,6 +174,20 @@ export async function recognizeBaskets(
     const top = ranked[0];
     const confident = top !== undefined && top.score >= MIN_BASKET_SCORE;
     count(confident ? 'matched' : 'unmatched');
+    await note(
+      confident ? `Recognition → guess: ${top.name}` : 'Recognition not confident → list',
+      [
+        `Model answer: ${result.answer?.slice(0, 40) ?? 'none'} · ${result.ms} ms · ${candidates.length} candidate types (${gender})`,
+        `Cutoff ${MIN_BASKET_SCORE}: top basket ${top ? top.score.toFixed(4) : 'none'} → ${confident ? 'above, offered as the guess' : 'below, the list is shown'}`,
+        `Baskets by score: ${ranked.map((r) => `${r.name} ${r.score.toFixed(3)}`).join(' · ') || 'none matched'}`,
+        `Per type (top 6): ${
+          (result.ranked ?? [])
+            .slice(0, 6)
+            .map((r) => `${r.slug} ${r.p.toFixed(3)}`)
+            .join(' · ') || 'single answer only'
+        }`,
+      ],
+    );
     if (!confident) {
       // The raw answer is model output about a garment photo, not personal data;
       // capped so a runaway answer cannot flood the log.
@@ -170,6 +200,7 @@ export async function recognizeBaskets(
   } catch (err) {
     count('failed');
     app.log.warn({ err }, 'garment recognition failed; falling back to the list');
+    await note('Recognition crashed → list', [err instanceof Error ? err.message : String(err)]);
     return null;
   }
 }

@@ -118,14 +118,12 @@ describe('whatsappIneligibleReason', () => {
 });
 
 describe('basketChoices', () => {
-  it('lists baskets with an offerable member, then loose types, in order', () => {
+  it('lists only baskets with an offerable member; types in no basket are left out', () => {
     const offered = new Set(['vest', 'kurta', 'noslug']);
     expect(basketChoices(TYPES, BASKETS, offered)).toEqual([
       { key: 'b:upper', name: 'Men upper' },
       // Men lower has no offerable member, so it is not a dead-end row.
-      { key: 't:kurta', name: 'Kurta' },
-      // A type without a public slug is never guessed but can still be picked.
-      { key: 't:noslug', name: 'Noslug' },
+      // Kurta and Noslug are in no basket, so they are not listed.
     ]);
   });
 });
