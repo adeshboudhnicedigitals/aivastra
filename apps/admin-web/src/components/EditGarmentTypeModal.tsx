@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type {
@@ -19,6 +20,7 @@ import { Switch } from './Switch';
 
 interface Props {
   garmentType: GarmentType;
+  garmentTypes: GarmentType[];
   catalogItems: CatalogItem[];
   faces: ModelFace[];
   backgrounds: ModelBackground[];
@@ -1296,8 +1298,156 @@ function BlousePicker({
   );
 }
 
+// Per-section "copy this one mapping to another garment type" control, rendered
+// beside a section's title (e.g. just Faces, or just Backgrounds) rather than as
+// one all-or-nothing bulk action — each category is copied independently, on
+// its own trigger, so mapping Faces to a garment type never touches its Lower/
+// Shoe/Accessory/Background/Blouse Category mappings. One-time snapshot: the two
+// garment types are not linked afterward, and re-running it is the only way to
+// pick up later changes. Portal-rendered (like SearchableSelect) because this
+// sits inside EditDrawer's `.drawer-body`, which scrolls (`overflow-y: auto`)
+// and would clip a plain `position: absolute` popover.
+function CopyToControl({
+  targetOptions,
+  confirmText,
+  onCopy,
+  toast,
+}: {
+  targetOptions: { id: string; label: string }[];
+  confirmText: (targetLabel: string) => string;
+  onCopy: (targetId: string) => Promise<void>;
+  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [targetId, setTargetId] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const targetLabel = targetOptions.find((o) => o.id === targetId)?.label ?? 'this garment type';
+
+  const close = useCallback(() => {
+    setOpen(false);
+    setConfirming(false);
+    setTargetId('');
+  }, []);
+
+  const openPopover = () => {
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (rect) setCoords({ left: rect.right - 280, top: rect.bottom + 6 });
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (!rootRef.current?.contains(target) && !popoverRef.current?.contains(target)) close();
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open, close]);
+
+  const copy = async () => {
+    setCopying(true);
+    try {
+      await onCopy(targetId);
+      toast({ title: `Copied to ${targetLabel}` });
+      close();
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to copy',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setCopying(false);
+    }
+  };
+
+  if (targetOptions.length === 0) return null;
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className="btn xs ghost"
+        title="Copy this mapping to another garment type"
+        onClick={() => (open ? close() : openPopover())}
+      >
+        <Icon.Copy /> Map to…
+      </button>
+      {open &&
+        coords &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={{
+              position: 'fixed',
+              left: coords.left,
+              top: coords.top,
+              width: 280,
+              zIndex: 1000,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              padding: 12,
+              borderRadius: 'var(--r)',
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-lg)',
+            }}
+          >
+            <SearchableSelect
+              options={targetOptions}
+              value={targetId}
+              disabled={copying}
+              emptyLabel="— select garment type —"
+              placeholder="— search garment type —"
+              onChange={(id) => {
+                setTargetId(id);
+                setConfirming(false);
+              }}
+            />
+            {targetId && !confirming && (
+              <button type="button" className="btn xs" onClick={() => setConfirming(true)}>
+                Copy to {targetLabel}
+              </button>
+            )}
+            {targetId && confirming && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontSize: 12 }}>{confirmText(targetLabel)}</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn xs danger"
+                    disabled={copying}
+                    onClick={() => void copy()}
+                  >
+                    {copying ? 'Copying…' : 'Yes, overwrite'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn xs ghost"
+                    disabled={copying}
+                    onClick={() => setConfirming(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
 export function EditGarmentTypeModal({
   garmentType,
+  garmentTypes,
   catalogItems,
   faces,
   backgrounds,
@@ -1363,6 +1513,16 @@ export function EditGarmentTypeModal({
         (c) => c.type === 'shoe' && c.isActive && c.genderSlug === garmentType.genderSlug,
       ),
     [catalogItems, garmentType.genderSlug],
+  );
+
+  // Other garment types of the same gender — the eligible targets for each
+  // section's "Map to…" copy control.
+  const copyTargets = useMemo(
+    () =>
+      garmentTypes
+        .filter((g) => g.id !== garmentType.id && g.genderSlug === garmentType.genderSlug)
+        .map((g) => ({ id: g.id, label: g.label })),
+    [garmentTypes, garmentType.id, garmentType.genderSlug],
   );
 
   const [mappedLowerIds, setMappedLowerIds] = useState<Set<string>>(() => {
@@ -2193,6 +2353,23 @@ export function EditGarmentTypeModal({
         {
           title: `Default Lower Garment${allLowers.length - mappedLowerIds.size > 0 ? ` (${allLowers.length - mappedLowerIds.size} unmapped)` : ''}`,
           flush: true,
+          headerAction: (
+            <CopyToControl
+              targetOptions={copyTargets}
+              toast={toast}
+              confirmText={(targetLabel) =>
+                `This replaces ${targetLabel}'s Lower mappings with ${garmentType.label}'s current set. This can't be undone.`
+              }
+              onCopy={(targetId) =>
+                apiFetch(`/admin/assets/garment-types/${targetId}`, {
+                  method: 'PATCH',
+                  body: JSON.stringify({
+                    mappedLowerCatalogItemIds: Array.from(mappedLowerIds),
+                  }),
+                }).then(() => undefined)
+              }
+            />
+          ),
           children: (
             <ItemPicker
               type="lower"
@@ -2210,6 +2387,23 @@ export function EditGarmentTypeModal({
         {
           title: `Default Shoe${allShoes.length - mappedShoeIds.size > 0 ? ` (${allShoes.length - mappedShoeIds.size} unmapped)` : ''}`,
           flush: true,
+          headerAction: (
+            <CopyToControl
+              targetOptions={copyTargets}
+              toast={toast}
+              confirmText={(targetLabel) =>
+                `This replaces ${targetLabel}'s Shoe mappings with ${garmentType.label}'s current set. This can't be undone.`
+              }
+              onCopy={(targetId) =>
+                apiFetch(`/admin/assets/garment-types/${targetId}`, {
+                  method: 'PATCH',
+                  body: JSON.stringify({
+                    mappedShoeCatalogItemIds: Array.from(mappedShoeIds),
+                  }),
+                }).then(() => undefined)
+              }
+            />
+          ),
           children: (
             <ItemPicker
               type="shoe"
@@ -2227,6 +2421,21 @@ export function EditGarmentTypeModal({
         {
           title: `Faces${allFaces.length - mappedFaceIds.size > 0 ? ` (${allFaces.length - mappedFaceIds.size} unmapped)` : ''}`,
           flush: true,
+          headerAction: (
+            <CopyToControl
+              targetOptions={copyTargets}
+              toast={toast}
+              confirmText={(targetLabel) =>
+                `This replaces ${targetLabel}'s Face mappings with ${garmentType.label}'s current set. This can't be undone.`
+              }
+              onCopy={(targetId) =>
+                apiFetch(`/admin/assets/garment-types/${targetId}`, {
+                  method: 'PATCH',
+                  body: JSON.stringify({ mappedFaceIds: Array.from(mappedFaceIds) }),
+                }).then(() => undefined)
+              }
+            />
+          ),
           children: (
             <FacePicker
               gender={garmentType.genderSlug}
@@ -2240,11 +2449,62 @@ export function EditGarmentTypeModal({
         {
           title: 'Blouse Categories',
           flush: true,
+          headerAction: (
+            <CopyToControl
+              targetOptions={copyTargets}
+              toast={toast}
+              confirmText={(targetLabel) =>
+                `This replaces ${targetLabel}'s Blouse Category mappings with ${garmentType.label}'s current set. This can't be undone.`
+              }
+              onCopy={async (targetId) => {
+                const [sourceBlouse, targetBlouse] = await Promise.all([
+                  apiFetch<{ items: { id: string; mapped: boolean }[] }>(
+                    `/admin/assets/garment-types/${garmentType.id}/blouse-categories`,
+                  ),
+                  apiFetch<{ items: { id: string; mapped: boolean }[] }>(
+                    `/admin/assets/garment-types/${targetId}/blouse-categories`,
+                  ),
+                ]);
+                const changed = sourceBlouse.items.filter((item) => {
+                  const targetItem = targetBlouse.items.find((t) => t.id === item.id);
+                  return (targetItem?.mapped ?? false) !== item.mapped;
+                });
+                await Promise.all(
+                  changed.map((item) =>
+                    apiFetch(
+                      `/admin/assets/garment-types/${targetId}/blouse-categories/${item.id}`,
+                      {
+                        method: 'PATCH',
+                        body: JSON.stringify({ mapped: item.mapped }),
+                      },
+                    ),
+                  ),
+                );
+              }}
+            />
+          ),
           children: <BlousePicker garmentTypeId={garmentType.id} toast={toast} />,
         },
         {
           title: `Backgrounds${allBackgrounds.length - mappedBackgroundIds.size > 0 ? ` (${allBackgrounds.length - mappedBackgroundIds.size} unmapped)` : ''}`,
           flush: true,
+          headerAction: (
+            <CopyToControl
+              targetOptions={copyTargets}
+              toast={toast}
+              confirmText={(targetLabel) =>
+                `This replaces ${targetLabel}'s Background mappings with ${garmentType.label}'s current set. This can't be undone.`
+              }
+              onCopy={(targetId) =>
+                apiFetch(`/admin/assets/garment-types/${targetId}`, {
+                  method: 'PATCH',
+                  body: JSON.stringify({
+                    mappedBackgroundIds: Array.from(mappedBackgroundIds),
+                  }),
+                }).then(() => undefined)
+              }
+            />
+          ),
           children: (
             <BackgroundPicker
               gender={garmentType.genderSlug}
@@ -2265,6 +2525,23 @@ export function EditGarmentTypeModal({
               {
                 title: `Accessories${allAccessories.length - mappedAccessoryIds.size > 0 ? ` (${allAccessories.length - mappedAccessoryIds.size} unmapped)` : ''}`,
                 flush: true,
+                headerAction: (
+                  <CopyToControl
+                    targetOptions={copyTargets}
+                    toast={toast}
+                    confirmText={(targetLabel) =>
+                      `This replaces ${targetLabel}'s Accessory mappings with ${garmentType.label}'s current set. This can't be undone.`
+                    }
+                    onCopy={(targetId) =>
+                      apiFetch(`/admin/assets/garment-types/${targetId}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({
+                          mappedAccessoryCatalogItemIds: Array.from(mappedAccessoryIds),
+                        }),
+                      }).then(() => undefined)
+                    }
+                  />
+                ),
                 children: (
                   <ItemPicker
                     type="accessory"
