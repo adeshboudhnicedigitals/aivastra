@@ -29,8 +29,10 @@
     {% if customer %}
       data-customer-id="{{ customer.id }}"
       data-customer-email="{{ customer.email }}"
+      data-customer-phone="{{ customer.phone | escape }}"
     {% endif %}
     data-api-base="{{ settings.api_base | default: 'https://app.aivastra.com' | escape }}"
+    data-login-url="{{ routes.account_login_url }}?return_url={{ product.url | url_encode }}"
     data-placement-selector="{{ settings.placement_selector | escape }}"
     data-source="{{ source }}"
     style="--aivastra-button-color: {{ settings.button_color }}; --aivastra-text-color: {{ settings.text_color }}; --aivastra-border-radius: {{ settings.border_radius }}px;{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
@@ -113,12 +115,27 @@
                 autocomplete="email"
                 required
               />
+              <input
+                type="tel"
+                class="aivastra-tryon__phone-input"
+                placeholder="Phone number"
+                autocomplete="tel"
+                hidden
+              />
               <label class="aivastra-tryon__email-consent">
                 <input type="checkbox" class="aivastra-tryon__email-consent-input" />
                 <span>Email me offers and updates from this store.</span>
               </label>
               <p class="aivastra-tryon__email-error" hidden></p>
               <button type="button" class="aivastra-tryon__email-submit">Continue</button>
+            </div>
+
+            <div class="aivastra-tryon__step aivastra-tryon__step--login" hidden>
+              <h2 class="aivastra-tryon__upload-title">Log in to try on</h2>
+              <p class="aivastra-tryon__upload-lead">
+                Log in to your account to use virtual try-on.
+              </p>
+              <a class="aivastra-tryon__login-link" href="{{ routes.account_login_url }}?return_url={{ product.url | url_encode }}">Log in</a>
             </div>
 
             <div class="aivastra-tryon__step aivastra-tryon__step--progress" hidden>

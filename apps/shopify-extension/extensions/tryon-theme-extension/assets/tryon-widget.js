@@ -178,6 +178,7 @@
     // shows normal copy) for the entire page view if the enabled-check request
     // hasn't resolved yet or failed, since it's a fire-and-forget call below.
     let verboseErrors = false;
+    let loginRequired = false;
 
     // Liquid rendered `root` hidden — reveal it only once we know this product
     // is actually enabled (global mode, individually enabled, or in an
@@ -194,6 +195,7 @@
         if (!res.ok) throw new Error(`enabled check failed: ${res.status}`);
         const body = await res.json();
         verboseErrors = body.verboseErrors === true;
+        loginRequired = body.loginRequired === true;
         if (body.enabled) root.hidden = false;
       } catch (err) {
         // Fail open: an unreachable/slow API must not hide try-on storewide.
@@ -227,6 +229,7 @@
       result: root.querySelector('.aivastra-tryon__step--result'),
       error: root.querySelector('.aivastra-tryon__step--error'),
       email: root.querySelector('.aivastra-tryon__step--email'),
+      login: root.querySelector('.aivastra-tryon__step--login'),
     };
 
     // Advances through the generating-page copy while a job is in flight.
@@ -351,7 +354,24 @@
     const emailConsentInput = root.querySelector('.aivastra-tryon__email-consent-input');
     const emailSubmit = root.querySelector('.aivastra-tryon__email-submit');
     const emailError = root.querySelector('.aivastra-tryon__email-error');
+    const phoneInput = root.querySelector('.aivastra-tryon__phone-input');
+    const emailLead = root.querySelector('.aivastra-tryon__email-lead');
+    const emailConsentLabel = root.querySelector('.aivastra-tryon__email-consent');
     let awaitingEmailForPhotoKey = null;
+
+    function configureContactStep({ needEmail, needPhone }) {
+      if (emailInput) emailInput.hidden = !needEmail;
+      if (emailConsentLabel) emailConsentLabel.hidden = !needEmail;
+      if (phoneInput) phoneInput.hidden = !needPhone;
+      if (emailLead) {
+        emailLead.textContent =
+          needEmail && needPhone
+            ? 'Enter your email and phone number to continue.'
+            : needPhone
+              ? 'Enter your phone number to continue.'
+              : 'Enter your email to continue.';
+      }
+    }
 
     function showEmailError(message) {
       if (!emailError) return;
@@ -372,6 +392,7 @@
      */
     function returnToEmailStep(photoKey, message) {
       awaitingEmailForPhotoKey = photoKey;
+      configureContactStep({ needEmail: true, needPhone: false });
       showStep('email');
       showEmailError(message);
     }
@@ -521,6 +542,7 @@
     const shopifyCustomerId = root.dataset.customerId ? Number(root.dataset.customerId) : undefined;
     // Prefill only. The server never trusts this for authorization.
     let shopperEmail = root.dataset.customerEmail || null;
+    let shopperPhone = root.dataset.customerPhone || null;
     let shopperEmailConsent = false;
     // Whether the shopper actually submitted the email-gate step, as opposed to
     // us merely knowing their address because Liquid rendered it for a
@@ -537,17 +559,31 @@
         const value = (emailInput?.value ? emailInput.value : '').trim();
         // Shape check only; the server's Zod schema is still the real
         // validation. Kept deliberately in step with it — see EMAIL_RE.
-        if (!EMAIL_RE.test(value)) {
+        if (emailInput && !emailInput.hidden && !EMAIL_RE.test(value)) {
           showEmailError('Enter a valid email address.');
           return;
         }
         if (emailError) emailError.hidden = true;
-        shopperEmail = value;
-        shopperEmailConsent = !!emailConsentInput?.checked;
+        if (emailInput && !emailInput.hidden) {
+          shopperEmail = value;
+          shopperEmailConsent = !!emailConsentInput?.checked;
+          emailConfirmedByShopper = true;
+        }
+        if (phoneInput && !phoneInput.hidden) {
+          const phoneValue = (phoneInput.value || '').trim();
+          if (
+            phoneValue.length > 30 ||
+            !/^[0-9+()\-.\s]+$/.test(phoneValue) ||
+            phoneValue.replace(/\D/g, '').length < 7
+          ) {
+            showEmailError('Enter a valid phone number (at least 7 digits).');
+            return;
+          }
+          shopperPhone = phoneValue;
+        }
         // This click is the affirmative action. Until it happens, createJob
         // sends no email at all, even for a logged-in customer whose address
         // was prefilled into the input above.
-        emailConfirmedByShopper = true;
         const key = awaitingEmailForPhotoKey;
         awaitingEmailForPhotoKey = null;
         if (key) {
@@ -1202,6 +1238,7 @@
       // History detour built up no longer points anywhere meaningful.
       navStack = [];
       enterMainFlow();
+      if (loginRequired && !shopifyCustomerId) showStep('login');
     }
 
     function openModal() {
@@ -1292,7 +1329,8 @@
     async function createJob(customerPhotoKey) {
       // Whether this request carries a shopper-supplied address, which decides
       // whether a VALIDATION refusal below can be attributed to it.
-      const sentEmail = !!(emailConfirmedByShopper && shopperEmail);
+      const sentEmail = !!(shopperEmail && (emailConfirmedByShopper || loginRequired));
+      const sentPhone = !!(loginRequired && shopperPhone);
       let res;
       try {
         res = await fetchWithTimeout(
@@ -1312,6 +1350,7 @@
               // logged-in customer, so keying off it captured their address on the
               // very first try-on without ever showing them the consent checkbox.
               ...(sentEmail ? { email: shopperEmail, emailConsent: shopperEmailConsent } : {}),
+              ...(sentPhone ? { phone: shopperPhone.trim() } : {}),
             }),
           }),
           CREATE_JOB_TIMEOUT_MS,
@@ -1583,10 +1622,22 @@
         rememberPhoto(customerPhotoKey);
         const jobResult = await createJob(customerPhotoKey);
         if (jobResult.pending) {
+          if (jobResult.reason === 'login_required') {
+            loginRequired = true;
+            showStep('login');
+            return;
+          }
+          if (jobResult.reason === 'contact_required') {
+            awaitingEmailForPhotoKey = customerPhotoKey;
+            configureContactStep({ needEmail: !shopperEmail, needPhone: !shopperPhone });
+            showStep('email');
+            return;
+          }
           if (jobResult.reason === 'email_required') {
             // Hold the photo key: the retry reuses the same upload (its Redis
             // ownership record lives 600s), so nothing is re-uploaded.
             awaitingEmailForPhotoKey = customerPhotoKey;
+            configureContactStep({ needEmail: true, needPhone: false });
             showStep('email');
             return;
           }
