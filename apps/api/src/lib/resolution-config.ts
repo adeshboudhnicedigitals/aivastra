@@ -231,6 +231,22 @@ export async function getShopifyTrialCredits(app: FastifyInstance): Promise<numb
 }
 
 /**
+ * The single workflow every Shopify try-on runs, as chosen in the admin panel.
+ * Null when unset or the stored value is malformed; the caller decides whether
+ * that refuses try-on or falls back (see modules/shopify/workflow.ts).
+ */
+export async function getShopifyWorkflowTemplateId(app: FastifyInstance): Promise<string | null> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const id = cfg.shopifyWorkflowTemplateId;
+    return typeof id === 'string' && id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Reads the admin-configured credit grant for one credit pack from the same
  * `config:system` Redis key the admin panel edits. Returns null for an id we
  * don't sell — same "unrecognized means grant nothing" behaviour the plan
