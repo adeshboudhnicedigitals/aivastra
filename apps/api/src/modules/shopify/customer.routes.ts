@@ -24,8 +24,8 @@ import { atomicDeductStore, refundStoreAndMarkFailed } from '../credits/shopify-
 import { resolveEffectiveEnabled } from './activation.js';
 import { runRefill } from './autorefill.js';
 import { mintAccountLinkCode } from './customer-auth.js';
-import { resolveBasket } from './funnel-resolution.js';
 import {
+  checkLoginGate,
   checkShopperLimits,
   type LimitRefusal,
   lockAndRecheckShopperLimits,
@@ -36,6 +36,7 @@ import { markThemeEmbedSeen } from './onboarding.routes.js';
 import { resolveShopper } from './shopper.js';
 import { formatResetTime, windowEnd } from './store-day.js';
 import { shopifyStoreLifecycleLockKey } from './store-lock.js';
+import { resolveShopifyWorkflow } from './workflow.js';
 
 const SLOT_RELEASE_MAX_ATTEMPTS = 3;
 const SLOT_RELEASE_RETRY_DELAY_MS = 100;
@@ -122,6 +123,8 @@ const REFUSAL_EVENT_TYPE: Record<LimitRefusal['reason'], string> = {
   email_required: 'refused_email_gate',
   shopper_limit: 'refused_shopper_cap',
   store_limit: 'refused_store_cap',
+  login_required: 'refused_login_gate',
+  contact_required: 'refused_contact_gate',
 };
 
 async function recordRefusal(
@@ -302,6 +305,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         shopifyCustomerId,
         email,
         emailConsent,
+        phone,
       } = req.body as {
         customerPhotoKey: string;
         shopifyProductId: number;
@@ -309,7 +313,32 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         shopifyCustomerId?: number;
         email?: string;
         emailConsent?: boolean;
+        phone?: string;
       };
+
+      // Identity: Shopify's signed logged-in customer id beats anything in the
+      // body. A login-required store accepts nothing else.
+      const verifiedCustomerId = req.shopifyLoggedInCustomerId ?? null;
+      const loginRequired = store.settings.limits?.loginRequired === true;
+      if (loginRequired) {
+        const loginRefusal = checkLoginGate(store, verifiedCustomerId);
+        if (loginRefusal) {
+          await recordRefusal(
+            app,
+            storeId,
+            loginRefusal.reason,
+            clientId ?? null,
+            shopifyProductId,
+          );
+          return reply.code(202).send(loginRefusal);
+        }
+        // The shopper row is what carries contact data and the per-shopper
+        // limit; without a clientId there is no row, and skipping it would
+        // skip those checks.
+        if (!clientId) throw new AppError('BAD_REQUEST', 400, 'clientId is required');
+      }
+      const effectiveCustomerId =
+        verifiedCustomerId ?? (loginRequired ? null : (shopifyCustomerId ?? null));
 
       if (!(await isCustomerPhotoOwnedByStore(app, storeId, customerPhotoKey))) {
         throw new AppError('FORBIDDEN', 403, 'upload session expired or not owned');
@@ -361,23 +390,20 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           .send({ message: 'This product is not available for try-on right now.' });
       }
 
-      const resolvedBasket = await resolveBasket(app, storeId, garment);
-      if (!resolvedBasket) {
-        // No basket resolved — no pin, no matching store or global rule. This
-        // is now an expected, merchant-fixable state (the merchant needs to
-        // add a routing rule or pin the product), not a system
-        // misconfiguration. Still refuse here, before the deduct: enqueueing
-        // would burn a credit and produce a FAILED row with
-        // NO_WORKFLOW_CONFIGURED that no merchant can fix.
+      const resolvedWorkflow = await resolveShopifyWorkflow(app);
+      if (!resolvedWorkflow) {
+        // No workflow chosen (or the chosen one is inactive). This is an
+        // admin-fixable state, so refuse before the deduct: enqueueing would
+        // burn a credit and produce a FAILED row with NO_WORKFLOW_CONFIGURED.
         app.log.warn(
           { storeId, shopifyProductId, garmentId: garment.id },
-          'shopify try-on blocked before enqueue: product resolves to no basket (no pin, no matching rule)',
+          'shopify try-on blocked before enqueue: no Shopify workflow configured or it is inactive',
         );
         return reply
           .code(202)
           .send({ message: 'This product is not available for try-on right now.' });
       }
-      const workflowTemplateId = resolvedBasket.workflowTemplateId;
+      const workflowTemplateId = resolvedWorkflow.workflowTemplateId;
 
       // Deployed widget versions did not send clientId. They still receive the
       // store cap, while shopper-specific limits wait until an identity exists.
@@ -385,8 +411,9 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       if (clientId) {
         shopper = await resolveShopper(app, storeId, {
           clientId,
-          shopifyCustomerId: shopifyCustomerId ?? null,
+          shopifyCustomerId: effectiveCustomerId,
           email: email ?? null,
+          phone: phone ?? null,
         });
         if (email && emailConsent && !shopper.emailConsent) {
           await app.db
@@ -461,10 +488,10 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
               kind: 'shopify',
               shopifyProductId,
               // Resolved above and pinned here so the dispatcher trusts it rather
-              // than re-resolving — a rule change mid-flight can't change the
+              // than re-resolving — a workflow change mid-flight can't change the
               // workflow under a job whose credits are already deducted.
               workflowTemplateId,
-              dispatchTemplateVersion: resolvedBasket.workflowTemplateVersion,
+              dispatchTemplateVersion: resolvedWorkflow.workflowTemplateVersion,
               // Same reasoning as workflowTemplateId: pinned at creation rather
               // than recomputed later. The dispatcher refunds this job's credits
               // if the generation fails, and has to give the store's daily-cap
@@ -624,12 +651,6 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         .select({
           enabled: schema.shopifyProductGarments.enabled,
           excluded: schema.shopifyProductGarments.excluded,
-          funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
-          productType: schema.shopifyProductGarments.productType,
-          tags: schema.shopifyProductGarments.tags,
-          vendor: schema.shopifyProductGarments.vendor,
-          collections: schema.shopifyProductGarments.collections,
-          title: schema.shopifyProductGarments.title,
         })
         .from(schema.shopifyProductGarments)
         .where(
@@ -656,17 +677,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       // re-queues a sync and tells the shopper to check back, so promising a
       // working button ahead of any basket data would be wrong in a
       // different way, not righter.
-      if (enabled && garment) {
-        const resolvedBasket = await resolveBasket(app, storeId, {
-          funnelTemplateId: garment.funnelTemplateId,
-          productType: garment.productType,
-          tags: garment.tags,
-          vendor: garment.vendor,
-          collections: garment.collections,
-          title: garment.title,
-        });
-        if (!resolvedBasket) enabled = false;
-      }
+      if (enabled && garment && !(await resolveShopifyWorkflow(app))) enabled = false;
 
       // This call doubles as the "the app embed is live" signal that ends
       // onboarding's theme step. It only counts when Shopify itself signed the
@@ -685,7 +696,11 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       // Piggybacks on this call because it's the first request the widget makes
       // on init (see the comment above this route). true only when the env var
       // is exactly 'true' — see SHOPIFY_WIDGET_VERBOSE in env.ts.
-      return { enabled, verboseErrors: app.env.SHOPIFY_WIDGET_VERBOSE === true };
+      return {
+        enabled,
+        verboseErrors: app.env.SHOPIFY_WIDGET_VERBOSE === true,
+        loginRequired: store.settings.limits?.loginRequired === true,
+      };
     },
   );
 
