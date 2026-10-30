@@ -1,6 +1,7 @@
-import type { schema } from '@aivastra/db';
+import { schema } from '@aivastra/db';
+import { and, count, eq, gte, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { shopifyActivationRoutes } from './activation.routes.js';
+import { fetchTotalProductCount, shopifyActivationRoutes } from './activation.routes.js';
 import { shopifyAnalyticsRoutes } from './analytics.routes.js';
 import { shopifyAuthRoutes } from './auth.routes.js';
 import { shopifyAutorefillRoutes } from './autorefill.routes.js';
@@ -61,7 +62,9 @@ export async function shopifyRoutes(app: FastifyInstance) {
       // store, finish and clear this same key before the route ever gets
       // back around to writing it, which would leave the button's poll
       // watching a 'running' state nothing will ever clear.
-      await markProductSyncRunning(app.redis, store.id);
+      // Best effort: the progress bar degrades to indeterminate without a total.
+      const total = await fetchTotalProductCount(app, store);
+      await markProductSyncRunning(app.redis, store.id, total);
       await enqueueSync(app.redis, { storeId: store.id, mode: 'full' });
       return reply.code(202).send({ queued: true });
     },
@@ -76,7 +79,21 @@ export async function shopifyRoutes(app: FastifyInstance) {
     { preHandler: app.requireShopifySession },
     async (req) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-      return getProductSyncStatus(app.redis, store.id);
+      const status = await getProductSyncStatus(app.redis, store.id);
+      const [{ imported }] = await app.db
+        .select({ imported: count() })
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, store.id),
+            ne(schema.shopifyProductGarments.status, 'deleted'),
+            gte(schema.shopifyProductGarments.syncedAt, new Date(status.startedAt)),
+          ),
+        );
+      return {
+        ...status,
+        imported: status.total == null ? imported : Math.min(imported, status.total),
+      };
     },
   );
 }

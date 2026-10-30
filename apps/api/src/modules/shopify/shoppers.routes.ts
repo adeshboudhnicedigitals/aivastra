@@ -10,6 +10,7 @@ async function listShoppers(app: FastifyInstance, storeId: string) {
       id: schema.shopifyShoppers.id,
       email: schema.shopifyShoppers.email,
       emailConsent: schema.shopifyShoppers.emailConsent,
+      phone: schema.shopifyShoppers.phone,
       firstSeenAt: schema.shopifyShoppers.firstSeenAt,
       tryOnCount: sql<number>`(
         SELECT COUNT(*)::int FROM ${schema.jobs}
@@ -41,7 +42,7 @@ export async function shopifyShoppersRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
       const rows = await listShoppers(app, store.id);
-      const lines = ['email,consent,first_seen,try_ons'];
+      const lines = ['email,consent,first_seen,try_ons,phone'];
       for (const r of rows) {
         lines.push(
           [
@@ -49,6 +50,7 @@ export async function shopifyShoppersRoutes(app: FastifyInstance) {
             r.emailConsent ? 'yes' : 'no',
             r.firstSeenAt.toISOString(),
             String(r.tryOnCount),
+            csvCell(r.phone ?? ''),
           ].join(','),
         );
       }

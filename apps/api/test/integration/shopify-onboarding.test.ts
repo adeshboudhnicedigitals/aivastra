@@ -5,6 +5,7 @@ import { upsertShopifyStore } from '../../src/modules/shopify/auth.routes.js';
 import {
   buildThemeEditorDeepLink,
   findThemeEmbedEnabled,
+  markThemeSurfaceSeen,
 } from '../../src/modules/shopify/onboarding.routes.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
@@ -46,14 +47,14 @@ afterAll(async () => {
 });
 
 describe('buildThemeEditorDeepLink', () => {
-  it('targets themes/current and switches the app embed on', () => {
-    expect(buildThemeEditorDeepLink('o.myshopify.com', 'abc123')).toBe(
-      'https://o.myshopify.com/admin/themes/current/editor?context=apps&template=product&activateAppId=abc123/tryon-button',
+  it('targets themes/current and leaves the app embed off', () => {
+    expect(buildThemeEditorDeepLink('o.myshopify.com')).toBe(
+      'https://o.myshopify.com/admin/themes/current/editor?context=apps&template=product',
     );
   });
 
   it('never needs a theme ID — avoids a REST lookup that would 403 pre-consent', () => {
-    const url = buildThemeEditorDeepLink('o.myshopify.com', 'abc123');
+    const url = buildThemeEditorDeepLink('o.myshopify.com');
     expect(url).toContain('/themes/current/');
     expect(url).not.toMatch(/\/themes\/\d+\//);
   });
@@ -154,7 +155,13 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
             nodes: [
               {
                 files: {
-                  nodes: [{ filename: 'config/settings_data.json', body: { content } }],
+                  nodes: [
+                    { filename: 'config/settings_data.json', body: { content } },
+                    {
+                      filename: 'templates/product.json',
+                      body: { content: JSON.stringify({ sections: {} }) },
+                    },
+                  ],
                 },
               },
             ],
@@ -209,7 +216,13 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
     confirmedToken = signSessionToken('confirmed.myshopify.com', API_SECRET, API_KEY);
     await app.db
       .update(schema.shopifyStores)
-      .set({ settings: { themeEmbedConfirmed: true, themeBlockConfirmed: true } })
+      .set({
+        settings: {
+          themeEmbedConfirmed: true,
+          themeBlockConfirmed: true,
+          themeButtonBlockSeen: true,
+        },
+      })
       .where(eq(schema.shopifyStores.id, confirmedStoreId));
 
     const fresh = await upsertShopifyStore(
@@ -266,7 +279,7 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
       headers: { authorization: `Bearer ${confirmedToken}` },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ themeEmbedConfirmed: true });
+    expect(res.json()).toEqual({ themeBlockConfirmed: true, themeEmbedConfirmed: true });
   });
 
   it('confirms and persists when the Admin API shows the block enabled', async () => {
@@ -282,14 +295,14 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
         headers: { authorization: `Bearer ${freshToken}` },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ themeEmbedConfirmed: true });
+      expect(res.json()).toEqual({ themeBlockConfirmed: false, themeEmbedConfirmed: true });
 
       const [row] = await app.db
         .select({ settings: schema.shopifyStores.settings })
         .from(schema.shopifyStores)
         .where(eq(schema.shopifyStores.id, freshStoreId));
       expect(row.settings.themeEmbedConfirmed).toBe(true);
-      expect(row.settings.themeBlockConfirmed).toBe(true);
+      expect(row.settings.themeBlockConfirmed ?? false).toBe(false);
     } finally {
       global.fetch = originalFetch;
     }
@@ -308,7 +321,7 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
         headers: { authorization: `Bearer ${disabledToken}` },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ themeEmbedConfirmed: false });
+      expect(res.json()).toEqual({ themeBlockConfirmed: false, themeEmbedConfirmed: false });
 
       const [row] = await app.db
         .select({ settings: schema.shopifyStores.settings })
@@ -333,7 +346,7 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
         headers: { authorization: `Bearer ${scopeDeniedToken}` },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ themeEmbedConfirmed: false });
+      expect(res.json()).toEqual({ themeBlockConfirmed: false, themeEmbedConfirmed: false });
 
       const [row] = await app.db
         .select({ settings: schema.shopifyStores.settings })
@@ -363,7 +376,7 @@ describe('POST /v1/shopify/onboarding/check-theme-embed', () => {
         headers: { authorization: `Bearer ${scopeDeniedToken}` },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ themeEmbedConfirmed: false });
+      expect(res.json()).toEqual({ themeBlockConfirmed: false, themeEmbedConfirmed: false });
     } finally {
       global.fetch = originalFetch;
     }
@@ -380,9 +393,66 @@ describe('GET /v1/shopify/onboarding/theme-editor-url', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().url).toBe(
-      `https://o.myshopify.com/admin/themes/current/editor?context=apps&template=product&activateAppId=${API_KEY}/tryon-button`,
-    );
+    const body = res.json();
+    expect(body.url).toBe(body.blockUrl);
+    expect(body.blockUrl).toContain('addAppBlockId=');
+    expect(body.blockUrl).toContain('tryon-button-block');
+    expect(body.blockUrl).toContain('target=mainSection');
+    expect(body.embedUrl).toContain('context=apps');
+    expect(body.embedUrl).not.toContain('activateAppId');
+    expect(body.embedUrl).not.toContain('addAppBlockId');
+  });
+});
+
+describe('theme surface flags', () => {
+  it('records the block and icon surfaces independently and idempotently', async () => {
+    const [store] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `surface-${Date.now()}-${Math.random()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+        settings: {},
+      })
+      .returning();
+    await markThemeSurfaceSeen(app, store, 'block');
+    const [blockRow] = await app.db
+      .select({
+        settings: schema.shopifyStores.settings,
+        updatedAt: schema.shopifyStores.updatedAt,
+      })
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(blockRow.settings).toMatchObject({
+      themeBlockConfirmed: true,
+      themeButtonBlockSeen: true,
+    });
+    expect(blockRow.settings).not.toHaveProperty('themeEmbedConfirmed');
+    const updatedAt = blockRow.updatedAt;
+    await markThemeSurfaceSeen(app, { ...store, settings: blockRow.settings }, 'block');
+    const [again] = await app.db
+      .select({ updatedAt: schema.shopifyStores.updatedAt })
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id));
+    expect(again.updatedAt).toEqual(updatedAt);
+
+    const [embedStore] = await app.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain: `embed-surface-${Date.now()}-${Math.random()}.myshopify.com`,
+        shopifyShopId: Date.now() + 1,
+        accessToken: 'enc',
+        scope: 'read_products',
+        settings: {},
+      })
+      .returning();
+    await markThemeSurfaceSeen(app, embedStore, 'embed');
+    const [embedRow] = await app.db
+      .select({ settings: schema.shopifyStores.settings })
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, embedStore.id));
+    expect(embedRow.settings).toEqual({ themeEmbedConfirmed: true });
   });
 });
 
@@ -440,12 +510,41 @@ describe('POST /v1/shopify/onboarding/complete', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().settings.onboardingCompletedOnce).toBe(true);
+    expect(res.json().settings.activation.mode).toBe('global');
 
     const [row] = await app.db
       .select()
       .from(schema.shopifyStores)
       .where(eq(schema.shopifyStores.id, storeId));
     expect(row.settings.onboardingCompletedOnce).toBe(true);
+  });
+
+  it('does not override a previously selected selective mode', async () => {
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: { activation: { mode: 'selective' }, onboardingCompletedOnce: true } })
+      .where(eq(schema.shopifyStores.id, storeId));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/onboarding/complete',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().settings.activation.mode).toBe('selective');
+  });
+
+  it('does not override an explicitly selected mode on first completion', async () => {
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: { activation: { mode: 'selective' }, onboardingCompletedOnce: false } })
+      .where(eq(schema.shopifyStores.id, storeId));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/onboarding/complete',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().settings.activation.mode).toBe('selective');
   });
 
   it('is idempotent — calling it twice does not error', async () => {
@@ -502,21 +601,32 @@ describe('POST /v1/shopify/onboarding/contact', () => {
     });
   });
 
-  it('stores a blank or missing phone as null, replacing an earlier one', async () => {
-    await post({ name: 'Asha', email: 'asha@example.com', phone: '12345' });
-    expect((await post({ name: 'Asha', email: 'asha@example.com', phone: '  ' })).statusCode).toBe(
-      200,
-    );
-    expect((await storeRow()).shopPhone).toBeNull();
-    await post({ name: 'Asha', email: 'asha@example.com', phone: '12345' });
-    expect((await post({ name: 'Asha', email: 'asha@example.com' })).statusCode).toBe(200);
-    expect((await storeRow()).shopPhone).toBeNull();
+  it('requires a phone: missing, blank, short or letter-only values are rejected and nothing is overwritten', async () => {
+    await post({ name: 'Asha', email: 'asha@example.com', phone: '555 0100' });
+
+    for (const phone of [undefined, '', '   ', '123456', '+()- .', 'call me']) {
+      const payload: Record<string, unknown> = { name: 'Asha', email: 'asha@example.com' };
+      if (phone !== undefined) payload.phone = phone;
+      expect((await post(payload)).statusCode, `phone=${JSON.stringify(phone)}`).toBe(400);
+    }
+    // The rejected attempts left the earlier valid number alone.
+    expect((await storeRow()).shopPhone).toBe('555 0100');
+  });
+
+  it('stores the phone trimmed', async () => {
+    const res = await post({ name: 'Asha', email: 'asha@example.com', phone: '  98765 43210  ' });
+    expect(res.statusCode).toBe(200);
+    expect((await storeRow()).shopPhone).toBe('98765 43210');
   });
 
   it('requires a name and a valid email, and rejects letters in the phone', async () => {
-    expect((await post({ name: '   ', email: 'asha@example.com' })).statusCode).toBe(400);
-    expect((await post({ email: 'asha@example.com' })).statusCode).toBe(400);
-    expect((await post({ name: 'Asha', email: 'not-an-email' })).statusCode).toBe(400);
+    expect(
+      (await post({ name: '   ', email: 'asha@example.com', phone: '555 0100' })).statusCode,
+    ).toBe(400);
+    expect((await post({ email: 'asha@example.com', phone: '555 0100' })).statusCode).toBe(400);
+    expect(
+      (await post({ name: 'Asha', email: 'not-an-email', phone: '555 0100' })).statusCode,
+    ).toBe(400);
     expect(
       (await post({ name: 'Asha', email: 'asha@example.com', phone: 'call me' })).statusCode,
     ).toBe(400);
@@ -580,7 +690,7 @@ describe('POST /v1/shopify/onboarding/welcome-credits', () => {
       method: 'POST',
       url: '/v1/shopify/onboarding/contact',
       headers: { authorization: `Bearer ${bonusToken}` },
-      payload: { name: 'Asha', email: 'asha@example.com' },
+      payload: { name: 'Asha', email: 'asha@example.com', phone: '555 0100' },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).not.toHaveProperty('creditsGranted');

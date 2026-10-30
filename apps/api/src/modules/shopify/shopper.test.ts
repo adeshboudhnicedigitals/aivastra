@@ -9,6 +9,8 @@ const base = {
   email: null as string | null,
   emailConsent: false,
   emailCapturedAt: null,
+  phone: null as string | null,
+  phoneCapturedAt: null,
   firstSeenAt: new Date(),
   lastSeenAt: new Date(),
   redactionRequestedAt: null,

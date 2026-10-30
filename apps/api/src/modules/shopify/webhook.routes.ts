@@ -6,7 +6,6 @@ import { AppError } from '../../lib/errors.js';
 import { sendAutorefillCapApproachingEmail } from '../../lib/mailer.js';
 import { appLinkFor } from './alert-scheduler.js';
 import { refreshAutorefillState } from './autorefill.js';
-import { loadRuleSet, ruleSetReferencesCollectionTitle } from './funnel-resolution.js';
 import { collectShopperData, type RedactResult, redactShopperData } from './gdpr.js';
 import { defaultFetchPurchase, grantForPurchase, type OneTimePurchaseState } from './purchase.js';
 import { enqueueSync, shopifyAdminFetch, verifyWebhookHmac } from './service.js';
@@ -183,8 +182,6 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
             // removed get their own row refreshed — see the 'collection' mode
             // branch in products.sync.ts.
             if (!store || payload.id == null) break;
-            const ruleSet = await loadRuleSet(app, store.id);
-            if (!ruleSetReferencesCollectionTitle(ruleSet, payload.title ?? '')) break;
             await enqueueSync(app.redis, {
               storeId: store.id,
               mode: 'collection',

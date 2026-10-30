@@ -24,6 +24,8 @@ export interface ShopifyStoreLimits {
   perShopperWindow?: 'day' | 'week' | 'month';
   /** null = never ask. 0 = ask before the first generation. */
   emailAfterNTryOns?: number | null;
+  // Shoppers must be logged in to the storefront (verified via App Proxy) and have email + phone on file.
+  loginRequired?: boolean;
 }
 
 export interface ShopifyStoreRetention {
@@ -71,6 +73,8 @@ export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
   themeEmbedConfirmed?: boolean;
+  // true only once a storefront rendered the Try It On *block*; legacy stores that passed onboarding under the embed rule lack it
+  themeButtonBlockSeen?: boolean;
   onboardingRoutingConfirmed?: boolean;
   onboardingCompletedOnce?: boolean;
   emailBonusClaimed?: boolean;
@@ -419,6 +423,11 @@ export const shopifyShoppers = pgTable(
     // per-shopper cap), but only consented rows are marketable.
     emailConsent: boolean('email_consent').notNull().default(false),
     emailCapturedAt: timestamp('email_captured_at', { withTimezone: true }),
+    // Contact phone, shopper-asserted (like email). Collected for login-required
+    // stores. Never part of the counting identity: the limit identity stays
+    // customer id > email > client id.
+    phone: text('phone'),
+    phoneCapturedAt: timestamp('phone_captured_at', { withTimezone: true }),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
     // Set when a GDPR customers_redact names this shopper, and only ever
@@ -465,7 +474,8 @@ export const shopifyWidgetEvents = pgTable(
     // Client-reported, forgeable:
     //   button_click | upload | result_view | add_to_cart | share
     // Server-written, unforgeable:
-    //   refused_store_cap | refused_shopper_cap | refused_email_gate
+    //   refused_store_cap | refused_shopper_cap | refused_email_gate |
+    //   refused_login_gate | refused_contact_gate
     type: text('type').notNull(),
     device: text('device'), // 'mobile' | 'desktop'
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

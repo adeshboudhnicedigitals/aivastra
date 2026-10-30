@@ -29,7 +29,12 @@ const range = {
   timezone: TZ,
 };
 
-async function seedShopper(store: string, clientId: string, email: string | null = null) {
+async function seedShopper(
+  store: string,
+  clientId: string,
+  email: string | null = null,
+  phone: string | null = null,
+) {
   const [row] = await app.db
     .insert(schema.shopifyShoppers)
     .values({
@@ -37,6 +42,8 @@ async function seedShopper(store: string, clientId: string, email: string | null
       clientId,
       email,
       emailCapturedAt: email ? new Date('2026-07-02T10:00:00Z') : null,
+      phone,
+      phoneCapturedAt: phone ? new Date('2026-07-02T10:00:00Z') : null,
     })
     .returning();
   return row.id;
@@ -135,7 +142,7 @@ describe('analyticsCards', () => {
   it('counts try-ons, shoppers, add-to-carts and emails in range', async () => {
     const c1 = randomUUID();
     const c2 = randomUUID();
-    const s1 = await seedShopper(storeId, c1, 'a@b.com');
+    const s1 = await seedShopper(storeId, c1, 'a@b.com', '+91 98765 43210');
     const s2 = await seedShopper(storeId, c2);
 
     await seedJob(storeId, s1, '2026-07-02T06:00:00Z');
