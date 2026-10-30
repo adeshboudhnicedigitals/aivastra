@@ -786,17 +786,20 @@ function FacePicker({
 function BackgroundPicker({
   gender,
   backgrounds,
+  categories,
   mappedIds,
   onToggleMapped,
   onBulkSetMapped,
 }: {
   gender: string;
   backgrounds: ModelBackground[];
+  categories: CatalogCategory[];
   mappedIds: Set<string>;
   onToggleMapped: (id: string) => void;
   onBulkSetMapped: (ids: string[], mapped: boolean) => void;
 }) {
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<number | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'mapped' | 'unmapped'>('all');
   const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
 
@@ -811,6 +814,21 @@ function BackgroundPicker({
       ),
     [backgrounds, gender],
   );
+  // Backgrounds have their own 'background' catalog type (BackgroundsTab's category
+  // manager), same shape ItemPicker uses for lower/shoe/accessory — genderSlug null
+  // means the category applies to every gender, same as the backgrounds themselves.
+  const relevantCategories = useMemo(
+    () =>
+      categories
+        .filter(
+          (c) =>
+            c.typeSlug === 'background' &&
+            c.isActive &&
+            (c.genderSlug === null || c.genderSlug === gender),
+        )
+        .sort((a, b) => a.sortOrder - b.sortOrder),
+    [categories, gender],
+  );
 
   const mappedCount = useMemo(
     () => scoped.filter((b) => mappedIds.has(b.id)).length,
@@ -822,60 +840,86 @@ function BackgroundPicker({
     const q = search.trim().toLowerCase();
     return scoped.filter((b) => {
       const isMapped = mappedIds.has(b.id);
+      const matchesCategory = categoryFilter === 'all' || b.categoryId === categoryFilter;
       const matchesSearch = !q || b.label.toLowerCase().includes(q);
       const matchesStatus =
         statusFilter === 'all' ? true : statusFilter === 'mapped' ? isMapped : !isMapped;
-      return matchesSearch && matchesStatus;
+      return matchesCategory && matchesSearch && matchesStatus;
     });
-  }, [scoped, search, statusFilter, mappedIds]);
+  }, [scoped, categoryFilter, search, statusFilter, mappedIds]);
 
   return (
     <div>
       <div
         style={{
           display: 'flex',
-          alignItems: 'center',
+          flexDirection: 'column',
           gap: 8,
-          flexWrap: 'wrap',
           padding: '10px 16px',
           borderBottom: '1px solid var(--border)',
         }}
       >
-        <div className="search" style={{ width: 180 }}>
-          <Icon.Search />
-          <input
-            placeholder="Search backgrounds…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div className="search" style={{ width: 180 }}>
+            <Icon.Search />
+            <input
+              placeholder="Search backgrounds…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 2 }}>Show:</span>
+            <button
+              type="button"
+              className={`badge ${statusFilter === 'all' ? 'accent' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+              onClick={() => setStatusFilter('all')}
+            >
+              All ({scoped.length})
+            </button>
+            <button
+              type="button"
+              className={`badge ${statusFilter === 'mapped' ? 'accent' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+              onClick={() => setStatusFilter('mapped')}
+            >
+              Mapped ({mappedCount})
+            </button>
+            <button
+              type="button"
+              className={`badge ${statusFilter === 'unmapped' ? 'accent' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+              onClick={() => setStatusFilter('unmapped')}
+            >
+              Unmapped ({unmappedCount})
+            </button>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: 'var(--muted)', marginRight: 2 }}>Show:</span>
-          <button
-            type="button"
-            className={`badge ${statusFilter === 'all' ? 'accent' : ''}`}
-            style={{ cursor: 'pointer', border: 'none' }}
-            onClick={() => setStatusFilter('all')}
-          >
-            All ({scoped.length})
-          </button>
-          <button
-            type="button"
-            className={`badge ${statusFilter === 'mapped' ? 'accent' : ''}`}
-            style={{ cursor: 'pointer', border: 'none' }}
-            onClick={() => setStatusFilter('mapped')}
-          >
-            Mapped ({mappedCount})
-          </button>
-          <button
-            type="button"
-            className={`badge ${statusFilter === 'unmapped' ? 'accent' : ''}`}
-            style={{ cursor: 'pointer', border: 'none' }}
-            onClick={() => setStatusFilter('unmapped')}
-          >
-            Unmapped ({unmappedCount})
-          </button>
-        </div>
+
+        {relevantCategories.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              type="button"
+              className={`badge ${categoryFilter === 'all' ? 'accent' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+              onClick={() => setCategoryFilter('all')}
+            >
+              All Categories
+            </button>
+            {relevantCategories.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`badge ${categoryFilter === c.id ? 'accent' : ''}`}
+                style={{ cursor: 'pointer', border: 'none' }}
+                onClick={() => setCategoryFilter(c.id)}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div
@@ -2205,6 +2249,7 @@ export function EditGarmentTypeModal({
             <BackgroundPicker
               gender={garmentType.genderSlug}
               backgrounds={backgrounds}
+              categories={categories}
               mappedIds={mappedBackgroundIds}
               onToggleMapped={toggleMappedBackground}
               onBulkSetMapped={bulkSetMappedBackground}

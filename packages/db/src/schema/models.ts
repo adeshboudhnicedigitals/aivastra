@@ -198,6 +198,27 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   whatsappBasketId: uuid('whatsapp_basket_id').references((): AnyPgColumn => whatsappBaskets.id, {
     onDelete: 'set null',
   }),
+  // Lower/shoe/face/background mappings default to "opt-out" (no row in the join
+  // table = every active item of that kind is offered). A plain row-count check
+  // can't tell that pristine "never configured" state apart from "admin explicitly
+  // unmapped every item", so emptying a mapping down to zero used to silently
+  // revert to showing everything again. These four flags are set true the moment
+  // any explicit write touches that mapping type, independent of how many rows
+  // remain, so "configured to zero" and "never configured" stay distinguishable.
+  // Accessories need no flag — they're strictly opt-in already (no fallback to
+  // "show everything" exists for them to accidentally revert to).
+  explicitLowerMappingsConfigured: boolean('explicit_lower_mappings_configured')
+    .notNull()
+    .default(false),
+  explicitShoeMappingsConfigured: boolean('explicit_shoe_mappings_configured')
+    .notNull()
+    .default(false),
+  explicitFaceMappingsConfigured: boolean('explicit_face_mappings_configured')
+    .notNull()
+    .default(false),
+  explicitBackgroundMappingsConfigured: boolean('explicit_background_mappings_configured')
+    .notNull()
+    .default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
