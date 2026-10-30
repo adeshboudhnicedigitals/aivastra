@@ -191,6 +191,23 @@ describe('sweeper routes expired paid jobs through adoption', () => {
     expect(reads).toBeGreaterThan(0);
   }, 60_000);
 
+  it('sweeper-requeues-with-a-real-message: a retried job gets a replacement message with its userId, not a lost one', async () => {
+    f.comfy.setOptions({ completionDelayMs: 600_000 });
+    const o = await f.crashedOwner({ withReceipt: true });
+    f.comfy.forgetPrompt(o.promptId);
+    await expire(o.seeded.job.id);
+
+    await sweep();
+
+    // The lost prompt costs one retry, so the job goes back to its own lane with a fresh message.
+    expect(await f.jobRow(o.seeded.job.id)).toMatchObject({ status: 'QUEUED', attempts: 1 });
+    const entries = await f.redis.xrange('jobs:normal', '-', '+');
+    expect(entries).toHaveLength(1);
+    const fields = entries[0]?.[1] ?? [];
+    expect(fields).toContain(o.seeded.job.id);
+    expect(fields).toContain(o.seeded.user.id);
+  }, 60_000);
+
   it('a job with no attempt record keeps the age rule', async () => {
     const seeded = await (await import('../helpers/paid-jobs.js')).seedPaidJob(f.env, 'regular');
     await f.env.db

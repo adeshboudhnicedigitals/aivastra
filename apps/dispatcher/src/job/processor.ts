@@ -31,6 +31,8 @@ import {
 import { performanceKey as getPerformanceKey } from '../perf/performance-key.js';
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { releaseStoreCapSlot } from '../shopify/store-cap.js';
+import { deliveryFields } from '../stream/delivery.js';
+import { handoffMessage } from '../stream/handoff.js';
 import { type Reservation, releaseReservation, reserveWorker } from '../worker/reserve.js';
 import { type ClaimedWorker, selectPreferredWorker, selectWorker } from '../worker/selector.js';
 import { stackAccessoryImages } from '../workflow/accessory-stack.js';
@@ -131,9 +133,6 @@ interface RequeueForNoWorkerArgs {
   stream: string;
   messageId: string;
   retryCount: number;
-  /** Extra XADD field/value pairs beyond 'jobId' — e.g. ['userId', userId], or [] when
-   *  the job type re-derives its identity from the DB row instead (merchant/shopify). */
-  extraFields: string[];
   jobLog: Logger;
   startedAt: number;
   jobType: string | null;
@@ -148,18 +147,7 @@ interface RequeueForNoWorkerArgs {
  * consecutive misses — see the constant's comment for why that's needed at all.
  */
 async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
-  const {
-    db,
-    redis,
-    jobId,
-    stream,
-    messageId,
-    retryCount,
-    extraFields,
-    jobLog,
-    startedAt,
-    jobType,
-  } = args;
+  const { db, redis, jobId, stream, messageId, retryCount, jobLog, startedAt, jobType } = args;
   const nextRetryCount = retryCount + 1;
   const targetStream =
     stream !== PRIORITY_STREAM &&
@@ -208,19 +196,13 @@ async function requeueForNoWorker(args: RequeueForNoWorkerArgs): Promise<void> {
       return;
     }
   }
-  await redis.xadd(
+  await handoffMessage(redis, {
+    sourceStream: stream,
     targetStream,
-    'MAXLEN',
-    '~',
-    10000,
-    '*',
-    'jobId',
-    jobId,
-    'retryCount',
-    String(nextRetryCount),
-    ...extraFields,
-  );
-  await redis.xack(stream, 'dispatcher-cg', messageId);
+    messageId,
+    overrides: { retryCount: String(nextRetryCount) },
+    fields: await deliveryFields(db, jobId, messageId),
+  });
   recordJobOutcome('retried', startedAt, jobType);
 }
 
@@ -896,7 +878,6 @@ async function processJobOwned(
                 stream,
                 messageId,
                 retryCount,
-                extraFields: ['userId', userId],
                 jobLog,
                 startedAt,
                 jobType: job.source,
@@ -1031,7 +1012,6 @@ async function processJobOwned(
         stream,
         messageId,
         retryCount,
-        extraFields: ['userId', userId],
         jobLog,
         startedAt,
         jobType: job.source,
@@ -1667,7 +1647,6 @@ async function processTryonDirectJob(
         stream,
         messageId,
         retryCount,
-        extraFields: ['userId', userId],
         jobLog,
         startedAt,
         jobType: job.source,
@@ -1999,7 +1978,6 @@ async function processRegenerateJob(
         stream,
         messageId,
         retryCount,
-        extraFields: ['userId', userId],
         jobLog,
         startedAt,
         jobType: job.source,
@@ -2351,7 +2329,6 @@ async function processFabricToGarmentJob(
         stream,
         messageId,
         retryCount,
-        extraFields: ['userId', userId],
         jobLog,
         startedAt,
         jobType: job.source,
@@ -2784,7 +2761,6 @@ async function processSareeMannequinJob(
         stream,
         messageId,
         retryCount,
-        extraFields: ['userId', userId],
         jobLog,
         startedAt,
         jobType: job.source,
@@ -3120,7 +3096,6 @@ async function processSareeJob(
         stream,
         messageId,
         retryCount,
-        extraFields: ['userId', userId],
         jobLog,
         startedAt,
         jobType: job.source,
@@ -3564,7 +3539,6 @@ async function processWidgetJob(
         stream,
         messageId,
         retryCount,
-        extraFields: [],
         jobLog,
         startedAt,
         jobType: job.source,
@@ -3938,7 +3912,6 @@ async function processShopifyJob(
         stream,
         messageId,
         retryCount,
-        extraFields: [],
         jobLog,
         startedAt,
         jobType: job.source,
@@ -4353,8 +4326,12 @@ async function handleFailure(
         await recordAttemptOutcome(tx, jobId, 'FAILED');
       });
     }
-    await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-    await redis.xack(stream, 'dispatcher-cg', messageId);
+    await handoffMessage(redis, {
+      sourceStream: stream,
+      targetStream: stream,
+      messageId,
+      fields: await deliveryFields(db, jobId, messageId),
+    });
     recordJobOutcome('retried', startedAt, current.source);
     log.info(
       { jobId, attempts: newAttempts },
