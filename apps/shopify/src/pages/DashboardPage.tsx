@@ -140,6 +140,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [openingEditor, setOpeningEditor] = useState(false);
   const [checkingEmbed, setCheckingEmbed] = useState(false);
+  // What Check now found when it did not clear the banner; without it a negative
+  // result looks identical to the button doing nothing.
+  const [embedCheckMessage, setEmbedCheckMessage] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const load = useCallback(() => {
@@ -221,11 +224,26 @@ export default function DashboardPage() {
   async function checkEmbedNow() {
     if (checkingEmbed) return;
     setCheckingEmbed(true);
+    setEmbedCheckMessage(null);
     try {
-      await apiFetch('/v1/shopify/onboarding/check-theme-embed', { method: 'POST' }).catch(
-        () => {},
-      );
+      const result = await apiFetch<{ themeBlockConfirmed: boolean; reason?: 'scope' | 'error' }>(
+        '/v1/shopify/onboarding/check-theme-embed',
+        { method: 'POST' },
+      ).catch(() => null);
       await refreshMe();
+      // Confirmed clears the banner through refreshMe; anything else says why not.
+      if (result?.themeBlockConfirmed) return;
+      if (result === null || result.reason === 'error') {
+        setEmbedCheckMessage("We couldn't check your theme just now. Try again in a moment.");
+      } else if (result.reason === 'scope') {
+        setEmbedCheckMessage(
+          'We need permission to read your theme. Reopen the app from your Shopify admin, approve the permissions request, then press Check now again.',
+        );
+      } else {
+        setEmbedCheckMessage(
+          'Not detected yet. Make sure the Try It On button is saved on your product page template (press Save in the theme editor), then press Check now again.',
+        );
+      }
     } finally {
       setCheckingEmbed(false);
     }
@@ -274,6 +292,11 @@ export default function DashboardPage() {
                 added it? Press Check now, or this message clears on its own once we see the button
                 on a product page of your store.
               </Text>
+              {embedCheckMessage && (
+                <Text as="p" tone="caution">
+                  {embedCheckMessage}
+                </Text>
+              )}
             </Banner>
           )}
 
