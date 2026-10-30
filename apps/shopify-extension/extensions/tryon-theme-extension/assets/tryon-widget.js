@@ -179,6 +179,9 @@
     // hasn't resolved yet or failed, since it's a fire-and-forget call below.
     let verboseErrors = false;
     let loginRequired = false;
+    // False until the enabled check has answered either way, so the upload step
+    // never offers the photo picker before we know whether login is required.
+    let loginStateKnown = false;
 
     // Liquid rendered `root` hidden — reveal it only once we know this product
     // is actually enabled (global mode, individually enabled, or in an
@@ -203,6 +206,10 @@
         // only ever a visibility convenience on top of it.
         console.warn('[aivastra tryon] enabled check failed, showing button anyway', err);
         root.hidden = false;
+      } finally {
+        loginStateKnown = true;
+        // The modal may already be open on the upload step.
+        if (steps.upload && !steps.upload.hidden) applyLoginGate();
       }
     })();
 
@@ -229,7 +236,6 @@
       result: root.querySelector('.aivastra-tryon__step--result'),
       error: root.querySelector('.aivastra-tryon__step--error'),
       email: root.querySelector('.aivastra-tryon__step--email'),
-      login: root.querySelector('.aivastra-tryon__step--login'),
     };
 
     // Advances through the generating-page copy while a job is in flight.
@@ -687,9 +693,23 @@
     // the ready screen with it pre-loaded (design frame 3) instead of
     // revisiting the upload step. No remembered photo (or it's expired /
     // no longer owned) falls back to a fresh upload.
+    // A login-required store with a logged-out shopper: the upload step shows a
+    // login button instead of the photo picker. The server enforces it either way.
+    // Looked up on `modal`, not `root`: the modal was moved to <body> above, so root no longer contains it.
+    const chooseLabel = modal.querySelector(
+      '.aivastra-tryon__choose-btn:not(.aivastra-tryon__login-cta)',
+    );
+    const loginCta = modal.querySelector('.aivastra-tryon__login-cta');
+    const needsLogin = () => loginRequired && !shopifyCustomerId;
+    function applyLoginGate() {
+      const gated = needsLogin();
+      if (chooseLabel) chooseLabel.hidden = !loginStateKnown || gated;
+      if (loginCta) loginCta.hidden = !loginStateKnown || !gated;
+    }
+
     async function enterMainFlow() {
       const remembered = getRememberedPhoto();
-      if (!remembered) {
+      if (!remembered || needsLogin()) {
         showStep('upload');
         return;
       }
@@ -752,6 +772,7 @@
       for (const key in steps) {
         if (steps[key]) steps[key].hidden = key !== name;
       }
+      if (name === 'upload') applyLoginGate();
       if (name === 'progress') startProgressRotator();
       else stopProgressRotator();
       // 'ready', 'progress' and 'result' are the only steps whose box height
@@ -1253,7 +1274,6 @@
       // History detour built up no longer points anywhere meaningful.
       navStack = [];
       enterMainFlow();
-      if (loginRequired && !shopifyCustomerId) showStep('login');
     }
 
     function openModal() {
@@ -1639,7 +1659,7 @@
         if (jobResult.pending) {
           if (jobResult.reason === 'login_required') {
             loginRequired = true;
-            showStep('login');
+            showStep('upload');
             return;
           }
           if (jobResult.reason === 'contact_required') {

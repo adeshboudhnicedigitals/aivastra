@@ -981,16 +981,14 @@
 }
 
 /* login-required (plan 3) */
-.aivastra-tryon__login-link {
-  display: block;
+.aivastra-tryon__login-cta {
   box-sizing: border-box;
-  width: 100%;
-  padding: 12px 16px;
-  text-align: center;
   text-decoration: none;
-  color: var(--aivastra-text-color, #fff);
-  background: var(--aivastra-button-color, #000);
-  border-radius: var(--aivastra-border-radius, 4px);
+}
+
+/* display above would otherwise beat the hidden attribute on the two upload CTAs. */
+.aivastra-tryon__choose-btn[hidden] {
+  display: none;
 }
 
 .aivastra-tryon__result-actions {
