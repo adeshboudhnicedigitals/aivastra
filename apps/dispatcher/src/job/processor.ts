@@ -44,7 +44,6 @@ import { runMannequinPhase } from './mannequin-phase.js';
 import {
   acquireComfyJob,
   assertOwnerInTransaction,
-  assertStorageWriteLease,
   isTerminalStatus,
   noteOwnershipLost,
   OwnershipLostError,
