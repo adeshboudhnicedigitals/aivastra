@@ -651,7 +651,8 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
       hasExplicitFaceMappings: true,
     });
 
-    // Clearing to an empty array drops every row, reverting to the unmapped state.
+    // Clearing to an empty array keeps the type explicitly configured with zero
+    // mapped faces — it no longer reverts to the unmapped/show-everyone state.
     await app.inject({
       method: 'PATCH',
       url: `/admin/assets/garment-types/${garmentType.id}`,
@@ -663,7 +664,7 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
       url: `/admin/assets/garment-types/${garmentType.id}/face-mappings`,
       headers,
     });
-    expect(afterClearRes.json()).toEqual({ mappedFaceIds: [], hasExplicitFaceMappings: false });
+    expect(afterClearRes.json()).toEqual({ mappedFaceIds: [], hasExplicitFaceMappings: true });
   });
 
   it('multi-sorts mapped poses by moving selected poses to a target start position', async () => {
@@ -869,6 +870,25 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
     });
     expect(afterUnmapRes.json().mappedLowerIds).not.toContain(lower1.id);
     expect(afterUnmapRes.json().mappedLowerIds).toContain(lower2.id);
+
+    // 5. PUT unmap the last remaining lower — this used to silently revert the
+    // type to "show everything" because hasExplicitLowerMappings was computed
+    // from a row count; it must now stay explicitly configured with zero mapped.
+    const putUnmapLastRes = await app.inject({
+      method: 'PUT',
+      url: `/admin/assets/garment-types/${garmentType.id}/catalog-items/${lower2.id}`,
+      headers,
+      payload: { mapped: false },
+    });
+    expect(putUnmapLastRes.statusCode).toBe(200);
+
+    const afterUnmapLastRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/catalog-mappings`,
+      headers,
+    });
+    expect(afterUnmapLastRes.json().mappedLowerIds).toEqual([]);
+    expect(afterUnmapLastRes.json().hasExplicitLowerMappings).toBe(true);
   });
 
   it('accessories are strictly opt-in: GET/PATCH/PUT never backfill siblings on unmap', async () => {
