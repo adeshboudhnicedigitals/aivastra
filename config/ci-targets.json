@@ -23,6 +23,13 @@
       "composeService": "shopify-admin"
     },
     {
+      "name": "support",
+      "dir": "apps/support-web",
+      "packageName": "@aivastra/support",
+      "dockerfile": "apps/support-web/Dockerfile",
+      "composeService": "support"
+    },
+    {
       "name": "api",
       "dir": "apps/api",
       "packageName": "@aivastra/api",
