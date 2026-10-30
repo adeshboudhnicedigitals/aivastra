@@ -69,7 +69,6 @@ const jobs = new Map<string, ParkedJob>();
 const resuming = new Map<string, ParkedJob>();
 const lanes = new Map<Lane, LaneControl>();
 const announced = new Set<string>();
-let logger: Logger | undefined;
 
 const effectiveRank = (j: ParkedJob, now: number) =>
   now - j.parkedAtMs >= PROMOTE_AFTER_MS ? 0 : streamRank(j.stream);
@@ -113,7 +112,6 @@ export function resumeEnded(jobId: string): void {
 }
 
 export async function park(job: ParkedJob, db: DB, log: Logger): Promise<void> {
-  logger ??= log;
   const first = !announced.has(job.jobId);
   if (first) {
     announced.add(job.jobId);
@@ -253,7 +251,6 @@ async function evaluate(d: { db: DB; redis: Redis; log: Logger }): Promise<void>
 /** Starts the fallback poll and the release listener. Returns the stopper (shutdown). */
 export function startParkedScheduler(args: { db: DB; redis: Redis; log: Logger }): () => void {
   deps = args;
-  logger = args.log;
   const onRelease = () => kick();
   workerReleased.on('released', onRelease);
   const timer = setInterval(kick, TICK_MS);

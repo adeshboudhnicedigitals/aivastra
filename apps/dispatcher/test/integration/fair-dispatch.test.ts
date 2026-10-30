@@ -240,6 +240,33 @@ describe('fair dispatch', () => {
     expect((await posted())[0]).toBe(a.job.id);
   }, 120_000);
 
+  it('probe-cost: ten waiters on one busy worker cause no ComfyUI queue probes', async () => {
+    await setWorkers([{ id: 'cat', pools: ['catalogue'] }]);
+    let queueProbes = 0;
+    comfy.setOptions({
+      outputs,
+      completionDelayMs: 600_000,
+      onRequest: (method, path) => {
+        if (method === 'GET' && path === '/queue') queueProbes++;
+      },
+    });
+    startLane(3);
+    await enqueue('regular');
+    await waitFor(async () => (await posted()).length === 1, 'first job running');
+    for (let i = 0; i < 10; i++) await enqueue('regular', { ageMin: i + 1 });
+    await waitFor(() => parkedCount() === 10, 'ten parked');
+    queueProbes = 0;
+    const started = Date.now();
+    await new Promise((r) => setTimeout(r, 5_000));
+    // The claim fails on the busy worker before any probe: waiting costs a Redis check per
+    // second per pool and nothing on the worker.
+    console.info(
+      `probe-cost: ${queueProbes} ComfyUI /queue probes in ${((Date.now() - started) / 1000).toFixed(1)} s with 10 waiters`,
+    );
+    expect(queueProbes).toBe(0);
+    expect(parkedCount()).toBe(10);
+  }, 60_000);
+
   it('cross-pool-order: one freed worker serving two pools goes to the oldest waiter', async () => {
     await setWorkers([{ id: 'both', pools: ['merchant', 'shopify'] }]);
     startLane(3);

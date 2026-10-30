@@ -15,6 +15,7 @@ vi.mock('./registry.js', () => ({
   healthKey: (id: string) => `worker:health:${id}`,
   isQueueGateEnabled: vi.fn(async () => true),
   releaseWorkerIfToken: vi.fn(async () => true),
+  lastClaimPool: new Map<string, string>(),
 }));
 const credential = 'selector-log-test-credential';
 const privateQuery = 'selector-private-query';
