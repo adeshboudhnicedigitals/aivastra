@@ -19,6 +19,11 @@
     assign accent_bg = settings.button_color
     assign accent_fg = settings.text_color
   endif
+  # A gradient (Shopify's background picker) replaces the solid color; blank keeps the color.
+  assign button_background = accent_bg
+  if source == 'block' and settings.button_gradient != blank
+    assign button_background = settings.button_gradient
+  endif
 -%}
 {%- if product != blank and widget_key != blank -%}
   <div
@@ -44,7 +49,7 @@
     data-login-url="{{ routes.account_login_url }}?return_url={{ product.url | url_encode }}"
     data-media-selector="{{ settings.media_selector | escape }}"
     data-source="{{ source }}"
-    style="--aivastra-button-color: {{ accent_bg }}; --aivastra-text-color: {{ accent_fg }}; --aivastra-border-radius: {{ settings.border_radius }}px; --aivastra-icon-size: {{ settings.icon_size | default: 40 }}px; --aivastra-icon-url: url('{{ 'tryon-icon.png' | asset_url }}');{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
+    style="--aivastra-button-color: {{ accent_bg }}; --aivastra-button-background: {{ button_background | escape }}; --aivastra-text-color: {{ accent_fg }}; --aivastra-border-radius: {{ settings.border_radius }}px; --aivastra-button-width: {{ settings.button_width | default: 100 }}%; --aivastra-button-height: {{ settings.button_height | default: 48 }}px; --aivastra-icon-size: {{ settings.icon_size | default: 40 }}px; --aivastra-icon-url: url('{{ 'tryon-icon.png' | asset_url }}');{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
   >
     {%- if source == 'embed' -%}
       <button type="button" class="aivastra-tryon__button aivastra-tryon__icon-btn" aria-label="Try it on">

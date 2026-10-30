@@ -920,7 +920,7 @@
 }
 
 .aivastra-tryon__button {
-  background: var(--aivastra-button-color, #000000);
+  background: var(--aivastra-button-background, var(--aivastra-button-color, #000000));
   color: var(--aivastra-text-color, #ffffff);
   border: none;
   border-radius: var(--aivastra-border-radius, 4px);
@@ -1067,6 +1067,19 @@
   background-color: currentColor;
   -webkit-mask: var(--aivastra-icon-url) center / contain no-repeat;
   mask: var(--aivastra-icon-url) center / contain no-repeat;
+}
+
+/* The block's button fills its parent, so it matches the theme's Add to cart and
+   Buy it now buttons stacked with it. The icon badge keeps its own size. */
+.aivastra-tryon .aivastra-tryon__button:not(.aivastra-tryon__icon-btn) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--aivastra-button-width, 100%);
+  min-height: var(--aivastra-button-height, 48px);
+  /* Text scales with the height so a short button does not clip it. */
+  font-size: clamp(12px, calc(var(--aivastra-button-height, 48px) * 0.36), 22px);
+  box-sizing: border-box;
 }
 
 /* The embed's icon: a round badge on the product image. The glyph takes the
