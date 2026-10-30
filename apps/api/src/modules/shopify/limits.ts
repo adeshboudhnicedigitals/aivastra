@@ -9,8 +9,32 @@ import { formatResetTime, storeDayKey, windowEnd, windowStart } from './store-da
 type Store = typeof schema.shopifyStores.$inferSelect;
 
 export interface LimitRefusal {
-  reason: 'email_required' | 'shopper_limit' | 'store_limit';
+  reason:
+    | 'email_required'
+    | 'shopper_limit'
+    | 'store_limit'
+    | 'login_required'
+    | 'contact_required';
   message: string;
+}
+
+/**
+ * Login requirement, evaluated against the Shopify-verified customer id (see
+ * requireShopifyStoreKey), never a value the shopper sent. A separate function
+ * from checkShopperLimits on purpose: that one only runs once a shopper row
+ * exists, which needs a clientId the caller controls, so a gate inside it could
+ * be skipped by leaving the clientId out.
+ */
+export function checkLoginGate(
+  store: Store,
+  verifiedCustomerId: number | null,
+): LimitRefusal | null {
+  if (store.settings.limits?.loginRequired !== true) return null;
+  if (verifiedCustomerId != null) return null;
+  return {
+    reason: 'login_required',
+    message: 'Please log in to your account to use virtual try-on.',
+  };
 }
 
 /**
@@ -66,6 +90,13 @@ export async function checkShopperLimits(
 ): Promise<LimitRefusal | null> {
   const limits = store.settings.limits;
   if (!limits) return null;
+
+  if (limits.loginRequired === true && (!shopper.email || !shopper.phone)) {
+    return {
+      reason: 'contact_required',
+      message: 'Enter your email and phone number to continue.',
+    };
+  }
 
   const shopperIds = await siblingShopperIds(db, store, shopper);
   const emailAfter = limits.emailAfterNTryOns;
