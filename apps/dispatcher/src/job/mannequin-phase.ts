@@ -108,6 +108,9 @@ export async function runMannequinPhase(
   });
   if (!reservation) return { status: 'no_worker' };
   const w = reservation.worker;
+  // Inputs are named per attempt: a late upload from an older attempt must not overwrite the
+  // file a replacement prompt reads.
+  const reservedAttemptId = reservation.attemptId;
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
@@ -118,7 +121,14 @@ export async function runMannequinPhase(
       const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
       const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
       const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+      return uploadImageToComfy(
+        w.url,
+        w.apiKey,
+        bytes,
+        `${prefix}_${jobId}_${reservedAttemptId}.${ext}`,
+        mime,
+        jobLog,
+      );
     }
     jobLog.info('uploading mannequin-phase inputs to ComfyUI');
     const [personFile, garmentFile] = await Promise.all([

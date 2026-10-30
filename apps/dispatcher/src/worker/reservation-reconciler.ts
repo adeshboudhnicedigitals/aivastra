@@ -151,7 +151,10 @@ async function ownerIsLive(
  * Persists the first search deadline once. Restarts and later ticks read the stored value, so
  * the window never resets. Database time, not the Node clock.
  */
-async function ensureDeadline(cfg: ReservationReconcilerCfg, attemptId: string): Promise<Date> {
+export async function ensureDeadline(
+  cfg: ReservationReconcilerCfg,
+  attemptId: string,
+): Promise<Date> {
   const [row] = await cfg.db
     .update(schema.executionAttempts)
     .set({
@@ -173,7 +176,7 @@ async function ensureDeadline(cfg: ReservationReconcilerCfg, attemptId: string):
   return existing.deadline;
 }
 
-async function deadlinePassed(db: DB, attemptId: string): Promise<boolean> {
+export async function deadlinePassed(db: DB, attemptId: string): Promise<boolean> {
   const [row] = await db
     .select({
       passed: sql<boolean>`${schema.executionAttempts.uncertainDeadline} <= clock_timestamp()`,
@@ -183,14 +186,14 @@ async function deadlinePassed(db: DB, attemptId: string): Promise<boolean> {
   return row?.passed === true;
 }
 
-type ReceiptRecord = 'recorded' | 'identical' | 'conflict' | 'stale';
+export type ReceiptRecord = 'recorded' | 'identical' | 'conflict' | 'stale';
 
 /**
  * Records a discovered prompt id as a diagnostic receipt: under the attempt-row lock, fill a
  * missing one only. It never changes the attempt's state, the job, its owner, its retry budget
  * or any money, and does not impersonate the dead owner.
  */
-async function recordDiscoveredReceipt(
+export async function recordDiscoveredReceipt(
   cfg: ReservationReconcilerCfg,
   attempt: Attempt,
   promptId: string,
@@ -240,7 +243,7 @@ const RESOLVING_RULES = new Set([
  * rule, in one transaction. It states a fact about the worker, never business state: the
  * attempt's state, the job, its ownership and any money are untouched.
  */
-async function markResolved(
+export async function markResolved(
   db: DB,
   attempt: Attempt,
   workerId: string,
