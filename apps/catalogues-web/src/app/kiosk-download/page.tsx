@@ -56,7 +56,9 @@ function KioskDownloadInner(): React.ReactElement {
     try {
       const blobResults = await Promise.allSettled(
         items.map(async (item) => {
-          const res = await fetch(item.url);
+          // no-store: the <img> thumbnails already cached this URL without an Origin header, so
+          // R2's response has no CORS headers and a default fetch() reuses it and fails.
+          const res = await fetch(item.url, { cache: 'no-store' });
           if (!res.ok) throw new Error(downloadErrorMessage(res.status));
           return { jobId: item.jobId, blob: await res.blob() };
         }),
