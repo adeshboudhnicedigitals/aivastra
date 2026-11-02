@@ -273,3 +273,45 @@ export const fleetMetricsSchema = z.object({
   host: z.array(fleetHostMetricPointSchema),
 });
 export type FleetMetrics = z.infer<typeof fleetMetricsSchema>;
+
+// ---- Fleet overview: one row per monitored worker --------------------------------------------
+
+const nz = z.number().nullable();
+// Aggregates over a box's GPUs are null as soon as any input is unknown: a partial sum would read
+// as a real total. Temperature and clock ratio report the worst GPU, not an average.
+export const fleetAgentSummarySchema = z.object({
+  workerId: z.string(),
+  // Unrevoked key and a sample accepted within the heartbeat TTL.
+  heartbeatAt: z.string().nullable(),
+  telemetry: z
+    .object({
+      observedAt: z.string(),
+      stale: z.boolean(),
+      gpuCount: z.number().int(),
+      tempMaxC: nz,
+      clockRatioMin: nz,
+      utilGpuPctMax: nz,
+      powerWTotal: nz,
+      vramUsedMib: nz,
+      vramTotalMib: nz,
+      ramAvailMib: nz,
+      ramTotalMib: nz,
+      swapUsedMib: nz,
+      diskUsedPctMax: nz,
+      comfy: z.object({ reachable: z.boolean().nullable(), running: nz, pending: nz }).nullable(),
+    })
+    .nullable(),
+  incidents: z.object({
+    critical: z.number().int().min(0),
+    warning: z.number().int().min(0),
+    info: z.number().int().min(0),
+  }),
+});
+export type FleetAgentSummary = z.infer<typeof fleetAgentSummarySchema>;
+
+export const fleetAgentSummariesSchema = z.object({
+  generatedAt: z.string(),
+  // Only workers that hold an unrevoked agent key. A worker missing from this list is not
+  // monitored by an agent, which is different from a monitored worker with no data.
+  workers: z.array(fleetAgentSummarySchema),
+});

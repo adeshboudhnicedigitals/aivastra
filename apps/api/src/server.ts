@@ -84,6 +84,7 @@ import { fleetAgentAdminRoutes } from './modules/fleet/agent.routes.js';
 import { fleetIncidentRoutes } from './modules/fleet/incidents.routes.js';
 import { fleetIngestRoutes } from './modules/fleet/ingest.routes.js';
 import { fleetMetricsRoutes } from './modules/fleet/metrics.routes.js';
+import { fleetOverviewRoutes } from './modules/fleet/overview.routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
 import { refundRequestsRoutes } from './modules/jobs/refund-requests.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
@@ -478,6 +479,7 @@ export async function buildServer(env: Env) {
   await app.register(fleetAgentAdminRoutes);
   await app.register(fleetIncidentRoutes);
   await app.register(fleetMetricsRoutes);
+  await app.register(fleetOverviewRoutes);
   await app.register(fleetIngestRoutes);
   await app.register(adminProdSnapshotRoutes);
   await app.register(adminConfigRoutes);
