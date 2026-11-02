@@ -1,16 +1,22 @@
 import { schema } from '@aivastra/db';
 import {
+  FLEET_HISTORY_WINDOW_MS,
   FLEET_QUEUE_STALE_MS,
   FLEET_SYSTEM_STALE_MS,
   type FleetSnapshot,
   type FleetStream,
+  fleetHistoryPointSchema,
   fleetSnapshotSchema,
+  fleetWorkerHistorySchema,
   type WorkerSystemSample,
+  workerHistoryKey,
   workerSystemKey,
   workerSystemSampleSchema,
 } from '@aivastra/types';
 import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { AppError } from '../../lib/errors.js';
 import { requirePermission } from './guard.js';
 import { listAdminWorkers } from './workers.routes.js';
 
@@ -85,6 +91,34 @@ function toHostMemory(sample: WorkerSystemSample | null, now: number): FleetWork
     stale: now - sample.observedAt > FLEET_SYSTEM_STALE_MS,
   };
 }
+
+/**
+ * Points newer than the cutoff, oldest first. A member that fails the schema is skipped rather
+ * than failing the whole graph: the data is advisory and one bad entry says nothing about the rest.
+ */
+async function readHistory(redis: FastifyInstance['redis'], id: string, sinceMs: number) {
+  const raw = await redis.zrangebyscore(workerHistoryKey(id), sinceMs, '+inf');
+  const points = [];
+  for (const member of raw) {
+    try {
+      const parsed = fleetHistoryPointSchema.safeParse(JSON.parse(member));
+      if (parsed.success) points.push(parsed.data);
+    } catch {
+      // Not JSON: skip it.
+    }
+  }
+  return points;
+}
+
+const historyParams = z.object({ id: z.string().min(1).max(100) });
+const historyQuery = z.object({
+  minutes: z.coerce
+    .number()
+    .int()
+    .min(5)
+    .max(FLEET_HISTORY_WINDOW_MS / 60_000)
+    .default(FLEET_HISTORY_WINDOW_MS / 60_000),
+});
 
 // RESP map replies from XINFO come back as a flat [key, value, key, value, …] array.
 function fromFlat(entry: unknown): Record<string, unknown> {
@@ -247,4 +281,32 @@ export async function adminFleetRoutes(app: FastifyInstance) {
       queues,
     });
   });
+
+  // Separate from /admin/fleet on purpose: the dashboard polls that every 15 s, and the history of
+  // every worker would multiply its size for data only the open worker's panel draws.
+  app.get(
+    '/admin/fleet/workers/:id/history',
+    {
+      preHandler: requirePermission('fleet.view'),
+      schema: { params: historyParams, querystring: historyQuery },
+    },
+    async (req) => {
+      const { id } = req.params as z.infer<typeof historyParams>;
+      const { minutes } = req.query as z.infer<typeof historyQuery>;
+      // Only registered workers: the id is interpolated into a Redis key, and an unknown one
+      // should say so instead of returning a plausible empty graph.
+      const [worker] = await app.db
+        .select({ id: schema.workers.id })
+        .from(schema.workers)
+        .where(eq(schema.workers.id, id));
+      if (!worker) throw new AppError('NOT_FOUND', 404, 'Worker not found');
+      const now = Date.now();
+      return fleetWorkerHistorySchema.parse({
+        workerId: id,
+        generatedAt: new Date(now).toISOString(),
+        windowMinutes: minutes,
+        points: await readHistory(app.redis, id, now - minutes * 60_000),
+      });
+    },
+  );
 }

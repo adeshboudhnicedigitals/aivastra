@@ -5,6 +5,7 @@ import type { Redis } from 'ioredis';
 import { detectCapabilityDrift } from './capabilities.js';
 import { sampleWorkerQueues } from './queue-sampler.js';
 import { getWorkers, healthKey } from './registry.js';
+import { recordHistory } from './system-history.js';
 import { extractSystemSample } from './system-sample.js';
 
 const PROBE_INTERVAL_MS = 15_000;
@@ -46,6 +47,7 @@ async function probeWorker(
           const sample = extractSystemSample(stats, Date.now());
           if (sample) {
             await redis.setex(workerSystemKey(workerId), SYSTEM_TTL_SEC, JSON.stringify(sample));
+            await recordHistory(redis, workerId, sample);
           }
         } catch {
           // Advisory only: a missing sample reads as "not observed".

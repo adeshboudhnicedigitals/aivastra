@@ -421,4 +421,93 @@ describe('GET /admin/fleet', () => {
       .workers.find((x: { workerId: string }) => x.workerId === id);
     expect(w).toMatchObject({ inRegistry: false, dispatcherState: 'UNKNOWN', health: 'UNKNOWN' });
   });
+
+  describe('GET /admin/fleet/workers/:id/history', () => {
+    const point = (t: number, over: Record<string, unknown> = {}) =>
+      JSON.stringify({
+        t,
+        vramUsedMb: 40960,
+        vramTotalMb: 98304,
+        ramUsedGb: 20,
+        ramTotalGb: 80,
+        ...over,
+      });
+    const history = (id: string, query = '', headers: Record<string, string> = superAuth) =>
+      app.inject({ method: 'GET', url: `/admin/fleet/workers/${id}/history${query}`, headers });
+
+    // The test database is dropped after each run but Redis is not, so a rerun would otherwise
+    // see the points an earlier run left under the same worker id.
+    const freshWorker = async (id: string) => {
+      await createWorker(id);
+      await app.redis.del(`worker:history:${id}`);
+    };
+
+    it('requires fleet.view and a registered worker', async () => {
+      const id = 'fleet-test-hist-auth';
+      await freshWorker(id);
+      expect((await history(id)).statusCode).toBe(200);
+      expect((await history(id, '', adminAuth)).statusCode).toBe(200);
+      expect((await history(id, '', modAuth)).statusCode).toBe(403);
+      expect((await history(id, '', {})).statusCode).toBe(401);
+      expect((await history('fleet-test-hist-unknown')).statusCode).toBe(404);
+    });
+
+    it('returns no points, not invented ones, when nothing was recorded', async () => {
+      const id = 'fleet-test-hist-empty';
+      await freshWorker(id);
+      const body = (await history(id)).json();
+      expect(body).toMatchObject({ workerId: id, windowMinutes: 60, points: [] });
+    });
+
+    it('returns recorded points oldest first and only those inside the window', async () => {
+      const id = 'fleet-test-hist-window';
+      await freshWorker(id);
+      const now = Date.now();
+      const key = `worker:history:${id}`;
+      await app.redis.zadd(
+        key,
+        now - 50 * 60_000,
+        point(now - 50 * 60_000),
+        now - 5 * 60_000,
+        point(now - 5 * 60_000, { vramUsedMb: 50000 }),
+        now - 20 * 60_000,
+        point(now - 20 * 60_000),
+      );
+      const all = (await history(id)).json().points as { t: number }[];
+      expect(all.map((p) => p.t)).toEqual([now - 50 * 60_000, now - 20 * 60_000, now - 5 * 60_000]);
+      const recent = (await history(id, '?minutes=10')).json();
+      expect(recent.windowMinutes).toBe(10);
+      expect(recent.points).toHaveLength(1);
+      expect(recent.points[0]).toMatchObject({ vramUsedMb: 50000 });
+    });
+
+    it('keeps unknown values null and skips corrupt entries instead of failing', async () => {
+      const id = 'fleet-test-hist-corrupt';
+      await freshWorker(id);
+      const now = Date.now();
+      const key = `worker:history:${id}`;
+      await app.redis.zadd(
+        key,
+        now - 3000,
+        point(now - 3000, { vramUsedMb: null, vramTotalMb: null }),
+        now - 2000,
+        'not json',
+        now - 1000,
+        JSON.stringify({ t: now - 1000, vramUsedMb: 'lots' }),
+      );
+      const res = await history(id);
+      expect(res.statusCode).toBe(200);
+      const points = res.json().points;
+      expect(points).toHaveLength(1);
+      expect(points[0]).toMatchObject({ vramUsedMb: null, vramTotalMb: null, ramUsedGb: 20 });
+    });
+
+    it('rejects a window outside 5-60 minutes', async () => {
+      const id = 'fleet-test-hist-bounds';
+      await freshWorker(id);
+      expect((await history(id, '?minutes=1')).statusCode).toBe(400);
+      expect((await history(id, '?minutes=500')).statusCode).toBe(400);
+      expect((await history(id, '?minutes=abc')).statusCode).toBe(400);
+    });
+  });
 });

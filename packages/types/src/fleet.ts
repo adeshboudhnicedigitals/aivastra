@@ -103,6 +103,32 @@ export type FleetSnapshot = z.infer<typeof fleetSnapshotSchema>;
 
 // The dispatcher samples each worker's queue every 15s (health monitor); three missed
 // samples is the point where a figure should stop being shown as current.
+// Rolling per-worker history behind the dashboard's sparklines. The dispatcher appends one
+// point per health probe to a sorted set scored by observation time; the api reads it back.
+export const workerHistoryKey = (id: string) => `worker:history:${id}`;
+export const FLEET_HISTORY_WINDOW_MS = 60 * 60 * 1000;
+// Hard ceiling independent of the time window: a one-hour window at the 15 s probe interval is
+// 240 points, so this only bites if probes ever run far more often than designed.
+export const FLEET_HISTORY_MAX_POINTS = 360;
+export const fleetHistoryPointSchema = z.object({
+  t: z.number().int().nonnegative(), // unix ms the dispatcher observed the worker
+  vramUsedMb: z.number().int().nullable(),
+  vramTotalMb: z.number().int().nullable(),
+  ramUsedGb: z.number().nullable(),
+  ramTotalGb: z.number().nullable(),
+});
+export type FleetHistoryPoint = z.infer<typeof fleetHistoryPointSchema>;
+
+export const fleetWorkerHistorySchema = z.object({
+  workerId: z.string(),
+  generatedAt: z.string(),
+  windowMinutes: z.number().int().positive(),
+  // Oldest first. Points are only the probes that returned usable numbers, so a gap in `t`
+  // means the worker was unreachable or unreadable then; clients must not interpolate across it.
+  points: z.array(fleetHistoryPointSchema),
+});
+export type FleetWorkerHistory = z.infer<typeof fleetWorkerHistorySchema>;
+
 export const FLEET_QUEUE_STALE_MS = 45_000;
 // Same cadence for the /system_stats sample (written by the same monitor tick).
 export const FLEET_SYSTEM_STALE_MS = 45_000;
