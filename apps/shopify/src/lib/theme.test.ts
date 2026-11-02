@@ -15,6 +15,9 @@ describe('needsButtonBlock', () => {
       false,
     );
   });
+  it('is true for a store that skipped the theme step', () => {
+    expect(needsButtonBlock(me({ themeStepSkipped: true }))).toBe(true);
+  });
   it('is false for a store still in onboarding (the wizard handles it)', () => {
     expect(needsButtonBlock(me({}))).toBe(false);
   });

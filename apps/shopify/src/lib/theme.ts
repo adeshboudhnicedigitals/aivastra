@@ -9,6 +9,10 @@ import type { ShopifyMe } from '../types';
  * widget's signed ping sets `themeButtonBlockSeen`).
  */
 export function needsButtonBlock(me: ShopifyMe): boolean {
-  const { themeBlockConfirmed, themeButtonBlockSeen } = me.store.settings;
-  return (themeBlockConfirmed ?? false) && !(themeButtonBlockSeen ?? false);
+  const { themeBlockConfirmed, themeStepSkipped, themeButtonBlockSeen } = me.store.settings;
+  // A merchant who skipped the theme step has no button yet either, so the Dashboard keeps asking.
+  return (
+    ((themeBlockConfirmed ?? false) || (themeStepSkipped ?? false)) &&
+    !(themeButtonBlockSeen ?? false)
+  );
 }

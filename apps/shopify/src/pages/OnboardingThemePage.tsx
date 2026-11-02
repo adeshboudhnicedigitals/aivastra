@@ -99,6 +99,20 @@ export default function OnboardingThemePage({
     }
   }
 
+  // Lets a merchant out of a step they can't finish right now (a theme that
+  // won't take the block, an update in flight). The Dashboard keeps prompting
+  // for the button until a storefront actually renders it.
+  async function skipForNow() {
+    setError(null);
+    try {
+      await apiFetch('/v1/shopify/onboarding/skip-theme', { method: 'POST' });
+      await onRefresh();
+      navigate('/');
+    } catch (err) {
+      setError(classifyError(err));
+    }
+  }
+
   const currentStep = getOnboardingStep(me);
   if (!canShowThemePage(currentStep)) {
     return <Navigate to={onboardingPath(currentStep)} replace />;
@@ -127,6 +141,7 @@ export default function OnboardingThemePage({
       continueLabel="Finish Setup"
       onContinue={() => navigate('/')}
       continueDisabled={!blockDone}
+      secondaryAction={blockDone ? undefined : { label: 'Skip for now', onAction: skipForNow }}
       fullWidth
       padding="var(--p-space-600) var(--p-space-1600)"
     >

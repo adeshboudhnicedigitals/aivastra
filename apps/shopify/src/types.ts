@@ -24,6 +24,8 @@ export interface ShopifyStoreSettings {
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
   themeEmbedConfirmed?: boolean;
+  // the merchant pressed "Skip for now" on the theme step; counts as past onboarding but does not claim the button is placed
+  themeStepSkipped?: boolean;
   // true only once a storefront rendered the Try It On *block*; legacy stores that passed onboarding under the embed rule lack it
   themeButtonBlockSeen?: boolean;
   onboardingRoutingConfirmed?: boolean;
