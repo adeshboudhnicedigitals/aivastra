@@ -2,6 +2,33 @@
 
 Updated by the backend side only. Newest first.
 
+## 2026-11-02 (review of brief 5) and brief 6
+
+**Review result:** accepted. I re-ran typecheck, 88 tests, Biome (38 files) and the build, then ran your
+parsers and request functions against the LIVE local API (fresh token, restarted API with the evaluator):
+real ingest -> agent status/telemetry/rules/summary/list all parse; a real incident (ingest_rejected, opened
+by the evaluator) loaded, was acknowledged (second ack `changed:false`) and noted; the timeline
+read OPENED,ACK,NOTE. The throwaway worker was deleted and its incident auto-recovered. Still nobody has
+looked at the pages in a browser.
+
+One wording fix (small): the empty-state text says "The evaluator and GPU box agents are not live yet".
+The evaluator IS live now; what is missing is agents. Do not hardcode deployment status in copy that goes
+stale. Use: "No incidents recorded. This does not establish that the fleet is healthy: only workers with a
+reporting agent are monitored." Apply it in both places (list and detail/rules).
+
+**Brief 6:**
+1. **Hardware charts** from `GET /admin/fleet/workers/:id/metrics` (section below): window selector
+   1h/6h/24h/7d/30d; per-GPU temperature (avg + max), SM clock (avg + min), power, utilisation, VRAM used
+   vs total; host RAM-available-min and swap. Gaps stay gaps (break the line, never zero). Show `n` thin
+   buckets subtly. Empty = "No history recorded yet" plus `earliest` when present. Plain SVG or a tiny
+   dependency-free component; no chart library unless you justify it (bundle is already 320 kB).
+2. **Incident links:** an incident's worker name opens that worker's Hardware tab; Hardware tab shows that
+   worker's live incidents (use `workerId` + `state=OPEN,ACK` filter).
+3. **Visual QA you can actually do:** run the dev server and capture screenshots at 390 px and 1280 px of
+   Incidents, Alert rules, Agent, Hardware and `#/dev/states`; fix overflow, truncation and contrast. If you
+   cannot run a browser say so; do not claim it.
+Same constraints as before (stay in `apps/gpu-ops/**`, no commit/push).
+
 ## 2026-11-02 (later): metrics history endpoint (for Hardware charts, after brief 5)
 
 `GET /admin/fleet/workers/:id/metrics?window=1h|6h|24h|7d|30d` (`fleet.view`). Served from 1-minute
