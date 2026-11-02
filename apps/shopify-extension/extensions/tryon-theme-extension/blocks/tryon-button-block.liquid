@@ -46,16 +46,45 @@
       "default": "#FFFFFF"
     },
     {
+      "type": "color_background",
+      "id": "text_gradient",
+      "label": "Text gradient (optional)",
+      "info": "Pick a gradient to use instead of the text color. Leave empty for solid text."
+    },
+    {
       "type": "color",
       "id": "button_color",
-      "label": "Button color",
+      "label": "Fill color",
       "default": "#000000"
     },
     {
       "type": "color_background",
       "id": "button_gradient",
-      "label": "Button gradient (optional)",
-      "info": "Pick a gradient to use instead of the button color. Leave empty for a solid button."
+      "label": "Fill gradient (optional)",
+      "info": "Pick a gradient to use instead of the fill color. Leave empty for a solid fill."
+    },
+    {
+      "type": "range",
+      "id": "border_width",
+      "label": "Border width",
+      "info": "Set above 0 to show a border in the color or gradient below. 0 means no border.",
+      "min": 0,
+      "max": 6,
+      "step": 1,
+      "unit": "px",
+      "default": 0
+    },
+    {
+      "type": "color",
+      "id": "border_color",
+      "label": "Border color",
+      "default": "#000000"
+    },
+    {
+      "type": "color_background",
+      "id": "border_gradient",
+      "label": "Border gradient (optional)",
+      "info": "Pick a gradient to use instead of the border color. Leave empty for a solid border."
     },
     {
       "type": "range",
