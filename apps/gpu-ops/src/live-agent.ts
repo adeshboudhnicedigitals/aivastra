@@ -39,6 +39,11 @@ export type AgentGpu = {
   vramTotalMib: number | null;
   throttleReasons: string | null;
   eccUncorrected: number | null;
+  // Cumulative microseconds the driver has slowed the GPU for each reason since it loaded. Null when
+  // the card or an older agent does not report them.
+  hwThermalSlowdownUs: number | null;
+  swThermalSlowdownUs: number | null;
+  swPowerCapUs: number | null;
 };
 export type AgentTelemetry = {
   v: 1;
@@ -75,6 +80,8 @@ export type AgentTelemetry = {
     running: number | null;
     pending: number | null;
   }[];
+  // ComfyUI error lines from the last 30 minutes; empty when none or an older agent.
+  logs: { unit: string; lines: string[] }[];
 };
 export type AgentTelemetryView = {
   workerId: string;
@@ -273,7 +280,11 @@ function parseGpu(value: unknown, index: number): AgentGpu {
     'throttleReasons',
     'eccUncorrected',
   ];
-  const x = obj(value, keys, at);
+  // These keys arrived after the first agent version, so an older agent omits them.
+  const optional = ['hwThermalSlowdownUs', 'swThermalSlowdownUs', 'swPowerCapUs'];
+  const raw = isObj(value) ? value : fail(at);
+  const x = obj(raw, [...keys, ...optional.filter((key) => key in raw)], at);
+  const counter = (key: string) => (key in x ? nullable(x[key], isInt, `${at}.${key}`) : null);
   const nullableNum = (key: string) => nullable(x[key], isNum, `${at}.${key}`);
   const nullableInt = (key: string) => nullable(x[key], isInt, `${at}.${key}`);
   return {
@@ -294,13 +305,19 @@ function parseGpu(value: unknown, index: number): AgentGpu {
     vramTotalMib: nullableInt('vramTotalMib'),
     throttleReasons: nullable(x.throttleReasons, isStr, `${at}.throttleReasons`),
     eccUncorrected: nullableInt('eccUncorrected'),
+    hwThermalSlowdownUs: counter('hwThermalSlowdownUs'),
+    swThermalSlowdownUs: counter('swThermalSlowdownUs'),
+    swPowerCapUs: counter('swPowerCapUs'),
   };
 }
 
 function parseTelemetry(value: unknown): AgentTelemetry {
   const at = 'telemetry';
+  // `logs` arrived after the first agent version, so an older agent omits it.
+  const rawTelemetry = isObj(value) ? value : fail(at);
+  const { logs: rawLogs, ...withoutLogs } = rawTelemetry;
   const x = obj(
-    value,
+    withoutLogs,
     [
       'v',
       'workerId',
@@ -392,6 +409,18 @@ function parseTelemetry(value: unknown): AgentTelemetry {
         pending: nullable(c.pending, isInt, `comfy[${i}].pending`),
       };
     }),
+    logs:
+      rawLogs === undefined
+        ? []
+        : boundedArray(rawLogs, 4, `${at}.logs`, (value, i) => {
+            const l = obj(value, ['unit', 'lines'], `logs[${i}]`);
+            return {
+              unit: string(l.unit, `logs[${i}].unit`),
+              lines: boundedArray(l.lines, 40, `logs[${i}].lines`, (line, j) =>
+                string(line, `logs[${i}].lines[${j}]`),
+              ),
+            };
+          }),
   };
 }
 
@@ -568,9 +597,11 @@ async function request<T>(
   }
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null);
+    // The API wraps errors as { error: { code, message } }; older routes put message at the top.
+    const inner = isObj(payload) && isObj(payload.error) ? payload.error : payload;
     const message =
-      isObj(payload) && isStr(payload.message)
-        ? payload.message
+      isObj(inner) && isStr(inner.message)
+        ? inner.message
         : `Fleet API returned ${response.status}.`;
     throw new FleetAgentApiError(response.status, message);
   }
@@ -668,4 +699,370 @@ function parseMutation(value: unknown) {
   const x = obj(value, ['ok', 'changed'], 'mutation');
   if (x.ok !== true || !isBool(x.changed)) return fail('mutation');
   return { ok: true as const, changed: x.changed };
+}
+
+// ---- Metrics history (1-minute rollups) --------------------------------------------------------
+
+export const METRICS_WINDOWS = {
+  '1h': { ms: 60 * 60 * 1000, stepSeconds: 60 },
+  '6h': { ms: 6 * 60 * 60 * 1000, stepSeconds: 60 },
+  '24h': { ms: 24 * 60 * 60 * 1000, stepSeconds: 300 },
+  '7d': { ms: 7 * 24 * 60 * 60 * 1000, stepSeconds: 1800 },
+  '30d': { ms: 30 * 24 * 60 * 60 * 1000, stepSeconds: 7200 },
+} as const;
+export type MetricsWindow = keyof typeof METRICS_WINDOWS;
+const isMetricsWindow = (value: unknown): value is MetricsWindow =>
+  isStr(value) && value in METRICS_WINDOWS;
+
+export type GpuMetricPoint = {
+  t: string;
+  n: number;
+  tempAvg: number | null;
+  tempMax: number | null;
+  smClockAvg: number | null;
+  smClockMin: number | null;
+  powerAvg: number | null;
+  powerMax: number | null;
+  utilAvg: number | null;
+  vramUsedMax: number | null;
+  vramTotalMax: number | null;
+  // Cumulative driver slowdown counters (microseconds), highest value in the bucket.
+  hwThermalSlowdownUsMax: number | null;
+  swThermalSlowdownUsMax: number | null;
+  swPowerCapUsMax: number | null;
+};
+export type HostMetricPoint = {
+  t: string;
+  n: number;
+  load1Max: number | null;
+  ramAvailMin: number | null;
+  swapUsedMax: number | null;
+  memPsiMax: number | null;
+};
+export type FleetMetrics = {
+  workerId: string;
+  generatedAt: string;
+  window: MetricsWindow;
+  stepSeconds: number;
+  earliest: string | null;
+  gpus: { index: number; points: GpuMetricPoint[] }[];
+  host: HostMetricPoint[];
+};
+
+const MAX_POINTS = 2000;
+
+export function parseFleetMetrics(value: unknown): FleetMetrics {
+  const x = obj(
+    value,
+    ['workerId', 'generatedAt', 'window', 'stepSeconds', 'earliest', 'gpus', 'host'],
+    'metrics',
+  );
+  const num = (v: unknown, where: string) => nullable(v, isNum, where);
+  return {
+    workerId: string(x.workerId, 'metrics.workerId'),
+    generatedAt: time(x.generatedAt, 'metrics.generatedAt'),
+    window: isMetricsWindow(x.window) ? x.window : fail('metrics.window'),
+    stepSeconds: integer(x.stepSeconds, 'metrics.stepSeconds'),
+    earliest: nullable(x.earliest, isTime, 'metrics.earliest'),
+    gpus: boundedArray(x.gpus, 16, 'metrics.gpus', (g, i) => {
+      const gx = obj(g, ['index', 'points'], `metrics.gpus[${i}]`);
+      return {
+        index: integer(gx.index, `metrics.gpus[${i}].index`),
+        points: boundedArray(gx.points, MAX_POINTS, `metrics.gpus[${i}].points`, (p, j) => {
+          const w = `metrics.gpus[${i}].points[${j}]`;
+          const px = obj(
+            p,
+            [
+              't',
+              'n',
+              'tempAvg',
+              'tempMax',
+              'smClockAvg',
+              'smClockMin',
+              'powerAvg',
+              'powerMax',
+              'utilAvg',
+              'vramUsedMax',
+              'vramTotalMax',
+              'hwThermalSlowdownUsMax',
+              'swThermalSlowdownUsMax',
+              'swPowerCapUsMax',
+            ],
+            w,
+          );
+          return {
+            t: time(px.t, `${w}.t`),
+            n: integer(px.n, `${w}.n`),
+            tempAvg: num(px.tempAvg, `${w}.tempAvg`),
+            tempMax: num(px.tempMax, `${w}.tempMax`),
+            smClockAvg: num(px.smClockAvg, `${w}.smClockAvg`),
+            smClockMin: num(px.smClockMin, `${w}.smClockMin`),
+            powerAvg: num(px.powerAvg, `${w}.powerAvg`),
+            powerMax: num(px.powerMax, `${w}.powerMax`),
+            utilAvg: num(px.utilAvg, `${w}.utilAvg`),
+            vramUsedMax: num(px.vramUsedMax, `${w}.vramUsedMax`),
+            vramTotalMax: num(px.vramTotalMax, `${w}.vramTotalMax`),
+            hwThermalSlowdownUsMax: num(px.hwThermalSlowdownUsMax, `${w}.hwThermalSlowdownUsMax`),
+            swThermalSlowdownUsMax: num(px.swThermalSlowdownUsMax, `${w}.swThermalSlowdownUsMax`),
+            swPowerCapUsMax: num(px.swPowerCapUsMax, `${w}.swPowerCapUsMax`),
+          };
+        }),
+      };
+    }),
+    host: boundedArray(x.host, MAX_POINTS, 'metrics.host', (p, j) => {
+      const w = `metrics.host[${j}]`;
+      const px = obj(p, ['t', 'n', 'load1Max', 'ramAvailMin', 'swapUsedMax', 'memPsiMax'], w);
+      return {
+        t: time(px.t, `${w}.t`),
+        n: integer(px.n, `${w}.n`),
+        load1Max: num(px.load1Max, `${w}.load1Max`),
+        ramAvailMin: num(px.ramAvailMin, `${w}.ramAvailMin`),
+        swapUsedMax: num(px.swapUsedMax, `${w}.swapUsedMax`),
+        memPsiMax: num(px.memPsiMax, `${w}.memPsiMax`),
+      };
+    }),
+  };
+}
+
+export function loadFleetMetrics(
+  baseUrl: string,
+  token: string,
+  workerId: string,
+  window: MetricsWindow,
+  recovery?: AuthRecovery,
+  fetchImpl?: typeof fetch,
+) {
+  return request(
+    baseUrl,
+    token,
+    `/admin/fleet/workers/${encodeURIComponent(workerId)}/metrics?window=${window}`,
+    parseFleetMetrics,
+    { recovery, fetchImpl },
+  );
+}
+
+export type ChartPoint = { x: number; y: number };
+
+/**
+ * Turns timestamped values into drawable line segments. A missing value (null) or a hole longer
+ * than 2.5 steps ends the segment, so the chart shows a gap rather than a line across data that
+ * was never recorded or a zero that was never measured.
+ */
+export function chartSegments(
+  points: { t: string; value: number | null }[],
+  range: { start: number; end: number },
+  stepSeconds: number,
+  yMax: number,
+  yMin = 0,
+): ChartPoint[][] {
+  const span = range.end - range.start;
+  const ySpan = yMax - yMin;
+  if (span <= 0 || ySpan <= 0) return [];
+  const segments: ChartPoint[][] = [];
+  let current: ChartPoint[] = [];
+  let lastT: number | null = null;
+  const flush = () => {
+    if (current.length) segments.push(current);
+    current = [];
+  };
+  for (const p of points) {
+    const t = Date.parse(p.t);
+    if (p.value === null || !Number.isFinite(t) || t < range.start || t > range.end) {
+      flush();
+      lastT = null;
+      continue;
+    }
+    if (lastT !== null && t - lastT > stepSeconds * 2.5 * 1000) flush();
+    const x = (t - range.start) / span;
+    const y = 1 - Math.min(1, Math.max(0, (p.value - yMin) / ySpan));
+    current.push({ x, y });
+    lastT = t;
+  }
+  flush();
+  return segments;
+}
+
+/**
+ * Seconds a cumulative microsecond counter rose between consecutive buckets. A bucket is null when
+ * either neighbour is missing, the buckets are not adjacent (a hole in the data), or the counter
+ * fell (the driver reloaded): in each case the time slowed in between is unknown, not zero.
+ */
+export function counterDeltaSeconds(
+  points: { t: string; value: number | null }[],
+  stepSeconds: number,
+): { t: string; value: number | null }[] {
+  return points.map((p, i) => {
+    const prev = points[i - 1];
+    if (!prev || prev.value === null || p.value === null) return { t: p.t, value: null };
+    const gapMs = Date.parse(p.t) - Date.parse(prev.t);
+    if (!(gapMs > 0) || gapMs > stepSeconds * 1.5 * 1000) return { t: p.t, value: null };
+    const delta = p.value - prev.value;
+    return { t: p.t, value: delta < 0 ? null : delta / 1_000_000 };
+  });
+}
+
+// ---- Control commands and alert recipients ----------------------------------------------------
+
+export const COMMAND_KINDS = ['restart_comfyui', 'clear_queue'] as const;
+export type CommandKind = (typeof COMMAND_KINDS)[number];
+const COMMAND_STATES = ['PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED'] as const;
+export type CommandState = (typeof COMMAND_STATES)[number];
+
+export type FleetCommand = {
+  id: string;
+  workerId: string;
+  kind: CommandKind;
+  reason: string;
+  state: CommandState;
+  requestedAt: string;
+  claimedAt: string | null;
+  finishedAt: string | null;
+  result: string | null;
+};
+export type FleetCommands = { workerId: string; generatedAt: string; commands: FleetCommand[] };
+
+export function parseFleetCommand(value: unknown, where = 'command'): FleetCommand {
+  const x = obj(
+    value,
+    [
+      'id',
+      'workerId',
+      'kind',
+      'reason',
+      'state',
+      'requestedAt',
+      'claimedAt',
+      'finishedAt',
+      'result',
+    ],
+    where,
+  );
+  const kind = string(x.kind, `${where}.kind`);
+  const state = string(x.state, `${where}.state`);
+  return {
+    id: string(x.id, `${where}.id`),
+    workerId: string(x.workerId, `${where}.workerId`),
+    kind: (COMMAND_KINDS as readonly string[]).includes(kind)
+      ? (kind as CommandKind)
+      : fail(`${where}.kind`),
+    reason: string(x.reason, `${where}.reason`),
+    state: (COMMAND_STATES as readonly string[]).includes(state)
+      ? (state as CommandState)
+      : fail(`${where}.state`),
+    requestedAt: time(x.requestedAt, `${where}.requestedAt`),
+    claimedAt: nullable(x.claimedAt, isTime, `${where}.claimedAt`),
+    finishedAt: nullable(x.finishedAt, isTime, `${where}.finishedAt`),
+    result: nullable(x.result, isStr, `${where}.result`),
+  };
+}
+
+export function parseFleetCommands(value: unknown): FleetCommands {
+  const x = obj(value, ['workerId', 'generatedAt', 'commands'], 'commands');
+  return {
+    workerId: string(x.workerId, 'commands.workerId'),
+    generatedAt: time(x.generatedAt, 'commands.generatedAt'),
+    commands: boundedArray(x.commands, 50, 'commands.commands', (item, i) =>
+      parseFleetCommand(item, `commands[${i}]`),
+    ),
+  };
+}
+
+export function loadCommands(
+  baseUrl: string,
+  token: string,
+  workerId: string,
+  recovery?: AuthRecovery,
+  fetchImpl?: typeof fetch,
+) {
+  return request(
+    baseUrl,
+    token,
+    `/admin/fleet/workers/${encodeURIComponent(workerId)}/commands`,
+    parseFleetCommands,
+    { recovery, fetchImpl },
+  );
+}
+
+export function requestCommand(
+  baseUrl: string,
+  token: string,
+  workerId: string,
+  kind: CommandKind,
+  reason: string,
+  recovery?: AuthRecovery,
+  fetchImpl?: typeof fetch,
+) {
+  return request(
+    baseUrl,
+    token,
+    `/admin/fleet/workers/${encodeURIComponent(workerId)}/commands`,
+    (v) => parseFleetCommand(v),
+    { method: 'POST', body: { kind, reason }, recovery, fetchImpl },
+  );
+}
+
+export function cancelCommand(
+  baseUrl: string,
+  token: string,
+  commandId: string,
+  recovery?: AuthRecovery,
+  fetchImpl?: typeof fetch,
+) {
+  return request(
+    baseUrl,
+    token,
+    `/admin/fleet/commands/${encodeURIComponent(commandId)}/cancel`,
+    (v) => parseFleetCommand(v),
+    { method: 'POST', recovery, fetchImpl },
+  );
+}
+
+export type NotificationSettings = {
+  generatedAt: string;
+  emails: string[];
+  source: 'dashboard' | 'env' | 'none';
+  updatedAt: string | null;
+};
+
+export function parseNotificationSettings(value: unknown): NotificationSettings {
+  const x = obj(value, ['generatedAt', 'emails', 'source', 'updatedAt'], 'notification settings');
+  const source = string(x.source, 'settings.source');
+  return {
+    generatedAt: time(x.generatedAt, 'settings.generatedAt'),
+    emails: boundedArray(x.emails, 20, 'settings.emails', (item, i) =>
+      string(item, `settings.emails[${i}]`),
+    ),
+    source:
+      source === 'dashboard' || source === 'env' || source === 'none'
+        ? source
+        : fail('settings.source'),
+    updatedAt: nullable(x.updatedAt, isTime, 'settings.updatedAt'),
+  };
+}
+
+export function loadNotificationSettings(
+  baseUrl: string,
+  token: string,
+  recovery?: AuthRecovery,
+  fetchImpl?: typeof fetch,
+) {
+  return request(baseUrl, token, '/admin/fleet/notification-settings', parseNotificationSettings, {
+    recovery,
+    fetchImpl,
+  });
+}
+
+export function saveNotificationSettings(
+  baseUrl: string,
+  token: string,
+  emails: string[],
+  recovery?: AuthRecovery,
+  fetchImpl?: typeof fetch,
+) {
+  return request(baseUrl, token, '/admin/fleet/notification-settings', parseNotificationSettings, {
+    method: 'PUT',
+    body: { emails },
+    recovery,
+    fetchImpl,
+  });
 }

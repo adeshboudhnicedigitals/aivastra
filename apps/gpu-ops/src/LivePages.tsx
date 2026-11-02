@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AccessibleDialog } from './AccessibleDialog';
 import { AgentTab, HardwareTab } from './AgentPanels';
 import type { AuthRecovery } from './auth';
+import { ActionsTab } from './ControlPanel';
 import type { FleetSnapshot, FleetWorkerView } from './contracts';
 import { drainErrorMessage, drainWorker } from './live-agent';
 import {
@@ -594,17 +595,23 @@ export function WorkerLivePanel({
   onFleetRefresh,
   dispatcherComfy,
   authRecovery,
+  incidents,
+  onOpenIncidents,
 }: {
   baseUrl: string;
   token: string;
   workerId: string;
+  incidents?: { critical: number; warning: number; info: number };
+  onOpenIncidents?: () => void;
   onOpenJob: (id: string) => void;
   isDraining: boolean;
   onFleetRefresh: () => Promise<boolean>;
   dispatcherComfy: FleetWorkerView['comfy'];
   authRecovery: AuthRecovery;
 }) {
-  const [tab, setTab] = useState<'overview' | 'jobs' | 'config' | 'agent' | 'hardware'>('overview');
+  const [tab, setTab] = useState<'overview' | 'jobs' | 'config' | 'agent' | 'hardware' | 'actions'>(
+    'overview',
+  );
   const [config, setConfig] = useState<LiveWorkerConfig | null>(null);
   const [history, setHistory] = useState<LiveWorkerHistory | null>(null);
   const [historyError, setHistoryError] = useState<Error | null>(null);
@@ -665,7 +672,7 @@ export function WorkerLivePanel({
         </button>
       </div>
       <div className="live-tabs" role="tablist" aria-label="Worker detail sections">
-        {(['overview', 'jobs', 'config', 'agent', 'hardware'] as const).map((item) => (
+        {(['overview', 'jobs', 'config', 'agent', 'hardware', 'actions'] as const).map((item) => (
           <button
             key={item}
             type="button"
@@ -681,7 +688,9 @@ export function WorkerLivePanel({
                   ? 'Config'
                   : item === 'agent'
                     ? 'Agent'
-                    : 'Hardware'}
+                    : item === 'hardware'
+                      ? 'Hardware'
+                      : 'Actions'}
           </button>
         ))}
       </div>
@@ -861,6 +870,17 @@ export function WorkerLivePanel({
           token={token}
           workerId={workerId}
           dispatcherComfy={dispatcherComfy}
+          authRecovery={authRecovery}
+          incidents={incidents}
+          onOpenIncidents={onOpenIncidents}
+        />
+      )}
+      {tab === 'actions' && (
+        <ActionsTab
+          baseUrl={baseUrl}
+          token={token}
+          workerId={workerId}
+          isDraining={isDraining}
           authRecovery={authRecovery}
         />
       )}

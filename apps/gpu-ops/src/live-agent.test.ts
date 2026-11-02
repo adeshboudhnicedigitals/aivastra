@@ -40,6 +40,47 @@ describe('fleet agent contracts', () => {
     ).toThrow('Unexpected fleet agent response');
   });
 
+  it('accepts the optional slowdown counters and error logs, and defaults them for an older agent', () => {
+    const base = fixture('agent-telemetry.fresh.json') as {
+      telemetry: { gpus: Record<string, unknown>[]; logs?: unknown };
+    };
+    // Older agent: neither field is present.
+    const old = parseAgentTelemetryView(base).telemetry;
+    expect(old?.logs).toEqual([]);
+    expect(old?.gpus[0]).toMatchObject({
+      hwThermalSlowdownUs: null,
+      swThermalSlowdownUs: null,
+      swPowerCapUs: null,
+    });
+
+    const next = structuredClone(base);
+    Object.assign(next.telemetry.gpus[0] as object, {
+      hwThermalSlowdownUs: 105_332_073,
+      swThermalSlowdownUs: null,
+      swPowerCapUs: 0,
+    });
+    next.telemetry.logs = [{ unit: 'comfyui', lines: ['RuntimeError: out of memory'] }];
+    const parsed = parseAgentTelemetryView(next).telemetry;
+    expect(parsed?.gpus[0]).toMatchObject({
+      hwThermalSlowdownUs: 105_332_073,
+      swThermalSlowdownUs: null,
+      swPowerCapUs: 0,
+    });
+    expect(parsed?.logs).toEqual([{ unit: 'comfyui', lines: ['RuntimeError: out of memory'] }]);
+  });
+
+  it('still rejects unknown GPU fields and a malformed logs block', () => {
+    const base = fixture('agent-telemetry.fresh.json') as {
+      telemetry: { gpus: Record<string, unknown>[]; logs?: unknown };
+    };
+    const extra = structuredClone(base);
+    Object.assign(extra.telemetry.gpus[0] as object, { surprise: 1 });
+    expect(() => parseAgentTelemetryView(extra)).toThrow('Unexpected fleet agent response');
+    const badLogs = structuredClone(base);
+    badLogs.telemetry.logs = [{ unit: 'comfyui', lines: [42] }];
+    expect(() => parseAgentTelemetryView(badLogs)).toThrow('Unexpected fleet agent response');
+  });
+
   it('parses every published agent-status fixture', () => {
     const files = readdirSync(fixtureRoot).filter(
       (name) => name.startsWith('agent-status.') && name.endsWith('.json'),

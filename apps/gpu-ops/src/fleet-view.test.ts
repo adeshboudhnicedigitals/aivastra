@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { agentHasFreshTelemetry, comfyView, dispatcherLabel, fleetTiles } from './fleet-view';
+import type { FleetWorkerView } from './contracts';
+import {
+  agentHasFreshTelemetry,
+  agentHostFacts,
+  comfyView,
+  dispatcherLabel,
+  fleetTiles,
+  withAgentGpu,
+} from './fleet-view';
 import type { FleetAgentSummary } from './live-agent';
 
 const summary = (
@@ -153,5 +161,40 @@ describe('fleetTiles', () => {
       totalMib: 4000,
       boxes: 2,
     });
+  });
+});
+
+describe('withAgentGpu / agentHostFacts', () => {
+  const worker = (gpu: Partial<FleetWorkerView['gpu']>) =>
+    ({
+      gpu: { utilizationPct: null, vramUsedMb: 5, vramTotalMb: 10, temperatureC: null, ...gpu },
+    }) as FleetWorkerView;
+
+  it('fills a missing temperature and utilisation from a fresh agent', () => {
+    const w = withAgentGpu(worker({}), summary({ tempMaxC: 61, utilGpuPctMax: 7 }));
+    expect(w.gpu.temperatureC).toBe(61);
+    expect(w.gpu.utilizationPct).toBe(7);
+  });
+
+  it('never replaces a value the dispatcher reported', () => {
+    const w = withAgentGpu(worker({ utilizationPct: 3 }), summary({ utilGpuPctMax: 90 }));
+    expect(w.gpu.utilizationPct).toBe(3);
+  });
+
+  it('leaves the worker untouched for a stale or missing agent', () => {
+    const base = worker({});
+    expect(withAgentGpu(base, summary({ stale: true }))).toBe(base);
+    expect(withAgentGpu(base, undefined)).toBe(base);
+  });
+
+  it('keeps an unknown agent reading as null, not zero', () => {
+    const w = withAgentGpu(worker({}), summary({ tempMaxC: null }));
+    expect(w.gpu.temperatureC).toBeNull();
+  });
+
+  it('converts agent host figures to GiB and returns null when stale', () => {
+    const f = agentHostFacts(summary({ ramTotalMib: 2048, ramAvailMib: 1024, swapUsedMib: null }));
+    expect(f).toMatchObject({ ramTotalGb: 2, ramAvailGb: 1, swapUsedGb: null, diskUsedPct: 50 });
+    expect(agentHostFacts(summary({ stale: true }))).toBeNull();
   });
 });

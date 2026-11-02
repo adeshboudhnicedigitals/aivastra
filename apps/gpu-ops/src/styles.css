@@ -3307,3 +3307,157 @@ body[data-theme="dark"] .agent-incident-link.has-warning {
     grid-template-columns: 1fr;
   }
 }
+
+/* Hardware history charts */
+.metrics-section {
+  margin-top: 18px;
+}
+.metrics-section h3,
+.chart-grid-wrap h4 {
+  margin: 0;
+}
+.window-picker {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.window-picker .button-secondary.active {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+.chart-grid-wrap {
+  margin-top: 14px;
+}
+.chart-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+.metric-chart {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.metric-chart figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.metric-chart figcaption span {
+  color: var(--muted);
+}
+.metric-chart svg {
+  width: 100%;
+  height: 90px;
+  margin-top: 6px;
+  display: block;
+}
+.chart-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.chart-line {
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+.chart-line.s-red {
+  stroke: var(--red);
+}
+.chart-line.s-amber {
+  stroke: var(--amber);
+}
+.chart-line.s-blue {
+  stroke: var(--blue);
+}
+.chart-line.s-green {
+  stroke: var(--green);
+}
+.chart-dot.s-red {
+  fill: var(--red);
+}
+.chart-dot.s-amber {
+  fill: var(--amber);
+}
+.chart-dot.s-blue {
+  fill: var(--blue);
+}
+.chart-dot.s-green {
+  fill: var(--green);
+}
+.chart-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.chart-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* The fixed-height top bar let its wrapped action links spill over the page on phones. */
+@media (max-width: 680px) {
+  .topbar {
+    height: auto;
+    min-height: 50px;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding-block: 8px;
+  }
+}
+.hardware-incidents {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.hardware-incidents .link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.hardware-logs .log-lines {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow: auto;
+  background: #101826;
+  color: #d6dfec;
+  border-radius: 6px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Actions tab and alert recipients */
+.action-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 12px 0 18px;
+}
+.notification-settings {
+  margin-bottom: 16px;
+}
+.notification-settings textarea,
+.actions-tab textarea {
+  width: 100%;
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  resize: vertical;
+}

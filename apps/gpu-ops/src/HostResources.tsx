@@ -1,16 +1,21 @@
 import type { HostView } from './contracts';
+import type { AgentHostFacts } from './fleet-view';
 import { display, freshness } from './model';
 
 export function HostResources({
   host,
   asOf,
   live = false,
+  agent = null,
 }: {
   host: HostView | undefined;
   asOf: string;
   live?: boolean;
+  agent?: AgentHostFacts | null;
 }) {
   const disk = host?.storage;
+  // RAM comes from the dispatcher's ComfyUI probe when it has it; swap and disk % only exist on the
+  // agent, so those are labelled as agent readings rather than blended into the dispatcher's rows.
   const memory = host?.memory;
   const free = disk?.totalGb != null && disk.usedGb != null ? disk.totalGb - disk.usedGb : null;
   const used =
@@ -26,23 +31,32 @@ export function HostResources({
       <p className="muted">
         Host-wide resources shared by all workers on this VPS.{' '}
         {live
-          ? 'RAM is as reported by ComfyUI; disk, inodes and swap have no live source yet.'
+          ? 'RAM is as reported by ComfyUI; disk and swap are agent readings where an agent is reporting.'
           : 'Synthetic snapshot;'}{' '}
         RAM is separate from GPU VRAM.
       </p>
       <dl>
-        <dt>Disk used / total</dt>
-        <dd>
-          {display(disk?.usedGb ?? null, ' GB')} / {display(disk?.totalGb ?? null, ' GB')}
-        </dd>
-        <dt>Disk free</dt>
-        <dd>{display(free, ' GB')}</dd>
-        <dt>Inodes used</dt>
-        <dd>{display(disk?.inodesUsedPct ?? null, '%')}</dd>
-        <dt>Disk observation</dt>
-        <dd>
-          {disk?.observedAt ?? 'No data'} · {freshness(disk?.observedAt ?? null, asOf)}
-        </dd>
+        {live ? (
+          <>
+            <dt>Disk used (agent)</dt>
+            <dd>{display(agent?.diskUsedPct ?? null, '%')}</dd>
+          </>
+        ) : (
+          <>
+            <dt>Disk used / total</dt>
+            <dd>
+              {display(disk?.usedGb ?? null, ' GB')} / {display(disk?.totalGb ?? null, ' GB')}
+            </dd>
+            <dt>Disk free</dt>
+            <dd>{display(free, ' GB')}</dd>
+            <dt>Inodes used</dt>
+            <dd>{display(disk?.inodesUsedPct ?? null, '%')}</dd>
+            <dt>Disk observation</dt>
+            <dd>
+              {disk?.observedAt ?? 'No data'} · {freshness(disk?.observedAt ?? null, asOf)}
+            </dd>
+          </>
+        )}
         <dt>RAM used / total</dt>
         <dd>
           {display(used, ' GB')} / {display(memory?.totalGb ?? null, ' GB')}
@@ -51,7 +65,7 @@ export function HostResources({
         <dd>{display(memory?.availableGb ?? null, ' GB')}</dd>
         <dt>Swap used / total</dt>
         <dd>
-          {display(memory?.swapUsedGb ?? null, ' GB')} /{' '}
+          {display(memory?.swapUsedGb ?? agent?.swapUsedGb ?? null, ' GB')} /{' '}
           {display(memory?.swapTotalGb ?? null, ' GB')}
         </dd>
         <dt>Memory observation</dt>

@@ -52,9 +52,19 @@ describe('published incident and alert-rule contracts', () => {
     ).toThrow('Unexpected fleet incidents response');
   });
 
-  it('parses all eleven alert rules with bounded parameter metadata', () => {
+  it('parses an incident raised by the thermal_slowdown rule', () => {
+    const open = fixture('incident.detail.open.json') as { incident: Record<string, unknown> };
+    const detail = parseIncidentDetail({
+      ...open,
+      incident: { ...open.incident, ruleKey: 'thermal_slowdown' },
+    });
+    expect(detail.incident.ruleKey).toBe('thermal_slowdown');
+  });
+
+  it('parses all twelve alert rules with bounded parameter metadata', () => {
     const parsed = parseAlertRules(fixture('alert-rules.json'));
-    expect(parsed.rules).toHaveLength(11);
+    expect(parsed.rules).toHaveLength(12);
+    expect(parsed.rules.map((rule) => rule.key)).toContain('thermal_slowdown');
     expect(parsed.rules.find((rule) => rule.key === 'ram_low')?.enabled).toBe(false);
     expect(
       parsed.rules.find((rule) => rule.key === 'gpu_temp_high')?.params.tempAtLeastC,

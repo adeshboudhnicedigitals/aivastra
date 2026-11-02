@@ -22,6 +22,7 @@ import {
   parseIncidentSummary,
   patchAlertRule,
 } from './live-incidents';
+import { NotificationSettingsCard } from './NotificationSettings';
 
 const STATE_OPTIONS: (IncidentState | '')[] = ['', 'OPEN', 'ACK', 'RECOVERED'];
 const SEVERITY_OPTIONS: (IncidentSeverity | '')[] = ['', 'critical', 'warning', 'info'];
@@ -31,6 +32,7 @@ const RULE_OPTIONS = [
   'comfy_down_box_up',
   'box_unreachable',
   'thermal_collapse',
+  'thermal_slowdown',
   'gpu_temp_high',
   'disk_high',
   'swap_active',
@@ -728,6 +730,7 @@ export function AlertRulesPage({
           audited.
         </p>
       </div>
+      <NotificationSettingsCard baseUrl={baseUrl} token={token} authRecovery={authRecovery} />
       <div className="alert-rules-toolbar">
         <span>
           {data

@@ -77,6 +77,7 @@ const ruleKeys = new Set([
   'comfy_down_box_up',
   'box_unreachable',
   'thermal_collapse',
+  'thermal_slowdown',
   'gpu_temp_high',
   'disk_high',
   'swap_active',

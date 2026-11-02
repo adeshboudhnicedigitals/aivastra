@@ -8,7 +8,14 @@ import { LoginForm } from './Connect';
 import type { FleetSnapshot, FleetWorkerView, IncidentView } from './contracts';
 import { EvidencePage } from './EvidencePage';
 import { fixtureRepository } from './fixtures';
-import { comfyView, dispatcherLabel, fleetTiles, isTelemetryOnly } from './fleet-view';
+import {
+  agentHostFacts,
+  comfyView,
+  dispatcherLabel,
+  fleetTiles,
+  isTelemetryOnly,
+  withAgentGpu,
+} from './fleet-view';
 import { HostResources } from './HostResources';
 import { AlertRulesPage, IncidentFixtureGallery, LiveIncidentsPage } from './IncidentsPages';
 import { InventoryEditor } from './InventoryEditor';
@@ -736,7 +743,8 @@ export function App() {
         </button>
         <div className="workspace">
           <span className="dot" />
-          Operations workspace<small>{live ? 'Live · read-only' : 'Preview environment'}</small>
+          Operations workspace
+          <small>{live ? 'Live · guarded actions' : 'Preview environment'}</small>
         </div>
         <nav aria-label="Primary">
           {visiblePages.map((item) => (
@@ -775,7 +783,7 @@ export function App() {
             Operational context lives here.
           </p>
           <span className="read-only">
-            {live ? 'Observe only · no commands' : 'Mock controls · no live access'}
+            {live ? 'Drain · restart · clear queue' : 'Mock controls · no live access'}
           </span>
         </div>
       </aside>
@@ -860,7 +868,7 @@ export function App() {
                 </div>
               )}
               <div className="preview-notice">
-                <strong>LIVE · READ-ONLY</strong>
+                <strong>LIVE</strong>
                 <span>
                   Worker state, health and queue come from the dispatcher registry; VRAM, host RAM
                   and queued prompts from each worker's ComfyUI. Ownership matches those prompts to
@@ -912,6 +920,8 @@ export function App() {
               operations={operations}
               manager={processes}
               worker={selected}
+              agentSummary={agentSummaryByWorkerId.get(selected.workerId)}
+              onOpenIncidents={openIncidentsForWorker}
               data={data}
               onBack={() => {
                 writeRoute({ page: 'fleet', worker: null, job: null });
@@ -1492,7 +1502,7 @@ export function App() {
           )}
           <footer>
             <span>AIVASTRA Operations · v0.1</span>
-            <span>{live ? 'Live fleet API · Read-only' : 'Fixture mode · No live commands'}</span>
+            <span>{live ? 'Live fleet API' : 'Fixture mode · No live commands'}</span>
           </footer>
           {showShortcuts && (
             <div className="live-drawer-backdrop" role="presentation">
@@ -1548,7 +1558,9 @@ export function App() {
 function WorkerDetail({
   operations,
   manager,
-  worker,
+  worker: dispatcherWorker,
+  agentSummary,
+  onOpenIncidents,
   data,
   onBack,
   openWorker,
@@ -1563,6 +1575,8 @@ function WorkerDetail({
   operations: OperationsManager;
   manager: ProcessManager;
   worker: FleetWorkerView;
+  agentSummary: FleetAgentSummary | undefined;
+  onOpenIncidents: (workerId: string) => void;
   data: FleetSnapshot;
   onBack: () => void;
   openWorker: (id: string) => void;
@@ -1574,6 +1588,8 @@ function WorkerDetail({
   onFleetRefresh: () => Promise<boolean>;
   onOpenJob: (id: string) => void;
 }) {
+  const worker = withAgentGpu(dispatcherWorker, agentSummary);
+  const agentHost = agentHostFacts(agentSummary);
   const host = data.hosts.find((item) => item.id === worker.hostId);
   const gpu = data.gpus.find((item) => item.id === worker.gpuId);
   const siblings = data.workers.filter(
@@ -1701,29 +1717,50 @@ function WorkerDetail({
           <dl>
             <dt>Temperature</dt>
             <dd>{display(worker.gpu.temperatureC, ' °C')}</dd>
-            <dt>GPU exporter</dt>
-            <dd>
-              <Exporter value={worker.monitoring.gpuExporterUp} />
-            </dd>
-            <dt>Host exporter</dt>
-            <dd>
-              <Exporter value={worker.monitoring.nodeExporterUp} />
-            </dd>
-            <dt>Observed at</dt>
-            <dd>{utc(worker.monitoring.lastSeenAt)}</dd>
-            <dt>Storage used / total</dt>
-            <dd>
-              {display(host?.storage.usedGb ?? null)} / {display(host?.storage.totalGb ?? null)} GB
-            </dd>
-            <dt>Storage observation</dt>
-            <dd>{utc(host?.storage.observedAt ?? null)}</dd>
-            <dt>Storage freshness</dt>
-            <dd>
-              <Badge value={freshness(host?.storage.observedAt ?? null, data.asOf)} />
-            </dd>
+            {data.source === 'LIVE' ? (
+              <>
+                <dt>Agent</dt>
+                <dd>
+                  {agentHost
+                    ? `Reporting · ${utc(agentHost.observedAt)}`
+                    : 'No fresh agent reading'}
+                </dd>
+                <dt>Disk used</dt>
+                <dd>{display(agentHost?.diskUsedPct ?? null, '%')}</dd>
+              </>
+            ) : (
+              <>
+                <dt>GPU exporter</dt>
+                <dd>
+                  <Exporter value={worker.monitoring.gpuExporterUp} />
+                </dd>
+                <dt>Host exporter</dt>
+                <dd>
+                  <Exporter value={worker.monitoring.nodeExporterUp} />
+                </dd>
+                <dt>Observed at</dt>
+                <dd>{utc(worker.monitoring.lastSeenAt)}</dd>
+                <dt>Storage used / total</dt>
+                <dd>
+                  {display(host?.storage.usedGb ?? null)} / {display(host?.storage.totalGb ?? null)}{' '}
+                  GB
+                </dd>
+                <dt>Storage observation</dt>
+                <dd>{utc(host?.storage.observedAt ?? null)}</dd>
+                <dt>Storage freshness</dt>
+                <dd>
+                  <Badge value={freshness(host?.storage.observedAt ?? null, data.asOf)} />
+                </dd>
+              </>
+            )}
           </dl>
         </section>
-        <HostResources host={host} asOf={data.asOf} live={data.source === 'LIVE'} />
+        <HostResources
+          host={host}
+          asOf={data.asOf}
+          live={data.source === 'LIVE'}
+          agent={agentHost}
+        />
         {data.source !== 'LIVE' && (
           <section className="panel">
             <h2>Recent jobs</h2>
@@ -1806,6 +1843,8 @@ function WorkerDetail({
           onFleetRefresh={onFleetRefresh}
           authRecovery={authRecovery}
           onOpenJob={onOpenJob}
+          incidents={agentSummary?.incidents}
+          onOpenIncidents={() => onOpenIncidents(worker.workerId)}
         />
       )}
     </>

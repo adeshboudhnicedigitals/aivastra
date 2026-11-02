@@ -11,8 +11,11 @@ export function display(value: number | null, unit = '') {
 }
 export function signals(worker: FleetWorkerView): string[] {
   const result: string[] = [];
-  if (worker.dispatcherState === 'IDLE' && ['FOREIGN', 'UNATTRIBUTED'].includes(worker.ownership))
+  if (worker.dispatcherState === 'IDLE' && worker.ownership === 'FOREIGN')
     result.push('Idle + unowned activity');
+  // No dispatch record in this database: on a shared box that is usually another environment's job.
+  if (worker.dispatcherState === 'IDLE' && worker.ownership === 'UNATTRIBUTED')
+    result.push('Running a job this system did not dispatch');
   if (
     worker.dispatcherState === 'BUSY' &&
     worker.comfy.reachable === true &&
@@ -21,7 +24,6 @@ export function signals(worker: FleetWorkerView): string[] {
   )
     result.push('Busy + empty queue');
   if (worker.health === 'UNREACHABLE') result.push('Endpoint unreachable');
-  if (worker.ownership === 'UNATTRIBUTED') result.push('Attribution pending');
   return result;
 }
 export function reconciliation(host: HostView, snapshot: FleetSnapshot): string[] {

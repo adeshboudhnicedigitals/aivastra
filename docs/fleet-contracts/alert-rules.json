@@ -68,6 +68,25 @@
       "updatedAt": null
     },
     {
+      "key": "thermal_slowdown",
+      "description": "The driver reports it slowed the GPU for heat during the last 15 minutes. Read from the hardware thermal-slowdown counter, which moves even though the throttle bitmask stays 0x0 on these cards.",
+      "severity": "warning",
+      "enabled": true,
+      "forSeconds": 60,
+      "clearSeconds": 600,
+      "params": {
+        "slowedSecondsAbove": {
+          "value": 30,
+          "default": 30,
+          "min": 1,
+          "max": 900,
+          "unit": "s",
+          "label": "Slowed for more than"
+        }
+      },
+      "updatedAt": "2026-11-02T07:00:00.000Z"
+    },
+    {
       "key": "gpu_temp_high",
       "description": "A GPU has stayed above the temperature threshold.",
       "severity": "warning",

@@ -131,3 +131,47 @@ export function fleetTiles(
     vram: boxes > 0 ? { usedMib: used, totalMib: total, boxes } : null,
   };
 }
+
+/**
+ * The worker detail page reads GPU figures from the dispatcher's ComfyUI probe, which has no
+ * temperature and may lack utilisation. Fill only those gaps from the agent; a value the
+ * dispatcher did report is never replaced.
+ */
+export function withAgentGpu(
+  worker: FleetWorkerView,
+  summary: FleetAgentSummary | undefined,
+): FleetWorkerView {
+  const agent = freshAgent(summary);
+  if (!agent) return worker;
+  return {
+    ...worker,
+    gpu: {
+      ...worker.gpu,
+      temperatureC: worker.gpu.temperatureC ?? agent.tempMaxC,
+      utilizationPct: worker.gpu.utilizationPct ?? agent.utilGpuPctMax,
+    },
+  };
+}
+
+export type AgentHostFacts = {
+  observedAt: string;
+  diskUsedPct: number | null;
+  ramTotalGb: number | null;
+  ramAvailGb: number | null;
+  swapUsedGb: number | null;
+};
+
+const gib = (mib: number | null) => (mib === null ? null : Math.round((mib / 1024) * 10) / 10);
+
+/** Host facts the agent reports, or null when there is no fresh agent sample. */
+export function agentHostFacts(summary: FleetAgentSummary | undefined): AgentHostFacts | null {
+  const agent = freshAgent(summary);
+  if (!agent) return null;
+  return {
+    observedAt: agent.observedAt,
+    diskUsedPct: agent.diskUsedPctMax,
+    ramTotalGb: gib(agent.ramTotalMib),
+    ramAvailGb: gib(agent.ramAvailMib),
+    swapUsedGb: gib(agent.swapUsedMib),
+  };
+}

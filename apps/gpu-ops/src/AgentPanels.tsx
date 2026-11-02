@@ -3,6 +3,7 @@ import { AccessibleDialog } from './AccessibleDialog';
 import type { AuthRecovery } from './auth';
 import type { FleetWorkerView } from './contracts';
 import {
+  type AgentGpu,
   type AgentStatus,
   type AgentTelemetryView,
   agentKeyErrorMessage,
@@ -16,6 +17,7 @@ import {
   parseCreatedAgentKey,
   revokeAgentKey,
 } from './live-agent';
+import { MetricsCharts } from './MetricsCharts';
 
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Fleet API request failed.';
@@ -25,6 +27,23 @@ const ageLabel = (seconds: number) =>
   seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
 const shown = (value: number | null, suffix = '') =>
   value === null ? 'No data' : `${value.toLocaleString()}${suffix}`;
+const hours = (us: number) => {
+  const s = us / 1_000_000;
+  return s >= 3600
+    ? `${(s / 3600).toFixed(1)} h`
+    : s >= 60
+      ? `${(s / 60).toFixed(1)} min`
+      : `${s.toFixed(1)} s`;
+};
+const slowdownLabel = (gpu: AgentGpu) => {
+  const parts = [
+    ['heat (hardware)', gpu.hwThermalSlowdownUs],
+    ['heat (software)', gpu.swThermalSlowdownUs],
+    ['power cap', gpu.swPowerCapUs],
+  ] as const;
+  if (parts.every(([, v]) => v === null)) return 'Not reported';
+  return parts.map(([label, v]) => `${label} ${v === null ? 'no data' : hours(v)}`).join(' · ');
+};
 const mib = (value: number | null) =>
   value === null ? 'No data' : `${(value / 1024).toFixed(1)} GiB`;
 
@@ -431,6 +450,13 @@ function HardwareContent({
                     )}
                     <small className="muted">Device-wide: may include other tenants.</small>
                   </dd>
+                  <dt>Slowed since driver load</dt>
+                  <dd>
+                    {slowdownLabel(gpu)}
+                    <small className="muted">
+                      Cumulative driver counters; the throttle bitmask stays 0x0 on these cards.
+                    </small>
+                  </dd>
                   <dt>Foreign VRAM</dt>
                   <dd>
                     {signal?.foreignVramMib === null || signal?.foreignVramMib === undefined
@@ -585,6 +611,19 @@ function HardwareContent({
           {!telemetry.comfy.length && <p>No ComfyUI instance data reported.</p>}
         </section>
       </div>
+      <section className="panel hardware-logs">
+        <h3>ComfyUI errors, last 30 minutes</h3>
+        {telemetry.logs.some((log) => log.lines.length) ? (
+          telemetry.logs.map((log) => (
+            <div key={log.unit}>
+              <small className="muted">{log.unit}</small>
+              <pre className="log-lines">{log.lines.join('\n')}</pre>
+            </div>
+          ))
+        ) : (
+          <p>No error lines reported.</p>
+        )}
+      </section>
     </div>
   );
 }
@@ -595,22 +634,27 @@ export function HardwareTab({
   workerId,
   dispatcherComfy,
   authRecovery,
+  incidents,
+  onOpenIncidents,
 }: {
   baseUrl: string;
   token: string;
   workerId: string;
   dispatcherComfy: FleetWorkerView['comfy'];
   authRecovery: AuthRecovery;
+  incidents?: { critical: number; warning: number; info: number };
+  onOpenIncidents?: () => void;
 }) {
   const [view, setView] = useState<AgentTelemetryView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
-  useEffect(
-    () => () => {
+  // StrictMode runs effect -> cleanup -> effect on mount, so the flag must be re-armed here.
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   const load = useCallback(async () => {
     try {
       const next = await loadAgentTelemetry(baseUrl, token, workerId, undefined, authRecovery);
@@ -651,6 +695,19 @@ export function HardwareTab({
           Refresh
         </button>
       </div>
+      {incidents && incidents.critical + incidents.warning + incidents.info > 0 && (
+        <p className="hardware-incidents" role="status">
+          <b>
+            {incidents.critical} critical · {incidents.warning} warning · {incidents.info} info
+          </b>{' '}
+          open for this worker.{' '}
+          {onOpenIncidents && (
+            <button type="button" className="link-button" onClick={onOpenIncidents}>
+              View incidents
+            </button>
+          )}
+        </p>
+      )}
       {error ? (
         <div className="permission-panel" role="alert">
           {error}
@@ -660,6 +717,12 @@ export function HardwareTab({
       ) : (
         <p aria-live="polite">Loading hardware telemetry…</p>
       )}
+      <MetricsCharts
+        baseUrl={baseUrl}
+        token={token}
+        workerId={workerId}
+        authRecovery={authRecovery}
+      />
     </section>
   );
 }
