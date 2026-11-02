@@ -5,7 +5,9 @@ export function isProductsDone(me: ShopifyMe): boolean {
   return me.stats.syncedProductCount > 0;
 }
 export function getOnboardingStep(me: ShopifyMe): OnboardingStep | null {
-  const themeDone = me.store.settings.themeBlockConfirmed ?? false;
+  const themeDone =
+    (me.store.settings.themeBlockConfirmed ?? false) ||
+    (me.store.settings.themeStepSkipped ?? false);
   if (!isProductsDone(me) && !themeDone) return 'intro';
   if (!isProductsDone(me)) return 'products';
   if (!themeDone) return 'theme';

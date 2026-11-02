@@ -7,14 +7,18 @@ import {
   isProductsDone,
 } from './onboarding';
 
-function me(syncedProductCount: number, themeBlockConfirmed = false): ShopifyMe {
+function me(
+  syncedProductCount: number,
+  themeBlockConfirmed = false,
+  themeStepSkipped = false,
+): ShopifyMe {
   return {
     store: {
       shopDomain: 'test.myshopify.com',
       shopOwnerName: null,
       shopPhone: null,
       shopEmail: null,
-      settings: { themeBlockConfirmed },
+      settings: { themeBlockConfirmed, themeStepSkipped },
       connectedSince: '2026-01-01T00:00:00Z',
     },
     creditBalance: 0,
@@ -67,5 +71,12 @@ describe('single-workflow onboarding steps', () => {
     expect(canShowPostProductsPage('theme')).toBe(true);
     expect(canShowPostProductsPage(null)).toBe(true);
     expect(canShowPostProductsPage('products')).toBe(false);
+  });
+});
+
+describe('skipping the theme step', () => {
+  it('ends onboarding once products are synced, without claiming the block is placed', () => {
+    expect(getOnboardingStep(me(3, false, true))).toBeNull();
+    expect(getOnboardingStep(me(3, false, false))).toBe('theme');
   });
 });

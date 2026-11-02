@@ -275,6 +275,24 @@ export async function markThemeSurfaceSeen(
 }
 
 /**
+ * "Skip for now" on the onboarding theme step. Recorded as its own flag, not as
+ * `themeBlockConfirmed`, so nothing downstream mistakes a skip for a placed
+ * button; the Dashboard keeps prompting until the storefront ping lands.
+ */
+export async function skipThemeStep(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+): Promise<void> {
+  await app.db
+    .update(schema.shopifyStores)
+    .set({
+      settings: mergeStoreSettingsObject(storeSettingsJson(), [], { themeStepSkipped: true }),
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.shopifyStores.id, store.id));
+}
+
+/**
  * Grants the free-credits welcome bonus and marks it granted. The Dashboard calls
  * this on arrival, so the merchant never has to claim anything: the store's
  * contact email came from Shopify at install (and onboarding's contact step lets
@@ -426,6 +444,15 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
     if (!app.env.SHOPIFY_API_KEY) throw new AppError('CONFIG', 500, 'SHOPIFY_API_KEY missing');
     return { url: buildAppBlockDeepLink(store.shopDomain, app.env.SHOPIFY_API_KEY) };
   });
+
+  app.post(
+    '/v1/shopify/onboarding/skip-theme',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      await skipThemeStep(app, req.shopifyStore as typeof schema.shopifyStores.$inferSelect);
+      return { themeStepSkipped: true };
+    },
+  );
 
   // On-demand alternative to waiting for a shopper's storefront visit — the
   // "Refresh status" button on the onboarding theme page calls this before
