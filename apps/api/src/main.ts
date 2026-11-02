@@ -8,6 +8,7 @@ import { startComparisonDispatcher } from './modules/comparison/dispatcher-tick.
 import { startComparisonRetention } from './modules/comparison/retention.js';
 import { startUserLowCreditAlertScheduler } from './modules/credits/low-credit-alert-scheduler.js';
 import { startUnlimitedPlanReminderScheduler } from './modules/credits/unlimited-plan-scheduler.js';
+import { startFleetEvaluator } from './modules/fleet/evaluator.js';
 import { startFleetRetention } from './modules/fleet/retention.js';
 import {
   createAppWhatsappClient,
@@ -50,6 +51,7 @@ startProductResyncScheduler(app);
 startUploadSweeper(app);
 startRecognitionSweeper(app);
 startFleetRetention(app);
+startFleetEvaluator(app);
 stopComparisonLoops.push(
   startComparisonCollector(app),
   startComparisonDispatcher(app),
