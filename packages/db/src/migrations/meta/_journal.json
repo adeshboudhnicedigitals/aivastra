@@ -1688,6 +1688,13 @@
       "when": 1793605077624,
       "tag": "0241_fleet_agent_telemetry",
       "breakpoints": true
+    },
+    {
+      "idx": 242,
+      "version": "7",
+      "when": 1793611349913,
+      "tag": "0242_fleet_alerting",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,52 @@
+{
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "incident": {
+    "id": "3c9e5b10-0000-4000-8000-000000000003",
+    "ruleKey": "disk_high",
+    "workerId": "worker-6",
+    "state": "ACK",
+    "severity": "warning",
+    "summary": "/ is 93% full",
+    "evidence": {
+      "mount": "/",
+      "usedPct": 93,
+      "inodeUsedPct": 12
+    },
+    "openedAt": "2026-11-02T08:10:00.000Z",
+    "ackedAt": "2026-11-02T08:20:00.000Z",
+    "ackedBy": {
+      "id": "7d1f0a52-0000-4000-8000-0000000000a1",
+      "email": "oncall@example.com"
+    },
+    "recoveredAt": null
+  },
+  "events": [
+    {
+      "id": 201,
+      "kind": "OPENED",
+      "at": "2026-11-02T08:10:00.000Z",
+      "actor": null,
+      "text": null
+    },
+    {
+      "id": 202,
+      "kind": "ACK",
+      "at": "2026-11-02T08:20:00.000Z",
+      "actor": {
+        "id": "7d1f0a52-0000-4000-8000-0000000000a1",
+        "email": "oncall@example.com"
+      },
+      "text": "Clearing old model cache, will check again at noon"
+    },
+    {
+      "id": 203,
+      "kind": "NOTE",
+      "at": "2026-11-02T08:45:00.000Z",
+      "actor": {
+        "id": "7d1f0a52-0000-4000-8000-0000000000a1",
+        "email": "oncall@example.com"
+      },
+      "text": "Freed 40 GB; usage now 88%"
+    }
+  ]
+}

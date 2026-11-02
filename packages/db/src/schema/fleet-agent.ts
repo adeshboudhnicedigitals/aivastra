@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   bigserial,
@@ -126,5 +127,74 @@ export const fleetGpuSamples = pgTable(
       t.observedAt,
     ),
     byTime: index('fleet_gpu_samples_time_idx').on(t.observedAt),
+  }),
+);
+
+// ---- Alerting --------------------------------------------------------------------------------
+
+/**
+ * Editable thresholds for each alert rule. The catalog of rules and their defaults lives in
+ * packages/types/src/fleet-incidents.ts; this table holds the live values and is seeded by the
+ * migration. No CHECK on `key` or `severity`, the same deliberate choice as jobs.source: adding
+ * a rule must not need a table rewrite.
+ */
+export const fleetAlertRules = pgTable('fleet_alert_rules', {
+  key: text('key').primaryKey(),
+  severity: text('severity').notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  forSeconds: integer('for_seconds').notNull(),
+  clearSeconds: integer('clear_seconds').notNull(),
+  params: jsonb('params').notNull().default({}).$type<Record<string, number>>(),
+  updatedBy: uuid('updated_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One row per episode of a problem on a worker. States: OPEN, ACK, RECOVERED. A recurrence after
+ * recovery is a new row, so each episode keeps its own timeline. No FK to workers: an incident
+ * about a deleted worker is still a record of what happened.
+ */
+export const fleetIncidents = pgTable(
+  'fleet_incidents',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ruleKey: text('rule_key').notNull(),
+    workerId: text('worker_id').notNull(),
+    state: text('state').notNull().default('OPEN'),
+    severity: text('severity').notNull(),
+    summary: text('summary').notNull(),
+    // Flat scalar snapshot taken when the incident opened.
+    evidence: jsonb('evidence').notNull().default({}).$type<Record<string, unknown>>(),
+    openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
+    ackedAt: timestamp('acked_at', { withTimezone: true }),
+    ackedBy: uuid('acked_by').references(() => users.id),
+    recoveredAt: timestamp('recovered_at', { withTimezone: true }),
+  },
+  (t) => ({
+    // The dedupe: at most one live incident per rule and worker. The evaluator relies on this
+    // rather than on its own bookkeeping, so two evaluators cannot open the same incident twice.
+    oneLive: uniqueIndex('fleet_incidents_one_live_idx')
+      .on(t.ruleKey, t.workerId)
+      .where(sql`${t.state} <> 'RECOVERED'`),
+    byStateOpened: index('fleet_incidents_state_opened_idx').on(t.state, t.openedAt),
+    byWorkerOpened: index('fleet_incidents_worker_opened_idx').on(t.workerId, t.openedAt),
+  }),
+);
+
+/** Append-only timeline of one incident. A null actor is the system (the evaluator). */
+export const fleetIncidentEvents = pgTable(
+  'fleet_incident_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    incidentId: uuid('incident_id')
+      .notNull()
+      .references(() => fleetIncidents.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    actorUserId: uuid('actor_user_id').references(() => users.id),
+    text: text('text'),
+  },
+  (t) => ({
+    byIncident: index('fleet_incident_events_incident_idx').on(t.incidentId, t.at),
   }),
 );

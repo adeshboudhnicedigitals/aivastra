@@ -81,6 +81,7 @@ import { minioProxyRoutes } from './modules/dev/minio-proxy.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { extensionRoutes } from './modules/extension/routes.js';
 import { fleetAgentAdminRoutes } from './modules/fleet/agent.routes.js';
+import { fleetIncidentRoutes } from './modules/fleet/incidents.routes.js';
 import { fleetIngestRoutes } from './modules/fleet/ingest.routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
 import { refundRequestsRoutes } from './modules/jobs/refund-requests.js';
@@ -474,6 +475,7 @@ export async function buildServer(env: Env) {
   await app.register(adminWorkersRoutes);
   await app.register(adminFleetRoutes);
   await app.register(fleetAgentAdminRoutes);
+  await app.register(fleetIncidentRoutes);
   await app.register(fleetIngestRoutes);
   await app.register(adminProdSnapshotRoutes);
   await app.register(adminConfigRoutes);

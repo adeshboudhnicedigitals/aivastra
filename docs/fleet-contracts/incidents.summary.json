@@ -1,0 +1,10 @@
+{
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "open": 2,
+  "acknowledged": 1,
+  "bySeverity": {
+    "critical": 1,
+    "warning": 2,
+    "info": 0
+  }
+}

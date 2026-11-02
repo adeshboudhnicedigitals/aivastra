@@ -11,6 +11,7 @@ export * from './demo-catalog.js';
 export * from './dev.js';
 export * from './fleet.js';
 export * from './fleet-agent.js';
+export * from './fleet-incidents.js';
 export * from './garment-recognition.js';
 export * from './google-drive.js';
 export * from './image-compression.js';

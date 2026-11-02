@@ -2,6 +2,32 @@
 
 Updated by the backend side only. Newest first.
 
+## 2026-11-02 (later): incidents and alert rules contract published
+
+Backend is built, tested and running on the local API. Build the **Incidents page** and an **alert rules
+view** against these (fixtures in `docs/fleet-contracts`, described in its README). This comes AFTER
+your current brief; do not start it until that is delivered and reviewed.
+
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /admin/fleet/incidents` | `fleet.view` | query `state` (comma list of OPEN,ACK,RECOVERED), `workerId`, `severity`, `ruleKey`, `limit` (1-200, default 50), `offset`. Live incidents first, newest first. Returns `{generatedAt, total, items}` |
+| `GET /admin/fleet/incidents/summary` | `fleet.view` | `{open, acknowledged, bySeverity}`; recovered are not counted. Use it for a banner/nav badge, poll gently (30 s) |
+| `GET /admin/fleet/incidents/:id` | `fleet.view` | `{incident, events[]}` oldest first; `actor: null` = the system |
+| `POST /admin/fleet/incidents/:id/ack` | `fleet.ack` (ADMIN, SUPER_ADMIN) | body optional `{note}` (3-1000); `{ok, changed, state}`; `changed:false` = already acknowledged or recovered, nothing written |
+| `POST /admin/fleet/incidents/:id/notes` | `fleet.ack` | `{text}` (3-1000), any state; 201 `{ok, eventId}` |
+| `GET /admin/fleet/alert-rules` | `fleet.view` | 11 rules with `value`/`default`/`min`/`max`/`unit`/`label` per parameter |
+| `PATCH /admin/fleet/alert-rules/:key` | `fleet.operate` (SUPER_ADMIN) | partial `{enabled, severity, forSeconds, clearSeconds, params}`; 400 on out-of-range; returns the rule |
+
+Rules for the UI
+- **Today the live list is empty**: no agent is deployed and the evaluator that opens incidents is not
+  built yet (it is the next backend task). An empty list means "nothing recorded", not "all healthy".
+  Say exactly that; never display a green "all clear" from an empty incidents list.
+- `severity` is the incident's current severity (`agent_silent` can escalate; see the `ESCALATED` event).
+- `evidence` is a flat map of scalars whose keys depend on the rule: render it as key/value rows.
+- A person's `email` may be `null`. Rule `updatedAt` is `null` until an operator changes it.
+- 403 on ack/note: "needs fleet.ack"; on rule changes: "needs fleet.operate (SUPER_ADMIN)".
+- Disabled rules should look disabled and say so, not disappear.
+
 ## 2026-11-02
 
 Available now on the running API (`http://127.0.0.1:4000`, all admin endpoints take the Bearer token

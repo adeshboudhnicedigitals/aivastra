@@ -1,0 +1,212 @@
+{
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "rules": [
+    {
+      "key": "agent_silent",
+      "description": "The fleet agent on a box has stopped sending samples. Starts as a warning; escalates to critical if it stays silent.",
+      "severity": "warning",
+      "enabled": true,
+      "forSeconds": 90,
+      "clearSeconds": 30,
+      "params": {
+        "criticalAfterSeconds": {
+          "value": 300,
+          "default": 300,
+          "min": 120,
+          "max": 3600,
+          "unit": "s",
+          "label": "Escalate to critical after"
+        }
+      },
+      "updatedAt": null
+    },
+    {
+      "key": "comfy_down_box_up",
+      "description": "The dispatcher cannot reach ComfyUI on a worker, but the box and its agent are alive. The worker cannot take jobs.",
+      "severity": "critical",
+      "enabled": true,
+      "forSeconds": 60,
+      "clearSeconds": 30,
+      "params": {},
+      "updatedAt": null
+    },
+    {
+      "key": "box_unreachable",
+      "description": "Neither the agent nor the dispatcher can reach the box. It is down, or cut off from the network.",
+      "severity": "critical",
+      "enabled": true,
+      "forSeconds": 120,
+      "clearSeconds": 30,
+      "params": {},
+      "updatedAt": null
+    },
+    {
+      "key": "thermal_collapse",
+      "description": "The GPU is hot and its SM clock has fallen far below its maximum. nvidia-smi reports no throttle reason on these cards, so this is inferred from temperature plus the clock ratio.",
+      "severity": "warning",
+      "enabled": true,
+      "forSeconds": 180,
+      "clearSeconds": 120,
+      "params": {
+        "clockRatioBelow": {
+          "value": 0.6,
+          "default": 0.6,
+          "min": 0.1,
+          "max": 0.95,
+          "unit": "ratio",
+          "label": "Clock ratio below"
+        },
+        "tempAtLeastC": {
+          "value": 80,
+          "default": 80,
+          "min": 50,
+          "max": 110,
+          "unit": "°C",
+          "label": "Temperature at least"
+        }
+      },
+      "updatedAt": null
+    },
+    {
+      "key": "gpu_temp_high",
+      "description": "A GPU has stayed above the temperature threshold.",
+      "severity": "warning",
+      "enabled": true,
+      "forSeconds": 300,
+      "clearSeconds": 120,
+      "params": {
+        "tempAtLeastC": {
+          "value": 85,
+          "default": 88,
+          "min": 60,
+          "max": 110,
+          "unit": "°C",
+          "label": "Temperature at least"
+        }
+      },
+      "updatedAt": "2026-11-02T07:00:00.000Z"
+    },
+    {
+      "key": "disk_high",
+      "description": "A disk, or its inode table, is nearly full.",
+      "severity": "warning",
+      "enabled": true,
+      "forSeconds": 60,
+      "clearSeconds": 300,
+      "params": {
+        "usedPctAtLeast": {
+          "value": 90,
+          "default": 90,
+          "min": 50,
+          "max": 100,
+          "unit": "%",
+          "label": "Disk used at least"
+        },
+        "inodePctAtLeast": {
+          "value": 90,
+          "default": 90,
+          "min": 50,
+          "max": 100,
+          "unit": "%",
+          "label": "Inodes used at least"
+        }
+      },
+      "updatedAt": null
+    },
+    {
+      "key": "swap_active",
+      "description": "The box is swapping. On these workers swapping means the models no longer fit in RAM.",
+      "severity": "info",
+      "enabled": true,
+      "forSeconds": 600,
+      "clearSeconds": 600,
+      "params": {
+        "swapUsedMibAbove": {
+          "value": 1024,
+          "default": 1024,
+          "min": 64,
+          "max": 65536,
+          "unit": "MiB",
+          "label": "Swap used above"
+        }
+      },
+      "updatedAt": null
+    },
+    {
+      "key": "ram_low",
+      "description": "Available host RAM is very low.",
+      "severity": "warning",
+      "enabled": false,
+      "forSeconds": 300,
+      "clearSeconds": 300,
+      "params": {
+        "availablePctBelow": {
+          "value": 10,
+          "default": 10,
+          "min": 1,
+          "max": 50,
+          "unit": "%",
+          "label": "Available below"
+        }
+      },
+      "updatedAt": null
+    },
+    {
+      "key": "foreign_vram",
+      "description": "GPU memory is in use that the agent cannot attribute to this worker. Only raised when per-process data is visible; on shared pods it stays quiet because the answer is unknown.",
+      "severity": "info",
+      "enabled": true,
+      "forSeconds": 300,
+      "clearSeconds": 300,
+      "params": {
+        "foreignMibAbove": {
+          "value": 4096,
+          "default": 4096,
+          "min": 256,
+          "max": 262144,
+          "unit": "MiB",
+          "label": "Foreign VRAM above"
+        }
+      },
+      "updatedAt": null
+    },
+    {
+      "key": "clock_skew",
+      "description": "The box clock differs from the server clock. Samples near the limit are refused, and every timestamp from this box is suspect.",
+      "severity": "info",
+      "enabled": true,
+      "forSeconds": 300,
+      "clearSeconds": 300,
+      "params": {
+        "skewSecondsAbove": {
+          "value": 30,
+          "default": 30,
+          "min": 5,
+          "max": 300,
+          "unit": "s",
+          "label": "Skew above"
+        }
+      },
+      "updatedAt": null
+    },
+    {
+      "key": "ingest_rejected",
+      "description": "The agent is reaching the server but its samples are being refused (invalid payload, wrong worker, or a bad clock).",
+      "severity": "warning",
+      "enabled": true,
+      "forSeconds": 0,
+      "clearSeconds": 600,
+      "params": {
+        "rejectsAtLeast": {
+          "value": 10,
+          "default": 10,
+          "min": 1,
+          "max": 1000,
+          "unit": "per hour",
+          "label": "Rejected at least"
+        }
+      },
+      "updatedAt": null
+    }
+  ]
+}

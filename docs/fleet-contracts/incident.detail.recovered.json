@@ -1,0 +1,64 @@
+{
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "incident": {
+    "id": "3c9e5b10-0000-4000-8000-000000000005",
+    "ruleKey": "agent_silent",
+    "workerId": "worker-7",
+    "state": "RECOVERED",
+    "severity": "critical",
+    "summary": "The agent on worker-7 has been silent for 6 minutes",
+    "evidence": {
+      "silentSeconds": 372
+    },
+    "openedAt": "2026-11-02T09:00:00.000Z",
+    "ackedAt": "2026-11-02T09:07:00.000Z",
+    "ackedBy": {
+      "id": "7d1f0a52-0000-4000-8000-0000000000a1",
+      "email": "oncall@example.com"
+    },
+    "recoveredAt": "2026-11-02T09:20:00.000Z"
+  },
+  "events": [
+    {
+      "id": 301,
+      "kind": "OPENED",
+      "at": "2026-11-02T09:00:00.000Z",
+      "actor": null,
+      "text": null
+    },
+    {
+      "id": 302,
+      "kind": "ESCALATED",
+      "at": "2026-11-02T09:05:00.000Z",
+      "actor": null,
+      "text": "Silent for 5 minutes: severity raised to critical"
+    },
+    {
+      "id": 303,
+      "kind": "ACK",
+      "at": "2026-11-02T09:07:00.000Z",
+      "actor": {
+        "id": "7d1f0a52-0000-4000-8000-0000000000a1",
+        "email": "oncall@example.com"
+      },
+      "text": null
+    },
+    {
+      "id": 304,
+      "kind": "RECOVERED",
+      "at": "2026-11-02T09:20:00.000Z",
+      "actor": null,
+      "text": null
+    },
+    {
+      "id": 305,
+      "kind": "NOTE",
+      "at": "2026-11-02T09:30:00.000Z",
+      "actor": {
+        "id": "7d1f0a52-0000-4000-8000-0000000000a1",
+        "email": "oncall@example.com"
+      },
+      "text": "Provider rebooted the host; ticket opened"
+    }
+  ]
+}

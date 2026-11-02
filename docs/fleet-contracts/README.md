@@ -25,3 +25,22 @@ anywhere a real worker's data is expected: honesty rule 3 still applies.
 
 Notes: `generatedAt` is the reference clock for freshness; timestamps are ISO strings, `observedAt`
 inside `telemetry` is unix milliseconds.
+
+## Alerts and incidents
+
+| File | Endpoint | What it shows |
+|---|---|---|
+| `incidents.list.json` | `GET /admin/fleet/incidents` | live incidents first (critical box down, open thermal collapse, acknowledged disk), then a recovered one |
+| `incidents.empty.json` | same | nothing recorded: the honest state before any agent reports |
+| `incidents.summary.json` | `GET /admin/fleet/incidents/summary` | counts for the banner; recovered incidents are not counted |
+| `incident.detail.open.json` | `GET /admin/fleet/incidents/:id` | one event: the system opened it (`actor: null`) |
+| `incident.detail.acked.json` | same | acknowledged with a note, then a follow-up note |
+| `incident.detail.recovered.json` | same | opened, escalated to critical, acknowledged, recovered, then a post-mortem note |
+| `alert-rules.json` | `GET /admin/fleet/alert-rules` | all 11 rules; one disabled, one with a tuned threshold (`value` differs from `default`) |
+
+Actions: `POST /admin/fleet/incidents/:id/ack` (`{note?}` -> `{ok, changed, state}`),
+`POST /admin/fleet/incidents/:id/notes` (`{text}` -> 201 `{ok, eventId}`),
+`PATCH /admin/fleet/alert-rules/:key` (partial `{enabled, severity, forSeconds, clearSeconds, params}` -> the rule view).
+`evidence` is a flat map of scalars whose keys depend on the rule; render it as a key/value list. A
+person's `email` can be `null`. `actor: null` means the system.
+
