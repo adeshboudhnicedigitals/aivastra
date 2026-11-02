@@ -244,6 +244,29 @@ describe('observe', () => {
   });
 });
 
+describe('thermal_slowdown', () => {
+  it('is unknown without a counter reading, never ok', () => {
+    expect(observe('thermal_slowdown', ctx({ thermalSlowedMs: null }), {}).status).toBe('unknown');
+    expect(observe('thermal_slowdown', ctx(), {}).status).toBe('unknown');
+  });
+
+  it('breaches above the limit, with evidence, and is ok at or below it', () => {
+    const over = observe('thermal_slowdown', ctx({ thermalSlowedMs: 31_000 }), {});
+    expect(over).toMatchObject({
+      status: 'breach',
+      evidence: { slowedSeconds: 31, limitSeconds: 30, windowMinutes: 15 },
+    });
+    expect(observe('thermal_slowdown', ctx({ thermalSlowedMs: 30_000 }), {}).status).toBe('ok');
+    expect(observe('thermal_slowdown', ctx({ thermalSlowedMs: 0 }), {}).status).toBe('ok');
+  });
+
+  it('honours a tuned limit', () => {
+    const c = ctx({ thermalSlowedMs: 10_000 });
+    expect(observe('thermal_slowdown', c, {}).status).toBe('ok');
+    expect(observe('thermal_slowdown', c, { slowedSecondsAbove: 5 }).status).toBe('breach');
+  });
+});
+
 describe('decide (hysteresis)', () => {
   const breach: Observation = { status: 'breach', summary: 's', evidence: {} };
   const ok: Observation = { status: 'ok' };

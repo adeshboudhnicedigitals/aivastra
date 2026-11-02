@@ -38,6 +38,7 @@ const logicalName = z.string().regex(/^[a-z0-9._-]{1,32}$/);
 const num = (min: number, max: number) => z.number().finite().min(min).max(max).nullable();
 const int = (min: number, max: number) => z.number().int().min(min).max(max).nullable();
 const pct = num(0, 100);
+const slowdownCounter = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable().optional();
 
 export const agentGpuSchema = z
   .object({
@@ -65,6 +66,12 @@ export const agentGpuSchema = z
       .regex(/^0x[0-9a-fA-F]{1,16}$/)
       .nullable(),
     eccUncorrected: int(0, 2_147_483_647),
+    // Cumulative microseconds the driver has spent slowed for each reason since it loaded.
+    // nvidia-smi reports no throttle bitmask on these cards, but these counters do move, so a
+    // slowdown shows up as a rising counter. Optional so an older agent still validates.
+    hwThermalSlowdownUs: slowdownCounter,
+    swThermalSlowdownUs: slowdownCounter,
+    swPowerCapUs: slowdownCounter,
   })
   .strict();
 export type AgentGpu = z.infer<typeof agentGpuSchema>;
@@ -104,6 +111,15 @@ export const agentComfySchema = z
   })
   .strict();
 
+// Error lines the agent picked out of a service's journal. Only lines that look like errors, capped
+// in count and length, so this is a pointer to "something failed", not a log archive.
+export const agentLogSchema = z
+  .object({
+    unit: logicalName,
+    lines: z.array(text(300)).max(40),
+  })
+  .strict();
+
 export const agentHostSchema = z
   .object({
     cpuCount: int(1, 4096),
@@ -136,6 +152,7 @@ export const agentTelemetrySchema = z
     host: agentHostSchema,
     services: z.array(agentServiceSchema).max(16),
     comfy: z.array(agentComfySchema).max(8),
+    logs: z.array(agentLogSchema).max(4).optional(),
   })
   .strict()
   .refine((p) => new Set(p.gpus.map((g) => g.index)).size === p.gpus.length, {
@@ -252,6 +269,11 @@ export const fleetGpuMetricPointSchema = z.object({
   utilAvg: nn,
   vramUsedMax: nn,
   vramTotalMax: nn,
+  // Highest cumulative driver slowdown counter (microseconds) in the bucket. The difference
+  // between consecutive buckets is the time slowed in between; a drop means the driver reloaded.
+  hwThermalSlowdownUsMax: nn,
+  swThermalSlowdownUsMax: nn,
+  swPowerCapUsMax: nn,
 });
 export const fleetHostMetricPointSchema = z.object({
   t: z.string(),

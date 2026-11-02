@@ -83,6 +83,22 @@ export const FLEET_ALERT_RULES = {
       tempAtLeastC: { default: 80, min: 50, max: 110, unit: '°C', label: 'Temperature at least' },
     },
   },
+  thermal_slowdown: {
+    description:
+      'The driver reports it slowed the GPU for heat during the last 15 minutes. Read from the hardware thermal-slowdown counter, which moves even though the throttle bitmask stays 0x0 on these cards.',
+    severity: 'warning',
+    forSeconds: 60,
+    clearSeconds: 600,
+    params: {
+      slowedSecondsAbove: {
+        default: 30,
+        min: 1,
+        max: 900,
+        unit: 's',
+        label: 'Slowed for more than',
+      },
+    },
+  },
   gpu_temp_high: {
     description: 'A GPU has stayed above the temperature threshold.',
     severity: 'warning',

@@ -15,8 +15,9 @@ import { type Containers, startContainers } from '../helpers/containers';
 
 const RUN = randomUUID().slice(0, 8);
 const MIN = 60_000;
-// A whole-minute anchor a few hours back, so every test sample is "recent" and minute-aligned.
-const BASE = Math.floor((Date.now() - 3 * 60 * MIN) / MIN) * MIN;
+// A five-minute-aligned anchor a few hours back, so every test sample is "recent" and the
+// coarser 5-minute bins (24h window) never split the minutes a test expects to merge.
+const BASE = Math.floor((Date.now() - 3 * 60 * MIN) / (5 * MIN)) * (5 * MIN);
 
 describe('fleet rollups and metrics history', () => {
   let c: Containers;
@@ -60,6 +61,7 @@ describe('fleet rollups and metrics history', () => {
       smClockMhz?: number | null;
       powerW?: number | null;
       vram?: number | null;
+      hwThermalUs?: number | null;
     },
     host: { ramAvailMib?: number | null; swapUsedMib?: number | null; load1?: number | null } = {},
     gpuIndex = 0,
@@ -88,6 +90,7 @@ describe('fleet rollups and metrics history', () => {
       smClockMhz: gpu.smClockMhz ?? null,
       powerW: gpu.powerW ?? null,
       vramUsedMib: gpu.vram ?? null,
+      hwThermalSlowdownUs: gpu.hwThermalUs ?? null,
     });
   }
   const metrics = async (id: string, window = '6h', headers = superAuth) =>
@@ -247,6 +250,19 @@ describe('fleet rollups and metrics history', () => {
     const pts = body.gpus[0]?.points ?? [];
     expect(pts).toHaveLength(1);
     expect(pts[0]).toMatchObject({ n: 4, tempAvg: 25, tempMax: 30 });
+  });
+
+  it('carries the driver slowdown counter through the rollup as the highest value per bucket', async () => {
+    const id = await worker('slowdown');
+    // Cumulative microseconds: the bucket keeps the largest reading, a bucket with none stays null.
+    await sample(id, BASE + 1000, { tempC: 60, hwThermalUs: 5_000_000 });
+    await sample(id, BASE + 30_000, { tempC: 60, hwThermalUs: 7_000_000 });
+    await sample(id, BASE + MIN + 1000, { tempC: 60 });
+    await runFleetRollupTick(app, { lookbackMs: 4 * 60 * MIN });
+    const body = fleetMetricsSchema.parse((await metrics(id, '6h')).json());
+    const pts = body.gpus[0]?.points ?? [];
+    expect(pts[0]).toMatchObject({ hwThermalSlowdownUsMax: 7_000_000, swPowerCapUsMax: null });
+    expect(pts[1]?.hwThermalSlowdownUsMax).toBeNull();
   });
 
   it('answers a worker with no data with empty series and earliest null, not zeros', async () => {

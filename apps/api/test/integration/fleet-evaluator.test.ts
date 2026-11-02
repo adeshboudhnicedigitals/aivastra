@@ -2,11 +2,18 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { fleetAgentHeartbeatKey, fleetAgentLatestKey, fleetAgentRejectsKey } from '@aivastra/types';
 import { asc, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { runFleetEvaluatorTick } from '../../src/modules/fleet/evaluator';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { runFleetEvaluatorTick, thermalSlowedByWorker } from '../../src/modules/fleet/evaluator';
 import { adminAuthHeader } from '../helpers/admin';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
+
+// Captures alert emails instead of sending them: the dev .env holds a real Resend key.
+const sendFleetAlertEmail = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('../../src/lib/mailer', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/lib/mailer')>()),
+  sendFleetAlertEmail,
+}));
 
 // Redis outlives the per-run database, so ids are unique per run.
 const RUN = randomUUID().slice(0, 8);
@@ -170,6 +177,50 @@ describe('fleet alert evaluator', () => {
     expect(await incidents(id)).toHaveLength(0);
   });
 
+  it('emails warning incidents on open and recovery when recipients are set, and info ones never', async () => {
+    const env = app.env as { FLEET_ALERT_EMAILS?: string };
+    env.FLEET_ALERT_EMAILS = 'ops@example.com';
+    try {
+      sendFleetAlertEmail.mockClear();
+      const { id } = await monitoredWorker('mail');
+      await beat(id);
+      await app.redis.set(fleetAgentRejectsKey(id), '12', 'EX', 600);
+      await runFleetEvaluatorTick(app, { now: T0 });
+      await vi.waitFor(() => expect(sendFleetAlertEmail).toHaveBeenCalledTimes(1));
+      expect(sendFleetAlertEmail.mock.calls[0]?.[2]).toEqual(['ops@example.com']);
+      expect(sendFleetAlertEmail.mock.calls[0]?.[3]).toMatchObject({
+        kind: 'opened',
+        severity: 'warning',
+        workerId: id,
+        ruleKey: 'ingest_rejected',
+      });
+
+      await app.redis.del(fleetAgentRejectsKey(id));
+      await runFleetEvaluatorTick(app, { now: T0 + 1 * S });
+      await runFleetEvaluatorTick(app, { now: T0 + 601 * S });
+      await vi.waitFor(() => expect(sendFleetAlertEmail).toHaveBeenCalledTimes(2));
+      expect(sendFleetAlertEmail.mock.calls[1]?.[3]).toMatchObject({ kind: 'recovered' });
+
+      // swap_active is an info rule: it opens an incident but sends no mail.
+      sendFleetAlertEmail.mockClear();
+      const quiet = await monitoredWorker('mailquiet');
+      await beat(quiet.id);
+      const swapping = async (at: number) => {
+        await latest(quiet.id, at, {});
+        const body = JSON.parse((await app.redis.get(fleetAgentLatestKey(quiet.id))) as string);
+        body.host.swapUsedMib = 4096;
+        await app.redis.set(fleetAgentLatestKey(quiet.id), JSON.stringify(body), 'EX', 600);
+        await runFleetEvaluatorTick(app, { now: at });
+      };
+      await swapping(T0 + 2000 * S);
+      await swapping(T0 + 2601 * S);
+      expect((await incidents(quiet.id)).map((i) => i.ruleKey)).toContain('swap_active');
+      expect(sendFleetAlertEmail).not.toHaveBeenCalled();
+    } finally {
+      env.FLEET_ALERT_EMAILS = undefined;
+    }
+  });
+
   it('opens thermal_collapse only after it is sustained, with evidence, and recovers after clearing', async () => {
     const { id } = await monitoredWorker('thermal');
     await beat(id);
@@ -195,6 +246,55 @@ describe('fleet alert evaluator', () => {
     await latest(id, T0 + 320 * S);
     await runFleetEvaluatorTick(app, { now: T0 + 320 * S });
     expect((await incidents(id))[0]?.state).toBe('RECOVERED');
+  });
+
+  it('thermal_slowdown reads the rise of the driver counter and treats a reset as unknown', async () => {
+    const seed = (id: string, rows: { at: number; hw: number | null }[]) =>
+      app.db.insert(schema.fleetGpuSamples).values(
+        rows.map((r) => ({
+          workerId: id,
+          observedAt: new Date(r.at),
+          gpuIndex: 0,
+          hwThermalSlowdownUs: r.hw,
+        })),
+      );
+    const NOW = T0 + 1000 * S;
+
+    // 45 s of slowdown over 10 minutes: opens (limit 30 s) once it has lasted the rule window.
+    const slow = await monitoredWorker('slow');
+    await beat(slow.id);
+    await latest(slow.id, NOW);
+    await seed(slow.id, [
+      { at: NOW - 600 * S, hw: 1_000_000 },
+      { at: NOW - 300 * S, hw: 20_000_000 },
+      { at: NOW - 2 * S, hw: 46_000_000 },
+    ]);
+    await runFleetEvaluatorTick(app, { now: NOW });
+    await latest(slow.id, NOW + 60 * S);
+    await runFleetEvaluatorTick(app, { now: NOW + 60 * S });
+    const [inc] = await incidents(slow.id);
+    expect(inc).toMatchObject({ ruleKey: 'thermal_slowdown', state: 'OPEN', severity: 'warning' });
+    expect(inc?.evidence).toMatchObject({ slowedSeconds: 45, limitSeconds: 30 });
+
+    // A counter that fell (driver reload) and a single reading both say "cannot tell": the worker
+    // is absent from the result, so the rule reads unknown and cannot recover a live incident.
+    const reset = await monitoredWorker('reset');
+    await seed(reset.id, [
+      { at: NOW - 300 * S, hw: 900_000_000 },
+      { at: NOW - 2 * S, hw: 1_000 },
+    ]);
+    const lone = await monitoredWorker('lone');
+    await seed(lone.id, [{ at: NOW - 2 * S, hw: 900_000_000 }]);
+    const nulls = await monitoredWorker('nulls');
+    await seed(nulls.id, [
+      { at: NOW - 300 * S, hw: null },
+      { at: NOW - 2 * S, hw: null },
+    ]);
+    const got = await thermalSlowedByWorker(app, [slow.id, reset.id, lone.id, nulls.id], NOW);
+    expect(got.get(slow.id)).toBe(45_000);
+    expect(got.has(reset.id)).toBe(false);
+    expect(got.has(lone.id)).toBe(false);
+    expect(got.has(nulls.id)).toBe(false);
   });
 
   it('a flapping signal opens nothing and a telemetry gap does not recover a live incident', async () => {
