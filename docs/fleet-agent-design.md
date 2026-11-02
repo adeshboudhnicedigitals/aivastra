@@ -161,6 +161,9 @@ inventory table yet).
 | `fleet_commands` | see 8. |
 | `fleet_hosts`, `fleet_host_workers` | inventory (provider, GPU model, region, notes) and the worker-to-host mapping, editable in the dashboard. |
 
+**Retention: raw-sample deletion is implemented** (`apps/api/src/modules/fleet/retention.ts`, 48 h window,
+bounded batches); the 1-minute rollups below are not built yet. Design:
+
 **Retention** (loops in `apps/api/src/main.ts`, same style as the existing sweepers: `setInterval`, a
 re-entrancy guard, an exported tick, and an advisory lock so two api processes do not both run it):
 raw samples 48 h, 1-minute rollups 30 days, resolved incidents kept. Volume at 15 s intervals for 7

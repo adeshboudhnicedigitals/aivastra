@@ -15,6 +15,9 @@ export const FLEET_AGENT_MAX_ACTIVE_KEYS_PER_WORKER = 3;
 // wrong time. The agent spools at most five minutes, so this leaves room for a flush.
 export const FLEET_AGENT_MAX_PAST_MS = 10 * 60 * 1000;
 export const FLEET_AGENT_MAX_FUTURE_MS = 2 * 60 * 1000;
+// How long raw per-sample rows are kept. Longer history comes from the 1-minute rollups, which
+// do not exist yet: until they do, anything older than this is simply gone.
+export const FLEET_RAW_RETENTION_MS = 48 * 60 * 60 * 1000;
 // Heartbeat TTL in Redis: six missed 15 s intervals.
 export const FLEET_AGENT_HEARTBEAT_TTL_SEC = 90;
 export const FLEET_AGENT_LATEST_TTL_SEC = 60;
