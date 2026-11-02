@@ -4,6 +4,7 @@ import {
   FLEET_ALERT_RULES,
   fleetAgentKeyCreatedSchema,
   fleetAgentStatusSchema,
+  fleetAgentSummariesSchema,
   fleetAgentTelemetryViewSchema,
   fleetAlertRulesSchema,
   fleetIncidentDetailSchema,
@@ -44,6 +45,12 @@ describe('fleet contract fixtures', () => {
   )('%s matches the schema and its total agrees with its items', (f) => {
     const v = fleetIncidentListSchema.parse(read(f));
     expect(v.total).toBeGreaterThanOrEqual(v.items.length);
+  });
+
+  it('the agent summaries fixture matches its schema', () => {
+    const v = fleetAgentSummariesSchema.parse(read('agent-summaries.json'));
+    expect(v.workers.some((w) => w.telemetry === null)).toBe(true);
+    expect(v.workers.some((w) => w.telemetry !== null)).toBe(true);
   });
 
   it('the incident summary fixture matches its schema', () => {

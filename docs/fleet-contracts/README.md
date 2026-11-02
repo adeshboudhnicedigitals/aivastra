@@ -14,6 +14,7 @@ anywhere a real worker's data is expected: honesty rule 3 still applies.
 | `agent-status.never-connected.json` | same | no keys, no heartbeat |
 | `agent-status.silent.json` | same | key exists and was seen earlier, no heartbeat now |
 | `agent-status.rejecting.json` | same | no heartbeat but 42 rejected samples: trying and failing, not silent |
+| `agent-summaries.json` | `GET /admin/fleet/agents` | one row per agent-monitored worker for the overview grid; null = unknown |
 | `agent-key-created.json` | `POST /admin/fleet/workers/:id/agent-keys` (201) | the one response that carries `key` |
 | `agent-telemetry.fresh.json` | `GET /admin/fleet/workers/:id/telemetry` | healthy sample, foreign VRAM computed |
 | `agent-telemetry.thermal-collapse.json` | same | 87 C, SM clock 899 of 2430 MHz: `thermalCollapseNow: true` |

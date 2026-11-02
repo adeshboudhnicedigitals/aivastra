@@ -2,6 +2,32 @@
 
 Updated by the backend side only. Newest first.
 
+## 2026-11-02 (urgent, before the rest of brief 6): the overview grid shows no agent data
+
+The local API now receives REAL telemetry from the real boxes (workers `fleet-w1`..`fleet-w7`, collected
+over SSH by `pnpm --filter @aivastra/api fleet:collect`, user's local machine only). The overview grid
+still shows "No telemetry / GPU Not monitored / Host Not monitored" because `GET /admin/fleet` only
+carries dispatcher data (those workers are not in the dispatcher registry, so dispatcher columns stay
+UNKNOWN: that is correct). New additive endpoint, nothing else changed:
+
+`GET /admin/fleet/agents` (`fleet.view`) -> `{generatedAt, workers:[{workerId, heartbeatAt|null,
+telemetry|null: {observedAt, stale, gpuCount, tempMaxC, clockRatioMin, utilGpuPctMax, powerWTotal,
+vramUsedMib, vramTotalMib, ramAvailMib, ramTotalMib, swapUsedMib, diskUsedPctMax, comfy|null},
+incidents:{critical,warning,info}}]}`. Fixture: `docs/fleet-contracts/agent-summaries.json`.
+
+Do this FIRST:
+1. Poll it with the existing 15 s overview refresh, merge by `workerId` (keep `/admin/fleet` parser as is).
+2. Where the dispatcher gives nothing, fill the GPU and Host cells from it: temperature (worst GPU),
+   clock ratio, utilisation, power, VRAM used/total, RAM available, swap, disk %. Label the source
+   "agent". Do not mix with ComfyUI's own numbers in one cell: if both exist show agent and note the
+   dispatcher value only on hover/detail. `stale: true` = historical, say so.
+3. Replace "GPU/Host Not monitored" by the truth: a worker missing from this list is "no agent";
+   monitored with `telemetry: null` is "agent has not reported"; otherwise real values.
+4. Show the open-incident counts as a badge on the row (critical first), linking to Incidents filtered by
+   that worker.
+5. `null` fields = "unknown", never 0. Disk >= 90 % should look warning, matching the alert rule.
+Same constraints as before.
+
 ## 2026-11-02 (review of brief 5) and brief 6
 
 **Review result:** accepted. I re-ran typecheck, 88 tests, Biome (38 files) and the build, then ran your
