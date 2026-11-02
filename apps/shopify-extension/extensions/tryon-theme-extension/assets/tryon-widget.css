@@ -1068,7 +1068,7 @@
 
 /* The block's button fills its parent, so it matches the theme's Add to cart and
    Buy it now buttons stacked with it. The icon badge keeps its own size. */
-.aivastra-tryon .aivastra-tryon__button:not(.aivastra-tryon__icon-btn) {
+.aivastra-tryon .aivastra-tryon__button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1085,10 +1085,10 @@
    which stretched this wrapper over the whole image with the icon stuck at its
    top-left. Only the button inside takes clicks, so the wrapper never blocks the
    image. */
-.aivastra-tryon--icon {
+.aivastra-tryon.aivastra-tryon--icon {
   position: absolute !important;
-  top: 8px !important;
-  right: 8px !important;
+  top: 12px !important;
+  right: 12px !important;
   bottom: auto !important;
   left: auto !important;
   width: auto !important;
@@ -1104,7 +1104,7 @@
 .aivastra-tryon--icon .aivastra-tryon__icon-btn {
   pointer-events: auto;
 }
-.aivastra-tryon--icon.aivastra-tryon--floating {
+.aivastra-tryon.aivastra-tryon--icon.aivastra-tryon--floating {
   position: fixed !important;
   top: auto !important;
   right: 16px !important;
@@ -1115,13 +1115,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: auto;
+  width: 108px;
   height: 32px;
   min-height: 0;
   box-sizing: border-box;
   line-height: 1;
   gap: 4px;
-  padding: 0 14px;
+  padding: 0;
   border: 0;
   /* Fixed radius: a pill at this height. */
   border-radius: 20px;
