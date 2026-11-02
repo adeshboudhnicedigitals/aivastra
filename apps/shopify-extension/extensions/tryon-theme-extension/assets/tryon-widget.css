@@ -1077,6 +1077,12 @@
   /* Text scales with the height so a short button does not clip it. */
   font-size: clamp(12px, calc(var(--aivastra-button-height, 48px) * 0.36), 22px);
   box-sizing: border-box;
+  /* Fill over border, both as images so either can be a gradient: the border
+     layer shows through the transparent border, the fill is clipped inside it. */
+  border: var(--aivastra-border-width, 0px) solid transparent;
+  background:
+    var(--aivastra-button-fill, linear-gradient(#000, #000)) padding-box,
+    var(--aivastra-button-border, linear-gradient(#000, #000)) border-box;
   transition:
     transform 0.15s ease,
     box-shadow 0.15s ease;
@@ -1097,6 +1103,19 @@
   .aivastra-tryon .aivastra-tryon__button:hover {
     transform: none;
   }
+}
+
+/* Gradient text: the gradient is the label's background, clipped to its glyphs.
+   The icon is a mask, so it takes the same gradient as its background. */
+.aivastra-tryon .aivastra-tryon__button .aivastra-tryon__btn-label {
+  background: var(--aivastra-button-text, linear-gradient(#fff, #fff));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.aivastra-tryon .aivastra-tryon__button .aivastra-tryon__btn-icon {
+  background: var(--aivastra-button-text, linear-gradient(#fff, #fff));
 }
 
 /* The embed's icon: a badge on the product image.
@@ -1162,14 +1181,57 @@
   outline: 2px solid #fff;
   outline-offset: 2px;
 }
-.aivastra-tryon .aivastra-tryon__icon-btn::before,
-.aivastra-tryon .aivastra-tryon__icon-btn::after {
+.aivastra-tryon .aivastra-tryon__icon-btn::before {
   content: none;
 }
-.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__btn-svg {
+/* A soft highlight sweeps across the pill every few seconds to draw the eye
+   without moving the layout. Clipped by the pill's own radius. */
+.aivastra-tryon .aivastra-tryon__icon-btn {
+  position: relative;
+  overflow: hidden;
+  transition: filter 0.15s ease;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: translateX(-120%) skewX(-20deg);
+  animation: aivastra-tryon-shine 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn:hover {
+  filter: brightness(0.85);
+}
+@keyframes aivastra-tryon-shine {
+  0%,
+  60% {
+    transform: translateX(-120%) skewX(-20deg);
+  }
+  100% {
+    transform: translateX(380%) skewX(-20deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aivastra-tryon .aivastra-tryon__icon-btn::after {
+    animation: none;
+    content: none;
+  }
+  .aivastra-tryon .aivastra-tryon__icon-btn {
+    transition: none;
+  }
+}
+/* Same masked icon as the block button; the flex gap replaces its margin. */
+.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__btn-icon {
   flex: none;
   width: 20px;
   height: 20px;
+  margin: 0;
+  vertical-align: baseline;
+  background-color: #fff;
   pointer-events: none;
 }
 .aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__icon-label {
