@@ -1,0 +1,17 @@
+{
+  "workerId": "worker-5",
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "keys": [
+    {
+      "id": "0b6f6c8a-1111-4c1e-9d11-000000000003",
+      "label": "gpu5 main",
+      "keyPrefix": "fa_Hn3wD8sE",
+      "createdAt": "2026-10-30T08:00:00.000Z",
+      "revokedAt": null,
+      "lastSeenAt": "2026-11-02T09:41:10.000Z",
+      "agentVersion": "0.1.0"
+    }
+  ],
+  "heartbeat": null,
+  "rejectsLastHour": 0
+}

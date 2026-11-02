@@ -1,0 +1,31 @@
+{
+  "workerId": "tryon-worker-4",
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "keys": [
+    {
+      "id": "0b6f6c8a-1111-4c1e-9d11-000000000001",
+      "label": "gpu4 main",
+      "keyPrefix": "fa_Qx7mK2pL",
+      "createdAt": "2026-11-01T08:00:00.000Z",
+      "revokedAt": null,
+      "lastSeenAt": "2026-11-02T09:59:50.000Z",
+      "agentVersion": "0.1.0"
+    },
+    {
+      "id": "0b6f6c8a-1111-4c1e-9d11-000000000002",
+      "label": "old key (rotated out)",
+      "keyPrefix": "fa_Zr9tB4vN",
+      "createdAt": "2026-10-20T08:00:00.000Z",
+      "revokedAt": "2026-11-01T08:05:00.000Z",
+      "lastSeenAt": "2026-11-01T08:04:40.000Z",
+      "agentVersion": "0.1.0"
+    }
+  ],
+  "heartbeat": {
+    "receivedAt": "2026-11-02T09:59:58.000Z",
+    "observedAt": "2026-11-02T09:59:57.600Z",
+    "agentVersion": "0.1.0",
+    "bootId": "3f1c2b4a-0000-4000-8000-000000000001"
+  },
+  "rejectsLastHour": 0
+}
