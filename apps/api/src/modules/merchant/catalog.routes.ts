@@ -661,7 +661,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         .limit(1);
       if (!existing) throw new AppError('NOT_FOUND', 404, 'catalog item not found');
 
-      // A held-batch product is materialized inactive with ₹0 prices and no SKU
+      // A held-batch product is materialized inactive with ₹0 prices and no SKU (SKU is optional)
       // (see /reconcile-held). Filling those in is what publishes it to the
       // kiosk. The ₹0 test is what distinguishes it from a product the merchant
       // priced and then deliberately switched off — that one stays off.
@@ -671,10 +671,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         existing.actualPricePaise === 0 &&
         existing.offerPricePaise === 0;
       const completesDetails =
-        !!body.sku?.trim() &&
-        body.actualPrice !== undefined &&
-        body.actualPrice > 0 &&
-        body.offerPrice !== undefined;
+        body.actualPrice !== undefined && body.actualPrice > 0 && body.offerPrice !== undefined;
       const autoActivate = isPendingHeldProduct && completesDetails && body.isActive === undefined;
 
       const [updated] = await app.db
