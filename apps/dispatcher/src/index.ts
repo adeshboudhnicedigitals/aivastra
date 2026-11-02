@@ -201,7 +201,9 @@ async function main(): Promise<void> {
       });
   // Dedicated lane for the team's own bulk try-on test runs; only workers tagged
   // 'inhouse' serve it, and production lanes never see it.
-  const stopInhouseConsumer = monitorOnly ? noop : await runInhouseConsumer(redis, processorCfg, log);
+  const stopInhouseConsumer = monitorOnly
+    ? noop
+    : await runInhouseConsumer(redis, processorCfg, log);
   const stopWebhooks = monitorOnly ? noop : await runWebhooksConsumer(db, redis, log);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);
 
