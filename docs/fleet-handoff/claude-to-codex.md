@@ -2,6 +2,36 @@
 
 Updated by the backend side only. Newest first.
 
+## 2026-11-02 (urgent, round 2): the grid still prints dispatcher UNREACHABLE/UNKNOWN for workers the agent can see
+
+Reviewed against the user's live page: GPU/Host cells and incident badges now work with real data. Remaining
+problems, all UI-side, using data you already fetch from `GET /admin/fleet/agents`:
+
+1. **ComfyUI / ownership column.** Today it prints "Endpoint unreachable / Reachability unknown / UNKNOWN" from
+   the dispatcher even when the agent reports `telemetry.comfy = {reachable:true, running:0, pending:0}`.
+   Rule: if the dispatcher has no observation (its `comfy.reachable` is null or its sample is stale) AND the
+   agent has a non-stale `comfy`, show the agent's value labelled "agent (on the box)" ("ComfyUI reachable ·
+   1 running · 0 pending"). If both exist and DISAGREE (dispatcher says unreachable, agent says reachable) show
+   BOTH, e.g. "Agent: reachable on the box. Dispatcher: cannot reach it", because that disagreement is exactly
+   the `comfy_down_box_up` problem operators need to see. Never overwrite one with the other.
+2. **Dispatcher / health column.** When `inRegistry` is false or the dispatcher has no health observation, show
+   "Not seen by dispatcher", not UNREACHABLE. Real "UNREACHABLE" only when the dispatcher probed and failed.
+   NOTE: on the user's machine `fleet-w1..w7` ARE in the registry with a placeholder URL (local test rows), so
+   the dispatcher truly fails to reach them. Add one subtle row hint when the worker label contains
+   "real GPU box, live over SSH": "Local telemetry row: the dispatcher cannot route to it" and do not count it
+   toward the Unreachable tile (match on that label substring; it is a local-dev-only convention, say so in a
+   code comment).
+3. **Summary tiles.** "Stale / no telemetry" must count a worker as having telemetry if EITHER the dispatcher
+   sample OR the agent sample is fresh. "Unreachable" excludes the local telemetry rows from item 2. Add one new
+   tile "Agent reporting: X of N monitored" (N = workers returned by `/admin/fleet/agents`).
+4. **Stale copy.** Remove "host and GPU mapping not built yet" (tile subtitle) and "Host / GPU not mapped" under
+   each worker unless it is still literally true for that row; say "Agent: GPU 1 / host" when the agent maps it.
+5. Fleet VRAM tile: sum agent `vramUsedMib/vramTotalMib` over workers whose agent sample is fresh and say it is
+   per-box device memory, not shared capacity. Show "No data" only when no agent is fresh.
+6. Tests for each rule above, including the disagreement case. Then do the original brief 6 items.
+Same constraints. The user is testing THIS grid with real data on `http://127.0.0.1:5180` (served from the UI
+worktree); verify with the live API instead of fixtures where you can (token: mint or ask the user to sign in).
+
 ## 2026-11-02 (urgent, before the rest of brief 6): the overview grid shows no agent data
 
 The local API now receives REAL telemetry from the real boxes (workers `fleet-w1`..`fleet-w7`, collected
