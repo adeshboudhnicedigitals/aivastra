@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AuthError, login, logout, refresh } from './auth';
+import { AuthError, fetchWithRefresh, login, logout, refresh } from './auth';
 
 const respond = (status: number, json?: unknown) =>
   (async () =>
@@ -67,5 +67,54 @@ describe('refresh', () => {
 describe('logout', () => {
   it('never throws, even when the API is unreachable', async () => {
     await expect(logout('http://api.invalid', down)).resolves.toBeUndefined();
+  });
+});
+
+describe('fetchWithRefresh', () => {
+  it('retries an unauthorized request once with the refreshed token', async () => {
+    const tokens: string[] = [];
+    const expired: string[] = [];
+    const response = await fetchWithRefresh(
+      async (token) => {
+        tokens.push(token);
+        return new Response(null, { status: token === 'old' ? 401 : 200 });
+      },
+      'old',
+      { refreshAccessToken: async () => 'fresh', onSessionExpired: () => expired.push('expired') },
+    );
+    expect(response.status).toBe(200);
+    expect(tokens).toEqual(['old', 'fresh']);
+    expect(expired).toEqual([]);
+  });
+
+  it('ends the session when refresh returns no token', async () => {
+    const expired: string[] = [];
+    await expect(
+      fetchWithRefresh(async () => new Response(null, { status: 401 }), 'old', {
+        refreshAccessToken: async () => null,
+        onSessionExpired: () => expired.push('expired'),
+      }),
+    ).rejects.toMatchObject({ message: 'Session expired, sign in again.' });
+    expect(expired).toEqual(['expired']);
+  });
+
+  it('ends the session when the retried request is also unauthorized', async () => {
+    const expired: string[] = [];
+    let attempts = 0;
+    await expect(
+      fetchWithRefresh(
+        async () => {
+          attempts += 1;
+          return new Response(null, { status: 401 });
+        },
+        'old',
+        {
+          refreshAccessToken: async () => 'fresh',
+          onSessionExpired: () => expired.push('expired'),
+        },
+      ),
+    ).rejects.toMatchObject({ message: 'Session expired, sign in again.' });
+    expect(attempts).toBe(2);
+    expect(expired).toEqual(['expired']);
   });
 });

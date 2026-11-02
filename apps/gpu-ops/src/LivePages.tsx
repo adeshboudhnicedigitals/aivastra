@@ -1,5 +1,9 @@
-import { useEffect, useState } from 'react';
-import type { FleetSnapshot } from './contracts';
+import { useEffect, useRef, useState } from 'react';
+import { AccessibleDialog } from './AccessibleDialog';
+import { AgentTab, HardwareTab } from './AgentPanels';
+import type { AuthRecovery } from './auth';
+import type { FleetSnapshot, FleetWorkerView } from './contracts';
+import { drainErrorMessage, drainWorker } from './live-agent';
 import {
   type LiveJob,
   type LiveJobDetail,
@@ -586,19 +590,32 @@ export function WorkerLivePanel({
   token,
   workerId,
   onOpenJob,
+  isDraining,
+  onFleetRefresh,
+  dispatcherComfy,
+  authRecovery,
 }: {
   baseUrl: string;
   token: string;
   workerId: string;
   onOpenJob: (id: string) => void;
+  isDraining: boolean;
+  onFleetRefresh: () => Promise<boolean>;
+  dispatcherComfy: FleetWorkerView['comfy'];
+  authRecovery: AuthRecovery;
 }) {
-  const [tab, setTab] = useState<'overview' | 'jobs' | 'config'>('overview');
+  const [tab, setTab] = useState<'overview' | 'jobs' | 'config' | 'agent' | 'hardware'>('overview');
   const [config, setConfig] = useState<LiveWorkerConfig | null>(null);
   const [history, setHistory] = useState<LiveWorkerHistory | null>(null);
   const [historyError, setHistoryError] = useState<Error | null>(null);
   const [jobs, setJobs] = useState<LiveJob[]>([]);
   const [configError, setConfigError] = useState<Error | null>(null);
   const [jobsError, setJobsError] = useState<Error | null>(null);
+  const [drainDialog, setDrainDialog] = useState(false);
+  const [drainReason, setDrainReason] = useState('');
+  const [drainBusy, setDrainBusy] = useState(false);
+  const [drainMessage, setDrainMessage] = useState<string | null>(null);
+  const drainButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     let current = true;
     loadWorkerConfig(baseUrl, token, workerId)
@@ -648,7 +665,7 @@ export function WorkerLivePanel({
         </button>
       </div>
       <div className="live-tabs" role="tablist" aria-label="Worker detail sections">
-        {(['overview', 'jobs', 'config'] as const).map((item) => (
+        {(['overview', 'jobs', 'config', 'agent', 'hardware'] as const).map((item) => (
           <button
             key={item}
             type="button"
@@ -656,7 +673,15 @@ export function WorkerLivePanel({
             aria-selected={tab === item}
             onClick={() => setTab(item)}
           >
-            {item === 'overview' ? 'Overview' : item === 'jobs' ? 'Jobs' : 'Config'}
+            {item === 'overview'
+              ? 'Overview'
+              : item === 'jobs'
+                ? 'Jobs'
+                : item === 'config'
+                  ? 'Config'
+                  : item === 'agent'
+                    ? 'Agent'
+                    : 'Hardware'}
           </button>
         ))}
       </div>
@@ -678,15 +703,33 @@ export function WorkerLivePanel({
         </div>
       )}
       {tab === 'overview' && (
-        <div className="permission-panel">
-          <strong>Drain controls are unavailable</strong>
-          <p>
-            The current API route does not accept or audit a typed reason, so this UI will not send
-            a drain or undrain request.
-          </p>
-          <button type="button" className="button-secondary" disabled>
-            Drain / undrain
+        <div className="worker-drain-actions">
+          <div>
+            <strong>Routing control</strong>
+            <p>
+              {isDraining
+                ? 'This worker is draining and will not receive new jobs.'
+                : 'Draining stops new jobs; its current job can finish.'}{' '}
+              The dispatcher holds this state in memory, so a dispatcher restart clears it.
+            </p>
+          </div>
+          <button
+            ref={drainButtonRef}
+            className={isDraining ? 'button-secondary' : 'button-danger'}
+            type="button"
+            onClick={() => {
+              setDrainReason('');
+              setDrainMessage(null);
+              setDrainDialog(true);
+            }}
+          >
+            {isDraining ? 'Undrain worker' : 'Drain worker'}
           </button>
+          {drainMessage && (
+            <div className="permission-panel" role="status">
+              {drainMessage}
+            </div>
+          )}
         </div>
       )}
       {tab === 'overview' && (
@@ -809,6 +852,105 @@ export function WorkerLivePanel({
         ) : (
           <p aria-live="polite">Loading registered worker configuration…</p>
         ))}
+      {tab === 'agent' && (
+        <AgentTab baseUrl={baseUrl} token={token} workerId={workerId} authRecovery={authRecovery} />
+      )}
+      {tab === 'hardware' && (
+        <HardwareTab
+          baseUrl={baseUrl}
+          token={token}
+          workerId={workerId}
+          dispatcherComfy={dispatcherComfy}
+          authRecovery={authRecovery}
+        />
+      )}
+      {drainDialog && (
+        <AccessibleDialog
+          title={isDraining ? `Undrain ${workerId}?` : `Drain ${workerId}?`}
+          onClose={() => setDrainDialog(false)}
+          returnFocusRef={drainButtonRef}
+        >
+          <p>
+            {isDraining
+              ? `Lets ${workerId} take new jobs again.`
+              : `Stops sending NEW jobs to ${workerId}; the job it is running finishes.`}
+          </p>
+          <p className="muted">
+            The dispatcher holds drain state in memory. A dispatcher restart clears it.
+          </p>
+          {drainMessage && (
+            <p className="permission-panel" role="alert">
+              {drainMessage}
+            </p>
+          )}
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const reason = drainReason.trim();
+              if (reason.length < 3 || reason.length > 300) return;
+              setDrainBusy(true);
+              setDrainMessage(null);
+              try {
+                const result = await drainWorker(
+                  baseUrl,
+                  token,
+                  workerId,
+                  isDraining ? 'undrain' : 'drain',
+                  reason,
+                  undefined,
+                  authRecovery,
+                );
+                setDrainDialog(false);
+                setDrainReason('');
+                if (result.changed) {
+                  const refreshed = await onFleetRefresh();
+                  setDrainMessage(
+                    refreshed
+                      ? 'State refreshed from the fleet API.'
+                      : 'The request succeeded, but the fleet refresh failed. The displayed state may be stale.',
+                  );
+                } else
+                  setDrainMessage(
+                    `Already ${isDraining ? 'not draining' : 'draining'} — nothing changed.`,
+                  );
+              } catch (cause) {
+                setDrainMessage(drainErrorMessage(cause));
+              } finally {
+                setDrainBusy(false);
+              }
+            }}
+          >
+            <label>
+              Reason (required)
+              <textarea
+                minLength={3}
+                maxLength={300}
+                rows={4}
+                value={drainReason}
+                onChange={(event) => setDrainReason(event.target.value)}
+                placeholder="Why is this routing change needed?"
+              />
+            </label>
+            <small>{drainReason.trim().length} / 300 characters · at least 3 required</small>
+            <div className="dialog-actions">
+              <button
+                className="button-secondary"
+                type="button"
+                onClick={() => setDrainDialog(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="button-danger"
+                type="submit"
+                disabled={drainBusy || drainReason.trim().length < 3}
+              >
+                {drainBusy ? 'Saving…' : isDraining ? 'Confirm undrain' : 'Confirm drain'}
+              </button>
+            </div>
+          </form>
+        </AccessibleDialog>
+      )}
     </section>
   );
 }

@@ -1,5 +1,7 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityPage } from './ActivityPage';
+import { DevStateGallery } from './AgentPanels';
+import type { AuthRecovery } from './auth';
 import { login, logout, refresh } from './auth';
 import { ConfigurationPage } from './ConfigurationPage';
 import { LoginForm } from './Connect';
@@ -7,9 +9,11 @@ import type { FleetSnapshot, FleetWorkerView, IncidentView } from './contracts';
 import { EvidencePage } from './EvidencePage';
 import { fixtureRepository } from './fixtures';
 import { HostResources } from './HostResources';
+import { AlertRulesPage, IncidentFixtureGallery, LiveIncidentsPage } from './IncidentsPages';
 import { InventoryEditor } from './InventoryEditor';
 import { LiveJobsPage, LiveQueuePage, WorkerLivePanel } from './LivePages';
 import { createLiveRepository, FleetLoadError } from './live';
+import { type IncidentSummary, loadIncidentSummary } from './live-incidents';
 import { display, fleetCounts, freshness, grafanaLink, reconciliation, signals } from './model';
 import type { OperationsManager } from './OperationsControls';
 import { IncidentActions, OperationsControls, useOperationsDemo } from './OperationsControls';
@@ -27,7 +31,8 @@ type Page =
   | 'queue'
   | 'configuration'
   | 'evidence'
-  | 'activity';
+  | 'activity'
+  | 'rules';
 type LivePage = Page | 'jobs';
 const pages: { id: Page; label: string; icon: string }[] = [
   { id: 'fleet', label: 'Fleet overview', icon: '◫' },
@@ -43,6 +48,8 @@ const livePages: { id: LivePage; label: string; icon: string }[] = [
   { id: 'fleet', label: 'Fleet overview', icon: '◫' },
   { id: 'jobs', label: 'Jobs debug', icon: '≋' },
   { id: 'queue', label: 'Queue lanes', icon: '▤' },
+  { id: 'incidents', label: 'Incidents', icon: '◇' },
+  { id: 'rules', label: 'Alert rules', icon: '⚑' },
 ];
 function tone(text: string) {
   if (['UNREACHABLE', 'CRITICAL', 'HIGH', 'FOREIGN', 'OPEN', 'ERROR'].includes(text))
@@ -128,23 +135,32 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   // In memory only: a reload or new tab recovers it from the httpOnly refresh cookie.
   const [token, setToken] = useState<string | null>(null);
+  const accessToken = useRef<string | null>(null);
   const [booting, setBooting] = useState(FLEET_API_URL !== null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const lastRefreshAt = useRef(0);
+  const refreshInFlight = useRef<Promise<string | null> | null>(null);
   const [refreshFailed, setRefreshFailed] = useState(false);
-  const refreshNow = useRef<() => void>(() => undefined);
+  const [incidentSummary, setIncidentSummary] = useState<IncidentSummary | null>(null);
+  const refreshNow = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('gpu-ops-theme');
     return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showDevGallery, setShowDevGallery] = useState(
+    () => import.meta.env.DEV && window.location.hash === '#/dev/states',
+  );
   const shortcutPrefix = useRef(false);
   const hasData = useRef(false);
   const initialParams = new URLSearchParams(window.location.search);
   const [page, setPage] = useState<LivePage>(() => {
     const value = initialParams.get('page') ?? (initialParams.has('job') ? 'jobs' : 'fleet');
-    return value && ['fleet', 'jobs', 'queue'].includes(value) ? (value as LivePage) : 'fleet';
+    return value &&
+      ['fleet', 'jobs', 'queue', 'incidents', ...(FLEET_API_URL ? ['rules'] : [])].includes(value)
+      ? (value as LivePage)
+      : 'fleet';
   });
   const [workerId, setWorkerId] = useState<string | null>(() => initialParams.get('worker'));
   const [query, setQuery] = useState(() => initialParams.get('q') ?? '');
@@ -153,12 +169,49 @@ export function App() {
   const [sortBy, setSortBy] = useState<'worker' | 'health' | 'state'>('worker');
   const [incidentId, setIncidentId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(() => initialParams.get('job'));
+  const expireSession = useCallback(() => {
+    hasData.current = false;
+    accessToken.current = null;
+    setSnapshot(null);
+    setToken(null);
+    setAuthMessage('Session expired, sign in again.');
+  }, []);
+  const renewAccessToken = useCallback(async () => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+    if (!FLEET_API_URL) return null;
+    if (Date.now() - lastRefreshAt.current <= REAUTH_COOLDOWN_MS) return accessToken.current;
+    const pending = refresh(FLEET_API_URL)
+      .then((fresh) => {
+        if (fresh) {
+          lastRefreshAt.current = Date.now();
+          accessToken.current = fresh;
+          setToken(fresh);
+        }
+        return fresh;
+      })
+      .catch(() => null)
+      .finally(() => {
+        refreshInFlight.current = null;
+      });
+    refreshInFlight.current = pending;
+    return pending;
+  }, []);
+  const authRecovery = useMemo<AuthRecovery>(
+    () => ({
+      refreshAccessToken: renewAccessToken,
+      onSessionExpired: expireSession,
+    }),
+    [renewAccessToken, expireSession],
+  );
   useEffect(() => {
     const restore = () => {
       const params = new URLSearchParams(window.location.search);
       const nextPage = params.get('page');
       setPage(
-        nextPage && ['fleet', 'jobs', 'queue'].includes(nextPage)
+        nextPage &&
+          ['fleet', 'jobs', 'queue', 'incidents', ...(FLEET_API_URL ? ['rules'] : [])].includes(
+            nextPage,
+          )
           ? (nextPage as LivePage)
           : 'fleet',
       );
@@ -169,6 +222,12 @@ export function App() {
     };
     window.addEventListener('popstate', restore);
     return () => window.removeEventListener('popstate', restore);
+  }, []);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const updateGallery = () => setShowDevGallery(window.location.hash === '#/dev/states');
+    window.addEventListener('hashchange', updateGallery);
+    return () => window.removeEventListener('hashchange', updateGallery);
   }, []);
   const writeRoute = (
     next: { page?: LivePage; worker?: string | null; job?: string | null },
@@ -195,6 +254,7 @@ export function App() {
       .then((value) => {
         if (!current) return;
         lastRefreshAt.current = Date.now();
+        accessToken.current = value;
         setToken(value);
       })
       .catch((err: unknown) => {
@@ -218,46 +278,64 @@ export function App() {
       repository
         .load()
         .then((value) => {
-          if (!current) return;
+          if (!current) return false;
           hasData.current = true;
           setSnapshot(value);
           setError(null);
           setRefreshFailed(false);
+          return true;
         })
         .catch((err: unknown) => {
-          if (!current) return;
+          if (!current) return false;
           if (err instanceof FleetLoadError && err.kind === 'UNAUTHORIZED') {
             // Access tokens are short-lived: try the session cookie once before asking again.
-            const retry =
-              FLEET_API_URL && Date.now() - lastRefreshAt.current > REAUTH_COOLDOWN_MS
-                ? refresh(FLEET_API_URL).catch(() => null)
-                : Promise.resolve(null);
-            return retry.then((fresh) => {
-              if (!current) return;
-              if (fresh) {
-                lastRefreshAt.current = Date.now();
-                setToken(fresh);
-                return;
-              }
-              hasData.current = false;
-              setSnapshot(null);
-              setToken(null);
-              setAuthMessage('Your session has expired. Sign in again.');
+            return renewAccessToken().then((fresh) => {
+              if (!current) return false;
+              if (!fresh) expireSession();
+              return false;
             });
           }
           // Keep the last good snapshot on screen: its asOf is unchanged, so freshness ages
           // it to STALE on its own, and the banner says why.
           if (hasData.current) setRefreshFailed(true);
           else setError(err instanceof Error ? err.message : 'Fleet data unavailable');
+          return false;
         });
-    refreshNow.current = () => void load();
+    refreshNow.current = () => load();
     void load();
     const timer = FLEET_API_URL && autoRefresh ? setInterval(load, REFRESH_MS) : undefined;
     return () => {
       current = false;
       clearInterval(timer);
     };
-  }, [token, autoRefresh]);
+  }, [token, autoRefresh, expireSession, renewAccessToken]);
+  useEffect(() => {
+    if (!FLEET_API_URL || !token) {
+      setIncidentSummary(null);
+      return;
+    }
+    let active = true;
+    const poll = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const summary = await loadIncidentSummary(FLEET_API_URL, token, { recovery: authRecovery });
+        if (active) setIncidentSummary(summary);
+      } catch {
+        if (active) setIncidentSummary(null);
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void poll();
+    };
+    void poll();
+    const timer = window.setInterval(poll, 30_000);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [token, authRecovery]);
   useEffect(() => {
     document.body.dataset.theme = darkMode ? 'dark' : 'light';
     localStorage.setItem('gpu-ops-theme', darkMode ? 'dark' : 'light');
@@ -266,6 +344,7 @@ export function App() {
     if (!FLEET_API_URL) return;
     void logout(FLEET_API_URL);
     hasData.current = false;
+    accessToken.current = null;
     setSnapshot(null);
     setToken(null);
     setAuthMessage(null);
@@ -294,12 +373,19 @@ export function App() {
         return;
       }
       if (event.key === 'g') shortcutPrefix.current = true;
-      if (event.key === 'r' && FLEET_API_URL) refreshNow.current();
+      if (event.key === 'r' && FLEET_API_URL) void refreshNow.current();
       if (event.key === 'Escape') setShowShortcuts(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+  if (showDevGallery)
+    return (
+      <>
+        <DevStateGallery />
+        <IncidentFixtureGallery />
+      </>
+    );
   if (FLEET_API_URL && booting)
     return (
       <main className="load-state" aria-live="polite">
@@ -314,6 +400,7 @@ export function App() {
         onLogin={async (email, password) => {
           const value = await login(FLEET_API_URL, email, password);
           lastRefreshAt.current = Date.now();
+          accessToken.current = value;
           setAuthMessage(null);
           setToken(value);
         }}
@@ -391,6 +478,7 @@ export function App() {
         configuration: 'Instance configuration',
         evidence: 'Evidence workspace',
         activity: 'Activity log',
+        rules: 'Alert rules',
       }[page];
   const filtered = data.workers.filter(
     (worker) =>
@@ -459,7 +547,21 @@ export function App() {
             >
               <span aria-hidden="true">{item.icon}</span>
               {item.label}
-              {item.id === 'incidents' && <b>{counts.incidents}</b>}
+              {item.id === 'incidents' && (
+                <b
+                  title={
+                    incidentSummary
+                      ? `${incidentSummary.open + incidentSummary.acknowledged} active incidents`
+                      : 'Incident count unknown'
+                  }
+                >
+                  {live
+                    ? incidentSummary
+                      ? incidentSummary.open + incidentSummary.acknowledged
+                      : 'Unknown'
+                    : counts.incidents}
+                </b>
+              )}
             </button>
           ))}
         </nav>
@@ -491,7 +593,11 @@ export function App() {
                 >
                   {autoRefresh ? 'Pause refresh' : 'Resume refresh'}
                 </button>
-                <button type="button" className="link-button" onClick={() => refreshNow.current()}>
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => void refreshNow.current()}
+                >
                   Refresh
                 </button>
                 <button
@@ -557,9 +663,9 @@ export function App() {
                   Worker state, health and queue come from the dispatcher registry; VRAM, host RAM
                   and queued prompts from each worker's ComfyUI. Ownership matches those prompts to
                   dispatched jobs, so "unattributed" means no dispatch record, not a known outsider.
-                  Host and GPU mapping, utilisation, temperature, disk, incidents and jobs are not
-                  connected yet and show as unknown. Last activity is the registry's last job or
-                  status change, not a liveness signal.
+                  Host and GPU mapping, utilisation, temperature and disk remain unknown where no
+                  agent sample exists. Incident records are shown in the Incidents view. Last
+                  activity is the registry's last job or status change, not a liveness signal.
                 </span>
               </div>
             </>
@@ -585,6 +691,19 @@ export function App() {
             />
           ) : live && page === 'queue' ? (
             <LiveQueuePage data={data} stale={refreshFailed} openJobs={() => nav('jobs')} />
+          ) : live && page === 'incidents' ? (
+            <LiveIncidentsPage
+              baseUrl={FLEET_API_URL ?? ''}
+              token={token ?? ''}
+              authRecovery={authRecovery}
+              onOpenRules={() => nav('rules')}
+            />
+          ) : live && page === 'rules' ? (
+            <AlertRulesPage
+              baseUrl={FLEET_API_URL ?? ''}
+              token={token ?? ''}
+              authRecovery={authRecovery}
+            />
           ) : selected ? (
             <WorkerDetail
               operations={operations}
@@ -600,6 +719,8 @@ export function App() {
               openJob={openJob}
               liveBaseUrl={FLEET_API_URL}
               token={token}
+              onFleetRefresh={() => refreshNow.current()}
+              authRecovery={authRecovery}
               onOpenJob={(id) => {
                 writeRoute({ page: 'jobs', worker: null, job: id });
                 setPage('jobs');
@@ -1162,6 +1283,8 @@ function WorkerDetail({
   openJob,
   liveBaseUrl,
   token,
+  authRecovery,
+  onFleetRefresh,
   onOpenJob,
 }: {
   operations: OperationsManager;
@@ -1174,6 +1297,8 @@ function WorkerDetail({
   openJob: (id: string) => void;
   liveBaseUrl: string | null;
   token: string | null;
+  authRecovery: AuthRecovery;
+  onFleetRefresh: () => Promise<boolean>;
   onOpenJob: (id: string) => void;
 }) {
   const host = data.hosts.find((item) => item.id === worker.hostId);
@@ -1403,6 +1528,10 @@ function WorkerDetail({
           baseUrl={liveBaseUrl}
           token={token}
           workerId={worker.workerId}
+          isDraining={worker.dispatcherState === 'DRAINING'}
+          dispatcherComfy={worker.comfy}
+          onFleetRefresh={onFleetRefresh}
+          authRecovery={authRecovery}
           onOpenJob={onOpenJob}
         />
       )}

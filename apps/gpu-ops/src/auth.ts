@@ -14,6 +14,39 @@ export class AuthError extends Error {
   }
 }
 
+export type AuthRecovery = {
+  refreshAccessToken: () => Promise<string | null>;
+  onSessionExpired: () => void;
+};
+
+/** Retry one authenticated request after a single silent access-token refresh. */
+export async function fetchWithRefresh(
+  send: (accessToken: string) => Promise<Response>,
+  accessToken: string,
+  recovery: AuthRecovery,
+): Promise<Response> {
+  const first = await send(accessToken);
+  if (first.status !== 401) return first;
+
+  let fresh: string | null = null;
+  try {
+    fresh = await recovery.refreshAccessToken();
+  } catch {
+    fresh = null;
+  }
+  if (!fresh) {
+    recovery.onSessionExpired();
+    throw new AuthError('UNAVAILABLE', 'Session expired, sign in again.');
+  }
+
+  const retried = await send(fresh);
+  if (retried.status === 401) {
+    recovery.onSessionExpired();
+    throw new AuthError('UNAVAILABLE', 'Session expired, sign in again.');
+  }
+  return retried;
+}
+
 const endpoint = (baseUrl: string, path: string) => `${baseUrl.replace(/\/$/, '')}${path}`;
 
 async function post(
