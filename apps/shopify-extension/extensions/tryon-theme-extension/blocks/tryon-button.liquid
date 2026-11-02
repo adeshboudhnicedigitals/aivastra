@@ -1,6 +1,6 @@
 {% comment %}
   App EMBED (target: "body"): the merchant switches it on under App embeds; it
-  renders a small icon over the product's main image and opens the same try-on
+  renders a small "Try on" button over the product's main image and opens the same try-on
   window as the Try It On button block. If the block is on the page, the icon
   opens the block's window instead of its own.
 
@@ -32,35 +32,20 @@
     {
       "type": "color",
       "id": "icon_background",
-      "label": "Icon background",
+      "label": "Button background",
+      "default": "#000000"
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Button text color",
       "default": "#FFFFFF"
-    },
-    {
-      "type": "range",
-      "id": "icon_size",
-      "label": "Icon size",
-      "min": 28,
-      "max": 56,
-      "step": 2,
-      "unit": "px",
-      "default": 40
-    },
-    {
-      "type": "range",
-      "id": "border_radius",
-      "label": "Icon corner radius",
-      "info": "0 is a sharp square, 20 is a circle.",
-      "min": 0,
-      "max": 20,
-      "step": 1,
-      "unit": "px",
-      "default": 10
     },
     {
       "type": "text",
       "id": "media_selector",
       "label": "Product image container (advanced)",
-      "info": "Leave blank to place the icon on the top-right of your main product image automatically. If it lands in the wrong spot on your theme, enter a CSS selector for the element that wraps the product image."
+      "info": "Leave blank to place the button on the top-right of your main product image automatically. If it lands in the wrong spot on your theme, enter a CSS selector for the element that wraps the product image."
     }
   ]
 }

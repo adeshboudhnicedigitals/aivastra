@@ -24,6 +24,7 @@ import { atomicDeductStore, refundStoreAndMarkFailed } from '../credits/shopify-
 import { resolveEffectiveEnabled } from './activation.js';
 import { runRefill } from './autorefill.js';
 import { mintAccountLinkCode } from './customer-auth.js';
+import { classifyJobFailure, jobRef } from './failure.js';
 import {
   checkLoginGate,
   checkShopperLimits,
@@ -615,6 +616,9 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         id: job.id,
         status: job.status,
         errorCode: job.errorCode,
+        ...(job.status === 'FAILED'
+          ? { failureKind: classifyJobFailure(job.errorCode), ref: jobRef(job.id) }
+          : {}),
         resultUrl: job.resultKey ? (await app.storage.presignGet(job.resultKey, 3600)).url : null,
       };
     },
@@ -726,7 +730,11 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         try {
           const evt = JSON.parse(raw) as Record<string, unknown>;
           if (evt.jobId !== id) return;
-          reply.raw.write(`event: ${evt.type ?? 'message'}\ndata: ${raw}\n\n`);
+          if (evt.status === 'FAILED') {
+            evt.failureKind = classifyJobFailure(evt.errorCode as string | undefined);
+            evt.ref = jobRef(id);
+          }
+          reply.raw.write(`event: ${evt.type ?? 'message'}\ndata: ${JSON.stringify(evt)}\n\n`);
         } catch {
           /* ignore malformed publish */
         }
