@@ -4,7 +4,7 @@
 //
 //   pnpm --filter @aivastra/api fleet:collect              stream until Ctrl-C
 //   pnpm --filter @aivastra/api fleet:collect -- --once    one round, then exit
-//   pnpm --filter @aivastra/api fleet:collect -- --cleanup remove the local rows it created
+//   pnpm --filter @aivastra/api fleet:collect -- --cleanup remove its keys and the telemetry it stored
 //
 // What it runs on each box is a fixed, read-only probe (no sudo, nothing written): nvidia-smi
 // queries, /proc reads, df, systemctl is-active, and a loopback GET of ComfyUI's /queue reduced to
@@ -41,7 +41,18 @@ const BOXES: Box[] = [
   { alias: 'w7', port: 8339, comfyUnit: 'comfyui-main' },
 ];
 const STEP_MS = 15_000;
-const workerIdOf = (b: Box) => `fleet-${b.alias}`;
+// The collector attaches telemetry to the REAL worker rows (imported from production with
+// fleet-import-workers.mts); it never creates or deletes a worker.
+const WORKER_IDS: Record<string, string> = {
+  w1: 'worker-1',
+  w2: 'worker-2',
+  w3: 'worker-3',
+  w4: 'tryon-worker-4',
+  w5: 'worker-5',
+  w6: 'tryon-worker-6',
+  w7: 'woker-7',
+};
+const workerIdOf = (b: Box) => WORKER_IDS[b.alias] as string;
 
 // The whole remote program. Output is a flat "SECTION" format parsed below. Every command is
 // read-only and bounded by a timeout.
@@ -229,21 +240,29 @@ function parse(box: Box, out: string, bootId: string, seq: number): AgentTelemet
 const { db, close } = createDb(DATABASE_URL);
 
 async function cleanup() {
-  const like = 'fleet-w%';
-  await db.execute(
-    sql`DELETE FROM fleet_incident_events WHERE incident_id IN (SELECT id FROM fleet_incidents WHERE worker_id LIKE ${like})`,
+  const ids = Object.values(WORKER_IDS);
+  const list = sql.join(
+    ids.map((i) => sql`${i}`),
+    sql`, `,
   );
-  await db.execute(sql`DELETE FROM fleet_incidents WHERE worker_id LIKE ${like}`);
+  await db.execute(
+    sql`DELETE FROM fleet_incident_events WHERE incident_id IN (SELECT id FROM fleet_incidents WHERE worker_id IN (${list}))`,
+  );
+  await db.execute(sql`DELETE FROM fleet_incidents WHERE worker_id IN (${list})`);
   for (const t of [
     'fleet_gpu_samples',
     'fleet_host_samples',
     'fleet_gpu_rollups',
     'fleet_host_rollups',
   ]) {
-    await db.execute(sql`DELETE FROM ${sql.raw(t)} WHERE worker_id LIKE ${like}`);
+    await db.execute(sql`DELETE FROM ${sql.raw(t)} WHERE worker_id IN (${list})`);
   }
-  await db.execute(sql`DELETE FROM workers WHERE id LIKE ${like}`);
-  console.log('removed the local fleet-w* workers, keys, samples, rollups and incidents');
+  await db.execute(
+    sql`DELETE FROM fleet_agents WHERE label = 'ssh-collector' AND worker_id IN (${list})`,
+  );
+  console.log(
+    'removed the collector keys, samples, rollups and incidents; workers were not touched',
+  );
 }
 
 async function main() {
@@ -256,22 +275,15 @@ async function main() {
     .limit(1);
   if (!admin) throw new Error('no admin user in the local database to own the keys');
 
-  // Local rows for the real boxes. The url is a placeholder: the dispatcher never routes to these
-  // rows, they only give the dashboard a worker to attach telemetry to.
+  // The workers must already exist locally (see fleet-import-workers.mts).
+  const have = new Set(
+    (await db.select({ id: schema.workers.id }).from(schema.workers)).map((w) => w.id),
+  );
+  const missing = BOXES.map(workerIdOf).filter((id) => !have.has(id));
+  if (missing.length) throw new Error(`worker rows missing locally: ${missing.join(', ')}`);
   const keys = new Map<string, string>();
   for (const b of BOXES) {
     const id = workerIdOf(b);
-    await db
-      .insert(schema.workers)
-      .values({
-        id,
-        label: `${b.alias} (real GPU box, live over SSH)`,
-        url: `https://${b.alias}.local.invalid/`,
-        apiKey: 'local-collector-not-a-real-key',
-        isActive: true,
-        allowedJobTypes: [],
-      })
-      .onConflictDoNothing();
     await db.execute(
       sql`UPDATE fleet_agents SET revoked_at = now() WHERE worker_id = ${id} AND revoked_at IS NULL AND label = 'ssh-collector'`,
     );
