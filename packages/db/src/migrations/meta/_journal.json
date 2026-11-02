@@ -1702,6 +1702,20 @@
       "when": 1793613186464,
       "tag": "0243_fleet_rollups",
       "breakpoints": true
+    },
+    {
+      "idx": 244,
+      "version": "7",
+      "when": 1793625182449,
+      "tag": "0244_fleet_thermal_slowdown",
+      "breakpoints": true
+    },
+    {
+      "idx": 245,
+      "version": "7",
+      "when": 1793630943128,
+      "tag": "0245_fleet_control",
+      "breakpoints": true
     }
   ]
 }

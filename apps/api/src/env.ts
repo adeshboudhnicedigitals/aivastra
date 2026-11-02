@@ -71,6 +71,11 @@ const Env = z.object({
   WEB_URL: z.string().url().default('http://localhost:3000'),
   RESEND_API_KEY: z.string().min(1),
   EMAIL_FROM: z.string().min(1).default('noreply@aivastra.com'),
+  // GPU fleet alert emails. Opt-in: with no recipients nothing is ever sent, which is what keeps a
+  // local dev stack (that holds a real RESEND_API_KEY) from emailing anyone about real incidents.
+  FLEET_ALERT_EMAILS: z.string().optional(),
+  // Where the email's "open dashboard" link points; omitted from the email when unset.
+  FLEET_DASHBOARD_URL: optionalUrl(),
   RAZORPAY_KEY_ID: z.string().min(1).optional(),
   RAZORPAY_KEY_SECRET: z.string().min(1).optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),

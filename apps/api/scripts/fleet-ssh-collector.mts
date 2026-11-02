@@ -15,16 +15,31 @@ import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb, schema, sql } from '@aivastra/db';
-import type { AgentTelemetry } from '@aivastra/types';
+import {
+  type AgentTelemetry,
+  FLEET_COMMAND_EXPIRY_MS,
+  type FleetCommandKind,
+} from '@aivastra/types';
+import { Redis } from 'ioredis';
 import { generateAgentKey } from '../src/modules/fleet/agent-keys.js';
+import { interpretOutput, scriptFor } from '../src/modules/fleet/command-exec.js';
+import { readCommandContext } from '../src/modules/fleet/commands-context.js';
+import { checkCommand } from '../src/modules/fleet/commands-core.js';
 import { runFleetRollupTick } from '../src/modules/fleet/rollups.js';
 
 const API = process.env.FLEET_COLLECT_API ?? 'http://127.0.0.1:4000';
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
 const isLocal = (u: string) =>
   /^(https?:\/\/|postgres(ql)?:\/\/[^@]*@)(127\.0\.0\.1|localhost)([:/]|$)/.test(u);
-if (!isLocal(API) || !isLocal(DATABASE_URL)) {
-  console.error('refusing to run: FLEET_COLLECT_API and DATABASE_URL must point at this machine');
+const REDIS_URL = process.env.REDIS_URL ?? '';
+if (
+  !isLocal(API) ||
+  !isLocal(DATABASE_URL) ||
+  !/^rediss?:\/\/([^@]*@)?(127\.0\.0\.1|localhost)([:/]|$)/.test(REDIS_URL)
+) {
+  console.error(
+    'refusing to run: FLEET_COLLECT_API, DATABASE_URL and REDIS_URL must point at this machine',
+  );
   process.exit(1);
 }
 
@@ -59,7 +74,7 @@ const workerIdOf = (b: Box) => WORKER_IDS[b.alias] as string;
 const REMOTE = String.raw`
 export LC_ALL=C
 echo "@gpu"
-timeout 10 nvidia-smi --query-gpu=index,name,temperature.gpu,temperature.memory,fan.speed,pstate,clocks.sm,clocks.max.sm,clocks.mem,power.draw,power.limit,utilization.gpu,utilization.memory,memory.used,memory.total,clocks_throttle_reasons.active,ecc.errors.uncorrected.volatile.total --format=csv,noheader,nounits 2>/dev/null
+timeout 10 nvidia-smi --query-gpu=index,name,temperature.gpu,temperature.memory,fan.speed,pstate,clocks.sm,clocks.max.sm,clocks.mem,power.draw,power.limit,utilization.gpu,utilization.memory,memory.used,memory.total,clocks_throttle_reasons.active,ecc.errors.uncorrected.volatile.total,clocks_event_reasons_counters.hw_thermal_slowdown,clocks_event_reasons_counters.sw_thermal_slowdown,clocks_event_reasons_counters.sw_power_cap --format=csv,noheader,nounits 2>/dev/null
 echo "@apps"
 timeout 10 nvidia-smi --query-compute-apps=used_memory,name --format=csv,noheader,nounits 2>/dev/null
 echo "@load"; cat /proc/loadavg
@@ -72,6 +87,8 @@ echo "@df"; df -P -BG / | tail -1
 echo "@dfi"; df -P -i / | tail -1
 echo "@svc"
 for u in "$1" comfyui-auth nginx; do echo "$u $(systemctl is-active "$u" 2>/dev/null) $(systemctl show -p NRestarts --value "$u" 2>/dev/null)"; done
+echo "@log"
+journalctl -u "$1" --since "$3" --no-pager -o cat 2>/dev/null | grep -aiE "error|traceback|exception|out of memory|oom|failed" | tail -n 40 | tr '\t' ' ' | cut -c1-300 | sed 's/^/L /'
 echo "@queue"
 curl -s -m 3 "http://127.0.0.1:$2/queue" 2>/dev/null | python3 -c 'import json,sys
 try:
@@ -80,8 +97,17 @@ except Exception:
   print("error")'
 `;
 
+// How far back to look for error lines. Overridable so the log path can be exercised on demand.
+const LOG_WINDOW = process.env.FLEET_LOG_WINDOW ?? '30 min ago';
+// ssh joins its arguments into one string for the remote shell, so the value is single-quoted
+// below; this check is what makes that quoting safe.
+if (!/^\d{1,4} (min|hours?|days?) ago$/.test(LOG_WINDOW)) {
+  console.error(`FLEET_LOG_WINDOW must look like "30 min ago", got "${LOG_WINDOW}"`);
+  process.exit(1);
+}
+
 const CTRL = join(tmpdir(), 'fleet-collect-%C');
-function ssh(box: Box): Promise<string> {
+function sshRun(box: Box, script: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       'ssh',
@@ -102,15 +128,16 @@ function ssh(box: Box): Promise<string> {
         'bash',
         '-s',
         '--',
-        box.comfyUnit,
-        String(box.port),
+        ...args,
       ],
       { timeout: 25_000, maxBuffer: 1024 * 1024 },
       (err, stdout) => (err ? reject(err) : resolve(stdout)),
     );
-    child.stdin?.end(REMOTE);
+    child.stdin?.end(script);
   });
 }
+
+const ssh = (box: Box) => sshRun(box, REMOTE, [box.comfyUnit, String(box.port), `'${LOG_WINDOW}'`]);
 
 const num = (s: string | undefined): number | null => {
   if (s === undefined) return null;
@@ -159,6 +186,9 @@ function parse(box: Box, out: string, bootId: string, seq: number): AgentTelemet
       vramTotalMib: int(f[14]),
       throttleReasons: /^0x[0-9a-fA-F]{1,16}$/.test(reasons) ? reasons : null,
       eccUncorrected: int(f[16]),
+      hwThermalSlowdownUs: int(f[17]),
+      swThermalSlowdownUs: int(f[18]),
+      swPowerCapUs: int(f[19]),
     };
   });
   // Single-GPU boxes: a visible process belongs to GPU 0. Names are reduced to a basename and
@@ -202,6 +232,27 @@ function parse(box: Box, out: string, bootId: string, seq: number): AgentTelemet
     return { name: name as string, active: state, sub: null, restarts: int(restarts) };
   });
 
+  // Error lines only (the remote side filters), control characters removed, anything that looks
+  // like a credential redacted before it leaves the box's output.
+  const logLines = (s.log ?? [])
+    .filter((l) => l.startsWith('L '))
+    .map((l) =>
+      l
+        .slice(2)
+        // ANSI colour sequences first, or their printable tails ("[1m") survive control stripping.
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: matching the ESC byte is the point
+        .replace(/\u001b\[[0-9;]*m/g, '')
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: removing control characters is the point
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(
+          /((?:api[_-]?key|token|secret|password|authorization)["']?\s*[=:]\s*)\S+/gi,
+          '$1[redacted]',
+        )
+        .trim(),
+    )
+    .filter(Boolean)
+    .slice(-40);
+
   return {
     v: 1,
     workerId: workerIdOf(box),
@@ -234,6 +285,7 @@ function parse(box: Box, out: string, bootId: string, seq: number): AgentTelemet
         pending: queueOk ? (q[1] as number) : null,
       },
     ],
+    logs: logLines.length ? [{ unit: box.comfyUnit, lines: logLines }] : [],
   };
 }
 
@@ -263,6 +315,62 @@ async function cleanup() {
   console.log(
     'removed the collector keys, samples, rollups and incidents; workers were not touched',
   );
+}
+
+// ---- Control commands --------------------------------------------------------------------------
+// Claims PENDING rows the API recorded and runs them over SSH. The guard that allowed the request
+// ran when it was made; it is run again here, against live Redis, before anything touches a box.
+const redis = new Redis(REDIS_URL, { maxRetriesPerRequest: 2 });
+const finishCommand = (id: string, state: 'SUCCEEDED' | 'FAILED', result: string) =>
+  db.execute(
+    sql`UPDATE fleet_commands SET state = ${state}, finished_at = now(), result = ${result.slice(0, 300)} WHERE id = ${id}`,
+  );
+
+let commandsRunning = false;
+async function runCommands() {
+  if (commandsRunning) return;
+  commandsRunning = true;
+  try {
+    await db.execute(
+      sql`UPDATE fleet_commands SET state = 'CANCELLED', finished_at = now(), result = 'Expired: nothing ran it within 10 minutes.' WHERE state = 'PENDING' AND requested_at < now() - make_interval(secs => ${FLEET_COMMAND_EXPIRY_MS / 1000})`,
+    );
+    const list = sql.join(
+      Object.values(WORKER_IDS).map((i) => sql`${i}`),
+      sql`, `,
+    );
+    const claimed = await db.execute<{ id: string; worker_id: string; kind: FleetCommandKind }>(
+      sql`UPDATE fleet_commands SET state = 'RUNNING', claimed_at = now()
+          WHERE id = (SELECT id FROM fleet_commands WHERE state = 'PENDING' AND worker_id IN (${list})
+                      ORDER BY requested_at LIMIT 1 FOR UPDATE SKIP LOCKED)
+          RETURNING id, worker_id, kind`,
+    );
+    for (const cmd of claimed) {
+      const box = BOXES.find((b) => workerIdOf(b) === cmd.worker_id);
+      if (!box) {
+        await finishCommand(cmd.id, 'FAILED', 'This collector does not manage that worker.');
+        continue;
+      }
+      const verdict = checkCommand(
+        cmd.kind,
+        await readCommandContext(redis, cmd.worker_id, Date.now()),
+      );
+      if (!verdict.ok) {
+        await finishCommand(cmd.id, 'FAILED', `No longer allowed: ${verdict.reason}`);
+        console.log(`command ${cmd.kind} on ${box.alias}: refused at run time (${verdict.reason})`);
+        continue;
+      }
+      const args =
+        cmd.kind === 'clear_queue' ? [String(box.port)] : [box.comfyUnit, String(box.port)];
+      const out = await sshRun(box, scriptFor(cmd.kind), args).catch(() => null);
+      const outcome = interpretOutput(cmd.kind, out, box.comfyUnit);
+      await finishCommand(cmd.id, outcome.state, outcome.result);
+      console.log(`command ${cmd.kind} on ${box.alias}: ${outcome.state} - ${outcome.result}`);
+    }
+  } catch (err) {
+    console.error('command runner error:', (err as Error).message);
+  } finally {
+    commandsRunning = false;
+  }
 }
 
 async function main() {
@@ -338,8 +446,12 @@ async function main() {
   if (once) return;
   console.log(`collecting every ${STEP_MS / 1000}s (Ctrl-C to stop)`);
   const timer = setInterval(() => void round(), STEP_MS);
+  // Commands are polled faster than telemetry: an operator is waiting on the button.
+  const commandTimer = setInterval(() => void runCommands(), 3_000);
   const stop = () => {
     clearInterval(timer);
+    clearInterval(commandTimer);
+    redis.disconnect();
     void close().then(() => process.exit(0));
   };
   process.on('SIGINT', stop);
@@ -350,6 +462,7 @@ async function main() {
 main()
   .then(async () => {
     if (process.argv.includes('--once') || process.argv.includes('--cleanup')) {
+      redis.disconnect();
       await close();
       process.exit(0);
     }

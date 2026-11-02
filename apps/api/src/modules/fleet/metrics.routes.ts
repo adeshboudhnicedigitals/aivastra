@@ -25,6 +25,9 @@ type GpuRow = {
   util_avg: number | null;
   vram_used_max: number | null;
   vram_total_max: number | null;
+  hw_thermal_us_max: number | string | null;
+  sw_thermal_us_max: number | string | null;
+  power_cap_us_max: number | string | null;
 };
 type HostRow = {
   t: Date | string;
@@ -81,7 +84,10 @@ export async function fleetMetricsRoutes(app: FastifyInstance) {
             max(power_max) AS power_max,
             sum(util_avg * n) FILTER (WHERE util_avg IS NOT NULL)
               / nullif(sum(n) FILTER (WHERE util_avg IS NOT NULL), 0) AS util_avg,
-            max(vram_used_max) AS vram_used_max, max(vram_total_max) AS vram_total_max
+            max(vram_used_max) AS vram_used_max, max(vram_total_max) AS vram_total_max,
+            max(hw_thermal_slowdown_us_max) AS hw_thermal_us_max,
+            max(sw_thermal_slowdown_us_max) AS sw_thermal_us_max,
+            max(sw_power_cap_us_max) AS power_cap_us_max
           FROM fleet_gpu_rollups
           WHERE worker_id = ${id} AND bucket >= ${from}::timestamptz
           GROUP BY gpu_index, 2
@@ -144,5 +150,8 @@ function gpuPoint(r: GpuRow) {
     utilAvg: r2(num(r.util_avg)),
     vramUsedMax: num(r.vram_used_max),
     vramTotalMax: num(r.vram_total_max),
+    hwThermalSlowdownUsMax: num(r.hw_thermal_us_max),
+    swThermalSlowdownUsMax: num(r.sw_thermal_us_max),
+    swPowerCapUsMax: num(r.power_cap_us_max),
   };
 }

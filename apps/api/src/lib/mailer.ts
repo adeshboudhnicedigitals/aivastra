@@ -635,3 +635,35 @@ export async function sendRefundDecisionEmail(
     html: refundDecisionHtml(p),
   });
 }
+
+/**
+ * GPU fleet alert. Plain on purpose: the reader is an operator who needs the worker, the rule and
+ * the sentence the evaluator wrote, not branding. Every interpolated value is escaped because the
+ * summary and worker id come from telemetry.
+ */
+export async function sendFleetAlertEmail(
+  apiKey: string,
+  from: string,
+  to: string[],
+  p: {
+    kind: 'opened' | 'escalated' | 'recovered';
+    severity: 'critical' | 'warning' | 'info';
+    workerId: string;
+    ruleKey: string;
+    summary: string;
+    dashboardUrl?: string;
+  },
+): Promise<void> {
+  const verb =
+    p.kind === 'recovered' ? 'RECOVERED' : p.kind === 'escalated' ? 'ESCALATED' : 'OPENED';
+  const subject = `[GPU fleet] ${verb} ${p.severity}: ${p.ruleKey} on ${p.workerId}`;
+  const link = p.dashboardUrl
+    ? `<p><a href="${escapeHtml(p.dashboardUrl)}">Open the fleet dashboard</a></p>`
+    : '';
+  const html = `<div style="font-family:system-ui,sans-serif;font-size:14px;color:#1a1a1a;">
+    <p><strong>${escapeHtml(verb)}</strong> · ${escapeHtml(p.severity)} · ${escapeHtml(p.ruleKey)}</p>
+    <p>Worker <strong>${escapeHtml(p.workerId)}</strong></p>
+    <p>${escapeHtml(p.summary)}</p>${link}
+  </div>`;
+  await send(apiKey, { from, to, subject, html });
+}

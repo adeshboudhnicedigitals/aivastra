@@ -23,6 +23,9 @@ export type Observation =
   | { status: 'ok' }
   | { status: 'unknown' };
 
+/** How far back `thermalSlowedMs` looks. */
+export const THERMAL_SLOWDOWN_WINDOW_MS = 15 * 60 * 1000;
+
 export type DispatcherView = 'reachable' | 'unreachable' | 'unknown';
 
 export type WorkerContext = {
@@ -37,6 +40,12 @@ export type WorkerContext = {
   telemetry: AgentTelemetry | null;
   clockSkewMs: number | null;
   rejectsLastHour: number;
+  /**
+   * Longest time any GPU on the worker was slowed for heat within THERMAL_SLOWDOWN_WINDOW_MS, from
+   * the driver's cumulative counter. Null when there are fewer than two readings in the window or
+   * the counter went backwards (driver reload): both mean "cannot tell", never "not slowed".
+   */
+  thermalSlowedMs?: number | null;
 };
 
 export type RuleParams = Record<string, number>;
@@ -130,6 +139,18 @@ export function observe(
         }
       }
       return known > 0 ? { status: 'ok' } : NOT_YET;
+    }
+
+    case 'thermal_slowdown': {
+      const slowed = ctx.thermalSlowedMs ?? null;
+      if (slowed === null) return NOT_YET;
+      const limitS = p('slowedSecondsAbove');
+      if (slowed / 1000 <= limitS) return { status: 'ok' };
+      return {
+        status: 'breach',
+        summary: `The driver slowed a GPU for heat for ${round1(slowed / 1000)} s in the last 15 minutes.`,
+        evidence: { slowedSeconds: round1(slowed / 1000), limitSeconds: limitS, windowMinutes: 15 },
+      };
     }
 
     case 'gpu_temp_high': {

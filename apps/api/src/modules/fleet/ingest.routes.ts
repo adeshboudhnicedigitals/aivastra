@@ -205,6 +205,9 @@ export async function fleetIngestRoutes(app: FastifyInstance) {
                 vramTotalMib: g.vramTotalMib,
                 throttleReasons: g.throttleReasons,
                 eccUncorrected: g.eccUncorrected,
+                hwThermalSlowdownUs: g.hwThermalSlowdownUs ?? null,
+                swThermalSlowdownUs: g.swThermalSlowdownUs ?? null,
+                swPowerCapUs: g.swPowerCapUs ?? null,
               })),
             );
           }

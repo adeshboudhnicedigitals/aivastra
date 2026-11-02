@@ -21,10 +21,12 @@ async function rollupGpu(app: FastifyInstance, since: Date): Promise<void> {
   await app.db.execute(sql`
     INSERT INTO fleet_gpu_rollups
       (worker_id, gpu_index, bucket, n, temp_avg, temp_max, sm_clock_avg, sm_clock_min,
-       power_avg, power_max, util_avg, vram_used_max, vram_total_max)
+       power_avg, power_max, util_avg, vram_used_max, vram_total_max,
+       hw_thermal_slowdown_us_max, sw_thermal_slowdown_us_max, sw_power_cap_us_max)
     SELECT worker_id, gpu_index, date_trunc('minute', observed_at), count(*)::int,
            avg(temp_c), max(temp_c), avg(sm_clock_mhz), min(sm_clock_mhz),
-           avg(power_w), max(power_w), avg(util_gpu_pct), max(vram_used_mib), max(vram_total_mib)
+           avg(power_w), max(power_w), avg(util_gpu_pct), max(vram_used_mib), max(vram_total_mib),
+           max(hw_thermal_slowdown_us), max(sw_thermal_slowdown_us), max(sw_power_cap_us)
     FROM fleet_gpu_samples
     WHERE observed_at >= ${since.toISOString()}::timestamptz
     GROUP BY worker_id, gpu_index, date_trunc('minute', observed_at)
@@ -33,7 +35,10 @@ async function rollupGpu(app: FastifyInstance, since: Date): Promise<void> {
       sm_clock_avg = EXCLUDED.sm_clock_avg, sm_clock_min = EXCLUDED.sm_clock_min,
       power_avg = EXCLUDED.power_avg, power_max = EXCLUDED.power_max,
       util_avg = EXCLUDED.util_avg, vram_used_max = EXCLUDED.vram_used_max,
-      vram_total_max = EXCLUDED.vram_total_max
+      vram_total_max = EXCLUDED.vram_total_max,
+      hw_thermal_slowdown_us_max = EXCLUDED.hw_thermal_slowdown_us_max,
+      sw_thermal_slowdown_us_max = EXCLUDED.sw_thermal_slowdown_us_max,
+      sw_power_cap_us_max = EXCLUDED.sw_power_cap_us_max
   `);
 }
 

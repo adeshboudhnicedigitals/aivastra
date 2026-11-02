@@ -120,6 +120,10 @@ export const fleetGpuSamples = pgTable(
     vramTotalMib: integer('vram_total_mib'),
     throttleReasons: text('throttle_reasons'),
     eccUncorrected: integer('ecc_uncorrected'),
+    // Cumulative driver slowdown counters in microseconds (see agentGpuSchema).
+    hwThermalSlowdownUs: bigint('hw_thermal_slowdown_us', { mode: 'number' }),
+    swThermalSlowdownUs: bigint('sw_thermal_slowdown_us', { mode: 'number' }),
+    swPowerCapUs: bigint('sw_power_cap_us', { mode: 'number' }),
   },
   (t) => ({
     byWorkerGpuTime: index('fleet_gpu_samples_worker_gpu_time_idx').on(
@@ -224,6 +228,10 @@ export const fleetGpuRollups = pgTable(
     utilAvg: real('util_avg'),
     vramUsedMax: integer('vram_used_max'),
     vramTotalMax: integer('vram_total_max'),
+    // Highest counter value seen in the minute; consecutive buckets difference into time slowed.
+    hwThermalSlowdownUsMax: bigint('hw_thermal_slowdown_us_max', { mode: 'number' }),
+    swThermalSlowdownUsMax: bigint('sw_thermal_slowdown_us_max', { mode: 'number' }),
+    swPowerCapUsMax: bigint('sw_power_cap_us_max', { mode: 'number' }),
   },
   (t) => ({
     pk: primaryKey({ columns: [t.workerId, t.gpuIndex, t.bucket] }),
@@ -245,5 +253,42 @@ export const fleetHostRollups = pgTable(
   (t) => ({
     pk: primaryKey({ columns: [t.workerId, t.bucket] }),
     byTime: index('fleet_host_rollups_time_idx').on(t.bucket),
+  }),
+);
+
+/** Small operator-managed settings for the fleet feature (key -> JSON), e.g. alert recipients. */
+export const fleetSettings = pgTable('fleet_settings', {
+  key: text('key').primaryKey(),
+  value: jsonb('value').notNull(),
+  updatedBy: uuid('updated_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * An operator's request to act on a GPU worker (restart ComfyUI, clear its queue). The API only
+ * records and guards the request; whatever runs on the box claims PENDING rows and reports back.
+ * At most one non-terminal command per worker, so two clicks cannot queue two restarts.
+ */
+export const fleetCommands = pgTable(
+  'fleet_commands',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workerId: text('worker_id')
+      .notNull()
+      .references(() => workers.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    reason: text('reason').notNull(),
+    state: text('state').notNull().default('PENDING'),
+    requestedBy: uuid('requested_by').references(() => users.id),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    result: text('result'),
+  },
+  (t) => ({
+    oneLive: uniqueIndex('fleet_commands_one_live_idx')
+      .on(t.workerId)
+      .where(sql`${t.state} IN ('PENDING', 'RUNNING')`),
+    byWorkerTime: index('fleet_commands_worker_time_idx').on(t.workerId, t.requestedAt),
   }),
 );

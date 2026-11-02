@@ -8,7 +8,7 @@ import {
   fleetAgentRejectsKey,
   fleetAlertRuleKeys,
 } from '@aivastra/types';
-import { and, eq, isNull, ne } from 'drizzle-orm';
+import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   type DispatcherView,
@@ -17,8 +17,10 @@ import {
   type Hysteresis,
   type Observation,
   observe,
+  THERMAL_SLOWDOWN_WINDOW_MS,
   type WorkerContext,
 } from './evaluator-core.js';
+import { notifyFleetIncident } from './notify.js';
 
 // Opens, escalates and recovers incidents (docs/fleet-agent-design.md section 7).
 //
@@ -192,6 +194,43 @@ export type EvaluatorTickResult = {
 };
 
 /**
+ * Per worker, the longest time any GPU spent thermally slowed in the window: the rise of the
+ * driver's cumulative counter between the first and the last reading. A GPU with fewer than two
+ * readings, or whose counter fell (the driver reloaded), contributes nothing, so the worker reads
+ * "unknown" rather than "fine".
+ */
+export async function thermalSlowedByWorker(
+  app: FastifyInstance,
+  workerIds: string[],
+  now: number,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!workerIds.length) return out;
+  const since = new Date(now - THERMAL_SLOWDOWN_WINDOW_MS).toISOString();
+  const rows = await app.db.execute<{ worker_id: string; delta_us: string | number }>(sql`
+    SELECT worker_id,
+           max((last_us - first_us)) AS delta_us
+    FROM (
+      SELECT worker_id, gpu_index,
+             (array_agg(hw_thermal_slowdown_us ORDER BY observed_at DESC))[1] AS last_us,
+             (array_agg(hw_thermal_slowdown_us ORDER BY observed_at ASC))[1] AS first_us
+      FROM fleet_gpu_samples
+      WHERE worker_id IN (${sql.join(
+        workerIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})
+        AND observed_at >= ${since}::timestamptz AND hw_thermal_slowdown_us IS NOT NULL
+      GROUP BY worker_id, gpu_index
+      HAVING count(*) >= 2
+    ) per_gpu
+    WHERE last_us >= first_us
+    GROUP BY worker_id
+  `);
+  for (const r of rows) out.set(r.worker_id, Number(r.delta_us) / 1000);
+  return out;
+}
+
+/**
  * One evaluation pass. Exported so a test can drive it with a chosen clock.
  *
  * A worker is monitored when it is active and holds at least one unrevoked agent key. Without an
@@ -251,6 +290,9 @@ export async function runFleetEvaluatorTick(
   const activeRules = fleetAlertRuleKeys.filter((k) => rules.get(k)?.enabled);
   const pairs = workerIds.flatMap((workerId) => activeRules.map((rule) => ({ rule, workerId })));
   const hysteresis = await readHysteresis(app, pairs);
+  const thermalSlowed = activeRules.includes('thermal_slowdown')
+    ? await thermalSlowedByWorker(app, workerIds, now)
+    : new Map<string, number>();
 
   for (const workerId of workerIds) {
     const [beat, latestRaw, rejects, health, queue] = await app.redis.mget([
@@ -269,6 +311,7 @@ export async function runFleetEvaluatorTick(
       telemetry: latest?.telemetry ?? null,
       clockSkewMs: latest?.skewMs ?? null,
       rejectsLastHour: Number(rejects ?? 0) || 0,
+      thermalSlowedMs: thermalSlowed.get(workerId) ?? null,
     };
 
     for (const rule of activeRules) {
@@ -288,10 +331,26 @@ export async function runFleetEvaluatorTick(
       });
 
       if (d.action === 'open' && obs.status === 'breach') {
-        if (await openIncident(app, rule, cfg, workerId, obs, now)) result.opened++;
+        if (await openIncident(app, rule, cfg, workerId, obs, now)) {
+          result.opened++;
+          void notifyFleetIncident(app, {
+            kind: 'opened',
+            severity: cfg.severity,
+            workerId,
+            ruleKey: rule,
+            summary: obs.summary,
+          });
+        }
       } else if (d.action === 'recover' && incident) {
         if (await recoverIncident(app, incident, now, 'The condition has cleared.')) {
           result.recovered++;
+          void notifyFleetIncident(app, {
+            kind: 'recovered',
+            severity: incident.severity,
+            workerId,
+            ruleKey: rule,
+            summary: incident.summary,
+          });
         }
       } else if (
         rule === 'agent_silent' &&
@@ -306,7 +365,16 @@ export async function runFleetEvaluatorTick(
         const silentFor = (now - (ctx.agentLastSeenAt ?? now)) / 1000;
         if (silentFor >= limit) {
           const text = `Still silent after ${Math.round(silentFor)} s; escalated to critical.`;
-          if (await escalateIncident(app, incident, now, text)) result.escalated++;
+          if (await escalateIncident(app, incident, now, text)) {
+            result.escalated++;
+            void notifyFleetIncident(app, {
+              kind: 'escalated',
+              severity: 'critical',
+              workerId,
+              ruleKey: rule,
+              summary: text,
+            });
+          }
         }
       }
 
