@@ -8,7 +8,11 @@ import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { processRecognitionRequest } from '../../src/classify/process.js';
 import { transitionJob } from '../../src/job/state.js';
-import { submitRecordedPhase } from '../../src/job/submission.js';
+import {
+  bindAttemptWorker,
+  prepareAttempt,
+  submitRecordedPhase,
+} from '../../src/job/submission.js';
 import { registerWorkers } from '../../src/worker/registry.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
 
@@ -203,10 +207,21 @@ describe('durable Comfy submission intent', () => {
   }
 
   async function send(jobId: string, phase: 'main' | 'mannequin' = 'main') {
+    // The reservation steps the processors run before the send: a PREPARING attempt, then the
+    // claimed worker bound to it.
+    const prepared = await prepareAttempt({ db: env.db, jobId, phase });
+    await bindAttemptWorker({
+      db: env.db,
+      jobId,
+      phase,
+      attemptId: prepared.attemptId,
+      worker: { id: workerId, url },
+    });
     return submitRecordedPhase({
       db: env.db,
       jobId,
       phase,
+      attemptId: prepared.attemptId,
       worker: { id: workerId, url, apiKey: 'fixture-do-not-persist' },
       prompt: WORKFLOW,
       contract: { outputNodeId: '4', kind: 'fixture' },
@@ -245,12 +260,15 @@ describe('durable Comfy submission intent', () => {
 
   it('serializes concurrent phase identities and never reuses reset job attempts', async () => {
     const job = await paidJob();
-    const results = await Promise.all([send(job.id, 'mannequin'), send(job.id), send(job.id)]);
-    expect(new Set(results.map((r) => r.clientId)).size).toBe(3);
+    // Two phases of one job reserve at once; a reservation is one handler's, so two concurrent
+    // callers for the SAME phase share the unused PREPARING attempt instead of minting a second.
+    const results = await Promise.all([send(job.id, 'mannequin'), send(job.id)]);
+    expect(new Set(results.map((r) => r.clientId)).size).toBe(2);
     const rows = await env.db.execute(
       sql`select attempt_no from execution_attempts where job_id = ${job.id} order by attempt_no`,
     );
-    expect(rows.map((r) => r.attempt_no)).toEqual([1, 2, 3]);
+    expect(rows.map((r) => r.attempt_no)).toEqual([1, 2]);
+    expect((await send(job.id)).clientId).toBe(`av:${job.id}:3:main`);
     await env.db.execute(sql`update jobs set attempts = 0 where id = ${job.id}`);
     expect((await send(job.id)).clientId).toBe(`av:${job.id}:4:main`);
   });
@@ -299,7 +317,7 @@ describe('durable Comfy submission intent', () => {
       await expect(send(job.id)).rejects.toThrow('intent audit unavailable');
       expect(requests).toHaveLength(0);
       const rows = await env.db.execute(
-        sql`select id from execution_attempts where job_id = ${job.id}`,
+        sql`select id from execution_attempts where job_id = ${job.id} and state <> 'PREPARING'`,
       );
       expect(rows).toHaveLength(0);
     } finally {

@@ -2,7 +2,13 @@ import type { Logger } from '@aivastra/logger';
 import { workerReleaseFailuresTotal } from '@aivastra/observability';
 import type { Redis } from 'ioredis';
 import { describe, expect, it, vi } from 'vitest';
-import { REGISTRY_KEY, releaseWorker, setWorkerStatus, type WorkerEntry } from './registry.js';
+import {
+  REGISTRY_KEY,
+  RESERVATIONS_KEY,
+  releaseWorker,
+  setWorkerStatus,
+  type WorkerEntry,
+} from './registry.js';
 
 function makeFakeRedis(initial: Record<string, WorkerEntry>) {
   const store = new Map(Object.entries(initial).map(([id, entry]) => [id, JSON.stringify(entry)]));
@@ -65,13 +71,15 @@ describe('bounded atomic worker release', () => {
       .mockRejectedValueOnce(new Error('transient failure'))
       .mockResolvedValue(1);
     const log = { error: vi.fn() } as unknown as Logger;
-    await releaseWorker({ eval: evalCommand } as unknown as Redis, 'w', log);
+    await releaseWorker({ eval: evalCommand } as unknown as Redis, 'w', 'token-1', log);
     expect(evalCommand).toHaveBeenCalledTimes(2);
     expect(evalCommand).toHaveBeenCalledWith(
-      expect.stringContaining("val.status ~= 'BUSY'"),
-      1,
+      expect.stringContaining("val.status == 'BUSY'"),
+      2,
       REGISTRY_KEY,
+      RESERVATIONS_KEY,
       'w',
+      'token-1',
       expect.any(String),
     );
     expect(log.error).not.toHaveBeenCalled();
@@ -82,7 +90,7 @@ describe('bounded atomic worker release', () => {
       const before = (await workerReleaseFailuresTotal.get()).values[0]?.value ?? 0;
       const evalCommand = vi.fn(() => new Promise(() => {}));
       const log = { error: vi.fn() } as unknown as Logger;
-      const release = releaseWorker({ eval: evalCommand } as unknown as Redis, 'w', log);
+      const release = releaseWorker({ eval: evalCommand } as unknown as Redis, 'w', 'token-1', log);
       await vi.advanceTimersByTimeAsync(10_000);
       await release;
       expect(evalCommand).toHaveBeenCalledTimes(2);

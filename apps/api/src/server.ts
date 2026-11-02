@@ -54,8 +54,6 @@ import { adminProdSnapshotRoutes } from './modules/admin/prod-snapshot.routes.js
 import { adminRefundRequestsRoutes } from './modules/admin/refund-requests.routes.js';
 import { adminRolePermissionsRoutes } from './modules/admin/role-permissions.routes.js';
 import { adminSareeRoutes } from './modules/admin/saree.routes.js';
-import { adminShopifyFunnelRulesRoutes } from './modules/admin/shopify-funnel-rules.routes.js';
-import { adminShopifyFunnelsRoutes } from './modules/admin/shopify-funnels.routes.js';
 import { adminShopifyPurchasesRoutes } from './modules/admin/shopify-purchases.routes.js';
 import { adminShopifyStoresRoutes } from './modules/admin/shopify-stores.routes.js';
 import { adminSignupCampaignsRoutes } from './modules/admin/signupCampaigns.routes.js';
@@ -103,7 +101,7 @@ import { paymentsRoutes } from './modules/payments/routes.js';
 import { posePresetsRoutes } from './modules/pose-presets/routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
 import { shopifyCustomerRoutes } from './modules/shopify/customer.routes.js';
-import { shopifyFunnelRulesRoutes } from './modules/shopify/funnel-rules.routes.js';
+import { requestRef } from './modules/shopify/failure.js';
 import { shopifyRoutes } from './modules/shopify/routes.js';
 import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
@@ -370,14 +368,28 @@ export async function buildServer(env: Env) {
   });
 
   app.setErrorHandler((err, _req, reply) => {
+    // Storefront shoppers get a short quotable reference with every failure
+    // so a screenshot of the widget can be matched to this log line.
+    const ref = _req.url.startsWith('/v1/shopify/customer') ? requestRef() : undefined;
     if (err instanceof AppError) {
       app.log.warn(
-        { code: err.code, statusCode: err.statusCode, msg: err.message, url: redactUrl(_req.url) },
+        {
+          code: err.code,
+          statusCode: err.statusCode,
+          msg: err.message,
+          url: redactUrl(_req.url),
+          ref,
+        },
         'app error',
       );
-      return reply
-        .code(err.statusCode)
-        .send({ error: { code: err.code, message: err.message, ...(err.details ?? {}) } });
+      return reply.code(err.statusCode).send({
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(ref ? { ref } : {}),
+          ...(err.details ?? {}),
+        },
+      });
     }
     if ((err as { validation?: unknown }).validation) {
       app.log.warn({ err, url: redactUrl(_req.url), body: _req.body }, 'validation error');
@@ -412,8 +424,10 @@ export async function buildServer(env: Env) {
       });
     }
     Sentry.captureException(err);
-    app.log.error({ err }, 'unhandled');
-    return reply.code(500).send({ error: { code: 'INTERNAL', message: 'internal error' } });
+    app.log.error({ err, ref }, 'unhandled');
+    return reply
+      .code(500)
+      .send({ error: { code: 'INTERNAL', message: 'internal error', ...(ref ? { ref } : {}) } });
   });
 
   await app.register(authRoutes);
@@ -448,7 +462,6 @@ export async function buildServer(env: Env) {
   await app.register(extensionRoutes);
   await app.register(shopifyRoutes);
   await app.register(shopifyCustomerRoutes);
-  await app.register(shopifyFunnelRulesRoutes);
   await app.register(modelsRoutes);
   await app.register(adminAuditRoutes);
   await app.register(adminAuthRoutes);
@@ -484,8 +497,6 @@ export async function buildServer(env: Env) {
   await app.register(adminCatalogueTemplatesRoutes);
   await app.register(adminBodyTypesRoutes);
   await app.register(adminBlouseCategoriesRoutes);
-  await app.register(adminShopifyFunnelsRoutes);
-  await app.register(adminShopifyFunnelRulesRoutes);
   await app.register(adminShopifyStoresRoutes);
   await app.register(adminShopifyPurchasesRoutes);
   await app.register(adminWorkflowsRoutes);

@@ -11,6 +11,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { repointShopifyWorkflow } from '../../lib/resolution-config.js';
 import { recordAudit } from './audit.js';
 import { getRolePermissions, requirePermission } from './guard.js';
 import {
@@ -201,6 +202,8 @@ export async function adminWorkflowChangeRequestsRoutes(app: FastifyInstance) {
       const body = req.body as z.infer<typeof ApproveWorkflowChangeRequestBody>;
       // biome-ignore lint/style/noNonNullAssertion: set by the requirePermission preHandler (guard.ts) before any handler runs
       const actor = { userId: req.userId, role: req.adminRole! };
+      // Assigned inside the transaction closure, which TS does not track, so the cast keeps `null` from narrowing to `never`.
+      let repoint = null as { from: string; to: string } | null;
 
       const updated = await app.db.transaction(async (tx: DbTransaction) => {
         const [cr] = await tx
@@ -270,6 +273,7 @@ export async function adminWorkflowChangeRequestsRoutes(app: FastifyInstance) {
               actor,
               request: req,
             });
+            repoint = { from: targetId, to: resultingWorkflowId };
           }
         } else {
           const proposedFields = UpdateWorkflowBody.parse(cr.proposedFields);
@@ -310,6 +314,18 @@ export async function adminWorkflowChangeRequestsRoutes(app: FastifyInstance) {
 
         return { ...row, mappingsSummary };
       });
+
+      if (repoint) {
+        const moved = await repointShopifyWorkflow(app, repoint.from, repoint.to).catch((err) => {
+          app.log.error(
+            { err, ...repoint },
+            'shopify workflow repoint failed after change-request approval',
+          );
+          return false;
+        });
+        if (moved)
+          app.log.info({ ...repoint }, 'shopify workflow repointed after change-request approval');
+      }
 
       return updated;
     },

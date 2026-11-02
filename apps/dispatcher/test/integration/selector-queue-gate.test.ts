@@ -9,6 +9,7 @@ import {
 } from '../../src/worker/registry.js';
 import { selectWorker } from '../../src/worker/selector.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
+import { forceIdle } from '../helpers/workers.js';
 
 const A = 'test-gate-a';
 const B = 'test-gate-b';
@@ -61,7 +62,7 @@ describe('selectWorker — ComfyUI queue gate', () => {
   it('claims a free gated worker', async () => {
     await gate(A);
     await gate(B);
-    const w = await selectWorker(redis, 'tryon');
+    const w = await selectWorker(redis, 'tryon', undefined, { token: `t-${Math.random()}` });
     expect(w).not.toBeNull();
     expect(await status(w?.id as string)).toBe('BUSY');
   });
@@ -71,9 +72,9 @@ describe('selectWorker — ComfyUI queue gate', () => {
     await gate(B);
     a.setOptions({ queueRemaining: 1 });
     for (let i = 0; i < 4; i++) {
-      const w = await selectWorker(redis, 'tryon');
+      const w = await selectWorker(redis, 'tryon', undefined, { token: `t-${Math.random()}` });
       expect(w?.id).toBe(B);
-      await setWorkerStatus(redis, B, 'IDLE');
+      await forceIdle(redis, B);
     }
     expect(await status(A)).toBe('IDLE');
   });
@@ -83,7 +84,9 @@ describe('selectWorker — ComfyUI queue gate', () => {
     await gate(B);
     a.setOptions({ queueRemaining: 2 });
     b.setOptions({ queueRemaining: 1 });
-    expect(await selectWorker(redis, 'tryon')).toBeNull();
+    expect(
+      await selectWorker(redis, 'tryon', undefined, { token: `t-${Math.random()}` }),
+    ).toBeNull();
     expect(await status(A)).toBe('IDLE');
     expect(await status(B)).toBe('IDLE');
   });
@@ -97,14 +100,16 @@ describe('selectWorker — ComfyUI queue gate', () => {
     await gate(A);
     await deregisterWorker(redis, B);
     a.setOptions(opts);
-    expect(await selectWorker(redis, 'tryon')).toBeNull();
+    expect(
+      await selectWorker(redis, 'tryon', undefined, { token: `t-${Math.random()}` }),
+    ).toBeNull();
     expect(await status(A)).toBe('IDLE');
   });
 
   it('does not probe a worker whose gate is off, even if ComfyUI reports a busy queue', async () => {
     a.setOptions({ queueRemaining: 5, promptStatus: 500 });
     await deregisterWorker(redis, B);
-    const w = await selectWorker(redis, 'tryon');
+    const w = await selectWorker(redis, 'tryon', undefined, { token: `t-${Math.random()}` });
     expect(w?.id).toBe(A);
   });
 
@@ -113,7 +118,9 @@ describe('selectWorker — ComfyUI queue gate', () => {
     await gate(B);
     await setWorkerStatus(redis, A, 'DRAINING');
     b.setOptions({ queueRemaining: 1 });
-    expect(await selectWorker(redis, 'tryon')).toBeNull();
+    expect(
+      await selectWorker(redis, 'tryon', undefined, { token: `t-${Math.random()}` }),
+    ).toBeNull();
     expect(await status(A)).toBe('DRAINING');
     expect(await status(B)).toBe('IDLE');
   });
@@ -122,6 +129,8 @@ describe('selectWorker — ComfyUI queue gate', () => {
     await gate(A);
     await deregisterWorker(redis, B);
     a.setOptions({ promptStatus: 500 });
-    expect(await selectWorker(redis, 'saree')).toBeNull();
+    expect(
+      await selectWorker(redis, 'saree', undefined, { token: `t-${Math.random()}` }),
+    ).toBeNull();
   });
 });

@@ -13,6 +13,8 @@ const run = randomUUID();
 const REGISTRY = `test:${run}:registry`;
 const HEALTH = `test:${run}:health:`;
 const CURSOR = `test:${run}:cursor`;
+const RESERVATIONS = `test:${run}:reservations`;
+const ADMISSION = `test:${run}:admission`;
 let reachable = false;
 
 const workers: Record<string, string[]> = {
@@ -23,7 +25,8 @@ const workers: Record<string, string[]> = {
 };
 
 async function seed(): Promise<void> {
-  await redis.del(REGISTRY);
+  await redis.del(REGISTRY, RESERVATIONS);
+  await redis.set(ADMISSION, '1');
   for (const [id, allowedJobTypes] of Object.entries(workers)) {
     await redis.hset(
       REGISTRY,
@@ -37,14 +40,17 @@ async function seed(): Promise<void> {
 async function claimShared(jobType: string): Promise<string | null> {
   const r = (await redis.eval(
     CLAIM_LUA,
-    3,
+    5,
     REGISTRY,
     HEALTH,
     CURSOR,
+    RESERVATIONS,
+    ADMISSION,
     String(Date.now()),
     jobType,
     '',
     '0',
+    'token',
   )) as string[] | false;
   return r ? (r[0] as string) : null;
 }
@@ -59,7 +65,14 @@ beforeAll(async () => {
   }
 });
 afterAll(async () => {
-  if (reachable) await redis.del(REGISTRY, CURSOR, ...Object.keys(workers).map((i) => HEALTH + i));
+  if (reachable)
+    await redis.del(
+      REGISTRY,
+      CURSOR,
+      RESERVATIONS,
+      ADMISSION,
+      ...Object.keys(workers).map((i) => HEALTH + i),
+    );
   redis.disconnect();
 });
 
@@ -100,7 +113,18 @@ describe('inhouse worker isolation (real Redis)', () => {
     if (!reachable) return ctx.skip();
     await seed();
     const claim = (id: string, pool: string) =>
-      redis.eval(CLAIM_SPECIFIC_LUA, 2, REGISTRY, HEALTH, id, String(Date.now()), pool);
+      redis.eval(
+        CLAIM_SPECIFIC_LUA,
+        4,
+        REGISTRY,
+        HEALTH,
+        RESERVATIONS,
+        ADMISSION,
+        id,
+        String(Date.now()),
+        pool,
+        'token',
+      );
     expect(await claim('open', 'inhouse')).toBeFalsy();
     expect(await claim('tryonOnly', 'inhouse')).toBeFalsy();
     expect(await claim('inhouseOnly', 'tryon')).toBeFalsy();

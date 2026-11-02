@@ -116,7 +116,7 @@ describe('shopify settings routes', () => {
   it('lists only shoppers who gave an email, with consent and try-on count', async () => {
     await app.db.insert(schema.shopifyShoppers).values([
       { storeId, clientId: 'c-anon' },
-      { storeId, clientId: 'c-mail', email: 'a@b.com', emailConsent: true },
+      { storeId, clientId: 'c-mail', email: 'a@b.com', emailConsent: true, phone: '555 0100 123' },
     ]);
 
     const res = await app.inject({
@@ -125,19 +125,26 @@ describe('shopify settings routes', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(200);
-    const { items } = res.json() as { items: { email: string; emailConsent: boolean }[] };
+    const { items } = res.json() as {
+      items: { email: string; emailConsent: boolean; phone: string | null }[];
+    };
     // Scoped to this test's own rows: the file shares one store across tests,
     // so an absolute count would break as soon as another test seeds a shopper.
     expect(items.find((i) => i.email === 'a@b.com')?.emailConsent).toBe(true);
+    expect(items.find((i) => i.email === 'a@b.com')?.phone).toBe('555 0100 123');
     // The anonymous row must never appear — it exists for limit counting, and
     // is not a mailing-list entry.
     expect(items.some((i) => i.email == null)).toBe(false);
   });
 
   it('exports the same rows as CSV', async () => {
-    await app.db
-      .insert(schema.shopifyShoppers)
-      .values({ storeId, clientId: 'c-csv', email: 'csv@b.com', emailConsent: false });
+    await app.db.insert(schema.shopifyShoppers).values({
+      storeId,
+      clientId: 'c-csv',
+      email: 'csv@b.com',
+      emailConsent: false,
+      phone: '555 0100 123',
+    });
 
     const res = await app.inject({
       method: 'GET',
@@ -146,8 +153,9 @@ describe('shopify settings routes', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/csv');
-    expect(res.body).toContain('email,consent,first_seen,try_ons');
+    expect(res.body).toContain('email,consent,first_seen,try_ons,phone');
     expect(res.body).toContain('csv@b.com,no,');
+    expect(res.body).toContain(',555 0100 123');
   });
 
   it('customers_redact deletes the matching shopper row', async () => {

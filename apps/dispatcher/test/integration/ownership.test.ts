@@ -55,14 +55,15 @@ describe('paid-Comfy job ownership', () => {
   }
 
   describe('acquireComfyJob', () => {
-    it('admits one QUEUED job: generation 1, PREPROCESSING and its event in one step', async () => {
+    it('admits one QUEUED job: generation 1, the job stays QUEUED and no PREPROCESSING event yet', async () => {
       const id = await job();
       const result = await acquireComfyJob(env.db, id, sessionA, log);
       expect(result).toMatchObject({
         kind: 'Acquired',
         owner: { session: sessionA, generation: 1 },
       });
-      expect(await statusOf(id)).toBe('PREPROCESSING');
+      // PREPROCESSING, its event and its SSE come with the first worker reservation (start.ts).
+      expect(await statusOf(id)).toBe('QUEUED');
       expect(await control(id)).toMatchObject({
         owner_session: sessionA,
         generation: 1,
@@ -71,7 +72,7 @@ describe('paid-Comfy job ownership', () => {
       const events = await env.db.execute(
         sql`select 1 from job_events where job_id = ${id} and event_type = 'PREPROCESSING'`,
       );
-      expect(events).toHaveLength(1);
+      expect(events).toHaveLength(0);
     });
 
     it('lets exactly one of many concurrent deliveries win', async () => {
@@ -108,6 +109,11 @@ describe('paid-Comfy job ownership', () => {
       expect((await acquireComfyJob(env.db, ownerless, sessionA, log)).kind).toBe('Recoverable');
       const expired = await job();
       await acquireComfyJob(env.db, expired, sessionA, log);
+      // The dead owner had reserved a worker, so the job had left QUEUED.
+      await env.db
+        .update(schema.jobs)
+        .set({ status: 'PREPROCESSING' })
+        .where(eq(schema.jobs.id, expired));
       await expireLease(expired);
       expect((await acquireComfyJob(env.db, expired, sessionB, log)).kind).toBe('Recoverable');
       expect(await statusOf(expired)).toBe('PREPROCESSING');
@@ -151,7 +157,7 @@ describe('paid-Comfy job ownership', () => {
       env.db.transaction((tx) => assertOwnerInTransaction(tx, owner, 'test'));
 
     it('passes for the live current owner', async () => {
-      await expect(check(await owned())).resolves.toBe('PREPROCESSING');
+      await expect(check(await owned())).resolves.toBe('QUEUED');
     });
 
     it('rejects a wrong session, wrong generation, expired and retired lease', async () => {
@@ -255,6 +261,10 @@ describe('paid-Comfy job ownership', () => {
       const id = await job();
       const first = await acquireComfyJob(env.db, id, sessionA, log);
       if (first.kind !== 'Acquired') throw new Error('fixture acquire');
+      await env.db
+        .update(schema.jobs)
+        .set({ status: 'PREPROCESSING' })
+        .where(eq(schema.jobs.id, id));
       await expireLease(id);
       await takeoverComfyJob(env.db, id, sessionB);
       expect(await yieldComfyJob(env.db, first.owner, {}, log)).toBe('lost');

@@ -5,9 +5,10 @@ import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { processJob } from '../../src/job/processor.js';
-import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { forceIdle } from '../helpers/workers.js';
 
 const WORKER_ID = 'test-worker-retry';
 
@@ -37,7 +38,7 @@ describe('dispatcher retry + credit refund', () => {
 
   beforeEach(async () => {
     comfy.setOptions({});
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
   });
 
   async function seedJob() {
@@ -163,18 +164,19 @@ describe('dispatcher retry + credit refund', () => {
     const [after1] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(after1?.status).toBe('QUEUED');
     expect(after1?.attempts).toBe(1);
-    // The requeued job must not leave an adoptable ACCEPTED attempt behind, and
-    // resolved_at stays empty because the GPU may still be running that prompt.
+    // The requeued job must not leave an adoptable ACCEPTED attempt behind. The handler's own
+    // release found the failed prompt finished in the worker's history, so the remote work is
+    // recorded as ended (rule prompt_failed); the attempt's state is untouched.
     const attempts1 = await env.db
       .select()
       .from(schema.executionAttempts)
       .where(eq(schema.executionAttempts.jobId, jobId));
     expect(attempts1).toHaveLength(1);
-    expect(attempts1[0]).toMatchObject({ state: 'FAILED', resolvedAt: null });
+    expect(attempts1[0]).toMatchObject({ state: 'FAILED', resolvedAt: expect.any(Date) });
     expect(attempts1[0]?.promptId).toBeTruthy();
 
     // Reset worker to IDLE for second attempt
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
 
     // Second attempt — should mark FAILED and refund
     await processJob(cfg, jobId, userId, 'jobs:normal', '2-1');
@@ -197,7 +199,7 @@ describe('dispatcher retry + credit refund', () => {
     expect(ledger.some((e) => e.reason === 'JOB_FAIL_REFUND')).toBe(true);
 
     // Refund is idempotent — running again should not double-refund
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
     // status is FAILED so processJob will skip (not QUEUED)
     const [balAfter] = await env.db
       .select()

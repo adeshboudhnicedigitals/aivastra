@@ -219,16 +219,20 @@ describe('aggregate performance sampling', () => {
         cursor,
         String((order.indexOf(ids[1] as string) - 1 + order.length) % order.length),
       );
+      await redis.set(`${registry}:admission`, '1');
       const claim = (await redis.eval(
         CLAIM_LUA,
-        3,
+        5,
         registry,
         health,
         cursor,
+        `${registry}:reservations`,
+        `${registry}:admission`,
         String(Date.now()),
         'tryon',
         performanceKey,
         '0',
+        't-samples',
       )) as string[];
       expect(claim[0]).toBe(ids[1]);
       expect(claim[3]).toBe(ids[0]);

@@ -150,6 +150,9 @@ services:
       dockerfile: apps/dispatcher/Dockerfile
     container_name: aivastra-prod-dispatcher
     restart: unless-stopped
+    # Above the dispatcher's 5 s application drain (SHUTDOWN_DRAIN_MS) so SIGTERM finishes its
+    # handover before Docker's default 10 s SIGKILL, while keeping a deploy's pickup gap short.
+    stop_grace_period: 10s
     # Dispatcher uses process.env directly (no --env-file in its CMD)
     env_file:
       - ../.env.production

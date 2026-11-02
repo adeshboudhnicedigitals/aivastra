@@ -38,6 +38,10 @@ const Env = z.object({
   DISPATCHER_HEALTH_PORT: z.coerce.number().default(4100),
   // How long a pending stream entry must be idle before recovery claims it (ms)
   XPENDING_CLAIM_THRESHOLD_MS: z.coerce.number().default(60_000),
+  // Bounds the boot-time read of pending entries that are counted as lane occupancy.
+  LANE_RESTORE_MAX: z.coerce.number().int().min(1).default(200),
+  /** Application drain on SIGTERM (ms, capped at 5000). The container stop grace must exceed it. */
+  SHUTDOWN_DRAIN_MS: z.coerce.number().int().min(0).max(5_000).default(5_000),
   SENTRY_DSN: optionalUrl(),
   ENABLE_WATERMARKING: z.coerce.boolean().default(true),
   PIXVERSE_API_KEY: z.string().optional(),
@@ -59,6 +63,10 @@ const Env = z.object({
   VIDEO_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(5),
   /** ComfyUI history poll cadence. Restart the dispatcher to change it. */
   COMFY_POLL_INTERVAL_MS: z.coerce.number().int().min(250).max(3_000).default(500),
+  /** How long a dead owner's SUBMITTING attempt (no receipt) is searched for in the worker's
+   *  queue/history before the worker is considered free. Phase D reuses the same window as its
+   *  bounded-uncertainty retry deadline, so both must read one value. */
+  COMFY_UNCERTAIN_CHECK_MS: z.coerce.number().int().min(60_000).max(120_000).default(90_000),
   // Always-resident garment-recognition service (aivastra-gpu pipeline/classify-service).
   // Unset → the classify lane falls back to a ComfyUI worker allowing `classify`.
   CLASSIFY_SERVICE_URL: optionalUrl(),

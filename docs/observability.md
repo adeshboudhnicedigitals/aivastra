@@ -150,6 +150,22 @@ Create these in Grafana Cloud (**Alerting → Alert rules**), wired to an email/
 | Host memory pressure | `max by (box) (1 - node_memory_MemAvailable_bytes{job="node"} / node_memory_MemTotal_bytes{job="node"}) > 0.9` for 10m |
 | GPU/host exporter down | `up{job=~"gpu\|node"} == 0` for 5m |
 
+### Worker reservations (Change 2a, Phase C)
+
+**Manual step: create these three rules in Grafana Cloud** (Alerting → Alert rules). Nothing in this
+repo provisions them, and Phase C is not complete for release until someone has confirmed that each
+one actually delivers (an error log is not delivery evidence). All three are gauges labelled by
+`worker_id`, 0 when the condition is absent, and each fires after **120 seconds**.
+
+| Alert | Condition (PromQL) | Meaning |
+|-------|--------------------|---------|
+| Reservation unverifiable | `max by (worker_id) (dispatcher_reservation_reconcile_stale_seconds) > 120` | A held worker could not be read (unreachable, malformed, truncated or ambiguous queue/history) for over 120s. It stays held; never free it by hand because 120s passed. |
+| Finished prompt still holding a worker | `max by (worker_id) (dispatcher_reservation_finished_hold_seconds) > 120` | The prompt is known to have finished or failed but its token was not released. |
+| Unknown-acceptance hold | `max by (worker_id) (dispatcher_reservation_unknown_hold_seconds) > 120` | A hold with no discovered receipt (a lost `/prompt` reply). Healthy bounded search resolves it before 120s. |
+
+Ages are kept in the dispatcher process: a failed read never resets them, and a restart starts them
+again. The reconciler also exposes `dispatcher_reservation_reconcile_total{outcome}`.
+
 ### ComfyUI execution-start timeout (Stage 1 with approved exhaustion cleanup)
 
 These rules use the same Grafana Cloud provisioning procedure above. No runtime quarantine:

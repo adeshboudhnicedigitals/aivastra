@@ -14,7 +14,6 @@ import {
   Modal,
   Page,
   Pagination,
-  Select,
   Tabs,
   Text,
   TextField,
@@ -40,7 +39,6 @@ import { resolveImageUrl } from '../lib/images';
 import { setNavGuard } from '../lib/navGuard';
 import { CLEARED_FILTER, type ProductFilterState } from '../lib/products';
 import type { ShopifyProductListItem } from '../types';
-import RoutingTab from './RoutingPage';
 
 type DisplayStatus = 'active' | 'processing' | 'failed' | 'disabled' | 'excluded';
 
@@ -73,23 +71,6 @@ const STATUS_TONE: Record<
   excluded: 'warning',
 };
 
-interface Basket {
-  id: string;
-  label: string;
-}
-
-type BasketSource = 'manual' | 'rule';
-
-const BASKET_SOURCE_LABEL: Record<BasketSource, string> = {
-  manual: 'Pinned',
-  rule: 'Rule',
-};
-
-const BASKET_SOURCE_TONE: Record<BasketSource, 'success' | 'info'> = {
-  manual: 'success',
-  rule: 'info',
-};
-
 interface ProductSyncStatus {
   state: 'running' | 'idle';
   startedAt: number;
@@ -113,24 +94,6 @@ interface ActivationSummary {
     // just without a denominator to show alongside syncedProductCount.
     totalProductCount: number | null;
   };
-}
-
-// Subset of GET /v1/shopify/funnel-rules's response consumed here — the full
-// shape (storeRules, globalRules) belongs to RoutingTab, which fetches the
-// same endpoint separately for its own rule tables.
-interface FunnelRulesSummary {
-  counts: Record<string, number>;
-  countsOmitted: boolean;
-  // null when countsOmitted — the catalog was never scanned, so there is no
-  // count to report either way.
-  unrouted: number | null;
-  // Subset of `unrouted` that's also effectively enabled for Try-On — this is
-  // what the banner above the tabs warns about.
-  unroutedEnabled: number | null;
-}
-
-function basketLabelFor(baskets: Basket[], id: string): string {
-  return baskets.find((b) => b.id === id)?.label ?? 'Unknown try-on style';
 }
 
 interface CollectionRow {
@@ -172,10 +135,7 @@ const TABS = [
 const ADD_PRODUCTS_LOCKED: Partial<ProductFilterState> = { enabled: false, status: 'active' };
 const EXCLUDE_PRODUCTS_LOCKED: Partial<ProductFilterState> = { excluded: false };
 
-const OUTER_TABS = [
-  { id: 'routing', content: 'Routing' },
-  { id: 'eligibility', content: 'Eligibility' },
-] as const;
+const OUTER_TABS = [{ id: 'eligibility', content: 'Eligibility' }] as const;
 
 // Draft staging (mergeById, diffActions, DraftList — see lib/activationDraft.ts)
 // — nothing there calls the API. Every Add/Remove click below just records
@@ -289,72 +249,12 @@ function CollectionsPanel({
   );
 }
 
-interface UnroutedProductItem {
-  shopifyProductId: number;
-  title: string | null;
-}
-
-interface UnroutedProductsResponse {
-  items: UnroutedProductItem[];
-  truncated: boolean;
-  omitted: boolean;
-}
-
-function UnroutedProductsModal({ onClose }: { onClose: () => void }) {
-  const [items, setItems] = useState<UnroutedProductItem[]>([]);
-  const [truncated, setTruncated] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<ClassifiedError | null>(null);
-
-  useEffect(() => {
-    apiFetch<UnroutedProductsResponse>('/v1/shopify/funnel-rules/unrouted')
-      .then((res) => {
-        setItems(res.items);
-        setTruncated(res.truncated);
-      })
-      .catch((err) => setError(classifyError(err)))
-      .finally(() => setLoading(false));
-  }, []);
-
-  return (
-    <Modal open title="Not routed (try-on unavailable)" onClose={onClose}>
-      <Modal.Section>
-        {loading ? (
-          <Text as="p" tone="subdued">
-            Loading…
-          </Text>
-        ) : error ? (
-          <ErrorBanner error={error} />
-        ) : items.length === 0 ? (
-          <Text as="p" tone="subdued">
-            No unrouted products.
-          </Text>
-        ) : (
-          <BlockStack gap="200">
-            {items.map((item) => (
-              <Text as="p" key={item.shopifyProductId}>
-                {item.title ?? `Product ${item.shopifyProductId}`}
-              </Text>
-            ))}
-            {truncated && (
-              <Text as="p" tone="subdued">
-                More not shown — add a routing rule or pin these individually to narrow the list.
-              </Text>
-            )}
-          </BlockStack>
-        )}
-      </Modal.Section>
-    </Modal>
-  );
-}
-
 function IndividualProductsPanel({
   editable,
   refreshToken,
   draft,
   onAdd,
   onRemove,
-  onBasketChanged,
   setError,
 }: {
   editable: boolean;
@@ -362,10 +262,6 @@ function IndividualProductsPanel({
   draft: DraftList<ShopifyProductListItem>;
   onAdd: (item: ShopifyProductListItem) => void;
   onRemove: (shopifyProductId: number) => void;
-  // Called after a basket PATCH succeeds so the parent can refresh the
-  // unrouted banner — pinning a product here can change whether it's
-  // routed, and this is an immediate mutation, not staged behind Save.
-  onBasketChanged: () => void;
   setError: (e: ClassifiedError) => void;
 }) {
   const [baseItems, setBaseItems] = useState<ShopifyProductListItem[]>([]);
@@ -374,14 +270,6 @@ function IndividualProductsPanel({
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [baskets, setBaskets] = useState<Basket[]>([]);
-  // The product whose basket PATCH is currently in flight — disables just
-  // that row's controls rather than the whole table, since the change is
-  // immediate (not staged behind the Save bar like enabled/excluded).
-  const [basketBusyId, setBasketBusyId] = useState<number | null>(null);
-
-  // silent: true skips the loading spinner — used for the refetch after a
-  // basket PATCH, so one row's pin doesn't flash the whole table.
   const loadProducts = useCallback(
     (opts?: { silent?: boolean }) => {
       if (!opts?.silent) setLoading(true);
@@ -409,36 +297,10 @@ function IndividualProductsPanel({
     loadProducts();
   }, [loadProducts, refreshToken]);
 
-  useEffect(() => {
-    apiFetch<{ items: Basket[] }>('/v1/shopify/baskets')
-      .then((res) => setBaskets(res.items))
-      .catch((err) => setError(classifyError(err)));
-  }, [setError]);
-
   const items = useMemo(
     () => mergeById(baseItems, (i) => i.shopifyProductId, draft),
     [baseItems, draft],
   );
-
-  // funnelTemplateId null resets to automatic routing (rule).
-  // No optimistic update: the effective source after a reset is decided
-  // server-side by funnel-resolution.ts, which the client doesn't replicate
-  // — a silent refetch is the only accurate way to show the real result.
-  async function updateBasket(shopifyProductId: number, funnelTemplateId: string | null) {
-    setBasketBusyId(shopifyProductId);
-    try {
-      await apiFetch(`/v1/shopify/products/${shopifyProductId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ funnelTemplateId }),
-      });
-      await loadProducts({ silent: true });
-      onBasketChanged();
-    } catch (err) {
-      setError(classifyError(err));
-    } finally {
-      setBasketBusyId(null);
-    }
-  }
 
   return (
     <BlockStack gap="400">
@@ -463,18 +325,12 @@ function IndividualProductsPanel({
         loading={loading}
         itemCount={items.length}
         resourceName={{ singular: 'product', plural: 'products' }}
-        headings={[
-          { title: 'Product' },
-          { title: 'Status' },
-          { title: 'Try-on style' },
-          { title: '' },
-        ]}
+        headings={[{ title: 'Product' }, { title: 'Status' }, { title: '' }]}
         emptyState={<EmptyState heading="No individually enabled products" image="" />}
       >
         {items.map((item, index) => {
           const status = displayStatus(item);
           const pending = draft.actions.get(item.shopifyProductId) === 'add';
-          const basketBusy = basketBusyId === item.shopifyProductId;
           return (
             <IndexTable.Row
               id={String(item.shopifyProductId)}
@@ -501,67 +357,6 @@ function IndividualProductsPanel({
                     <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>
                   )}
                 </InlineStack>
-              </IndexTable.Cell>
-              <IndexTable.Cell>
-                {item.basket === null ? (
-                  <BlockStack gap="100">
-                    <Text as="span" tone="subdued">
-                      Unavailable
-                    </Text>
-                    {item.pinnedBasketId !== null && (
-                      <Text as="span" tone="subdued">
-                        Pinned try-on style unavailable, no fallback configured
-                      </Text>
-                    )}
-                    {item.pinnedBasketId !== null && (
-                      <Button
-                        size="slim"
-                        disabled={!editable || basketBusy}
-                        onClick={() => updateBasket(item.shopifyProductId, null)}
-                      >
-                        Reset to automatic
-                      </Button>
-                    )}
-                  </BlockStack>
-                ) : (
-                  <BlockStack gap="100">
-                    <InlineStack gap="200" blockAlign="center">
-                      <Text as="span">{item.basket.label}</Text>
-                      <Badge tone={BASKET_SOURCE_TONE[item.basket.source]}>
-                        {BASKET_SOURCE_LABEL[item.basket.source]}
-                      </Badge>
-                    </InlineStack>
-                    {/* A pin whose basket was deactivated falls through to a rule —
-                        source is no longer 'manual', so the badge above looks identical to a
-                        product that was never pinned. Surface the fallen-through pin so the
-                        merchant knows why this product isn't on the basket they set, and so
-                        "Reset to automatic" (below) has a reason to still be offered. */}
-                    {item.pinnedBasketId !== null && item.basket.source !== 'manual' && (
-                      <Text as="span" tone="subdued">
-                        Pinned try-on style unavailable, using {item.basket.label}
-                      </Text>
-                    )}
-                    <InlineStack gap="200" blockAlign="center">
-                      <Select
-                        label="Try-on style"
-                        labelHidden
-                        disabled={!editable || basketBusy || baskets.length === 0}
-                        options={baskets.map((b) => ({ value: b.id, label: b.label }))}
-                        value={item.basket.id}
-                        onChange={(value) => updateBasket(item.shopifyProductId, value)}
-                      />
-                      {item.pinnedBasketId !== null && (
-                        <Button
-                          size="slim"
-                          disabled={!editable || basketBusy}
-                          onClick={() => updateBasket(item.shopifyProductId, null)}
-                        >
-                          Reset to automatic
-                        </Button>
-                      )}
-                    </InlineStack>
-                  </BlockStack>
-                )}
               </IndexTable.Cell>
               <IndexTable.Cell>
                 <Button
@@ -852,16 +647,7 @@ export default function ManagePage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState(0);
   const [outerTabIndex, setOuterTabIndex] = useState(0);
-  const [rulesSummary, setRulesSummary] = useState<FunnelRulesSummary | null>(null);
-  const [landingBaskets, setLandingBaskets] = useState<Basket[]>([]);
-  // Bumped by any routing mutation (rule add/edit/delete, global rule
-  // toggle, individual product pin) that isn't already covered by
-  // refreshToken (Sync / Eligibility Save) — so the banner and the "Where
-  // your products land" card reflect the merchant's own fix without
-  // requiring another Sync.
-  const [unroutedRefreshToken, setUnroutedRefreshToken] = useState(0);
   const [failedModalOpen, setFailedModalOpen] = useState(false);
-  const [unroutedModalOpen, setUnroutedModalOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -924,26 +710,6 @@ export default function ManagePage() {
       cancelled = true;
     };
   }, []);
-
-  // Lightweight, independent of RoutingTab's own fetch — feeds both the
-  // unrouted banner below and the "Where your products land" card, so
-  // switching to the Routing tab isn't required to see either, and enabling
-  // this second GET doesn't require lifting RoutingTab's full state (its own
-  // loading/error/toast, rule editor) up into this component.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken and unroutedRefreshToken are deliberate refetch triggers (bump after a successful Save/Sync or a routing mutation), not referenced in the body
-  useEffect(() => {
-    Promise.all([
-      apiFetch<{ items: Basket[] }>('/v1/shopify/baskets'),
-      apiFetch<FunnelRulesSummary>('/v1/shopify/funnel-rules'),
-    ])
-      .then(([basketsRes, rulesRes]) => {
-        setLandingBaskets(basketsRes.items);
-        setRulesSummary(rulesRes);
-      })
-      .catch(() => setRulesSummary(null));
-  }, [refreshToken, unroutedRefreshToken]);
-
-  const unrouted = rulesSummary?.countsOmitted ? null : (rulesSummary?.unroutedEnabled ?? null);
 
   const isDirty =
     (draftMode !== null && draftMode !== summary?.mode) ||
@@ -1197,14 +963,6 @@ export default function ManagePage() {
             </Banner>
           )}
 
-          {unrouted !== null && unrouted > 0 && (
-            <Banner tone="warning">
-              {unrouted} product{unrouted === 1 ? ' has' : 's have'} no try-on style assigned —
-              Try-On won't work for {unrouted === 1 ? 'it' : 'them'} until you add a routing rule or
-              pin {unrouted === 1 ? 'it' : 'them'} individually.
-            </Banner>
-          )}
-
           <Card>
             <BlockStack gap="200">
               <Checkbox
@@ -1269,8 +1027,8 @@ export default function ManagePage() {
                 </Text>
                 <Text as="p" tone="subdued">
                   {mode === 'global'
-                    ? 'All synced products, minus exclusions and unrouted products.'
-                    : 'Enabled individually or via a collection, minus exclusions and unrouted products.'}
+                    ? 'All synced products, minus exclusions.'
+                    : 'Enabled individually or via a collection, minus exclusions.'}
                 </Text>
               </BlockStack>
             </Card>
@@ -1292,72 +1050,6 @@ export default function ManagePage() {
               </BlockStack>
             </Card>
           </InlineGrid>
-
-          {rulesSummary && (
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Where your products land
-                </Text>
-                {rulesSummary.countsOmitted ? (
-                  <Text as="p" tone="subdued">
-                    Catalog too large to summarize.
-                  </Text>
-                ) : Object.keys(rulesSummary.counts).length === 0 && !rulesSummary.unrouted ? (
-                  <Text as="p" tone="subdued">
-                    No products have matched a rule yet.
-                  </Text>
-                ) : (
-                  <BlockStack gap="200">
-                    {Object.entries(rulesSummary.counts)
-                      .sort(([a], [b]) =>
-                        basketLabelFor(landingBaskets, a).localeCompare(
-                          basketLabelFor(landingBaskets, b),
-                        ),
-                      )
-                      .map(([basketId, productCount]) => (
-                        <InlineStack key={basketId} align="space-between">
-                          <Text as="span">{basketLabelFor(landingBaskets, basketId)}</Text>
-                          <Text as="span" fontWeight="semibold">
-                            {productCount}
-                          </Text>
-                        </InlineStack>
-                      ))}
-                    {rulesSummary.unrouted !== null && (
-                      <InlineStack align="space-between">
-                        {rulesSummary.unrouted > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => setUnroutedModalOpen(true)}
-                            style={{
-                              all: 'unset',
-                              cursor: 'pointer',
-                              textDecoration: 'underline',
-                            }}
-                          >
-                            <Text as="span" tone="critical">
-                              Not routed (try-on unavailable)
-                            </Text>
-                          </button>
-                        ) : (
-                          <Text as="span" tone="subdued">
-                            Not routed (try-on unavailable)
-                          </Text>
-                        )}
-                        <Text
-                          as="span"
-                          fontWeight="semibold"
-                          tone={rulesSummary.unrouted > 0 ? 'critical' : 'subdued'}
-                        >
-                          {rulesSummary.unrouted}
-                        </Text>
-                      </InlineStack>
-                    )}
-                  </BlockStack>
-                )}
-              </BlockStack>
-            </Card>
-          )}
 
           <Card>
             <Tabs
@@ -1427,7 +1119,6 @@ export default function ManagePage() {
                                 meta: d.meta,
                               }))
                             }
-                            onBasketChanged={() => setUnroutedRefreshToken((n) => n + 1)}
                             setError={setError}
                           />
                         </DisabledTabView>
@@ -1475,13 +1166,6 @@ export default function ManagePage() {
                     </Box>
                   </Tabs>
                 )}
-                {OUTER_TABS[outerTabIndex].id === 'routing' && (
-                  <RoutingTab
-                    refreshToken={refreshToken}
-                    globalMode={summary?.mode === 'global'}
-                    onChanged={() => setUnroutedRefreshToken((n) => n + 1)}
-                  />
-                )}
               </Box>
             </Tabs>
           </Card>
@@ -1494,8 +1178,6 @@ export default function ManagePage() {
             setError={setError}
           />
         )}
-
-        {unroutedModalOpen && <UnroutedProductsModal onClose={() => setUnroutedModalOpen(false)} />}
 
         {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
       </Page>

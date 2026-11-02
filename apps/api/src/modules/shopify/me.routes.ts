@@ -1,7 +1,6 @@
 import { schema } from '@aivastra/db';
 import { and, count, desc, eq, gte, inArray, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { countUnroutedProducts } from './funnel-resolution.js';
 import { getPack } from './packs.js';
 import { computeRunway } from './runway.js';
 import { windowStart } from './store-day.js';
@@ -83,27 +82,7 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         ),
       );
 
-    // Subtract products that are effectively enabled but resolve to no
-    // basket — see activation.routes.ts's summaryCounts for the identical
-    // correction and why computeEnabledProductCount itself stays untouched.
-    // countUnroutedProducts is a full per-product routing scan (up to 10,000
-    // rows), and this route is hit on every SPA page navigation — so it's only
-    // worth running when there's something for it to correct.
-    const rawEnabledProductCount = await computeEnabledProductCount(app, store);
-    const unroutedCounts =
-      rawEnabledProductCount > 0 ? await countUnroutedProducts(app, store) : null;
-    const enabledProductCount =
-      !unroutedCounts || unroutedCounts.countsOmitted
-        ? rawEnabledProductCount
-        : rawEnabledProductCount - (unroutedCounts.unroutedEnabled ?? 0);
-    // How many enabled products still resolve to no basket. Null when the routing
-    // scan was skipped for a catalogue over COUNTS_PRODUCT_CAP (the client then
-    // treats it as zero); zero when nothing is enabled, so there was nothing to scan.
-    const unroutedEnabledCount = !unroutedCounts
-      ? 0
-      : unroutedCounts.countsOmitted
-        ? null
-        : (unroutedCounts.unroutedEnabled ?? 0);
+    const enabledProductCount = await computeEnabledProductCount(app, store);
 
     const [{ activeCount, processingCount, failedCount, disabledCount }] = await app.db
       .select({
@@ -218,7 +197,6 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         totalTryOns,
         syncedProductCount,
         enabledProductCount,
-        unroutedEnabledCount,
         statusCounts: {
           active: activeCount,
           processing: processingCount,

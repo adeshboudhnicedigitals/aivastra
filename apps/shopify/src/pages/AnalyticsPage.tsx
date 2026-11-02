@@ -212,7 +212,7 @@ export default function AnalyticsPage() {
                 <BlockStack gap="300">
                   <InlineStack align="space-between" blockAlign="center">
                     <Text as="h2" variant="headingMd">
-                      Collected emails
+                      Collected contacts
                     </Text>
                     <Button
                       onClick={exportCsv}
@@ -223,12 +223,16 @@ export default function AnalyticsPage() {
                     </Button>
                   </InlineStack>
                   <Text as="p" tone="subdued">
-                    Only shoppers who ticked the consent box have agreed to marketing. Check the
-                    Consent column before adding an address to a mailing list.
+                    Emails of shoppers who tried on. Only shoppers who ticked the consent box have
+                    agreed to marketing; shoppers who logged in were not asked, so check the Consent
+                    column before adding an address to a mailing list.
                   </Text>
                   {shoppers && shoppers.length === 0 ? (
-                    <EmptyState heading="No emails collected yet" image="">
-                      <p>Turn on "Ask for an email" under Settings to start collecting.</p>
+                    <EmptyState heading="No contacts collected yet" image="">
+                      <p>
+                        Turn on "Only logged-in shoppers can try on" or "Ask for an email" under
+                        Settings → Limits to start collecting.
+                      </p>
                     </EmptyState>
                   ) : (
                     <IndexTable
@@ -238,6 +242,7 @@ export default function AnalyticsPage() {
                       loading={!shoppers}
                       headings={[
                         { title: 'Email' },
+                        { title: 'Phone' },
                         { title: 'Consent' },
                         { title: 'First seen' },
                         { title: 'Try-ons' },
@@ -246,6 +251,7 @@ export default function AnalyticsPage() {
                       {(shoppers ?? []).map((s, index) => (
                         <IndexTable.Row id={s.id} key={s.id} position={index}>
                           <IndexTable.Cell>{s.email}</IndexTable.Cell>
+                          <IndexTable.Cell>{s.phone ?? '—'}</IndexTable.Cell>
                           <IndexTable.Cell>
                             <Badge tone={s.emailConsent ? 'success' : undefined}>
                               {s.emailConsent ? 'Consented' : 'No consent'}

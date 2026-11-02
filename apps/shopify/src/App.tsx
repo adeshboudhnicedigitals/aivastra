@@ -1,5 +1,5 @@
 import '@shopify/polaris/build/esm/styles.css';
-import { AppProvider, Banner, Box, Frame, Navigation, Spinner } from '@shopify/polaris';
+import { AppProvider, Banner, Box, Frame, Navigation } from '@shopify/polaris';
 // AppProvider has no built-in default strings — an empty i18n object silently
 // blanks every one of Polaris's own labels (pagination Previous/Next,
 // IndexFilters' "Add filter", select-all checkboxes, …), not just their visible
@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppFont } from './components/AppFont';
 import { AppNavMenu, NAV_ITEMS } from './components/AppNavMenu';
+import { LoadingScreen } from './components/LoadingScreen';
 import { SupportChat } from './components/SupportChat';
 import { apiFetch, setShopDomain } from './lib/api';
 import {
@@ -113,9 +114,9 @@ export default function App() {
     const exempt = onOnboardingRoute || GATE_EXEMPT_PATHS.includes(location.pathname);
     // The hard gate (redirect + hidden nav) only applies until a store
     // finishes onboarding for the very first time. getOnboardingStep is
-    // derived live from /me (isSelectionDone/isBasketsDone in
+    // derived live from /me (isProductsDone in
     // lib/onboarding.ts) — a store that later disables every product, or adds
-    // one with no basket, would otherwise be yanked back into a locked wizard
+    // one with no enabled products, would otherwise be yanked back into a locked wizard
     // with no way out. onboardingCompletedOnce latches
     // permanently once true, so a later regression is surfaced as a normal
     // Dashboard banner instead (see DashboardPage.tsx), not a re-triggered
@@ -157,7 +158,7 @@ export default function App() {
     return (
       <AppProvider i18n={enTranslations}>
         <AppFont>
-          <Spinner accessibilityLabel="Loading" size="large" />
+          <LoadingScreen />
         </AppFont>
       </AppProvider>
     );

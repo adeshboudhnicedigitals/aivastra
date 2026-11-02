@@ -7,10 +7,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import * as progress from '../../src/comfyui/progress.js';
 import { processJob } from '../../src/job/processor.js';
 import * as registry from '../../src/worker/registry.js';
-import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
+import { reconcileWorkerReservations } from '../../src/worker/reservation-reconciler.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
 import { assertQueueExhaustion } from '../helpers/queue-exhaustion.js';
+import { forceIdle } from '../helpers/workers.js';
 
 const WORKER_ID = 'test-worker-happy';
 
@@ -41,7 +43,7 @@ describe('dispatcher happy path', () => {
   beforeEach(async () => {
     comfy.resetPrompts();
     comfy.setOptions({});
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
   });
 
   async function seedJob() {
@@ -273,7 +275,7 @@ describe('dispatcher happy path', () => {
     const completion = vi
       .spyOn(progress, 'waitForCompletion')
       .mockResolvedValue({ status: 'queue_cleanup_failed' });
-    const release = vi.spyOn(registry, 'releaseWorker');
+    const release = vi.spyOn(registry, 'releaseWorkerIfToken');
     const originalPublish = pub.publish.bind(pub);
     const publication = vi.spyOn(pub, 'publish');
     let failed = false;
@@ -302,6 +304,20 @@ describe('dispatcher happy path', () => {
         '4-1',
       );
       expect(failed).toBe(true);
+      // The prompt is still in the worker's queue (that is what queue_cleanup_failed means), so
+      // the handler may not free the worker: the hold stays until the prompt is shown to have ended.
+      expect(release).not.toHaveBeenCalled();
+      expect((await registry.getWorkers(redis)).get(WORKER_ID)?.status).toBe('BUSY');
+
+      const promptId = comfy.lastPromptId();
+      if (!promptId) throw new Error('worker saw no prompt');
+      comfy.finishPrompt(promptId);
+      await reconcileWorkerReservations({
+        db: env.db,
+        redis,
+        log: createLogger('test'),
+        uncertainCheckMs: 90_000,
+      });
       expect(release).toHaveBeenCalledTimes(1);
       expect((await registry.getWorkers(redis)).get(WORKER_ID)?.status).toBe('IDLE');
     } finally {

@@ -233,6 +233,11 @@ export const SystemConfigBody = z.object({
         .optional(),
     })
     .optional(),
+
+  // Chosen from the admin "Shopify workflow" page. A top-level key (not inside
+  // `shopify`) because PATCH /admin/config replaces whole top-level objects, so
+  // the credits tab's `shopify` write would otherwise erase it.
+  shopifyWorkflowTemplateId: z.string().uuid().nullable().optional(),
   // Admin-configurable per-surface upload size ceilings. Each replaces a previously
   // hardcoded byte constant (see apps/api/src/lib/upload-limits-config.ts for
   // defaults/readers). Omitted = fall back to the hardcoded default. No minimum

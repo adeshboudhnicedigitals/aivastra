@@ -7,9 +7,10 @@ import { Redis } from 'ioredis';
 import sharp from 'sharp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { processJob } from '../../src/job/processor.js';
-import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { forceIdle } from '../helpers/workers.js';
 
 const WORKER_ID = 'test-worker-merchant-widget';
 const PERSON_NODE_ID = '20';
@@ -54,7 +55,7 @@ describe('merchant widget job — result uploaded as WebP q90', () => {
 
   beforeEach(async () => {
     comfy.setOptions({ outputBytes: realOutputBytes });
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
   });
 
   async function seedMerchantWidgetJob() {

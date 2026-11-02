@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AssetContentType } from './admin.js';
+import { isValidPhone } from './phone.js';
 
 export const MerchantStatusSchema = z.enum(['ONBOARDING_REQUIRED', 'PENDING_ACTIVATION', 'ACTIVE']);
 export type MerchantStatusSchema = z.infer<typeof MerchantStatusSchema>;
@@ -478,6 +479,9 @@ export const ShopifyCustomerJobRequest = z.object({
   shopifyCustomerId: z.number().int().positive().optional(),
   email: z.string().email().max(320).optional(),
   emailConsent: z.boolean().optional(),
+  // Contact data, like email: shopper-asserted, never an authorization input.
+  // Only stored, and only required of shoppers of a login-required store.
+  phone: z.string().trim().refine(isValidPhone, { message: 'invalid phone number' }).optional(),
 });
 export type ShopifyCustomerJobRequest = z.infer<typeof ShopifyCustomerJobRequest>;
 
@@ -504,6 +508,7 @@ export const ShopifyStoreLimitsPatch = z.object({
   perShopperCap: optionOrOff(PER_SHOPPER_CAP_OPTIONS).optional(),
   perShopperWindow: z.enum(['day', 'week', 'month']).optional(),
   emailAfterNTryOns: optionOrOff(EMAIL_AFTER_N_OPTIONS).optional(),
+  loginRequired: z.boolean().optional(),
 });
 
 export const ShopifyStoreRetentionPatch = z.object({
@@ -578,6 +583,8 @@ export const SHOPIFY_REFUSAL_EVENT_TYPES = [
   'refused_store_cap',
   'refused_shopper_cap',
   'refused_email_gate',
+  'refused_login_gate',
+  'refused_contact_gate',
 ] as const;
 
 export const ShopifyWidgetEventRequest = z.object({

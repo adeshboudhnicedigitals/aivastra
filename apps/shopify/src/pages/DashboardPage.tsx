@@ -21,7 +21,8 @@ import { PackGrid } from '../components/PackGrid';
 import { PendingPaymentBanner } from '../components/PendingPaymentBanner';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import { isTryOnOff, needsEmbedEnable, unroutedWarningCount } from '../lib/onboarding';
+import { isTryOnOff } from '../lib/onboarding';
+import { needsButtonBlock } from '../lib/theme';
 import type { ShopifyMe, ShopifyStats, ShopifyWelcomeCreditsResponse } from '../types';
 
 // Uses useNavigate() directly rather than accepting navigate as a prop: both
@@ -139,6 +140,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [openingEditor, setOpeningEditor] = useState(false);
   const [checkingEmbed, setCheckingEmbed] = useState(false);
+  // What Check now found when it did not clear the banner; without it a negative
+  // result looks identical to the button doing nothing.
+  const [embedCheckMessage, setEmbedCheckMessage] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const load = useCallback(() => {
@@ -196,7 +200,7 @@ export default function DashboardPage() {
       .catch(() => {});
   }, [me, refreshMe]);
 
-  // Opens the theme editor's App embeds panel with our embed switched on. The
+  // Opens the product template with the Try It On button block staged. The
   // merchant still has to press Save there; only the Dashboard banner uses it.
   async function openThemeEditor() {
     if (openingEditor) return;
@@ -212,7 +216,7 @@ export default function DashboardPage() {
     }
   }
 
-  // For stores that already flipped the embed on before reopening this page —
+  // For stores that already added the block before reopening this page —
   // an explicit, human-paced check against the Admin API, same budget
   // rationale as OnboardingThemePage's "Refresh status". Best-effort: a failed
   // check still falls through to refreshMe(), which picks up whatever the
@@ -220,11 +224,26 @@ export default function DashboardPage() {
   async function checkEmbedNow() {
     if (checkingEmbed) return;
     setCheckingEmbed(true);
+    setEmbedCheckMessage(null);
     try {
-      await apiFetch('/v1/shopify/onboarding/check-theme-embed', { method: 'POST' }).catch(
-        () => {},
-      );
+      const result = await apiFetch<{ themeBlockConfirmed: boolean; reason?: 'scope' | 'error' }>(
+        '/v1/shopify/onboarding/check-theme-embed',
+        { method: 'POST' },
+      ).catch(() => null);
       await refreshMe();
+      // Confirmed clears the banner through refreshMe; anything else says why not.
+      if (result?.themeBlockConfirmed) return;
+      if (result === null || result.reason === 'error') {
+        setEmbedCheckMessage("We couldn't check your theme just now. Try again in a moment.");
+      } else if (result.reason === 'scope') {
+        setEmbedCheckMessage(
+          'We need permission to read your theme. Reopen the app from your Shopify admin, approve the permissions request, then press Check now again.',
+        );
+      } else {
+        setEmbedCheckMessage(
+          'Not detected yet. Make sure the Try It On button is saved on your product page template (press Save in the theme editor), then press Check now again.',
+        );
+      }
     } finally {
       setCheckingEmbed(false);
     }
@@ -247,8 +266,7 @@ export default function DashboardPage() {
   // "off" banner is for the true condition — nothing enabled resolves to a
   // basket — and the partial case gets its own, milder warning below.
   const tryOnOff = me != null && isTryOnOff(me);
-  const unroutedCount = me ? unroutedWarningCount(me) : 0;
-  const embedNeeded = me != null && needsEmbedEnable(me);
+  const embedNeeded = me != null && needsButtonBlock(me);
   return (
     <AppFont>
       <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
@@ -258,9 +276,9 @@ export default function DashboardPage() {
           {embedNeeded && (
             <Banner
               tone="warning"
-              title="Turn on the Try It On app embed"
+              title="Add the Try It On button to your product page"
               action={{
-                content: 'Enable app embed',
+                content: 'Add button',
                 onAction: openThemeEditor,
               }}
               secondaryAction={{
@@ -269,11 +287,16 @@ export default function DashboardPage() {
               }}
             >
               <Text as="p">
-                The try-on button is now switched on with one toggle instead of being placed in your
-                theme, so shoppers won't see it until you enable the app embed and save. Already
-                turned it on? Press Check now — or this message clears on its own once we see the
-                button on a product page of your store.
+                Try It On is now a button you add to your product page (the app embed is now a small
+                icon on your product photos). Until you add it, shoppers only see the icon. Already
+                added it? Press Check now, or this message clears on its own once we see the button
+                on a product page of your store.
               </Text>
+              {embedCheckMessage && (
+                <Text as="p" tone="caution">
+                  {embedCheckMessage}
+                </Text>
+              )}
             </Banner>
           )}
 
@@ -286,20 +309,6 @@ export default function DashboardPage() {
               <Text as="p">
                 No products are enabled right now, so shoppers won't see the try-on button. Turn it
                 back on in Manage.
-              </Text>
-            </Banner>
-          )}
-
-          {unroutedCount > 0 && (
-            <Banner
-              tone="warning"
-              title="Some products have no try-on style"
-              action={{ content: 'Go to Manage', onAction: () => navigate('/manage') }}
-            >
-              <Text as="p">
-                {unroutedCount === 1
-                  ? "1 enabled product has no try-on style, so try-on can't run on it — assign one in Manage."
-                  : `${unroutedCount} enabled products have no try-on style, so try-on can't run on them — assign one in Manage.`}
               </Text>
             </Banner>
           )}

@@ -1,20 +1,165 @@
 import { type DB, type DbTransaction, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { ComfyPromptHttpError, submitPrompt } from '../comfyui/client.js';
+import { observeReleaseToPost } from '../worker/registry.js';
 import { assertOwnerInTransaction, type OwnerToken } from './ownership.js';
 
-interface SubmissionOptions {
+interface AttemptParent {
   db: DB;
-  /** Present for every paid-Comfy submit; classify has no owner. */
+  /** Present for every paid-Comfy attempt; classify has no owner. */
   owner?: OwnerToken;
   jobId?: string;
   requestId?: string;
   phase: 'main' | 'mannequin' | 'classify';
+}
+
+interface SubmissionOptions extends AttemptParent {
+  /** The PREPARING attempt `prepareAttempt` allocated before the worker was claimed. */
+  attemptId: string;
   worker: { id: string; url: string; apiKey: string };
   prompt: Record<string, unknown>;
   contract: Record<string, unknown>;
   log: Logger;
+}
+
+export interface PreparedAttempt {
+  attemptId: string;
+  clientId: string;
+  /** The owner generation the attempt belongs to; classify has none. */
+  generation: bigint | null;
+}
+
+function parentOf(opts: AttemptParent): string {
+  if (Boolean(opts.jobId) === Boolean(opts.requestId))
+    throw new Error('submission requires exactly one parent');
+  const parentId = opts.jobId ?? opts.requestId;
+  if (!parentId) throw new Error('submission parent is empty');
+  return parentId;
+}
+
+/**
+ * Allocates the PREPARING attempt a worker reservation is keyed to, before any worker is
+ * claimed (plan §4: the token names the attempt). A PREPARING attempt that never reached a
+ * worker is reused rather than re-created: a job waiting for capacity retries every 10 s and
+ * must not mint a row per retry.
+ */
+export async function prepareAttempt(opts: AttemptParent): Promise<PreparedAttempt> {
+  const { db, jobId, requestId, phase } = opts;
+  const parentId = parentOf(opts);
+  return db.transaction(async (tx) => {
+    if (jobId) {
+      const [job] = await tx
+        .select({ id: schema.jobs.id })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, jobId))
+        .for('update');
+      if (!job) throw new Error('submission job not found');
+      // jobs is already locked above, matching the lock order everywhere else.
+      if (opts.owner) await assertOwnerInTransaction(tx, opts.owner, `prepare:${phase}`);
+    } else {
+      // Classify has no charged jobs row and records its result after execution.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`comfy-classify:${requestId}`}, 0))`,
+      );
+    }
+    const parentFilter = jobId
+      ? eq(schema.executionAttempts.jobId, jobId)
+      : eq(schema.executionAttempts.requestId, parentId);
+    const [unused] = await tx
+      .select({ id: schema.executionAttempts.id, clientId: schema.executionAttempts.clientId })
+      .from(schema.executionAttempts)
+      .where(
+        and(
+          parentFilter,
+          eq(schema.executionAttempts.phase, phase),
+          eq(schema.executionAttempts.state, 'PREPARING'),
+          isNull(schema.executionAttempts.workerId),
+        ),
+      )
+      .limit(1);
+    let attempt = unused;
+    if (!attempt) {
+      const [previous] = await tx
+        .select({
+          max: sql<number>`coalesce(max(${schema.executionAttempts.attemptNo}), 0)::integer`,
+        })
+        .from(schema.executionAttempts)
+        .where(parentFilter);
+      const attemptNo = (previous?.max ?? 0) + 1;
+      const clientId = jobId
+        ? `av:${jobId}:${attemptNo}:${phase}`
+        : `av:classify:${requestId}:${attemptNo}`;
+      [attempt] = await tx
+        .insert(schema.executionAttempts)
+        .values({
+          jobId: jobId ?? null,
+          requestId: requestId ?? null,
+          attemptNo,
+          phase,
+          clientId,
+          state: 'PREPARING',
+          contract: { version: 1, kind: 'preparing' },
+        })
+        .returning({
+          id: schema.executionAttempts.id,
+          clientId: schema.executionAttempts.clientId,
+        });
+    }
+    if (!attempt) throw new Error('attempt insert returned no row');
+    // The only attempt allowed to publish is the newest one under the current owner.
+    if (opts.owner)
+      await tx
+        .update(schema.dispatcherJobControl)
+        .set({ activeAttemptId: attempt.id })
+        .where(
+          and(
+            eq(schema.dispatcherJobControl.jobId, opts.owner.jobId),
+            eq(schema.dispatcherJobControl.ownerSession, opts.owner.session),
+          ),
+        );
+    return {
+      attemptId: attempt.id,
+      clientId: attempt.clientId,
+      generation: opts.owner ? BigInt(opts.owner.generation) : null,
+    };
+  });
+}
+
+/**
+ * Persists the claimed worker on the attempt under the ownership fence, before any upload or
+ * POST, so a restart can rebuild the hold. A crash between the claim and this write has no
+ * remote execution to protect.
+ */
+export async function bindAttemptWorker(
+  opts: AttemptParent & {
+    attemptId: string;
+    worker: { id: string; url: string };
+  },
+): Promise<void> {
+  const { db, jobId, attemptId, worker } = opts;
+  await db.transaction(async (tx) => {
+    if (jobId) {
+      await tx
+        .select({ id: schema.jobs.id })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, jobId))
+        .for('update');
+      if (opts.owner) await assertOwnerInTransaction(tx, opts.owner, `bind:${opts.phase}`);
+    }
+    const bound = await tx
+      .update(schema.executionAttempts)
+      .set({ workerId: worker.id, workerUrl: worker.url, updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.executionAttempts.id, attemptId),
+          eq(schema.executionAttempts.state, 'PREPARING'),
+          isNull(schema.executionAttempts.workerId),
+        ),
+      )
+      .returning({ id: schema.executionAttempts.id });
+    if (!bound.length) throw new Error('attempt is not an unbound PREPARING attempt');
+  });
 }
 
 /** Commit identity and the patched prompt before the only HTTP send. */
@@ -24,72 +169,47 @@ export async function submitRecordedPhase(opts: SubmissionOptions): Promise<{
   promptId: string;
 }> {
   const { db, jobId, requestId, phase, worker, prompt, log } = opts;
-  if (Boolean(jobId) === Boolean(requestId))
-    throw new Error('submission requires exactly one parent');
-  const parentId = jobId ?? requestId;
-  if (!parentId) throw new Error('submission parent is empty');
+  parentOf(opts);
   const startedAt = performance.now();
   const attempt = await db.transaction(async (tx) => {
     if (jobId) {
-      const [job] = await tx
+      await tx
         .select({ id: schema.jobs.id })
         .from(schema.jobs)
         .where(eq(schema.jobs.id, jobId))
         .for('update');
-      if (!job) throw new Error('submission job not found');
-      // jobs is already locked above, matching the lock order everywhere else.
       if (opts.owner) await assertOwnerInTransaction(tx, opts.owner, `submit:${phase}`);
     } else {
-      // Classify has no charged jobs row and records its result after execution.
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`comfy-classify:${requestId}`}, 0))`,
       );
     }
-    const [previous] = await tx
-      .select({
-        max: sql<number>`coalesce(max(${schema.executionAttempts.attemptNo}), 0)::integer`,
-      })
-      .from(schema.executionAttempts)
-      .where(
-        jobId
-          ? eq(schema.executionAttempts.jobId, jobId)
-          : eq(schema.executionAttempts.requestId, parentId),
-      );
-    const attemptNo = (previous?.max ?? 0) + 1;
-    const clientId = jobId
-      ? `av:${jobId}:${attemptNo}:${phase}`
-      : `av:classify:${requestId}:${attemptNo}`;
     const [row] = await tx
-      .insert(schema.executionAttempts)
-      .values({
-        jobId: jobId ?? null,
-        requestId: requestId ?? null,
-        attemptNo,
-        phase,
-        clientId,
+      .update(schema.executionAttempts)
+      .set({
         state: 'SUBMITTING',
-        workerId: worker.id,
-        workerUrl: worker.url,
         contract: { ...opts.contract, version: 1, prompt },
+        updatedAt: new Date(),
       })
+      .where(
+        and(
+          eq(schema.executionAttempts.id, opts.attemptId),
+          eq(schema.executionAttempts.state, 'PREPARING'),
+          // The worker was bound before uploads; submitting through another one would send
+          // the prompt where the reservation does not protect it.
+          eq(schema.executionAttempts.workerId, worker.id),
+          jobId
+            ? eq(schema.executionAttempts.jobId, jobId)
+            : eq(schema.executionAttempts.requestId, requestId ?? ''),
+        ),
+      )
       .returning({ id: schema.executionAttempts.id, clientId: schema.executionAttempts.clientId });
-    if (!row) throw new Error('submission intent insert returned no row');
-    // The only attempt allowed to publish is the newest one under the current owner.
-    if (opts.owner)
-      await tx
-        .update(schema.dispatcherJobControl)
-        .set({ activeAttemptId: row.id })
-        .where(
-          and(
-            eq(schema.dispatcherJobControl.jobId, opts.owner.jobId),
-            eq(schema.dispatcherJobControl.ownerSession, opts.owner.session),
-          ),
-        );
+    if (!row) throw new Error('submission attempt is not PREPARING on this worker');
     if (jobId)
       await tx.insert(schema.jobEvents).values({
         jobId,
         eventType: 'COMFY_SUBMIT_STARTED',
-        payload: { attemptId: row.id, clientId, phase, workerId: worker.id },
+        payload: { attemptId: row.id, clientId: row.clientId, phase, workerId: worker.id },
       });
     return row;
   });
@@ -126,6 +246,7 @@ export async function submitRecordedPhase(opts: SubmissionOptions): Promise<{
         });
     throw err;
   }
+  observeReleaseToPost(worker.id);
   // The worker already accepted the prompt. Failing here would send the caller
   // into a retry that runs it a second time, so record the receipt best-effort.
   // The attempt stays SUBMITTING and a later reconciler finds it by client ID.
