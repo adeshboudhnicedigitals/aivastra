@@ -1,5 +1,5 @@
 import '@shopify/polaris/build/esm/styles.css';
-import { AppProvider, Banner, Box, Frame, Navigation, Spinner } from '@shopify/polaris';
+import { AppProvider, Banner, Box, Frame, Navigation } from '@shopify/polaris';
 // AppProvider has no built-in default strings — an empty i18n object silently
 // blanks every one of Polaris's own labels (pagination Previous/Next,
 // IndexFilters' "Add filter", select-all checkboxes, …), not just their visible
@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppFont } from './components/AppFont';
 import { AppNavMenu, NAV_ITEMS } from './components/AppNavMenu';
+import { LoadingScreen } from './components/LoadingScreen';
 import { SupportChat } from './components/SupportChat';
 import { apiFetch, setShopDomain } from './lib/api';
 import {
@@ -157,7 +158,7 @@ export default function App() {
     return (
       <AppProvider i18n={enTranslations}>
         <AppFont>
-          <Spinner accessibilityLabel="Loading" size="large" />
+          <LoadingScreen />
         </AppFont>
       </AppProvider>
     );
