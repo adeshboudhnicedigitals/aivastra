@@ -10,6 +10,7 @@ import { startUserLowCreditAlertScheduler } from './modules/credits/low-credit-a
 import { startUnlimitedPlanReminderScheduler } from './modules/credits/unlimited-plan-scheduler.js';
 import { startFleetEvaluator } from './modules/fleet/evaluator.js';
 import { startFleetRetention } from './modules/fleet/retention.js';
+import { startFleetRollups } from './modules/fleet/rollups.js';
 import {
   createAppWhatsappClient,
   startWhatsappDelivery,
@@ -52,6 +53,7 @@ startUploadSweeper(app);
 startRecognitionSweeper(app);
 startFleetRetention(app);
 startFleetEvaluator(app);
+startFleetRollups(app);
 stopComparisonLoops.push(
   startComparisonCollector(app),
   startComparisonDispatcher(app),

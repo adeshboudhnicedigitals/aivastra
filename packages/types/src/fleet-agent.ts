@@ -18,6 +18,8 @@ export const FLEET_AGENT_MAX_FUTURE_MS = 2 * 60 * 1000;
 // How long raw per-sample rows are kept. Longer history comes from the 1-minute rollups, which
 // do not exist yet: until they do, anything older than this is simply gone.
 export const FLEET_RAW_RETENTION_MS = 48 * 60 * 60 * 1000;
+// 1-minute rollups outlive the raw rows by this much (docs/fleet-agent-design.md section 5).
+export const FLEET_ROLLUP_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 // Heartbeat TTL in Redis: six missed 15 s intervals.
 export const FLEET_AGENT_HEARTBEAT_TTL_SEC = 90;
 export const FLEET_AGENT_LATEST_TTL_SEC = 60;
@@ -217,3 +219,57 @@ export const fleetAgentKeyCreatedSchema = fleetAgentKeyViewSchema.extend({
 // reported no throttle reason, so temperature plus the clock ratio is the only usable indicator.
 export const THERMAL_COLLAPSE_CLOCK_RATIO = 0.6;
 export const THERMAL_COLLAPSE_MIN_TEMP_C = 80;
+
+// ---- Metrics history (served from the 1-minute rollups) --------------------------------------
+
+// Each window has a fixed step so a response is at most a few hundred points per series. A minute
+// that has no rollup row is absent from the response: a gap is shown as a gap, never as zero.
+export const FLEET_METRICS_WINDOWS = {
+  '1h': { ms: 60 * 60 * 1000, stepSeconds: 60 },
+  '6h': { ms: 6 * 60 * 60 * 1000, stepSeconds: 60 },
+  '24h': { ms: 24 * 60 * 60 * 1000, stepSeconds: 300 },
+  '7d': { ms: 7 * 24 * 60 * 60 * 1000, stepSeconds: 1800 },
+  '30d': { ms: 30 * 24 * 60 * 60 * 1000, stepSeconds: 7200 },
+} as const;
+export type FleetMetricsWindow = keyof typeof FLEET_METRICS_WINDOWS;
+export const fleetMetricsWindowSchema = z.enum(['1h', '6h', '24h', '7d', '30d']);
+export const fleetMetricsQuerySchema = z.object({
+  window: fleetMetricsWindowSchema.default('6h'),
+});
+
+const nn = z.number().nullable();
+export const fleetGpuMetricPointSchema = z.object({
+  // Start of the bucket, ISO-8601.
+  t: z.string(),
+  // Raw samples behind this point; lets the UI mark thin buckets.
+  n: z.number().int().min(1),
+  tempAvg: nn,
+  tempMax: nn,
+  smClockAvg: nn,
+  smClockMin: nn,
+  powerAvg: nn,
+  powerMax: nn,
+  utilAvg: nn,
+  vramUsedMax: nn,
+  vramTotalMax: nn,
+});
+export const fleetHostMetricPointSchema = z.object({
+  t: z.string(),
+  n: z.number().int().min(1),
+  load1Max: nn,
+  ramAvailMin: nn,
+  swapUsedMax: nn,
+  memPsiMax: nn,
+});
+export const fleetMetricsSchema = z.object({
+  workerId: z.string(),
+  generatedAt: z.string(),
+  window: fleetMetricsWindowSchema,
+  stepSeconds: z.number().int(),
+  // Oldest rollup we hold for this worker, or null if none. Anything before it is not "zero",
+  // it was never recorded (or already aged out).
+  earliest: z.string().nullable(),
+  gpus: z.array(z.object({ index: z.number().int(), points: z.array(fleetGpuMetricPointSchema) })),
+  host: z.array(fleetHostMetricPointSchema),
+});
+export type FleetMetrics = z.infer<typeof fleetMetricsSchema>;

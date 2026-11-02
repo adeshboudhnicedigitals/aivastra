@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   real,
   smallint,
   text,
@@ -196,5 +197,53 @@ export const fleetIncidentEvents = pgTable(
   },
   (t) => ({
     byIncident: index('fleet_incident_events_incident_idx').on(t.incidentId, t.at),
+  }),
+);
+
+// ---- Rollups ---------------------------------------------------------------------------------
+
+/**
+ * One row per GPU per minute, aggregated from the raw samples before retention removes them
+ * (raw: 48 h, rollups: 30 d). `n` is the sample count, so coarser buckets can be re-averaged
+ * correctly (sum(avg * n) / sum(n)) instead of averaging averages. Recomputed idempotently over a
+ * recent window, so a late spooled sample just updates its minute.
+ */
+export const fleetGpuRollups = pgTable(
+  'fleet_gpu_rollups',
+  {
+    workerId: text('worker_id').notNull(),
+    gpuIndex: smallint('gpu_index').notNull(),
+    bucket: timestamp('bucket', { withTimezone: true }).notNull(),
+    n: integer('n').notNull(),
+    tempAvg: real('temp_avg'),
+    tempMax: real('temp_max'),
+    smClockAvg: real('sm_clock_avg'),
+    smClockMin: integer('sm_clock_min'),
+    powerAvg: real('power_avg'),
+    powerMax: real('power_max'),
+    utilAvg: real('util_avg'),
+    vramUsedMax: integer('vram_used_max'),
+    vramTotalMax: integer('vram_total_max'),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.workerId, t.gpuIndex, t.bucket] }),
+    byTime: index('fleet_gpu_rollups_time_idx').on(t.bucket),
+  }),
+);
+
+export const fleetHostRollups = pgTable(
+  'fleet_host_rollups',
+  {
+    workerId: text('worker_id').notNull(),
+    bucket: timestamp('bucket', { withTimezone: true }).notNull(),
+    n: integer('n').notNull(),
+    load1Max: real('load1_max'),
+    ramAvailMin: integer('ram_avail_min'),
+    swapUsedMax: integer('swap_used_max'),
+    memPsiMax: real('mem_psi_max'),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.workerId, t.bucket] }),
+    byTime: index('fleet_host_rollups_time_idx').on(t.bucket),
   }),
 );

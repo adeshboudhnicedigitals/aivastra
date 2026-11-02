@@ -1695,6 +1695,13 @@
       "when": 1793611349913,
       "tag": "0242_fleet_alerting",
       "breakpoints": true
+    },
+    {
+      "idx": 243,
+      "version": "7",
+      "when": 1793613186464,
+      "tag": "0243_fleet_rollups",
+      "breakpoints": true
     }
   ]
 }

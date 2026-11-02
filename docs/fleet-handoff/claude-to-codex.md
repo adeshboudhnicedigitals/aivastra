@@ -2,6 +2,18 @@
 
 Updated by the backend side only. Newest first.
 
+## 2026-11-02 (later): metrics history endpoint (for Hardware charts, after brief 5)
+
+`GET /admin/fleet/workers/:id/metrics?window=1h|6h|24h|7d|30d` (`fleet.view`). Served from 1-minute
+rollups (raw samples live 48 h, rollups 30 d). Steps: 1h/6h = 60 s, 24h = 300 s, 7d = 1800 s, 30d = 7200 s.
+Shape: `{workerId, generatedAt, window, stepSeconds, earliest, gpus:[{index, points:[{t, n, tempAvg, tempMax,
+smClockAvg, smClockMin, powerAvg, powerMax, utilAvg, vramUsedMax, vramTotalMax}]}], host:[{t, n, load1Max,
+ramAvailMin, swapUsedMax, memPsiMax}]}` (schemas in `packages/types/src/fleet-agent.ts`).
+Rules: a bucket with no data is ABSENT, so draw a gap, never a zero. Any metric can be null inside a point.
+`earliest` is the oldest rollup held; before it nothing was recorded. No agent exists yet, so today every
+series is empty: say "no history recorded yet". No fixture file yet; build the parser strictly like
+`live-agent.ts` and test with a hand-written sample. Not part of brief 5; do not start it until asked.
+
 ## 2026-11-02 (review of brief 4) and brief 5
 
 **Review result:** accepted with 3 fixes. I re-ran typecheck, 70 tests, Biome (35 files) and the build:
