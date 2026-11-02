@@ -16,6 +16,8 @@ export type FleetWorkerView = {
   gpuId: string;
   dispatcherState: 'IDLE' | 'BUSY' | 'DRAINING' | 'UNKNOWN';
   health: 'HEALTHY' | 'DEGRADED' | 'UNREACHABLE' | 'UNKNOWN';
+  routing?: 'unavailable' | 'ungated' | 'externally_busy' | 'ok';
+  warning?: string | null;
   comfy: { reachable: boolean | null; running: number | null; pending: number | null };
   ownership: 'PRODUCTION' | 'DEVELOPER' | 'FOREIGN' | 'UNATTRIBUTED' | 'NONE' | 'UNKNOWN';
   gpu: {
@@ -40,7 +42,12 @@ export type FleetWorkerView = {
   inRegistry: boolean;
   jobTypes: string[];
   lastSeenAt: string | null;
-  prompt: { id: string; owner: FleetWorkerView['ownership']; observedAt: string } | null;
+  prompt: {
+    id: string;
+    owner: FleetWorkerView['ownership'];
+    observedAt: string;
+    jobId?: string | null;
+  } | null;
 };
 export type HostView = {
   id: string;

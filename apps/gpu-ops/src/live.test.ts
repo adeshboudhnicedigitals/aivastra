@@ -91,6 +91,7 @@ describe('toSnapshot', () => {
       id: 'prompt-1',
       owner: 'PRODUCTION',
       observedAt: '2026-10-13T11:20:50.000Z',
+      jobId: 'job-1',
     });
     expect(w?.gpu).toEqual({
       utilizationPct: null,

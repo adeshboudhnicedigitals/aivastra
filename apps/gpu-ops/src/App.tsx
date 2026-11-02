@@ -8,6 +8,7 @@ import { EvidencePage } from './EvidencePage';
 import { fixtureRepository } from './fixtures';
 import { HostResources } from './HostResources';
 import { InventoryEditor } from './InventoryEditor';
+import { LiveJobsPage, LiveQueuePage, WorkerLivePanel } from './LivePages';
 import { createLiveRepository, FleetLoadError } from './live';
 import { display, fleetCounts, freshness, grafanaLink, reconciliation, signals } from './model';
 import type { OperationsManager } from './OperationsControls';
@@ -27,6 +28,7 @@ type Page =
   | 'configuration'
   | 'evidence'
   | 'activity';
+type LivePage = Page | 'jobs';
 const pages: { id: Page; label: string; icon: string }[] = [
   { id: 'fleet', label: 'Fleet overview', icon: '◫' },
   { id: 'inventory', label: 'Inventory', icon: '▤' },
@@ -36,6 +38,11 @@ const pages: { id: Page; label: string; icon: string }[] = [
   { id: 'configuration', label: 'Instance config', icon: '⚙' },
   { id: 'evidence', label: 'Evidence', icon: '▧' },
   { id: 'activity', label: 'Activity log', icon: '↺' },
+];
+const livePages: { id: LivePage; label: string; icon: string }[] = [
+  { id: 'fleet', label: 'Fleet overview', icon: '◫' },
+  { id: 'jobs', label: 'Jobs debug', icon: '≋' },
+  { id: 'queue', label: 'Queue lanes', icon: '▤' },
 ];
 function tone(text: string) {
   if (['UNREACHABLE', 'CRITICAL', 'HIGH', 'FOREIGN', 'OPEN', 'ERROR'].includes(text))
@@ -125,12 +132,62 @@ export function App() {
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const lastRefreshAt = useRef(0);
   const [refreshFailed, setRefreshFailed] = useState(false);
+  const refreshNow = useRef<() => void>(() => undefined);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('gpu-ops-theme');
+    return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const shortcutPrefix = useRef(false);
   const hasData = useRef(false);
-  const [page, setPage] = useState<Page>('fleet');
-  const [workerId, setWorkerId] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('ALL');
+  const initialParams = new URLSearchParams(window.location.search);
+  const [page, setPage] = useState<LivePage>(() => {
+    const value = initialParams.get('page') ?? (initialParams.has('job') ? 'jobs' : 'fleet');
+    return value && ['fleet', 'jobs', 'queue'].includes(value) ? (value as LivePage) : 'fleet';
+  });
+  const [workerId, setWorkerId] = useState<string | null>(() => initialParams.get('worker'));
+  const [query, setQuery] = useState(() => initialParams.get('q') ?? '');
+  const [filter, setFilter] = useState(() => initialParams.get('filter') ?? 'ALL');
+  const [fleetView, setFleetView] = useState<'table' | 'cards'>('table');
+  const [sortBy, setSortBy] = useState<'worker' | 'health' | 'state'>('worker');
   const [incidentId, setIncidentId] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(() => initialParams.get('job'));
+  useEffect(() => {
+    const restore = () => {
+      const params = new URLSearchParams(window.location.search);
+      const nextPage = params.get('page');
+      setPage(
+        nextPage && ['fleet', 'jobs', 'queue'].includes(nextPage)
+          ? (nextPage as LivePage)
+          : 'fleet',
+      );
+      setWorkerId(params.get('worker'));
+      setJobId(params.get('job'));
+      setQuery(params.get('q') ?? '');
+      setFilter(params.get('filter') ?? 'ALL');
+    };
+    window.addEventListener('popstate', restore);
+    return () => window.removeEventListener('popstate', restore);
+  }, []);
+  const writeRoute = (
+    next: { page?: LivePage; worker?: string | null; job?: string | null },
+    replace = false,
+  ) => {
+    const params = new URLSearchParams(window.location.search);
+    if (next.page) params.set('page', next.page);
+    if ('worker' in next) next.worker ? params.set('worker', next.worker) : params.delete('worker');
+    if ('job' in next) next.job ? params.set('job', next.job) : params.delete('job');
+    const url = `${window.location.pathname}?${params.toString()}`;
+    if (replace) window.history.replaceState(null, '', url);
+    else window.history.pushState(null, '', url);
+  };
+  const writeLocalParam = (key: string, value: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (value) params.set(key, value);
+    else params.delete(key);
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+  };
   useEffect(() => {
     if (!FLEET_API_URL) return;
     let current = true;
@@ -193,13 +250,18 @@ export function App() {
           if (hasData.current) setRefreshFailed(true);
           else setError(err instanceof Error ? err.message : 'Fleet data unavailable');
         });
+    refreshNow.current = () => void load();
     void load();
-    const timer = FLEET_API_URL ? setInterval(load, REFRESH_MS) : undefined;
+    const timer = FLEET_API_URL && autoRefresh ? setInterval(load, REFRESH_MS) : undefined;
     return () => {
       current = false;
       clearInterval(timer);
     };
-  }, [token]);
+  }, [token, autoRefresh]);
+  useEffect(() => {
+    document.body.dataset.theme = darkMode ? 'dark' : 'light';
+    localStorage.setItem('gpu-ops-theme', darkMode ? 'dark' : 'light');
+  }, [darkMode]);
   const signOut = () => {
     if (!FLEET_API_URL) return;
     void logout(FLEET_API_URL);
@@ -208,6 +270,36 @@ export function App() {
     setToken(null);
     setAuthMessage(null);
   };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable;
+      if (event.key === '?' && !typing) {
+        setShowShortcuts(true);
+        return;
+      }
+      if (event.key === '/' && !typing) {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>('[aria-label="Search workers"]')?.focus();
+        return;
+      }
+      if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (shortcutPrefix.current) {
+        shortcutPrefix.current = false;
+        if (event.key === 'f') nav('fleet');
+        if (event.key === 'j' && FLEET_API_URL) nav('jobs');
+        return;
+      }
+      if (event.key === 'g') shortcutPrefix.current = true;
+      if (event.key === 'r' && FLEET_API_URL) refreshNow.current();
+      if (event.key === 'Escape') setShowShortcuts(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
   if (FLEET_API_URL && booting)
     return (
       <main className="load-state" aria-live="polite">
@@ -257,16 +349,21 @@ export function App() {
   // Live mode shows only what the fleet API actually observed. Every other page, and every
   // control, is still a browser-only demo, so none of them are reachable from a live snapshot.
   const live = data.source === 'LIVE';
-  const visiblePages = live ? pages.filter((item) => item.id === 'fleet') : pages;
+  const visiblePages: { id: LivePage; label: string; icon: string }[] = live ? livePages : pages;
   const selected = data.workers.find((worker) => worker.workerId === workerId);
-  const nav = (next: Page) => {
+  const nav = (next: LivePage) => {
+    writeRoute({ page: next, worker: null, job: null });
+    writeLocalParam('q', '');
+    writeLocalParam('filter', '');
     setPage(next);
     setWorkerId(null);
+    setJobId(null);
     setQuery('');
     setFilter('ALL');
     setIncidentId(null);
   };
   const openWorker = (id: string) => {
+    writeRoute({ page: 'fleet', worker: id, job: null });
     setPage('fleet');
     setWorkerId(id);
   };
@@ -276,10 +373,17 @@ export function App() {
     setIncidentId(id);
     setFilter('ALL');
   };
+  const openJob = (id: string) => {
+    writeRoute({ page: 'jobs', worker: null, job: id });
+    setPage('jobs');
+    setWorkerId(null);
+    setJobId(id);
+  };
   const title = selected
     ? selected.workerId
     : {
         fleet: 'Fleet overview',
+        jobs: 'Jobs debug',
         inventory: 'Inventory & reconciliation',
         incidents: 'Incident workspace',
         operations: 'Operations status',
@@ -298,8 +402,39 @@ export function App() {
           ? signals(worker).length > 0 || Boolean(worker.activeIncident)
           : filter === 'NO DATA'
             ? freshness(worker.monitoring.lastSeenAt, data.asOf) !== 'FRESH'
-            : worker.dispatcherState === filter)),
+            : filter === 'WARNING'
+              ? signals(worker).length > 0
+              : filter.startsWith('JOB:')
+                ? worker.jobTypes.includes(filter.slice(4))
+                : ['HEALTHY', 'DEGRADED', 'UNREACHABLE', 'UNKNOWN'].includes(filter)
+                  ? worker.health === filter
+                  : worker.dispatcherState === filter)),
   );
+  const sortedWorkers = [...filtered].sort((left, right) => {
+    const attentionOrder =
+      Number(
+        signals(right).length > 0 ||
+          right.health === 'UNREACHABLE' ||
+          Boolean(right.activeIncident),
+      ) -
+      Number(
+        signals(left).length > 0 || left.health === 'UNREACHABLE' || Boolean(left.activeIncident),
+      );
+    if (attentionOrder !== 0) return attentionOrder;
+    const leftValue =
+      sortBy === 'worker'
+        ? left.workerId
+        : sortBy === 'health'
+          ? left.health
+          : left.dispatcherState;
+    const rightValue =
+      sortBy === 'worker'
+        ? right.workerId
+        : sortBy === 'health'
+          ? right.health
+          : right.dispatcherState;
+    return leftValue.localeCompare(rightValue);
+  });
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -348,9 +483,43 @@ export function App() {
           <span className="environment">
             {live ? '● Live fleet API' : '● Synthetic preview'}
             {live && (
-              <button type="button" className="link-button" onClick={signOut}>
-                Sign out
-              </button>
+              <span className="live-header-actions">
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setAutoRefresh((value) => !value)}
+                >
+                  {autoRefresh ? 'Pause refresh' : 'Resume refresh'}
+                </button>
+                <button type="button" className="link-button" onClick={() => refreshNow.current()}>
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() =>
+                    void navigator.clipboard.writeText(
+                      JSON.stringify(
+                        { generatedAt: data.asOf, workers: data.workers, queues: data.queues },
+                        null,
+                        2,
+                      ),
+                    )
+                  }
+                >
+                  Copy snapshot JSON
+                </button>
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setDarkMode((value) => !value)}
+                >
+                  {darkMode ? 'Light mode' : 'Dark mode'}
+                </button>
+                <button type="button" className="link-button" onClick={signOut}>
+                  Sign out
+                </button>
+              </span>
             )}
           </span>
         </header>
@@ -403,15 +572,40 @@ export function App() {
               </span>
             </div>
           )}
-          {selected ? (
+          {live && page === 'jobs' ? (
+            <LiveJobsPage
+              baseUrl={FLEET_API_URL ?? ''}
+              token={token ?? ''}
+              workerId={workerId}
+              jobId={jobId}
+              onOpenJob={(id) => {
+                writeRoute({ page: 'jobs', worker: null, job: id }, id === null);
+                setJobId(id);
+              }}
+            />
+          ) : live && page === 'queue' ? (
+            <LiveQueuePage data={data} stale={refreshFailed} openJobs={() => nav('jobs')} />
+          ) : selected ? (
             <WorkerDetail
               operations={operations}
               manager={processes}
               worker={selected}
               data={data}
-              onBack={() => setWorkerId(null)}
+              onBack={() => {
+                writeRoute({ page: 'fleet', worker: null, job: null });
+                setWorkerId(null);
+              }}
               openWorker={openWorker}
               openIncident={openIncident}
+              openJob={openJob}
+              liveBaseUrl={FLEET_API_URL}
+              token={token}
+              onOpenJob={(id) => {
+                writeRoute({ page: 'jobs', worker: null, job: id });
+                setPage('jobs');
+                setWorkerId(null);
+                setJobId(id);
+              }}
             />
           ) : (
             <>
@@ -436,14 +630,36 @@ export function App() {
                           note="Registered, health key expired"
                         />
                         <Metric
-                          label="Draining / unknown"
+                          label="Draining"
+                          value={
+                            data.workers.filter((w) => w.dispatcherState === 'DRAINING').length
+                          }
+                          note="Dispatcher reports draining"
+                        />
+                        <Metric
+                          label="Stale / no telemetry"
                           value={
                             data.workers.filter(
-                              (w) =>
-                                w.dispatcherState === 'DRAINING' || w.dispatcherState === 'UNKNOWN',
+                              (w) => freshness(w.monitoring.lastSeenAt, data.asOf) !== 'FRESH',
                             ).length
                           }
-                          note="Not routable, or not in the registry"
+                          note="Measured against API generatedAt"
+                        />
+                        <Metric
+                          label="Queue waiting"
+                          value={
+                            refreshFailed || data.queues?.some((queue) => queue.waiting === null)
+                              ? 'Unknown'
+                              : (data.queues ?? [])
+                                  .reduce((sum, queue) => sum + (queue.waiting ?? 0), 0)
+                                  .toLocaleString()
+                          }
+                          note="Across the five shared Redis lanes"
+                        />
+                        <Metric
+                          label="Fleet VRAM"
+                          value="No data"
+                          note="Physical GPU mapping is not observed; totals would be misleading"
                         />
                       </>
                     ) : (
@@ -486,11 +702,11 @@ export function App() {
                           <Fragment key={queue.stream}>
                             <dt>{queue.stream.replace('jobs:', '')}</dt>
                             <dd>
-                              {queue.waiting === null
+                              {refreshFailed || queue.waiting === null
                                 ? 'Not observed'
                                 : `${queue.waiting.toLocaleString()}${queue.capped ? '+' : ''} waiting`}
                               {' · '}
-                              {queue.inFlight === null
+                              {refreshFailed || queue.inFlight === null
                                 ? 'in flight unknown'
                                 : `${queue.inFlight.toLocaleString()} in flight`}
                             </dd>
@@ -504,7 +720,11 @@ export function App() {
                       <h2>
                         Logical workers <span>{counts.workers}</span>
                       </h2>
-                      <p>Shared physical GPUs are identified explicitly.</p>
+                      <p>
+                        {live
+                          ? 'Workers requiring attention appear first.'
+                          : 'Shared physical GPUs are identified explicitly.'}
+                      </p>
                     </div>
                     <label className="search">
                       <span aria-hidden="true">⌕</span>
@@ -512,18 +732,36 @@ export function App() {
                         aria-label="Search workers"
                         placeholder="Search worker, host or ownership…"
                         value={query}
-                        onChange={(event) => setQuery(event.target.value)}
+                        onChange={(event) => {
+                          setQuery(event.target.value);
+                          writeLocalParam('q', event.target.value);
+                        }}
                       />
                     </label>
                   </div>
                   <div className="filter-row">
-                    {['ALL', 'ATTENTION', 'BUSY', 'DRAINING', 'NO DATA'].map((item) => (
+                    {[
+                      'ALL',
+                      'ATTENTION',
+                      'UNREACHABLE',
+                      'DEGRADED',
+                      'BUSY',
+                      'DRAINING',
+                      'NO DATA',
+                      'WARNING',
+                      ...Array.from(new Set(data.workers.flatMap((worker) => worker.jobTypes))).map(
+                        (type) => `JOB:${type}`,
+                      ),
+                    ].map((item) => (
                       <button
                         type="button"
                         key={item}
                         aria-pressed={filter === item}
                         className={filter === item ? 'filter selected' : 'filter'}
-                        onClick={() => setFilter(item)}
+                        onClick={() => {
+                          setFilter(item);
+                          writeLocalParam('filter', item === 'ALL' ? '' : item);
+                        }}
                       >
                         {item === 'ALL'
                           ? 'All workers'
@@ -531,110 +769,209 @@ export function App() {
                             ? 'Needs attention'
                             : item === 'NO DATA'
                               ? 'Monitoring gaps'
-                              : item[0] + item.slice(1).toLowerCase()}
+                              : item === 'WARNING'
+                                ? 'Has warning'
+                                : item.startsWith('JOB:')
+                                  ? item.slice(4)
+                                  : item[0] + item.slice(1).toLowerCase()}
                       </button>
                     ))}
+                    <fieldset className="view-toggle" aria-label="Worker display">
+                      <legend className="sr-only">Worker display</legend>
+                      <button
+                        type="button"
+                        aria-pressed={fleetView === 'table'}
+                        onClick={() => setFleetView('table')}
+                      >
+                        Table
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={fleetView === 'cards'}
+                        onClick={() => setFleetView('cards')}
+                      >
+                        Cards
+                      </button>
+                    </fieldset>
                   </div>
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Worker / identity</th>
-                          <th>Dispatcher / health</th>
-                          <th>ComfyUI / ownership</th>
-                          <th>GPU observation</th>
-                          <th>Monitoring</th>
-                          <th>{live ? 'Incident / last job activity' : 'Incident / last seen'}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filtered.map((worker) => (
-                          <tr key={worker.workerId}>
-                            <td data-label="Worker / identity">
-                              <button
-                                type="button"
-                                className="worker-link"
-                                onClick={() => openWorker(worker.workerId)}
-                              >
-                                {worker.workerId}
-                                <span aria-hidden="true">↗</span>
-                              </button>
-                              <small>
-                                {live
-                                  ? 'Host / GPU not mapped'
-                                  : `${worker.hostId} → ${worker.gpuId}`}
-                              </small>
-                              {data.workers.filter((other) => other.gpuId === worker.gpuId).length >
-                                1 && <span className="shared">Shared GPU</span>}
-                            </td>
-                            <td data-label="Dispatcher / health">
-                              <Badge value={worker.dispatcherState} />
-                              <small>
-                                <Badge value={worker.health} />
-                              </small>
-                              {signals(worker).map((signal) => (
-                                <small key={signal} className="text-warning">
-                                  {signal}
-                                </small>
-                              ))}
-                            </td>
-                            <td data-label="ComfyUI / ownership">
-                              <span>
-                                {worker.comfy.reachable === false
-                                  ? 'Unreachable'
-                                  : worker.comfy.reachable === null
-                                    ? 'Reachability unknown'
-                                    : `${display(worker.comfy.running)} running · ${display(worker.comfy.pending)} pending`}
-                              </span>
-                              <small>
-                                <Badge value={worker.ownership} />
-                              </small>
-                            </td>
-                            <td data-label="GPU observation">
-                              <GpuSummary worker={worker} asOf={data.asOf} />
-                            </td>
-                            <td data-label="Monitoring">
-                              <Badge value={freshness(worker.monitoring.lastSeenAt, data.asOf)} />
-                              <small>
-                                GPU <Exporter value={worker.monitoring.gpuExporterUp} />
-                              </small>
-                              <small>
-                                Host <Exporter value={worker.monitoring.nodeExporterUp} />
-                              </small>
-                            </td>
-                            <td data-label="Incident / last seen">
-                              {worker.activeIncident ? (
-                                <button
-                                  type="button"
-                                  className="text-link"
-                                  onClick={() => openIncident(worker.activeIncident?.id ?? '')}
-                                >
-                                  {worker.activeIncident.id} · {worker.activeIncident.state}
-                                </button>
-                              ) : (
-                                <span className="muted">No active incident</span>
-                              )}
-                              <small>{utc(worker.lastSeenAt)}</small>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {filtered.length === 0 && (
-                      <div className="empty">
-                        No workers match these filters.
+                  {fleetView === 'cards' ? (
+                    <div className="live-worker-cards">
+                      {sortedWorkers.map((worker) => (
                         <button
                           type="button"
-                          onClick={() => {
-                            setQuery('');
-                            setFilter('ALL');
-                          }}
+                          className="live-worker-card"
+                          key={worker.workerId}
+                          onClick={() => openWorker(worker.workerId)}
                         >
-                          Clear filters
+                          <span className="panel-heading">
+                            <strong>{worker.workerId}</strong>
+                            <Badge value={worker.health} />
+                          </span>
+                          <span>
+                            {worker.dispatcherState} ·{' '}
+                            {worker.comfy.running === null
+                              ? 'Unknown running'
+                              : `${worker.comfy.running} running`}{' '}
+                            ·{' '}
+                            {worker.comfy.pending === null
+                              ? 'Unknown pending'
+                              : `${worker.comfy.pending} pending`}
+                          </span>
+                          <span className="muted">
+                            VRAM {display(worker.gpu.vramUsedMb)} /{' '}
+                            {display(worker.gpu.vramTotalMb)} MB ·{' '}
+                            {freshness(worker.monitoring.lastSeenAt, data.asOf)}
+                          </span>
+                          <span className="text-warning">
+                            {signals(worker).join(' · ') || 'No warning observed'}
+                          </span>
                         </button>
-                      </div>
-                    )}
-                  </div>
+                      ))}
+                      {!sortedWorkers.length && (
+                        <div className="empty">No workers match these filters.</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>
+                              <button
+                                type="button"
+                                className="sort-button"
+                                onClick={() => setSortBy('worker')}
+                              >
+                                Worker / identity ↕
+                              </button>
+                            </th>
+                            <th>
+                              <button
+                                type="button"
+                                className="sort-button"
+                                onClick={() =>
+                                  setSortBy((value) => (value === 'state' ? 'health' : 'state'))
+                                }
+                              >
+                                Dispatcher / health ↕
+                              </button>
+                            </th>
+                            <th>ComfyUI / ownership</th>
+                            <th>GPU observation</th>
+                            <th>Monitoring</th>
+                            <th>
+                              {live ? 'Incident / last job activity' : 'Incident / last seen'}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedWorkers.map((worker) => (
+                            <tr key={worker.workerId}>
+                              <td data-label="Worker / identity">
+                                <button
+                                  type="button"
+                                  className="worker-link"
+                                  onClick={() => openWorker(worker.workerId)}
+                                >
+                                  {worker.workerId}
+                                  <span aria-hidden="true">↗</span>
+                                </button>
+                                <small>
+                                  {live
+                                    ? 'Host / GPU not mapped'
+                                    : `${worker.hostId} → ${worker.gpuId}`}
+                                </small>
+                                {data.workers.filter((other) => other.gpuId === worker.gpuId)
+                                  .length > 1 && <span className="shared">Shared GPU</span>}
+                              </td>
+                              <td data-label="Dispatcher / health">
+                                <Badge value={worker.dispatcherState} />
+                                <small>
+                                  <Badge value={worker.health} />
+                                </small>
+                                {worker.routing && (
+                                  <small>
+                                    <Badge value={worker.routing.toUpperCase()} />
+                                  </small>
+                                )}
+                                {worker.warning && (
+                                  <small className="text-warning">{worker.warning}</small>
+                                )}
+                                {signals(worker).map((signal) => (
+                                  <small key={signal} className="text-warning">
+                                    {signal}
+                                  </small>
+                                ))}
+                              </td>
+                              <td data-label="ComfyUI / ownership">
+                                <span>
+                                  {worker.comfy.reachable === false
+                                    ? 'Unreachable'
+                                    : worker.comfy.reachable === null
+                                      ? 'Reachability unknown'
+                                      : `${display(worker.comfy.running)} running · ${display(worker.comfy.pending)} pending`}
+                                </span>
+                                <small>
+                                  <Badge value={worker.ownership} />
+                                </small>
+                                {worker.prompt?.jobId && (
+                                  <small>
+                                    <button
+                                      type="button"
+                                      className="text-link mono"
+                                      onClick={() => openJob(worker.prompt?.jobId ?? '')}
+                                    >
+                                      Current job {worker.prompt.jobId.slice(0, 8)} ↗
+                                    </button>
+                                  </small>
+                                )}
+                              </td>
+                              <td data-label="GPU observation">
+                                <GpuSummary worker={worker} asOf={data.asOf} />
+                              </td>
+                              <td data-label="Monitoring">
+                                <Badge value={freshness(worker.monitoring.lastSeenAt, data.asOf)} />
+                                <small>
+                                  GPU <Exporter value={worker.monitoring.gpuExporterUp} />
+                                </small>
+                                <small>
+                                  Host <Exporter value={worker.monitoring.nodeExporterUp} />
+                                </small>
+                              </td>
+                              <td data-label="Incident / last seen">
+                                {worker.activeIncident ? (
+                                  <button
+                                    type="button"
+                                    className="text-link"
+                                    onClick={() => openIncident(worker.activeIncident?.id ?? '')}
+                                  >
+                                    {worker.activeIncident.id} · {worker.activeIncident.state}
+                                  </button>
+                                ) : (
+                                  <span className="muted">No active incident</span>
+                                )}
+                                <small>{utc(worker.lastSeenAt)}</small>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {filtered.length === 0 && (
+                        <div className="empty">
+                          No workers match these filters.
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuery('');
+                              setFilter('ALL');
+                            }}
+                          >
+                            Clear filters
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <p className="footnote">
                     Unknown values remain unknown. GPU observations are shared physical resources,
                     not per-worker capacity.
@@ -763,6 +1100,52 @@ export function App() {
             <span>AIVASTRA Operations · v0.1</span>
             <span>{live ? 'Live fleet API · Read-only' : 'Fixture mode · No live commands'}</span>
           </footer>
+          {showShortcuts && (
+            <div className="live-drawer-backdrop" role="presentation">
+              <section
+                className="shortcuts-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="shortcuts-title"
+              >
+                <button
+                  className="live-drawer-close"
+                  type="button"
+                  aria-label="Close keyboard shortcuts"
+                  onClick={() => setShowShortcuts(false)}
+                >
+                  ×
+                </button>
+                <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+                <dl>
+                  <dt>
+                    <kbd>/</kbd>
+                  </dt>
+                  <dd>Focus worker search</dd>
+                  <dt>
+                    <kbd>g</kbd> then <kbd>f</kbd>
+                  </dt>
+                  <dd>Fleet overview</dd>
+                  <dt>
+                    <kbd>g</kbd> then <kbd>j</kbd>
+                  </dt>
+                  <dd>Jobs debug</dd>
+                  <dt>
+                    <kbd>r</kbd>
+                  </dt>
+                  <dd>Refresh fleet data</dd>
+                  <dt>
+                    <kbd>?</kbd>
+                  </dt>
+                  <dd>Show shortcuts</dd>
+                  <dt>
+                    <kbd>Esc</kbd>
+                  </dt>
+                  <dd>Close this dialog</dd>
+                </dl>
+              </section>
+            </div>
+          )}
         </main>
       </div>
     </div>
@@ -776,6 +1159,10 @@ function WorkerDetail({
   onBack,
   openWorker,
   openIncident,
+  openJob,
+  liveBaseUrl,
+  token,
+  onOpenJob,
 }: {
   operations: OperationsManager;
   manager: ProcessManager;
@@ -784,6 +1171,10 @@ function WorkerDetail({
   onBack: () => void;
   openWorker: (id: string) => void;
   openIncident: (id: string) => void;
+  openJob: (id: string) => void;
+  liveBaseUrl: string | null;
+  token: string | null;
+  onOpenJob: (id: string) => void;
 }) {
   const host = data.hosts.find((item) => item.id === worker.hostId);
   const gpu = data.gpus.find((item) => item.id === worker.gpuId);
@@ -851,6 +1242,18 @@ function WorkerDetail({
             <dd>
               <Badge value={worker.dispatcherState} />
             </dd>
+            <dt>Routing</dt>
+            <dd>{worker.routing ? worker.routing.replaceAll('_', ' ') : 'Unknown'}</dd>
+            <dt>Health meaning</dt>
+            <dd>
+              {worker.health === 'UNREACHABLE'
+                ? 'Health key expired; worker is not currently available.'
+                : worker.health === 'HEALTHY'
+                  ? 'Dispatcher health key is current.'
+                  : 'Health has not been observed.'}
+            </dd>
+            <dt>Warning</dt>
+            <dd>{worker.warning ?? 'No warning reported'}</dd>
             <dt>Endpoint</dt>
             <dd>
               {worker.comfy.reachable === null
@@ -868,7 +1271,18 @@ function WorkerDetail({
               <Badge value={worker.ownership} />
             </dd>
             <dt>Current prompt</dt>
-            <dd>{worker.prompt?.id ?? 'No prompt observed'}</dd>
+            <dd>
+              {worker.prompt?.id ?? 'No prompt observed'}
+              {worker.prompt?.jobId && (
+                <button
+                  type="button"
+                  className="text-link"
+                  onClick={() => openJob(worker.prompt?.jobId ?? '')}
+                >
+                  Open job details ↗
+                </button>
+              )}
+            </dd>
             <dt>Prompt owner</dt>
             <dd>{worker.prompt?.owner ?? 'Unknown / no prompt'}</dd>
             <dt>Prompt observation</dt>
@@ -912,51 +1326,55 @@ function WorkerDetail({
           </dl>
         </section>
         <HostResources host={host} asOf={data.asOf} live={data.source === 'LIVE'} />
-        <section className="panel">
-          <h2>Recent jobs</h2>
-          {jobs.length ? (
-            jobs.map((job) => (
-              <div className="job" key={job.id}>
-                <div>
-                  <span className="mono">{job.id}</span>
-                  <small>
-                    {job.type} · {utc(job.at)}
-                  </small>
+        {data.source !== 'LIVE' && (
+          <section className="panel">
+            <h2>Recent jobs</h2>
+            {jobs.length ? (
+              jobs.map((job) => (
+                <div className="job" key={job.id}>
+                  <div>
+                    <span className="mono">{job.id}</span>
+                    <small>
+                      {job.type} · {utc(job.at)}
+                    </small>
+                  </div>
+                  <div>
+                    <Badge value={job.outcome} />
+                    <small>
+                      {job.executionMs === null
+                        ? 'Execution time unavailable'
+                        : `${(job.executionMs / 1000).toFixed(1)}s execution`}
+                    </small>
+                  </div>
                 </div>
-                <div>
-                  <Badge value={job.outcome} />
-                  <small>
-                    {job.executionMs === null
-                      ? 'Execution time unavailable'
-                      : `${(job.executionMs / 1000).toFixed(1)}s execution`}
-                  </small>
+              ))
+            ) : (
+              <div className="empty compact">No recent jobs in this snapshot.</div>
+            )}
+          </section>
+        )}
+        {data.source !== 'LIVE' && (
+          <section className="panel">
+            <h2>Recent anomalies</h2>
+            {incidents.length ? (
+              incidents.map((incident) => (
+                <div className="anomaly" key={incident.id}>
+                  <button
+                    type="button"
+                    className="text-link"
+                    onClick={() => openIncident(incident.id)}
+                  >
+                    {incident.id} · {incident.title}
+                  </button>
+                  <small>{incident.classification.replaceAll('_', ' ')}</small>
+                  <Badge value={incident.state} />
                 </div>
-              </div>
-            ))
-          ) : (
-            <div className="empty compact">No recent jobs in this snapshot.</div>
-          )}
-        </section>
-        <section className="panel">
-          <h2>Recent anomalies</h2>
-          {incidents.length ? (
-            incidents.map((incident) => (
-              <div className="anomaly" key={incident.id}>
-                <button
-                  type="button"
-                  className="text-link"
-                  onClick={() => openIncident(incident.id)}
-                >
-                  {incident.id} · {incident.title}
-                </button>
-                <small>{incident.classification.replaceAll('_', ' ')}</small>
-                <Badge value={incident.state} />
-              </div>
-            ))
-          ) : (
-            <div className="empty compact">No recorded anomalies in this snapshot.</div>
-          )}
-        </section>
+              ))
+            ) : (
+              <div className="empty compact">No recorded anomalies in this snapshot.</div>
+            )}
+          </section>
+        )}
       </div>
       <section className="panel">
         <h2>Explore in Grafana</h2>
@@ -980,6 +1398,14 @@ function WorkerDetail({
           })}
         </div>
       </section>
+      {data.source === 'LIVE' && liveBaseUrl && token && (
+        <WorkerLivePanel
+          baseUrl={liveBaseUrl}
+          token={token}
+          workerId={worker.workerId}
+          onOpenJob={onOpenJob}
+        />
+      )}
     </>
   );
 }

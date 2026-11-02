@@ -9,6 +9,7 @@ type LiveWorker = {
   label: string;
   dispatcherState: FleetWorkerView['dispatcherState'];
   health: 'HEALTHY' | 'UNREACHABLE' | 'UNKNOWN';
+  routing: 'unavailable' | 'ungated' | 'externally_busy' | 'ok';
   active: boolean;
   inRegistry: boolean;
   jobTypes: string[];
@@ -35,6 +36,7 @@ type LiveWorker = {
   ownership: 'PRODUCTION' | 'UNATTRIBUTED' | 'NONE' | 'UNKNOWN';
   prompt: { id: string; jobId: string | null; observedAt: string } | null;
   lastSeenAt: string | null;
+  warning: string | null;
 };
 export type LiveStream = {
   stream: string;
@@ -75,6 +77,7 @@ const isDispatcherState = oneOf<LiveWorker['dispatcherState']>(
   'UNKNOWN',
 );
 const isHealth = oneOf<LiveWorker['health']>('HEALTHY', 'UNREACHABLE', 'UNKNOWN');
+const isRouting = oneOf<LiveWorker['routing']>('unavailable', 'ungated', 'externally_busy', 'ok');
 const isOwnership = oneOf<LiveWorker['ownership']>('PRODUCTION', 'UNATTRIBUTED', 'NONE', 'UNKNOWN');
 
 function parseWorker(raw: unknown, index: number): LiveWorker {
@@ -93,11 +96,13 @@ function parseWorker(raw: unknown, index: number): LiveWorker {
     !isStr(raw.label) ||
     !isDispatcherState(raw.dispatcherState) ||
     !isHealth(raw.health) ||
+    !isRouting(raw.routing) ||
     !isBool(raw.active) ||
     !isBool(raw.inRegistry) ||
     !Array.isArray(raw.jobTypes) ||
     !raw.jobTypes.every(isStr) ||
     !nullable(raw.lastSeenAt, isTime) ||
+    !nullable(raw.warning, isStr) ||
     !nullable(c.reachable, isBool) ||
     !nullable(c.running, isNum) ||
     !nullable(c.pending, isNum) ||
@@ -121,10 +126,12 @@ function parseWorker(raw: unknown, index: number): LiveWorker {
     label: raw.label,
     dispatcherState: raw.dispatcherState,
     health: raw.health,
+    routing: raw.routing,
     active: raw.active,
     inRegistry: raw.inRegistry,
     jobTypes: raw.jobTypes,
     lastSeenAt: raw.lastSeenAt,
+    warning: raw.warning,
     comfy: {
       reachable: c.reachable,
       running: c.running,
@@ -208,6 +215,8 @@ export function toSnapshot(live: LiveFleet): FleetSnapshot {
       gpuId: `unmapped-gpu:${w.workerId}`,
       dispatcherState: w.dispatcherState,
       health: w.health,
+      routing: w.routing,
+      warning: w.warning,
       // A stale queue sample is history, not state: show it as unknown rather than as the
       // last value.
       comfy: w.comfy.stale
@@ -235,6 +244,7 @@ export function toSnapshot(live: LiveFleet): FleetSnapshot {
             id: w.prompt.id,
             owner: w.prompt.jobId === null ? 'UNATTRIBUTED' : 'PRODUCTION',
             observedAt: w.prompt.observedAt,
+            jobId: w.prompt.jobId,
           }
         : null,
     })),

@@ -1,3 +1,20 @@
+# 2026-11-02 — GPU fleet dashboard: live pages, admin sign-in, sample history (feat/fleet-api-read)
+
+- **Done:**
+  - Rebased onto `dev`; the fleet permissions migration is now `0240_fleet_permissions` (data-only, idempotent).
+  - Admin email/password sign-in for `apps/gpu-ops` against `/admin/auth/*` (access token in memory, httpOnly refresh cookie, one silent renewal on 401, sign out). Needs the API's `CORS_ORIGIN` to list the dashboard origin and both on the same site (`127.0.0.1`, not `localhost`).
+  - `GET /admin/fleet` now reports the `jobs:inhouse` lane (five lanes).
+  - Sample history: the dispatcher health monitor appends one VRAM/RAM point per probe (~15 s) to `worker:history:{id}` (1 h / 360 points, 2 h TTL); `GET /admin/fleet/workers/:id/history?minutes=5..60` serves it behind `fleet.view`. Unreachable workers have no points, never zeros.
+  - Live pages (built by Codex): fleet summary, attention-first sorting, search/filters, table/card views, URL-backed page/worker/job state, jobs list and detail with event timeline, worker Jobs/Config tabs, queue lanes, VRAM/RAM history dots (unconnected across gaps), dark mode, keyboard shortcuts, pause/manual refresh, snapshot JSON copy.
+- **Verified:** gpu-ops typecheck + 59 tests; API typecheck; dispatcher typecheck + 253 tests; `admin-fleet` integration 28/28 (twice); API unit 1026/1026 (before the history work); the gpu-ops parsers accepted real responses from the running local API (jobs list, 45 job details across FAILED/COMPLETED/RUNNING/CANCELLED incl. 17 with events, workers, history). Sign-in/sign-out checked by hand. The new live pages were not reviewed visually in a browser.
+- **Not done:**
+  - **Drain/undrain stays disabled in the UI.** `POST /admin/workers/:id/drain|undrain` (permission `workers.drain`) accept no reason and write **no `audit_logs` row**, and undrain sets a `DRAINING` worker straight to `IDLE` whatever it is running. Needs a backend change (reason + audit + a safe undrain) before the UI can offer it.
+  - The API has no `GET /admin/workers/:id`; Config reads `/admin/workers` and picks the worker locally. Job detail exposes no error message or refunded-credit flag, so both show as unavailable.
+  - Fleet VRAM total is deliberately "No data": GPU-to-worker mapping is not observed and shared GPUs would be double counted.
+  - Hosts, disk/inodes, incidents, evidence and process control need agents on the GPU boxes (`aivastra-gpu` repo); those fixture pages stay hidden in live mode.
+- **Open question:** a `DISPATCHER_MODE=monitor` dispatcher still claims the dispatcher session and rebuilds the worker registry. On a Redis shared with a live dispatcher that could contend; run monitors against their own Redis until decided.
+- **Not pushed.**
+
 ## 2026-10-30 — Shopify simplification (branch feat/shopify-simplification, release 1)
 
 - **Done:**

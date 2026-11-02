@@ -50,8 +50,12 @@ Dependency versions follow the existing admin SPA (React 18, Vite 6).
 
 Set `VITE_FLEET_API_URL` (see `.env.example`) to read the API instead of the fixtures. The app
 then asks you to sign in with an admin account that has `fleet.view` (the same `/admin/auth/*`
-routes `admin-web` uses), keeps the access token in memory only, and
-polls `GET /admin/fleet` every 15 s and shows only the Fleet overview and worker detail.
+routes `admin-web` uses), keeps the access token in memory only, and polls `GET /admin/fleet`
+every 15 s. Live mode includes the fleet overview, worker detail with permission-gated jobs and
+registered configuration, the jobs debug page, and queue lanes. Jobs use the existing `/admin/jobs`
+and `/admin/jobs/:id` read routes; worker configuration is projected from `/admin/workers` without
+displaying its URL or API-key hint. Worker detail reads up to 60 minutes of observed VRAM and RAM
+points from `/admin/fleet/workers/:id/history`; missing intervals remain gaps and are not interpolated.
 
 Sign-in persistence is the API's httpOnly `refresh` cookie, so a reload or new tab signs back in
 without a prompt, and an expired access token is renewed once before you are asked again. This
@@ -62,10 +66,10 @@ revokes the session.
 - Real: worker id/label, dispatcher state, health, routing, ComfyUI queue (with staleness),
   registry presence, job types, last job activity.
 - Not connected, shown as unknown/empty: hosts and GPU mapping, GPU/exporter telemetry, host
-  disk/RAM, ownership, prompts, incidents, jobs.
-- Hidden in live mode: Inventory, Incidents, Operations, Queue, Configuration, Evidence,
-  Activity and every start/stop/reserve control. They are browser-only demos and must not sit
-  next to real worker names.
+  disk/inodes/swap and incidents. The separate history route currently records VRAM and RAM only.
+- Hidden in live mode: Inventory, Incidents, Operations, Configuration, Evidence and Activity.
+  Their controls are browser-only demos and must not sit next to real worker names.
+- Drain and undrain remain unavailable in the UI until the API accepts and audits a typed reason.
 - Timestamps: freshness is measured against the API's `generatedAt`, so a snapshot that stops
   refreshing ages to stale; a failed refresh keeps the last snapshot and says so.
 - A stale queue sample is shown as unknown, not as its last value. Responses are validated by
