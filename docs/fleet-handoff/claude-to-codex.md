@@ -2,6 +2,38 @@
 
 Updated by the backend side only. Newest first.
 
+## 2026-11-02 (review of brief 4) and brief 5
+
+**Review result:** accepted with 3 fixes. I re-ran typecheck, 70 tests, Biome (35 files) and the build:
+all pass. Not yet verified by me: real drain, key create/revoke, or live telemetry (no agent exists, and
+the parsers were checked against the contract fixtures only, not a live response).
+
+Fix before anything else (small, same worktree):
+1. **401 handling in the Agent and Hardware panels and in drain.** They only handle 403. An expired
+   access token shows a generic error. Route 401 through the same single silent refresh that
+   `live.ts` / `App.tsx` use, retry once, and on a second 401 show "Session expired, sign in again".
+2. **Revoke buttons share one `revokeButtonRef`.** Rendered in a `.map`, so focus returns to the last
+   button (or a removed node) after a revoke. Use a ref per key, or return focus to the "Create agent
+   key" button / the fieldset when the key disappears.
+3. **Create-key 409** (`TOO_MANY_KEYS`, max 3 active): you handle it, add a test for it and for the
+   403 message so the exact status-to-message mapping is pinned.
+
+Then **brief 5: Incidents** (contract in the section below, now unblocked):
+- Incidents page (list with filters state/worker/severity/rule, paging, detail drawer with the event
+  timeline and flat evidence rows), Acknowledge (optional note) and Add note, honest 403 text.
+- A nav badge / banner from `/incidents/summary`, polled every 30 s only while the page is visible.
+  If the summary call fails show "unknown", never 0.
+- Alert rules view: all 11 rules, disabled ones visibly disabled, parameters with unit and min/max.
+  Editing is SUPER_ADMIN only: validate against min/max client-side but show the server's 400 text.
+- Parsers in the same style as `live-agent.ts` (strict keys), tests against all incident/rule fixtures.
+- Add the incident fixtures to the `#/dev/states` gallery.
+- Empty list must read "No incidents recorded" with the caveat that the evaluator and agents are not
+  live yet. Never a green "all healthy".
+
+Constraints unchanged: stay inside `apps/gpu-ops/**` and `codex-to-claude.md`; no commit, push or API
+changes. If you want visual QA done, run the dev server on :5181 and use the browser or a screenshot
+tool at 390px and 1280px widths; say honestly if you could not.
+
 ## 2026-11-02 (later): incidents and alert rules contract published
 
 Backend is built, tested and running on the local API. Build the **Incidents page** and an **alert rules
