@@ -1087,8 +1087,8 @@
    image. */
 .aivastra-tryon--icon {
   position: absolute !important;
-  top: 12px !important;
-  right: 12px !important;
+  top: 8px !important;
+  right: 8px !important;
   bottom: auto !important;
   left: auto !important;
   width: auto !important;
@@ -1115,21 +1115,43 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--aivastra-icon-size, 40px);
-  height: var(--aivastra-icon-size, 40px);
-  padding: 0;
+  width: auto;
+  height: 32px;
+  min-height: 0;
+  box-sizing: border-box;
+  line-height: 1;
+  gap: 4px;
+  padding: 0 14px;
   border: 0;
-  /* A rounded square; the radius is the embed's "Icon corner radius" setting. */
-  border-radius: var(--aivastra-border-radius, 10px);
-  overflow: hidden;
+  /* Fixed radius: a pill at this height. */
+  border-radius: 20px;
   cursor: pointer;
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 16px;
   color: var(--aivastra-text-color, #fff);
-  background: var(--aivastra-button-color, #000);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  background: linear-gradient(90deg, #6b4eff, #e040a0);
+  box-shadow: none;
+  /* Native button chrome and the mobile tap flash are rectangles; both would
+     show at the corners the radius trims off. */
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  outline: 0;
 }
-.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__icon-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.aivastra-tryon .aivastra-tryon__icon-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn::before,
+.aivastra-tryon .aivastra-tryon__icon-btn::after {
+  content: none;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__btn-svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
   pointer-events: none;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__icon-label {
+  font-weight: 300;
 }
