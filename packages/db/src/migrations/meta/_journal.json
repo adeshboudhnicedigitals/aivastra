@@ -1681,6 +1681,13 @@
       "when": 1793352643868,
       "tag": "0240_fleet_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 241,
+      "version": "7",
+      "when": 1793605077624,
+      "tag": "0241_fleet_agent_telemetry",
+      "breakpoints": true
     }
   ]
 }
