@@ -8,7 +8,7 @@ import {
   workerPoolSchema,
 } from '@aivastra/types';
 import { asc, eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { recordAudit } from './audit.js';
@@ -627,37 +627,62 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post(
-    '/admin/workers/:id/drain',
-    {
-      preHandler: requirePermission('workers.drain'),
-      schema: { params: z.object({ id: z.string() }) },
-    },
-    async (req, reply) => {
-      const { id } = req.params as { id: string };
-      const raw = await app.redis.hget(REGISTRY_KEY, id);
-      if (!raw) return reply.code(404).send({ ok: false });
-      const w = JSON.parse(raw) as Record<string, unknown>;
-      await app.redis.hset(REGISTRY_KEY, id, JSON.stringify({ ...w, status: 'DRAINING' }));
-      return { ok: true };
-    },
-  );
+  // Drain and undrain share one shape: the audit row and the registry write happen inside a
+  // single transaction callback (the capabilities and queue-gate routes do the same), so a Redis
+  // failure rolls the audit row back and no entry claims a drain that did not happen. The
+  // registry is read again inside it, after the audit insert is possible, so a worker deleted in
+  // the meantime is a 404 rather than a write to a missing entry. Unlike a PATCH to isActive this
+  // does not outlive the dispatcher: a restart rebuilds status from `isActive` (see
+  // rebuildWorkerRegistry), so a drain is lost when the dispatcher restarts.
+  // A POST with no body (what admin-web's buttons send) reaches the handler as null, not undefined.
+  const drainBody = z.object({ reason: z.string().trim().min(3).max(300).optional() }).nullish();
 
-  app.post(
-    '/admin/workers/:id/undrain',
-    {
-      preHandler: requirePermission('workers.drain'),
-      schema: { params: z.object({ id: z.string() }) },
-    },
-    async (req, reply) => {
-      const { id } = req.params as { id: string };
+  async function setDrainState(
+    req: FastifyRequest,
+    id: string,
+    to: 'DRAINING' | 'IDLE',
+    reason: string | undefined,
+  ): Promise<'missing' | 'unchanged' | 'changed'> {
+    return app.db.transaction(async (tx) => {
       const raw = await app.redis.hget(REGISTRY_KEY, id);
-      if (!raw) return reply.code(404).send({ ok: false });
-      const w = JSON.parse(raw) as Record<string, unknown>;
-      if (w.status === 'DRAINING') {
-        await app.redis.hset(REGISTRY_KEY, id, JSON.stringify({ ...w, status: 'IDLE' }));
-      }
-      return { ok: true };
-    },
-  );
+      if (!raw) return 'missing';
+      const entry = JSON.parse(raw) as Record<string, unknown>;
+      const from = entry.status;
+      // Drain from anything not already draining; undrain only from DRAINING, so it can never
+      // flip a BUSY worker to IDLE. (A held worker also stays unclaimable while its reservation
+      // lasts, whatever its status says.)
+      if (to === 'DRAINING' ? from === 'DRAINING' : from !== 'DRAINING') return 'unchanged';
+      await recordAudit(tx, {
+        actor: { userId: req.userId, role: req.adminRole! },
+        action: to === 'DRAINING' ? 'worker.drain' : 'worker.undrain',
+        resourceType: 'worker',
+        resourceId: id,
+        before: { status: from },
+        after: { status: to, reason: reason ?? null },
+        request: req,
+      });
+      await app.redis.hset(REGISTRY_KEY, id, JSON.stringify({ ...entry, status: to }));
+      return 'changed';
+    });
+  }
+
+  for (const [path, to] of [
+    ['drain', 'DRAINING'],
+    ['undrain', 'IDLE'],
+  ] as const) {
+    app.post(
+      `/admin/workers/:id/${path}`,
+      {
+        preHandler: requirePermission('workers.drain'),
+        schema: { params: z.object({ id: z.string() }), body: drainBody },
+      },
+      async (req, reply) => {
+        const { id } = req.params as { id: string };
+        const reason = (req.body as { reason?: string } | null)?.reason;
+        const result = await setDrainState(req, id, to, reason);
+        if (result === 'missing') return reply.code(404).send({ ok: false });
+        return { ok: true, changed: result === 'changed' };
+      },
+    );
+  }
 }

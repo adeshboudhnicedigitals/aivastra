@@ -114,6 +114,128 @@ describe('PATCH /admin/workers/:id — registry status sync', () => {
     expect(res.json().status).toBe('BUSY');
     expect(await registryStatus(id)).toBe('BUSY');
   });
+  describe('POST /admin/workers/:id/drain and /undrain — audit', () => {
+    const post = (id: string, action: 'drain' | 'undrain', payload?: Record<string, unknown>) =>
+      app.inject({
+        method: 'POST',
+        url: `/admin/workers/${id}/${action}`,
+        headers: authHeader,
+        payload,
+      });
+    async function auditsFor(id: string, action: string) {
+      const { schema } = await import('@aivastra/db');
+      const { eq } = await import('drizzle-orm');
+      const rows = await app.db
+        .select()
+        .from(schema.auditLogs)
+        .where(eq(schema.auditLogs.resourceId, id));
+      return rows.filter((a) => a.action === action);
+    }
+    async function setRegistryStatus(id: string, status: string) {
+      const raw = await app.redis.hget(REGISTRY_KEY, id);
+      await app.redis.hset(
+        REGISTRY_KEY,
+        id,
+        JSON.stringify({ ...JSON.parse(raw ?? '{}'), status }),
+      );
+    }
+
+    it('drains, and records who, from what, and why', async () => {
+      const id = 'test-drain-audit';
+      await createWorker(id);
+      const res = await post(id, 'drain', { reason: '  GPU throwing CUDA errors  ' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, changed: true });
+      expect(await registryStatus(id)).toBe('DRAINING');
+      const [audit] = await auditsFor(id, 'worker.drain');
+      expect(audit).toMatchObject({
+        actorRole: 'SUPER_ADMIN',
+        resourceType: 'worker',
+        before: { status: 'IDLE' },
+        after: { status: 'DRAINING', reason: 'GPU throwing CUDA errors' },
+      });
+      expect(audit?.actorUserId).toBeTruthy();
+    });
+
+    it('still works with no body (the admin-web buttons send none) and records a null reason', async () => {
+      const id = 'test-drain-nobody';
+      await createWorker(id);
+      expect((await post(id, 'drain')).statusCode).toBe(200);
+      const [audit] = await auditsFor(id, 'worker.drain');
+      expect(audit?.after).toEqual({ status: 'DRAINING', reason: null });
+    });
+
+    it('does nothing and writes no audit row when the worker is already draining', async () => {
+      const id = 'test-drain-twice';
+      await createWorker(id);
+      await post(id, 'drain', { reason: 'first one' });
+      const again = await post(id, 'drain', { reason: 'second one' });
+      expect(again.json()).toEqual({ ok: true, changed: false });
+      expect(await auditsFor(id, 'worker.drain')).toHaveLength(1);
+    });
+
+    it('undrains only a draining worker and audits it', async () => {
+      const id = 'test-undrain-audit';
+      await createWorker(id);
+      await post(id, 'drain', { reason: 'maintenance' });
+      const res = await post(id, 'undrain', { reason: 'maintenance finished' });
+      expect(res.json()).toEqual({ ok: true, changed: true });
+      expect(await registryStatus(id)).toBe('IDLE');
+      const [audit] = await auditsFor(id, 'worker.undrain');
+      expect(audit).toMatchObject({
+        before: { status: 'DRAINING' },
+        after: { status: 'IDLE', reason: 'maintenance finished' },
+      });
+    });
+
+    it('never turns a BUSY or IDLE worker into something else by undraining it', async () => {
+      const busy = 'test-undrain-busy';
+      await createWorker(busy);
+      await setRegistryStatus(busy, 'BUSY');
+      expect((await post(busy, 'undrain')).json()).toEqual({ ok: true, changed: false });
+      expect(await registryStatus(busy)).toBe('BUSY');
+      expect(await auditsFor(busy, 'worker.undrain')).toHaveLength(0);
+    });
+
+    it('drains a BUSY worker without disturbing the rest of its registry entry', async () => {
+      const id = 'test-drain-busy';
+      await createWorker(id);
+      await setRegistryStatus(id, 'BUSY');
+      expect((await post(id, 'drain', { reason: 'bad card' })).json().changed).toBe(true);
+      const entry = JSON.parse((await app.redis.hget(REGISTRY_KEY, id)) ?? '{}');
+      expect(entry).toMatchObject({ status: 'DRAINING', url: 'https://example.com/' });
+      const [audit] = await auditsFor(id, 'worker.drain');
+      expect(audit?.before).toEqual({ status: 'BUSY' });
+    });
+
+    it('rolls the audit row back when the registry write fails, so no drain is claimed that did not happen', async () => {
+      const id = 'test-drain-rollback';
+      await createWorker(id);
+      const spy = vi.spyOn(app.redis, 'hset').mockRejectedValueOnce(new Error('redis down'));
+      const res = await post(id, 'drain', { reason: 'should not stick' });
+      spy.mockRestore();
+      expect(res.statusCode).toBe(500);
+      expect(await registryStatus(id)).toBe('IDLE');
+      expect(await auditsFor(id, 'worker.drain')).toHaveLength(0);
+    });
+
+    it('returns 404 and writes nothing for a worker that is not registered', async () => {
+      const res = await post('test-drain-missing', 'drain', { reason: 'nobody home' });
+      expect(res.statusCode).toBe(404);
+      expect(await auditsFor('test-drain-missing', 'worker.drain')).toHaveLength(0);
+    });
+
+    it.each([
+      ['ab'],
+      ['x'.repeat(301)],
+      [123],
+    ])('rejects an invalid reason (%j)', async (reason) => {
+      const id = 'test-drain-badreason';
+      await createWorker(id).catch(() => undefined);
+      expect((await post(id, 'drain', { reason })).statusCode).toBe(400);
+      expect(await registryStatus(id)).toBe('IDLE');
+    });
+  });
 });
 
 describe('POST /admin/workers — allowedJobTypes validation', () => {
