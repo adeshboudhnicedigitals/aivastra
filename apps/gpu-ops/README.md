@@ -49,8 +49,15 @@ Dependency versions follow the existing admin SPA (React 18, Vite 6).
 ## Live mode (read-only)
 
 Set `VITE_FLEET_API_URL` (see `.env.example`) to read the API instead of the fixtures. The app
-then asks for an admin access token with `fleet.view`, keeps it in `sessionStorage` for the tab,
+then asks you to sign in with an admin account that has `fleet.view` (the same `/admin/auth/*`
+routes `admin-web` uses), keeps the access token in memory only, and
 polls `GET /admin/fleet` every 15 s and shows only the Fleet overview and worker detail.
+
+Sign-in persistence is the API's httpOnly `refresh` cookie, so a reload or new tab signs back in
+without a prompt, and an expired access token is renewed once before you are asked again. This
+needs the API's `CORS_ORIGIN` to list this app's origin and both to be the same site: use
+`127.0.0.1` for both locally, since `localhost` and `127.0.0.1` are different sites. "Sign out"
+revokes the session.
 
 - Real: worker id/label, dispatcher state, health, routing, ComfyUI queue (with staleness),
   registry presence, job types, last job activity.

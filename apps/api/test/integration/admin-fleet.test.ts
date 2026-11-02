@@ -179,12 +179,13 @@ describe('GET /admin/fleet', () => {
       }[];
     const of = async (stream: string) => (await queues()).find((q) => q.stream === stream);
 
-    it('lists the four dispatcher lanes', async () => {
+    it('lists the five dispatcher lanes', async () => {
       expect((await queues()).map((q) => q.stream)).toEqual([
         'jobs:priority',
         'jobs:normal',
         'jobs:low',
         'jobs:video',
+        'jobs:inhouse',
       ]);
     });
 

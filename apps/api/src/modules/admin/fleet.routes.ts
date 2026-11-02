@@ -21,7 +21,13 @@ const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
 
 // Shared dispatcher lanes and their consumer group (apps/dispatcher/src/stream/loop.ts).
-const JOB_STREAMS = ['jobs:priority', 'jobs:normal', 'jobs:low', 'jobs:video'] as const;
+const JOB_STREAMS = [
+  'jobs:priority',
+  'jobs:normal',
+  'jobs:low',
+  'jobs:video',
+  'jobs:inhouse',
+] as const;
 const DISPATCHER_GROUP = 'dispatcher-cg';
 // XRANGE COUNT: enough to show "hundreds waiting" without letting one request scan a flood.
 const BACKLOG_READ_CAP = 1000;

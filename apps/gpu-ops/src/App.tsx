@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { ActivityPage } from './ActivityPage';
+import { login, logout, refresh } from './auth';
 import { ConfigurationPage } from './ConfigurationPage';
-import { ConnectForm } from './Connect';
+import { LoginForm } from './Connect';
 import type { FleetSnapshot, FleetWorkerView, IncidentView } from './contracts';
 import { EvidencePage } from './EvidencePage';
 import { fixtureRepository } from './fixtures';
@@ -107,8 +108,10 @@ function GpuSummary({ worker, asOf }: { worker: FleetWorkerView; asOf: string })
 }
 // Build-time (VITE_*): set => read the live fleet API, unset => the synthetic fixtures.
 const FLEET_API_URL = (import.meta.env.VITE_FLEET_API_URL as string | undefined) || null;
-const TOKEN_KEY = 'gpu-ops.fleet-token';
 const REFRESH_MS = 15_000;
+// A 401 right after a successful refresh means the new token is also unacceptable (account
+// disabled, permission removed), so a second refresh would only loop.
+const REAUTH_COOLDOWN_MS = 10_000;
 
 export function App() {
   const processes = useProcessDemo();
@@ -116,10 +119,11 @@ export function App() {
   const workspace = useWorkspaceDemo();
   const [snapshot, setSnapshot] = useState<FleetSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(() =>
-    FLEET_API_URL ? sessionStorage.getItem(TOKEN_KEY) : null,
-  );
+  // In memory only: a reload or new tab recovers it from the httpOnly refresh cookie.
+  const [token, setToken] = useState<string | null>(null);
+  const [booting, setBooting] = useState(FLEET_API_URL !== null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const lastRefreshAt = useRef(0);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const hasData = useRef(false);
   const [page, setPage] = useState<Page>('fleet');
@@ -127,6 +131,26 @@ export function App() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('ALL');
   const [incidentId, setIncidentId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!FLEET_API_URL) return;
+    let current = true;
+    refresh(FLEET_API_URL)
+      .then((value) => {
+        if (!current) return;
+        lastRefreshAt.current = Date.now();
+        setToken(value);
+      })
+      .catch((err: unknown) => {
+        if (current)
+          setAuthMessage(err instanceof Error ? err.message : 'Could not reach the API.');
+      })
+      .finally(() => {
+        if (current) setBooting(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, []);
   useEffect(() => {
     if (FLEET_API_URL && !token) return;
     let current = true;
@@ -146,12 +170,23 @@ export function App() {
         .catch((err: unknown) => {
           if (!current) return;
           if (err instanceof FleetLoadError && err.kind === 'UNAUTHORIZED') {
-            sessionStorage.removeItem(TOKEN_KEY);
-            hasData.current = false;
-            setSnapshot(null);
-            setToken(null);
-            setAuthMessage('That token was rejected or has expired. Paste a fresh one.');
-            return;
+            // Access tokens are short-lived: try the session cookie once before asking again.
+            const retry =
+              FLEET_API_URL && Date.now() - lastRefreshAt.current > REAUTH_COOLDOWN_MS
+                ? refresh(FLEET_API_URL).catch(() => null)
+                : Promise.resolve(null);
+            return retry.then((fresh) => {
+              if (!current) return;
+              if (fresh) {
+                lastRefreshAt.current = Date.now();
+                setToken(fresh);
+                return;
+              }
+              hasData.current = false;
+              setSnapshot(null);
+              setToken(null);
+              setAuthMessage('Your session has expired. Sign in again.');
+            });
           }
           // Keep the last good snapshot on screen: its asOf is unchanged, so freshness ages
           // it to STALE on its own, and the banner says why.
@@ -165,13 +200,28 @@ export function App() {
       clearInterval(timer);
     };
   }, [token]);
+  const signOut = () => {
+    if (!FLEET_API_URL) return;
+    void logout(FLEET_API_URL);
+    hasData.current = false;
+    setSnapshot(null);
+    setToken(null);
+    setAuthMessage(null);
+  };
+  if (FLEET_API_URL && booting)
+    return (
+      <main className="load-state" aria-live="polite">
+        Checking your session…
+      </main>
+    );
   if (FLEET_API_URL && !token)
     return (
-      <ConnectForm
+      <LoginForm
         apiUrl={FLEET_API_URL}
         message={authMessage}
-        onToken={(value) => {
-          sessionStorage.setItem(TOKEN_KEY, value);
+        onLogin={async (email, password) => {
+          const value = await login(FLEET_API_URL, email, password);
+          lastRefreshAt.current = Date.now();
           setAuthMessage(null);
           setToken(value);
         }}
@@ -295,7 +345,14 @@ export function App() {
           <span>
             Infrastructure <span className="crumb">/</span> GPU fleet
           </span>
-          <span className="environment">{live ? '● Live fleet API' : '● Synthetic preview'}</span>
+          <span className="environment">
+            {live ? '● Live fleet API' : '● Synthetic preview'}
+            {live && (
+              <button type="button" className="link-button" onClick={signOut}>
+                Sign out
+              </button>
+            )}
+          </span>
         </header>
         <main id="content">
           <div className="page-heading">
