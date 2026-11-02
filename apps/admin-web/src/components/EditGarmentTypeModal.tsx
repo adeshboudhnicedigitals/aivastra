@@ -1052,9 +1052,13 @@ interface BlouseCategoryItem {
 function BlousePicker({
   garmentTypeId,
   toast,
+  onLoaded,
 }: {
   garmentTypeId: string;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+  // Reports how many categories exist so the section header can hide its
+  // "Map to…" control when there is nothing to copy.
+  onLoaded?: (count: number) => void;
 }) {
   const [items, setItems] = useState<BlouseCategoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1070,7 +1074,9 @@ function BlousePicker({
       `/admin/assets/garment-types/${garmentTypeId}/blouse-categories`,
     )
       .then((res) => {
-        if (!cancelled) setItems(res.items);
+        if (cancelled) return;
+        setItems(res.items);
+        onLoaded?.(res.items.length);
       })
       .catch((error) => {
         toast({
@@ -1085,7 +1091,7 @@ function BlousePicker({
     return () => {
       cancelled = true;
     };
-  }, [garmentTypeId, toast]);
+  }, [garmentTypeId, toast, onLoaded]);
 
   const mappedCount = items.filter((i) => i.mapped).length;
   const unmappedCount = items.length - mappedCount;
@@ -1517,6 +1523,10 @@ export function EditGarmentTypeModal({
 
   // Other garment types of the same gender — the eligible targets for each
   // section's "Map to…" copy control.
+  // null until BlousePicker's fetch lands; the "Map to…" control stays hidden
+  // for both that and the empty case.
+  const [blouseCategoryCount, setBlouseCategoryCount] = useState<number | null>(null);
+
   const copyTargets = useMemo(
     () =>
       garmentTypes
@@ -2449,7 +2459,7 @@ export function EditGarmentTypeModal({
         {
           title: 'Blouse Categories',
           flush: true,
-          headerAction: (
+          headerAction: blouseCategoryCount ? (
             <CopyToControl
               targetOptions={copyTargets}
               toast={toast}
@@ -2482,8 +2492,14 @@ export function EditGarmentTypeModal({
                 );
               }}
             />
+          ) : undefined,
+          children: (
+            <BlousePicker
+              garmentTypeId={garmentType.id}
+              toast={toast}
+              onLoaded={setBlouseCategoryCount}
+            />
           ),
-          children: <BlousePicker garmentTypeId={garmentType.id} toast={toast} />,
         },
         {
           title: `Backgrounds${allBackgrounds.length - mappedBackgroundIds.size > 0 ? ` (${allBackgrounds.length - mappedBackgroundIds.size} unmapped)` : ''}`,
