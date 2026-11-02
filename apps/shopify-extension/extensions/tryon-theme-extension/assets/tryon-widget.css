@@ -1077,6 +1077,26 @@
   /* Text scales with the height so a short button does not clip it. */
   font-size: clamp(12px, calc(var(--aivastra-button-height, 48px) * 0.36), 22px);
   box-sizing: border-box;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* A small bump on hover. Gated on a real pointer so touch screens do not keep
+   the lifted state after a tap, and off under reduced motion. */
+@media (hover: hover) {
+  .aivastra-tryon .aivastra-tryon__button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aivastra-tryon .aivastra-tryon__button {
+    transition: none;
+  }
+  .aivastra-tryon .aivastra-tryon__button:hover {
+    transform: none;
+  }
 }
 
 /* The embed's icon: a badge on the product image.
