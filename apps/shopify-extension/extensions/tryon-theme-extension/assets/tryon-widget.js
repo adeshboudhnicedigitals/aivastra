@@ -213,7 +213,7 @@
       }
     })();
 
-    const button = root.querySelector('.aivastra-tryon__button');
+    const button = root.querySelector('.aivastra-tryon__button, .aivastra-tryon__icon-btn');
     const modal = root.querySelector('.aivastra-tryon__modal');
     const modalContent = root.querySelector('.aivastra-tryon__modal-content');
     const closeBtn = root.querySelector('.aivastra-tryon__close');
@@ -332,8 +332,24 @@
       return `[${status}${code ? ` ${code}` : ''}] ${backendMessage || '(no message)'}`;
     }
 
-    function friendlyClientErrorMessage(status, code, backendMessage) {
+    // The API stamps every storefront failure with a short reference that
+    // matches a log line, so a screenshot of the widget is enough for support.
+    function withRef(message, ref) {
+      return ref ? `${message} (Ref: ${ref})` : message;
+    }
+
+    function friendlyClientErrorMessage(status, code, backendMessage, ref) {
       if (verboseErrors) return rawErrorMessage(status, code, backendMessage);
+      return withRef(clientErrorCopy(status, code, backendMessage), ref);
+    }
+
+    function clientErrorCopy(status, code, backendMessage) {
+      if (code === 'INSUFFICIENT_CREDITS') {
+        return 'This store has run out of try-on credits. Please let the store know so they can top up.';
+      }
+      if (status >= 500) {
+        return 'Something went wrong on our side. Please try again in a moment.';
+      }
       if (code === 'RATE_LIMITED' || code === 'RATE_LIMIT') {
         return 'Lots of people are trying this on right now. Please wait a moment and try again.';
       }
@@ -1299,13 +1315,12 @@
         // is read, mapped to fixed friendly text below.
         const errBody = await presignRes.json().catch(() => ({}));
         const err = new Error('presign failed');
-        if (presignRes.status < 500) {
-          err.userMessage = friendlyClientErrorMessage(
-            presignRes.status,
-            errBody?.error?.code,
-            errBody?.error?.message,
-          );
-        }
+        err.userMessage = friendlyClientErrorMessage(
+          presignRes.status,
+          errBody?.error?.code,
+          errBody?.error?.message,
+          errBody?.error?.ref,
+        );
         throw err;
       }
       const body = await presignRes.json();
@@ -1376,12 +1391,13 @@
         // first message painted for a frame and was clobbered before any
         // shopper could read it.
         const err = new Error('try-on unavailable');
-        if (verboseErrors) {
-          const errBody = await res.json().catch(() => ({}));
-          err.userMessage = rawErrorMessage(402, errBody?.error?.code, errBody?.error?.message);
-        } else {
-          err.userMessage = 'Try-on is temporarily unavailable, please check back later.';
-        }
+        const errBody = await res.json().catch(() => ({}));
+        err.userMessage = friendlyClientErrorMessage(
+          402,
+          errBody?.error?.code,
+          errBody?.error?.message,
+          errBody?.error?.ref,
+        );
         throw err;
       }
       if (res.status === 403) {
@@ -1394,7 +1410,12 @@
         const errBody = await res.json().catch(() => ({}));
         if (errBody?.error?.code === 'ORIGIN_NOT_ALLOWED') {
           const err = new Error('origin not allowed');
-          err.userMessage = friendlyClientErrorMessage(403, 'ORIGIN_NOT_ALLOWED');
+          err.userMessage = friendlyClientErrorMessage(
+            403,
+            'ORIGIN_NOT_ALLOWED',
+            undefined,
+            errBody?.error?.ref,
+          );
           throw err;
         }
         const err = new Error('upload session expired or not owned');
@@ -1419,7 +1440,10 @@
           // wrong suggestion for an infra outage.
           err.userMessage = verboseErrors
             ? rawErrorMessage(res.status, code, errBody?.error?.message)
-            : "We're experiencing high demand right now. You haven't been charged — please try again in a moment.";
+            : withRef(
+                "We're experiencing high demand right now. You haven't been charged — please try again in a moment.",
+                errBody?.error?.ref,
+              );
         } else if (code === 'VALIDATION' && sentEmail) {
           // The address is the only free-text field the shopper contributes,
           // and EMAIL_RE is only a mirror of the server's rule, not the rule
@@ -1431,12 +1455,17 @@
           err.userMessage = verboseErrors
             ? rawErrorMessage(res.status, code, errBody?.error?.message)
             : "That email address wasn't accepted. Please check it and try again.";
-        } else if (res.status < 500) {
+        } else {
           // Same as uploadPhoto: never show the backend's own AppError/Zod
           // text verbatim, only map its status/code to fixed friendly copy
           // (with the one deliberate exception inside
           // friendlyClientErrorMessage itself, for a 413).
-          err.userMessage = friendlyClientErrorMessage(res.status, code, errBody?.error?.message);
+          err.userMessage = friendlyClientErrorMessage(
+            res.status,
+            code,
+            errBody?.error?.message,
+            errBody?.error?.ref,
+          );
         }
         throw err;
       }
@@ -1491,7 +1520,7 @@
     // Terminal job states, raised as tagged errors so proceedWithPhoto's catch
     // can pick the right copy for each. Shared by the SSE branch and the
     // polling fallback, which must agree on how a terminal state is reported.
-    function terminalJobError(status, errorCode) {
+    function terminalJobError(status, errorCode, failureKind, ref) {
       if (status === 'CANCELLED') {
         const err = new Error(errorCode || 'job cancelled');
         err.jobCancelled = true;
@@ -1499,7 +1528,27 @@
       }
       const err = new Error(errorCode || 'job failed');
       err.jobFailed = true;
+      err.failureKind = failureKind;
+      err.ref = ref;
       return err;
+    }
+
+    // Credits are refunded on every failed generation, so each kind says so and
+    // differs only in what the shopper can do about the cause.
+    function jobFailureCopy(kind, ref) {
+      if (verboseErrors) return null;
+      let message;
+      if (kind === 'PHOTO') {
+        message =
+          "We couldn't use that photo and your credits were refunded. Try a clear, front-facing photo with good lighting.";
+      } else if (kind === 'BUSY') {
+        message =
+          'Our image service is busy right now and your credits were refunded. Please try again in a few minutes.';
+      } else {
+        message =
+          'Something went wrong on our side while generating your try-on. Your credits were refunded — please try again later.';
+      }
+      return withRef(message, ref);
     }
 
     /**
@@ -1585,7 +1634,12 @@
 
         if (terminal) {
           if (terminal.status === 'CANCELLED' || terminal.status === 'FAILED') {
-            throw terminalJobError(terminal.status, terminal.errorCode);
+            throw terminalJobError(
+              terminal.status,
+              terminal.errorCode,
+              terminal.failureKind,
+              terminal.ref,
+            );
           }
           // COMPLETED. The image exists and the store has been charged for it,
           // so a status request that doesn't come back is not a reason to give
@@ -1604,7 +1658,7 @@
               throw missingResultError();
             }
             if (body.status === 'CANCELLED' || body.status === 'FAILED') {
-              throw terminalJobError(body.status, body.errorCode);
+              throw terminalJobError(body.status, body.errorCode, body.failureKind, body.ref);
             }
           }
         }
@@ -1707,7 +1761,7 @@
           );
         } else if (err?.jobFailed) {
           showErrorWithMessage(
-            "We couldn't generate your try-on and your credits were refunded. Try a clear, front-facing photo with good lighting.",
+            jobFailureCopy(err.failureKind, err.ref) ?? `[FAILED] ${err.message} (Ref: ${err.ref})`,
           );
         } else if (err && err.message === 'sse timed out') {
           showErrorWithMessage(
@@ -1995,7 +2049,7 @@
   function initSatellite(root, blockRoot) {
     const duplicates = root.querySelectorAll('.aivastra-tryon__modal, .aivastra-tryon__lightbox');
     for (let i = 0; i < duplicates.length; i++) duplicates[i].remove();
-    const icon = root.querySelector('.aivastra-tryon__button');
+    const icon = root.querySelector('.aivastra-tryon__button, .aivastra-tryon__icon-btn');
     if (!icon) return;
     icon.addEventListener('click', () => {
       if (typeof blockRoot.__aivastraOpen === 'function') blockRoot.__aivastraOpen();

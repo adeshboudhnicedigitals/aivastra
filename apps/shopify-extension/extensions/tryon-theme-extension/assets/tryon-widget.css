@@ -1068,7 +1068,7 @@
 
 /* The block's button fills its parent, so it matches the theme's Add to cart and
    Buy it now buttons stacked with it. The icon badge keeps its own size. */
-.aivastra-tryon .aivastra-tryon__button:not(.aivastra-tryon__icon-btn) {
+.aivastra-tryon .aivastra-tryon__button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1077,6 +1077,45 @@
   /* Text scales with the height so a short button does not clip it. */
   font-size: clamp(12px, calc(var(--aivastra-button-height, 48px) * 0.36), 22px);
   box-sizing: border-box;
+  /* Fill over border, both as images so either can be a gradient: the border
+     layer shows through the transparent border, the fill is clipped inside it. */
+  border: var(--aivastra-border-width, 0px) solid transparent;
+  background:
+    var(--aivastra-button-fill, linear-gradient(#000, #000)) padding-box,
+    var(--aivastra-button-border, linear-gradient(#000, #000)) border-box;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* A small bump on hover. Gated on a real pointer so touch screens do not keep
+   the lifted state after a tap, and off under reduced motion. */
+@media (hover: hover) {
+  .aivastra-tryon .aivastra-tryon__button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aivastra-tryon .aivastra-tryon__button {
+    transition: none;
+  }
+  .aivastra-tryon .aivastra-tryon__button:hover {
+    transform: none;
+  }
+}
+
+/* Gradient text: the gradient is the label's background, clipped to its glyphs.
+   The icon is a mask, so it takes the same gradient as its background. */
+.aivastra-tryon .aivastra-tryon__button .aivastra-tryon__btn-label {
+  background: var(--aivastra-button-text, linear-gradient(#fff, #fff));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.aivastra-tryon .aivastra-tryon__button .aivastra-tryon__btn-icon {
+  background: var(--aivastra-button-text, linear-gradient(#fff, #fff));
 }
 
 /* The embed's icon: a badge on the product image.
@@ -1085,7 +1124,7 @@
    which stretched this wrapper over the whole image with the icon stuck at its
    top-left. Only the button inside takes clicks, so the wrapper never blocks the
    image. */
-.aivastra-tryon--icon {
+.aivastra-tryon.aivastra-tryon--icon {
   position: absolute !important;
   top: 12px !important;
   right: 12px !important;
@@ -1104,7 +1143,7 @@
 .aivastra-tryon--icon .aivastra-tryon__icon-btn {
   pointer-events: auto;
 }
-.aivastra-tryon--icon.aivastra-tryon--floating {
+.aivastra-tryon.aivastra-tryon--icon.aivastra-tryon--floating {
   position: fixed !important;
   top: auto !important;
   right: 16px !important;
@@ -1115,21 +1154,86 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--aivastra-icon-size, 40px);
-  height: var(--aivastra-icon-size, 40px);
+  width: 108px;
+  height: 32px;
+  min-height: 0;
+  box-sizing: border-box;
+  line-height: 1;
+  gap: 4px;
   padding: 0;
   border: 0;
-  /* A rounded square; the radius is the embed's "Icon corner radius" setting. */
-  border-radius: var(--aivastra-border-radius, 10px);
-  overflow: hidden;
+  /* Fixed radius: a pill at this height. */
+  border-radius: 20px;
   cursor: pointer;
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 16px;
   color: var(--aivastra-text-color, #fff);
-  background: var(--aivastra-button-color, #000);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  background: linear-gradient(90deg, #6b4eff, #e040a0);
+  box-shadow: none;
+  /* Native button chrome and the mobile tap flash are rectangles; both would
+     show at the corners the radius trims off. */
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  outline: 0;
 }
-.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__icon-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.aivastra-tryon .aivastra-tryon__icon-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn::before {
+  content: none;
+}
+/* A soft highlight sweeps across the pill every few seconds to draw the eye
+   without moving the layout. Clipped by the pill's own radius. */
+.aivastra-tryon .aivastra-tryon__icon-btn {
+  position: relative;
+  overflow: hidden;
+  transition: filter 0.15s ease;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: translateX(-120%) skewX(-20deg);
+  animation: aivastra-tryon-shine 3.6s ease-in-out infinite;
   pointer-events: none;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn:hover {
+  filter: brightness(0.85);
+}
+@keyframes aivastra-tryon-shine {
+  0%,
+  60% {
+    transform: translateX(-120%) skewX(-20deg);
+  }
+  100% {
+    transform: translateX(380%) skewX(-20deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aivastra-tryon .aivastra-tryon__icon-btn::after {
+    animation: none;
+    content: none;
+  }
+  .aivastra-tryon .aivastra-tryon__icon-btn {
+    transition: none;
+  }
+}
+/* Same masked icon as the block button; the flex gap replaces its margin. */
+.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__btn-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  vertical-align: baseline;
+  background-color: #fff;
+  pointer-events: none;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__icon-label {
+  font-weight: 300;
 }

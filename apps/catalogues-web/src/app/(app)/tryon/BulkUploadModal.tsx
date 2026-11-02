@@ -268,8 +268,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
       if (item.status !== 'uploaded') return item;
       const act = parseInt(item.actualPrice, 10) || 0;
       const off = parseInt(item.offerPrice, 10) || 0;
-      const isValid =
-        item.sku.trim() !== '' && item.actualPrice !== '' && item.offerPrice !== '' && off <= act;
+      const isValid = item.actualPrice !== '' && item.offerPrice !== '' && off <= act;
       if (!isValid) hasValidationError = true;
       return { ...item, hasError: !isValid };
     });
@@ -292,7 +291,10 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
             subcategoryId,
             r2Key,
             thumbnailKey,
-            label: `Product ${item.sku.trim().toUpperCase()}`,
+            // SKU is optional, so fall back to the file name for the label.
+            label: item.sku.trim()
+              ? `Product ${item.sku.trim().toUpperCase()}`
+              : item.file.name.replace(/\.[^.]+$/, '') || 'Product',
             sku: item.sku.trim(),
             actualPrice: parseInt(item.actualPrice, 10),
             offerPrice: parseInt(item.offerPrice, 10),
@@ -757,7 +759,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                   {item.status === 'uploaded' && (
                     <>
                       <input
-                        placeholder="SKU"
+                        placeholder="SKU (optional)"
                         value={item.sku}
                         onChange={(e) => handleUpdateItem(item.id, { sku: e.target.value })}
                         style={{
@@ -765,7 +767,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                           height: 30,
                           fontSize: 12,
                           borderRadius: 6,
-                          border: `1px solid ${item.hasError && !item.sku ? C.pink : C.border2}`,
+                          border: `1px solid ${C.border2}`,
                           padding: '0 8px',
                           background: C.field,
                           color: C.text,
@@ -841,7 +843,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                       </div>
                       <div style={{ fontSize: 10, color: C.pink, lineHeight: 1.2 }}>
                         {item.hasError
-                          ? 'Please fill valid SKU and ensure Offer ≤ Actual Price.'
+                          ? 'Please fill both prices and ensure Offer ≤ Actual Price.'
                           : ''}
                       </div>
                     </>

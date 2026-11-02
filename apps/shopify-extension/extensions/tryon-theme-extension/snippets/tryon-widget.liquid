@@ -1,6 +1,6 @@
 {% comment %}
   Shared markup for the Try It On button (rendered by the app block) and the
-  icon (rendered by the app embed). `source` is `block` or `embed`; tryon-widget.js
+  "Try on" pill (rendered by the app embed). `source` is `block` or `embed`; tryon-widget.js
   shares one modal between them.
 
   `settings` is the caller's `block.settings` — `block` itself is not visible
@@ -13,8 +13,8 @@
 {%- assign cfg = shop.metafields.aivastra.widget_config.value -%}
 {%- liquid
   if source == 'embed'
-    assign accent_bg = settings.icon_background | default: '#FFFFFF'
-    assign accent_fg = '#FFFFFF'
+    assign accent_bg = settings.icon_background | default: '#000000'
+    assign accent_fg = settings.text_color | default: '#FFFFFF'
   else
     assign accent_bg = settings.button_color
     assign accent_fg = settings.text_color
@@ -27,11 +27,31 @@
   endif
   assign return_to = product.url | url_encode
   assign login_url = routes.account_login_url | append: login_sep | append: 'return_url=' | append: return_to
-  # A gradient (Shopify's background picker) replaces the solid color; blank keeps the color.
   assign button_background = accent_bg
-  if source == 'block' and settings.button_gradient != blank
-    assign button_background = settings.button_gradient
+  # A gradient (Shopify's background picker) replaces the solid color; blank keeps
+  # the color. The block button layers its fill over its border (see .aivastra-tryon__button),
+  # and a layer must be an image, so a solid color becomes a one-color gradient.
+  assign fill_layer = settings.button_color
+  if settings.button_gradient != blank
+    assign fill_layer = settings.button_gradient
   endif
+  assign text_layer = settings.text_color
+  if settings.text_gradient != blank
+    assign text_layer = settings.text_gradient
+  endif
+  assign border_layer = settings.border_color
+  if settings.border_gradient != blank
+    assign border_layer = settings.border_gradient
+  endif
+  unless fill_layer contains 'gradient'
+    assign fill_layer = 'linear-gradient(' | append: fill_layer | append: ',' | append: fill_layer | append: ')'
+  endunless
+  unless text_layer contains 'gradient'
+    assign text_layer = 'linear-gradient(' | append: text_layer | append: ',' | append: text_layer | append: ')'
+  endunless
+  unless border_layer contains 'gradient'
+    assign border_layer = 'linear-gradient(' | append: border_layer | append: ',' | append: border_layer | append: ')'
+  endunless
 -%}
 {%- if product != blank and widget_key != blank -%}
   <div
@@ -56,12 +76,10 @@
     data-login-url="{{ login_url }}"
     data-media-selector="{{ settings.media_selector | escape }}"
     data-source="{{ source }}"
-    style="--aivastra-button-color: {{ accent_bg }}; --aivastra-button-background: {{ button_background | escape }}; --aivastra-text-color: {{ accent_fg }}; --aivastra-border-radius: {{ settings.border_radius }}px; --aivastra-button-width: {{ settings.button_width | default: 100 }}%; --aivastra-button-height: {{ settings.button_height | default: 48 }}px; --aivastra-icon-size: {{ settings.icon_size | default: 40 }}px; --aivastra-icon-url: url('{{ 'tryon-icon.png' | asset_url }}');{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
+    style="--aivastra-button-color: {{ accent_bg }}; --aivastra-button-background: {{ button_background | escape }}; --aivastra-text-color: {{ accent_fg }}; --aivastra-border-radius: {{ settings.border_radius }}px;{% if source == 'block' %} --aivastra-button-fill: {{ fill_layer | escape }}; --aivastra-button-text: {{ text_layer | escape }}; --aivastra-button-border: {{ border_layer | escape }}; --aivastra-border-width: {{ settings.border_width | default: 0 }}px;{% endif %} --aivastra-button-width: {{ settings.button_width | default: 100 }}%; --aivastra-button-height: {{ settings.button_height | default: 48 }}px; --aivastra-icon-url: url('{{ 'tryon-icon.png' | asset_url }}');{% if cfg.theme.accentColor %} --aivastra-accent: {{ cfg.theme.accentColor | escape }};{% endif %}"
   >
     {%- if source == 'embed' -%}
-      <button type="button" class="aivastra-tryon__button aivastra-tryon__icon-btn" aria-label="Try it on">
-        <img class="aivastra-tryon__icon-img" src="{{ 'tryon-icon-color.png' | asset_url }}" alt="" width="256" height="256" loading="lazy">
-      </button>
+      <button type="button" class="aivastra-tryon__icon-btn"><span class="aivastra-tryon__btn-icon" aria-hidden="true"></span><span class="aivastra-tryon__icon-label">Try on</span></button>
     {%- else -%}
       {%- if settings.promo_text != blank -%}
         <p class="aivastra-tryon__promo">{{ settings.promo_text | escape }}</p>
@@ -70,7 +88,7 @@
         {%- if settings.show_icon -%}
           <span class="aivastra-tryon__btn-icon" aria-hidden="true"></span>
         {%- endif -%}
-        {{ settings.button_text | default: 'Try It On' | escape }}
+        <span class="aivastra-tryon__btn-label">{{ settings.button_text | default: 'Try It On' | escape }}</span>
       </button>
     {%- endif -%}
 

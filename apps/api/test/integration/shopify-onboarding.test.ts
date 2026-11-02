@@ -494,6 +494,24 @@ describe('POST /v1/shopify/onboarding/confirm-theme-block', () => {
   });
 });
 
+describe('POST /v1/shopify/onboarding/skip-theme', () => {
+  it('records themeStepSkipped without confirming the block', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/onboarding/skip-theme',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ themeStepSkipped: true });
+    const [row] = await app.db
+      .select({ settings: schema.shopifyStores.settings })
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, storeId));
+    expect(row?.settings?.themeStepSkipped).toBe(true);
+    expect(row?.settings?.themeBlockConfirmed).not.toBe(true);
+  });
+});
+
 describe('POST /v1/shopify/onboarding/confirm-routing', () => {
   it('sets settings.onboardingRoutingConfirmed to true', async () => {
     const res = await app.inject({

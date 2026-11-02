@@ -506,11 +506,78 @@ export async function executeAuditRevert(
       if (!sub) throw new AppError('NOT_FOUND', 404, 'Garment type not found');
       currentSnapshot = sub;
 
-      const fields = cleanSnapshotFields(beforeSnapshot);
+      const {
+        mappedLowerCatalogItemIds,
+        mappedShoeCatalogItemIds,
+        mappedAccessoryCatalogItemIds,
+        mappedFaceIds,
+        mappedBackgroundIds,
+        ...fields
+      } = cleanSnapshotFields(beforeSnapshot);
       await tx
         .update(schema.garmentSubcategories)
         .set({ ...fields, updatedAt: new Date() })
         .where(eq(schema.garmentSubcategories.id, resourceId));
+
+      // Mapping lists are only present when that update changed them (and on
+      // entries logged before mappings were snapshotted they are absent, so
+      // those mappings can't be restored).
+      const asIds = (v: unknown) => (Array.isArray(v) ? (v as string[]) : undefined);
+      for (const [type, ids] of [
+        ['lower', asIds(mappedLowerCatalogItemIds)],
+        ['shoe', asIds(mappedShoeCatalogItemIds)],
+        ['accessory', asIds(mappedAccessoryCatalogItemIds)],
+      ] as const) {
+        if (!ids) continue;
+        const typeItemIds = (
+          await tx
+            .select({ id: schema.catalogItems.id })
+            .from(schema.catalogItems)
+            .where(eq(schema.catalogItems.type, type))
+        ).map((r) => r.id);
+        if (typeItemIds.length > 0) {
+          await tx
+            .delete(schema.catalogItemSubcategories)
+            .where(
+              and(
+                eq(schema.catalogItemSubcategories.subcategoryId, resourceId),
+                inArray(schema.catalogItemSubcategories.catalogItemId, typeItemIds),
+              ),
+            );
+        }
+        if (ids.length > 0) {
+          await tx
+            .insert(schema.catalogItemSubcategories)
+            .values(ids.map((catalogItemId) => ({ catalogItemId, subcategoryId: resourceId })))
+            .onConflictDoNothing();
+        }
+      }
+      const faceIds = asIds(mappedFaceIds);
+      if (faceIds) {
+        await tx
+          .delete(schema.modelFaceSubcategories)
+          .where(eq(schema.modelFaceSubcategories.subcategoryId, resourceId));
+        if (faceIds.length > 0) {
+          await tx
+            .insert(schema.modelFaceSubcategories)
+            .values(faceIds.map((faceId) => ({ faceId, subcategoryId: resourceId })))
+            .onConflictDoNothing();
+        }
+      }
+      const backgroundIds = asIds(mappedBackgroundIds);
+      if (backgroundIds) {
+        await tx
+          .delete(schema.modelBackgroundSubcategories)
+          .where(eq(schema.modelBackgroundSubcategories.subcategoryId, resourceId));
+        if (backgroundIds.length > 0) {
+          await tx
+            .insert(schema.modelBackgroundSubcategories)
+            .values(
+              backgroundIds.map((backgroundId) => ({ backgroundId, subcategoryId: resourceId })),
+            )
+            .onConflictDoNothing();
+        }
+      }
 
       revertSummary = `Restored garment type "${sub.label || resourceId}"`;
     }
