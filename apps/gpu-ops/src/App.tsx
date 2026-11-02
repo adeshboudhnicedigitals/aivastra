@@ -8,6 +8,7 @@ import { LoginForm } from './Connect';
 import type { FleetSnapshot, FleetWorkerView, IncidentView } from './contracts';
 import { EvidencePage } from './EvidencePage';
 import { fixtureRepository } from './fixtures';
+import { comfyView, dispatcherLabel, fleetTiles, isTelemetryOnly } from './fleet-view';
 import { HostResources } from './HostResources';
 import { AlertRulesPage, IncidentFixtureGallery, LiveIncidentsPage } from './IncidentsPages';
 import { InventoryEditor } from './InventoryEditor';
@@ -120,6 +121,28 @@ function GpuSummary({ worker, asOf }: { worker: FleetWorkerView; asOf: string })
         </small>
       )}
     </div>
+  );
+}
+function ComfyCell({
+  worker,
+  summary,
+}: {
+  worker: FleetWorkerView;
+  summary: FleetAgentSummary | undefined;
+}) {
+  const view = comfyView(worker, summary);
+  return (
+    <>
+      <span className={view.conflict ? 'text-warning' : undefined}>{view.headline}</span>
+      {view.detail && (
+        <small className={view.conflict ? 'text-warning' : 'muted'}>{view.detail}</small>
+      )}
+      {!isTelemetryOnly(worker) && (
+        <small>
+          <Badge value={worker.ownership} />
+        </small>
+      )}
+    </>
   );
 }
 function agentObservationLabel(summary: FleetAgentSummary) {
@@ -594,6 +617,15 @@ export function App() {
   const live = data.source === 'LIVE';
   const visiblePages: { id: LivePage; label: string; icon: string }[] = live ? livePages : pages;
   const selected = data.workers.find((worker) => worker.workerId === workerId);
+  const tiles = fleetTiles(
+    data.workers.map((w) => ({
+      workerId: w.workerId,
+      jobTypes: w.jobTypes,
+      health: w.health,
+      dispatcherTelemetryFresh: freshness(w.monitoring.lastSeenAt, data.asOf) === 'FRESH',
+    })),
+    agentSummaries?.workers ?? null,
+  );
   const agentSummaryByWorkerId = new Map(
     (agentSummaries?.workers ?? []).map((summary) => [summary.workerId, summary]),
   );
@@ -909,17 +941,17 @@ export function App() {
                         <Metric
                           label="Workers"
                           value={counts.workers}
-                          note="In the workers table · host and GPU mapping not built yet"
+                          note={`${tiles.dispatchWorkers} take jobs · ${counts.workers - tiles.dispatchWorkers} telemetry-only`}
                         />
                         <Metric
                           label="Healthy"
-                          value={data.workers.filter((w) => w.health === 'HEALTHY').length}
-                          note="Health key renewed within 30 s"
+                          value={tiles.healthy}
+                          note="Job-taking workers with a health key renewed within 30 s"
                         />
                         <Metric
                           label="Unreachable"
-                          value={data.workers.filter((w) => w.health === 'UNREACHABLE').length}
-                          note="Registered, health key expired"
+                          value={tiles.unreachable}
+                          note="Job-taking workers whose health key expired"
                         />
                         <Metric
                           label="Draining"
@@ -929,13 +961,18 @@ export function App() {
                           note="Dispatcher reports draining"
                         />
                         <Metric
-                          label="Stale / no telemetry"
+                          label="No fresh telemetry"
+                          value={tiles.withoutTelemetry}
+                          note="Neither the dispatcher nor an agent has a fresh sample"
+                        />
+                        <Metric
+                          label="Agent reporting"
                           value={
-                            data.workers.filter(
-                              (w) => freshness(w.monitoring.lastSeenAt, data.asOf) !== 'FRESH',
-                            ).length
+                            agentSummaryError || agentSummaries === null
+                              ? 'Unknown'
+                              : `${tiles.agentReporting} of ${tiles.agentMonitored}`
                           }
-                          note="Measured against API generatedAt"
+                          note="Boxes with an agent key that sent a fresh sample"
                         />
                         <Metric
                           label="Queue waiting"
@@ -949,9 +986,17 @@ export function App() {
                           note="Across the five shared Redis lanes"
                         />
                         <Metric
-                          label="Fleet VRAM"
-                          value="No data"
-                          note="Physical GPU mapping is not observed; totals would be misleading"
+                          label="Agent VRAM"
+                          value={
+                            tiles.vram
+                              ? `${(tiles.vram.usedMib / 1024).toFixed(0)} / ${(tiles.vram.totalMib / 1024).toFixed(0)} GiB`
+                              : 'No data'
+                          }
+                          note={
+                            tiles.vram
+                              ? `Device memory on ${tiles.vram.boxes} agent-reported box${tiles.vram.boxes === 1 ? '' : 'es'}`
+                              : 'No agent has a fresh, complete VRAM reading'
+                          }
                         />
                       </>
                     ) : (
@@ -1100,18 +1145,12 @@ export function App() {
                               >
                                 {worker.workerId} <span aria-hidden="true">↗</span>
                               </button>
-                              <Badge value={worker.health} />
+                              {!isTelemetryOnly(worker) && <Badge value={worker.health} />}
                             </div>
-                            <span>
-                              Dispatcher · {worker.dispatcherState} ·{' '}
-                              {worker.comfy.running === null
-                                ? 'Unknown running'
-                                : `${worker.comfy.running} running`}{' '}
-                              ·{' '}
-                              {worker.comfy.pending === null
-                                ? 'Unknown pending'
-                                : `${worker.comfy.pending} pending`}
-                            </span>
+                            {dispatcherLabel(worker) && (
+                              <span className="muted">{dispatcherLabel(worker)}</span>
+                            )}
+                            <ComfyCell worker={worker} summary={agentSummary} />
                             {live ? (
                               <>
                                 <AgentGpuCell
@@ -1203,42 +1242,41 @@ export function App() {
                                   </button>
                                   <small>
                                     {live
-                                      ? 'Host / GPU not mapped'
+                                      ? agentSummary?.telemetry
+                                        ? `Agent · ${agentSummary.telemetry.gpuCount} GPU${agentSummary.telemetry.gpuCount === 1 ? '' : 's'}`
+                                        : 'No agent reading'
                                       : `${worker.hostId} → ${worker.gpuId}`}
                                   </small>
                                   {data.workers.filter((other) => other.gpuId === worker.gpuId)
                                     .length > 1 && <span className="shared">Shared GPU</span>}
                                 </td>
                                 <td data-label="Dispatcher / health">
-                                  <Badge value={worker.dispatcherState} />
-                                  <small>
-                                    <Badge value={worker.health} />
-                                  </small>
-                                  {worker.routing && (
-                                    <small>
-                                      <Badge value={worker.routing.toUpperCase()} />
-                                    </small>
+                                  {dispatcherLabel(worker) ? (
+                                    <span className="muted">{dispatcherLabel(worker)}</span>
+                                  ) : (
+                                    <>
+                                      <Badge value={worker.dispatcherState} />
+                                      <small>
+                                        <Badge value={worker.health} />
+                                      </small>
+                                      {worker.routing && (
+                                        <small>
+                                          <Badge value={worker.routing.toUpperCase()} />
+                                        </small>
+                                      )}
+                                      {worker.warning && (
+                                        <small className="text-warning">{worker.warning}</small>
+                                      )}
+                                      {signals(worker).map((signal) => (
+                                        <small key={signal} className="text-warning">
+                                          {signal}
+                                        </small>
+                                      ))}
+                                    </>
                                   )}
-                                  {worker.warning && (
-                                    <small className="text-warning">{worker.warning}</small>
-                                  )}
-                                  {signals(worker).map((signal) => (
-                                    <small key={signal} className="text-warning">
-                                      {signal}
-                                    </small>
-                                  ))}
                                 </td>
                                 <td data-label="ComfyUI / ownership">
-                                  <span>
-                                    {worker.comfy.reachable === false
-                                      ? 'Unreachable'
-                                      : worker.comfy.reachable === null
-                                        ? 'Reachability unknown'
-                                        : `${display(worker.comfy.running)} running · ${display(worker.comfy.pending)} pending`}
-                                  </span>
-                                  <small>
-                                    <Badge value={worker.ownership} />
-                                  </small>
+                                  <ComfyCell worker={worker} summary={agentSummary} />
                                   {worker.prompt?.jobId && (
                                     <small>
                                       <button
