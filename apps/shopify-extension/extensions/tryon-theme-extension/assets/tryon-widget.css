@@ -1131,7 +1131,20 @@
   font-size: 16px;
   color: var(--aivastra-text-color, #fff);
   background: linear-gradient(90deg, #6b4eff, #e040a0);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  box-shadow: none;
+  /* Native button chrome and the mobile tap flash are rectangles; both would
+     show at the corners the radius trims off. */
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  outline: 0;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.aivastra-tryon .aivastra-tryon__icon-btn::before,
+.aivastra-tryon .aivastra-tryon__icon-btn::after {
+  content: none;
 }
 .aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__btn-svg {
   flex: none;
