@@ -665,6 +665,7 @@ export function HardwareTab({
 }
 
 export function DevStateGallery() {
+  if (!import.meta.env.DEV) return null;
   const fixtures = import.meta.glob('../../../docs/fleet-contracts/agent-*.json', {
     eager: true,
     import: 'default',

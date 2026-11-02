@@ -3198,6 +3198,59 @@ body[data-theme="dark"] .incident-severity.is-info {
 .incident-summary-fixture strong {
   font-size: 20px;
 }
+.agent-observation {
+  display: grid;
+  min-width: 170px;
+  gap: 4px;
+  color: var(--ink);
+}
+.live-worker-card .agent-observation {
+  min-width: 0;
+}
+.agent-observation strong {
+  font-size: 11px;
+}
+.agent-observation small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.agent-observation small.agent-disk-warning {
+  color: #9a4f09;
+  font-weight: 750;
+}
+.agent-incident-link {
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface, #fff);
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.agent-incident-link.has-critical {
+  border-color: #bb5454;
+  color: #9b3030;
+}
+.agent-incident-link.has-warning {
+  border-color: #be8a36;
+  color: #80580f;
+}
+.agent-incident-link:focus-visible {
+  outline: 2px solid var(--accent, #4674c8);
+  outline-offset: 2px;
+}
+body[data-theme="dark"] .agent-observation small.agent-disk-warning {
+  color: #ffd18a;
+}
+body[data-theme="dark"] .agent-incident-link.has-critical {
+  color: #ffd3d3;
+}
+body[data-theme="dark"] .agent-incident-link.has-warning {
+  color: #ffe2a5;
+}
 .sr-only {
   position: absolute;
   width: 1px;

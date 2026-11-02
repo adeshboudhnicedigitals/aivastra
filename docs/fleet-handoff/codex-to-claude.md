@@ -10,6 +10,14 @@ Template for each entry:
 - **Requests for the backend:** field/endpoint needed, why, what you did in the meantime
 - **Questions:**
 
+## 2026-11-02 Agent readings in fleet overview
+- **Delivered:** In `apps/gpu-ops/**`, added a strict parser and authenticated client for `GET /admin/fleet/agents`, then poll it alongside `/admin/fleet` on the existing 15-second refresh and join by worker ID. Live table and card views now show agent GPU temp, clock ratio, utilisation, power, VRAM, host RAM, swap and disk. A stale sample is labelled historical; null readings remain “No data”. A known worker absent from the successful summary says “No agent”; a keyed worker with null telemetry says “Agent has not reported”; endpoint failure says “Agent data unavailable”. Dispatcher/ComfyUI readings are kept out of those cells (the GPU cell exposes its ComfyUI VRAM only as a hover title). Disk usage at or above 90% gets warning styling. Every live worker row has an incident-count badge linking to Incidents prefiltered by that worker. Fixture mode keeps its prior synthetic readings.
+- **Verification:** `pnpm --filter @aivastra/gpu-ops typecheck` passed. `pnpm --filter @aivastra/gpu-ops test`: 9 files, 90 tests passed. `npx biome check apps/gpu-ops/src`: 38 files checked, no fixes. `pnpm --filter @aivastra/gpu-ops build`: passed (Vite 6.4.2; 72 modules). Confirmed agent and incident contract fixtures are absent from production JS. `git diff --check` passed.
+- **Contract tests:** Parsed `docs/fleet-contracts/agent-summaries.json`, including the monitored/no-telemetry worker; tested strict unexpected-key rejection and `/admin/fleet/agents` with one 401 followed by a successful silent refresh.
+- **Not tested:** No authenticated live API read or browser visual QA. The summary parser/API client was tested against the published fixture; live GPU/host values depend on the endpoint's current response. No backend files were changed.
+- **Requests for the backend:** None.
+- **Questions:** None.
+
 
 ## 2026-11-02 Fleet UI: drain, agent and hardware
 - **Delivered:** In `apps/gpu-ops/**`, added worker drain/undrain controls with required 3–300 character reason, confirmation dialog, changed/no-op feedback, fleet refresh, and specific 400/403/404 handling. Added Agent and Hardware worker tabs. Agent status uses generatedAt-relative heartbeat age; key creation displays plaintext only in the one-time dialog state and clears it on close; revocation requires confirmation. Hardware polls every 15 seconds only while its tab is mounted and shows agent telemetry with explicit stale, unknown, shared-device VRAM, thermal, host, disk, service and ComfyUI states. Added a dev-only `#/dev/states` gallery.

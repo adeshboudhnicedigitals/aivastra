@@ -8,9 +8,11 @@ import {
   drainWorker,
   FleetAgentApiError,
   loadAgentStatus,
+  loadFleetAgentSummaries,
   parseAgentStatus,
   parseAgentTelemetryView,
   parseCreatedAgentKey,
+  parseFleetAgentSummaries,
   revokeAgentKey,
 } from './live-agent';
 
@@ -25,6 +27,19 @@ const response = (status: number, body?: unknown) =>
   new Response(body === undefined ? null : JSON.stringify(body), { status });
 
 describe('fleet agent contracts', () => {
+  it('parses the strict overview summary fixture, preserving missing and null readings', () => {
+    const parsed = parseFleetAgentSummaries(fixture('agent-summaries.json'));
+    expect(parsed.workers).toHaveLength(2);
+    expect(parsed.workers[0]?.telemetry?.diskUsedPctMax).toBe(95.8);
+    expect(parsed.workers[1]?.telemetry).toBeNull();
+    expect(() =>
+      parseFleetAgentSummaries({
+        ...(fixture('agent-summaries.json') as object),
+        extra: true,
+      }),
+    ).toThrow('Unexpected fleet agent response');
+  });
+
   it('parses every published agent-status fixture', () => {
     const files = readdirSync(fixtureRoot).filter(
       (name) => name.startsWith('agent-status.') && name.endsWith('.json'),
@@ -66,6 +81,23 @@ describe('fleet agent contracts', () => {
 });
 
 describe('fleet agent API client', () => {
+  it('loads overview summaries and retries once after a silent refresh', async () => {
+    const sent: string[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      sent.push(`${String(input)} ${new Headers(init?.headers).get('authorization')}`);
+      return sent.length === 1 ? response(401) : response(200, fixture('agent-summaries.json'));
+    };
+    const result = await loadFleetAgentSummaries('http://api.invalid', 'old', {
+      recovery: { refreshAccessToken: async () => 'fresh', onSessionExpired: () => {} },
+      fetchImpl,
+    });
+    expect(result.workers[0]?.workerId).toBe('example-with-data');
+    expect(sent).toEqual([
+      'http://api.invalid/admin/fleet/agents Bearer old',
+      'http://api.invalid/admin/fleet/agents Bearer fresh',
+    ]);
+  });
+
   it('pins create-key 403 and TOO_MANY_KEYS 409 messages', () => {
     expect(agentKeyErrorMessage(new FleetAgentApiError(403, 'forbidden'))).toBe(
       'Your role lacks fleet.operate (SUPER_ADMIN only).',

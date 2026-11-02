@@ -133,18 +133,24 @@ export function LiveIncidentsPage({
   baseUrl,
   token,
   authRecovery,
+  initialWorkerId,
   onOpenRules,
 }: {
   baseUrl: string;
   token: string;
   authRecovery: AuthRecovery;
+  initialWorkerId: string;
   onOpenRules: () => void;
 }) {
   const [state, setState] = useState<IncidentState | ''>('');
   const [severity, setSeverity] = useState<IncidentSeverity | ''>('');
   const [ruleKey, setRuleKey] = useState('');
-  const [workerDraft, setWorkerDraft] = useState('');
-  const [filters, setFilters] = useState<IncidentFilters>({ limit: PAGE_SIZE, offset: 0 });
+  const [workerDraft, setWorkerDraft] = useState(initialWorkerId);
+  const [filters, setFilters] = useState<IncidentFilters>({
+    limit: PAGE_SIZE,
+    offset: 0,
+    ...(initialWorkerId ? { workerId: initialWorkerId } : {}),
+  });
   const [pageData, setPageData] = useState<ReturnType<typeof parseIncidentList> | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

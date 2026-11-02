@@ -13,6 +13,8 @@ import { AlertRulesPage, IncidentFixtureGallery, LiveIncidentsPage } from './Inc
 import { InventoryEditor } from './InventoryEditor';
 import { LiveJobsPage, LiveQueuePage, WorkerLivePanel } from './LivePages';
 import { createLiveRepository, FleetLoadError } from './live';
+import type { FleetAgentSummaries, FleetAgentSummary } from './live-agent';
+import { loadFleetAgentSummaries } from './live-agent';
 import { type IncidentSummary, loadIncidentSummary } from './live-incidents';
 import { display, fleetCounts, freshness, grafanaLink, reconciliation, signals } from './model';
 import type { OperationsManager } from './OperationsControls';
@@ -120,6 +122,140 @@ function GpuSummary({ worker, asOf }: { worker: FleetWorkerView; asOf: string })
     </div>
   );
 }
+function agentObservationLabel(summary: FleetAgentSummary) {
+  if (!summary.telemetry) return 'Agent has not reported';
+  return summary.telemetry.stale ? 'Historical · agent' : 'Agent';
+}
+function AgentGpuCell({
+  summary,
+  loaded,
+  error,
+  worker,
+}: {
+  summary: FleetAgentSummary | undefined;
+  loaded: boolean;
+  error: string | null;
+  worker: FleetWorkerView;
+}) {
+  const dispatcherNote = `Dispatcher ComfyUI VRAM: ${display(worker.gpu.vramUsedMb)} / ${display(worker.gpu.vramTotalMb)} MiB`;
+  if (error)
+    return (
+      <div className="agent-observation" title={error}>
+        <strong>Agent data unavailable</strong>
+      </div>
+    );
+  if (!loaded)
+    return (
+      <div className="agent-observation">
+        <strong>Loading agent readings…</strong>
+      </div>
+    );
+  if (!summary)
+    return (
+      <div className="agent-observation" title={dispatcherNote}>
+        <strong>No agent</strong>
+      </div>
+    );
+  if (!summary.telemetry)
+    return (
+      <div className="agent-observation" title={dispatcherNote}>
+        <strong>Agent has not reported</strong>
+      </div>
+    );
+  const t = summary.telemetry;
+  return (
+    <div className="agent-observation" title={dispatcherNote}>
+      <strong>{agentObservationLabel(summary)}</strong>
+      <small>
+        Temp {display(t.tempMaxC, ' °C')} · Clock {display(t.clockRatioMin, '×')}
+      </small>
+      <small>
+        Util {display(t.utilGpuPctMax, '%')} · Power {display(t.powerWTotal, ' W')}
+      </small>
+      <small>
+        VRAM {display(t.vramUsedMib)} / {display(t.vramTotalMib)} MiB
+      </small>
+      <small>
+        {t.gpuCount} GPU{t.gpuCount === 1 ? '' : 's'} · {utc(t.observedAt)}
+      </small>
+    </div>
+  );
+}
+function AgentHostCell({
+  summary,
+  loaded,
+  error,
+}: {
+  summary: FleetAgentSummary | undefined;
+  loaded: boolean;
+  error: string | null;
+}) {
+  if (error)
+    return (
+      <div className="agent-observation" title={error}>
+        <strong>Agent data unavailable</strong>
+      </div>
+    );
+  if (!loaded)
+    return (
+      <div className="agent-observation">
+        <strong>Loading agent readings…</strong>
+      </div>
+    );
+  if (!summary)
+    return (
+      <div className="agent-observation">
+        <strong>No agent</strong>
+      </div>
+    );
+  if (!summary.telemetry)
+    return (
+      <div className="agent-observation">
+        <strong>Agent has not reported</strong>
+      </div>
+    );
+  const t = summary.telemetry;
+  const diskWarning = t.diskUsedPctMax !== null && t.diskUsedPctMax >= 90;
+  return (
+    <div className="agent-observation">
+      <strong>{agentObservationLabel(summary)}</strong>
+      <small>
+        RAM available {display(t.ramAvailMib)} / {display(t.ramTotalMib)} MiB
+      </small>
+      <small>Swap used {display(t.swapUsedMib)} MiB</small>
+      <small className={diskWarning ? 'agent-disk-warning' : undefined}>
+        Disk {display(t.diskUsedPctMax, '%')}
+        {diskWarning ? ' · High usage' : ''}
+      </small>
+    </div>
+  );
+}
+function AgentIncidentLink({
+  summary,
+  onClick,
+}: {
+  summary: FleetAgentSummary | undefined;
+  onClick: () => void;
+}) {
+  const counts = summary?.incidents;
+  const text = counts
+    ? `C ${counts.critical} · W ${counts.warning} · I ${counts.info}`
+    : 'Counts unknown';
+  const label = counts
+    ? `${counts.critical} critical, ${counts.warning} warning, ${counts.info} info incidents`
+    : 'Incident counts unknown';
+  return (
+    <button
+      type="button"
+      className={`agent-incident-link${counts?.critical ? ' has-critical' : counts?.warning ? ' has-warning' : ''}`}
+      aria-label={`${label}; filter incidents for ${summary?.workerId ?? 'this worker'}`}
+      title={label}
+      onClick={onClick}
+    >
+      Incidents · {text}
+    </button>
+  );
+}
 // Build-time (VITE_*): set => read the live fleet API, unset => the synthetic fixtures.
 const FLEET_API_URL = (import.meta.env.VITE_FLEET_API_URL as string | undefined) || null;
 const REFRESH_MS = 15_000;
@@ -142,6 +278,8 @@ export function App() {
   const refreshInFlight = useRef<Promise<string | null> | null>(null);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [incidentSummary, setIncidentSummary] = useState<IncidentSummary | null>(null);
+  const [agentSummaries, setAgentSummaries] = useState<FleetAgentSummaries | null>(null);
+  const [agentSummaryError, setAgentSummaryError] = useState<string | null>(null);
   const refreshNow = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [darkMode, setDarkMode] = useState(() => {
@@ -168,6 +306,9 @@ export function App() {
   const [fleetView, setFleetView] = useState<'table' | 'cards'>('table');
   const [sortBy, setSortBy] = useState<'worker' | 'health' | 'state'>('worker');
   const [incidentId, setIncidentId] = useState<string | null>(null);
+  const [incidentWorkerFilter, setIncidentWorkerFilter] = useState(
+    () => initialParams.get('incidentWorker') ?? '',
+  );
   const [jobId, setJobId] = useState<string | null>(() => initialParams.get('job'));
   const expireSession = useCallback(() => {
     hasData.current = false;
@@ -219,6 +360,7 @@ export function App() {
       setJobId(params.get('job'));
       setQuery(params.get('q') ?? '');
       setFilter(params.get('filter') ?? 'ALL');
+      setIncidentWorkerFilter(params.get('incidentWorker') ?? '');
     };
     window.addEventListener('popstate', restore);
     return () => window.removeEventListener('popstate', restore);
@@ -274,8 +416,21 @@ export function App() {
     const repository = FLEET_API_URL
       ? createLiveRepository(FLEET_API_URL, () => token)
       : fixtureRepository;
-    const load = () =>
-      repository
+    const load = () => {
+      if (FLEET_API_URL && token) {
+        void loadFleetAgentSummaries(FLEET_API_URL, token, { recovery: authRecovery })
+          .then((value) => {
+            if (!current) return;
+            setAgentSummaries(value);
+            setAgentSummaryError(null);
+          })
+          .catch((cause: unknown) => {
+            if (!current) return;
+            setAgentSummaries(null);
+            setAgentSummaryError(cause instanceof Error ? cause.message : 'Agent data unavailable');
+          });
+      }
+      return repository
         .load()
         .then((value) => {
           if (!current) return false;
@@ -301,6 +456,7 @@ export function App() {
           else setError(err instanceof Error ? err.message : 'Fleet data unavailable');
           return false;
         });
+    };
     refreshNow.current = () => load();
     void load();
     const timer = FLEET_API_URL && autoRefresh ? setInterval(load, REFRESH_MS) : undefined;
@@ -308,7 +464,7 @@ export function App() {
       current = false;
       clearInterval(timer);
     };
-  }, [token, autoRefresh, expireSession, renewAccessToken]);
+  }, [token, autoRefresh, authRecovery, expireSession, renewAccessToken]);
   useEffect(() => {
     if (!FLEET_API_URL || !token) {
       setIncidentSummary(null);
@@ -438,16 +594,21 @@ export function App() {
   const live = data.source === 'LIVE';
   const visiblePages: { id: LivePage; label: string; icon: string }[] = live ? livePages : pages;
   const selected = data.workers.find((worker) => worker.workerId === workerId);
+  const agentSummaryByWorkerId = new Map(
+    (agentSummaries?.workers ?? []).map((summary) => [summary.workerId, summary]),
+  );
   const nav = (next: LivePage) => {
     writeRoute({ page: next, worker: null, job: null });
     writeLocalParam('q', '');
     writeLocalParam('filter', '');
+    writeLocalParam('incidentWorker', '');
     setPage(next);
     setWorkerId(null);
     setJobId(null);
     setQuery('');
     setFilter('ALL');
     setIncidentId(null);
+    setIncidentWorkerFilter('');
   };
   const openWorker = (id: string) => {
     writeRoute({ page: 'fleet', worker: id, job: null });
@@ -459,6 +620,15 @@ export function App() {
     setWorkerId(null);
     setIncidentId(id);
     setFilter('ALL');
+  };
+  const openIncidentsForWorker = (id: string) => {
+    writeRoute({ page: 'incidents', worker: null, job: null });
+    writeLocalParam('incidentWorker', id);
+    setPage('incidents');
+    setWorkerId(null);
+    setJobId(null);
+    setIncidentId(null);
+    setIncidentWorkerFilter(id);
   };
   const openJob = (id: string) => {
     writeRoute({ page: 'jobs', worker: null, job: id });
@@ -663,9 +833,9 @@ export function App() {
                   Worker state, health and queue come from the dispatcher registry; VRAM, host RAM
                   and queued prompts from each worker's ComfyUI. Ownership matches those prompts to
                   dispatched jobs, so "unattributed" means no dispatch record, not a known outsider.
-                  Host and GPU mapping, utilisation, temperature and disk remain unknown where no
-                  agent sample exists. Incident records are shown in the Incidents view. Last
-                  activity is the registry's last job or status change, not a liveness signal.
+                  Agent readings fill GPU and host telemetry where available; dispatcher state
+                  remains independent. Incident counts link to worker-filtered incident records.
+                  Last activity is the registry's last job or status change, not a liveness signal.
                 </span>
               </div>
             </>
@@ -696,6 +866,7 @@ export function App() {
               baseUrl={FLEET_API_URL ?? ''}
               token={token ?? ''}
               authRecovery={authRecovery}
+              initialWorkerId={incidentWorkerFilter}
               onOpenRules={() => nav('rules')}
             />
           ) : live && page === 'rules' ? (
@@ -917,37 +1088,68 @@ export function App() {
                   </div>
                   {fleetView === 'cards' ? (
                     <div className="live-worker-cards">
-                      {sortedWorkers.map((worker) => (
-                        <button
-                          type="button"
-                          className="live-worker-card"
-                          key={worker.workerId}
-                          onClick={() => openWorker(worker.workerId)}
-                        >
-                          <span className="panel-heading">
-                            <strong>{worker.workerId}</strong>
-                            <Badge value={worker.health} />
-                          </span>
-                          <span>
-                            {worker.dispatcherState} ·{' '}
-                            {worker.comfy.running === null
-                              ? 'Unknown running'
-                              : `${worker.comfy.running} running`}{' '}
-                            ·{' '}
-                            {worker.comfy.pending === null
-                              ? 'Unknown pending'
-                              : `${worker.comfy.pending} pending`}
-                          </span>
-                          <span className="muted">
-                            VRAM {display(worker.gpu.vramUsedMb)} /{' '}
-                            {display(worker.gpu.vramTotalMb)} MB ·{' '}
-                            {freshness(worker.monitoring.lastSeenAt, data.asOf)}
-                          </span>
-                          <span className="text-warning">
-                            {signals(worker).join(' · ') || 'No warning observed'}
-                          </span>
-                        </button>
-                      ))}
+                      {sortedWorkers.map((worker) => {
+                        const agentSummary = agentSummaryByWorkerId.get(worker.workerId);
+                        return (
+                          <article className="live-worker-card" key={worker.workerId}>
+                            <div className="panel-heading">
+                              <button
+                                type="button"
+                                className="worker-link"
+                                onClick={() => openWorker(worker.workerId)}
+                              >
+                                {worker.workerId} <span aria-hidden="true">↗</span>
+                              </button>
+                              <Badge value={worker.health} />
+                            </div>
+                            <span>
+                              Dispatcher · {worker.dispatcherState} ·{' '}
+                              {worker.comfy.running === null
+                                ? 'Unknown running'
+                                : `${worker.comfy.running} running`}{' '}
+                              ·{' '}
+                              {worker.comfy.pending === null
+                                ? 'Unknown pending'
+                                : `${worker.comfy.pending} pending`}
+                            </span>
+                            {live ? (
+                              <>
+                                <AgentGpuCell
+                                  summary={agentSummary}
+                                  loaded={agentSummaries !== null}
+                                  error={agentSummaryError}
+                                  worker={worker}
+                                />
+                                <AgentHostCell
+                                  summary={agentSummary}
+                                  loaded={agentSummaries !== null}
+                                  error={agentSummaryError}
+                                />
+                                <AgentIncidentLink
+                                  summary={agentSummary}
+                                  onClick={() => openIncidentsForWorker(worker.workerId)}
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <span className="muted">
+                                  GPU {display(worker.gpu.vramUsedMb)} /{' '}
+                                  {display(worker.gpu.vramTotalMb)} MB ·{' '}
+                                  {freshness(worker.monitoring.lastSeenAt, data.asOf)}
+                                </span>
+                                <span className="muted">
+                                  {worker.activeIncident
+                                    ? worker.activeIncident.state
+                                    : 'No active incident'}
+                                </span>
+                              </>
+                            )}
+                            <span className="text-warning">
+                              {signals(worker).join(' · ') || 'No dispatcher warning observed'}
+                            </span>
+                          </article>
+                        );
+                      })}
                       {!sortedWorkers.length && (
                         <div className="empty">No workers match these filters.</div>
                       )}
@@ -979,102 +1181,135 @@ export function App() {
                             </th>
                             <th>ComfyUI / ownership</th>
                             <th>GPU observation</th>
-                            <th>Monitoring</th>
+                            <th>Host observation</th>
                             <th>
-                              {live ? 'Incident / last job activity' : 'Incident / last seen'}
+                              {live ? 'Agent incidents / last activity' : 'Incident / last seen'}
                             </th>
                           </tr>
                         </thead>
                         <tbody>
-                          {sortedWorkers.map((worker) => (
-                            <tr key={worker.workerId}>
-                              <td data-label="Worker / identity">
-                                <button
-                                  type="button"
-                                  className="worker-link"
-                                  onClick={() => openWorker(worker.workerId)}
-                                >
-                                  {worker.workerId}
-                                  <span aria-hidden="true">↗</span>
-                                </button>
-                                <small>
-                                  {live
-                                    ? 'Host / GPU not mapped'
-                                    : `${worker.hostId} → ${worker.gpuId}`}
-                                </small>
-                                {data.workers.filter((other) => other.gpuId === worker.gpuId)
-                                  .length > 1 && <span className="shared">Shared GPU</span>}
-                              </td>
-                              <td data-label="Dispatcher / health">
-                                <Badge value={worker.dispatcherState} />
-                                <small>
-                                  <Badge value={worker.health} />
-                                </small>
-                                {worker.routing && (
-                                  <small>
-                                    <Badge value={worker.routing.toUpperCase()} />
-                                  </small>
-                                )}
-                                {worker.warning && (
-                                  <small className="text-warning">{worker.warning}</small>
-                                )}
-                                {signals(worker).map((signal) => (
-                                  <small key={signal} className="text-warning">
-                                    {signal}
-                                  </small>
-                                ))}
-                              </td>
-                              <td data-label="ComfyUI / ownership">
-                                <span>
-                                  {worker.comfy.reachable === false
-                                    ? 'Unreachable'
-                                    : worker.comfy.reachable === null
-                                      ? 'Reachability unknown'
-                                      : `${display(worker.comfy.running)} running · ${display(worker.comfy.pending)} pending`}
-                                </span>
-                                <small>
-                                  <Badge value={worker.ownership} />
-                                </small>
-                                {worker.prompt?.jobId && (
-                                  <small>
-                                    <button
-                                      type="button"
-                                      className="text-link mono"
-                                      onClick={() => openJob(worker.prompt?.jobId ?? '')}
-                                    >
-                                      Current job {worker.prompt.jobId.slice(0, 8)} ↗
-                                    </button>
-                                  </small>
-                                )}
-                              </td>
-                              <td data-label="GPU observation">
-                                <GpuSummary worker={worker} asOf={data.asOf} />
-                              </td>
-                              <td data-label="Monitoring">
-                                <Badge value={freshness(worker.monitoring.lastSeenAt, data.asOf)} />
-                                <small>
-                                  GPU <Exporter value={worker.monitoring.gpuExporterUp} />
-                                </small>
-                                <small>
-                                  Host <Exporter value={worker.monitoring.nodeExporterUp} />
-                                </small>
-                              </td>
-                              <td data-label="Incident / last seen">
-                                {worker.activeIncident ? (
+                          {sortedWorkers.map((worker) => {
+                            const agentSummary = agentSummaryByWorkerId.get(worker.workerId);
+                            return (
+                              <tr key={worker.workerId}>
+                                <td data-label="Worker / identity">
                                   <button
                                     type="button"
-                                    className="text-link"
-                                    onClick={() => openIncident(worker.activeIncident?.id ?? '')}
+                                    className="worker-link"
+                                    onClick={() => openWorker(worker.workerId)}
                                   >
-                                    {worker.activeIncident.id} · {worker.activeIncident.state}
+                                    {worker.workerId}
+                                    <span aria-hidden="true">↗</span>
                                   </button>
-                                ) : (
-                                  <span className="muted">No active incident</span>
-                                )}
-                                <small>{utc(worker.lastSeenAt)}</small>
-                              </td>
-                            </tr>
-                          ))}
+                                  <small>
+                                    {live
+                                      ? 'Host / GPU not mapped'
+                                      : `${worker.hostId} → ${worker.gpuId}`}
+                                  </small>
+                                  {data.workers.filter((other) => other.gpuId === worker.gpuId)
+                                    .length > 1 && <span className="shared">Shared GPU</span>}
+                                </td>
+                                <td data-label="Dispatcher / health">
+                                  <Badge value={worker.dispatcherState} />
+                                  <small>
+                                    <Badge value={worker.health} />
+                                  </small>
+                                  {worker.routing && (
+                                    <small>
+                                      <Badge value={worker.routing.toUpperCase()} />
+                                    </small>
+                                  )}
+                                  {worker.warning && (
+                                    <small className="text-warning">{worker.warning}</small>
+                                  )}
+                                  {signals(worker).map((signal) => (
+                                    <small key={signal} className="text-warning">
+                                      {signal}
+                                    </small>
+                                  ))}
+                                </td>
+                                <td data-label="ComfyUI / ownership">
+                                  <span>
+                                    {worker.comfy.reachable === false
+                                      ? 'Unreachable'
+                                      : worker.comfy.reachable === null
+                                        ? 'Reachability unknown'
+                                        : `${display(worker.comfy.running)} running · ${display(worker.comfy.pending)} pending`}
+                                  </span>
+                                  <small>
+                                    <Badge value={worker.ownership} />
+                                  </small>
+                                  {worker.prompt?.jobId && (
+                                    <small>
+                                      <button
+                                        type="button"
+                                        className="text-link mono"
+                                        onClick={() => openJob(worker.prompt?.jobId ?? '')}
+                                      >
+                                        Current job {worker.prompt.jobId.slice(0, 8)} ↗
+                                      </button>
+                                    </small>
+                                  )}
+                                </td>
+                                <td data-label="GPU observation">
+                                  {live ? (
+                                    <AgentGpuCell
+                                      summary={agentSummary}
+                                      loaded={agentSummaries !== null}
+                                      error={agentSummaryError}
+                                      worker={worker}
+                                    />
+                                  ) : (
+                                    <GpuSummary worker={worker} asOf={data.asOf} />
+                                  )}
+                                </td>
+                                <td data-label="Host observation">
+                                  {live ? (
+                                    <AgentHostCell
+                                      summary={agentSummary}
+                                      loaded={agentSummaries !== null}
+                                      error={agentSummaryError}
+                                    />
+                                  ) : (
+                                    <>
+                                      <Badge
+                                        value={freshness(worker.monitoring.lastSeenAt, data.asOf)}
+                                      />
+                                      <small>
+                                        GPU <Exporter value={worker.monitoring.gpuExporterUp} />
+                                      </small>
+                                      <small>
+                                        Host <Exporter value={worker.monitoring.nodeExporterUp} />
+                                      </small>
+                                    </>
+                                  )}
+                                </td>
+                                <td data-label="Incident / last seen">
+                                  {live ? (
+                                    <AgentIncidentLink
+                                      summary={agentSummary}
+                                      onClick={() => openIncidentsForWorker(worker.workerId)}
+                                    />
+                                  ) : null}
+                                  {!live &&
+                                    (worker.activeIncident ? (
+                                      <button
+                                        type="button"
+                                        className="text-link"
+                                        onClick={() =>
+                                          openIncident(worker.activeIncident?.id ?? '')
+                                        }
+                                      >
+                                        {worker.activeIncident.id} · {worker.activeIncident.state}
+                                      </button>
+                                    ) : (
+                                      <span className="muted">No active incident</span>
+                                    ))}
+                                  <small>{utc(worker.lastSeenAt)}</small>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                       {filtered.length === 0 && (

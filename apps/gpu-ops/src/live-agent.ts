@@ -90,6 +90,28 @@ export type AgentTelemetryView = {
     foreignVramMib: number | null;
   }[];
 };
+export type FleetAgentSummary = {
+  workerId: string;
+  heartbeatAt: string | null;
+  telemetry: {
+    observedAt: string;
+    stale: boolean;
+    gpuCount: number;
+    tempMaxC: number | null;
+    clockRatioMin: number | null;
+    utilGpuPctMax: number | null;
+    powerWTotal: number | null;
+    vramUsedMib: number | null;
+    vramTotalMib: number | null;
+    ramAvailMib: number | null;
+    ramTotalMib: number | null;
+    swapUsedMib: number | null;
+    diskUsedPctMax: number | null;
+    comfy: { reachable: boolean | null; running: number | null; pending: number | null } | null;
+  } | null;
+  incidents: { critical: number; warning: number; info: number };
+};
+export type FleetAgentSummaries = { generatedAt: string; workers: FleetAgentSummary[] };
 export type CreatedAgentKey = AgentKeyView & { key: string };
 
 export class FleetAgentApiError extends Error {
@@ -148,6 +170,10 @@ function obj(value: unknown, keys: string[], where: string): Obj {
 }
 function string(value: unknown, where: string): string {
   if (!isStr(value)) return fail(where);
+  return value;
+}
+function boolean(value: unknown, where: string): boolean {
+  if (!isBool(value)) return fail(where);
   return value;
 }
 function time(value: unknown, where: string): string {
@@ -425,6 +451,90 @@ export function parseCreatedAgentKey(value: unknown): CreatedAgentKey {
   };
 }
 
+function parseFleetAgentSummary(value: unknown, index: number): FleetAgentSummary {
+  const at = `workers[${index}]`;
+  const x = obj(value, ['workerId', 'heartbeatAt', 'telemetry', 'incidents'], at);
+  const telemetry =
+    x.telemetry === null
+      ? null
+      : (() => {
+          const t = obj(
+            x.telemetry,
+            [
+              'observedAt',
+              'stale',
+              'gpuCount',
+              'tempMaxC',
+              'clockRatioMin',
+              'utilGpuPctMax',
+              'powerWTotal',
+              'vramUsedMib',
+              'vramTotalMib',
+              'ramAvailMib',
+              'ramTotalMib',
+              'swapUsedMib',
+              'diskUsedPctMax',
+              'comfy',
+            ],
+            `${at}.telemetry`,
+          );
+          const comfy =
+            t.comfy === null
+              ? null
+              : (() => {
+                  const c = obj(
+                    t.comfy,
+                    ['reachable', 'running', 'pending'],
+                    `${at}.telemetry.comfy`,
+                  );
+                  return {
+                    reachable: nullable(c.reachable, isBool, `${at}.telemetry.comfy.reachable`),
+                    running: nullable(c.running, isNum, `${at}.telemetry.comfy.running`),
+                    pending: nullable(c.pending, isNum, `${at}.telemetry.comfy.pending`),
+                  };
+                })();
+          const nullableNumber = (key: string) => nullable(t[key], isNum, `${at}.telemetry.${key}`);
+          const gpuCount = integer(t.gpuCount, `${at}.telemetry.gpuCount`);
+          if (gpuCount < 0) return fail(`${at}.telemetry.gpuCount`);
+          return {
+            observedAt: time(t.observedAt, `${at}.telemetry.observedAt`),
+            stale: boolean(t.stale, `${at}.telemetry.stale`),
+            gpuCount,
+            tempMaxC: nullableNumber('tempMaxC'),
+            clockRatioMin: nullableNumber('clockRatioMin'),
+            utilGpuPctMax: nullableNumber('utilGpuPctMax'),
+            powerWTotal: nullableNumber('powerWTotal'),
+            vramUsedMib: nullableNumber('vramUsedMib'),
+            vramTotalMib: nullableNumber('vramTotalMib'),
+            ramAvailMib: nullableNumber('ramAvailMib'),
+            ramTotalMib: nullableNumber('ramTotalMib'),
+            swapUsedMib: nullableNumber('swapUsedMib'),
+            diskUsedPctMax: nullableNumber('diskUsedPctMax'),
+            comfy,
+          };
+        })();
+  const incidents = obj(x.incidents, ['critical', 'warning', 'info'], `${at}.incidents`);
+  const count = (key: string) => {
+    const result = integer(incidents[key], `${at}.incidents.${key}`);
+    if (result < 0) return fail(`${at}.incidents.${key}`);
+    return result;
+  };
+  return {
+    workerId: string(x.workerId, `${at}.workerId`),
+    heartbeatAt: nullable(x.heartbeatAt, isTime, `${at}.heartbeatAt`),
+    telemetry,
+    incidents: { critical: count('critical'), warning: count('warning'), info: count('info') },
+  };
+}
+
+export function parseFleetAgentSummaries(value: unknown): FleetAgentSummaries {
+  const x = obj(value, ['generatedAt', 'workers'], 'overview');
+  const workers = boundedArray(x.workers, 10_000, 'overview.workers', parseFleetAgentSummary);
+  if (new Set(workers.map((worker) => worker.workerId)).size !== workers.length)
+    return fail('overview.workers duplicate workerId');
+  return { generatedAt: time(x.generatedAt, 'overview.generatedAt'), workers };
+}
+
 async function request<T>(
   baseUrl: string,
   token: string,
@@ -466,6 +576,14 @@ async function request<T>(
   }
   const payload: unknown = await response.json().catch(() => null);
   return parse(payload);
+}
+
+export function loadFleetAgentSummaries(
+  baseUrl: string,
+  token: string,
+  options: { fetchImpl?: typeof fetch; recovery?: AuthRecovery } = {},
+) {
+  return request(baseUrl, token, '/admin/fleet/agents', parseFleetAgentSummaries, options);
 }
 
 export function loadAgentStatus(
