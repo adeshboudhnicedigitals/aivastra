@@ -1,10 +1,15 @@
+import { useState } from 'react';
+
 interface NameAvatarProps {
   name: string;
   email?: string;
   size?: number;
+  /** Uploaded profile picture; falls back to initials when absent or failing to load. */
+  imageUrl?: string | null;
 }
 
-export function NameAvatar({ name, email, size = 32 }: NameAvatarProps) {
+export function NameAvatar({ name, email, size = 32, imageUrl }: NameAvatarProps) {
+  const [broken, setBroken] = useState(false);
   const initials = name
     .split(' ')
     .map((p) => p[0])
@@ -29,10 +34,21 @@ export function NameAvatar({ name, email, size = 32 }: NameAvatarProps) {
         fontSize: size * 0.4,
         fontWeight: 500,
         flexShrink: 0,
+        overflow: 'hidden',
       }}
       title={email}
     >
-      {initials}
+      {imageUrl && !broken ? (
+        // biome-ignore lint/performance/noImgElement: short-lived presigned storage URL
+        <img
+          src={imageUrl}
+          alt=""
+          onError={() => setBroken(true)}
+          style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+        />
+      ) : (
+        initials
+      )}
     </span>
   );
 }

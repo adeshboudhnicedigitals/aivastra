@@ -18,6 +18,7 @@ import { verifyPassword } from '../auth/service.js';
 import { notComparisonJob } from '../comparison/exclusion.js';
 import { recordAudit } from './audit.js';
 import { detectFabricMappings } from './fabric-detect.js';
+import { detectGarmentExtractMappings } from './garment-extract-detect.js';
 import { requireAnyPermission, requirePermission } from './guard.js';
 import { detectTryonMappings } from './tryon-detect.js';
 import { detectTryonTwoInputMappings } from './tryon-two-input-detect.js';
@@ -453,6 +454,67 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       tryonGarmentNodeId: null,
       tryonGarmentNodeId2: null,
       tryonOutputNodeId: null,
+      samSegmentationPromptNode,
+      defaultSamSegmentationPrompt,
+    };
+  }
+
+  if (workflowType === 'garment_extract') {
+    // Single image in / single image out, no prompt roles. Stored in the tryon node
+    // columns so the dispatcher's garment-extract phase patches stored ids like every
+    // other template (see apps/dispatcher/src/job/garment-extract-phase.ts).
+    const { detected: autoDetected } = detectGarmentExtractMappings(body.jsonContent);
+    const inputNodeId = body.tryonGarmentNodeId ?? autoDetected.inputNodeId ?? '';
+    const outputNodeId = body.tryonOutputNodeId ?? autoDetected.outputNodeId ?? '';
+    if (!inputNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect input-image node — set tryonGarmentNodeId manually',
+      );
+    if (!outputNodeId)
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Could not detect output node — set tryonOutputNodeId manually',
+      );
+    validateNodeExists(body.jsonContent, inputNodeId, 'input image');
+    validateNodeType(body.jsonContent, inputNodeId, 'image', 'input image');
+    validateNodeExists(body.jsonContent, outputNodeId, 'output');
+
+    return {
+      slug: body.slug,
+      label: body.label,
+      jsonContent: body.jsonContent,
+      workflowType,
+      faceNodeId: '',
+      poseNodeId: '',
+      bgNodeId: '',
+      upperNodeIds: [],
+      lowerNodeId: null,
+      shoeNodeId: null,
+      garmentView: 'front',
+      thirdNodeId: null,
+      fourthNodeId: null,
+      accessoryNodeId: null,
+      sizeNodeIds: [],
+      latentSizeNodeIds: [],
+      latentMaxPx: 4096,
+      outputSizeNodeIds: [],
+      outputMaxPx: 4096,
+      resultNodeId: null,
+      facePhasePromptNode: null,
+      garmentPhasePromptNode: '',
+      defaultFacePhasePrompt: '',
+      defaultGarmentPhasePrompt: '',
+      stage1PositivePromptNode: null,
+      stage1NegativePromptNode: null,
+      defaultStage1PositivePrompt: '',
+      defaultStage1NegativePrompt: '',
+      tryonPersonNodeId: null,
+      tryonGarmentNodeId: inputNodeId,
+      tryonGarmentNodeId2: null,
+      tryonOutputNodeId: outputNodeId,
       samSegmentationPromptNode,
       defaultSamSegmentationPrompt,
     };
@@ -1482,6 +1544,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         const { detected, allImageNodes, allPromptNodes } =
           detectTryonTwoInputMappings(jsonContent);
         return { detected, allImageNodes, allPromptNodes };
+      }
+      if (parseWorkflowType === 'garment_extract') {
+        const { detected, allImageNodes } = detectGarmentExtractMappings(jsonContent);
+        return { detected, allImageNodes, allPromptNodes: [] };
       }
       if (parseWorkflowType === 'fabric_to_garment') {
         const { detected, allImageNodes, allSaveImageNodes, allPromptNodes } =

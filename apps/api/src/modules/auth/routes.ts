@@ -4,6 +4,7 @@ import { Gstin, LoginBody, RegisterBody, WebLoginBody } from '@aivastra/types';
 import { and, desc, eq, exists, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { avatarUrlFor } from '../../lib/avatar.js';
 import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import {
@@ -562,6 +563,7 @@ export async function authRoutes(app: FastifyInstance) {
         phone: schema.users.phone,
         username: schema.users.username,
         companyName: schema.users.companyName,
+        avatarKey: schema.users.avatarKey,
         gstin: schema.users.gstin,
         tier: schema.users.tier,
         passwordHash: schema.users.passwordHash,
@@ -572,7 +574,7 @@ export async function authRoutes(app: FastifyInstance) {
       .from(schema.users)
       .where(eq(schema.users.id, req.userId));
     if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
-    const { passwordHash, ...rest } = user;
+    const { passwordHash, avatarKey, ...rest } = user;
 
     const [{ hasShopifyStore, isMerchant }] = await app.db
       .select({
@@ -602,6 +604,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     return {
       ...rest,
+      avatarUrl: await avatarUrlFor(app, avatarKey),
       hasPassword: passwordHash !== null,
       hasShopifyStore,
       isMerchant,

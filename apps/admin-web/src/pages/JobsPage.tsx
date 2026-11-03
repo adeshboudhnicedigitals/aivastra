@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { ImageLightbox } from '../components/ImageLightbox';
+import { StagesCard, StageWorkers } from '../components/JobStages';
 import { JobTypeBadge } from '../components/JobTypeBadge';
 import { KV } from '../components/KV';
 import { Pager } from '../components/Pager';
@@ -838,7 +839,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               <KV k="Background" v={j.backgroundLabel ?? '—'} />
               <KV k="Pose" v={j.poseLabel ?? '—'} />
               <KV k="Workflow" v={j.workflowLabel ?? '—'} />
-              <KV k="Worker" v={j.workerId ?? '—'} />
+              <KV k="Worker" v={<StageWorkers stages={j.stages} workerId={j.workerId} />} />
               <KV k="Created" v={fmtTs(j.createdAt)} />
               <KV k="Started" v={fmtTs(j.startedAt)} />
               <KV k="Completed" v={fmtTs(j.completedAt)} />
@@ -865,6 +866,10 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               )}
               {j.parentJobId && <KV k="Regenerate reason" v={j.regenerateReason ?? '—'} />}
             </div>
+
+            {j.stages && j.stages.length > 1 && (
+              <StagesCard stages={j.stages} onPreview={setPreviewUrl} />
+            )}
 
             {((j.inputImages && Object.values(j.inputImages).some(Boolean)) || j.outputUrl) && (
               <div className="card" style={{ marginBottom: 14 }}>
@@ -1887,7 +1892,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                     </td>
                     <td>
                       <span className="mono sub" style={{ fontSize: 11 }}>
-                        {j.workerId ?? '—'}
+                        <StageWorkers stages={j.stages} workerId={j.workerId} />
                       </span>
                     </td>
                     <td>
@@ -2193,9 +2198,17 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                           }}
                         >
                           <span style={{ color: 'var(--muted)' }}>Worker</span>
-                          <span className="mono sub">{j.workerId ?? '—'}</span>
+                          <span className="mono sub">
+                            <StageWorkers stages={fullJ.stages ?? j.stages} workerId={j.workerId} />
+                          </span>
                         </div>
                       </div>
+
+                      {fullJ.stages && fullJ.stages.length > 1 && (
+                        <div style={{ marginTop: 12 }}>
+                          <StagesCard stages={fullJ.stages} onPreview={setPreviewUrl} />
+                        </div>
+                      )}
 
                       {/* Sub-navigation buttons for Input, Output, Events */}
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

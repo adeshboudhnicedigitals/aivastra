@@ -1140,7 +1140,12 @@ export default function UsersPage({ onNav, toast }: Props) {
               <Icon.Back /> Back to users
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 12 }}>
-              <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={44} />
+              <NameAvatar
+                name={userLabel(u)}
+                email={u.email ?? undefined}
+                imageUrl={u.avatarUrl}
+                size={44}
+              />
               <div>
                 <h1 style={{ marginBottom: 2 }}>{userLabel(u)}</h1>
                 <p className="lede" style={{ margin: 0 }}>
@@ -2996,7 +3001,12 @@ export default function UsersPage({ onNav, toast }: Props) {
                       <div
                         style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220 }}
                       >
-                        <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
+                        <NameAvatar
+                          name={userLabel(u)}
+                          email={u.email ?? undefined}
+                          imageUrl={u.avatarUrl}
+                          size={32}
+                        />
                         <div style={{ minWidth: 0 }}>
                           <div
                             className="semi"
@@ -3137,7 +3147,12 @@ export default function UsersPage({ onNav, toast }: Props) {
                 <div
                   style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}
                 >
-                  <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
+                  <NameAvatar
+                    name={userLabel(u)}
+                    email={u.email ?? undefined}
+                    imageUrl={u.avatarUrl}
+                    size={32}
+                  />
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div
                       className="semi"

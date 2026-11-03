@@ -4,6 +4,7 @@ import { and, desc, eq, exists, ilike, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { avatarUrlFor } from '../../lib/avatar.js';
 import { AppError } from '../../lib/errors.js';
 import { requirePermission } from './guard.js';
 
@@ -198,6 +199,7 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
           conv: schema.chatbotConversations,
           userEmail: schema.users.email,
           userName: schema.users.displayName,
+          userAvatarKey: schema.users.avatarKey,
           userPhone: schema.users.phone,
           userCompany: schema.users.companyName,
           agentName: agentUser.displayName,
@@ -228,22 +230,25 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
         .where(where),
     ]);
     return {
-      rows: rows.map((r) => ({
-        ...r.conv,
-        userEmail: r.userEmail,
-        userName: r.userName,
-        userPhone: r.userPhone,
-        userCompany: r.userCompany,
-        agentName: r.agentName,
-        agentEmail: r.agentEmail,
-        shopifyStoreId: r.shopifyStoreId,
-        shopDomain: r.shopDomain,
-        shopName: r.shopName,
-        shopOwnerName: r.shopOwnerName,
-        shopEmail: r.shopEmail,
-        shopPhone: r.shopPhone,
-        shopAddress: r.shopAddress,
-      })),
+      rows: await Promise.all(
+        rows.map(async (r) => ({
+          ...r.conv,
+          userEmail: r.userEmail,
+          userName: r.userName,
+          userAvatarUrl: await avatarUrlFor(app, r.userAvatarKey),
+          userPhone: r.userPhone,
+          userCompany: r.userCompany,
+          agentName: r.agentName,
+          agentEmail: r.agentEmail,
+          shopifyStoreId: r.shopifyStoreId,
+          shopDomain: r.shopDomain,
+          shopName: r.shopName,
+          shopOwnerName: r.shopOwnerName,
+          shopEmail: r.shopEmail,
+          shopPhone: r.shopPhone,
+          shopAddress: r.shopAddress,
+        })),
+      ),
       total: countRow?.total ?? 0,
     };
   });

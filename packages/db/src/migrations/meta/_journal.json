@@ -1667,6 +1667,20 @@
       "when": 1793341388710,
       "tag": "0238_ancient_roulette",
       "breakpoints": true
+    },
+    {
+      "idx": 239,
+      "version": "7",
+      "when": 1793682736950,
+      "tag": "0239_lumpy_miss_america",
+      "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "7",
+      "when": 1793684958820,
+      "tag": "0240_outgoing_doctor_faustus",
+      "breakpoints": true
     }
   ]
 }

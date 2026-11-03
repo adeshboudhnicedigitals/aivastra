@@ -11,6 +11,7 @@ import ChatInboxPage from './pages/ChatInboxPage';
 import DashboardPage from './pages/DashboardPage';
 import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
+import ShopifyStoresPage from './pages/ShopifyStoresPage';
 import UsersPage from './pages/UsersPage';
 import type { ToastItem } from './types';
 
@@ -21,6 +22,7 @@ const PAGE_LABELS: Record<Page, string> = {
   'chat-inbox': 'Chat Inbox',
   jobs: 'Jobs',
   users: 'Users',
+  'shopify-stores': 'Shopify Dashboard',
 };
 
 function readStoredTheme(): Theme {
@@ -37,7 +39,13 @@ function resolveTheme(t: Theme): 'light' | 'dark' {
 
 function pageFromPath(pathname: string): Page {
   const segment = pathname.slice(1).split('/')[0];
-  if (segment === 'chat-inbox' || segment === 'jobs' || segment === 'users') return segment;
+  if (
+    segment === 'chat-inbox' ||
+    segment === 'jobs' ||
+    segment === 'users' ||
+    segment === 'shopify-stores'
+  )
+    return segment;
   return 'dashboard';
 }
 
@@ -177,12 +185,13 @@ export default function App() {
           onToggleTheme={toggleTheme}
           onOpenMobileNav={() => setMobileNavOpen(true)}
         />
-        <main className="content">
+        <main className={`content${page === 'chat-inbox' ? ' content--bleed' : ''}`}>
           <Routes>
             <Route path="/" element={<DashboardPage {...pageProps} onNavigateTab={goToPage} />} />
             <Route path="/chat-inbox" element={<ChatInboxPage {...pageProps} />} />
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
             <Route path="/users" element={<UsersPage {...pageProps} />} />
+            <Route path="/shopify-stores" element={<ShopifyStoresPage {...pageProps} />} />
             <Route path="*" element={<DashboardPage {...pageProps} onNavigateTab={goToPage} />} />
           </Routes>
         </main>

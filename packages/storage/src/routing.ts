@@ -39,6 +39,7 @@ const BACKEND_BY_SEGMENT: Readonly<Record<string, StorageBackend>> = {
   // End-user inputs
   'inputs/': 'user',
   'user-backgrounds/': 'user',
+  'user-avatars/': 'user',
   'merchant-inputs/': 'user',
   'shopify-inputs/': 'user',
   'shopify-garments/': 'user',

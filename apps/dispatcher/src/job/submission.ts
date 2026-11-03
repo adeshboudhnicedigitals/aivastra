@@ -10,7 +10,7 @@ interface SubmissionOptions {
   owner?: OwnerToken;
   jobId?: string;
   requestId?: string;
-  phase: 'main' | 'mannequin' | 'classify';
+  phase: 'main' | 'mannequin' | 'garment_extract' | 'classify';
   worker: { id: string; url: string; apiKey: string };
   prompt: Record<string, unknown>;
   contract: Record<string, unknown>;

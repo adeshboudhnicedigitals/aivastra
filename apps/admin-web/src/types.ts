@@ -71,6 +71,8 @@ export interface GarmentType {
   defaultPoseId: string | null;
   requiresMannequinStep?: boolean;
   mannequinWorkflowTemplateId?: string | null;
+  requiresGarmentExtractStep?: boolean;
+  garmentExtractWorkflowTemplateId?: string | null;
   sareeStep2WorkflowTemplateId?: string | null;
   mannequinTwoInputWorkflowTemplateId?: string | null;
   twoInputTryonWorkflowTemplateId?: string | null;
@@ -97,7 +99,8 @@ export interface WorkflowOption {
     | 'saree_step1_two_input'
     | 'two_stage'
     | 'regeneration'
-    | 'fabric_to_garment';
+    | 'fabric_to_garment'
+    | 'garment_extract';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;
@@ -299,6 +302,7 @@ export interface User {
   email: string | null;
   username: string | null;
   displayName: string | null;
+  avatarUrl?: string | null;
   phone: string | null;
   tier: string;
   maxActiveDevices: number;
@@ -364,6 +368,23 @@ export type JobStatus =
   | 'CANCELLED'
   | 'PENDING_MANNEQUIN';
 
+/** One ComfyUI phase of a job that ran a pre-step (garment extract / in-job mannequin) before the main run. */
+export interface JobStage {
+  stage: number;
+  phase: 'garment_extract' | 'mannequin' | 'main';
+  label: string;
+  workerId: string | null;
+  state: 'running' | 'done' | 'failed';
+  attempts: number;
+  startedAt: string;
+  endedAt: string | null;
+  /** Set when this stage's result was taken from a sibling job (another pose) instead of run here. */
+  reusedFromJobId?: string | null;
+  /** Detail endpoint only. */
+  inputUrl?: string;
+  outputUrl?: string;
+}
+
 export interface Job {
   id: string;
   userId?: string;
@@ -375,6 +396,8 @@ export interface Job {
   priority: boolean;
   creditsCharged: number;
   workerId: string | null;
+  /** Only present for jobs that ran more than one ComfyUI phase. */
+  stages?: JobStage[];
   attempts?: number;
   createdAt: string;
   startedAt?: string | null;

@@ -11,6 +11,8 @@ export const keys = {
     `widget-outputs/${jobId}/result.${format}`,
   outputThumb: (jobId: string) => `outputs/${jobId}/result.thumb.jpg`,
   mannequinIntermediate: (jobId: string) => `outputs/${jobId}/mannequin-intermediate.png`,
+  garmentExtractIntermediate: (jobId: string) =>
+    `outputs/${jobId}/garment-extract-intermediate.png`,
   merchantCatalogItem: (merchantId: string, id: string, format: 'png' | 'webp' | 'jpg' = 'jpg') =>
     `merchant-catalog/${merchantId}/${id}/image.${format}`,
   merchantCatalogItemThumb: (
@@ -61,6 +63,8 @@ export const keys = {
   modelBackground: (id: string) => `models/backgrounds/${id}.jpg`,
   modelBackgroundThumb: (id: string) => `models/backgrounds/${id}.thumb.jpg`,
   modelBackgroundComfy: (id: string) => `models/backgrounds/${id}.bgcomfy.jpg`,
+  userAvatar: (userId: string, id: string) => `user-avatars/${userId}/${id}.jpg`,
+  userAvatarPrefix: (userId: string) => `user-avatars/${userId}/`,
   userBackground: (userId: string, id: string) => `user-backgrounds/${userId}/${id}.jpg`,
   userBackgroundThumb: (userId: string, id: string) => `user-backgrounds/${userId}/${id}.thumb.jpg`,
   modelPose: (id: string) => `models/poses/${id}.jpg`,

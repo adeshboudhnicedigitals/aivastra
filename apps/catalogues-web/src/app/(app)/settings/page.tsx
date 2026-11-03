@@ -14,6 +14,7 @@ import { useWhatsappStatus } from '@/hooks/use-whatsapp-status';
 import { api } from '@/lib/api';
 import { BREAKPOINTS } from '@/lib/breakpoints';
 import { GOOGLE_DRIVE_ENABLED } from '@/lib/feature-flags';
+import { ProfilePicture } from './profile-picture';
 import { WhatsappPanel } from './whatsapp-panel';
 
 type Tab = 'Profile Details' | 'Billing' | 'Credit History' | 'Invoices';
@@ -26,6 +27,7 @@ interface MeResponse {
   displayName: string | null;
   phone: string | null;
   companyName: string | null;
+  avatarUrl: string | null;
   gstin: string | null;
   tier: string;
   hasPassword: boolean;
@@ -578,6 +580,7 @@ export default function SettingsPage(): React.ReactElement {
                 ) : undefined
               }
             >
+              <ProfilePicture avatarUrl={me?.avatarUrl} name={nameVal} onMessage={setToast} />
               <Row>
                 <Field label="Full Name" value={nameVal} onChange={setName} />
                 <Field
