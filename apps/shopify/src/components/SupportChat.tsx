@@ -1,5 +1,5 @@
 import type { ChatMessageT, ConversationStatusT } from '@aivastra/types';
-import { Banner, BlockStack, Button, Icon, InlineStack, Text, TextField } from '@shopify/polaris';
+import { Icon } from '@shopify/polaris';
 import { ChatIcon, XIcon } from '@shopify/polaris-icons';
 import { useEffect, useRef, useState } from 'react';
 import { useSupportChat } from '../hooks/useSupportChat';
@@ -18,31 +18,7 @@ const STATUS_COPY: Record<ConversationStatusT, string> = {
 };
 
 function MessageRow({ message }: { message: ChatMessageT }) {
-  const isUser = message.role === 'user';
-  const isSystem = message.role === 'system';
-  return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: isUser ? 'flex-end' : 'flex-start',
-      }}
-    >
-      <div
-        style={{
-          maxWidth: '80%',
-          padding: '8px 12px',
-          borderRadius: '12px',
-          background: isUser ? '#008060' : isSystem ? 'transparent' : '#f1f1f1',
-          color: isUser ? '#fff' : '#202223',
-          fontStyle: isSystem ? 'italic' : 'normal',
-          textAlign: isSystem ? 'center' : 'left',
-          fontSize: '14px',
-        }}
-      >
-        {message.content}
-      </div>
-    </div>
-  );
+  return <div className={`av-chat-msg ${message.role}`}>{message.content}</div>;
 }
 
 // Above Polaris's Frame/Modal layers so the launcher stays reachable on every page.
@@ -73,108 +49,77 @@ export function SupportChat() {
   }
 
   return (
-    <div style={{ position: 'fixed', right: 32, bottom: 32, zIndex: WIDGET_Z }}>
+    <div className="av-chat" style={{ zIndex: WIDGET_Z }}>
       {open && (
-        <div
-          role="dialog"
-          aria-label="Aivastra Support"
-          style={{
-            position: 'absolute',
-            right: 0,
-            bottom: 68,
-            width: 'min(380px, calc(100vw - 64px))',
-            maxHeight: 'calc(100vh - 132px)',
-            overflowY: 'auto',
-            background: '#fff',
-            borderRadius: 12,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.24)',
-            padding: 16,
-          }}
-        >
-          <BlockStack gap="300">
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="h2" variant="headingMd">
-                Aivastra Support
-              </Text>
-              <Button
-                variant="plain"
-                icon={XIcon}
-                accessibilityLabel="Close chat"
-                onClick={() => setOpen(false)}
-              />
-            </InlineStack>
-            {error && <Banner tone="critical">{error}</Banner>}
-            <Text as="p" tone="subdued">
-              {connecting ? 'Connecting…' : STATUS_COPY[status]}
-            </Text>
-            <div
-              ref={scrollRef}
-              style={{
-                height: '320px',
-                overflowY: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                padding: '4px',
+        <div role="dialog" aria-label="Aivastra Support" className="av-chat-panel">
+          <div className="av-chat-head">
+            <div>
+              <h2>Aivastra Support</h2>
+              <p>{connecting ? 'Connecting…' : STATUS_COPY[status]}</p>
+            </div>
+            <button
+              type="button"
+              className="av-chat-x"
+              aria-label="Close chat"
+              onClick={() => setOpen(false)}
+            >
+              <Icon source={XIcon} tone="inherit" />
+            </button>
+          </div>
+          {error && (
+            <div className="av-chat-err" role="alert">
+              {error}
+            </div>
+          )}
+          <div ref={scrollRef} className="av-chat-body">
+            {messages.map((m) => (
+              <MessageRow key={m.id} message={m} />
+            ))}
+            {typing && (
+              <div className="av-chat-typing">
+                {typing === 'bot' ? 'Assistant is typing…' : 'Agent is typing…'}
+              </div>
+            )}
+          </div>
+          {status === 'CLOSED' ? (
+            <div className="av-chat-foot">
+              <button type="button" className="av-btn-ghost av-btn-sm" onClick={reset}>
+                Start new chat
+              </button>
+            </div>
+          ) : (
+            <form
+              className="av-chat-foot"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSend();
               }}
             >
-              {messages.map((m) => (
-                <MessageRow key={m.id} message={m} />
-              ))}
-              {typing && (
-                <Text as="p" tone="subdued">
-                  {typing === 'bot' ? 'Assistant is typing…' : 'Agent is typing…'}
-                </Text>
-              )}
-            </div>
-            {status === 'CLOSED' ? (
-              <Button onClick={reset}>Start new chat</Button>
-            ) : (
-              <InlineStack gap="200" blockAlign="end" wrap={false}>
-                <div style={{ flex: 1 }}>
-                  <TextField
-                    label="Message"
-                    labelHidden
-                    autoComplete="off"
-                    value={input}
-                    onChange={setInput}
-                    placeholder="Type a message…"
-                    maxLength={2000}
-                    // NOTE: Enter-to-send is not implemented — Polaris 13.9.5's
-                    // TextField does not forward onKeyDown (TS2322).
-                  />
-                </div>
-                <Button onClick={handleSend} variant="primary">
-                  Send
-                </Button>
-              </InlineStack>
-            )}
-          </BlockStack>
+              {/* A native input, unlike Polaris's TextField, submits on Enter. */}
+              <input
+                aria-label="Message"
+                autoComplete="off"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Type a message…"
+                maxLength={2000}
+              />
+              <button type="submit" className="av-btn-primary av-btn-sm">
+                Send
+              </button>
+            </form>
+          )}
         </div>
       )}
       <button
         type="button"
         data-support-chat-launcher
+        className="av-chat-fab"
         aria-label={open ? 'Close support chat' : 'Open support chat'}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        style={{
-          width: 56,
-          height: 56,
-          borderRadius: '50%',
-          border: 'none',
-          cursor: 'pointer',
-          background: '#008060',
-          color: '#fff',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.28)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
       >
-        <span style={{ width: 28, height: 28, display: 'block', fill: '#fff' }}>
-          <Icon source={open ? XIcon : ChatIcon} tone="inherit" />
-        </span>
+        <Icon source={open ? XIcon : ChatIcon} tone="inherit" />
       </button>
     </div>
   );

@@ -777,3 +777,184 @@ html:has(.av-page)::-webkit-scrollbar,
   background: #faf9ff;
   border-top: 1px solid #ece9f6;
 }
+
+/* Support chat: floating launcher + panel (mounted in App, outside .av-app) */
+.av-chat {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  font-family: "Inter", system-ui, sans-serif;
+}
+.av-chat-fab {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+  box-shadow: 0 14px 30px rgba(74, 31, 220, 0.38);
+}
+.av-chat-fab:hover {
+  filter: brightness(1.08);
+}
+.av-chat-fab:focus-visible,
+.av-chat-x:focus-visible {
+  outline: 3px solid #12101f;
+  outline-offset: 2px;
+}
+.av-chat-fab .Polaris-Icon,
+.av-chat-x .Polaris-Icon {
+  width: 28px;
+  height: 28px;
+  margin: 0;
+}
+.av-chat-fab .Polaris-Icon svg {
+  fill: #fff;
+}
+.av-chat-panel {
+  position: absolute;
+  right: 0;
+  bottom: 76px;
+  width: min(390px, calc(100vw - 56px));
+  max-height: calc(100vh - 140px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid #ece9f6;
+  border-radius: 24px;
+  box-shadow: 0 28px 60px rgba(40, 20, 120, 0.28);
+  color: #12101f;
+}
+.av-chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  color: #fff;
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+}
+.av-chat-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.av-chat-head p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  opacity: 0.8;
+}
+.av-chat-x {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.av-chat-x:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+.av-chat-x .Polaris-Icon {
+  width: 20px;
+  height: 20px;
+}
+.av-chat-x .Polaris-Icon svg {
+  fill: #fff;
+}
+.av-chat-err {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fde7e9;
+  color: #b3202a;
+  font-size: 13px;
+}
+.av-chat-body {
+  height: 320px;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  background: #faf9ff;
+}
+.av-chat-body::-webkit-scrollbar {
+  display: none;
+}
+.av-chat-msg {
+  max-width: 82%;
+  padding: 9px 14px;
+  border-radius: 18px;
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.av-chat-msg.user {
+  align-self: flex-end;
+  border-bottom-right-radius: 6px;
+  color: #fff;
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+}
+.av-chat-msg.bot,
+.av-chat-msg.agent {
+  align-self: flex-start;
+  border-bottom-left-radius: 6px;
+  background: #fff;
+  border: 1px solid #ece9f6;
+}
+.av-chat-msg.system {
+  align-self: center;
+  max-width: 100%;
+  padding: 2px 8px;
+  text-align: center;
+  font-style: italic;
+  font-size: 13px;
+  color: #5d5b78;
+  background: none;
+}
+.av-chat-typing {
+  align-self: flex-start;
+  font-size: 13px;
+  color: #5d5b78;
+}
+.av-chat-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid #ece9f6;
+  background: #fff;
+}
+.av-chat-foot input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1.5px solid #dcd8ee;
+  background: #fff;
+  font:
+    500 14px "Inter",
+    system-ui,
+    sans-serif;
+  color: #12101f;
+}
+.av-chat-foot input:focus {
+  outline: 3px solid #12101f;
+  outline-offset: 1px;
+  border-color: transparent;
+}
