@@ -52,6 +52,12 @@ export const merchants = pgTable('merchants', {
   // Aivastra default. Null means "no merchant logo, app uses its own default" --
   // see /v1/auth/device-login's logoUrl field in apps/api/src/modules/auth/routes.ts.
   logoKey: text('logo_key'),
+  // Whether merchant try-on results get logoKey composited onto their top-right
+  // corner by the dispatcher (workflow/widget-finalize.ts). Off by default: logoKey
+  // alone also drives the Android app's own branding, and merchants who uploaded one
+  // for that never asked for it on delivered images. No logoKey = nothing to attach,
+  // whatever this says.
+  logoOverlayEnabled: boolean('logo_overlay_enabled').notNull().default(false),
   // Nullable -- R2 object key for the merchant's uploaded loading/processing
   // video, shown by the Android app in place of the single global clip
   // configured at config:system.appVideo (packages/storage/src/keys.ts's

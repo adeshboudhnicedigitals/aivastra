@@ -364,6 +364,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           demoData: schema.merchants.demoData,
           jobRateLimitPerMin: schema.merchants.jobRateLimitPerMin,
           logoKey: schema.merchants.logoKey,
+          logoOverlayEnabled: schema.merchants.logoOverlayEnabled,
           loadingVideoKey: schema.merchants.loadingVideoKey,
         })
         .from(schema.merchants)

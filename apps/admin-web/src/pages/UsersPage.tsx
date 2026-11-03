@@ -189,6 +189,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [savingMerchantEdit, setSavingMerchantEdit] = useState(false);
   const [togglingMerchant, setTogglingMerchant] = useState(false);
   const [togglingDemoData, setTogglingDemoData] = useState(false);
+  const [togglingLogoOverlay, setTogglingLogoOverlay] = useState(false);
   const [createUserForm, setCreateUserForm] = useState(EMPTY_CREATE_USER_FORM);
   const [creatingUser, setCreatingUser] = useState(false);
   const [createUserError, setCreateUserError] = useState('');
@@ -1037,6 +1038,25 @@ export default function UsersPage({ onNav, toast }: Props) {
     }
   }
 
+  async function handleToggleLogoOverlay() {
+    if (!detail?.merchant) return;
+    setTogglingLogoOverlay(true);
+    try {
+      await apiFetch(`/admin/merchants/${detail.merchant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ logoOverlayEnabled: !detail.merchant.logoOverlayEnabled }),
+      });
+      toast({
+        title: `Logo on try-on results ${detail.merchant.logoOverlayEnabled ? 'disabled' : 'enabled'}`,
+      });
+      await openDetail(detail);
+    } catch (err) {
+      toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to update logo setting') });
+    } finally {
+      setTogglingLogoOverlay(false);
+    }
+  }
+
   function openCreateUser() {
     setCreateUserForm(EMPTY_CREATE_USER_FORM);
     setCreateUserError('');
@@ -1390,6 +1410,37 @@ export default function UsersPage({ onNav, toast }: Props) {
                     <KV k="Company" v={u.merchant.companyName} />
                     <KV k="Contact" v={u.merchant.contactName || '—'} />
                     <KV k="Phone" v={u.merchant.phone || '—'} />
+                    <KV
+                      k="Logo on try-on results"
+                      v={
+                        <label
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            cursor:
+                              u.merchant.logoUrl && !togglingLogoOverlay
+                                ? 'pointer'
+                                : 'not-allowed',
+                          }}
+                          title={u.merchant.logoUrl ? undefined : 'Upload a logo first (Edit)'}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={u.merchant.logoOverlayEnabled}
+                            disabled={!u.merchant.logoUrl || togglingLogoOverlay}
+                            onChange={() => void handleToggleLogoOverlay()}
+                          />
+                          <span>
+                            {!u.merchant.logoUrl
+                              ? 'No logo set'
+                              : u.merchant.logoOverlayEnabled
+                                ? 'Enabled'
+                                : 'Disabled'}
+                          </span>
+                        </label>
+                      }
+                    />
                     <KV
                       k="Demo data"
                       v={
