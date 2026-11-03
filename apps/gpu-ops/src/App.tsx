@@ -19,11 +19,21 @@ import {
 import { HostResources } from './HostResources';
 import { AlertRulesPage, IncidentFixtureGallery, LiveIncidentsPage } from './IncidentsPages';
 import { InventoryEditor } from './InventoryEditor';
+import { LiveActivityPage } from './LiveActivityPage';
+import { LiveInventoryPage } from './LiveInventoryPage';
+import { LiveOperationsPage } from './LiveOperationsPage';
 import { LiveJobsPage, LiveQueuePage, WorkerLivePanel } from './LivePages';
 import { createLiveRepository, FleetLoadError } from './live';
 import type { FleetAgentSummaries, FleetAgentSummary } from './live-agent';
 import { loadFleetAgentSummaries } from './live-agent';
 import { type IncidentSummary, loadIncidentSummary } from './live-incidents';
+import {
+  applyInventory,
+  type Inventory as FleetInventory,
+  inventoryErrorMessage,
+  loadInventory,
+} from './live-inventory';
+import { loadOperations, type Operations, operationsErrorMessage } from './live-operations';
 import { display, fleetCounts, freshness, grafanaLink, reconciliation, signals } from './model';
 import type { OperationsManager } from './OperationsControls';
 import { IncidentActions, OperationsControls, useOperationsDemo } from './OperationsControls';
@@ -59,7 +69,10 @@ const livePages: { id: LivePage; label: string; icon: string }[] = [
   { id: 'jobs', label: 'Jobs debug', icon: '≋' },
   { id: 'queue', label: 'Queue lanes', icon: '▤' },
   { id: 'incidents', label: 'Incidents', icon: '◇' },
+  { id: 'inventory', label: 'Inventory', icon: '▤' },
+  { id: 'operations', label: 'Operations', icon: '◎' },
   { id: 'rules', label: 'Alert rules', icon: '⚑' },
+  { id: 'activity', label: 'Activity log', icon: '↺' },
 ];
 function tone(text: string) {
   if (['UNREACHABLE', 'CRITICAL', 'HIGH', 'FOREIGN', 'OPEN', 'ERROR'].includes(text))
@@ -309,6 +322,10 @@ export function App() {
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [incidentSummary, setIncidentSummary] = useState<IncidentSummary | null>(null);
   const [agentSummaries, setAgentSummaries] = useState<FleetAgentSummaries | null>(null);
+  const [inventory, setInventory] = useState<FleetInventory | null>(null);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
+  const [fleetOps, setFleetOps] = useState<Operations | null>(null);
+  const [fleetOpsError, setFleetOpsError] = useState<string | null>(null);
   const [agentSummaryError, setAgentSummaryError] = useState<string | null>(null);
   const refreshNow = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -326,7 +343,13 @@ export function App() {
   const [page, setPage] = useState<LivePage>(() => {
     const value = initialParams.get('page') ?? (initialParams.has('job') ? 'jobs' : 'fleet');
     return value &&
-      ['fleet', 'jobs', 'queue', 'incidents', ...(FLEET_API_URL ? ['rules'] : [])].includes(value)
+      [
+        'fleet',
+        'jobs',
+        'queue',
+        'incidents',
+        ...(FLEET_API_URL ? ['rules', 'activity', 'inventory', 'operations'] : []),
+      ].includes(value)
       ? (value as LivePage)
       : 'fleet';
   });
@@ -380,9 +403,13 @@ export function App() {
       const nextPage = params.get('page');
       setPage(
         nextPage &&
-          ['fleet', 'jobs', 'queue', 'incidents', ...(FLEET_API_URL ? ['rules'] : [])].includes(
-            nextPage,
-          )
+          [
+            'fleet',
+            'jobs',
+            'queue',
+            'incidents',
+            ...(FLEET_API_URL ? ['rules', 'activity', 'inventory', 'operations'] : []),
+          ].includes(nextPage)
           ? (nextPage as LivePage)
           : 'fleet',
       );
@@ -458,6 +485,29 @@ export function App() {
             if (!current) return;
             setAgentSummaries(null);
             setAgentSummaryError(cause instanceof Error ? cause.message : 'Agent data unavailable');
+          });
+      }
+      if (FLEET_API_URL && token) {
+        void loadInventory(FLEET_API_URL, token, { recovery: authRecovery })
+          .then((value) => {
+            if (!current) return;
+            setInventory(value);
+            setInventoryError(null);
+          })
+          .catch((cause: unknown) => {
+            if (!current) return;
+            // Keep the last good inventory on screen; the page says why it may be out of date.
+            setInventoryError(inventoryErrorMessage(cause));
+          });
+        void loadOperations(FLEET_API_URL, token, { recovery: authRecovery })
+          .then((value) => {
+            if (!current) return;
+            setFleetOps(value);
+            setFleetOpsError(null);
+          })
+          .catch((cause: unknown) => {
+            if (!current) return;
+            setFleetOpsError(operationsErrorMessage(cause));
           });
       }
       return repository
@@ -609,10 +659,11 @@ export function App() {
         Loading operations workspace…
       </main>
     );
+  const mapped = snapshot.source === 'LIVE' ? applyInventory(snapshot, inventory) : snapshot;
   const data = {
-    ...snapshot,
+    ...mapped,
     incidents: snapshot.incidents.map((incident) => incidentPreview(incident, operations.state)),
-    workers: snapshot.workers.map((worker) =>
+    workers: mapped.workers.map((worker) =>
       worker.activeIncident && operations.state.incidents[worker.activeIncident.id]?.acknowledged
         ? { ...worker, activeIncident: { ...worker.activeIncident, state: 'ACK' as const } }
         : worker,
@@ -908,6 +959,31 @@ export function App() {
               authRecovery={authRecovery}
               initialWorkerId={incidentWorkerFilter}
               onOpenRules={() => nav('rules')}
+            />
+          ) : live && page === 'inventory' ? (
+            <LiveInventoryPage
+              baseUrl={FLEET_API_URL ?? ''}
+              token={token ?? ''}
+              authRecovery={authRecovery}
+              inventory={inventory}
+              loadError={inventoryError}
+              onInventory={setInventory}
+            />
+          ) : live && page === 'operations' ? (
+            <LiveOperationsPage
+              baseUrl={FLEET_API_URL ?? ''}
+              token={token ?? ''}
+              authRecovery={authRecovery}
+              workerIds={data.workers.map((w) => w.workerId)}
+              operations={fleetOps}
+              loadError={fleetOpsError}
+              onOperations={setFleetOps}
+            />
+          ) : live && page === 'activity' ? (
+            <LiveActivityPage
+              baseUrl={FLEET_API_URL ?? ''}
+              token={token ?? ''}
+              authRecovery={authRecovery}
             />
           ) : live && page === 'rules' ? (
             <AlertRulesPage

@@ -4,6 +4,7 @@ import { AgentTab, HardwareTab } from './AgentPanels';
 import type { AuthRecovery } from './auth';
 import { ActionsTab } from './ControlPanel';
 import type { FleetSnapshot, FleetWorkerView } from './contracts';
+import { LiveJobActions } from './LiveJobActions';
 import { drainErrorMessage, drainWorker } from './live-agent';
 import {
   type LiveJob,
@@ -229,6 +230,8 @@ export function LiveJobsPage({
   const [items, setItems] = useState<LiveJob[]>([]);
   const [total, setTotal] = useState(0);
   const [detail, setDetail] = useState<LiveJobDetail | null>(null);
+  // Bumped after a cancel/retry so the list, the failure groups and the open job all reload.
+  const [reloadKey, setReloadKey] = useState(0);
   const [openId, setOpenId] = useState<string | null>(() =>
     new URLSearchParams(location.search).get('job'),
   );
@@ -266,6 +269,7 @@ export function LiveJobsPage({
     return () => window.removeEventListener('popstate', restoreFilters);
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey re-runs the load after a job action
   useEffect(() => {
     let current = true;
     setLoading(true);
@@ -306,8 +310,10 @@ export function LiveJobsPage({
     jobType,
     createdFrom,
     createdTo,
+    reloadKey,
   ]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey re-runs the load after a job action
   useEffect(() => {
     let current = true;
     loadJobs(baseUrl, token, {
@@ -335,8 +341,9 @@ export function LiveJobsPage({
     return () => {
       current = false;
     };
-  }, [baseUrl, token, workerId, workerFilter, search, jobType, createdFrom, createdTo]);
+  }, [baseUrl, token, workerId, workerFilter, search, jobType, createdFrom, createdTo, reloadKey]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey re-runs the load after a job action
   useEffect(() => {
     if (!openId) {
       setDetail(null);
@@ -353,7 +360,7 @@ export function LiveJobsPage({
     return () => {
       current = false;
     };
-  }, [baseUrl, token, openId]);
+  }, [baseUrl, token, openId, reloadKey]);
 
   const open = (id: string | null) => {
     setOpenId(id);
@@ -565,6 +572,14 @@ export function LiveJobsPage({
                   <dt>Credits refunded</dt>
                   <dd>Not exposed by the current jobs API.</dd>
                 </dl>
+                <LiveJobActions
+                  key={detail.id}
+                  baseUrl={baseUrl}
+                  token={token}
+                  jobId={detail.id}
+                  status={detail.status}
+                  onDone={() => setReloadKey((n) => n + 1)}
+                />
                 <h3>Event timeline</h3>
                 <ol className="job-timeline">
                   {detail.events.map((event) => (

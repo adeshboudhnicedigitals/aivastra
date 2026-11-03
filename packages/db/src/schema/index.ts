@@ -11,6 +11,8 @@ export * from './demo-catalog.js';
 export * from './dev-api.js';
 export * from './dispatcher-execution.js';
 export * from './fleet-agent.js';
+export * from './fleet-inventory.js';
+export * from './fleet-operations.js';
 export * from './google-drive.js';
 export * from './jobs.js';
 export * from './kiosk.js';

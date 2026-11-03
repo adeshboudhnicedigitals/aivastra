@@ -76,3 +76,31 @@ Known limits:
 - In production the claiming side is the on-box agent, which does not exist yet. It needs an
   agent-authenticated claim/complete endpoint; only the local collector reads the table directly.
 - Drain state lives in the dispatcher's memory (a dispatcher restart clears it).
+
+## Activity log, Inventory and Operations pages (live mode)
+
+Both read and write through the fleet API; neither is a browser demo.
+
+- **Activity log** (`GET /admin/fleet/activity`, `fleet.view`): operator actions from the audit trail, incident
+  timeline events and finished command outcomes, newest first. Read-only.
+- **Inventory** (`/admin/fleet/inventory/*`; read `fleet.view`, write `fleet.operate` = SUPER_ADMIN): hosts, GPUs,
+  which worker runs on which GPU, and append-only review notes. Every write needs a reason and is audited. The
+  dashboard overlays it on the live snapshot: mapped workers show their real host and GPU, unmapped workers keep the
+  "Host not mapped" placeholder, and observed RAM / GPU name / VRAM are never overwritten.
+- **Operations** (`/admin/fleet/operations/*`; read `fleet.view`, write `fleet.operate`): maintenance windows and
+  reservation notes, each with a reason and an audit row. While a window is active the alert evaluator opens no
+  incident, sends no email and does not escalate for that worker; evidence is still collected, an incident already
+  open still recovers (without an email), and a condition that outlasts the window opens normally after its usual
+  "for" period. A window must start in the future, end after it starts, and last at most 14 days; cancelling an
+  active window ends the silence at once. A reservation is a note only (owner, reason, optional end) and changes no
+  job routing; draining stays on the Actions tab.
+- **Job actions** (Jobs debug page, job drawer): **Cancel** for a queued job, **Retry** for a failed one
+  (`POST /admin/fleet/jobs/:id/cancel|retry`, `fleet.operate`, reason required, audited). Narrower than the admin
+  panel's own buttons on purpose: a job already running on a GPU is never interrupted from here (the dispatcher
+  cannot be told to stop a prompt), and store-billed Shopify jobs stay in the admin panel because their refund also
+  returns a cap slot and notifies the shopper. A cancelled queued job needs no cleanup: the dispatcher drops stream
+  entries whose job is already terminal. A retried job whose failure was already refunded runs again without
+  charging; the dialog and the audit row say so. No migration.
+- Needs migrations **0246_fleet_inventory** (four new tables) and **0247_fleet_operations** (two new tables), both additive. Locally: `pnpm db:migrate` against your
+  local `DATABASE_URL`. Never run it by hand against production; it ships through the normal pipeline.
+- Restart the API after pulling this change: a long-running dev API keeps serving the old routes.

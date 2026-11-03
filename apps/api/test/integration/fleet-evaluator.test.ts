@@ -453,4 +453,45 @@ describe('fleet alert evaluator', () => {
     expect(rows).toHaveLength(2);
     expect(rows.filter((r) => r.state === 'OPEN')).toHaveLength(1);
   });
+
+  it('a maintenance window stops new incidents, escalations and emails for that worker only', async () => {
+    const quiet = await monitoredWorker('mw-quiet');
+    const loud = await monitoredWorker('mw-loud');
+    for (const w of [quiet, loud]) {
+      await beat(w.id);
+      await app.redis.set(fleetAgentRejectsKey(w.id), '50', 'EX', 600);
+    }
+    const win = await app.db
+      .insert(schema.fleetMaintenanceWindows)
+      .values({
+        workerId: quiet.id,
+        startsAt: new Date(T0 - 60 * S),
+        endsAt: new Date(T0 + 3600 * S),
+        owner: 'test',
+        reason: 'planned',
+      })
+      .returning({ id: schema.fleetMaintenanceWindows.id });
+    const env = app.env as { FLEET_ALERT_EMAILS?: string };
+    env.FLEET_ALERT_EMAILS = 'ops@example.com';
+    sendFleetAlertEmail.mockClear();
+    try {
+      const tick = await runFleetEvaluatorTick(app, { now: T0 });
+      expect(tick.opened).toBe(1);
+      expect(await incidents(quiet.id)).toHaveLength(0);
+      expect(await incidents(loud.id)).toHaveLength(1);
+      await vi.waitFor(() => expect(sendFleetAlertEmail).toHaveBeenCalled());
+      const mailed = sendFleetAlertEmail.mock.calls.map((c) => JSON.stringify(c));
+      expect(mailed.some((m) => m.includes(quiet.id))).toBe(false);
+
+      // The window ends (cancelled): the same breach now opens.
+      await app.db
+        .update(schema.fleetMaintenanceWindows)
+        .set({ state: 'CANCELLED' })
+        .where(eq(schema.fleetMaintenanceWindows.id, win[0]?.id as string));
+      await runFleetEvaluatorTick(app, { now: T0 + 10 * S });
+      expect(await incidents(quiet.id)).toHaveLength(1);
+    } finally {
+      env.FLEET_ALERT_EMAILS = undefined;
+    }
+  });
 });

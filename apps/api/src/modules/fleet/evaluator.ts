@@ -8,7 +8,7 @@ import {
   fleetAgentRejectsKey,
   fleetAlertRuleKeys,
 } from '@aivastra/types';
-import { and, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
   type DispatcherView,
@@ -21,6 +21,7 @@ import {
   type WorkerContext,
 } from './evaluator-core.js';
 import { notifyFleetIncident } from './notify.js';
+import { silencedWorkers } from './operations-core.js';
 
 // Opens, escalates and recovers incidents (docs/fleet-agent-design.md section 7).
 //
@@ -245,7 +246,7 @@ export async function runFleetEvaluatorTick(
   const now = opts.now ?? Date.now();
   const result: EvaluatorTickResult = { opened: 0, recovered: 0, escalated: 0, workers: 0 };
 
-  const [ruleRows, monitoredRows, liveRows] = await Promise.all([
+  const [ruleRows, monitoredRows, liveRows, windowRows] = await Promise.all([
     app.db.select().from(schema.fleetAlertRules),
     app.db
       .select({
@@ -256,7 +257,24 @@ export async function runFleetEvaluatorTick(
       .innerJoin(schema.workers, eq(schema.workers.id, schema.fleetAgents.workerId))
       .where(and(isNull(schema.fleetAgents.revokedAt), eq(schema.workers.isActive, true))),
     app.db.select().from(schema.fleetIncidents).where(ne(schema.fleetIncidents.state, 'RECOVERED')),
+    app.db
+      .select({
+        workerId: schema.fleetMaintenanceWindows.workerId,
+        startsAt: schema.fleetMaintenanceWindows.startsAt,
+        endsAt: schema.fleetMaintenanceWindows.endsAt,
+        state: schema.fleetMaintenanceWindows.state,
+      })
+      .from(schema.fleetMaintenanceWindows)
+      .where(
+        and(
+          eq(schema.fleetMaintenanceWindows.state, 'SCHEDULED'),
+          gt(schema.fleetMaintenanceWindows.endsAt, new Date(now)),
+        ),
+      ),
   ]);
+  // A worker inside a maintenance window gets no new incidents, escalations or emails. Evidence is
+  // still collected, and an incident already open keeps recovering normally (without an email).
+  const silenced = silencedWorkers(windowRows, now);
 
   const rules = new Map<string, RuleConfig>(ruleRows.map((r) => [r.key, r]));
   // Most recent contact across the worker's keys; a rotation briefly holds two.
@@ -330,8 +348,11 @@ export async function runFleetEvaluatorTick(
         clearMs: cfg.clearSeconds * 1000,
       });
 
+      const quiet = silenced.has(workerId);
       if (d.action === 'open' && obs.status === 'breach') {
-        if (await openIncident(app, rule, cfg, workerId, obs, now)) {
+        // Inside a window nothing opens. If the condition outlasts the window it is evaluated
+        // afresh and opens after its normal "for" period.
+        if (!quiet && (await openIncident(app, rule, cfg, workerId, obs, now))) {
           result.opened++;
           void notifyFleetIncident(app, {
             kind: 'opened',
@@ -344,16 +365,19 @@ export async function runFleetEvaluatorTick(
       } else if (d.action === 'recover' && incident) {
         if (await recoverIncident(app, incident, now, 'The condition has cleared.')) {
           result.recovered++;
-          void notifyFleetIncident(app, {
-            kind: 'recovered',
-            severity: incident.severity,
-            workerId,
-            ruleKey: rule,
-            summary: incident.summary,
-          });
+          if (!quiet) {
+            void notifyFleetIncident(app, {
+              kind: 'recovered',
+              severity: incident.severity,
+              workerId,
+              ruleKey: rule,
+              summary: incident.summary,
+            });
+          }
         }
       } else if (
         rule === 'agent_silent' &&
+        !quiet &&
         incident &&
         obs.status === 'breach' &&
         incident.severity !== 'critical'

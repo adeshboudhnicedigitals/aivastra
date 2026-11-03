@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   FLEET_ALERT_RULES,
+  fleetActivityListSchema,
   fleetAgentKeyCreatedSchema,
   fleetAgentStatusSchema,
   fleetAgentSummariesSchema,
@@ -10,6 +11,8 @@ import {
   fleetIncidentDetailSchema,
   fleetIncidentListSchema,
   fleetIncidentSummarySchema,
+  fleetInventorySchema,
+  fleetOperationsSchema,
 } from '@aivastra/types';
 import { describe, expect, it } from 'vitest';
 import { deriveGpuSignals } from '../src/modules/fleet/signals.js';
@@ -22,7 +25,7 @@ const read = (f: string): unknown => JSON.parse(readFileSync(join(DIR, f), 'utf8
 
 describe('fleet contract fixtures', () => {
   it('cover every endpoint and state the README lists', () => {
-    expect(files.length).toBeGreaterThanOrEqual(19);
+    expect(files.length).toBeGreaterThanOrEqual(22);
   });
 
   it.each(files.filter((f) => f.startsWith('agent-status.')))('%s matches the schema', (f) => {
@@ -45,6 +48,35 @@ describe('fleet contract fixtures', () => {
   )('%s matches the schema and its total agrees with its items', (f) => {
     const v = fleetIncidentListSchema.parse(read(f));
     expect(v.total).toBeGreaterThanOrEqual(v.items.length);
+  });
+
+  it('the activity fixture matches its schema and is newest first', () => {
+    const v = fleetActivityListSchema.parse(read('activity.list.json'));
+    const ats = v.items.map((i) => i.at);
+    expect([...ats].sort().reverse()).toEqual(ats);
+    expect(new Set(v.items.map((i) => i.source))).toEqual(
+      new Set(['AUDIT', 'INCIDENT', 'COMMAND']),
+    );
+  });
+
+  it('the inventory fixture matches its schema and is internally consistent', () => {
+    const v = fleetInventorySchema.parse(read('inventory.json'));
+    const gpu = new Map(v.gpus.map((g) => [g.id, g]));
+    expect(v.workers.some((w) => w.hostId === null)).toBe(true);
+    for (const w of v.workers.filter((x) => x.gpuId))
+      expect(gpu.get(w.gpuId as string)?.hostId).toBe(w.hostId);
+    expect(v.workers.filter((w) => w.gpuId === 'gpu7-0').length).toBeGreaterThan(1);
+  });
+
+  it('the operations fixture matches its schema and shows every window status in use', () => {
+    const v = fleetOperationsSchema.parse(read('operations.json'));
+    expect(new Set(v.maintenance.map((w) => w.status))).toEqual(
+      new Set(['ACTIVE', 'SCHEDULED', 'CANCELLED']),
+    );
+    expect(v.reservations.some((r) => r.until === null)).toBe(true);
+    expect(v.reservations.some((r) => r.until !== null)).toBe(true);
+    for (const w of v.maintenance)
+      expect(Date.parse(w.endsAt)).toBeGreaterThan(Date.parse(w.startsAt));
   });
 
   it('the agent summaries fixture matches its schema', () => {

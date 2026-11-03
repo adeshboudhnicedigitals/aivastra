@@ -1716,6 +1716,20 @@
       "when": 1793630943128,
       "tag": "0245_fleet_control",
       "breakpoints": true
+    },
+    {
+      "idx": 246,
+      "version": "7",
+      "when": 1793682069976,
+      "tag": "0246_fleet_inventory",
+      "breakpoints": true
+    },
+    {
+      "idx": 247,
+      "version": "7",
+      "when": 1793684390653,
+      "tag": "0247_fleet_operations",
+      "breakpoints": true
     }
   ]
 }
