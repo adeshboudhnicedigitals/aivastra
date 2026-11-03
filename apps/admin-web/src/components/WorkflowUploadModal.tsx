@@ -33,6 +33,9 @@ interface DetectedMappings {
   latentSizeNodeIds: string[];
   outputSizeNodeIds: string[];
   resultNodeId?: string;
+  // garment_extract workflows: the lone input image node and the Save Image output node.
+  inputNodeId?: string;
+  outputNodeId?: string;
   samSegmentationPromptNode?: string;
   defaultSamSegmentationPrompt?: string;
 }
@@ -1180,8 +1183,7 @@ export function WorkflowUploadModal({
                   Takes one garment image and returns one ghost-mannequin image. Needs one LoadImage
                   (or a node titled "garment") and one Save Image node, both detected automatically
                   {(() => {
-                    const d = (parsed as { detected?: Record<string, string | undefined> })
-                      .detected;
+                    const d = parsed?.detected;
                     return d?.inputNodeId || d?.outputNodeId
                       ? ` — input node ${d?.inputNodeId ?? 'not found'}, output node ${d?.outputNodeId ?? 'not found'}`
                       : '';
