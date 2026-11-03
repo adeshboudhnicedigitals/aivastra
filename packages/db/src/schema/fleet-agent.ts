@@ -15,24 +15,29 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { fleetHosts } from './fleet-inventory.js';
 import { users } from './users.js';
 import { workers } from './workers.js';
 
 // Fleet agent: the per-GPU-box process that pushes telemetry (docs/fleet-agent-design.md).
 
 /**
- * One row per ingest key. A key is bound to a single worker and stored only as sha256, so a
- * database dump never yields a usable key; the plaintext exists only in the create response.
- * Rotation is create-new, redeploy, revoke-old, so a worker may briefly hold two active keys.
+ * One row per ingest key. A key is bound to a single box (fleet_hosts) and stored only as sha256, so
+ * a database dump never yields a usable key; the plaintext exists only in the create response.
+ * Enrolment revokes the box's previous keys when it issues a new one.
+ *
+ * `worker_id` here, and in every telemetry table below, holds the BOX id (e.g. "w6"), not an admin
+ * `workers` row: the agent reports what the machine is doing whether or not the dispatcher uses it.
+ * The column name predates that change and was kept to avoid a rename across the fleet module.
  */
 export const fleetAgents = pgTable(
   'fleet_agents',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    // A key without its worker is meaningless, so deleting the worker removes its keys.
+    // A key without its box is meaningless, so deleting the box removes its keys.
     workerId: text('worker_id')
       .notNull()
-      .references(() => workers.id, { onDelete: 'cascade' }),
+      .references(() => fleetHosts.id, { onDelete: 'cascade' }),
     label: text('label').notNull().default(''),
     keyHash: text('key_hash').notNull().unique(),
     // e.g. "fa_a1b2c3d4": dashboard display only, never sufficient to authenticate.
@@ -53,6 +58,26 @@ export const fleetAgents = pgTable(
     byWorker: index('fleet_agents_worker_idx').on(t.workerId),
   }),
 );
+
+/**
+ * Enrolment tokens: held by the operator's vps-sync checkout, they let fleet-converge.sh register a
+ * box and receive that box's agent key in one call (POST /v1/fleet/enroll). A token can do nothing
+ * else: no reads, no commands. Stored only as sha256; the plaintext exists only in the create
+ * response. Grants made with it are audited under the admin who created it.
+ */
+export const fleetEnrollTokens = pgTable('fleet_enroll_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  label: text('label').notNull().default(''),
+  tokenHash: text('token_hash').notNull().unique(),
+  tokenPrefix: text('token_prefix').notNull(),
+  createdBy: uuid('created_by')
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  revokedBy: uuid('revoked_by').references(() => users.id),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+});
 
 /**
  * One row per accepted sample. `(worker_id, boot_id, seq)` is unique, which is what makes a

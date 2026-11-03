@@ -31,12 +31,14 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
  * (SUPER_ADMIN only), because a key is a credential that speaks for a GPU box.
  */
 export async function fleetAgentAdminRoutes(app: FastifyInstance) {
+  // The `:id` in these routes is a BOX id (fleet_hosts, e.g. "w6"): the agent reports per machine,
+  // whether or not the dispatcher uses it. The path keeps its old "workers" segment.
   async function requireWorker(id: string): Promise<void> {
-    const [worker] = await app.db
-      .select({ id: schema.workers.id })
-      .from(schema.workers)
-      .where(eq(schema.workers.id, id));
-    if (!worker) throw new AppError('NOT_FOUND', 404, 'Worker not found');
+    const [box] = await app.db
+      .select({ id: schema.fleetHosts.id })
+      .from(schema.fleetHosts)
+      .where(eq(schema.fleetHosts.id, id));
+    if (!box) throw new AppError('NOT_FOUND', 404, 'Box not found');
   }
 
   app.get(
@@ -172,7 +174,7 @@ export async function fleetAgentAdminRoutes(app: FastifyInstance) {
         await recordAudit(tx, {
           actor: { userId: req.userId, role: req.adminRole as string },
           action: 'fleet.agent_key.create',
-          resourceType: 'worker',
+          resourceType: 'fleet_host',
           resourceId: id,
           after: { keyId: row.id, keyPrefix: row.keyPrefix, label },
           request: req,
@@ -218,7 +220,7 @@ export async function fleetAgentAdminRoutes(app: FastifyInstance) {
         await recordAudit(tx, {
           actor: { userId: req.userId, role: req.adminRole as string },
           action: 'fleet.agent_key.revoke',
-          resourceType: 'worker',
+          resourceType: 'fleet_host',
           resourceId: row.workerId,
           before: { keyId: row.id, keyPrefix: row.keyPrefix, label: row.label },
           request: req,

@@ -66,6 +66,8 @@ export type AgentTelemetry = {
     memPsiSome10: number | null;
     uptimeSec: number | null;
     ntpSynced: boolean | null;
+    // Sent by agent 0.2+; absent from 0.1, so optional rather than required.
+    driverVersion?: string | null;
     disks: {
       mount: string;
       totalGb: number | null;
@@ -333,8 +335,16 @@ function parseTelemetry(value: unknown): AgentTelemetry {
     ],
     at,
   );
+  // driverVersion arrived in agent 0.2: accept it when present, but do not require it, so a
+  // 0.1 agent still validates. Every other key stays exact.
+  const hostIn = isObj(x.host) ? { ...x.host } : x.host;
+  const driverVersion =
+    isObj(hostIn) && 'driverVersion' in hostIn
+      ? nullable(hostIn.driverVersion, isStr, 'host.driverVersion')
+      : undefined;
+  if (isObj(hostIn)) delete hostIn.driverVersion;
   const host = obj(
-    x.host,
+    hostIn,
     [
       'cpuCount',
       'load1',
@@ -381,6 +391,7 @@ function parseTelemetry(value: unknown): AgentTelemetry {
       memPsiSome10: nullableHostNum('memPsiSome10'),
       uptimeSec: nullableHostNum('uptimeSec', true),
       ntpSynced: nullable(host.ntpSynced, isBool, 'host.ntpSynced'),
+      ...(driverVersion === undefined ? {} : { driverVersion }),
       disks: boundedArray(host.disks, 16, 'host.disks', (value, i) => {
         const d = obj(value, ['mount', 'totalGb', 'usedGb', 'inodeUsedPct'], `host.disks[${i}]`);
         return {
@@ -480,7 +491,7 @@ export function parseCreatedAgentKey(value: unknown): CreatedAgentKey {
   };
 }
 
-function parseFleetAgentSummary(value: unknown, index: number): FleetAgentSummary {
+export function parseFleetAgentSummary(value: unknown, index: number): FleetAgentSummary {
   const at = `workers[${index}]`;
   const x = obj(value, ['workerId', 'heartbeatAt', 'telemetry', 'incidents'], at);
   const telemetry =
@@ -564,7 +575,7 @@ export function parseFleetAgentSummaries(value: unknown): FleetAgentSummaries {
   return { generatedAt: time(x.generatedAt, 'overview.generatedAt'), workers };
 }
 
-async function request<T>(
+export async function request<T>(
   baseUrl: string,
   token: string,
   path: string,
