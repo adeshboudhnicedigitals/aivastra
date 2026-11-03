@@ -51,6 +51,11 @@ describe('fleet rollups and metrics history', () => {
       },
     });
     expect(res.statusCode).toBe(201);
+    // Agent keys belong to a box; register one linked to this worker, as enrolment would.
+    await app.db
+      .insert(schema.fleetHosts)
+      .values({ id, label: id, workerId: id })
+      .onConflictDoNothing();
     return id;
   }
   async function sample(

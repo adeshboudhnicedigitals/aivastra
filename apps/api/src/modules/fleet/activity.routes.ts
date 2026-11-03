@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { fleetActivityListSchema, fleetActivityQuerySchema } from '@aivastra/types';
-import { and, desc, eq, like, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, like, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { requirePermission } from '../admin/guard.js';
@@ -39,7 +39,7 @@ export async function fleetActivityRoutes(app: FastifyInstance) {
                   like(schema.auditLogs.action, 'fleet.%'),
                   q.workerId
                     ? and(
-                        eq(schema.auditLogs.resourceType, 'worker'),
+                        inArray(schema.auditLogs.resourceType, ['worker', 'fleet_host']),
                         eq(schema.auditLogs.resourceId, q.workerId),
                       )
                     : undefined,

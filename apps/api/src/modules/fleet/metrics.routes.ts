@@ -58,11 +58,12 @@ export async function fleetMetricsRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as z.infer<typeof workerParams>;
       const { window } = req.query as z.infer<typeof fleetMetricsQuerySchema>;
-      const [worker] = await app.db
-        .select({ id: schema.workers.id })
-        .from(schema.workers)
-        .where(eq(schema.workers.id, id));
-      if (!worker) throw new AppError('NOT_FOUND', 404, 'Worker not found');
+      // `id` is a box id (fleet_hosts): rollups are keyed by the box the agent reports from.
+      const [box] = await app.db
+        .select({ id: schema.fleetHosts.id })
+        .from(schema.fleetHosts)
+        .where(eq(schema.fleetHosts.id, id));
+      if (!box) throw new AppError('NOT_FOUND', 404, 'Box not found');
 
       const { ms, stepSeconds } = FLEET_METRICS_WINDOWS[window];
       const now = Date.now();

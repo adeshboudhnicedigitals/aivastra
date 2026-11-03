@@ -49,6 +49,11 @@ describe('fleet alert evaluator', () => {
       },
     });
     expect(res.statusCode).toBe(201);
+    // Agent keys belong to a box; register one linked to this worker, as enrolment would.
+    await app.db
+      .insert(schema.fleetHosts)
+      .values({ id, label: id, workerId: id })
+      .onConflictDoNothing();
     const key = await app.inject({
       method: 'POST',
       url: `/admin/fleet/workers/${id}/agent-keys`,
@@ -167,6 +172,19 @@ describe('fleet alert evaluator', () => {
     expect(inc?.state).toBe('RECOVERED');
     expect(inc?.recoveredAt).not.toBeNull();
     expect(await events(inc?.id ?? '')).toEqual(['OPENED', 'ESCALATED', 'RECOVERED']);
+  });
+
+  it('keeps watching a box whose dispatcher worker is disabled', async () => {
+    // The reason the dashboard is box-first: disabling a worker in the admin panel must not hide
+    // a dead or overheating machine.
+    const { id } = await monitoredWorker('worker-off');
+    await app.db.update(schema.workers).set({ isActive: false }).where(eq(schema.workers.id, id));
+    await noBeat(id);
+    await runFleetEvaluatorTick(app, { now: T0 + 100 * S });
+    const opened = await runFleetEvaluatorTick(app, { now: T0 + 190 * S });
+    expect(opened.opened).toBe(1);
+    const [inc] = await incidents(id);
+    expect(inc).toMatchObject({ ruleKey: 'agent_silent', state: 'OPEN' });
   });
 
   it('does not alert for an agent that never connected', async () => {

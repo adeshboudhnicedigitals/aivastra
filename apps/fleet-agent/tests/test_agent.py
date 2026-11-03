@@ -57,6 +57,14 @@ class Parse(unittest.TestCase):
     def test_error_lines_redact(self):
         out = a.error_lines("fine\n\x1b[31mError: token=abc\x1b[0m\n")
         self.assertEqual(out, ["Error: token=[redacted]"])
+    def test_driver_version(self):
+        proprietary = "NVRM version: NVIDIA UNIX x86_64 Kernel Module  550.127.05  Tue Oct  8 03:22:07 UTC 2024\nGCC version:  gcc 12"
+        # Recorded on w6 (2026-11-03): the open kernel module.
+        open_mod = "NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  595.58.03  Release Build  (dvs-builder@U22-I3-AM25-28-3)  Tue Mar 17 19:55:10 UTC 2026"
+        self.assertEqual(a.parse_driver_version(proprietary), "550.127.05")
+        self.assertEqual(a.parse_driver_version(open_mod), "595.58.03")
+        for bad in (None, "", "no driver here", "GCC version: gcc 12.3.0"):
+            self.assertIsNone(a.parse_driver_version(bad))
     def test_ntp(self):
         self.assertTrue(a.parse_ntp("yes")); self.assertIsNone(a.parse_ntp(""))
 

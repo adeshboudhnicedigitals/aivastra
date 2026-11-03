@@ -2,6 +2,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   text,
@@ -14,7 +15,10 @@ import { workers } from './workers.js';
 // Fleet inventory: which physical box and GPU each worker runs on, plus the rental facts the
 // dashboard shows beside them. Operator-maintained and audited; telemetry never overwrites it.
 
-/** A rented or owned machine. `id` is an operator-chosen slug (e.g. "box-gpu7"), stable for links. */
+/**
+ * A rented or owned machine: the unit the GPU dashboard is organised around. `id` is the box name
+ * vps-sync uses (e.g. "w6"); enrolment creates the row, and the fleet agent reports under that id.
+ */
 export const fleetHosts = pgTable('fleet_hosts', {
   id: text('id').primaryKey(),
   label: text('label').notNull(),
@@ -24,6 +28,14 @@ export const fleetHosts = pgTable('fleet_hosts', {
   monthlyCostUsd: numeric('monthly_cost_usd', { precision: 10, scale: 2 }),
   // An operator has checked these facts against the provider's records.
   inventoryVerified: boolean('inventory_verified').notNull().default(false),
+  // The dispatcher worker this box serves, if any. Set by enrolment (vps-sync boxes/fleet.txt), not
+  // by telemetry. It only labels the box ("in rotation", "disabled"); the box's health never comes
+  // from the dispatcher. A deleted worker leaves the box monitored, just unlinked.
+  workerId: text('worker_id').references(() => workers.id, { onDelete: 'set null' }),
+  // Last hardware the agent reported (GPU models and VRAM, driver, RAM, disk size), kept so a box
+  // that has gone quiet still says what it is. Written by ingest only when it changes.
+  hardware: jsonb('hardware').$type<Record<string, unknown>>(),
+  hardwareAt: timestamp('hardware_at', { withTimezone: true }),
   updatedBy: uuid('updated_by').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

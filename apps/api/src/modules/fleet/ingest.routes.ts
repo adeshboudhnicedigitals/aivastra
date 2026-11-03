@@ -9,6 +9,7 @@ import {
   FLEET_AGENT_MAX_BODY_BYTES,
   FLEET_AGENT_MAX_FUTURE_MS,
   FLEET_AGENT_MAX_PAST_MS,
+  type FleetBoxHardware,
   fleetAgentHeartbeatKey,
   fleetAgentLatestKey,
   fleetAgentRejectsKey,
@@ -53,6 +54,19 @@ end
 redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
 return 1
 `;
+
+/** The slow-changing facts of a sample: what the machine is, not what it is doing. */
+function hardwareOf(body: AgentTelemetry): FleetBoxHardware {
+  const root = body.host.disks.find((d) => d.mount === '/') ?? body.host.disks[0];
+  return {
+    gpus: body.gpus.map((g) => ({ index: g.index, name: g.name, vramTotalMib: g.vramTotalMib })),
+    driverVersion: body.host.driverVersion ?? null,
+    cpuCount: body.host.cpuCount,
+    ramTotalMib: body.host.ramTotalMib,
+    // Rounded so a filesystem reporting a few MB of drift does not rewrite the row every sample.
+    diskTotalGb: root?.totalGb == null ? null : Math.round(root.totalGb),
+  };
+}
 
 async function countReject(app: FastifyInstance, workerId: string): Promise<void> {
   try {
@@ -243,6 +257,26 @@ export async function fleetIngestRoutes(app: FastifyInstance) {
           );
       } catch (err) {
         req.log.warn({ err }, 'fleet ingest: last_seen update failed');
+      }
+
+      // What the box is, kept on the box row so it still shows once the box goes quiet. The WHERE
+      // makes this a no-op unless something changed (jsonb equality ignores key order).
+      try {
+        const hardware = hardwareOf(body);
+        await app.db
+          .update(schema.fleetHosts)
+          .set({ hardware, hardwareAt: new Date(now) })
+          .where(
+            and(
+              eq(schema.fleetHosts.id, agent.workerId),
+              or(
+                isNull(schema.fleetHosts.hardware),
+                sql`${schema.fleetHosts.hardware} <> ${JSON.stringify(hardware)}::jsonb`,
+              ),
+            ),
+          );
+      } catch (err) {
+        req.log.warn({ err }, 'fleet ingest: hardware update failed');
       }
 
       return { ok: true, duplicate, serverTime: now, commandsPending: 0 };

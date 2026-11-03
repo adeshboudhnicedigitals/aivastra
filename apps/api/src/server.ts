@@ -83,6 +83,7 @@ import { extensionRoutes } from './modules/extension/routes.js';
 import { fleetActivityRoutes } from './modules/fleet/activity.routes.js';
 import { fleetAgentAdminRoutes } from './modules/fleet/agent.routes.js';
 import { fleetCommandRoutes } from './modules/fleet/commands.routes.js';
+import { fleetEnrollRoutes } from './modules/fleet/enroll.routes.js';
 import { fleetIncidentRoutes } from './modules/fleet/incidents.routes.js';
 import { fleetIngestRoutes } from './modules/fleet/ingest.routes.js';
 import { fleetInventoryRoutes } from './modules/fleet/inventory.routes.js';
@@ -512,6 +513,7 @@ export async function buildServer(env: Env) {
   await app.register(fleetMetricsRoutes);
   await app.register(fleetOverviewRoutes);
   await app.register(fleetIngestRoutes);
+  await app.register(fleetEnrollRoutes);
   await app.register(adminProdSnapshotRoutes);
   await app.register(adminConfigRoutes);
   await app.register(adminImageCompressionRoutes);

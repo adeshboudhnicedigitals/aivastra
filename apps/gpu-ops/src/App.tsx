@@ -3,6 +3,7 @@ import { ActivityPage } from './ActivityPage';
 import { DevStateGallery } from './AgentPanels';
 import type { AuthRecovery } from './auth';
 import { login, logout, refresh } from './auth';
+import { BoxesPage } from './BoxesPage';
 import { ConfigurationPage } from './ConfigurationPage';
 import { LoginForm } from './Connect';
 import type { FleetSnapshot, FleetWorkerView, IncidentView } from './contracts';
@@ -44,6 +45,7 @@ import { QueuePage } from './QueuePage';
 import { useWorkspaceDemo } from './Workspace';
 
 type Page =
+  | 'boxes'
   | 'fleet'
   | 'inventory'
   | 'incidents'
@@ -64,12 +66,14 @@ const pages: { id: Page; label: string; icon: string }[] = [
   { id: 'evidence', label: 'Evidence', icon: '▧' },
   { id: 'activity', label: 'Activity log', icon: '↺' },
 ];
+// Boxes (the rented machines, as their agents see them) is home. The dispatcher's worker view stays
+// one click away for drains and commands; the hand-edited inventory page is replaced by Boxes.
 const livePages: { id: LivePage; label: string; icon: string }[] = [
-  { id: 'fleet', label: 'Fleet overview', icon: '◫' },
+  { id: 'boxes', label: 'Boxes', icon: '▦' },
+  { id: 'incidents', label: 'Incidents', icon: '◇' },
+  { id: 'fleet', label: 'Dispatcher workers', icon: '◫' },
   { id: 'jobs', label: 'Jobs debug', icon: '≋' },
   { id: 'queue', label: 'Queue lanes', icon: '▤' },
-  { id: 'incidents', label: 'Incidents', icon: '◇' },
-  { id: 'inventory', label: 'Inventory', icon: '▤' },
   { id: 'operations', label: 'Operations', icon: '◎' },
   { id: 'rules', label: 'Alert rules', icon: '⚑' },
   { id: 'activity', label: 'Activity log', icon: '↺' },
@@ -302,6 +306,8 @@ function AgentIncidentLink({
 // Build-time (VITE_*): set => read the live fleet API, unset => the synthetic fixtures.
 const FLEET_API_URL = (import.meta.env.VITE_FLEET_API_URL as string | undefined) || null;
 const REFRESH_MS = 15_000;
+// Live: the Boxes page. Demo (no API): the synthetic fleet overview, which has no boxes.
+const HOME_PAGE: LivePage = FLEET_API_URL ? 'boxes' : 'fleet';
 // A 401 right after a successful refresh means the new token is also unacceptable (account
 // disabled, permission removed), so a second refresh would only loop.
 const REAUTH_COOLDOWN_MS = 10_000;
@@ -341,17 +347,17 @@ export function App() {
   const hasData = useRef(false);
   const initialParams = new URLSearchParams(window.location.search);
   const [page, setPage] = useState<LivePage>(() => {
-    const value = initialParams.get('page') ?? (initialParams.has('job') ? 'jobs' : 'fleet');
+    const value = initialParams.get('page') ?? (initialParams.has('job') ? 'jobs' : HOME_PAGE);
     return value &&
       [
         'fleet',
         'jobs',
         'queue',
         'incidents',
-        ...(FLEET_API_URL ? ['rules', 'activity', 'inventory', 'operations'] : []),
+        ...(FLEET_API_URL ? ['boxes', 'rules', 'activity', 'inventory', 'operations'] : []),
       ].includes(value)
       ? (value as LivePage)
-      : 'fleet';
+      : HOME_PAGE;
   });
   const [workerId, setWorkerId] = useState<string | null>(() => initialParams.get('worker'));
   const [query, setQuery] = useState(() => initialParams.get('q') ?? '');
@@ -408,10 +414,10 @@ export function App() {
             'jobs',
             'queue',
             'incidents',
-            ...(FLEET_API_URL ? ['rules', 'activity', 'inventory', 'operations'] : []),
+            ...(FLEET_API_URL ? ['boxes', 'rules', 'activity', 'inventory', 'operations'] : []),
           ].includes(nextPage)
           ? (nextPage as LivePage)
-          : 'fleet',
+          : HOME_PAGE,
       );
       setWorkerId(params.get('worker'));
       setJobId(params.get('job'));
@@ -605,6 +611,7 @@ export function App() {
       if (shortcutPrefix.current) {
         shortcutPrefix.current = false;
         if (event.key === 'f') nav('fleet');
+        if (event.key === 'b' && FLEET_API_URL) nav('boxes');
         if (event.key === 'j' && FLEET_API_URL) nav('jobs');
         return;
       }
@@ -729,7 +736,8 @@ export function App() {
   const title = selected
     ? selected.workerId
     : {
-        fleet: 'Fleet overview',
+        boxes: 'Boxes',
+        fleet: 'Dispatcher workers',
         jobs: 'Jobs debug',
         inventory: 'Inventory & reconciliation',
         incidents: 'Incident workspace',
@@ -786,7 +794,7 @@ export function App() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <button type="button" className="brand" onClick={() => nav('fleet')}>
+        <button type="button" className="brand" onClick={() => nav(HOME_PAGE)}>
           <span className="brand-mark">A</span>
           <span>
             AIVASTRA<small>FLEET OPERATIONS</small>
@@ -898,14 +906,19 @@ export function App() {
               <p>
                 {selected
                   ? 'Identity, ownership and evidence in one place.'
-                  : 'A clear picture of your workers. An honest picture of what is unknown.'}
+                  : live && page === 'boxes'
+                    ? 'Every rented GPU box, as its own agent reports it. The dispatcher is only a label here: a disabled worker’s box keeps reporting.'
+                    : 'A clear picture of your workers. An honest picture of what is unknown.'}
               </p>
             </div>
-            <div className="snapshot-time">
-              <span className="dot" />
-              {live ? 'Live snapshot' : 'Fixture snapshot'}
-              <small>{data.asOf.replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC')}</small>
-            </div>
+            {/* The snapshot time and LIVE note describe the dispatcher snapshot, not the Boxes page. */}
+            {!(live && page === 'boxes') && (
+              <div className="snapshot-time">
+                <span className="dot" />
+                {live ? 'Live snapshot' : 'Fixture snapshot'}
+                <small>{data.asOf.replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC')}</small>
+              </div>
+            )}
           </div>
           {live ? (
             <>
@@ -918,17 +931,20 @@ export function App() {
                   </span>
                 </div>
               )}
-              <div className="preview-notice">
-                <strong>LIVE</strong>
-                <span>
-                  Worker state, health and queue come from the dispatcher registry; VRAM, host RAM
-                  and queued prompts from each worker's ComfyUI. Ownership matches those prompts to
-                  dispatched jobs, so "unattributed" means no dispatch record, not a known outsider.
-                  Agent readings fill GPU and host telemetry where available; dispatcher state
-                  remains independent. Incident counts link to worker-filtered incident records.
-                  Last activity is the registry's last job or status change, not a liveness signal.
-                </span>
-              </div>
+              {page !== 'boxes' && (
+                <div className="preview-notice">
+                  <strong>LIVE</strong>
+                  <span>
+                    Worker state, health and queue come from the dispatcher registry; VRAM, host RAM
+                    and queued prompts from each worker's ComfyUI. Ownership matches those prompts
+                    to dispatched jobs, so "unattributed" means no dispatch record, not a known
+                    outsider. Agent readings fill GPU and host telemetry where available; dispatcher
+                    state remains independent. Incident counts link to worker-filtered incident
+                    records. Last activity is the registry's last job or status change, not a
+                    liveness signal.
+                  </span>
+                </div>
+              )}
             </>
           ) : (
             <div className="preview-notice">
@@ -939,7 +955,21 @@ export function App() {
               </span>
             </div>
           )}
-          {live && page === 'jobs' ? (
+          {live && page === 'boxes' ? (
+            <BoxesPage
+              baseUrl={FLEET_API_URL ?? ''}
+              token={token ?? ''}
+              authRecovery={authRecovery}
+              autoRefresh={autoRefresh}
+              onOpenIncidents={openIncidentsForWorker}
+              onOpenJobs={(id) => {
+                writeRoute({ page: 'jobs', worker: id, job: null });
+                setPage('jobs');
+                setWorkerId(id);
+                setJobId(null);
+              }}
+            />
+          ) : live && page === 'jobs' ? (
             <LiveJobsPage
               baseUrl={FLEET_API_URL ?? ''}
               token={token ?? ''}

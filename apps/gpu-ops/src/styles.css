@@ -3461,3 +3461,93 @@ body[data-theme="dark"] .agent-incident-link.has-warning {
   border-radius: 6px;
   resize: vertical;
 }
+
+/* Boxes page (BoxesPage.tsx): layout only; colours come from the shared table, panel and badge rules. */
+.boxes-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.boxes-counts .badge {
+  font-size: 11px;
+  padding: 5px 9px;
+}
+.boxes-table {
+  min-width: 1100px;
+}
+.boxes-table th[scope="row"] {
+  text-align: left;
+}
+.boxes-table td,
+.boxes-table th {
+  white-space: nowrap;
+}
+.boxes-table .badge {
+  font-size: 10px;
+}
+.boxes-warn {
+  color: var(--amber);
+  font-weight: 600;
+}
+.boxes-page > .button-secondary {
+  margin-bottom: 12px;
+}
+.boxes-facts dl {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  justify-items: start;
+  gap: 8px 18px;
+  margin: 0;
+}
+.boxes-facts dt {
+  color: var(--muted);
+}
+.boxes-facts dd {
+  margin: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.boxes-setup {
+  margin-top: 20px;
+}
+.boxes-setup summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.boxes-setup summary h3 {
+  margin: 0;
+}
+.boxes-token code {
+  display: inline-block;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.boxes-token-list {
+  padding-left: 18px;
+}
+.boxes-token-list li {
+  margin: 6px 0;
+}
+.boxes-token-list .text-link,
+.boxes-token-list .badge {
+  margin-left: 8px;
+}
+@media (max-width: 600px) {
+  /* The shared rule stacks rows into cards; the desktop minimum width would force sideways scroll. */
+  .boxes-table {
+    min-width: 0;
+  }
+  .boxes-table td,
+  .boxes-table th {
+    white-space: normal;
+  }
+  .boxes-facts dl {
+    grid-template-columns: 90px 1fr;
+  }
+}
