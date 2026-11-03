@@ -167,6 +167,9 @@ services:
       dockerfile: apps/dispatcher/Dockerfile
     container_name: aivastra-staging-dispatcher
     restart: unless-stopped
+    # Above the dispatcher's 5 s application drain (SHUTDOWN_DRAIN_MS) so SIGTERM finishes its
+    # handover before Docker's default 10 s SIGKILL, while keeping a deploy's pickup gap short.
+    stop_grace_period: 10s
     env_file:
       - ../.env.staging
     depends_on:
@@ -211,6 +214,24 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3101:80"
+    networks:
+      - aivastra-staging-net
+
+  # GPU fleet dashboard. There is deliberately no staging hostname for it (production only,
+  # gpus.aivastra.com); this service exists so the shared deploy job, which builds every selected
+  # service with this file, does not fail on "no such service". It is not exposed through any
+  # vhost. The default keeps the image build (which refuses an empty URL) from needing a
+  # .env.staging edit.
+  gpu-ops:
+    build:
+      context: ..
+      dockerfile: apps/gpu-ops/Dockerfile
+      args:
+        VITE_FLEET_API_URL: ${VITE_FLEET_API_URL:-https://staging-admin.aivastra.com}
+    container_name: aivastra-staging-gpu-ops
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3109:80"
     networks:
       - aivastra-staging-net
 

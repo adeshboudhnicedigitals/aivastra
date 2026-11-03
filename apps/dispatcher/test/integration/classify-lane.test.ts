@@ -157,6 +157,8 @@ describe('classify lane', () => {
       expect(comfy.lastPrompt()).toBeNull();
       // The keys the scored service ranks as a closed set.
       expect(seen[0]?.body).toContain('["wa-kurti","wa-full-shirt"]');
+      // Their text, in the same order, for the embedding service.
+      expect(seen[0]?.body).toContain('["Kurti","Full shirt"]');
       // The plain server ranks nothing, so the result has no ranking.
       expect(result.ranked).toBeUndefined();
     });

@@ -1,7 +1,8 @@
-import { BlockStack, Card, Select, Text } from '@shopify/polaris';
+import { BlockStack, Card, Checkbox, Select, Text } from '@shopify/polaris';
 import type { ReactNode } from 'react';
 import {
   EMAIL_AFTER_N_OPTIONS,
+  loginRequiredPatch,
   numericLimitPatch,
   numericOptions,
   OFF,
@@ -88,5 +89,23 @@ export function AskForEmailCard({ limits, onChange, bare }: CardProps) {
         />
       </BlockStack>
     </Section>
+  );
+}
+
+export function LoginRequiredCard({ limits, onChange }: CardProps) {
+  return (
+    <Card>
+      <BlockStack gap="200">
+        <Text as="h3" variant="headingSm">
+          Require login
+        </Text>
+        <Checkbox
+          label="Shoppers must log in to use try-on"
+          helpText="Email and phone number are collected automatically: from the customer account when present, otherwise the shopper is asked."
+          checked={limits.loginRequired === true}
+          onChange={(checked) => onChange(loginRequiredPatch(checked))}
+        />
+      </BlockStack>
+    </Card>
   );
 }

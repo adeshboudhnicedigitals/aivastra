@@ -8,7 +8,20 @@ import { downloadErrorMessage } from '@/lib/errors';
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 type Item = { jobId: string; url: string };
-type Phase = 'loading' | 'ready' | 'zipping' | 'error';
+type Phase = 'loading' | 'ready' | 'downloading' | 'error';
+
+const SAVE_GAP_MS = 600;
+
+function extensionFor(mime: string): string {
+  switch (mime) {
+    case 'image/webp':
+      return 'webp';
+    case 'image/png':
+      return 'png';
+    default:
+      return 'jpg';
+  }
+}
 
 function KioskDownloadInner(): React.ReactElement {
   const searchParams = useSearchParams();
@@ -17,7 +30,7 @@ function KioskDownloadInner(): React.ReactElement {
   const [phase, setPhase] = useState<Phase>('loading');
   const [items, setItems] = useState<Item[]>([]);
   const [error, setError] = useState('');
-  const [zipProgress, setZipProgress] = useState(0);
+  const [downloaded, setDownloaded] = useState(0);
 
   useEffect(() => {
     if (!jobIds) {
@@ -50,55 +63,43 @@ function KioskDownloadInner(): React.ReactElement {
     return () => controller.abort();
   }, [jobIds]);
 
+  // One file per image, saved sequentially: the originals keep their real format, and a
+  // pause between saves keeps browsers from collapsing the burst into a single download.
   async function downloadAll() {
-    setPhase('zipping');
-    setZipProgress(0);
-    try {
-      const blobResults = await Promise.allSettled(
-        items.map(async (item) => {
-          const res = await fetch(item.url);
-          if (!res.ok) throw new Error(downloadErrorMessage(res.status));
-          return { jobId: item.jobId, blob: await res.blob() };
-        }),
-      );
-      const succeeded = blobResults
-        .filter(
-          (r): r is PromiseFulfilledResult<{ jobId: string; blob: Blob }> =>
-            r.status === 'fulfilled',
-        )
-        .map((r) => r.value);
+    setPhase('downloading');
+    setDownloaded(0);
+    let saved = 0;
+    for (const [idx, item] of items.entries()) {
+      try {
+        // no-store: the <img> thumbnails already cached this URL without an Origin header, so
+        // R2's response has no CORS headers and a default fetch() reuses it and fails.
+        const res = await fetch(item.url, { cache: 'no-store' });
+        if (!res.ok) throw new Error(downloadErrorMessage(res.status));
+        const blob = await res.blob();
 
-      if (succeeded.length === 0) {
-        setError('Could not download the images. Please try again.');
-        setPhase('error');
-        return;
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = `aivastra-tryon-${idx + 1}.${extensionFor(blob.type)}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+
+        saved += 1;
+        setDownloaded(saved);
+        await new Promise((resolve) => setTimeout(resolve, SAVE_GAP_MS));
+      } catch {
+        // A single failed image shouldn't block the rest; only report if none saved.
       }
-
-      const JSZip = (await import('jszip')).default;
-      const zip = new JSZip();
-      succeeded.forEach((item, idx) => {
-        zip.file(`tryon-${idx + 1}.jpg`, item.blob);
-      });
-
-      const zipBlob = await zip.generateAsync({ type: 'blob' }, (meta: { percent: number }) => {
-        setZipProgress(meta.percent);
-      });
-
-      const date = new Date().toISOString().slice(0, 10);
-      const objectUrl = URL.createObjectURL(zipBlob);
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = `aivastra-tryon-${date}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 100);
-
-      setPhase('ready');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
-      setPhase('error');
     }
+
+    if (saved === 0) {
+      setError('Could not download the images. Please try again.');
+      setPhase('error');
+      return;
+    }
+    setPhase('ready');
   }
 
   return (
@@ -123,7 +124,7 @@ function KioskDownloadInner(): React.ReactElement {
 
       {phase === 'error' && <p style={{ color: C.danger, maxWidth: 320, margin: 0 }}>{error}</p>}
 
-      {(phase === 'ready' || phase === 'zipping') && items.length > 0 && (
+      {(phase === 'ready' || phase === 'downloading') && items.length > 0 && (
         <>
           <div
             style={{
@@ -159,7 +160,7 @@ function KioskDownloadInner(): React.ReactElement {
           <button
             type="button"
             onClick={downloadAll}
-            disabled={phase === 'zipping'}
+            disabled={phase === 'downloading'}
             style={{
               padding: '14px 28px',
               borderRadius: 999,
@@ -168,11 +169,13 @@ function KioskDownloadInner(): React.ReactElement {
               color: C.white,
               fontWeight: 600,
               fontSize: 16,
-              cursor: phase === 'zipping' ? 'not-allowed' : 'pointer',
-              opacity: phase === 'zipping' ? 0.7 : 1,
+              cursor: phase === 'downloading' ? 'not-allowed' : 'pointer',
+              opacity: phase === 'downloading' ? 0.7 : 1,
             }}
           >
-            {phase === 'zipping' ? `Zipping… ${Math.round(zipProgress)}%` : 'Download all'}
+            {phase === 'downloading'
+              ? `Downloading… ${downloaded}/${items.length}`
+              : 'Download all'}
           </button>
         </>
       )}

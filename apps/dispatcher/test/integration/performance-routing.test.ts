@@ -25,7 +25,7 @@ async function config(mode: string) {
   );
 }
 async function workers(order = ['A', 'B', 'C']) {
-  await redis.del(registry, cursor);
+  await redis.del(registry, cursor, `${registry}:reservations`);
   for (const id of order) {
     await redis.hset(
       registry,
@@ -36,16 +36,20 @@ async function workers(order = ['A', 'B', 'C']) {
   }
 }
 async function claim(excluded: string[] = []) {
+  await redis.set(`${registry}:admission`, '1');
   return (await redis.eval(
     CLAIM_LUA,
-    3,
+    5,
     registry,
     health,
     cursor,
+    `${registry}:reservations`,
+    `${registry}:admission`,
     String(Date.now()),
     'tryon',
     key,
     '1',
+    `t-${Math.random()}`,
     ...excluded,
   )) as string[] | null;
 }
@@ -55,6 +59,7 @@ async function roundRobinChoice() {
 }
 async function idle(id: string) {
   const raw = await redis.hget(registry, id);
+  await redis.hdel(`${registry}:reservations`, id);
   await redis.hset(registry, id, JSON.stringify({ ...JSON.parse(raw ?? '{}'), status: 'IDLE' }));
 }
 
@@ -240,7 +245,8 @@ describe('atomic performance ordering', () => {
       JSON.stringify({ status: 'IDLE', url: mock.url, apiKey: 'test', allowedJobTypes: ['tryon'] }),
     );
     await redis.set(`worker:health:${id}`, '1');
-    const worker = await selectWorker(redis, 'tryon', key);
+    await redis.set('worker:admission', '1');
+    const worker = await selectWorker(redis, 'tryon', key, { token: `t-${Math.random()}` });
     expect(worker?.performance?.selectionMode).toBe('observe');
     if (worker) {
       const raw = await redis.hget(REGISTRY_KEY, worker.id);

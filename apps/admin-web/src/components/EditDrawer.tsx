@@ -6,6 +6,8 @@ export interface EditDrawerSection {
   title: string;
   children: ReactNode;
   flush?: boolean;
+  /** Rendered right-aligned beside the title, e.g. a per-section "Map to…" control. */
+  headerAction?: ReactNode;
 }
 
 export interface EditDrawerTag {
@@ -95,6 +97,7 @@ export function EditDrawer({
                 <div className="card" key={i}>
                   <div className="card-head">
                     <h3>{s.title}</h3>
+                    {s.headerAction && <div className="tools">{s.headerAction}</div>}
                   </div>
                   <div className={`card-body${s.flush ? ' flush' : ''}`}>{s.children}</div>
                 </div>

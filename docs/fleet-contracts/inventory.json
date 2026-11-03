@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-11-03T10:30:00.000Z",
+  "hosts": [
+    {
+      "id": "box-gpu7",
+      "label": "GPU box 7",
+      "provider": "Provider A",
+      "rented": true,
+      "monthlyCostUsd": 450.5,
+      "inventoryVerified": true,
+      "updatedAt": "2026-11-03T09:00:00.000Z",
+      "latestReview": {
+        "note": "Matches the provider invoice; one GPU confirmed with nvidia-smi.",
+        "reviewedBy": "ops@example.com",
+        "reviewedAt": "2026-11-03T09:05:00.000Z"
+      }
+    },
+    {
+      "id": "box-gpu8",
+      "label": "GPU box 8",
+      "provider": null,
+      "rented": null,
+      "monthlyCostUsd": null,
+      "inventoryVerified": false,
+      "updatedAt": "2026-11-03T09:10:00.000Z",
+      "latestReview": null
+    }
+  ],
+  "gpus": [
+    {
+      "id": "gpu7-0",
+      "hostId": "box-gpu7",
+      "model": "RTX 4090",
+      "vramTotalMb": 24576,
+      "updatedAt": "2026-11-03T09:00:00.000Z"
+    },
+    {
+      "id": "gpu8-0",
+      "hostId": "box-gpu8",
+      "model": null,
+      "vramTotalMb": null,
+      "updatedAt": "2026-11-03T09:10:00.000Z"
+    }
+  ],
+  "workers": [
+    { "workerId": "w7", "label": "Worker 7", "hostId": "box-gpu7", "gpuId": "gpu7-0" },
+    {
+      "workerId": "w7_2",
+      "label": "Worker 7 (second instance)",
+      "hostId": "box-gpu7",
+      "gpuId": "gpu7-0"
+    },
+    { "workerId": "w3", "label": "Worker 3", "hostId": null, "gpuId": null }
+  ]
+}

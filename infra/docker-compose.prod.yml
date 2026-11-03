@@ -150,6 +150,9 @@ services:
       dockerfile: apps/dispatcher/Dockerfile
     container_name: aivastra-prod-dispatcher
     restart: unless-stopped
+    # Above the dispatcher's 5 s application drain (SHUTDOWN_DRAIN_MS) so SIGTERM finishes its
+    # handover before Docker's default 10 s SIGKILL, while keeping a deploy's pickup gap short.
+    stop_grace_period: 10s
     # Dispatcher uses process.env directly (no --env-file in its CMD)
     env_file:
       - ../.env.production
@@ -212,6 +215,23 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3008:80"
+    networks:
+      - aivastra-net
+
+  # GPU fleet dashboard (apps/gpu-ops) — served at gpus.aivastra.com, its own subdomain, wired
+  # like admin.aivastra.com: the vhost proxies / to this container and /admin/* + /v1/* to the
+  # `api` service. VITE_FLEET_API_URL is build-time (https://gpus.aivastra.com, same origin, so
+  # no CORS_ORIGIN change); the image build fails if it is empty. Put Cloudflare Access in front.
+  gpu-ops:
+    build:
+      context: ..
+      dockerfile: apps/gpu-ops/Dockerfile
+      args:
+        VITE_FLEET_API_URL: ${VITE_FLEET_API_URL}
+    container_name: aivastra-prod-gpu-ops
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3009:80"
     networks:
       - aivastra-net
 

@@ -294,6 +294,52 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         ...garmentFields
       } = body;
 
+      // `before` is only the garment_subcategories row, but mappings live in join
+      // tables. Without their previous ids in the audit snapshot, reverting this
+      // entry can restore columns yet never the mapped/unmapped items.
+      const catalogMappedIds = async (type: 'lower' | 'shoe' | 'accessory') =>
+        (
+          await app.db
+            .select({ id: schema.catalogItemSubcategories.catalogItemId })
+            .from(schema.catalogItemSubcategories)
+            .innerJoin(
+              schema.catalogItems,
+              eq(schema.catalogItems.id, schema.catalogItemSubcategories.catalogItemId),
+            )
+            .where(
+              and(
+                eq(schema.catalogItemSubcategories.subcategoryId, id),
+                eq(schema.catalogItems.type, type),
+              ),
+            )
+        ).map((r) => r.id);
+      const auditBefore: Record<string, unknown> = { ...before };
+      if (mappedLowerCatalogItemIds !== undefined) {
+        auditBefore.mappedLowerCatalogItemIds = await catalogMappedIds('lower');
+      }
+      if (mappedShoeCatalogItemIds !== undefined) {
+        auditBefore.mappedShoeCatalogItemIds = await catalogMappedIds('shoe');
+      }
+      if (mappedAccessoryCatalogItemIds !== undefined) {
+        auditBefore.mappedAccessoryCatalogItemIds = await catalogMappedIds('accessory');
+      }
+      if (mappedFaceIds !== undefined) {
+        auditBefore.mappedFaceIds = (
+          await app.db
+            .select({ id: schema.modelFaceSubcategories.faceId })
+            .from(schema.modelFaceSubcategories)
+            .where(eq(schema.modelFaceSubcategories.subcategoryId, id))
+        ).map((r) => r.id);
+      }
+      if (mappedBackgroundIds !== undefined) {
+        auditBefore.mappedBackgroundIds = (
+          await app.db
+            .select({ id: schema.modelBackgroundSubcategories.backgroundId })
+            .from(schema.modelBackgroundSubcategories)
+            .where(eq(schema.modelBackgroundSubcategories.subcategoryId, id))
+        ).map((r) => r.id);
+      }
+
       const applyCatalogMappings = async (
         tx: Parameters<Parameters<typeof app.db.transaction>[0]>[0],
         effectiveFields: Record<string, unknown>,
@@ -484,7 +530,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
               action: 'garment_type.update',
               resourceType: 'garment_type',
               resourceId: id,
-              before,
+              before: auditBefore,
               after: {
                 ...before,
                 ...updateFields,
@@ -520,7 +566,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           action: 'garment_type.update',
           resourceType: 'garment_type',
           resourceId: id,
-          before,
+          before: auditBefore,
           after: {
             ...before,
             ...updateFields,

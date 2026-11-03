@@ -9,6 +9,7 @@ import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/wo
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
 import { assertQueueExhaustion } from '../helpers/queue-exhaustion.js';
+import { forceIdle } from '../helpers/workers.js';
 
 const WORKER_ID = 'test-worker-mannequin-capacity';
 const HOUR = 60 * 60 * 1000;
@@ -51,7 +52,7 @@ describe('dispatcher — mannequin phase capacity handling', () => {
   beforeEach(async () => {
     comfy.resetPrompts();
     comfy.setOptions({});
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
   });
 
   async function seedJob(createdAt: Date) {

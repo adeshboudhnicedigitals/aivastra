@@ -14,6 +14,10 @@ export const EMAIL_AFTER_N_OPTIONS = [0, 1, 2, 3, 5];
 // store whose merchant never opens the page.
 export const PRESELECTED = { storeDailyCap: 250, perShopperCap: 5, emailAfterNTryOns: 2 };
 
+export function loginRequiredPatch(checked: boolean): Partial<ShopifyStoreLimits> {
+  return { loginRequired: checked };
+}
+
 export function numericOptions(values: number[], offLabel: string, format: (n: number) => string) {
   return [
     { label: offLabel, value: OFF },

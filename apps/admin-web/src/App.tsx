@@ -27,9 +27,9 @@ import RecycleBinPage from './pages/RecycleBinPage';
 import RefundRequestsPage from './pages/RefundRequestsPage';
 import SareePage from './pages/SareePage';
 import SettingsPage from './pages/SettingsPage';
-import ShopifyFunnelsPage from './pages/ShopifyFunnelsPage';
 import ShopifyPurchasesPage from './pages/ShopifyPurchasesPage';
 import ShopifyStoresPage from './pages/ShopifyStoresPage';
+import ShopifyWorkflowPage from './pages/ShopifyWorkflowPage';
 import SupportPage from './pages/SupportPage';
 import TelemetryPage from './pages/TelemetryPage';
 import TryonPage from './pages/TryonPage';
@@ -63,7 +63,7 @@ const PATH_LABELS: Record<string, string> = {
   settings: 'Settings',
   workers: 'Workers',
   saree: 'Saree',
-  'shopify-funnels': 'Shopify',
+  'shopify-workflow': 'Shopify workflow',
   'credit-analysis': 'Credit Analysis',
   payments: 'Payments',
   'shopify-stores': 'Shopify Dashboard',
@@ -327,7 +327,8 @@ export default function App() {
             <Route path="/held-batches" element={<HeldBatchesPage {...pageProps} />} />
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/workflow-approvals" element={<FlowApprovalsPage {...pageProps} />} />
-            <Route path="/shopify-funnels" element={<ShopifyFunnelsPage {...pageProps} />} />
+            <Route path="/shopify-workflow" element={<ShopifyWorkflowPage {...pageProps} />} />
+            <Route path="/shopify-funnels" element={<Navigate to="/shopify-workflow" replace />} />
             <Route path="/credit-analysis" element={<CreditAnalysisPage {...pageProps} />} />
             <Route path="/payments" element={<PaymentsPage {...pageProps} />} />
             <Route path="/shopify-stores" element={<ShopifyStoresPage {...pageProps} />} />

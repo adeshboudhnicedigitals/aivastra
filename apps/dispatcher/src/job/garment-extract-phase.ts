@@ -14,20 +14,24 @@ import {
   settlePerformanceSample,
 } from '../perf/observe-completion.js';
 import { performanceKey as getPerformanceKey } from '../perf/performance-key.js';
-import { releaseWorker } from '../worker/registry.js';
+import { releaseReservation, reserveWorker } from '../worker/reserve.js';
 import { selectWorker } from '../worker/selector.js';
 import { resolveWorkflowTemplateVersion } from '../workflow/resolve-template-version.js';
 import type { OwnerToken } from './ownership.js';
+import { beginProcessing } from './start.js';
 import { submitRecordedPhase } from './submission.js';
 
 export interface GarmentExtractPhaseConfig {
   db: DB;
   redis: Redis;
+  /** SSE publisher for the PREPROCESSING status change made when the first worker is reserved. */
+  pub: Redis;
   comfyRedis: Redis;
   comfyPollIntervalMs?: number;
   storage: StorageProvider;
   /** Owner of the paid job this phase runs inside; its intent insert checks it. */
   owner?: OwnerToken;
+  uncertainCheckMs?: number;
   /** Follower poll cadence / ceiling while another job extracts the same garment. Test seams. */
   extractFollowerPollMs?: number;
   extractFollowerMaxWaitMs?: number;
@@ -222,12 +226,21 @@ export async function runGarmentExtractPhase(
 
   async function extractOnGpu(): Promise<GarmentExtractPhaseResult> {
     const performanceKey = getPerformanceKey(template as NonNullable<typeof template>);
-    const worker = await selectWorker(redis, WORKER_POOL.SAREE, performanceKey, {
+    const { owner } = cfg;
+    const reservation = await reserveWorker({
+      db,
+      redis,
+      owner,
       jobId,
+      phase: 'garment_extract',
       log: jobLog,
+      select: (token) =>
+        selectWorker(redis, WORKER_POOL.SAREE, performanceKey, { jobId, log: jobLog, token }),
+      // The job leaves QUEUED when this first worker is reserved, not when it was admitted.
+      onBound: owner ? () => beginProcessing({ db, pub: cfg.pub, owner, log: jobLog }) : undefined,
     });
-    if (!worker) return { status: 'no_worker' };
-    const w = worker;
+    if (!reservation) return { status: 'no_worker' };
+    const w = reservation.worker;
 
     try {
       const bytes = await storage.getObject(garmentKey);
@@ -239,7 +252,7 @@ export async function runGarmentExtractPhase(
         w.url,
         w.apiKey,
         bytes,
-        `extract_garment_${jobId}.${ext}`,
+        `extract_garment_${jobId}_${reservation.attemptId}.${ext}`,
         mime,
         jobLog,
       );
@@ -257,6 +270,7 @@ export async function runGarmentExtractPhase(
         clientId: clientUuid,
         attemptId,
       } = await submitRecordedPhase({
+        attemptId: reservation.attemptId,
         db,
         owner: cfg.owner,
         jobId,
@@ -311,7 +325,7 @@ export async function runGarmentExtractPhase(
               error: jobLog.error.bind(jobLog),
             },
             undefined,
-            { comfyRedis: cfg.comfyRedis, workerId: w.id },
+            { comfyRedis: cfg.comfyRedis, workerId: w.id, jobId },
             totalNodeCount,
             cfg.comfyPollIntervalMs,
           ),
@@ -370,7 +384,10 @@ export async function runGarmentExtractPhase(
       settlePerformanceSample(w, 'workflow_failure');
       throw err;
     } finally {
-      await releaseWorker(redis, w.id, jobLog);
+      await releaseReservation(
+        { db, redis, uncertainCheckMs: cfg.uncertainCheckMs ?? 90_000, log: jobLog },
+        reservation,
+      );
     }
   }
 }

@@ -12,7 +12,6 @@ let c: Containers;
 let app: TestApp;
 let storeId: string;
 let token: string;
-let basketId: string;
 
 beforeAll(async () => {
   c = await startContainers();
@@ -36,34 +35,6 @@ beforeAll(async () => {
   storeId = store.id;
   token = signSessionToken('a.myshopify.com', API_SECRET, API_KEY);
 
-  // A basket this test's routed products pin to, so "effectively enabled" and
-  // "resolves to a basket" both hold — the routing-aware fix under test only
-  // subtracts products missing this pin.
-  const [workflow] = await app.db
-    .insert(schema.workflowTemplates)
-    .values({
-      slug: `activation-test-${Date.now()}`,
-      label: 'Activation test workflow',
-      jsonContent: {},
-      poseNodeId: '2',
-      upperNodeIds: ['4'],
-      garmentPhasePromptNode: '6',
-      workflowType: 'tryon',
-      tryonPersonNodeId: '10',
-      tryonGarmentNodeId: '11',
-      tryonOutputNodeId: '12',
-    })
-    .returning();
-  const [basket] = await app.db
-    .insert(schema.shopifyFunnelTemplates)
-    .values({
-      slug: `activation-basket-${Date.now()}`,
-      label: 'Activation test basket',
-      workflowTemplateId: workflow.id,
-    })
-    .returning();
-  basketId = basket.id;
-
   await app.db.insert(schema.shopifyProductGarments).values([
     {
       storeId,
@@ -73,8 +44,6 @@ beforeAll(async () => {
       title: 'One',
       status: 'active',
       enabled: true,
-      funnelTemplateId: basketId,
-      funnelAssignmentSource: 'manual',
     },
     {
       storeId,
@@ -97,10 +66,8 @@ beforeAll(async () => {
       excluded: true,
     },
     {
-      // Effectively enabled (individually enabled, not excluded) but pinned
-      // to no basket and matched by no rule — must NOT count as "Try-On
-      // Enabled", since a shopper's attempt on it would dead-end before
-      // enqueue (customer.routes.ts refuses it for no resolvable basket).
+      // Individually enabled and not excluded — counts as "Try-On Enabled"
+      // (every Shopify try-on runs the one admin-selected workflow).
       storeId,
       shopifyProductId: 4,
       shopifyVariantId: null,
@@ -139,11 +106,9 @@ describe('GET /v1/shopify/activation', () => {
     const body = res.json();
     expect(body.mode).toBe('selective');
     expect(body.counts.failedToSync).toBe(1);
-    // Selective mode: product 1 is individually enabled AND resolves to a
-    // basket (pinned). Product 4 is individually enabled but resolves to no
-    // basket — routing-aware enablement excludes it. Product 3 is excluded.
-    // So exactly one product counts.
-    expect(body.counts.tryonEnabledProducts).toBe(1);
+    // Selective mode: products 1 and 4 are individually enabled; product 3
+    // is excluded. So exactly two products count.
+    expect(body.counts.tryonEnabledProducts).toBe(2);
     // 5 rows seeded above: only the three 'active' ones count as synced. The
     // failed one (product 2) has no usable image, and the soft-deleted one
     // (product 5) must not push the numerator past Shopify's own count.

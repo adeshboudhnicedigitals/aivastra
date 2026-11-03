@@ -6,7 +6,6 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
-import { type BasketMatchTarget, loadRuleSet, resolveBasketFrom } from './funnel-resolution.js';
 import { type BulkBody, BulkBodySchema, bulkUpdateProducts } from './products.bulk.js';
 import { loadProductFacets } from './products.facets.js';
 import { buildProductFilter, ProductListQuerySchema } from './products.filter.js';
@@ -22,17 +21,11 @@ const PatchProductBody = z
     // null clears the pin and returns the product to rule-based routing —
     // the case merchants need most. `.optional()` alone would make an absent
     // key and an explicit null indistinguishable, so `.nullable()` is load-bearing.
-    funnelTemplateId: z.string().uuid().nullable().optional(),
   })
   .refine(
-    (b) =>
-      b.enabled !== undefined ||
-      b.excluded !== undefined ||
-      b.garmentImageUrl !== undefined ||
-      b.funnelTemplateId !== undefined,
+    (b) => b.enabled !== undefined || b.excluded !== undefined || b.garmentImageUrl !== undefined,
     {
-      message:
-        'at least one of enabled, excluded, garmentImageUrl, or funnelTemplateId is required',
+      message: 'at least one of enabled, excluded, or garmentImageUrl is required',
     },
   );
 
@@ -89,7 +82,6 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
           status: schema.shopifyProductGarments.status,
           enabled: schema.shopifyProductGarments.enabled,
           excluded: schema.shopifyProductGarments.excluded,
-          funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
           productType: schema.shopifyProductGarments.productType,
           tags: schema.shopifyProductGarments.tags,
           vendor: schema.shopifyProductGarments.vendor,
@@ -102,13 +94,8 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
         .limit(pageSize)
         .offset((page - 1) * pageSize);
 
-      // Loaded ONCE for the page, then applied per row. Calling resolveBasket
-      // per product would be a query per product on a catalog-sized page.
-      const ruleSet = await loadRuleSet(app, store.id);
-
       const items = await Promise.all(
         rows.map(async (r) => {
-          const basket = resolveBasketFrom(ruleSet, r as BasketMatchTarget);
           return {
             shopifyProductId: r.shopifyProductId,
             title: r.title,
@@ -121,12 +108,10 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
             tags: r.tags,
             collections: r.collections,
             category: r.category,
-            basket: basket && { id: basket.basketId, label: basket.label, source: basket.source },
             // The raw pin on this row, independent of whether it's currently being
             // honored. Lets the client distinguish "no pin" from "pin exists but its
             // basket was deactivated, so we fell through to a rule" — the
             // resolved `basket.source` alone can't tell those apart.
-            pinnedBasketId: r.funnelTemplateId,
           };
         }),
       );
@@ -197,9 +182,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
       const { id } = req.params as { id: string };
       const shopifyProductId = Number(id);
-      const { enabled, excluded, garmentImageUrl, funnelTemplateId } = req.body as z.infer<
-        typeof PatchProductBody
-      >;
+      const { enabled, excluded, garmentImageUrl } = req.body as z.infer<typeof PatchProductBody>;
 
       const [existing] = await app.db
         .select()
@@ -266,27 +249,6 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
       }
 
       const patch: Record<string, unknown> = {};
-      if (funnelTemplateId !== undefined) {
-        if (funnelTemplateId === null) {
-          patch.funnelTemplateId = null;
-          patch.funnelAssignmentSource = null;
-        } else {
-          const [basket] = await app.db
-            .select({ id: schema.shopifyFunnelTemplates.id })
-            .from(schema.shopifyFunnelTemplates)
-            .where(
-              and(
-                eq(schema.shopifyFunnelTemplates.id, funnelTemplateId),
-                eq(schema.shopifyFunnelTemplates.isActive, true),
-              ),
-            )
-            .limit(1);
-          if (!basket) throw new AppError('NOT_FOUND', 404, 'basket not found');
-          patch.funnelTemplateId = funnelTemplateId;
-          patch.funnelAssignmentSource = 'manual';
-        }
-      }
-
       const [updated] = await app.db
         .update(schema.shopifyProductGarments)
         .set({

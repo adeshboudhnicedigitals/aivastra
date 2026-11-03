@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { numericLimitPatch, OFF, resolveNumericLimit } from './limits';
+import { loginRequiredPatch, numericLimitPatch, OFF, resolveNumericLimit } from './limits';
+
+describe('loginRequiredPatch', () => {
+  it('writes an explicit boolean so the API merge can switch it back off', () => {
+    expect(loginRequiredPatch(true)).toEqual({ loginRequired: true });
+    expect(loginRequiredPatch(false)).toEqual({ loginRequired: false });
+  });
+});
 
 describe('resolveNumericLimit', () => {
   it('keeps 0, which is a real option and falsy', () => {

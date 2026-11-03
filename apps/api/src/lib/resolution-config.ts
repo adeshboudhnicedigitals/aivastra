@@ -231,6 +231,40 @@ export async function getShopifyTrialCredits(app: FastifyInstance): Promise<numb
 }
 
 /**
+ * The single workflow every Shopify try-on runs, as chosen in the admin panel.
+ * Null when unset or the stored value is malformed; the caller decides whether
+ * that refuses try-on or falls back (see modules/shopify/workflow.ts).
+ */
+export async function getShopifyWorkflowTemplateId(app: FastifyInstance): Promise<string | null> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const id = cfg.shopifyWorkflowTemplateId;
+    return typeof id === 'string' && id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Repoints the Shopify workflow when the workflow it names is replaced. Called
+ * after the replacing transaction commits (config lives in Redis, not Postgres).
+ * A no-op when the pointer names some other workflow.
+ */
+export async function repointShopifyWorkflow(
+  app: FastifyInstance,
+  fromId: string,
+  toId: string,
+): Promise<boolean> {
+  const raw = await app.redis.get(CONFIG_KEY);
+  const cfg = raw ? JSON.parse(raw) : {};
+  if (cfg.shopifyWorkflowTemplateId !== fromId) return false;
+  cfg.shopifyWorkflowTemplateId = toId;
+  await app.redis.set(CONFIG_KEY, JSON.stringify(cfg));
+  return true;
+}
+
+/**
  * Reads the admin-configured credit grant for one credit pack from the same
  * `config:system` Redis key the admin panel edits. Returns null for an id we
  * don't sell — same "unrecognized means grant nothing" behaviour the plan

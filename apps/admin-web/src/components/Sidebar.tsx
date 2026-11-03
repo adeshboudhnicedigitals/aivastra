@@ -93,10 +93,10 @@ const groups: NavGroup[] = [
         perm: 'saree.write',
       },
       {
-        k: 'shopify-funnels',
-        label: 'Shopify',
+        k: 'shopify-workflow',
+        label: 'Shopify workflow',
         icon: Icon.Workflow,
-        perm: 'shopify_funnels.write',
+        perm: 'config.write',
       },
     ],
   },

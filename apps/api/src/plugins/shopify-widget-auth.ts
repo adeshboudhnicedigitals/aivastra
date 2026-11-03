@@ -16,6 +16,7 @@ const APP_PROXY_MAX_AGE_SEC = 300;
 
 export const shopifyWidgetAuthPlugin = fp(async (app) => {
   app.decorate('requireShopifyStoreKey', async (req, _reply) => {
+    req.shopifyLoggedInCustomerId = null;
     const query = req.query as Record<string, string | string[]> | undefined;
 
     // App Proxy path (preferred): Shopify signs the forwarded request itself.
@@ -43,6 +44,12 @@ export const shopifyWidgetAuthPlugin = fp(async (app) => {
       }
       req.shopifyStoreId = store.id;
       req.shopifyStoreRow = store;
+      // Shopify adds logged_in_customer_id to every proxied request ("" when the
+      // shopper is logged out) and signs it with the rest of the query, so after
+      // the check above it is the one identity here that is not shopper-asserted.
+      const rawCustomerId =
+        typeof query.logged_in_customer_id === 'string' ? query.logged_in_customer_id : '';
+      req.shopifyLoggedInCustomerId = /^\d+$/.test(rawCustomerId) ? Number(rawCustomerId) : null;
       return;
     }
 
@@ -98,6 +105,7 @@ declare module 'fastify' {
   interface FastifyRequest {
     shopifyStoreId?: string;
     shopifyStoreRow?: InferSelectModel<typeof schema.shopifyStores>;
+    shopifyLoggedInCustomerId?: number | null;
   }
   interface FastifyInstance {
     requireShopifyStoreKey: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;

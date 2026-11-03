@@ -13,6 +13,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "biome check src/",
     "postman:generate": "tsx --env-file=../../.env src/scripts/generate-postman.ts",
+    "fleet:collect": "tsx --env-file=../../.env scripts/fleet-ssh-collector.mts",
     "check:storage": "tsx --env-file=../../.env scripts/check-user-storage.mts"
   },
   "dependencies": {

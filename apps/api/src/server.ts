@@ -41,6 +41,7 @@ import { adminCreditsRoutes } from './modules/admin/credits.routes.js';
 import { adminDemoCatalogRoutes } from './modules/admin/demo-catalog.routes.js';
 import { adminDevApiRoutes } from './modules/admin/dev-api.routes.js';
 import { adminFabricGarmentTypesRoutes } from './modules/admin/fabric-garment-types.routes.js';
+import { adminFleetRoutes } from './modules/admin/fleet.routes.js';
 import { adminGarmentRecognitionsRoutes } from './modules/admin/garment-recognitions.routes.js';
 import { adminHeldJobsRoutes } from './modules/admin/held-jobs.routes.js';
 import { adminImageCompressionRoutes } from './modules/admin/image-compression.routes.js';
@@ -54,8 +55,6 @@ import { adminProdSnapshotRoutes } from './modules/admin/prod-snapshot.routes.js
 import { adminRefundRequestsRoutes } from './modules/admin/refund-requests.routes.js';
 import { adminRolePermissionsRoutes } from './modules/admin/role-permissions.routes.js';
 import { adminSareeRoutes } from './modules/admin/saree.routes.js';
-import { adminShopifyFunnelRulesRoutes } from './modules/admin/shopify-funnel-rules.routes.js';
-import { adminShopifyFunnelsRoutes } from './modules/admin/shopify-funnels.routes.js';
 import { adminShopifyPurchasesRoutes } from './modules/admin/shopify-purchases.routes.js';
 import { adminShopifyStoresRoutes } from './modules/admin/shopify-stores.routes.js';
 import { adminSignupCampaignsRoutes } from './modules/admin/signupCampaigns.routes.js';
@@ -81,6 +80,17 @@ import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { minioProxyRoutes } from './modules/dev/minio-proxy.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { extensionRoutes } from './modules/extension/routes.js';
+import { fleetActivityRoutes } from './modules/fleet/activity.routes.js';
+import { fleetAgentAdminRoutes } from './modules/fleet/agent.routes.js';
+import { fleetCommandRoutes } from './modules/fleet/commands.routes.js';
+import { fleetIncidentRoutes } from './modules/fleet/incidents.routes.js';
+import { fleetIngestRoutes } from './modules/fleet/ingest.routes.js';
+import { fleetInventoryRoutes } from './modules/fleet/inventory.routes.js';
+import { fleetJobActionRoutes } from './modules/fleet/job-actions.routes.js';
+import { fleetMetricsRoutes } from './modules/fleet/metrics.routes.js';
+import { fleetOperationsRoutes } from './modules/fleet/operations.routes.js';
+import { fleetOverviewRoutes } from './modules/fleet/overview.routes.js';
+import { fleetSettingsRoutes } from './modules/fleet/settings.routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
 import { refundRequestsRoutes } from './modules/jobs/refund-requests.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
@@ -104,7 +114,7 @@ import { posePresetsRoutes } from './modules/pose-presets/routes.js';
 import { avatarRoutes } from './modules/profile/avatar.routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
 import { shopifyCustomerRoutes } from './modules/shopify/customer.routes.js';
-import { shopifyFunnelRulesRoutes } from './modules/shopify/funnel-rules.routes.js';
+import { requestRef } from './modules/shopify/failure.js';
 import { shopifyRoutes } from './modules/shopify/routes.js';
 import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
@@ -371,14 +381,28 @@ export async function buildServer(env: Env) {
   });
 
   app.setErrorHandler((err, _req, reply) => {
+    // Storefront shoppers get a short quotable reference with every failure
+    // so a screenshot of the widget can be matched to this log line.
+    const ref = _req.url.startsWith('/v1/shopify/customer') ? requestRef() : undefined;
     if (err instanceof AppError) {
       app.log.warn(
-        { code: err.code, statusCode: err.statusCode, msg: err.message, url: redactUrl(_req.url) },
+        {
+          code: err.code,
+          statusCode: err.statusCode,
+          msg: err.message,
+          url: redactUrl(_req.url),
+          ref,
+        },
         'app error',
       );
-      return reply
-        .code(err.statusCode)
-        .send({ error: { code: err.code, message: err.message, ...(err.details ?? {}) } });
+      return reply.code(err.statusCode).send({
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(ref ? { ref } : {}),
+          ...(err.details ?? {}),
+        },
+      });
     }
     if ((err as { validation?: unknown }).validation) {
       app.log.warn({ err, url: redactUrl(_req.url), body: _req.body }, 'validation error');
@@ -413,8 +437,10 @@ export async function buildServer(env: Env) {
       });
     }
     Sentry.captureException(err);
-    app.log.error({ err }, 'unhandled');
-    return reply.code(500).send({ error: { code: 'INTERNAL', message: 'internal error' } });
+    app.log.error({ err, ref }, 'unhandled');
+    return reply
+      .code(500)
+      .send({ error: { code: 'INTERNAL', message: 'internal error', ...(ref ? { ref } : {}) } });
   });
 
   await app.register(authRoutes);
@@ -450,7 +476,6 @@ export async function buildServer(env: Env) {
   await app.register(extensionRoutes);
   await app.register(shopifyRoutes);
   await app.register(shopifyCustomerRoutes);
-  await app.register(shopifyFunnelRulesRoutes);
   await app.register(modelsRoutes);
   await app.register(adminAuditRoutes);
   await app.register(adminAuthRoutes);
@@ -475,6 +500,18 @@ export async function buildServer(env: Env) {
   await app.register(adminMerchantCatalogRoutes);
   await app.register(adminDemoCatalogRoutes);
   await app.register(adminWorkersRoutes);
+  await app.register(adminFleetRoutes);
+  await app.register(fleetAgentAdminRoutes);
+  await app.register(fleetActivityRoutes);
+  await app.register(fleetInventoryRoutes);
+  await app.register(fleetOperationsRoutes);
+  await app.register(fleetJobActionRoutes);
+  await app.register(fleetIncidentRoutes);
+  await app.register(fleetCommandRoutes);
+  await app.register(fleetSettingsRoutes);
+  await app.register(fleetMetricsRoutes);
+  await app.register(fleetOverviewRoutes);
+  await app.register(fleetIngestRoutes);
   await app.register(adminProdSnapshotRoutes);
   await app.register(adminConfigRoutes);
   await app.register(adminImageCompressionRoutes);
@@ -486,8 +523,6 @@ export async function buildServer(env: Env) {
   await app.register(adminCatalogueTemplatesRoutes);
   await app.register(adminBodyTypesRoutes);
   await app.register(adminBlouseCategoriesRoutes);
-  await app.register(adminShopifyFunnelsRoutes);
-  await app.register(adminShopifyFunnelRulesRoutes);
   await app.register(adminShopifyStoresRoutes);
   await app.register(adminShopifyPurchasesRoutes);
   await app.register(adminWorkflowsRoutes);

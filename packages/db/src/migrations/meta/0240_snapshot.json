@@ -1,6 +1,6 @@
 {
-  "id": "c8066acc-22fe-434f-a315-988a3d953d39",
-  "prevId": "8bf171fb-5fa8-4cc8-9c50-d03bbc6cdbb3",
+  "id": "e0f62776-6bc2-4080-a01f-2bbc88a72cca",
+  "prevId": "ecd535b6-eeee-4be1-b03f-89c5f7a84840",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2870,7 +2870,7 @@
         },
         "execution_attempts_phase": {
           "name": "execution_attempts_phase",
-          "value": "\"execution_attempts\".\"phase\" IN ('main', 'mannequin', 'garment_extract', 'classify')"
+          "value": "\"execution_attempts\".\"phase\" IN ('main', 'mannequin', 'classify')"
         },
         "execution_attempts_state": {
           "name": "execution_attempts_state",
@@ -6105,19 +6105,6 @@
           "notNull": true,
           "default": false
         },
-        "requires_garment_extract_step": {
-          "name": "requires_garment_extract_step",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "garment_extract_workflow_template_id": {
-          "name": "garment_extract_workflow_template_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "mannequin_workflow_template_id": {
           "name": "mannequin_workflow_template_id",
           "type": "uuid",
@@ -6207,15 +6194,6 @@
           "tableFrom": "garment_subcategories",
           "tableTo": "catalog_items",
           "columnsFrom": ["default_shoe_catalog_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "garment_subcategories_garment_extract_workflow_template_id_workflow_templates_id_fk": {
-          "name": "garment_subcategories_garment_extract_workflow_template_id_workflow_templates_id_fk",
-          "tableFrom": "garment_subcategories",
-          "tableTo": "workflow_templates",
-          "columnsFrom": ["garment_extract_workflow_template_id"],
           "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
@@ -9200,6 +9178,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone_captured_at": {
+          "name": "phone_captured_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "first_seen_at": {
           "name": "first_seen_at",
           "type": "timestamp with time zone",
@@ -10254,12 +10244,6 @@
         },
         "company_name": {
           "name": "company_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "avatar_key": {
-          "name": "avatar_key",
           "type": "text",
           "primaryKey": false,
           "notNull": false

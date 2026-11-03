@@ -1,13 +1,18 @@
 import type { Logger } from '@aivastra/logger';
 import { queueDepth, workersHealthy } from '@aivastra/observability';
-import { comfyVersionKey } from '@aivastra/types';
+import { comfyVersionKey, workerSystemKey } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 import { detectCapabilityDrift } from './capabilities.js';
 import { sampleWorkerQueues } from './queue-sampler.js';
 import { getWorkers, healthKey } from './registry.js';
+import { recordHistory } from './system-history.js';
+import { extractSystemSample } from './system-sample.js';
 
 const PROBE_INTERVAL_MS = 15_000;
 const HEALTH_TTL_SEC = 30;
+// Four probe cycles: a worker that stops answering ages out of the dashboard instead of
+// showing its last VRAM figure indefinitely.
+const SYSTEM_TTL_SEC = 60;
 const JOB_STREAMS = [
   'jobs:priority',
   'jobs:normal',
@@ -35,6 +40,17 @@ async function probeWorker(
           stats.system.comfyui_version.length > 0
         ) {
           await redis.setex(comfyVersionKey(workerId), 60, stats.system.comfyui_version);
+        }
+        // Display telemetry for the fleet dashboard. After the version write and in its own
+        // try, so nothing about it can ever affect version authorization or routing health.
+        try {
+          const sample = extractSystemSample(stats, Date.now());
+          if (sample) {
+            await redis.setex(workerSystemKey(workerId), SYSTEM_TTL_SEC, JSON.stringify(sample));
+            await recordHistory(redis, workerId, sample);
+          }
+        } catch {
+          // Advisory only: a missing sample reads as "not observed".
         }
       } catch {
         // Version authorization fails closed when the body is unreadable, while

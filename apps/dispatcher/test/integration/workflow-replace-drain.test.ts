@@ -5,9 +5,10 @@ import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { processJob } from '../../src/job/processor.js';
-import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
 import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+import { forceIdle } from '../helpers/workers.js';
 
 const WORKER_ID = 'test-worker-replace-drain';
 
@@ -39,7 +40,7 @@ describe('dispatcher — workflow replace and drain integration', () => {
 
   beforeEach(async () => {
     comfy.setOptions({});
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
   });
 
   // `marker` sits on the SaveImage node's inputs, a field applyWorkflowPatch
@@ -226,7 +227,7 @@ describe('dispatcher — workflow replace and drain integration', () => {
     expect(archiveAfterJob1?.version).toBe(1);
 
     // 6. Process Job 1B (last v1 job) -> should complete and delete archive row
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
     await processJob(
       {
         comfyRedis: redis,
@@ -260,7 +261,7 @@ describe('dispatcher — workflow replace and drain integration', () => {
     expect(archiveAfterJob1B).toBeUndefined();
 
     // 7. Process Job 2 (stamped v2) -> should resolve live v2
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+    await forceIdle(redis, WORKER_ID);
     await processJob(
       {
         comfyRedis: redis,

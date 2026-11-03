@@ -1,0 +1,31 @@
+{
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "incident": {
+    "id": "3c9e5b10-0000-4000-8000-000000000001",
+    "ruleKey": "thermal_collapse",
+    "workerId": "tryon-worker-4",
+    "state": "OPEN",
+    "severity": "warning",
+    "summary": "GPU 0 at 87 °C with SM clock at 37% of maximum",
+    "evidence": {
+      "gpuIndex": 0,
+      "tempC": 87,
+      "smClockMhz": 899,
+      "smClockMaxMhz": 2430,
+      "clockRatio": 0.37
+    },
+    "openedAt": "2026-11-02T09:41:00.000Z",
+    "ackedAt": null,
+    "ackedBy": null,
+    "recoveredAt": null
+  },
+  "events": [
+    {
+      "id": 101,
+      "kind": "OPENED",
+      "at": "2026-11-02T09:41:00.000Z",
+      "actor": null,
+      "text": null
+    }
+  ]
+}

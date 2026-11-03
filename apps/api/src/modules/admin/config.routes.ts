@@ -115,6 +115,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
         ]),
       ),
     };
+    cfg.shopifyWorkflowTemplateId = cfg.shopifyWorkflowTemplateId ?? null;
     cfg.uploadLimits = { ...DEFAULT_UPLOAD_LIMITS, ...cfg.uploadLimits };
     cfg.seller = { ...DEFAULT_SELLER_CONFIG, ...cfg.seller };
     return cfg;

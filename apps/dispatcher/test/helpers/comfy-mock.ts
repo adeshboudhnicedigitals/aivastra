@@ -24,6 +24,22 @@ export interface ComfyMockOptions {
   promptStatus?: number;
   /** Force GET /prompt to answer with this raw body (e.g. invalid JSON). */
   promptBody?: string;
+  /** Raw body for GET /queue (e.g. malformed or truncated JSON). */
+  queueBody?: string;
+  /** Force GET /history (the listing, not /history/:id) to answer with this status. */
+  historyStatus?: number;
+  /** Raw body for the GET /history listing. */
+  historyBody?: string;
+  /** Pads the GET /history listing with this many foreign entries (500 looks truncated). */
+  historyPadding?: number;
+  /** Raw extra /history entries (e.g. one with no status), keyed by prompt id. */
+  historyExtra?: Record<string, unknown>;
+  /** Makes the n-th (1-based) GET /history/:id poll misbehave: never answer it (the client's
+   *  request timeout fires), drop the socket, answer 500, or answer 403
+   *  (a 4xx). Anything else answers normally. */
+  historyPollFault?: (n: number) => 'hang' | 'drop' | '500' | '403' | undefined;
+  /** Accept POST /prompt but never answer it: the submitter's reply is lost. */
+  holdPromptResponse?: boolean;
   /** Replaces the default SaveImage output in /history — e.g. { '4': { text: ['wa-kurti'] } }
    *  for the classify lane's text answer. */
   outputs?: Record<string, unknown>;
@@ -45,6 +61,14 @@ export interface ComfyMock {
    *  call so far, in call order — lets tests assert how MANY uploads of a given kind
    *  actually hit ComfyUI, not just what the final patched workflow looks like. */
   uploadedFilenames: () => string[];
+  /** Every accepted POST /prompt, in order, with the client id the dispatcher persisted. */
+  accepted: () => Array<{ promptId: string; clientId: string | null }>;
+  /** How many POST /prompt calls carried this client id. */
+  postsFor: (clientId: string) => number;
+  /** Moves a running or queued prompt to history as finished, as the worker would. */
+  finishPrompt: (promptId: string, result?: 'success' | 'error') => void;
+  /** Forgets a prompt entirely (a worker restart that lost its queue and history). */
+  forgetPrompt: (promptId: string) => void;
   setOptions: (opts: ComfyMockOptions) => void;
   resetPrompts: () => void;
   close: () => Promise<void>;
@@ -64,7 +88,19 @@ export function startComfyMock(): Promise<ComfyMock> {
     const interrupted: Array<string | undefined> = [];
     const prompts = new Map<string, { startAt: number; finishAt: number; removed: boolean }>();
     const histories: Record<string, unknown> = {};
+    const clientIds = new Map<string, string | null>();
+    const acceptedLog: Array<{ promptId: string; clientId: string | null }> = [];
+    // Real ComfyUI queue entry: [number, prompt_id, prompt, extra_data, outputs_to_execute].
+    const entryFor = (promptId: string) => [
+      0,
+      promptId,
+      {},
+      { client_id: clientIds.get(promptId) ?? null },
+      [],
+    ];
     const timers = new Set<ReturnType<typeof setTimeout>>();
+    let historyPolls = 0;
+    const hung = new Set<ServerResponse>();
 
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = new URL(req.url ?? '/', 'http://localhost');
@@ -82,25 +118,35 @@ export function startComfyMock(): Promise<ComfyMock> {
 
       if (req.method === 'GET' && url.pathname === '/queue') {
         res.writeHead(opts.queueStatus ?? 200, { 'Content-Type': 'application/json' });
+        if (opts.queueBody !== undefined) {
+          res.end(opts.queueBody);
+          return;
+        }
         res.end(
           JSON.stringify({
             queue_running: [
               ...Array.from({ length: opts.queueRunning ?? 0 }, (_, i) => [
                 i,
                 `foreign-running-${i}`,
+                {},
+                { client_id: `foreign-running-client-${i}` },
+                [],
               ]),
               ...[...prompts]
                 .filter(([, p]) => !p.removed && Date.now() >= p.startAt && Date.now() < p.finishAt)
-                .map(([id]) => [0, id]),
+                .map(([id]) => entryFor(id)),
             ],
             queue_pending: [
               ...Array.from({ length: opts.queuePending ?? 0 }, (_, i) => [
                 i,
                 `foreign-pending-${i}`,
+                {},
+                { client_id: `foreign-pending-client-${i}` },
+                [],
               ]),
               ...[...prompts]
                 .filter(([, p]) => !p.removed && Date.now() < p.startAt)
-                .map(([id]) => [0, id]),
+                .map(([id]) => entryFor(id)),
             ],
           }),
         );
@@ -133,8 +179,16 @@ export function startComfyMock(): Promise<ComfyMock> {
           }
           const promptId = `mock-prompt-${promptSeq++}`;
           lastPromptId = promptId;
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ prompt_id: promptId }));
+          const clientId =
+            lastPrompt && typeof (lastPrompt as { client_id?: unknown }).client_id === 'string'
+              ? ((lastPrompt as { client_id?: string }).client_id ?? null)
+              : null;
+          clientIds.set(promptId, clientId);
+          acceptedLog.push({ promptId, clientId });
+          if (!opts.holdPromptResponse) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ prompt_id: promptId }));
+          }
 
           const delayMs = (opts.startDelayMs ?? 0) + (opts.completionDelayMs ?? 50);
           const state = {
@@ -161,6 +215,7 @@ export function startComfyMock(): Promise<ComfyMock> {
               : opts.history
                 ? opts.history(promptId, lastPrompt?.prompt ?? {})
                 : {
+                    status: { status_str: 'success', completed: true, messages: [] },
                     outputs: opts.outputs ?? {
                       '10': {
                         images: [
@@ -188,10 +243,51 @@ export function startComfyMock(): Promise<ComfyMock> {
         return;
       }
 
+      if (req.method === 'GET' && url.pathname === '/history') {
+        res.writeHead(opts.historyStatus ?? 200, { 'Content-Type': 'application/json' });
+        if (opts.historyBody !== undefined) {
+          res.end(opts.historyBody);
+          return;
+        }
+        const max = Number(url.searchParams.get('max_items') ?? Number.POSITIVE_INFINITY);
+        const listing: Record<string, unknown> = {};
+        for (let i = 0; i < (opts.historyPadding ?? 0); i++)
+          listing[`foreign-history-${i}`] = {
+            prompt: [0, `foreign-history-${i}`, {}, { client_id: `foreign-${i}` }, []],
+            outputs: {},
+            status: { status_str: 'success', completed: true, messages: [] },
+          };
+        for (const [promptId, entry] of Object.entries(histories))
+          listing[promptId] = { prompt: entryFor(promptId), ...(entry as object) };
+        Object.assign(listing, opts.historyExtra ?? {});
+        res.end(JSON.stringify(Object.fromEntries(Object.entries(listing).slice(-max))));
+        return;
+      }
+
       if (req.method === 'GET' && url.pathname.startsWith('/history/')) {
         const promptId = url.pathname.split('/').pop() ?? '';
+        historyPolls++;
+        const fault = opts.historyPollFault?.(historyPolls);
+        if (fault === 'hang') {
+          hung.add(res);
+          return;
+        }
+        if (fault === 'drop') {
+          req.socket.destroy();
+          return;
+        }
+        if (fault === '500') {
+          res.writeHead(500).end();
+          return;
+        }
+        if (fault === '403') {
+          res.writeHead(403).end();
+          return;
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(histories[promptId] ? { [promptId]: histories[promptId] } : {}));
+        // {} for an id the worker never saw or has evicted, as ComfyUI answers.
+        const entry = histories[promptId] ?? opts.historyExtra?.[promptId];
+        res.end(JSON.stringify(entry ? { [promptId]: entry } : {}));
         return;
       }
 
@@ -280,6 +376,30 @@ export function startComfyMock(): Promise<ComfyMock> {
       resolve({
         url: `http://127.0.0.1:${port}`,
         lastPromptId: () => lastPromptId,
+        accepted: () => [...acceptedLog],
+        postsFor: (clientId) => acceptedLog.filter((p) => p.clientId === clientId).length,
+        finishPrompt: (promptId, result = 'success') => {
+          const state = prompts.get(promptId);
+          if (state) state.removed = true;
+          histories[promptId] =
+            result === 'error'
+              ? {
+                  status: {
+                    status_str: 'error',
+                    messages: [['execution_error', { exception_message: 'mock error' }]],
+                  },
+                }
+              : {
+                  status: { status_str: 'success', completed: true, messages: [] },
+                  outputs: opts.outputs ?? {
+                    '10': { images: [{ filename: 'result.png', subfolder: '', type: 'output' }] },
+                  },
+                };
+        },
+        forgetPrompt: (promptId) => {
+          prompts.delete(promptId);
+          delete histories[promptId];
+        },
         deleteCalls: () => deleted,
         interruptCalls: () => interrupted,
         lastPrompt: () => lastPrompt,
@@ -288,6 +408,8 @@ export function startComfyMock(): Promise<ComfyMock> {
           for (const timer of timers) clearTimeout(timer);
           timers.clear();
           prompts.clear();
+          clientIds.clear();
+          acceptedLog.length = 0;
           for (const id of Object.keys(histories)) delete histories[id];
           deleted.length = 0;
           interrupted.length = 0;
@@ -297,6 +419,9 @@ export function startComfyMock(): Promise<ComfyMock> {
           // tests assert per-call order with .at(-1).
           lastPromptId = null;
           lastPrompt = null;
+          historyPolls = 0;
+          for (const r of hung) r.destroy();
+          hung.clear();
         },
         setOptions: (newOpts) => {
           opts = newOpts;
@@ -304,6 +429,7 @@ export function startComfyMock(): Promise<ComfyMock> {
         close: () =>
           new Promise<void>((r) => {
             for (const timer of timers) clearTimeout(timer);
+            for (const pending of hung) pending.destroy();
             wss.close();
             server.close(() => r());
           }),

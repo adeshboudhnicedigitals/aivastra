@@ -13,8 +13,6 @@ if (process.env.NODE_ENV !== 'production' && process.env.NODE_TLS_REJECT_UNAUTHO
 }
 
 import { schema } from '@aivastra/db';
-import type { WorkerPool } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
 import { runClassifyConsumer } from './classify/consumer.js';
 import { createServiceResolver } from './classify/service-config.js';
 import { loadEnv } from './env.js';
@@ -25,14 +23,22 @@ import { makeDb } from './lib/db.js';
 import { makeComfyRedis, makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
 import { runShopifyRetention } from './shopify/retention.js';
+import { drainAndRetire } from './shutdown.js';
 import { runConsumer } from './stream/consumer.js';
 import { runInhouseConsumer } from './stream/inhouse-consumer.js';
-import { recoverPendingJobs } from './stream/recovery.js';
+import { restoreLaneOccupancy } from './stream/lane-tickets.js';
+import { startParkedScheduler } from './stream/parked.js';
+import { startRecoveryScheduler } from './stream/recovery.js';
 import { runSweeper } from './stream/sweeper.js';
 import { runVideoConsumer } from './stream/video-consumer.js';
 import { runWebhooksConsumer } from './stream/webhooks.js';
 import { startHealthMonitor } from './worker/health-monitor.js';
-import { registerWorkers } from './worker/registry.js';
+import {
+  claimDispatcherSession,
+  rebuildWorkerRegistry,
+  releaseDispatcherSession,
+  startReservationReconciler,
+} from './worker/reservation-reconciler.js';
 import { initWatermarkTile } from './workflow/watermark.js';
 
 // Containers here have no IPv6 route, but external hosts we call (ComfyUI
@@ -83,24 +89,27 @@ async function main(): Promise<void> {
   await comfyRedis.connect();
   const storage = makeStorage(env, log);
 
-  // Load workers from DB (source of truth — managed via admin panel)
-  const dbWorkers = await db.select().from(schema.workers).where(eq(schema.workers.isActive, true));
-  const workers = dbWorkers.map((w) => ({
-    id: w.id,
-    url: w.url,
-    apiKey: w.apiKey,
-    // schema.workers.allowedJobTypes is a raw `text[]` column (Drizzle types it as
-    // string[]); values are only constrained to WorkerPool by workerPoolSchema at
-    // the admin API write boundary (apps/api/src/modules/admin/workers.routes.ts),
-    // not by the DB/schema layer itself. Cast here, at the one place a DB read
-    // crosses into the precisely-typed dispatcher registry, rather than widening
-    // WorkerEntry/registerWorkers back to string[].
-    allowedJobTypes: (w.allowedJobTypes ?? []) as WorkerPool[],
-  }));
+  // One live dispatcher per Redis; a SIGKILLed predecessor only delays this until its marker lapses.
+  await claimDispatcherSession(redis, processSession, log);
+
+  // Load workers from DB (source of truth — managed via admin panel). Inactive workers are
+  // registered too, as DRAINING, so a plain admin reactivation finds them after this restart;
+  // unresolved remote work is rebuilt as a hold before any worker is claimable.
+  const loadWorkers = () =>
+    db
+      .select()
+      .from(schema.workers)
+      // schema.workers.allowedJobTypes is a raw `text[]` column (Drizzle types it as string[]);
+      // values are only constrained to WorkerPool by workerPoolSchema at the admin API write
+      // boundary (apps/api/src/modules/admin/workers.routes.ts). rebuildWorkerRegistry casts at
+      // the one place a DB read crosses into the precisely-typed dispatcher registry.
+      .orderBy(schema.workers.createdAt);
+  const allWorkers = await loadWorkers();
+  const workers = allWorkers.filter((w) => w.isActive);
   if (workers.length === 0) {
     log.warn('No active workers found in DB — add workers via admin panel');
   }
-  await registerWorkers(redis, workers);
+  await rebuildWorkerRegistry({ db, redis, log, workers: allWorkers });
   log.info({ workerIds: workers.map((w) => w.id) }, 'workers registered from DB');
 
   // Startup connectivity check — verify each worker is reachable before accepting jobs
@@ -136,63 +145,108 @@ async function main(): Promise<void> {
     storage,
     log,
     ownerSession: processSession,
+    uncertainCheckMs: env.COMFY_UNCERTAIN_CHECK_MS,
   };
   log.info({ session: processSession }, 'dispatcher ownership session started');
 
+  // Monitor mode: observe the registry's workers, never dispatch to them or mutate job
+  // state. Only the health monitor (GET /system_stats, GET /queue) and the health server
+  // run; everything below that consumes streams, writes jobs or sends outbound is skipped.
+  const monitorOnly = env.DISPATCHER_MODE === 'monitor';
+  const noop = () => {};
+  if (monitorOnly) {
+    log.warn('DISPATCHER_MODE=monitor — job consumers, recovery, sweeper and webhooks disabled');
+  }
+
   // Crash recovery: reclaim stale XPENDING entries from a previous run
-  await recoverPendingJobs(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
 
   // Start subsystems
-  const stopPerformanceRefresh = startPerformanceRefresh(comfyRedis);
+  const stopPerformanceRefresh = monitorOnly ? noop : startPerformanceRefresh(comfyRedis);
   const stopHealthMonitor = startHealthMonitor(comfyRedis, log);
-  const stopConsumer = await runConsumer(redis, processorCfg, log);
+  // Immediately, then every 10 s: frees holds whose remote work has ended and keeps the
+  // alert gauges fresh. Also rebuilds the registry if a Redis reset removed it.
+  const stopReservationReconciler = monitorOnly
+    ? noop
+    : startReservationReconciler(
+        {
+          db,
+          redis,
+          log,
+          uncertainCheckMs: env.COMFY_UNCERTAIN_CHECK_MS,
+          session: processSession,
+        },
+        async () => {
+          await rebuildWorkerRegistry({ db, redis, log, workers: await loadWorkers() });
+        },
+      );
+  // Before any lane reads: entries a previous dispatcher left pending still occupy workers.
+  if (!monitorOnly) await restoreLaneOccupancy(redis, log, env.LANE_RESTORE_MAX);
+  // Before the lanes: it only wakes parked jobs, and a lane registers itself as it starts.
+  const stopParkedScheduler = monitorOnly ? noop : startParkedScheduler({ db, redis, log });
+  const stopConsumer = monitorOnly ? noop : await runConsumer(redis, processorCfg, log);
   // Separate lane: PixVerse video jobs need no GPU worker, so they must not be
   // gated by the GPU consumer's registry-derived in-flight cap.
-  const stopVideoConsumer = await runVideoConsumer(redis, processorCfg, log, {
-    concurrency: env.VIDEO_CONCURRENCY,
-  });
+  const stopVideoConsumer = monitorOnly
+    ? noop
+    : await runVideoConsumer(redis, processorCfg, log, {
+        concurrency: env.VIDEO_CONCURRENCY,
+      });
   // WhatsApp garment recognition (spec 8a): its own stream and cap, so it never
   // waits behind try-on jobs. Harmless when unused — nothing is ever added to
   // the stream while the api's GARMENT_RECOGNITION_ENABLED is off.
-  const stopClassifyConsumer = await runClassifyConsumer(redis, processorCfg, log, {
-    resolveService: createServiceResolver(db, env),
-  });
+  const stopClassifyConsumer = monitorOnly
+    ? noop
+    : await runClassifyConsumer(redis, processorCfg, log, {
+        resolveService: createServiceResolver(db, env),
+      });
   // Dedicated lane for the team's own bulk try-on test runs; only workers tagged
   // 'inhouse' serve it, and production lanes never see it.
-  const stopInhouseConsumer = await runInhouseConsumer(redis, processorCfg, log);
-  const stopWebhooks = await runWebhooksConsumer(db, redis, log);
+  const stopInhouseConsumer = monitorOnly
+    ? noop
+    : await runInhouseConsumer(redis, processorCfg, log);
+  const stopWebhooks = monitorOnly ? noop : await runWebhooksConsumer(db, redis, log);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);
 
-  const sweeperInterval = setInterval(
-    () => {
-      void runSweeper(db, redis, pub, log);
-    },
-    5 * 60 * 1000,
-  );
+  // clearInterval(undefined) is a no-op, so shutdown() needs no monitor-mode branch.
+  const sweeperInterval = monitorOnly
+    ? undefined
+    : setInterval(
+        () => {
+          void runSweeper(db, redis, pub, log, undefined, processorCfg);
+        },
+        5 * 60 * 1000,
+      );
 
-  const recoveryInterval = setInterval(() => {
-    void recoverPendingJobs(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
-  }, 60_000);
+  // Immediately and then every 5 s, in the background: an adoption can wait minutes and must not
+  // hold up boot or the next scan. Retired rows and drained consumers are eligible at once.
+  const stopRecovery = monitorOnly
+    ? noop
+    : startRecoveryScheduler(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
 
-  const sareeStep2Interval = setInterval(() => {
-    void promoteSareeStep2Jobs(processorCfg);
-  }, 5_000);
+  const sareeStep2Interval = monitorOnly
+    ? undefined
+    : setInterval(() => {
+        void promoteSareeStep2Jobs(processorCfg);
+      }, 5_000);
 
   // Hourly: retention is a slow-moving daily-granularity policy, so a tighter
   // cadence would just re-scan stores with nothing to do.
-  const shopifyRetentionInterval = setInterval(
-    () => {
-      void runShopifyRetention(db, storage, log, withAdvisoryLock);
-    },
-    60 * 60 * 1000,
-  );
+  const shopifyRetentionInterval = monitorOnly
+    ? undefined
+    : setInterval(
+        () => {
+          void runShopifyRetention(db, storage, log, withAdvisoryLock);
+        },
+        60 * 60 * 1000,
+      );
 
-  log.info('dispatcher ready');
+  log.info({ mode: env.DISPATCHER_MODE }, 'dispatcher ready');
 
   async function shutdown(signal: string): Promise<void> {
     log.info({ signal }, 'shutting down dispatcher');
     clearInterval(sweeperInterval);
-    clearInterval(recoveryInterval);
+    stopRecovery();
+    stopParkedScheduler();
     clearInterval(sareeStep2Interval);
     clearInterval(shopifyRetentionInterval);
     stopConsumer();
@@ -202,8 +256,20 @@ async function main(): Promise<void> {
     stopWebhooks();
     stopPerformanceRefresh();
     stopHealthMonitor();
+    stopReservationReconciler();
+    // A monitor owns no work, so there is nothing to drain or retire.
+    if (!monitorOnly) {
+      await drainAndRetire({
+        db,
+        redis,
+        log,
+        session: processSession,
+        drainMs: env.SHUTDOWN_DRAIN_MS,
+      });
+    }
     stopHealthServer();
     comfyRedis.disconnect();
+    if (!monitorOnly) await releaseDispatcherSession(redis, processSession).catch(() => {});
     await closeRedis();
     await closeDb();
     process.exit(0);

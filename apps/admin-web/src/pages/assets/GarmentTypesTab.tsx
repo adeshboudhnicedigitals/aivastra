@@ -1268,6 +1268,7 @@ export function GarmentTypesTab() {
       {editingSubcat && (
         <EditGarmentTypeModal
           garmentType={editingSubcat}
+          garmentTypes={garmentTypes}
           catalogItems={catalogItems}
           faces={faces}
           backgrounds={allBackgrounds}
