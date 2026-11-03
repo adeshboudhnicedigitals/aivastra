@@ -1,0 +1,28 @@
+[Unit]
+Description=Aivastra fleet agent (read-only GPU box telemetry)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aivastra-agent
+Group=aivastra-agent
+# Read access to the journal for the ComfyUI error lines; no other privilege.
+SupplementaryGroups=systemd-journal
+ExecStart=/usr/bin/python3 -I /opt/aivastra-agent/fleet_agent.py --config /etc/aivastra-agent.json
+Restart=always
+RestartSec=5
+Nice=10
+MemoryMax=64M
+CPUQuota=10%
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
