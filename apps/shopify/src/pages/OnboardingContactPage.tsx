@@ -1,8 +1,8 @@
-import { BlockStack, TextField } from '@shopify/polaris';
 import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { OnboardingLayout } from '../components/OnboardingLayout';
+import { Glyph, Note, PageHead } from '../components/PageHead';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import { canShowPostProductsPage, getOnboardingStep, onboardingPath } from '../lib/onboarding';
@@ -77,54 +77,102 @@ export default function OnboardingContactPage({
     }
   }
 
+  const fields = [
+    {
+      id: 'fullName',
+      key: 'name',
+      label: 'Full Name',
+      type: 'text',
+      autoComplete: 'name',
+      placeholder: 'Enter your full name',
+      value: name,
+      set: setName,
+      err: nameError,
+    },
+    {
+      id: 'email',
+      key: 'email',
+      label: 'Business Email',
+      type: 'email',
+      autoComplete: 'email',
+      placeholder: 'Enter your business email',
+      value: email,
+      set: setEmail,
+      err: emailError,
+    },
+    {
+      id: 'phone',
+      key: 'phone',
+      label: 'Phone Number',
+      type: 'tel',
+      autoComplete: 'tel',
+      placeholder: 'Enter phone number',
+      value: phone,
+      set: setPhone,
+      err: phoneError,
+    },
+  ] as const;
+
   return (
     <OnboardingLayout
+      bare
       page="contact"
-      title="Enter your contact details"
-      titleAlign="center"
-      largeTitle
+      fullWidth
+      padding="var(--p-space-400)"
       onContinue={saveAndContinue}
       continueDisabled={!valid}
       continueLoading={saving}
-      card={false}
     >
-      <BlockStack gap="400">
+      <form
+        className="av-form"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          void saveAndContinue();
+        }}
+      >
+        <PageHead
+          icon={
+            <Glyph size={44}>
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4.5 21c0-4 3.4-7 7.5-7s7.5 3 7.5 7" />
+            </Glyph>
+          }
+          title="Contact Details"
+          subtitle="Tell us how we can reach you for account and service updates."
+        />
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
-        {/* Blank space where the explanatory sentence used to sit. */}
-        <div style={{ width: '100%', maxWidth: 480, margin: 'var(--p-space-800) auto 0' }}>
-          <BlockStack gap="300">
-            <TextField
-              label="Your Name"
-              requiredIndicator
-              autoComplete="name"
-              value={name}
-              onChange={setName}
-              onBlur={() => setTouched((t) => ({ ...t, name: true }))}
-              error={touched.name ? nameError : undefined}
-            />
-            <TextField
-              label="Your email address"
-              requiredIndicator
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={setEmail}
-              onBlur={() => setTouched((t) => ({ ...t, email: true }))}
-              error={touched.email ? emailError : undefined}
-            />
-            <TextField
-              label="Phone Number"
-              requiredIndicator
-              type="tel"
-              autoComplete="tel"
-              value={phone}
-              onChange={setPhone}
-              onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
-              error={touched.phone ? phoneError : undefined}
-            />
-          </BlockStack>
-        </div>
-      </BlockStack>
+        {fields.map((f) => {
+          const showErr = touched[f.key] ? f.err : undefined;
+          return (
+            <div key={f.id}>
+              <label className="av-lab" htmlFor={f.id}>
+                {f.label} <i>*</i>
+              </label>
+              <input
+                className="av-field"
+                id={f.id}
+                name={f.id}
+                type={f.type}
+                autoComplete={f.autoComplete}
+                placeholder={f.placeholder}
+                value={f.value}
+                required
+                aria-invalid={showErr ? true : undefined}
+                aria-describedby={showErr ? `${f.id}-err` : undefined}
+                onChange={(e) => f.set(e.target.value)}
+                onBlur={() => setTouched((t) => ({ ...t, [f.key]: true }))}
+              />
+              {showErr && (
+                <p className="av-err" id={`${f.id}-err`}>
+                  {showErr}
+                </p>
+              )}
+            </div>
+          );
+        })}
+        <Note>Your contact details are used for account and service-related communication.</Note>
+      </form>
     </OnboardingLayout>
   );
 }

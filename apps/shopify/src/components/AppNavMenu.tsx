@@ -18,7 +18,7 @@ export const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: HomeIcon },
   { path: '/manage', label: 'Manage', icon: ProductIcon },
   { path: '/analytics', label: 'Analytics', icon: ChartVerticalIcon },
-  { path: '/pricing', label: 'Billing', icon: CashDollarIcon },
+  { path: '/pricing', label: 'Credits', icon: CashDollarIcon },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
   { path: '/support', label: 'Support', icon: QuestionCircleIcon },
 ];

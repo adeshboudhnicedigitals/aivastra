@@ -1,320 +1,113 @@
-import { Icon, Text } from '@shopify/polaris';
-import { CartIcon, PlusIcon } from '@shopify/polaris-icons';
-import { type CSSProperties, Fragment, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import garmentImage from '../assets/welcome-garment.jpg';
-import logoMark from '../assets/welcome-logo-mark.svg';
-import logoText from '../assets/welcome-logo-text.svg';
 import personImage from '../assets/welcome-person.jpg';
 import resultImage from '../assets/welcome-result.jpg';
 import { OnboardingShell } from '../components/OnboardingShell';
+import { STEP_LABELS, STEP_PAGES } from '../lib/onboarding';
 
-// The panel is white in every colour scheme (see OnboardingShell), so these are
-// fixed light greys rather than Polaris surface tokens that would darken.
-const GREY_FILL = '#f1f1f1';
-const LINE = '#dcdcdc';
-
-// The photo is 6:7 (a little wider than the portrait originals, which are cropped
-// from the bottom). Its height follows the viewport (595px is roughly everything on
-// the page that is not the photo), so the page fits without scrolling on most
-// laptops; card width is derived from that height, capped for narrow windows. The
-// connectors reuse PHOTO_H to sit mid-photo.
-const CARD_W = 'clamp(230px, min(calc((100vh - 595px) * 6 / 7), 29vw), 430px)';
-const PHOTO_H = `calc(${CARD_W} * 7 / 6)`;
-
-// Lucide icons (ISC licence, https://lucide.dev) drawn inline, so the page does not
-// take on the whole icon package for three shapes. Same 24px grid and 2px round
-// stroke as Lucide's own components.
-function LucideGlyph({ children, size = 22 }: { children: ReactNode; size?: number }) {
-  return (
-    // biome-ignore lint/a11y/noSvgWithoutTitle: decorative; the card's own text names it
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      {children}
-    </svg>
-  );
-}
-
-// Sized down from the 22px default so the card's caption text fits on one
-// line instead of wrapping onto a second.
-const UserRoundGlyph = (
-  <LucideGlyph size={18}>
-    <circle cx="12" cy="8" r="5" />
-    <path d="M20 21a8 8 0 0 0-16 0" />
-  </LucideGlyph>
-);
-
-const ShirtGlyph = (
-  <LucideGlyph size={18}>
-    <path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z" />
-  </LucideGlyph>
-);
-
-const WandSparklesGlyph = (
-  <LucideGlyph size={18}>
-    <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" />
-    <path d="m14 7 3 3" />
-    <path d="M5 6v4" />
-    <path d="M19 14v4" />
-    <path d="M10 2v2" />
-    <path d="M7 8H3" />
-    <path d="M21 16h-4" />
-    <path d="M11 3H9" />
-  </LucideGlyph>
-);
-
-// Three bars rising left to right; unlike Polaris's bar chart icon, whose bars
-// are uneven, this one reads as "growth".
-const ChartIncreasingGlyph = (
-  <LucideGlyph size={20}>
-    <path d="M5 21v-6" />
-    <path d="M12 21V9" />
-    <path d="M19 21V3" />
-  </LucideGlyph>
-);
-
-const UsersRoundGlyph = (
-  <LucideGlyph size={20}>
-    <path d="M18 21a8 8 0 0 0-16 0" />
-    <circle cx="10" cy="8" r="5" />
-    <path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3" />
-  </LucideGlyph>
-);
-
-const CARDS = [
-  {
-    image: personImage,
-    // Actual file dimensions of the 1080px-wide source — only used as the
-    // intrinsic-size hint on <img>; the visible size is set by CARD_W/PHOTO_H
-    // via style, not by these.
-    width: 1080,
-    height: 1440,
-    alt: "A customer's own photo",
-    icon: UserRoundGlyph,
-    title: 'Customer Photo',
-    caption: "Your customer's image",
-  },
-  {
-    image: garmentImage,
-    width: 1080,
-    height: 1438,
-    alt: 'A product photo from the store',
-    icon: ShirtGlyph,
-    title: 'Your Garment Image',
-    caption: 'From your store',
-  },
-  {
-    image: resultImage,
-    width: 1080,
-    height: 1440,
-    alt: 'The customer wearing the product',
-    icon: WandSparklesGlyph,
-    title: 'Virtual Try-On',
-    caption: 'Realistic results in seconds',
-  },
+const PHOTOS = [
+  { src: garmentImage, alt: 'A product photo from the store', width: 314 },
+  { src: personImage, alt: "A customer's own photo", width: 267 },
+  { src: resultImage, alt: 'The customer wearing the product', width: 314 },
 ];
 
-const BENEFITS = [
-  { icon: ChartIncreasingGlyph, text: 'Increase conversions' },
-  { icon: <Icon source={CartIcon} />, text: 'Reduce returns' },
-  { icon: UsersRoundGlyph, text: 'Build customer confidence' },
-];
+const ARROW = (
+  // biome-ignore lint/a11y/noSvgWithoutTitle: decorative
+  <svg
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </svg>
+);
 
-function IconCircle({ children, size }: { children: ReactNode; size: number }) {
-  const style: CSSProperties = {
-    width: size,
-    height: size,
-    flex: 'none',
-    borderRadius: '50%',
-    background: GREY_FILL,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  };
-  return <div style={style}>{children}</div>;
-}
-
-/** "+" or "=" between two cards, on a thin line that runs into both. */
-function Connector({ symbol }: { symbol: '+' | '=' }) {
-  return (
-    <div
-      aria-hidden
-      style={{
-        flex: '0 1 auto',
-        // Cards stretch to one height, so the connector pins itself to the photo row.
-        alignSelf: 'flex-start',
-        width: 'clamp(40px, 6vw, 88px)',
-        height: PHOTO_H,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: `linear-gradient(${LINE}, ${LINE}) center / 100% 1px no-repeat`,
-        // The card's own 6px padding sits above its photo; matching it centres the line on the photo.
-        marginTop: 6,
-      }}
-    >
-      <IconCircle size={44}>
-        {symbol === '+' ? (
-          <Icon source={PlusIcon} />
-        ) : (
-          // Polaris has no equals icon; two bars read the same and stay crisp.
-          <div style={{ display: 'grid', gap: 5 }}>
-            {/* Integer height, not 2.5 — a fractional px rounds to a different
-                device pixel per bar (one 2px, one 3px) depending on DPR/zoom,
-                which is what made the bottom bar read thicker than the top. */}
-            <div style={{ width: 16, height: 2, borderRadius: 2, background: '#303030' }} />
-            <div style={{ width: 16, height: 2, borderRadius: 2, background: '#303030' }} />
-          </div>
-        )}
-      </IconCircle>
-    </div>
-  );
-}
+const INTRO_CSS = `
+.av-intro { margin: auto 0; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 8px 8px 16px; }
+.av-intro .eyebrow { display: inline-block; padding: 8px 20px; border-radius: 14px; background: #e9e4fb; color: #4b1fd6; font-size: 14px; font-weight: 600; letter-spacing: .07em; }
+.av-intro h1 { margin: var(--av-gap) 0 0; font-size: clamp(26px, min(4.4vw, 5.6vh), 50px); line-height: 1.1; font-weight: 800; letter-spacing: -.025em; max-width: 900px; text-wrap: balance; }
+.av-intro h1 em { font-style: normal; color: #5a2cf0; }
+.av-intro .lead { margin: 10px 0 0; font-size: clamp(15px, min(1.8vw, 2.4vh), 21px); line-height: 1.45; color: #5d5b78; max-width: 700px; }
+.av-trio { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 20px; margin-top: var(--av-gap); }
+.av-trio img { height: clamp(110px, 24vh, 250px); object-fit: cover; display: block; border-radius: 28px; box-shadow: 0 14px 34px rgba(91,44,230,.1); max-width: 100%; }
+.av-trio .res { border: 2px solid #c8b8f8; box-shadow: 0 0 0 7px rgba(139,92,246,.08), 0 14px 34px rgba(91,44,230,.14); }
+.av-arr { width: 44px; height: 44px; border-radius: 50%; background: #fff; border: 1px solid #e1ddf0; display: grid; place-items: center; flex-shrink: 0; }
+.av-rule { display: flex; align-items: center; gap: 20px; width: 100%; max-width: 900px; margin-top: var(--av-gap); color: #5d5b78; font-size: 16px; }
+.av-rule span { flex: 1; height: 1px; background: #d9d6ea; }
+.av-rule p { margin: 0; }
+.av-mini { display: flex; flex-wrap: wrap; justify-content: center; row-gap: 12px; margin: 12px 0 0; padding: 0; list-style: none; }
+.av-mini li { display: flex; align-items: center; gap: 10px; padding: 0 26px; font-size: 16px; font-weight: 600; }
+.av-mini li + li { border-left: 1px solid #d9d6ea; }
+.av-mini b { width: 36px; height: 36px; border-radius: 50%; background: #e9e4fb; color: #4b1fd6; display: grid; place-items: center; font-size: 16px; font-weight: 700; }
+@media (max-width: 760px) { .av-arr { display: none; } .av-trio { gap: 12px; } .av-mini li { padding: 0 12px; } .av-mini li + li { border-left: 0; } }`;
 
 export default function OnboardingIntroPage() {
   const navigate = useNavigate();
 
   return (
-    <OnboardingShell page="intro" onContinue={() => navigate('/onboarding/products')}>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: 'var(--p-space-500)',
-          margin: 'auto 0',
-          padding: 'var(--p-space-200) var(--p-space-400)',
-        }}
-      >
-        {/* The brand mark and wordmark ship as two files (same as the web app), shown in their original colour. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {/* biome-ignore lint/performance/noImgElement: Vite SPA; the Next.js <Image> advice does not apply */}
-          <img src={logoMark} alt="" style={{ height: 40, width: 'auto' }} />
-          {/* biome-ignore lint/performance/noImgElement: Vite SPA; the Next.js <Image> advice does not apply */}
-          <img src={logoText} alt="AI Vastra" style={{ height: 44, width: 'auto' }} />
-        </div>
-
-        <div style={{ textAlign: 'center', maxWidth: 820 }}>
-          {/* Plain h1: Polaris Text tops out at 28px. */}
-          <h1
-            style={{
-              margin: 0,
-              fontSize: 'clamp(30px, min(5.4vh, 4.6vw), 58px)',
-              lineHeight: 1.12,
-              fontWeight: 800,
-              letterSpacing: '-0.02em',
-              // Balances the two lines instead of leaving "products." on its own.
-              textWrap: 'balance',
-            }}
-          >
-            Let your customers see themselves in your garments.
-          </h1>
-          <p
-            style={{
-              margin: 'var(--p-space-300) 0 0',
-              fontSize: 'clamp(14px, 2vh, 18px)',
-              lineHeight: 1.45,
-              textWrap: 'balance',
-              color: 'var(--p-color-text-secondary)',
-            }}
-          >
-            Help customers see how the dress suits them, increasing sales and reducing returns.
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}>
-          {CARDS.map((card, index) => (
-            <Fragment key={card.title}>
-              {index > 0 && <Connector symbol={index === 1 ? '+' : '='} />}
-              <div
-                style={{
-                  width: CARD_W,
-                  flex: 'none',
-                  boxSizing: 'content-box',
-                  padding: 6,
-                  marginBottom: 16,
-                  borderRadius: 22,
-                  background: '#fff',
-                  border: '1px solid #eee',
-                  boxShadow: '0 6px 24px rgba(0, 0, 0, 0.09)',
-                }}
-              >
-                {/* biome-ignore lint/performance/noImgElement: Vite SPA; the Next.js <Image> advice does not apply */}
-                <img
-                  src={card.image}
-                  alt={card.alt}
-                  width={card.width}
-                  height={card.height}
-                  loading="eager"
-                  decoding="async"
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    height: PHOTO_H,
-                    objectFit: 'cover',
-                    // Crop from the bottom: the face is what the eye needs.
-                    objectPosition: 'center top',
-                    borderRadius: 16,
-                  }}
-                />
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--p-space-300)',
-                    padding: 'var(--p-space-300) var(--p-space-200) var(--p-space-200)',
-                  }}
-                >
-                  {/* Smaller than the connector's 44px circle so the caption text has
-                      room to stay on one line. */}
-                  <IconCircle size={36}>{card.icon}</IconCircle>
-                  <div style={{ minWidth: 0 }}>
-                    <Text as="p" fontWeight="bold">
-                      {card.title}
-                    </Text>
-                    <Text as="p" tone="subdued" variant="bodySm">
-                      {card.caption}
-                    </Text>
-                  </div>
-                </div>
-              </div>
-            </Fragment>
-          ))}
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            justifyContent: 'center',
-            rowGap: 'var(--p-space-300)',
-          }}
-        >
-          {BENEFITS.map((benefit, index) => (
-            <div
-              key={benefit.text}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--p-space-300)',
-                padding: '0 var(--p-space-1000)',
-                borderLeft: index > 0 ? `1px solid ${LINE}` : undefined,
-              }}
-            >
-              <IconCircle size={40}>{benefit.icon}</IconCircle>
-              <Text as="span">{benefit.text}</Text>
+    <OnboardingShell page="intro" hideFooter onContinue={() => navigate('/onboarding/products')}>
+      <style>{INTRO_CSS}</style>
+      <div className="av-intro">
+        <span className="eyebrow">WELCOME TO AI VASTRA</span>
+        <h1>
+          Bring <em>Virtual Try-On</em> to your store.
+        </h1>
+        <p className="lead">
+          Let shoppers see how your products look on them, directly from your Shopify store.
+        </p>
+        <div className="av-trio">
+          {PHOTOS.map((photo, index) => (
+            <div key={photo.src} style={{ display: 'contents' }}>
+              {index > 0 && (
+                <span className="av-arr" aria-hidden>
+                  {ARROW}
+                </span>
+              )}
+              {/* biome-ignore lint/performance/noImgElement: Vite SPA; the Next.js <Image> advice does not apply */}
+              <img
+                className={index === PHOTOS.length - 1 ? 'res' : undefined}
+                src={photo.src}
+                alt={photo.alt}
+                loading="eager"
+                decoding="async"
+                style={{ aspectRatio: '3 / 4', width: 'auto' }}
+              />
             </div>
           ))}
         </div>
+        <div className="av-rule">
+          <span />
+          <p>Complete your setup in {STEP_PAGES.length} simple steps</p>
+          <span />
+        </div>
+        <ol className="av-mini">
+          {STEP_PAGES.map((step, index) => (
+            <li key={step}>
+              <b>{index + 1}</b>
+              {STEP_LABELS[step]}
+            </li>
+          ))}
+        </ol>
+        <button
+          type="button"
+          className="av-btn-primary"
+          style={{
+            marginTop: 'var(--av-gap)',
+            height: 'clamp(48px, 7vh, 64px)',
+            padding: '0 40px',
+            fontSize: 18,
+          }}
+          onClick={() => navigate('/onboarding/products')}
+        >
+          Start Setup
+          {ARROW}
+        </button>
       </div>
     </OnboardingShell>
   );

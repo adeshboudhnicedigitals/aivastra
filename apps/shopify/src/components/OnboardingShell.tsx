@@ -1,44 +1,24 @@
-import { Page } from '@shopify/polaris';
 import type { CSSProperties, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { type OnboardingPage, previousPagePath } from '../lib/onboarding';
+import designBg from '../assets/design-bg.jpg';
+import { nextStepLabel, type OnboardingPage, previousPagePath } from '../lib/onboarding';
+import { BrandHeader } from './BrandHeader';
 import { OnboardingFooter } from './OnboardingFooter';
 import { OnboardingSteps } from './OnboardingSteps';
 
-// Kept around for a page that deliberately wants the mono look (none currently
-// do) — Public Sans below is the wizard's actual typeface.
-export const FONT_MONO = "'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
-
-export const FONT_PUBLIC_SANS =
-  "'Public Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
-
-// The panel is white in every colour scheme, so Polaris's text tokens are pinned
-// to their light-mode values here — otherwise dark mode would render pale text
-// against the white. The font token is what Polaris's Text and Button read, so
-// the mono face reaches them as well as the plain elements.
-const panelTokens = (font: string) =>
-  ({
-    '--p-color-text': '#303030',
-    '--p-color-text-secondary': '#616161',
-    '--p-font-family-sans': font,
-  }) as CSSProperties;
+export const FONT_APP = "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
 
 /**
- * The frame shared by every onboarding page: a white, viewport-tall panel in
- * Public Sans (the welcome page's typeface) with the numbered step row pinned
- * at the top (absent on the welcome intro, which is not a step), the page's
- * content in the middle, and the tall-button footer pinned to the bottom.
- * Content that outgrows the panel scrolls inside it, so neither the steps nor
+ * The frame shared by every onboarding page: the branded header, the pill step
+ * row (absent on the welcome intro, which is not a step), then a viewport-tall
+ * glass card holding the page's content with the footer pinned to its bottom.
+ * Content that outgrows the card scrolls inside it, so neither the steps nor
  * the footer ever leave the screen.
- *
- * The 32px offset is Polaris Page's own vertical padding (20px top + 8px
- * bottom) plus a little slack; fullWidth lifts Page's ~998px cap.
  */
 export function OnboardingShell({
   page,
   hideBack = false,
-  font = FONT_PUBLIC_SANS,
-  tallButtons = true,
+  hideFooter = false,
   continueLabel,
   onContinue,
   continueDisabled,
@@ -49,10 +29,9 @@ export function OnboardingShell({
   page: OnboardingPage;
   /** Suppress Previous, e.g. when the previous page would just bounce the merchant out of a finished wizard. */
   hideBack?: boolean;
-  /** Typeface of the whole panel, footer included (the welcome page uses Public Sans). */
-  font?: string;
-  /** Taller footer buttons (the welcome page). */
-  tallButtons?: boolean;
+  /** For a page that carries its own call to action (the welcome intro). */
+  hideFooter?: boolean;
+  /** Defaults to "Continue to <next step>" (plain "Continue" on the last page). */
   continueLabel?: string;
   onContinue: () => void;
   continueDisabled?: boolean;
@@ -62,47 +41,29 @@ export function OnboardingShell({
 }) {
   const navigate = useNavigate();
   const backPath = hideBack ? null : previousPagePath(page);
+  const next = nextStepLabel(page);
   return (
-    <Page fullWidth>
-      <div
-        style={{
-          ...panelTokens(font),
-          fontFamily: font,
-          height: 'calc(100vh - 32px)',
-          minHeight: 420,
-          display: 'flex',
-          flexDirection: 'column',
-          background: '#fff',
-          color: '#303030',
-          borderRadius: 12,
-          overflow: 'hidden',
-        }}
-      >
-        {page !== 'intro' && <OnboardingSteps page={page} />}
-        <div
-          style={{
-            flex: '1 1 0',
-            minHeight: 0,
-            overflowY: 'auto',
-            boxSizing: 'border-box',
-            padding: 'var(--p-space-500)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--p-space-300)',
-          }}
-        >
-          {children}
+    <div
+      className="av-page"
+      style={{ height: '100vh', minHeight: 520, '--av-bg': `url(${designBg})` } as CSSProperties}
+    >
+      <BrandHeader />
+      <main className="av-main">
+        <div className="av-card">
+          {page !== 'intro' && <OnboardingSteps page={page} />}
+          <div className="av-card-body">{children}</div>
+          {!hideFooter && (
+            <OnboardingFooter
+              continueLabel={continueLabel ?? (next ? `Continue to ${next}` : 'Continue')}
+              onContinue={onContinue}
+              continueDisabled={continueDisabled}
+              continueLoading={continueLoading}
+              secondaryAction={secondaryAction}
+              onBack={backPath ? () => navigate(backPath) : undefined}
+            />
+          )}
         </div>
-        <OnboardingFooter
-          continueLabel={continueLabel}
-          onContinue={onContinue}
-          continueDisabled={continueDisabled}
-          continueLoading={continueLoading}
-          secondaryAction={secondaryAction}
-          onBack={backPath ? () => navigate(backPath) : undefined}
-          tall={tallButtons}
-        />
-      </div>
-    </Page>
+      </main>
+    </div>
   );
 }

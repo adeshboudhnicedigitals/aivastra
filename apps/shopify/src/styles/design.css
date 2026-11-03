@@ -1,0 +1,324 @@
+/*
+ * Visual language of the redesigned onboarding + app pages: a lavender
+ * photo-wash page, glass cards, an ink/violet palette and pill navigation.
+ * Polaris components inside `.av-app` are re-skinned by overriding its tokens
+ * rather than by restyling each page, so a page that stays on Polaris still
+ * matches.
+ */
+.av-app,
+#PolarisPortalsContainer {
+  --av-ink: #12101f;
+  --av-muted: #5d5b78;
+  --av-violet: #5a2cf0;
+  --av-violet-deep: #4219cf;
+  --av-line: #dcd8ee;
+
+  --p-color-text: #12101f;
+  --p-color-text-secondary: #5d5b78;
+  --p-color-text-link: #4b1fd6;
+  --p-color-text-link-hover: #3b1bb8;
+  --p-color-bg-fill-brand: #4a1fe0;
+  --p-color-bg-fill-brand-hover: #3b17b8;
+  --p-color-bg-fill-brand-active: #3b17b8;
+  --p-color-bg-surface: rgba(255, 255, 255, 0.93);
+  --p-color-border-focus: #5a2cf0;
+  --p-border-radius-200: 0.75rem;
+  --p-border-radius-300: 1.5rem;
+  --p-shadow-bevel-100: 0 22px 56px rgba(91, 44, 230, 0.08), 0 2px 6px rgba(20, 16, 40, 0.04);
+  font-family: "Inter", system-ui, sans-serif;
+  color: var(--av-ink);
+}
+
+/* Full-viewport lavender backdrop shared by onboarding and the app chrome. */
+.av-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #f3f0fd;
+  background-image: var(--av-bg);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  -webkit-font-smoothing: antialiased;
+}
+
+.av-hdr {
+  min-height: 72px;
+  padding: 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(91, 44, 230, 0.08);
+  background: rgba(255, 255, 255, 0.6);
+}
+.av-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.av-logo {
+  width: 40px;
+  height: auto;
+  display: block;
+}
+.av-bn {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.av-vr {
+  width: 1px;
+  height: 30px;
+  background: #d9d6ea;
+  margin: 0 6px;
+}
+.av-sp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px 0 8px;
+  border-radius: 12px;
+  background: #eceaf6;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.av-sp img {
+  width: 22px;
+  height: auto;
+  display: block;
+}
+.av-store {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 16px 0 6px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid #e6e3f2;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.av-store i {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ebe6fc;
+  color: #4b1fd6;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Wizard step row */
+.av-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+  padding: 28px 24px 0;
+  margin: 0;
+  list-style: none;
+  flex-shrink: 0;
+}
+.av-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 22px 0 5px;
+  border-radius: 23px;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 14px rgba(91, 44, 230, 0.08);
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.av-step .n {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--av-ink);
+  background: #fff;
+  font-size: 16px;
+  font-weight: 700;
+}
+.av-step.done .n {
+  background: var(--av-ink);
+  color: #fff;
+}
+.av-step.active {
+  background: var(--av-ink);
+  color: #fff;
+}
+.av-step.active .n {
+  background: #fff;
+  color: var(--av-ink);
+  border-color: #fff;
+}
+.av-conn {
+  width: 30px;
+  height: 2px;
+  background: var(--av-ink);
+}
+
+/* The wizard card */
+.av-main {
+  flex: 1 1 0;
+  min-height: 0;
+  padding: 28px 24px 32px;
+  display: flex;
+}
+.av-card {
+  width: 100%;
+  max-width: 1176px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 36px;
+  overflow: hidden;
+  box-shadow:
+    0 30px 70px rgba(91, 44, 230, 0.1),
+    0 2px 6px rgba(20, 16, 40, 0.04);
+}
+
+/* Buttons shared by the wizard footer and the intro page */
+.av-btn-primary,
+.av-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 36px;
+  border-radius: 14px;
+  font:
+    600 18px "Inter",
+    system-ui,
+    sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.av-btn-primary {
+  border: 0;
+  color: #fff;
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+  box-shadow: 0 12px 26px rgba(74, 31, 220, 0.28);
+}
+.av-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.av-btn-primary:disabled {
+  background: #b9a6f7;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.av-btn-ghost {
+  background: #fff;
+  border: 1.5px solid var(--av-line);
+  color: var(--av-ink);
+}
+.av-btn-ghost:hover:not(:disabled) {
+  background: #faf9ff;
+}
+.av-btn-ghost:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.av-btn-primary:focus-visible,
+.av-btn-ghost:focus-visible,
+.av-tab:focus-visible {
+  outline: 3px solid var(--av-ink);
+  outline-offset: 3px;
+}
+
+/* App pill navigation + page body */
+.av-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 28px 24px 0;
+}
+.av-tab {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 22px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 14px rgba(91, 44, 230, 0.08);
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--av-ink);
+  text-decoration: none;
+}
+.av-tab:hover {
+  background: #fff;
+}
+.av-tab.on {
+  background: var(--av-ink);
+  color: #fff;
+}
+.av-body {
+  width: 100%;
+  max-width: 1176px;
+  margin: 0 auto;
+  padding: 8px 24px 120px;
+  flex: 1;
+}
+
+@media (max-width: 760px) {
+  .av-hdr {
+    padding: 0 16px;
+    min-height: 60px;
+  }
+  .av-bn {
+    font-size: 19px;
+  }
+  .av-vr,
+  .av-sp {
+    display: none;
+  }
+  .av-conn {
+    display: none;
+  }
+  .av-step:not(.active) .lbl {
+    display: none;
+  }
+  .av-step {
+    padding: 0 5px;
+  }
+  .av-step.active {
+    padding: 0 18px 0 5px;
+  }
+  .av-card {
+    border-radius: 24px;
+  }
+  .av-main {
+    padding: 20px 12px 20px;
+  }
+  .av-tab {
+    height: 40px;
+    padding: 0 16px;
+    font-size: 15px;
+  }
+  .av-body {
+    padding: 8px 12px 100px;
+  }
+}

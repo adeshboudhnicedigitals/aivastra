@@ -1,8 +1,8 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { FONT_PUBLIC_SANS } from './OnboardingShell';
+import { FONT_APP } from './OnboardingShell';
 
 /**
- * Brings the onboarding wizard's Public Sans typeface to the rest of the app —
+ * Brings the app's Inter typeface to the rest of the app —
  * every page wraps its own content in this, and App.tsx wraps the nav/Frame
  * chrome and the loading/error states around them, so nothing falls back to
  * Polaris's default font. Only sets the font custom property Polaris's
@@ -12,10 +12,11 @@ import { FONT_PUBLIC_SANS } from './OnboardingShell';
 export function AppFont({ children }: { children: ReactNode }) {
   return (
     <div
+      className="av-app"
       style={
         {
-          '--p-font-family-sans': FONT_PUBLIC_SANS,
-          fontFamily: FONT_PUBLIC_SANS,
+          '--p-font-family-sans': FONT_APP,
+          fontFamily: FONT_APP,
         } as CSSProperties
       }
     >

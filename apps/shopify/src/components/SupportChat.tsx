@@ -154,6 +154,7 @@ export function SupportChat() {
       )}
       <button
         type="button"
+        data-support-chat-launcher
         aria-label={open ? 'Close support chat' : 'Open support chat'}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
