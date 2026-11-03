@@ -1,4 +1,7 @@
 import '@shopify/polaris/build/esm/styles.css';
+import './styles/design.css';
+import './styles/onboarding-content.css';
+import './styles/app-pages.css';
 import { AppProvider, Banner, Box, Frame, Navigation } from '@shopify/polaris';
 // AppProvider has no built-in default strings — an empty i18n object silently
 // blanks every one of Polaris's own labels (pagination Previous/Next,
@@ -7,6 +10,7 @@ import { AppProvider, Banner, Box, Frame, Navigation } from '@shopify/polaris';
 import enTranslations from '@shopify/polaris/locales/en.json';
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { AppChrome } from './components/AppChrome';
 import { AppFont } from './components/AppFont';
 import { AppNavMenu, NAV_ITEMS } from './components/AppNavMenu';
 import { LoadingScreen } from './components/LoadingScreen';
@@ -217,14 +221,6 @@ export default function App() {
         <AppNavMenu onboardingComplete={onboardingComplete} />
         <Frame navigation={devNavigation}>
           <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/manage" element={<ManagePage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/support" element={<SupportPage />} />
-            <Route path="/billing/callback" element={<BillingCallbackPage />} />
-            <Route path="/billing/autorefill-callback" element={<AutorefillCallbackPage />} />
             <Route path="/onboarding" element={<OnboardingIntroPage />} />
             <Route
               path="/onboarding/products"
@@ -248,16 +244,26 @@ export default function App() {
               path="/onboarding/theme"
               element={<OnboardingThemePage me={me} onRefresh={refreshMe} />}
             />
-            {/* Merchants may have bookmarked the old path while it was the only
-                product surface. */}
-            <Route path="/products" element={<Navigate to="/manage" replace />} />
-            {/* Merchants may have bookmarked the old path while Routing was its
-                own page. */}
-            <Route path="/routing" element={<Navigate to="/manage" replace />} />
-            <Route path="/embedded" element={<Navigate to="/" replace />} />
-            {/* Widget Design page removed — merchants may have it bookmarked or
-                pinned in Shopify admin's nav history. */}
-            <Route path="/widget-design" element={<Navigate to="/" replace />} />
+            <Route element={<AppChrome me={me} showNav={onboardingComplete} />}>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/manage" element={<ManagePage />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
+              <Route path="/pricing" element={<PricingPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/support" element={<SupportPage />} />
+              <Route path="/billing/callback" element={<BillingCallbackPage />} />
+              <Route path="/billing/autorefill-callback" element={<AutorefillCallbackPage />} />
+              {/* Merchants may have bookmarked the old path while it was the only
+                  product surface. */}
+              <Route path="/products" element={<Navigate to="/manage" replace />} />
+              {/* Merchants may have bookmarked the old path while Routing was its
+                  own page. */}
+              <Route path="/routing" element={<Navigate to="/manage" replace />} />
+              <Route path="/embedded" element={<Navigate to="/" replace />} />
+              {/* Widget Design page removed — merchants may have it bookmarked or
+                  pinned in Shopify admin's nav history. */}
+              <Route path="/widget-design" element={<Navigate to="/" replace />} />
+            </Route>
           </Routes>
         </Frame>
         <SupportChat />

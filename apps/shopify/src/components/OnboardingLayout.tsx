@@ -17,7 +17,7 @@ export function OnboardingLayout({
   fullWidth = false,
   padding = 'var(--p-space-1600) var(--p-space-800)',
   card = true,
-  continueLabel = 'Continue',
+  continueLabel,
   onContinue,
   continueDisabled = false,
   continueLoading = false,

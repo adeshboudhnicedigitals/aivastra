@@ -2,24 +2,22 @@ import {
   Badge,
   BlockStack,
   Box,
-  Button,
-  Card,
   DatePicker,
-  EmptyState,
   IndexTable,
-  InlineGrid,
   InlineStack,
   OptionList,
-  Page,
   Popover,
   Spinner,
   Text,
 } from '@shopify/polaris';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { AppFont } from '../components/AppFont';
+import { AppPage } from '../components/AppPage';
+import { AvCard } from '../components/AvCard';
 import { BarChart } from '../components/BarChart';
 import { ChartTable } from '../components/ChartTable';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { Glyph } from '../components/PageHead';
 import { ANALYTICS_PRESETS, type AnalyticsPreset, resolvePreset } from '../lib/analyticsRange';
 import { apiFetch, apiFetchResponse } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
@@ -29,17 +27,11 @@ import type { ShopifyAnalytics, ShopifyMe, ShopifyShopperListItem } from '../typ
 // — per the dataviz skill these are stat tiles, not charts.
 function StatTile({ label, value, action }: { label: string; value: string; action?: ReactNode }) {
   return (
-    <Card>
-      <BlockStack gap="100">
-        <Text as="p" tone="subdued" variant="bodySm">
-          {label}
-        </Text>
-        <Text as="p" variant="heading2xl">
-          {value}
-        </Text>
-        {action}
-      </BlockStack>
-    </Card>
+    <AvCard>
+      <div className="av-k">{label}</div>
+      <div className="av-big">{value}</div>
+      {action}
+    </AvCard>
   );
 }
 
@@ -144,242 +136,261 @@ export default function AnalyticsPage() {
 
   return (
     <AppFont>
-      <Page title="Analytics">
-        <BlockStack gap="400">
-          <ErrorBanner
-            error={error}
-            onRetry={() => window.location.reload()}
-            onDismiss={() => setError(null)}
-          />
+      <AppPage
+        title="Analytics"
+        actions={
+          <Popover
+            active={pickerOpen}
+            activator={
+              <button
+                type="button"
+                className="av-datebtn"
+                aria-haspopup="dialog"
+                aria-expanded={pickerOpen}
+                onClick={() => setPickerOpen((o) => !o)}
+              >
+                <Glyph size={20}>
+                  <rect x="3.5" y="5" width="17" height="15" rx="3" />
+                  <path d="M3.5 10h17M8 3v4M16 3v4" />
+                </Glyph>
+                {label}
+                <Glyph size={16}>
+                  <path d="M6 9l6 6 6-6" />
+                </Glyph>
+              </button>
+            }
+            onClose={() => setPickerOpen(false)}
+          >
+            <Box padding="200">
+              <InlineStack gap="400" align="start" blockAlign="start">
+                <OptionList
+                  options={ANALYTICS_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
+                  selected={[preset]}
+                  onChange={choosePreset}
+                />
+                <DatePicker
+                  month={month.month}
+                  year={month.year}
+                  onMonthChange={(m, y) => setMonth({ month: m, year: y })}
+                  allowRange
+                  selected={
+                    range ? { start: new Date(range.from), end: new Date(range.to) } : undefined
+                  }
+                  onChange={({ start, end }) => {
+                    setPreset('custom');
+                    setRange({
+                      from: start.toISOString().slice(0, 10),
+                      to: end.toISOString().slice(0, 10),
+                    });
+                    setPickerOpen(false);
+                  }}
+                />
+              </InlineStack>
+            </Box>
+          </Popover>
+        }
+      >
+        <ErrorBanner
+          error={error}
+          onRetry={() => window.location.reload()}
+          onDismiss={() => setError(null)}
+        />
 
-          <InlineStack align="start">
-            <Popover
-              active={pickerOpen}
-              activator={<Button onClick={() => setPickerOpen((o) => !o)}>{label}</Button>}
-              onClose={() => setPickerOpen(false)}
-            >
-              <Box padding="200">
-                <InlineStack gap="400" align="start" blockAlign="start">
-                  <OptionList
-                    options={ANALYTICS_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
-                    selected={[preset]}
-                    onChange={choosePreset}
-                  />
-                  <DatePicker
-                    month={month.month}
-                    year={month.year}
-                    onMonthChange={(m, y) => setMonth({ month: m, year: y })}
-                    allowRange
-                    selected={
-                      range ? { start: new Date(range.from), end: new Date(range.to) } : undefined
-                    }
-                    onChange={({ start, end }) => {
-                      setPreset('custom');
-                      setRange({
-                        from: start.toISOString().slice(0, 10),
-                        to: end.toISOString().slice(0, 10),
-                      });
-                      setPickerOpen(false);
-                    }}
-                  />
-                </InlineStack>
-              </Box>
-            </Popover>
-          </InlineStack>
-
-          {loading && !data ? (
-            <Spinner accessibilityLabel="Loading analytics" />
-          ) : data ? (
-            <>
-              <InlineGrid columns={{ xs: 1, sm: 2, lg: 3 }} gap="400">
-                <StatTile label="Try-ons" value={String(data.cards.tryOns)} />
-                <StatTile label="Unique shoppers" value={String(data.cards.uniqueShoppers)} />
-                <StatTile label="Added to cart" value={String(data.cards.addedToCart)} />
-                {/* Never "Conversion rate" — a merchant reads that as purchased. */}
-                <StatTile label="Add-to-cart rate" value={pct(data.cards.addToCartRate)} />
-                <StatTile label="Emails captured" value={String(data.cards.emailsCaptured)} />
-                {/* A soft gate — most shoppers asked for an email submit it and
+        {loading && !data ? (
+          <Spinner accessibilityLabel="Loading analytics" />
+        ) : data ? (
+          <>
+            <div className="av-grid av-g3">
+              <StatTile label="Try-ons" value={String(data.cards.tryOns)} />
+              <StatTile label="Unique shoppers" value={String(data.cards.uniqueShoppers)} />
+              <StatTile label="Added to cart" value={String(data.cards.addedToCart)} />
+              {/* Never "Conversion rate" — a merchant reads that as purchased. */}
+              <StatTile label="Add-to-cart rate" value={pct(data.cards.addToCartRate)} />
+              <StatTile label="Emails captured" value={String(data.cards.emailsCaptured)} />
+              {/* A soft gate — most shoppers asked for an email submit it and
                   get their try-on anyway, so this is deliberately not part of
                   "Turned away" (which only counts genuinely lost traffic). */}
-                <StatTile
-                  label="Asked for an email"
-                  value={String(data.cards.turnedAway.emailGate)}
-                />
-                <StatTile label="Turned away" value={String(data.cards.turnedAway.total)} />
-              </InlineGrid>
+              <StatTile
+                label="Asked for an email"
+                value={String(data.cards.turnedAway.emailGate)}
+              />
+              <StatTile label="Turned away" value={String(data.cards.turnedAway.total)} />
+            </div>
 
-              <Card>
-                <BlockStack gap="300">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text as="h2" variant="headingMd">
-                      Collected contacts
-                    </Text>
-                    <Button
-                      onClick={exportCsv}
-                      loading={exporting}
-                      disabled={!shoppers || shoppers.length === 0}
-                    >
-                      Export CSV
-                    </Button>
+            <AvCard>
+              <BlockStack gap="300">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="h2" variant="headingMd">
+                    Collected contacts
+                  </Text>
+                  <button
+                    type="button"
+                    className="av-btn-ghost av-btn-sm"
+                    onClick={exportCsv}
+                    disabled={exporting || !shoppers || shoppers.length === 0}
+                    aria-busy={exporting || undefined}
+                  >
+                    Export CSV
+                  </button>
+                </InlineStack>
+                <Text as="p" tone="subdued">
+                  Emails of shoppers who tried on. Only shoppers who ticked the consent box have
+                  agreed to marketing; shoppers who logged in were not asked, so check the Consent
+                  column before adding an address to a mailing list.
+                </Text>
+                {shoppers && shoppers.length === 0 ? (
+                  <div className="av-empty">
+                    <b>No contacts collected yet</b>
+                    <span>
+                      Turn on "Only logged-in shoppers can try on" or "Ask for an email" under
+                      Settings → Limits to start collecting.
+                    </span>
+                  </div>
+                ) : (
+                  <IndexTable
+                    resourceName={{ singular: 'shopper', plural: 'shoppers' }}
+                    itemCount={shoppers?.length ?? 0}
+                    selectable={false}
+                    loading={!shoppers}
+                    headings={[
+                      { title: 'Email' },
+                      { title: 'Phone' },
+                      { title: 'Consent' },
+                      { title: 'First seen' },
+                      { title: 'Try-ons' },
+                    ]}
+                  >
+                    {(shoppers ?? []).map((s, index) => (
+                      <IndexTable.Row id={s.id} key={s.id} position={index}>
+                        <IndexTable.Cell>{s.email}</IndexTable.Cell>
+                        <IndexTable.Cell>{s.phone ?? '—'}</IndexTable.Cell>
+                        <IndexTable.Cell>
+                          <Badge tone={s.emailConsent ? 'success' : undefined}>
+                            {s.emailConsent ? 'Consented' : 'No consent'}
+                          </Badge>
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>
+                          {new Date(s.firstSeenAt).toLocaleDateString()}
+                        </IndexTable.Cell>
+                        <IndexTable.Cell>{String(s.tryOnCount)}</IndexTable.Cell>
+                      </IndexTable.Row>
+                    ))}
+                  </IndexTable>
+                )}
+              </BlockStack>
+            </AvCard>
+
+            {data.cards.turnedAway.total > 0 && (
+              <AvCard>
+                <BlockStack gap="200">
+                  <Text as="h2" variant="headingMd">
+                    Shoppers you turned away
+                  </Text>
+                  <InlineStack gap="200">
+                    <Badge>{`Store daily cap: ${data.cards.turnedAway.storeCap}`}</Badge>
+                    <Badge>{`Per-shopper cap: ${data.cards.turnedAway.shopperCap}`}</Badge>
                   </InlineStack>
                   <Text as="p" tone="subdued">
-                    Emails of shoppers who tried on. Only shoppers who ticked the consent box have
-                    agreed to marketing; shoppers who logged in were not asked, so check the Consent
-                    column before adding an address to a mailing list.
+                    These shoppers wanted a try-on and did not get one. Adjust your limits in
+                    Settings. (Shoppers asked for an email are shown separately above — most of them
+                    submit it and get their try-on anyway.)
                   </Text>
-                  {shoppers && shoppers.length === 0 ? (
-                    <EmptyState heading="No contacts collected yet" image="">
-                      <p>
-                        Turn on "Only logged-in shoppers can try on" or "Ask for an email" under
-                        Settings → Limits to start collecting.
-                      </p>
-                    </EmptyState>
-                  ) : (
-                    <IndexTable
-                      resourceName={{ singular: 'shopper', plural: 'shoppers' }}
-                      itemCount={shoppers?.length ?? 0}
-                      selectable={false}
-                      loading={!shoppers}
-                      headings={[
-                        { title: 'Email' },
-                        { title: 'Phone' },
-                        { title: 'Consent' },
-                        { title: 'First seen' },
-                        { title: 'Try-ons' },
-                      ]}
-                    >
-                      {(shoppers ?? []).map((s, index) => (
-                        <IndexTable.Row id={s.id} key={s.id} position={index}>
-                          <IndexTable.Cell>{s.email}</IndexTable.Cell>
-                          <IndexTable.Cell>{s.phone ?? '—'}</IndexTable.Cell>
-                          <IndexTable.Cell>
-                            <Badge tone={s.emailConsent ? 'success' : undefined}>
-                              {s.emailConsent ? 'Consented' : 'No consent'}
-                            </Badge>
-                          </IndexTable.Cell>
-                          <IndexTable.Cell>
-                            {new Date(s.firstSeenAt).toLocaleDateString()}
-                          </IndexTable.Cell>
-                          <IndexTable.Cell>{String(s.tryOnCount)}</IndexTable.Cell>
-                        </IndexTable.Row>
-                      ))}
-                    </IndexTable>
-                  )}
                 </BlockStack>
-              </Card>
+              </AvCard>
+            )}
 
-              {data.cards.turnedAway.total > 0 && (
-                <Card>
-                  <BlockStack gap="200">
-                    <Text as="h2" variant="headingMd">
-                      Shoppers you turned away
-                    </Text>
-                    <InlineStack gap="200">
-                      <Badge>{`Store daily cap: ${data.cards.turnedAway.storeCap}`}</Badge>
-                      <Badge>{`Per-shopper cap: ${data.cards.turnedAway.shopperCap}`}</Badge>
-                    </InlineStack>
-                    <Text as="p" tone="subdued">
-                      These shoppers wanted a try-on and did not get one. Adjust your limits in
-                      Settings. (Shoppers asked for an email are shown separately above — most of
-                      them submit it and get their try-on anyway.)
-                    </Text>
-                  </BlockStack>
-                </Card>
-              )}
+            <AvCard>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Try-ons per day
+                </Text>
+                <BarChart
+                  orientation="vertical"
+                  data={data.daily.map((d) => ({ label: d.day, value: d.tryOns }))}
+                />
+                <ChartTable
+                  id="daily-table"
+                  columns={['Day', 'Try-ons']}
+                  rows={data.daily.map((d) => ({ label: d.day, value: String(d.tryOns) }))}
+                />
+              </BlockStack>
+            </AvCard>
 
-              <Card>
-                <BlockStack gap="300">
-                  <Text as="h2" variant="headingMd">
-                    Try-ons per day
-                  </Text>
-                  <BarChart
-                    orientation="vertical"
-                    data={data.daily.map((d) => ({ label: d.day, value: d.tryOns }))}
-                  />
-                  <ChartTable
-                    id="daily-table"
-                    columns={['Day', 'Try-ons']}
-                    rows={data.daily.map((d) => ({ label: d.day, value: String(d.tryOns) }))}
-                  />
-                </BlockStack>
-              </Card>
-
-              <Card>
-                <BlockStack gap="300">
-                  <Text as="h2" variant="headingMd">
-                    Shopper journey
-                  </Text>
-                  <BarChart
-                    orientation="horizontal"
-                    data={[
-                      { label: 'Clicked try-on', value: data.funnel.buttonClick },
-                      { label: 'Uploaded a photo', value: data.funnel.upload },
-                      { label: 'Generated a try-on', value: data.funnel.tryOn },
-                      { label: 'Viewed the result', value: data.funnel.resultView },
-                      { label: 'Added to cart', value: data.funnel.addToCart },
-                    ]}
-                  />
-                  <Text as="p" tone="subdued" variant="bodySm">
-                    Steps 1, 2, 4 and 5 are measured in the shopper&apos;s browser and can be
-                    blocked. Try-ons are measured on our servers and are exact — so a later step can
-                    show more shoppers than an earlier one.
-                  </Text>
-                  {data.funnel.unattributed > 0 && (
-                    <Text as="p" tone="subdued" variant="bodySm">
-                      {`${data.funnel.unattributed} try-ons came from an older widget version and could not be matched to a shopper, so they are not in this chart.`}
-                    </Text>
-                  )}
-                  <ChartTable
-                    id="funnel-table"
-                    columns={['Step', 'Shoppers']}
-                    rows={[
-                      { label: 'Clicked try-on', value: String(data.funnel.buttonClick) },
-                      { label: 'Uploaded a photo', value: String(data.funnel.upload) },
-                      { label: 'Generated a try-on', value: String(data.funnel.tryOn) },
-                      { label: 'Viewed the result', value: String(data.funnel.resultView) },
-                      { label: 'Added to cart', value: String(data.funnel.addToCart) },
-                    ]}
-                  />
-                </BlockStack>
-              </Card>
-
-              <Card padding="0">
-                <Box padding="400">
-                  <Text as="h2" variant="headingMd">
-                    Products
-                  </Text>
-                </Box>
-                <IndexTable
-                  resourceName={{ singular: 'product', plural: 'products' }}
-                  itemCount={data.products.length}
-                  selectable={false}
-                  headings={[
-                    { title: 'Product' },
-                    { title: 'Try-ons' },
-                    { title: 'Shoppers' },
-                    { title: 'Added to cart' },
-                    { title: 'Add-to-cart rate' },
+            <AvCard>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">
+                  Shopper journey
+                </Text>
+                <BarChart
+                  orientation="horizontal"
+                  data={[
+                    { label: 'Clicked try-on', value: data.funnel.buttonClick },
+                    { label: 'Uploaded a photo', value: data.funnel.upload },
+                    { label: 'Generated a try-on', value: data.funnel.tryOn },
+                    { label: 'Viewed the result', value: data.funnel.resultView },
+                    { label: 'Added to cart', value: data.funnel.addToCart },
                   ]}
-                >
-                  {data.products.map((p, i) => (
-                    <IndexTable.Row
-                      id={String(p.shopifyProductId)}
-                      key={p.shopifyProductId}
-                      position={i}
-                    >
-                      <IndexTable.Cell>{p.title ?? `#${p.shopifyProductId}`}</IndexTable.Cell>
-                      <IndexTable.Cell>{p.tryOns}</IndexTable.Cell>
-                      <IndexTable.Cell>{p.uniqueShoppers}</IndexTable.Cell>
-                      <IndexTable.Cell>{p.addedToCart}</IndexTable.Cell>
-                      <IndexTable.Cell>{pct(p.addToCartRate)}</IndexTable.Cell>
-                    </IndexTable.Row>
-                  ))}
-                </IndexTable>
-              </Card>
-            </>
-          ) : null}
-        </BlockStack>
-      </Page>
+                />
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Steps 1, 2, 4 and 5 are measured in the shopper&apos;s browser and can be blocked.
+                  Try-ons are measured on our servers and are exact — so a later step can show more
+                  shoppers than an earlier one.
+                </Text>
+                {data.funnel.unattributed > 0 && (
+                  <Text as="p" tone="subdued" variant="bodySm">
+                    {`${data.funnel.unattributed} try-ons came from an older widget version and could not be matched to a shopper, so they are not in this chart.`}
+                  </Text>
+                )}
+                <ChartTable
+                  id="funnel-table"
+                  columns={['Step', 'Shoppers']}
+                  rows={[
+                    { label: 'Clicked try-on', value: String(data.funnel.buttonClick) },
+                    { label: 'Uploaded a photo', value: String(data.funnel.upload) },
+                    { label: 'Generated a try-on', value: String(data.funnel.tryOn) },
+                    { label: 'Viewed the result', value: String(data.funnel.resultView) },
+                    { label: 'Added to cart', value: String(data.funnel.addToCart) },
+                  ]}
+                />
+              </BlockStack>
+            </AvCard>
+
+            <AvCard padding="0">
+              <div className="av-c-head">
+                <Text as="h2" variant="headingMd">
+                  Products
+                </Text>
+              </div>
+              <IndexTable
+                resourceName={{ singular: 'product', plural: 'products' }}
+                itemCount={data.products.length}
+                selectable={false}
+                headings={[
+                  { title: 'Product' },
+                  { title: 'Try-ons' },
+                  { title: 'Shoppers' },
+                  { title: 'Added to cart' },
+                  { title: 'Add-to-cart rate' },
+                ]}
+              >
+                {data.products.map((p, i) => (
+                  <IndexTable.Row
+                    id={String(p.shopifyProductId)}
+                    key={p.shopifyProductId}
+                    position={i}
+                  >
+                    <IndexTable.Cell>{p.title ?? `#${p.shopifyProductId}`}</IndexTable.Cell>
+                    <IndexTable.Cell>{p.tryOns}</IndexTable.Cell>
+                    <IndexTable.Cell>{p.uniqueShoppers}</IndexTable.Cell>
+                    <IndexTable.Cell>{p.addedToCart}</IndexTable.Cell>
+                    <IndexTable.Cell>{pct(p.addToCartRate)}</IndexTable.Cell>
+                  </IndexTable.Row>
+                ))}
+              </IndexTable>
+            </AvCard>
+          </>
+        ) : null}
+      </AppPage>
     </AppFont>
   );
 }
