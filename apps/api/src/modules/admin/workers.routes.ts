@@ -8,7 +8,7 @@ import {
   workerPoolSchema,
 } from '@aivastra/types';
 import { asc, eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { recordAudit } from './audit.js';
@@ -45,6 +45,8 @@ interface QueueSnapshot {
   pending: number | null;
   probedAt: number;
   error?: string;
+  runningPromptIds?: string[];
+  pendingPromptIds?: string[];
 }
 
 async function readQueueSnapshot(
@@ -109,55 +111,65 @@ async function syncToRedis(
   );
 }
 
-export async function adminWorkersRoutes(app: FastifyInstance) {
-  app.get('/admin/workers', { preHandler: requirePermission('workers.read') }, async () => {
-    const dbWorkers = await app.db
-      .select()
-      .from(schema.workers)
-      .orderBy(asc(schema.workers.createdAt));
-    const results = await Promise.all(
-      dbWorkers.map(async (w) => {
-        const raw = await app.redis.hget(REGISTRY_KEY, w.id);
-        const registry = raw ? (JSON.parse(raw) as { status?: string; lastSeen?: number }) : {};
-        const healthy = (await app.redis.get(healthKey(w.id))) === '1';
-        const queueGateEnabled = await readQueueGate(app.redis, w.id);
-        const queue = await readQueueSnapshot(app.redis, w.id);
-        const capabilities = await readWorkerCapabilities(app, w.id);
-        const capabilityGateDrift =
-          capabilities.status === 'configured' && queueGateEnabled !== true;
-        return {
-          id: w.id,
-          label: w.label,
-          url: w.url,
-          apiKeyHint: maskApiKey(w.apiKey),
-          isActive: w.isActive,
-          allowedJobTypes: w.allowedJobTypes ?? [],
-          status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
+/**
+ * The per-worker view behind GET /admin/workers. Exported so the fleet read API composes the
+ * same registry/health/queue reads instead of re-deriving them. `apiKeyHint` is the only form
+ * of the key that may leave this function.
+ */
+export async function listAdminWorkers(app: FastifyInstance) {
+  const dbWorkers = await app.db
+    .select()
+    .from(schema.workers)
+    .orderBy(asc(schema.workers.createdAt));
+  const results = await Promise.all(
+    dbWorkers.map(async (w) => {
+      const raw = await app.redis.hget(REGISTRY_KEY, w.id);
+      const registry = raw ? (JSON.parse(raw) as { status?: string; lastSeen?: number }) : {};
+      const healthy = (await app.redis.get(healthKey(w.id))) === '1';
+      const queueGateEnabled = await readQueueGate(app.redis, w.id);
+      const queue = await readQueueSnapshot(app.redis, w.id);
+      const capabilities = await readWorkerCapabilities(app, w.id);
+      const capabilityGateDrift = capabilities.status === 'configured' && queueGateEnabled !== true;
+      return {
+        id: w.id,
+        label: w.label,
+        url: w.url,
+        apiKeyHint: maskApiKey(w.apiKey),
+        isActive: w.isActive,
+        allowedJobTypes: w.allowedJobTypes ?? [],
+        status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
+        // `status` above is a guess when there is no registry entry; this says which it is.
+        inRegistry: raw !== null,
+        healthy,
+        queueGateEnabled,
+        capabilities,
+        comfyVersion: await app.redis.get(comfyVersionKey(w.id)),
+        capabilityWarning:
+          capabilities.status === 'unreadable'
+            ? 'Capabilities unreadable — drain before repair'
+            : capabilityGateDrift
+              ? 'Validated worker has no queue gate protection'
+              : null,
+        queue,
+        routing: routingState({
           healthy,
-          queueGateEnabled,
-          capabilities,
-          comfyVersion: await app.redis.get(comfyVersionKey(w.id)),
-          capabilityWarning:
-            capabilities.status === 'unreadable'
-              ? 'Capabilities unreadable — drain before repair'
-              : capabilityGateDrift
-                ? 'Validated worker has no queue gate protection'
-                : null,
+          status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
+          gateOn: queueGateEnabled,
           queue,
-          routing: routingState({
-            healthy,
-            status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
-            gateOn: queueGateEnabled,
-            queue,
-          }),
-          lastSeen: registry.lastSeen ?? null,
-          createdAt: w.createdAt,
-          updatedAt: w.updatedAt,
-        };
-      }),
-    );
-    return results;
-  });
+        }),
+        lastSeen: registry.lastSeen ?? null,
+        createdAt: w.createdAt,
+        updatedAt: w.updatedAt,
+      };
+    }),
+  );
+  return results;
+}
+
+export async function adminWorkersRoutes(app: FastifyInstance) {
+  app.get('/admin/workers', { preHandler: requirePermission('workers.read') }, async () =>
+    listAdminWorkers(app),
+  );
 
   // 'classify' is not offered: garment recognition runs on the resident classify
   // service (CLASSIFY_SERVICE_URL), not on a tagged GPU worker. The pool stays in
@@ -615,37 +627,62 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post(
-    '/admin/workers/:id/drain',
-    {
-      preHandler: requirePermission('workers.drain'),
-      schema: { params: z.object({ id: z.string() }) },
-    },
-    async (req, reply) => {
-      const { id } = req.params as { id: string };
-      const raw = await app.redis.hget(REGISTRY_KEY, id);
-      if (!raw) return reply.code(404).send({ ok: false });
-      const w = JSON.parse(raw) as Record<string, unknown>;
-      await app.redis.hset(REGISTRY_KEY, id, JSON.stringify({ ...w, status: 'DRAINING' }));
-      return { ok: true };
-    },
-  );
+  // Drain and undrain share one shape: the audit row and the registry write happen inside a
+  // single transaction callback (the capabilities and queue-gate routes do the same), so a Redis
+  // failure rolls the audit row back and no entry claims a drain that did not happen. The
+  // registry is read again inside it, after the audit insert is possible, so a worker deleted in
+  // the meantime is a 404 rather than a write to a missing entry. Unlike a PATCH to isActive this
+  // does not outlive the dispatcher: a restart rebuilds status from `isActive` (see
+  // rebuildWorkerRegistry), so a drain is lost when the dispatcher restarts.
+  // A POST with no body (what admin-web's buttons send) reaches the handler as null, not undefined.
+  const drainBody = z.object({ reason: z.string().trim().min(3).max(300).optional() }).nullish();
 
-  app.post(
-    '/admin/workers/:id/undrain',
-    {
-      preHandler: requirePermission('workers.drain'),
-      schema: { params: z.object({ id: z.string() }) },
-    },
-    async (req, reply) => {
-      const { id } = req.params as { id: string };
+  async function setDrainState(
+    req: FastifyRequest,
+    id: string,
+    to: 'DRAINING' | 'IDLE',
+    reason: string | undefined,
+  ): Promise<'missing' | 'unchanged' | 'changed'> {
+    return app.db.transaction(async (tx) => {
       const raw = await app.redis.hget(REGISTRY_KEY, id);
-      if (!raw) return reply.code(404).send({ ok: false });
-      const w = JSON.parse(raw) as Record<string, unknown>;
-      if (w.status === 'DRAINING') {
-        await app.redis.hset(REGISTRY_KEY, id, JSON.stringify({ ...w, status: 'IDLE' }));
-      }
-      return { ok: true };
-    },
-  );
+      if (!raw) return 'missing';
+      const entry = JSON.parse(raw) as Record<string, unknown>;
+      const from = entry.status;
+      // Drain from anything not already draining; undrain only from DRAINING, so it can never
+      // flip a BUSY worker to IDLE. (A held worker also stays unclaimable while its reservation
+      // lasts, whatever its status says.)
+      if (to === 'DRAINING' ? from === 'DRAINING' : from !== 'DRAINING') return 'unchanged';
+      await recordAudit(tx, {
+        actor: { userId: req.userId, role: req.adminRole! },
+        action: to === 'DRAINING' ? 'worker.drain' : 'worker.undrain',
+        resourceType: 'worker',
+        resourceId: id,
+        before: { status: from },
+        after: { status: to, reason: reason ?? null },
+        request: req,
+      });
+      await app.redis.hset(REGISTRY_KEY, id, JSON.stringify({ ...entry, status: to }));
+      return 'changed';
+    });
+  }
+
+  for (const [path, to] of [
+    ['drain', 'DRAINING'],
+    ['undrain', 'IDLE'],
+  ] as const) {
+    app.post(
+      `/admin/workers/:id/${path}`,
+      {
+        preHandler: requirePermission('workers.drain'),
+        schema: { params: z.object({ id: z.string() }), body: drainBody },
+      },
+      async (req, reply) => {
+        const { id } = req.params as { id: string };
+        const reason = (req.body as { reason?: string } | null)?.reason;
+        const result = await setDrainState(req, id, to, reason);
+        if (result === 'missing') return reply.code(404).send({ ok: false });
+        return { ok: true, changed: result === 'changed' };
+      },
+    );
+  }
 }

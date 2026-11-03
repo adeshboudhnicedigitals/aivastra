@@ -1,0 +1,76 @@
+{
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "total": 4,
+  "items": [
+    {
+      "id": "3c9e5b10-0000-4000-8000-000000000002",
+      "ruleKey": "box_unreachable",
+      "workerId": "worker-5",
+      "state": "OPEN",
+      "severity": "critical",
+      "summary": "worker-5 has not been heard from by the agent or the dispatcher for 6 minutes",
+      "evidence": {
+        "agentSilentSeconds": 372,
+        "dispatcherHealth": "UNREACHABLE"
+      },
+      "openedAt": "2026-11-02T09:52:00.000Z",
+      "ackedAt": null,
+      "ackedBy": null,
+      "recoveredAt": null
+    },
+    {
+      "id": "3c9e5b10-0000-4000-8000-000000000001",
+      "ruleKey": "thermal_collapse",
+      "workerId": "tryon-worker-4",
+      "state": "OPEN",
+      "severity": "warning",
+      "summary": "GPU 0 at 87 °C with SM clock at 37% of maximum",
+      "evidence": {
+        "gpuIndex": 0,
+        "tempC": 87,
+        "smClockMhz": 899,
+        "smClockMaxMhz": 2430,
+        "clockRatio": 0.37
+      },
+      "openedAt": "2026-11-02T09:41:00.000Z",
+      "ackedAt": null,
+      "ackedBy": null,
+      "recoveredAt": null
+    },
+    {
+      "id": "3c9e5b10-0000-4000-8000-000000000003",
+      "ruleKey": "disk_high",
+      "workerId": "worker-6",
+      "state": "ACK",
+      "severity": "warning",
+      "summary": "/ is 93% full",
+      "evidence": {
+        "mount": "/",
+        "usedPct": 93,
+        "inodeUsedPct": 12
+      },
+      "openedAt": "2026-11-02T08:10:00.000Z",
+      "ackedAt": "2026-11-02T08:20:00.000Z",
+      "ackedBy": {
+        "id": "7d1f0a52-0000-4000-8000-0000000000a1",
+        "email": "oncall@example.com"
+      },
+      "recoveredAt": null
+    },
+    {
+      "id": "3c9e5b10-0000-4000-8000-000000000004",
+      "ruleKey": "swap_active",
+      "workerId": "worker-3",
+      "state": "RECOVERED",
+      "severity": "info",
+      "summary": "2300 MiB of swap in use",
+      "evidence": {
+        "swapUsedMib": 2300
+      },
+      "openedAt": "2026-11-01T22:00:00.000Z",
+      "ackedAt": null,
+      "ackedBy": null,
+      "recoveredAt": "2026-11-01T23:30:00.000Z"
+    }
+  ]
+}

@@ -30,6 +30,13 @@
       "composeService": "support"
     },
     {
+      "name": "gpu-ops",
+      "dir": "apps/gpu-ops",
+      "packageName": "@aivastra/gpu-ops",
+      "dockerfile": "apps/gpu-ops/Dockerfile",
+      "composeService": "gpu-ops"
+    },
+    {
       "name": "api",
       "dir": "apps/api",
       "packageName": "@aivastra/api",
@@ -63,6 +70,10 @@
     {
       "dir": "apps/saree_catalogue_android",
       "reason": "native Gradle/Kotlin Android app; no package.json, not a pnpm workspace member, published through its own Android build"
+    },
+    {
+      "dir": "apps/fleet-agent",
+      "reason": "on-box telemetry agent (Python); installed by hand on the GPU boxes, not a container image"
     }
   ],
   "testablePackages": ["@aivastra/api", "@aivastra/dispatcher"],

@@ -217,6 +217,24 @@ services:
     networks:
       - aivastra-staging-net
 
+  # GPU fleet dashboard. There is deliberately no staging hostname for it (production only,
+  # gpus.aivastra.com); this service exists so the shared deploy job, which builds every selected
+  # service with this file, does not fail on "no such service". It is not exposed through any
+  # vhost. The default keeps the image build (which refuses an empty URL) from needing a
+  # .env.staging edit.
+  gpu-ops:
+    build:
+      context: ..
+      dockerfile: apps/gpu-ops/Dockerfile
+      args:
+        VITE_FLEET_API_URL: ${VITE_FLEET_API_URL:-https://staging-admin.aivastra.com}
+    container_name: aivastra-staging-gpu-ops
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3109:80"
+    networks:
+      - aivastra-staging-net
+
   support:
     build:
       context: ..

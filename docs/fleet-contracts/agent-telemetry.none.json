@@ -1,0 +1,9 @@
+{
+  "workerId": "tryon-worker-4",
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "telemetry": null,
+  "receivedAt": null,
+  "stale": true,
+  "clockSkewMs": null,
+  "signals": []
+}
