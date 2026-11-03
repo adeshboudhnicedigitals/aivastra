@@ -1,3 +1,18 @@
+# 2026-11-03 — GPU fleet dashboard: deploy wiring for gpus.aivastra.com (feat/fleet-ui, PR #639)
+
+- **Done (in repo):**
+  - `apps/gpu-ops` now has a Dockerfile, nginx.conf and a `gpu-ops` service in `infra/docker-compose.prod.yml` (`127.0.0.1:3009:80`, container `aivastra-prod-gpu-ops`), built like `admin`. New CI target `gpu-ops` in `config/ci-targets.json`; `apps/fleet-agent` declared a separate surface (hand-installed on boxes, never a container), so its files no longer trigger an "unmapped path, deploy everything" fallback.
+  - `VITE_FLEET_API_URL` is a build-time arg and the image build **fails if it is empty**: without it the dashboard runs in demo mode with fake data.
+  - Agent v0.1 (`apps/fleet-agent`) committed. Run read-only on w6 with `--print`: matched `nvidia-smi`. It has never sent to any API.
+- **Verified:** CI script tests 87/87; `docker build` fails on an empty URL and succeeds with one; the built image serves `/` with `no-cache`, falls back to `index.html` on deep links, and has the URL in the bundle.
+- **Outside the repo, NOT done (record here when done):**
+  - Cloudflare DNS record `gpus` and a Cloudflare Access policy in front of it (the dashboard can drain workers and restart ComfyUI).
+  - CloudPanel vhost `gpus.aivastra.com`: `/` -> `127.0.0.1:3009`; `/admin/*` and `/v1/*` -> the api service, the same way `admin.aivastra.com` does. Same origin, so no `CORS_ORIGIN` change is planned.
+  - VPS `.env`: `VITE_FLEET_API_URL=https://gpus.aivastra.com` (see `.env.production.example`).
+  - Unverified: that the admin refresh cookie works as intended under the new host. Check sign-in before relying on it.
+- **Decision:** production only, no staging copy of the dashboard (the user's call, 2026-11-03).
+- **Not done:** merge of PR #639; migrations 0240-0247 have never run through CI; agent not installed on any box.
+
 # 2026-11-02 — GPU fleet dashboard: live pages, admin sign-in, sample history (feat/fleet-api-read)
 
 - **Done:**

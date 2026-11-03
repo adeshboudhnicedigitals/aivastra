@@ -22,7 +22,16 @@ const run = (changedFiles: string[], fallbackReason?: string) =>
     fallbackReason,
   });
 
-const ALL_SERVICES = ['admin', 'api', 'chatbot', 'dispatcher', 'shopify-admin', 'support', 'web'];
+const ALL_SERVICES = [
+  'admin',
+  'api',
+  'chatbot',
+  'dispatcher',
+  'gpu-ops',
+  'shopify-admin',
+  'support',
+  'web',
+];
 
 describe('documentation changes', () => {
   it('classifies a docs-only change as docsOnly with no services', () => {
@@ -60,6 +69,16 @@ describe('per-service directories that differ from the target name', () => {
 
   it('maps apps/shopify to shopify-admin', () => {
     expect(run(['apps/shopify/src/main.tsx']).services).toEqual(['shopify-admin']);
+  });
+
+  it('maps apps/gpu-ops to its own service and nothing else', () => {
+    expect(run(['apps/gpu-ops/src/App.tsx']).services).toEqual(['gpu-ops']);
+  });
+
+  it('treats the fleet agent as a separate surface: no service, no fall-back-to-all', () => {
+    const result = run(['apps/fleet-agent/fleet_agent.py']);
+    expect(result.services).toEqual([]);
+    expect(result.fallbackToAll).toBe(false);
   });
 
   it('maps a service Dockerfile to its own service', () => {

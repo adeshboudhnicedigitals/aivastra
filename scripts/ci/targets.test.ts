@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTargets, matchAny } from './lib/targets.mts';
 
 describe('loadTargets', () => {
-  it('loads the seven deployable targets', () => {
+  it('loads the eight deployable targets', () => {
     const config = loadTargets('config/ci-targets.json');
     expect(config.schemaVersion).toBe(1);
     expect(config.targets.map((t) => t.name).sort()).toEqual([
@@ -10,6 +10,7 @@ describe('loadTargets', () => {
       'api',
       'chatbot',
       'dispatcher',
+      'gpu-ops',
       'shopify-admin',
       'support',
       'web',
@@ -32,6 +33,7 @@ describe('loadTargets', () => {
   it('declares the separate release surfaces', () => {
     const config = loadTargets('config/ci-targets.json');
     expect(config.separateSurfaces.map((s) => s.dir).sort()).toEqual([
+      'apps/fleet-agent',
       'apps/saree_catalogue_android',
       'apps/shopify-extension',
       'apps/virtual-tryon-mobile&kiosk_latest',
