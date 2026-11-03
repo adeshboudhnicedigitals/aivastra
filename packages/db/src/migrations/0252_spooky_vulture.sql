@@ -1,0 +1,1 @@
+ALTER TABLE "merchants" ADD COLUMN "logo_overlay_enabled" boolean DEFAULT false NOT NULL;

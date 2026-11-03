@@ -420,6 +420,8 @@ async function finishKnownPrompt(a: {
         attemptId: attempt.id,
         imageBytes,
         jobId: job.id,
+        merchantId,
+        source: job.source,
         compression,
         db,
         pub: cfg.pub,
