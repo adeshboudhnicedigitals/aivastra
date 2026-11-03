@@ -213,12 +213,6 @@ const groups: NavGroup[] = [
     label: 'Sales & Support',
     items: [
       {
-        k: 'support',
-        label: 'Support',
-        icon: Icon.Shield,
-        perm: 'admin.me',
-      },
-      {
         k: 'chat-inbox',
         hidden: true,
         label: 'Chat Inbox',
