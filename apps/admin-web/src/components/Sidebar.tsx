@@ -105,7 +105,6 @@ const groups: NavGroup[] = [
     items: [
       {
         k: 'users',
-        hidden: true,
         label: 'Users',
         icon: Icon.Users,
         perm: 'users.read',
@@ -126,7 +125,6 @@ const groups: NavGroup[] = [
       },
       {
         k: 'jobs',
-        hidden: true,
         label: 'Jobs',
         icon: Icon.Jobs,
         perm: 'jobs.write',
@@ -184,7 +182,6 @@ const groups: NavGroup[] = [
       },
       {
         k: 'shopify-stores',
-        hidden: true,
         label: 'Shopify Dashboard',
         icon: Icon.Coin,
         perm: 'shopify_stores.read',
@@ -214,7 +211,6 @@ const groups: NavGroup[] = [
     items: [
       {
         k: 'chat-inbox',
-        hidden: true,
         label: 'Chat Inbox',
         icon: Icon.MessageSquare,
         perm: 'chatbot.read',
