@@ -1,8 +1,9 @@
-import { BlockStack, Checkbox, Select, Text } from '@shopify/polaris';
+import { Select } from '@shopify/polaris';
 import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { OnboardingLayout } from '../components/OnboardingLayout';
+import { Glyph, PageHead } from '../components/PageHead';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import { loginRequiredPatch, numericOptions, OFF, resolveNumericLimit } from '../lib/limits';
@@ -102,27 +103,40 @@ export default function OnboardingLimitsPage({
 
   return (
     <OnboardingLayout
+      bare
       page="limits"
-      title="Virtual Tryon Usage"
-      titleAlign="center"
-      largeTitle
+      fullWidth
+      padding="var(--p-space-400)"
       onContinue={saveAndContinue}
       continueLoading={saving}
-      card={false}
     >
-      <BlockStack gap="400">
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
-        <div style={{ width: '100%', maxWidth: 760, margin: 'var(--p-space-800) auto 0' }}>
-          <BlockStack gap="600">
-            <BlockStack gap="300">
-              <Text as="h2" variant="headingLg" fontWeight="bold">
-                Tryons Per Customer
-              </Text>
-              <Text as="p" tone="subdued">
-                Set a limit on how many virtual tryons each user can perform in your store.
-              </Text>
+      <div style={{ maxWidth: 1040, width: '100%', margin: '0 auto' }}>
+        <PageHead
+          icon={
+            <Glyph size={44}>
+              <path d="M3.5 8h17M3.5 16h17" />
+              <circle cx="9" cy="8" r="2.6" fill="#ebe6fc" />
+              <circle cx="15" cy="16" r="2.6" fill="#ebe6fc" />
+            </Glyph>
+          }
+          title="Customize Widget"
+          subtitle="Configure how customers use Virtual Try-On on your store."
+        />
+        <div style={{ marginTop: 12 }}>
+          <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        </div>
+        <div className="av-panel" style={{ marginTop: 'var(--av-gap)' }}>
+          <div className="av-row">
+            <div>
+              <h2 className="av-rt">Try-ons per customer</h2>
+              <p className="av-rd">
+                Set the maximum number of try-ons each customer can perform per day.
+              </p>
+            </div>
+            <div className="av-selw">
               <Select
-                label="Tryons Allowed"
+                label="Try-ons per customer"
+                labelHidden
                 options={numericOptions(ONBOARDING_TRYON_CAP_OPTIONS, 'Unlimited', (n) =>
                   n === 1 ? '1 Tryon' : `${n} Tryons`,
                 )}
@@ -134,19 +148,41 @@ export default function OnboardingLimitsPage({
                   })
                 }
               />
-            </BlockStack>
-            <Checkbox
-              label="Only logged-in shoppers can try on"
-              helpText="Shoppers sign in to your store first, so you know who is trying on. If their account has no email or phone number, we ask for it before their first try-on."
-              checked={loginRequired}
-              onChange={(checked) => patchLimits(loginRequiredPatch(checked))}
-            />
-            <Text as="p" tone="subdued" alignment="center">
-              You can change these limits anytime under Settings → Limits.
-            </Text>
-          </BlockStack>
+            </div>
+          </div>
+          <div className="av-row">
+            <div>
+              <h2 className="av-rt" id="loginLabel">
+                Require customer login
+              </h2>
+              <p className="av-rd">
+                Shoppers sign in to your store first, so you know who is trying on. If their account
+                has no email or phone number, we ask for it before their first try-on.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="av-sw"
+              role="switch"
+              aria-checked={loginRequired}
+              aria-labelledby="loginLabel"
+              onClick={() => patchLimits(loginRequiredPatch(!loginRequired))}
+            >
+              <span />
+            </button>
+          </div>
         </div>
-      </BlockStack>
+        <p
+          style={{
+            textAlign: 'center',
+            color: '#5d5b78',
+            fontSize: 15,
+            marginTop: 'var(--av-gap)',
+          }}
+        >
+          You can change these limits anytime under Settings → Limits.
+        </p>
+      </div>
     </OnboardingLayout>
   );
 }

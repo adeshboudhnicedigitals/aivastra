@@ -17,6 +17,17 @@ export type OnboardingPage = 'intro' | 'products' | 'contact' | 'limits' | 'them
 export const PAGE_ORDER: OnboardingPage[] = ['intro', 'products', 'contact', 'limits', 'theme'];
 export type StepPage = Exclude<OnboardingPage, 'intro'>;
 export const STEP_PAGES = PAGE_ORDER.filter((p): p is StepPage => p !== 'intro');
+// Names shown in the step row and on the "Continue to ..." button.
+export const STEP_LABELS: Record<StepPage, string> = {
+  products: 'Sync Products',
+  contact: 'Contact Details',
+  limits: 'Customize Widget',
+  theme: 'Activate Storefront',
+};
+export function nextStepLabel(page: OnboardingPage): string | null {
+  const next = PAGE_ORDER[PAGE_ORDER.indexOf(page) + 1];
+  return next && next !== 'intro' ? STEP_LABELS[next] : null;
+}
 export function previousPagePath(page: OnboardingPage): string | null {
   const previous = PAGE_ORDER[PAGE_ORDER.indexOf(page) - 1];
   if (!previous) return null;
