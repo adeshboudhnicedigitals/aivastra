@@ -22,6 +22,9 @@ interface NavItem {
   roles?: string[]; // present only on the one item still gated by hard-coded roles — see `payments` below
   count?: number;
   alert?: boolean;
+  // Removed from the sidebar only — the route and page stay intact so it can be re-shown by
+  // dropping the flag. Used while management moves to the support panel for these areas.
+  hidden?: boolean;
 }
 
 interface NavGroup {
@@ -102,6 +105,7 @@ const groups: NavGroup[] = [
     items: [
       {
         k: 'users',
+        hidden: true,
         label: 'Users',
         icon: Icon.Users,
         perm: 'users.read',
@@ -122,6 +126,7 @@ const groups: NavGroup[] = [
       },
       {
         k: 'jobs',
+        hidden: true,
         label: 'Jobs',
         icon: Icon.Jobs,
         perm: 'jobs.write',
@@ -179,6 +184,7 @@ const groups: NavGroup[] = [
       },
       {
         k: 'shopify-stores',
+        hidden: true,
         label: 'Shopify Dashboard',
         icon: Icon.Coin,
         perm: 'shopify_stores.read',
@@ -214,6 +220,7 @@ const groups: NavGroup[] = [
       },
       {
         k: 'chat-inbox',
+        hidden: true,
         label: 'Chat Inbox',
         icon: Icon.MessageSquare,
         perm: 'chatbot.read',
@@ -289,7 +296,7 @@ export function Sidebar({
   }, [token, authRole]);
 
   const isVisible = (item: NavItem) =>
-    item.perm ? hasPermission(item.perm) : (item.roles ?? []).includes(role);
+    !item.hidden && (item.perm ? hasPermission(item.perm) : (item.roles ?? []).includes(role));
 
   // Flat list for collapsed view; grouped for expanded view
   const allItems = groups.flatMap((g) => g.items);
