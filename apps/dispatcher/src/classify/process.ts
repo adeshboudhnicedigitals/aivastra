@@ -140,6 +140,9 @@ export async function processRecognitionRequest(
       // The scored service ranks exactly these keys as a closed set; the old
       // server ignores the field and answers from the prompt alone.
       form.set('options', JSON.stringify(request.options.map((o) => o.slug)));
+      // Parallel to `options`: the embedding service reads these, not the prompt. The
+      // generative servers ignore the field.
+      form.set('labels', JSON.stringify(request.options.map((o) => o.label)));
       const res = await fetch(`${opts.service.url.replace(/\/+$/, '')}/classify`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${opts.service.apiKey}` },

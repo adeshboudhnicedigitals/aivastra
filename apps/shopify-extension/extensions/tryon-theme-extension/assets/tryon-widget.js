@@ -213,7 +213,7 @@
       }
     })();
 
-    const button = root.querySelector('.aivastra-tryon__button');
+    const button = root.querySelector('.aivastra-tryon__button, .aivastra-tryon__icon-btn');
     const modal = root.querySelector('.aivastra-tryon__modal');
     const modalContent = root.querySelector('.aivastra-tryon__modal-content');
     const closeBtn = root.querySelector('.aivastra-tryon__close');
@@ -2049,7 +2049,7 @@
   function initSatellite(root, blockRoot) {
     const duplicates = root.querySelectorAll('.aivastra-tryon__modal, .aivastra-tryon__lightbox');
     for (let i = 0; i < duplicates.length; i++) duplicates[i].remove();
-    const icon = root.querySelector('.aivastra-tryon__button');
+    const icon = root.querySelector('.aivastra-tryon__button, .aivastra-tryon__icon-btn');
     if (!icon) return;
     icon.addEventListener('click', () => {
       if (typeof blockRoot.__aivastraOpen === 'function') blockRoot.__aivastraOpen();

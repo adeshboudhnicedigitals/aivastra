@@ -120,7 +120,7 @@ describe('merchant catalog — publishing a pending held-batch product', () => {
     expect(row.actualPricePaise).toBe(120000);
   });
 
-  it('leaves a pending product inactive when the SKU is still missing', async () => {
+  it('activates a pending product without a SKU, since SKU is optional', async () => {
     const { auth, itemId } = await seed({});
 
     await app.inject({
@@ -128,6 +128,24 @@ describe('merchant catalog — publishing a pending held-batch product', () => {
       url: `/v1/merchant/catalog/${itemId}`,
       headers: auth,
       payload: { actualPrice: 1200, offerPrice: 999 },
+    });
+
+    const [row] = await app.db
+      .select()
+      .from(schema.merchantCatalogItems)
+      .where(eq(schema.merchantCatalogItems.id, itemId));
+    expect(row.isActive).toBe(true);
+    expect(row.sku).toBeNull();
+  });
+
+  it('leaves a pending product inactive while the prices are still missing', async () => {
+    const { auth, itemId } = await seed({});
+
+    await app.inject({
+      method: 'PATCH',
+      url: `/v1/merchant/catalog/${itemId}`,
+      headers: auth,
+      payload: { sku: 'SH-2' },
     });
 
     const [row] = await app.db
