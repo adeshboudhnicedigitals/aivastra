@@ -343,6 +343,8 @@ export async function resolveTryonPlan(
   // Unlike the two above this upload is optional, so it is gated the other way round:
   // the garment type has to opt in before a fourthGarmentKey is accepted at all.
   let allowsFourthUpload = false;
+  // Garment-extract pre-step (ghost mannequin) — resolved below, snapshotted into params.
+  let garmentExtract: { workflowTemplateId: string; version: number } | null = null;
   let sareeStep2: {
     workflowTemplateId: string | null;
     version: number | null;
@@ -360,6 +362,9 @@ export async function resolveTryonPlan(
         requiresLowerUpload: schema.garmentSubcategories.requiresLowerUpload,
         requiresThirdUpload: schema.garmentSubcategories.requiresThirdUpload,
         allowsFourthUpload: schema.garmentSubcategories.allowsFourthUpload,
+        requiresGarmentExtractStep: schema.garmentSubcategories.requiresGarmentExtractStep,
+        garmentExtractWorkflowTemplateId:
+          schema.garmentSubcategories.garmentExtractWorkflowTemplateId,
         sareeStep2WorkflowTemplateId: schema.garmentSubcategories.sareeStep2WorkflowTemplateId,
         sareeStep2UpperNodeIds: schema.workflowTemplates.upperNodeIds,
         sareeStep2LowerNodeId: schema.workflowTemplates.lowerNodeId,
@@ -379,6 +384,35 @@ export async function resolveTryonPlan(
     requiresLowerUpload = gtRow?.requiresLowerUpload ?? false;
     requiresThirdUpload = gtRow?.requiresThirdUpload ?? false;
     allowsFourthUpload = gtRow?.allowsFourthUpload ?? false;
+    // Mutually exclusive with the mannequin step (enforced on the admin PATCH too);
+    // the guard here keeps a hand-edited row from running both.
+    if (gtRow?.requiresGarmentExtractStep && !requiresMannequinStep) {
+      const [extractTemplate] = gtRow.garmentExtractWorkflowTemplateId
+        ? await app.db
+            .select({
+              id: schema.workflowTemplates.id,
+              version: schema.workflowTemplates.version,
+            })
+            .from(schema.workflowTemplates)
+            .where(
+              and(
+                eq(schema.workflowTemplates.id, gtRow.garmentExtractWorkflowTemplateId),
+                eq(schema.workflowTemplates.workflowType, 'garment_extract'),
+                eq(schema.workflowTemplates.isActive, true),
+              ),
+            )
+        : [];
+      // Fail before any credit is deducted — silently skipping the step would
+      // reproduce exactly the bad segmentation this feature exists to avoid.
+      if (!extractTemplate) {
+        throw new AppError(
+          'GARMENT_EXTRACT_UNAVAILABLE',
+          503,
+          'garment extraction is enabled for this garment type but its workflow is unavailable',
+        );
+      }
+      garmentExtract = { workflowTemplateId: extractTemplate.id, version: extractTemplate.version };
+    }
     if (requiresMannequinStep) {
       sareeStep2 = {
         workflowTemplateId: gtRow?.sareeStep2WorkflowTemplateId ?? null,
@@ -1103,6 +1137,16 @@ export async function resolveTryonPlan(
         ...(pw?.promptGarmentPhase ? { promptGarmentPhase: pw.promptGarmentPhase } : {}),
         ...(pw?.promptFacePhase ? { promptFacePhase: pw.promptFacePhase } : {}),
         ...(catalogueTemplateMappingId ? { catalogueTemplateMappingId } : {}),
+        // Server-derived only: CreateTryOnJobRequest's params schema strips unknown keys,
+        // so a request can neither enable the phase for a type that lacks it nor aim it
+        // at another template.
+        ...(garmentExtract
+          ? {
+              needsGarmentExtract: true,
+              garmentExtractWorkflowTemplateId: garmentExtract.workflowTemplateId,
+              garmentExtractTemplateVersion: garmentExtract.version,
+            }
+          : {}),
         // Always last: regenerateJob's alternate-prompt override, when present, wins
         // over both the request's own params and any mapping-derived prompt above —
         // it targets the same workflowTemplateId already resolved for this pose, so

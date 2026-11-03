@@ -192,6 +192,49 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .where(eq(schema.garmentSubcategories.id, id));
       if (!before) throw new AppError('NOT_FOUND', 404, 'garment type not found');
 
+      // Garment-extract is validated against the state the row will have AFTER this
+      // patch, so toggling it, swapping its workflow, or turning the mannequin step
+      // on are all checked the same way regardless of which field the admin sent.
+      const effectiveExtract =
+        (body.requiresGarmentExtractStep as boolean | undefined) ??
+        before.requiresGarmentExtractStep;
+      const effectiveExtractWorkflowId =
+        body.garmentExtractWorkflowTemplateId !== undefined
+          ? (body.garmentExtractWorkflowTemplateId as string | null)
+          : before.garmentExtractWorkflowTemplateId;
+      const effectiveMannequin =
+        (body.requiresMannequinStep as boolean | undefined) ?? before.requiresMannequinStep;
+      if (effectiveExtract) {
+        // Both would fight over the same garment input: the mannequin step feeds the
+        // main job via a separate parent job, extract rewrites it inline.
+        if (effectiveMannequin) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'garment extraction and the two-step mannequin flow cannot both be enabled',
+          );
+        }
+        const [extractWorkflow] = effectiveExtractWorkflowId
+          ? await app.db
+              .select({ id: schema.workflowTemplates.id })
+              .from(schema.workflowTemplates)
+              .where(
+                and(
+                  eq(schema.workflowTemplates.id, effectiveExtractWorkflowId),
+                  eq(schema.workflowTemplates.workflowType, 'garment_extract'),
+                  eq(schema.workflowTemplates.isActive, true),
+                ),
+              )
+          : [];
+        if (!extractWorkflow) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'garment extraction requires an active garment_extract workflow',
+          );
+        }
+      }
+
       if (typeof body.label === 'string') {
         const [current] = await app.db
           .select({ genderSlug: schema.garmentSubcategories.genderSlug })

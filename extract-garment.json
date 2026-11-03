@@ -1,0 +1,225 @@
+{
+  "1": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled2.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "2": {
+    "inputs": {
+      "vae_name": "Qwen_Image-VAE.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "3": {
+    "inputs": {
+      "style": "%Y%m%d%H%M%S"
+    },
+    "class_type": "Get Date Time String (JPS)",
+    "_meta": {
+      "title": "Get Date Time String (JPS)"
+    }
+  },
+  "6": {
+    "inputs": {
+      "text": "",
+      "clip": ["1", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "upscale_method": "bicubic",
+      "megapixels": 16,
+      "resolution_steps": 256,
+      "image": ["26", 1]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "Scale Image to Total Pixels"
+    }
+  },
+  "8": {
+    "inputs": {
+      "image": "image (4).jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "garment"
+    }
+  },
+  "9": {
+    "inputs": {
+      "lora_name": "HRP_5.safetensors",
+      "strength_model": 0.2,
+      "model": ["12", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "12": {
+    "inputs": {
+      "lora_name": "qwen-edit-skin.safetensors",
+      "strength_model": 0.5,
+      "model": ["17", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "13": {
+    "inputs": {
+      "shift": 1,
+      "sampling": "flow",
+      "model": ["27", 0]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "15": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+      "strength_model": 1,
+      "model": ["9", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "16": {
+    "inputs": {
+      "prompt": "Extract only the clothing and accessories from this mannequin and show them as a clean product photo on a plain white background. Remove the mannequin completely, including head, neck, torso, arms, legs, stand, and base, plus the original background, floor, props, and any shadows or grey patches left behind. Keep every garment exactly as it appears, in its original shape, drape, and arrangement. If the outfit has separate pieces (for example a top and a skirt, or a shirt and trousers), keep them separate. Wherever the mannequin’s body was visible between or around the garments, show plain white background only. Do not add fabric, lining, filler, or extra garments to close gaps. At necklines, waistbands, and hems, show only the garment’s own edge, with no inner lining, label, tag, or mannequin parts.\n",
+      "vl_resize_indexs": "1,2,3",
+      "main_image_index": 2,
+      "target_size": 2048,
+      "target_vl_size": 384,
+      "upscale_method": "area",
+      "crop_method": "center",
+      "instruction": "highlight embroidery, stones, jewellery, metallic stone if have .",
+      "clip": ["1", 0],
+      "vae": ["2", 0],
+      "image1": ["7", 0]
+    },
+    "class_type": "TextEncodeQwenImageEditPlusPro_lrzjason",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlusPro lrzjason"
+    }
+  },
+  "17": {
+    "inputs": {
+      "unet_name": "qwen_image_edit_2511_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "19": {
+    "inputs": {
+      "seed": 12345,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": ["13", 0],
+      "positive": ["16", 0],
+      "negative": ["6", 0],
+      "latent_image": ["22", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "20": {
+    "inputs": {
+      "samples": ["19", 0],
+      "vae": ["2", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "21": {
+    "inputs": {
+      "filename_prefix": ["3", 0],
+      "images": ["20", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "22": {
+    "inputs": {
+      "width": 1920,
+      "height": 2560,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "24": {
+    "inputs": {
+      "model": "RMBG-2.0",
+      "sensitivity": 1,
+      "process_res": 1024,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "refine_foreground": false,
+      "background": "Color",
+      "background_color": "#222222",
+      "image": ["8", 0]
+    },
+    "class_type": "RMBG",
+    "_meta": {
+      "title": "Remove Background (RMBG)"
+    }
+  },
+  "26": {
+    "inputs": {
+      "padding": 0,
+      "blur": 0,
+      "mask": ["24", 1],
+      "image_optional": ["24", 0]
+    },
+    "class_type": "MaskBoundingBox+",
+    "_meta": {
+      "title": "🔧 Mask Bounding Box"
+    }
+  },
+  "27": {
+    "inputs": {
+      "lora_name": "pytorch_lora_weights.safetensors",
+      "strength_model": 0.5,
+      "model": ["15", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  }
+}

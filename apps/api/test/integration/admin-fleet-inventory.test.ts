@@ -288,7 +288,8 @@ describe('/admin/fleet/inventory', () => {
       ).toBe(true);
     }
     expect(items.find((i) => i.action === 'fleet.inventory.host.upsert')?.summary).toMatch(
-      /edited a host$/,
+      // Host events name the box they touched, like worker events do.
+      /edited a host on \S+$/,
     );
   });
 

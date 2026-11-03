@@ -248,14 +248,20 @@ export async function runFleetEvaluatorTick(
 
   const [ruleRows, monitoredRows, liveRows, windowRows] = await Promise.all([
     app.db.select().from(schema.fleetAlertRules),
+    // Every box with a working agent key is watched, whether or not the dispatcher uses it: a
+    // disabled worker's box can still overheat or fill its disk. `workerId` is the box id; the
+    // linked dispatcher worker (if active) only feeds the dispatcher-side view below.
     app.db
       .select({
         workerId: schema.fleetAgents.workerId,
         lastSeenAt: schema.fleetAgents.lastSeenAt,
+        dispatcherWorkerId: schema.fleetHosts.workerId,
+        dispatcherWorkerActive: schema.workers.isActive,
       })
       .from(schema.fleetAgents)
-      .innerJoin(schema.workers, eq(schema.workers.id, schema.fleetAgents.workerId))
-      .where(and(isNull(schema.fleetAgents.revokedAt), eq(schema.workers.isActive, true))),
+      .innerJoin(schema.fleetHosts, eq(schema.fleetHosts.id, schema.fleetAgents.workerId))
+      .leftJoin(schema.workers, eq(schema.workers.id, schema.fleetHosts.workerId))
+      .where(isNull(schema.fleetAgents.revokedAt)),
     app.db.select().from(schema.fleetIncidents).where(ne(schema.fleetIncidents.state, 'RECOVERED')),
     app.db
       .select({
@@ -274,7 +280,20 @@ export async function runFleetEvaluatorTick(
   ]);
   // A worker inside a maintenance window gets no new incidents, escalations or emails. Evidence is
   // still collected, and an incident already open keeps recovering normally (without an email).
-  const silenced = silencedWorkers(windowRows, now);
+  // Box -> its active dispatcher worker. A box without one has no dispatcher view ('unknown').
+  const dispatcherOf = new Map<string, string>();
+  for (const m of monitoredRows) {
+    if (m.dispatcherWorkerId && m.dispatcherWorkerActive === true) {
+      dispatcherOf.set(m.workerId, m.dispatcherWorkerId);
+    }
+  }
+  // Maintenance windows are set per dispatcher worker; they silence the box that worker runs on.
+  const silencedDispatcher = silencedWorkers(windowRows, now);
+  const silenced = new Set<string>(
+    monitoredRows
+      .filter((m) => m.dispatcherWorkerId && silencedDispatcher.has(m.dispatcherWorkerId))
+      .map((m) => m.workerId),
+  );
 
   const rules = new Map<string, RuleConfig>(ruleRows.map((r) => [r.key, r]));
   // Most recent contact across the worker's keys; a rotation briefly holds two.
@@ -294,7 +313,7 @@ export async function runFleetEvaluatorTick(
     const cfg = rules.get(inc.ruleKey);
     const known = (fleetAlertRuleKeys as readonly string[]).includes(inc.ruleKey);
     const reason = !lastSeen.has(inc.workerId)
-      ? 'Closed because this worker is no longer monitored (no active agent key, or worker inactive).'
+      ? 'Closed because this box is no longer monitored (no active agent key).'
       : !known || !cfg?.enabled
         ? 'Closed because this alert rule was disabled.'
         : null;
@@ -317,8 +336,8 @@ export async function runFleetEvaluatorTick(
       fleetAgentHeartbeatKey(workerId),
       fleetAgentLatestKey(workerId),
       fleetAgentRejectsKey(workerId),
-      `worker:health:${workerId}`,
-      `worker:queue:${workerId}`,
+      `worker:health:${dispatcherOf.get(workerId) ?? '__none__'}`,
+      `worker:queue:${dispatcherOf.get(workerId) ?? '__none__'}`,
     ]);
     const latest = parseLatest(latestRaw);
     const ctx: WorkerContext = {

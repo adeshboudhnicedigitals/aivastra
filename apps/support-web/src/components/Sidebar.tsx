@@ -4,13 +4,14 @@ import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import { Icon } from './Icons';
 
-export type Page = 'dashboard' | 'chat-inbox' | 'jobs' | 'users';
+export type Page = 'dashboard' | 'chat-inbox' | 'jobs' | 'users' | 'shopify-stores';
 
 const ITEMS: Array<{ k: Page; label: string; icon: () => ReactElement }> = [
   { k: 'dashboard', label: 'Dashboard', icon: Icon.Dashboard },
   { k: 'chat-inbox', label: 'Chat Inbox', icon: Icon.MessageSquare },
   { k: 'jobs', label: 'Jobs', icon: Icon.Jobs },
   { k: 'users', label: 'Users', icon: Icon.Users },
+  { k: 'shopify-stores', label: 'Shopify Dashboard', icon: Icon.Coin },
 ];
 
 interface Props {

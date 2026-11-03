@@ -8,6 +8,9 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 const AUDIT_WORDS: Record<string, string> = {
   'fleet.agent_key.create': 'created an agent key',
   'fleet.agent_key.revoke': 'revoked an agent key',
+  'fleet.box.enroll': 'enrolled a box (new agent key)',
+  'fleet.enroll_token.create': 'created an enrolment token',
+  'fleet.enroll_token.revoke': 'revoked an enrolment token',
   'fleet.alert_rule.update': 'changed an alert rule',
   'fleet.command.request': 'requested a command',
   'fleet.command.cancel': 'cancelled a command',
@@ -39,8 +42,14 @@ export type AuditRow = {
 
 export function auditItem(r: AuditRow): FleetActivityItem {
   const what = AUDIT_WORDS[r.action] ?? r.action;
+  // Box ids (fleet_host) share the "workerId" slot: the activity log filters by the id the fleet
+  // pages use, and agent/enrolment events are recorded against the box.
   const worker =
-    r.resourceType === 'worker' || r.resourceType === 'fleet_reservation' ? r.resourceId : null;
+    r.resourceType === 'worker' ||
+    r.resourceType === 'fleet_reservation' ||
+    r.resourceType === 'fleet_host'
+      ? r.resourceId
+      : null;
   return {
     id: `audit:${r.id}`,
     at: r.createdAt.toISOString(),

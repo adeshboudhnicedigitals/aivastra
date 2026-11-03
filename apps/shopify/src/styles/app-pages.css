@@ -1,0 +1,960 @@
+/* Shared pieces of the redesigned app pages (see design.css for the chrome). */
+.av-pg {
+  width: 100%;
+}
+.av-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.av-pagehead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 8px 0 24px;
+}
+.av-pagehead h1 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.12;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+.av-pagehead p {
+  margin: 6px 0 0;
+  font-size: 17px;
+  line-height: 1.4;
+  color: var(--av-muted);
+}
+.av-c {
+  background: rgba(255, 255, 255, 0.93);
+  border-radius: 28px;
+  padding: 28px 32px;
+  box-shadow:
+    0 22px 56px rgba(91, 44, 230, 0.08),
+    0 2px 6px rgba(20, 16, 40, 0.04);
+}
+.av-grid {
+  display: grid;
+  gap: 24px;
+}
+.av-g2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.av-g3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.av-g4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.av-k {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--av-muted);
+}
+.av-big {
+  font-size: 42px;
+  line-height: 1.05;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  margin-top: 10px;
+}
+.av-big small {
+  font-size: inherit;
+  font-weight: 600;
+  color: #7a7890;
+}
+.av-sub {
+  font-size: 16px;
+  line-height: 1.4;
+  color: var(--av-muted);
+  margin-top: 8px;
+}
+.av-h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.av-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 15px;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.av-chip.ok {
+  background: #dcf5e6;
+  color: #0b6a31;
+}
+.av-chip.warn {
+  background: #fdf0c8;
+  color: #7a5200;
+}
+.av-chip.bad {
+  background: #fde7e9;
+  color: #b3202a;
+}
+.av-chip.info {
+  background: #e1ecff;
+  color: #1d4fa8;
+}
+.av-chip.brand {
+  background: #ebe6fc;
+  color: #4b1fd6;
+}
+.av-pilltabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.av-pilltabs.boxed {
+  padding: 6px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid #e6e3f2;
+}
+.av-pilltab {
+  display: inline-flex;
+  align-items: center;
+  height: 42px;
+  padding: 0 20px;
+  border-radius: 12px;
+  border: 0;
+  background: transparent;
+  font:
+    600 16px "Inter",
+    system-ui,
+    sans-serif;
+  color: var(--av-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.av-pilltab.on {
+  background: #ebe6fc;
+  color: #3b1bb8;
+}
+.av-pilltab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.av-pilltab:focus-visible {
+  outline: 3px solid var(--av-ink);
+  outline-offset: 2px;
+}
+.av-inc {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 17px;
+  font-weight: 500;
+}
+.av-inc li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.av-inc li span {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #dcf5e6;
+  color: #0b6a31;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.av-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+}
+.av-split > .main {
+  flex: 1 1 560px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.av-split > aside {
+  flex: 1 1 320px;
+  min-width: 0;
+  max-width: 420px;
+}
+.av-split > aside.wide {
+  max-width: none;
+}
+
+/* Polaris controls inside the redesigned pages */
+.av-app .Polaris-Button {
+  border-radius: 12px;
+  font-weight: 600;
+}
+.av-app .Polaris-Button--sizeLarge {
+  min-height: 48px;
+  padding-inline: 22px;
+}
+.av-app .Polaris-Select__Backdrop,
+.av-app .Polaris-TextField__Backdrop {
+  border-radius: 14px;
+}
+.av-app .Polaris-Select__Content {
+  min-height: 48px;
+}
+.av-app .Polaris-TextField__Input {
+  min-height: 48px;
+}
+.av-app .Polaris-Banner {
+  border-radius: 18px;
+}
+
+@media (max-width: 900px) {
+  .av-g4,
+  .av-g3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .av-pagehead h1 {
+    font-size: 26px;
+  }
+  .av-pagehead p {
+    font-size: 17px;
+  }
+  .av-g2,
+  .av-g3,
+  .av-g4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .av-c {
+    padding: 22px 18px;
+    border-radius: 24px;
+  }
+  .av-big {
+    font-size: 36px;
+  }
+}
+
+/* Polaris Text variants used for stat numbers and card headings */
+.av-app .Polaris-Text--headingXl,
+.av-app .Polaris-Text--heading2xl {
+  font-size: 42px;
+  line-height: 1.05;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+.av-app .Polaris-Text--headingMd {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.av-inc .Polaris-Icon {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+/* ---- One-screen pages (Dashboard, Manage, Credits, Settings) ----
+   The page is exactly one window tall; the stack takes what is left and only
+   scrolls internally as a last resort (banners, a very short window). */
+.av-g5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.av-rows {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 500;
+}
+.av-rows li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.av-fields3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.av-c.fill {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+@media (max-width: 1100px) {
+  .av-g5 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .av-fields3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.av-page.fit {
+  height: 100vh;
+  overflow: hidden;
+  --av-fgap: clamp(12px, 2.6vh, 24px);
+}
+.fit .av-body {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-top: 0;
+  padding-bottom: clamp(10px, 2vh, 20px);
+}
+.fit .av-pg {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.fit .av-pagehead {
+  margin: var(--av-fgap) 0;
+  flex-shrink: 0;
+}
+.fit .av-pagehead h1 {
+  font-size: clamp(22px, 3.2vh, 28px);
+}
+.fit .av-pagehead p {
+  margin-top: 4px;
+  font-size: 15px;
+}
+.fit .av-stack {
+  flex: 1;
+  min-height: 0;
+  gap: var(--av-fgap);
+  overflow-y: auto;
+}
+.fit .av-grid {
+  gap: var(--av-fgap);
+}
+.fit .av-c {
+  padding: clamp(14px, 2.8vh, 26px) 26px;
+  border-radius: 24px;
+}
+.fit .av-k {
+  font-size: 15px;
+}
+.fit .av-big {
+  font-size: clamp(26px, 4.4vh, 38px);
+  margin-top: 8px;
+}
+.fit .av-sub {
+  font-size: 15px;
+  margin-top: 6px;
+}
+.fit .av-h2 {
+  font-size: 19px;
+}
+.fit .av-inc {
+  gap: 10px;
+  margin-top: 14px;
+  font-size: 15px;
+}
+.fit .av-inc li span {
+  width: 22px;
+  height: 22px;
+}
+.fit .av-btn-primary,
+.fit .av-btn-ghost {
+  height: clamp(40px, 5.6vh, 50px);
+  font-size: 15px;
+  padding: 0 24px;
+}
+.fit .av-split {
+  gap: var(--av-fgap);
+}
+.fit .av-split > .main {
+  gap: var(--av-fgap);
+}
+.fit .Polaris-Select__Content,
+.fit .Polaris-TextField__Input {
+  min-height: 40px;
+}
+.fit .Polaris-Box {
+  --pc-box-padding-block-start-xs: 8px;
+}
+
+/* ---- Type scale, one notch down (app pages) ---- */
+.av-app .av-pagehead h1 {
+  font-size: 30px;
+}
+.av-app .av-pagehead p {
+  font-size: 16px;
+}
+.av-app .av-k {
+  font-size: 14px;
+}
+.av-app .av-big {
+  font-size: 32px;
+}
+.av-app .av-big.xl {
+  font-size: 40px;
+}
+.av-app .av-big.lg {
+  font-size: 30px;
+  margin-top: 12px;
+}
+.av-app .av-sub {
+  font-size: 14px;
+}
+.av-app .av-h2 {
+  font-size: 19px;
+}
+.av-app .av-chip {
+  font-size: 13px;
+  height: 26px;
+}
+.av-app .av-tab {
+  font-size: 15px;
+  height: 40px;
+}
+.av-app .av-pilltab {
+  font-size: 14px;
+  height: 38px;
+  padding: 0 16px;
+}
+.av-app .av-btn-primary,
+.av-app .av-btn-ghost {
+  font-size: 15px;
+}
+.av-app .Polaris-Text--headingXl,
+.av-app .Polaris-Text--heading2xl {
+  font-size: 30px;
+}
+.av-app .Polaris-Text--headingMd {
+  font-size: 18px;
+}
+.av-app .av-inc {
+  font-size: 15px;
+}
+.av-app .av-rows {
+  font-size: 14px;
+}
+.av-app .av-store,
+.av-app .av-sp {
+  font-size: 14px;
+}
+.av-app .av-bn {
+  font-size: 18px;
+}
+.av-page.fit .av-pagehead h1 {
+  font-size: clamp(22px, 3.2vh, 28px);
+}
+.av-page.fit .av-pagehead p {
+  font-size: 14px;
+}
+.av-page.fit .av-big {
+  font-size: clamp(20px, 3.4vh, 28px);
+}
+.av-page.fit .av-big.xl {
+  font-size: clamp(26px, 4.4vh, 36px);
+}
+.av-page.fit .av-big.lg {
+  font-size: clamp(22px, 3.6vh, 28px);
+  margin-top: 8px;
+}
+.av-page.fit .av-k,
+.av-page.fit .av-sub {
+  font-size: 13px;
+}
+.av-page.fit .av-h2 {
+  font-size: 17px;
+}
+.av-page.fit .av-btn-primary,
+.av-page.fit .av-btn-ghost {
+  font-size: 14px;
+}
+.av-page.fit .av-rows {
+  font-size: 13px;
+}
+.av-page.fit .av-c {
+  padding: clamp(10px, 2vh, 18px) 20px;
+}
+
+/* The Manage tabs card takes leftover height but never collapses under the
+   cards above it: below the minimum, the page stack scrolls instead. */
+.fit .av-c.fill {
+  flex: 1 1 0;
+  min-height: clamp(260px, 40vh, 420px);
+}
+
+/* Scrollbars hidden everywhere in the redesigned pages; scrolling still works. */
+html:has(.av-page),
+.av-page,
+.av-page * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+html:has(.av-page)::-webkit-scrollbar,
+.av-page::-webkit-scrollbar,
+.av-page *::-webkit-scrollbar {
+  display: none;
+}
+
+/* Settings → Button placement */
+.av-place {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  align-items: center;
+  justify-content: space-between;
+}
+.av-place > div:first-child {
+  flex: 1 1 380px;
+  min-width: 0;
+}
+.av-place-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.av-place-preview {
+  flex: 0 1 340px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px;
+  border-radius: 20px;
+  background: #f6f3fe;
+  border: 1px solid #ece7fb;
+}
+.av-place-line {
+  height: 10px;
+  border-radius: 5px;
+  background: #ddd8ef;
+}
+.av-place-btn {
+  display: grid;
+  place-items: center;
+  height: 38px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  background: #12101f;
+  color: #fff;
+}
+.av-place-btn.off {
+  background: #fff;
+  color: #8a889f;
+  border: 1px solid #dcd8ee;
+}
+.av-place-btn.on {
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+  box-shadow: 0 0 0 3px rgba(90, 44, 240, 0.2);
+}
+
+/* Manage: add / remove buttons on the product and collection lists */
+.av-list-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 12px;
+  font:
+    600 14px "Inter",
+    system-ui,
+    sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.av-list-btn.add {
+  background: #ebe6fc;
+  border: 1.5px solid #d4c9fa;
+  color: #3b1bb8;
+}
+.av-list-btn.add:hover:not(:disabled) {
+  background: #e1d9fb;
+}
+.av-list-btn.remove {
+  height: 34px;
+  padding: 0 14px;
+  background: #fff;
+  border: 1.5px solid #dcd8ee;
+  color: #b3202a;
+}
+.av-list-btn.remove:hover:not(:disabled) {
+  background: #fde7e9;
+  border-color: #f3b8be;
+}
+.av-list-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.av-list-btn:focus-visible {
+  outline: 3px solid var(--av-ink);
+  outline-offset: 2px;
+}
+
+/* Analytics */
+.av-datebtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1.5px solid #dcd8ee;
+  font:
+    600 15px "Inter",
+    system-ui,
+    sans-serif;
+  color: var(--av-ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.av-datebtn:hover {
+  background: #faf9ff;
+}
+.av-datebtn:focus-visible {
+  outline: 3px solid var(--av-ink);
+  outline-offset: 2px;
+}
+.av-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 44px 16px;
+  border: 1.5px dashed #dcd8ee;
+  border-radius: 20px;
+}
+.av-empty b {
+  font-size: 18px;
+}
+.av-empty span {
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--av-muted);
+  max-width: 520px;
+}
+
+/* Heading of a card whose body is a full-bleed table: same inset as a padded card. */
+.av-c-head {
+  padding: 28px 32px 16px;
+}
+@media (max-width: 760px) {
+  .av-c-head {
+    padding: 22px 18px 12px;
+  }
+}
+
+/* Credits */
+.av-refill-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.av-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 16px 20px;
+  border-radius: 18px;
+  background: #f6f3fe;
+  border: 1px solid #ece7fb;
+}
+.av-summary dt {
+  font-size: 13px;
+  color: var(--av-muted);
+  font-weight: 600;
+}
+.av-summary dd {
+  margin: 4px 0 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+.av-refill-on {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+.av-refill-on .av-btn-ghost {
+  flex: 1 1 220px;
+  color: #b3202a;
+}
+@media (max-width: 760px) {
+  .av-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- Popups (Polaris Modal renders in a portal outside .av-app) ---- */
+#PolarisPortalsContainer .Polaris-Button {
+  border-radius: 12px;
+  font-weight: 600;
+}
+#PolarisPortalsContainer .Polaris-Button--sizeLarge {
+  min-height: 44px;
+}
+#PolarisPortalsContainer .Polaris-Select__Backdrop,
+#PolarisPortalsContainer .Polaris-TextField__Backdrop {
+  border-radius: 14px;
+}
+#PolarisPortalsContainer .Polaris-Backdrop {
+  background: rgba(18, 16, 31, 0.5);
+  backdrop-filter: blur(3px);
+}
+#PolarisPortalsContainer .Polaris-Modal-Dialog__Modal {
+  border-radius: 28px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow:
+    0 30px 80px rgba(60, 20, 160, 0.3),
+    0 2px 8px rgba(20, 16, 40, 0.08);
+}
+#PolarisPortalsContainer .Polaris-Modal-Section {
+  padding: 22px 28px;
+}
+#PolarisPortalsContainer
+  .Polaris-Modal-Dialog__Modal
+  > .Polaris-InlineStack
+  .Polaris-Button--variantPrimary {
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+  box-shadow: 0 8px 18px rgba(74, 31, 220, 0.26);
+}
+#PolarisPortalsContainer
+  .Polaris-Modal-Dialog__Modal
+  > .Polaris-InlineStack
+  .Polaris-Button--variantPrimary:disabled {
+  background: #b9a6f7;
+  box-shadow: none;
+}
+#PolarisPortalsContainer .Polaris-IndexTable {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+/* Polaris renders the modal header and footer as unclassed Boxes, so they are reached by position. */
+#PolarisPortalsContainer .Polaris-Modal-Dialog__Modal > .Polaris-Box:first-child {
+  padding: 20px 28px;
+  background: #faf9ff;
+  border-bottom: 1px solid #ece9f6;
+}
+#PolarisPortalsContainer
+  .Polaris-Modal-Dialog__Modal
+  > .Polaris-Box:first-child
+  .Polaris-Text--headingMd {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+#PolarisPortalsContainer .Polaris-Modal-Dialog__Modal > .Polaris-Box:first-child .Polaris-Button {
+  border-radius: 50%;
+  background: #ebe6fc;
+  color: #3b1bb8;
+}
+#PolarisPortalsContainer
+  .Polaris-Modal-Dialog__Modal
+  > .Polaris-InlineStack:last-child
+  > .Polaris-Box {
+  padding: 16px 28px;
+  background: #faf9ff;
+  border-top: 1px solid #ece9f6;
+}
+
+/* Support chat: floating launcher + panel (mounted in App, outside .av-app) */
+.av-chat {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  font-family: "Inter", system-ui, sans-serif;
+}
+.av-chat-fab {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+  box-shadow: 0 14px 30px rgba(74, 31, 220, 0.38);
+}
+.av-chat-fab:hover {
+  filter: brightness(1.08);
+}
+.av-chat-fab:focus-visible,
+.av-chat-x:focus-visible {
+  outline: 3px solid #12101f;
+  outline-offset: 2px;
+}
+.av-chat-fab .Polaris-Icon,
+.av-chat-x .Polaris-Icon {
+  width: 28px;
+  height: 28px;
+  margin: 0;
+}
+.av-chat-fab .Polaris-Icon svg {
+  fill: #fff;
+}
+.av-chat-panel {
+  position: absolute;
+  right: 0;
+  bottom: 76px;
+  width: min(390px, calc(100vw - 56px));
+  max-height: calc(100vh - 140px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid #ece9f6;
+  border-radius: 24px;
+  box-shadow: 0 28px 60px rgba(40, 20, 120, 0.28);
+  color: #12101f;
+}
+.av-chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  color: #fff;
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+}
+.av-chat-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.av-chat-head p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  opacity: 0.8;
+}
+.av-chat-x {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.av-chat-x:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+.av-chat-x .Polaris-Icon {
+  width: 20px;
+  height: 20px;
+}
+.av-chat-x .Polaris-Icon svg {
+  fill: #fff;
+}
+.av-chat-err {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fde7e9;
+  color: #b3202a;
+  font-size: 13px;
+}
+.av-chat-body {
+  height: 320px;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  background: #faf9ff;
+}
+.av-chat-body::-webkit-scrollbar {
+  display: none;
+}
+.av-chat-msg {
+  max-width: 82%;
+  padding: 9px 14px;
+  border-radius: 18px;
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.av-chat-msg.user {
+  align-self: flex-end;
+  border-bottom-right-radius: 6px;
+  color: #fff;
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+}
+.av-chat-msg.bot,
+.av-chat-msg.agent {
+  align-self: flex-start;
+  border-bottom-left-radius: 6px;
+  background: #fff;
+  border: 1px solid #ece9f6;
+}
+.av-chat-msg.system {
+  align-self: center;
+  max-width: 100%;
+  padding: 2px 8px;
+  text-align: center;
+  font-style: italic;
+  font-size: 13px;
+  color: #5d5b78;
+  background: none;
+}
+.av-chat-typing {
+  align-self: flex-start;
+  font-size: 13px;
+  color: #5d5b78;
+}
+.av-chat-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid #ece9f6;
+  background: #fff;
+}
+.av-chat-foot input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1.5px solid #dcd8ee;
+  background: #fff;
+  font:
+    500 14px "Inter",
+    system-ui,
+    sans-serif;
+  color: #12101f;
+}
+.av-chat-foot input:focus {
+  outline: 3px solid #12101f;
+  outline-offset: 1px;
+  border-color: transparent;
+}

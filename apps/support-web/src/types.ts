@@ -264,6 +264,7 @@ export interface User {
   email: string | null;
   username: string | null;
   displayName: string | null;
+  avatarUrl?: string | null;
   phone: string | null;
   tier: string;
   maxActiveDevices: number;

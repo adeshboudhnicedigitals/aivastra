@@ -32,6 +32,11 @@ describe('GET /admin/fleet/activity', () => {
         },
       });
       expect(res.statusCode).toBe(201);
+      // Agent keys belong to a box; register one linked to this worker, as enrolment would.
+      await app.db
+        .insert(schema.fleetHosts)
+        .values({ id, label: id, workerId: id })
+        .onConflictDoNothing();
     }
     // A real audited action: creating an agent key writes fleet.agent_key.create against the worker.
     const key = await app.inject({

@@ -52,8 +52,8 @@ export function BarChart({
                 y={i * ROW + 6}
                 width={`${(d.value / max) * 70}%`}
                 height={ROW - 14}
-                rx="4"
-                fill="var(--p-color-bg-fill-brand)"
+                rx="6"
+                fill="#5a2cf0"
                 opacity={hovered === null || hovered === i ? 1 : 0.5}
               />
               <text x="72%" y={i * ROW + ROW / 2 + 4} fontSize="12" fill="var(--p-color-text)">
@@ -69,6 +69,10 @@ export function BarChart({
   const COL = 100 / Math.max(1, data.length);
   return (
     <svg width="100%" height="180" role="img" aria-label="Try-ons per day">
+      {[0, 1, 2, 3].map((n) => (
+        <line key={n} x1="0" x2="100%" y1={10 + n * 50} y2={10 + n * 50} stroke="#ece9f6" />
+      ))}
+      <line x1="0" x2="100%" y1="160" y2="160" stroke="#cfcbe3" strokeWidth="2" />
       {data.map((d, i) => {
         const h = (d.value / max) * 150;
         return (
@@ -80,8 +84,8 @@ export function BarChart({
               y={160 - h}
               width={`${COL * 0.7}%`}
               height={Math.max(h, d.value > 0 ? 2 : 0)}
-              rx="4"
-              fill="var(--p-color-bg-fill-brand)"
+              rx="6"
+              fill="#5a2cf0"
               opacity={hovered === null || hovered === i ? 1 : 0.5}
             />
             {hovered === i && (

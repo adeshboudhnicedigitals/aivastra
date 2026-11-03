@@ -25,6 +25,9 @@ export const users = pgTable(
     displayName: text('display_name'),
     phone: text('phone'), // nullable — user-provided, no format enforcement
     companyName: text('company_name'),
+    // Storage key of the user's uploaded profile picture (keys.userAvatar) —
+    // never a URL: the API signs a short-lived GET each time it returns one.
+    avatarKey: text('avatar_key'),
     // Optional — customer-supplied GST registration number, editable via
     // PATCH /v1/me. Pre-fills (but does not sync with) the per-purchase
     // gstin captured on `payments` at checkout.

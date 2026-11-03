@@ -1,3 +1,47 @@
+# 2026-11-03 — GPU dashboard is box-first; boxes enrol themselves through vps-sync (feat/fleet-boxes)
+
+- **Why:** the dashboard listed admin-panel workers and took health from the dispatcher, so disabling a
+  worker made a healthy box look "unreachable", and a box that was not a worker could not be monitored.
+  Production held 0 agent keys and 0 telemetry rows, so the change moved no data.
+- **Done (in repo, not yet committed):**
+  - Migration `0250_fleet_boxes_enrolment`: `fleet_agents.worker_id` now references `fleet_hosts` (the
+    box, e.g. `w6`), not `workers`; orphaned worker-bound keys are deleted first (prod had none).
+    `fleet_hosts` gains `worker_id` (optional dispatcher link, set by enrolment) and `hardware`/
+    `hardware_at` (last GPU/VRAM/driver/RAM/disk the agent reported, so a quiet box still shows what it
+    is). New `fleet_enroll_tokens`. Telemetry/incident `worker_id` columns keep their name but hold the
+    box id (comment in `schema/fleet-agent.ts`).
+  - API: `POST /v1/fleet/enroll` (enrolment token; registers the box, links its worker, revokes old keys,
+    returns one agent key; audited as `fleet.box.enroll`), `/admin/fleet/enroll-tokens` CRUD,
+    `GET /admin/fleet/boxes`. The evaluator watches every enrolled box, including ones whose worker is
+    disabled; the dispatcher view comes from the linked worker only.
+  - Agent 0.2.0: reports `host.driverVersion`. Format checked against w6's real
+    `/proc/driver/nvidia/version` (595.58.03, open kernel module).
+  - Dashboard: Boxes page is home (health from the agent; dispatcher state is a label), box detail
+    reuses the live hardware panel and history charts, one-time enrolment-token setup. Inventory page
+    removed from the nav; "Fleet overview" renamed "Dispatcher workers".
+- **Bug found only by running it:** the dashboard's strict host parser rejected the new `driverVersion`
+  field, which would have broken the live panel on every 0.2 agent. Fixed, with a regression test.
+- **Verified:** API fleet integration 162 + new enrolment/Boxes suite; API unit 1168; dashboard 187;
+  agent 23; local end to end (migration, real login, token, enrol w2/w3/w6/w9, ingest, Boxes page and
+  w6 detail in headless Chromium at desktop and phone width).
+- **Not verified:** the migration on staging/production; any real box running 0.2; the systemd sandbox
+  directives on a real box.
+- **vps-sync (separate repo, not yet committed):** `boxes/fleet.txt` is the box list (box + worker);
+  the w8 bans are gone (old w8 rental ends Dec 2026, the next box takes the name); `--set-enroll-token`;
+  `--agent` enrols automatically; `--baseline` = fail2ban + login counter + firewall + agent.
+
+## 2026-11-03 — Garment-extract (ghost mannequin) pre-step for selected garment types
+
+- **Why:** garments uploaded worn on a mannequin/person (lehenga etc.) segment badly in the catalogue workflow. For garment types an admin enables, an admin-uploaded `garment_extract` workflow now renders the garment as a ghost mannequin first, and that output replaces the garment the main workflow uploads. Every other garment type and path is unchanged.
+- **Done (on `feat/fix/segmentation/support`):** new `garment_subcategories.requires_garment_extract_step` + `garment_extract_workflow_template_id`; new workflow type `garment_extract` (one image in, one image out — nodes auto-detected, stored in `tryonGarmentNodeId`/`tryonOutputNodeId`); `execution_attempts.phase` CHECK widened to allow `garment_extract` (migration `0240`). Runs **inline in the same job** (`apps/dispatcher/src/job/garment-extract-phase.ts`, modelled on `mannequin-phase.ts`): one job, one charge, one refund path, checkpointed at `outputs/{jobId}/garment-extract-intermediate.png` so a requeue skips the GPU. `resolveTryonPlan` snapshots `needsGarmentExtract` / workflow id / template version into `job_inputs.params` (server-derived only); the dispatcher gates on that snapshot, not the type's live row, so toggling a type doesn't change already-queued jobs. Admin: Garment Types → "Garment Extraction" section; Workflows → upload type "Garment extraction".
+- **Rules:** mutually exclusive with `requiresMannequinStep` (checked on the admin PATCH both ways). Enabling requires an active `garment_extract` workflow. If that workflow is later deactivated, new jobs for the type are rejected with 503 `GARMENT_EXTRACT_UNAVAILABLE` **before** any credit is deducted — it deliberately never silently falls back to the raw upload, which would reproduce the bad segmentation.
+- **Scope note:** the flag rides on `resolveTryonPlan`, so it applies to everything that goes through it into the dispatcher's catalogue path — studio `POST /v1/jobs/tryon`, batch, and WhatsApp runs (`messaging/runs.ts`) — not just the studio. Shopify/widget/merchant/direct try-on paths and the saree mannequin step are untouched.
+- **Not done / limits:** (1) no extra credit cost for the extract phase (same per-look cost; hook point is `resolution-config.ts`). (2) The extract phase uses the `SAREE` worker pool (same as the mannequin phase) — a worker must allow `saree` or extract jobs requeue until `NO_WORKER`. (3) In-place **Replace** is hidden for `garment_extract` workflows (`ReplaceWorkflowModal` has no branch for it, same as fabric/classify); to change the graph, upload a new workflow and repoint the garment type. (4) Migration `0240` was generated locally on top of the (also uncommitted) `0239` avatar migration — if `0239` changes, regenerate. (5) Not yet exercised against a real ComfyUI box: `extract-garment.json` (repo root, untracked, input node 8 / output node 21 — detector verified against it) still needs uploading in admin and a real lehenga run on staging.
+- **One extraction per request (follow-up):** an N-pose request is N jobs over the same garment, so extraction used to run N times (and, being generative, produced a slightly different ghost garment per pose). Now the first job takes a Redis lock (`garment-extract:lock:{sha256(garmentKey|templateId|version)}`, 10 min TTL), extracts, and publishes a pointer (`garment-extract:cache:{same id}`, 24h TTL); sibling jobs wait for it holding no GPU worker (poll 2s, bounded 8 min, then degrade to extracting themselves) and COPY the finished image to their own `outputs/{jobId}/garment-extract-intermediate.png`, so retries, the admin links and deleting the leader job all behave as if each job had extracted it. Lock is released on every exit (success, no_worker, throw) so a sibling takes over at once; every cache/lock failure falls back to extracting — the cache can never fail a job. Workflow replace (new version) or a different upload gets a new id, so nothing stale is served. Siblings record a `GARMENT_EXTRACT_REUSED` job event; the admin Stages card shows stage 1 as `reused from <job>`. Tests: 3 new dispatcher cases (reuse, wait-then-reuse, lock release) + 1 API stages case. NOTE: the 4 jobs queued before this change each extracted individually — only requests created after it share.
+- **Disable semantics (follow-up):** the dispatcher now runs the extract step only if the job's snapshotted flag is set AND the garment type's live toggle is still on, so turning a type off takes effect immediately — an already-queued job falls back to the plain single flow with no error (the workflow id/version still come from the snapshot when it does run). Toggle UI fixes: `.switch` no longer shrinks next to long text and has a real disabled style (`tokens.css`, affects every switch), the workflow auto-selects when only one exists, mutual-exclusion hint on both switches, empty-state hint, and a client-side required-workflow check before any image upload.
+- **Admin Jobs panel:** a job that ran a pre-step is still ONE job (one row, one charge) but two ComfyUI runs. `GET /admin/jobs` and `/admin/jobs/:id` now return `stages` derived from `execution_attempts` (`apps/api/src/modules/admin/job-stages.ts`): per phase the latest attempt's worker, state, times, retry count, plus input/output image links on the detail. The list shows `S1: w1 · S2: w3` in the Worker column; the drawer and expanded row get a Stages card (`apps/admin-web/src/components/JobStages.tsx`). Single-phase jobs are unchanged. Also covers the in-job mannequin phase. Test: `admin-job-stages.test.ts`.
+- **Verified:** `pnpm typecheck` clean; new API integration `garment-extract.test.ts` (11) and dispatcher integration `garment-extract-phase.test.ts` (4: extract→main chain with the main phase consuming the extract key, flag-off untouched, no-worker requeue without consuming an attempt, checkpoint reuse); adjacent suites re-run green (API unit 1053, dispatcher unit 235, storage 123, dispatcher mannequin/saree/submission integration 36, API workflow/garment-type/mannequin integration 102).
+
 # 2026-11-03 — GPU fleet dashboard: deploy wiring for gpus.aivastra.com (feat/fleet-ui, PR #639)
 
 - **Done (in repo):**

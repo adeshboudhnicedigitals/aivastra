@@ -1,12 +1,8 @@
 import {
-  Badge,
   Banner,
   BlockStack,
   Button,
-  Card,
-  InlineGrid,
   InlineStack,
-  Page,
   SkeletonBodyText,
   SkeletonPage,
   Text,
@@ -15,6 +11,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AppFont } from '../components/AppFont';
+import { AppPage } from '../components/AppPage';
+import { AvCard } from '../components/AvCard';
 import { BalanceCard } from '../components/BalanceCard';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { PackGrid } from '../components/PackGrid';
@@ -120,10 +118,10 @@ export function LowCreditsBanner({
 
 type StatusKey = keyof ShopifyStats['statusCounts'];
 
-const STATUS_TONE: Record<StatusKey, 'success' | 'attention' | 'critical' | 'info'> = {
-  active: 'success',
-  processing: 'attention',
-  failed: 'critical',
+const STATUS_CHIP: Record<StatusKey, 'ok' | 'warn' | 'bad' | 'info'> = {
+  active: 'ok',
+  processing: 'warn',
+  failed: 'bad',
   disabled: 'info',
 };
 
@@ -269,7 +267,7 @@ export default function DashboardPage() {
   const embedNeeded = me != null && needsButtonBlock(me);
   return (
     <AppFont>
-      <Page title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
+      <AppPage title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
         <BlockStack gap="400">
           <ErrorBanner error={error} onRetry={load} />
 
@@ -316,7 +314,14 @@ export default function DashboardPage() {
           {me && <LowCreditsBanner me={me} />}
           {me && <PendingPaymentBanner shopDomain={me.store.shopDomain} include="awaiting" />}
 
-          <BalanceCard me={me} />
+          <BalanceCard
+            me={me}
+            action={
+              <button type="button" className="av-btn-primary" onClick={() => navigate('/pricing')}>
+                Buy credits
+              </button>
+            }
+          />
 
           <PackGrid
             onError={setError}
@@ -326,101 +331,63 @@ export default function DashboardPage() {
               // pack. Informational only: nothing to claim here any more, the
               // bonus is granted automatically on arrival.
               me != null && !me.hasPurchasedPack ? (
-                <Card>
-                  <BlockStack gap="300">
-                    <InlineStack align="space-between" blockAlign="center">
-                      <Text as="h2" variant="headingMd">
-                        Free Tier
-                      </Text>
-                      <Badge tone="success">No purchase required</Badge>
-                    </InlineStack>
-                    <Text as="p" variant="heading2xl">
-                      {me.runway.tryOnsRemaining.toLocaleString()} try-ons
-                    </Text>
-                    <Text as="p" tone="subdued">
-                      Added automatically to get started.
-                    </Text>
-                  </BlockStack>
-                </Card>
+                <div className="av-c" style={{ padding: 28 }}>
+                  <h2 className="av-h2">Free Tier</h2>
+                  <span className="av-chip ok" style={{ marginTop: 10 }}>
+                    No purchase required
+                  </span>
+                  <div className="av-big lg">
+                    {me.runway.tryOnsRemaining.toLocaleString()} try-ons
+                  </div>
+                  <div className="av-sub">Added automatically to get started.</div>
+                </div>
               ) : undefined
             }
           />
 
-          <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" tone="subdued">
-                  Try-Ons
-                </Text>
-                <Text as="p" variant="heading2xl">
-                  {me?.stats.totalTryOns ?? 0}
-                </Text>
-              </BlockStack>
-            </Card>
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" tone="subdued">
-                  Products Synced
-                </Text>
-                <Text as="p" variant="heading2xl">
-                  {me?.stats.syncedProductCount ?? 0}
-                </Text>
-              </BlockStack>
-            </Card>
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" tone="subdued">
-                  Try-On Enabled
-                </Text>
-                <Text as="p" variant="heading2xl">
-                  {me?.stats.enabledProductCount ?? 0}
-                </Text>
-                <Text as="p" tone="subdued">
-                  of {me?.stats.syncedProductCount ?? 0} synced
-                </Text>
-              </BlockStack>
-            </Card>
-          </InlineGrid>
-
-          <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
-            <Card>
-              <BlockStack gap="200">
-                <Text as="h2" variant="headingMd">
-                  Today's try-ons
-                </Text>
-                <Text as="p" variant="heading2xl">
-                  {me?.stats.storeDailyCap
-                    ? `${me.stats.todayTryOns} / ${me.stats.storeDailyCap}`
-                    : (me?.stats.todayTryOns ?? 0)}
-                </Text>
-                {me?.stats.storeDailyCap != null &&
-                  me.stats.todayTryOns >= me.stats.storeDailyCap && (
-                    <Banner tone="warning">
-                      Your daily limit is reached. Try-on is paused until tomorrow.
-                    </Banner>
-                  )}
-                <Text as="p" tone="subdued">
-                  {me?.stats.capturedEmailCount ?? 0} emails collected
-                </Text>
-              </BlockStack>
-            </Card>
-
-            <Card>
-              <BlockStack gap="300">
-                <Text as="p" tone="subdued">
-                  Sync status
-                </Text>
+          <div className="av-grid av-g5">
+            <AvCard>
+              <div className="av-k">Try-Ons</div>
+              <div className="av-big">{me?.stats.totalTryOns ?? 0}</div>
+            </AvCard>
+            <AvCard>
+              <div className="av-k">Products Synced</div>
+              <div className="av-big">{me?.stats.syncedProductCount ?? 0}</div>
+            </AvCard>
+            <AvCard>
+              <div className="av-k">Try-On Enabled</div>
+              <div className="av-big">{me?.stats.enabledProductCount ?? 0}</div>
+              <div className="av-sub">of {me?.stats.syncedProductCount ?? 0} synced</div>
+            </AvCard>
+            <AvCard>
+              <div className="av-k">Today's try-ons</div>
+              <div className="av-big">
+                {me?.stats.storeDailyCap
+                  ? `${me.stats.todayTryOns} / ${me.stats.storeDailyCap}`
+                  : (me?.stats.todayTryOns ?? 0)}
+              </div>
+              <div className="av-sub">{me?.stats.capturedEmailCount ?? 0} emails collected</div>
+              {me?.stats.storeDailyCap != null &&
+                me.stats.todayTryOns >= me.stats.storeDailyCap && (
+                  <div className="av-sub" style={{ color: '#7a5200', fontWeight: 600 }}>
+                    Daily limit reached. Try-on is paused until tomorrow.
+                  </div>
+                )}
+            </AvCard>
+            <AvCard>
+              <div className="av-k">Sync status</div>
+              <ul className="av-rows">
                 {(['active', 'processing', 'failed', 'disabled'] as const).map((key) => (
-                  <InlineStack key={key} align="space-between" blockAlign="center">
-                    <Text as="span">{STATUS_LABEL[key]}</Text>
-                    <Badge tone={STATUS_TONE[key]}>
+                  <li key={key}>
+                    <span>{STATUS_LABEL[key]}</span>
+                    <span className={`av-chip ${STATUS_CHIP[key]}`}>
                       {String(me?.stats.statusCounts[key] ?? 0)}
-                    </Badge>
-                  </InlineStack>
+                    </span>
+                  </li>
                 ))}
-              </BlockStack>
-            </Card>
-          </InlineGrid>
+              </ul>
+            </AvCard>
+          </div>
 
           <InlineStack align="space-between" blockAlign="center">
             <Button variant="plain" onClick={() => navigate('/manage')}>
@@ -434,7 +401,7 @@ export default function DashboardPage() {
           </InlineStack>
         </BlockStack>
         {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
-      </Page>
+      </AppPage>
     </AppFont>
   );
 }

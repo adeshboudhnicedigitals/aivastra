@@ -33,6 +33,9 @@ interface DetectedMappings {
   latentSizeNodeIds: string[];
   outputSizeNodeIds: string[];
   resultNodeId?: string;
+  // garment_extract workflows: the lone input image node and the Save Image output node.
+  inputNodeId?: string;
+  outputNodeId?: string;
   samSegmentationPromptNode?: string;
   defaultSamSegmentationPrompt?: string;
 }
@@ -155,6 +158,7 @@ export function WorkflowUploadModal({
     | 'two_stage'
     | 'regeneration'
     | 'fabric_to_garment'
+    | 'garment_extract'
     | 'classify'
   >('regular');
   const [slug, setSlug] = useState('');
@@ -244,7 +248,7 @@ export function WorkflowUploadModal({
       );
       setParsed(result);
 
-      if (workflowType === 'classify') {
+      if (workflowType === 'classify' || workflowType === 'garment_extract') {
         // No admin-set node mappings — the server detects the LoadImage,
         // AILab_QwenVL and output nodes by class_type at upload time.
         return;
@@ -422,8 +426,9 @@ export function WorkflowUploadModal({
         setError('Stage 2 positive and negative prompt nodes are required');
         return;
       }
-    } else if (workflowType === 'classify') {
-      // The server detects the three nodes by class_type — nothing to check.
+    } else if (workflowType === 'classify' || workflowType === 'garment_extract') {
+      // The server detects the nodes — nothing to check here; it rejects the upload
+      // with a clear message if it can't find them.
       if (!parsed) return;
     } else {
       if (!parsed) return;
@@ -507,6 +512,14 @@ export function WorkflowUploadModal({
           ...(samSegmentationPromptNode.trim()
             ? { samSegmentationPromptNode: samSegmentationPromptNode.trim() }
             : {}),
+        };
+      } else if (workflowType === 'garment_extract') {
+        // One image in, one image out: the server detects both nodes, no ids are sent.
+        payload = {
+          slug: slug.trim(),
+          label: label.trim(),
+          jsonContent,
+          workflowType: 'garment_extract',
         };
       } else if (workflowType === 'classify') {
         // The server detects the image, Qwen and output nodes by class_type —
@@ -625,7 +638,7 @@ export function WorkflowUploadModal({
     jsonFile &&
     slug.trim() &&
     label.trim() &&
-    (workflowType === 'classify'
+    (workflowType === 'classify' || workflowType === 'garment_extract'
       ? parsed
       : workflowType === 'regeneration'
         ? parsed &&
@@ -689,6 +702,7 @@ export function WorkflowUploadModal({
               'two_stage',
               'regeneration',
               'fabric_to_garment',
+              'garment_extract',
               'classify',
             ] as const
           ).map((t) => (
@@ -714,9 +728,11 @@ export function WorkflowUploadModal({
                         ? 'Regeneration (single-image edit)'
                         : t === 'fabric_to_garment'
                           ? 'Fabric to Garment (single-image edit)'
-                          : t === 'classify'
-                            ? 'Garment recognition (WhatsApp)'
-                            : 'Catalogue workflows (pose-based)'}
+                          : t === 'garment_extract'
+                            ? 'Garment extraction (ghost mannequin)'
+                            : t === 'classify'
+                              ? 'Garment recognition (WhatsApp)'
+                              : 'Catalogue workflows (pose-based)'}
             </button>
           ))}
         </div>
@@ -922,6 +938,7 @@ export function WorkflowUploadModal({
               workflowType === 'two_stage' ||
               workflowType === 'regeneration' ||
               workflowType === 'fabric_to_garment' ||
+              workflowType === 'garment_extract' ||
               workflowType === 'classify') && (
               <button
                 className="btn sm primary"
@@ -1122,7 +1139,7 @@ export function WorkflowUploadModal({
             </>
           )}
 
-        {parsed && workflowType === 'classify' && (
+        {parsed && (workflowType === 'classify' || workflowType === 'garment_extract') && (
           <>
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -1161,9 +1178,24 @@ export function WorkflowUploadModal({
                 color: 'var(--muted)',
               }}
             >
-              Needs one LoadImage, one AILab_QwenVL whose prompt contains {'{{OPTIONS}}'}, and one
-              PreviewAny (or ShowText) node. The three nodes are detected automatically — uploading
-              activates it and deactivates the previous one.
+              {workflowType === 'garment_extract' ? (
+                <>
+                  Takes one garment image and returns one ghost-mannequin image. Needs one LoadImage
+                  (or a node titled "garment") and one Save Image node, both detected automatically
+                  {(() => {
+                    const d = parsed?.detected;
+                    return d?.inputNodeId || d?.outputNodeId
+                      ? ` — input node ${d?.inputNodeId ?? 'not found'}, output node ${d?.outputNodeId ?? 'not found'}`
+                      : '';
+                  })()}. Enable it per garment type under Garment Types → Garment Extraction.
+                </>
+              ) : (
+                <>
+                  Needs one LoadImage, one AILab_QwenVL whose prompt contains {'{{OPTIONS}}'}, and
+                  one PreviewAny (or ShowText) node. The three nodes are detected automatically —
+                  uploading activates it and deactivates the previous one.
+                </>
+              )}
             </div>
           </>
         )}

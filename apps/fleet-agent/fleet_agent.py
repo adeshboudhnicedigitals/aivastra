@@ -26,7 +26,7 @@ import urllib.request
 import uuid
 from collections import deque
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 PROTOCOL = 1
 
 KEY_RE = re.compile(r"^fa_[A-Za-z0-9_-]{43}$")
@@ -88,6 +88,16 @@ def integer(s):
 def clean_text(s, limit):
     t = CONTROL_RE.sub(" ", ANSI_RE.sub("", s or "")).strip()
     return t[:limit] if t else None
+
+
+_DRIVER_RE = re.compile(r"Kernel Module(?: for \S+)?\s+(\d{1,4}(?:\.\d{1,4}){1,3})\b")
+
+
+def parse_driver_version(text):
+    """NVIDIA driver version from /proc/driver/nvidia/version ("NVRM version: NVIDIA UNIX x86_64
+    Kernel Module  550.127.05 ..."), or None. A file read, so it costs nothing per sample."""
+    m = _DRIVER_RE.search((text or "").split("\n", 1)[0])
+    return m.group(1) if m else None
 
 
 def parse_gpus(text):
@@ -316,6 +326,7 @@ def collect(cfg, system, boot_id, seq, now_ms):
             "memPsiSome10": parse_psi_some10(system.read("/proc/pressure/memory")),
             "uptimeSec": None if uptime is None else int(uptime),
             "ntpSynced": parse_ntp(system.run(["timedatectl", "show", "-p", "NTPSynchronized", "--value"])),
+            "driverVersion": parse_driver_version(system.read("/proc/driver/nvidia/version")),
             "disks": disks,
         },
         "services": services,

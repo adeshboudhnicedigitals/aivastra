@@ -4,7 +4,6 @@ import {
   BlockStack,
   Box,
   Button,
-  Card,
   Checkbox,
   ContextualSaveBar,
   EmptyState,
@@ -12,18 +11,21 @@ import {
   InlineGrid,
   InlineStack,
   Modal,
-  Page,
   Pagination,
-  Tabs,
   Text,
   TextField,
   Thumbnail,
   Toast,
 } from '@shopify/polaris';
+import { RefreshIcon } from '@shopify/polaris-icons';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { AppFont } from '../components/AppFont';
+import { AppPage } from '../components/AppPage';
+import { AvCard } from '../components/AvCard';
 import { CollectionPickerModal } from '../components/CollectionPickerModal';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { ListActionButton } from '../components/ListActionButton';
+import { PillTabs } from '../components/PillTabs';
 import { ProductPickerModal } from '../components/ProductPickerModal';
 import {
   type DraftList,
@@ -135,8 +137,6 @@ const TABS = [
 const ADD_PRODUCTS_LOCKED: Partial<ProductFilterState> = { enabled: false, status: 'active' };
 const EXCLUDE_PRODUCTS_LOCKED: Partial<ProductFilterState> = { excluded: false };
 
-const OUTER_TABS = [{ id: 'eligibility', content: 'Eligibility' }] as const;
-
 // Draft staging (mergeById, diffActions, DraftList — see lib/activationDraft.ts)
 // — nothing there calls the API. Every Add/Remove click below just records
 // intent; the actual PATCH/POST/DELETE calls only fire from saveChanges, when
@@ -190,9 +190,9 @@ function CollectionsPanel({
         <Text as="h2" variant="headingMd">
           Collections
         </Text>
-        <Button disabled={!editable} onClick={() => setPickerOpen(true)}>
+        <ListActionButton kind="add" disabled={!editable} onClick={() => setPickerOpen(true)}>
           {addLabel}
-        </Button>
+        </ListActionButton>
       </InlineStack>
       <IndexTable
         selectable={false}
@@ -220,13 +220,13 @@ function CollectionsPanel({
             </IndexTable.Cell>
             <IndexTable.Cell>{item.productCount ?? '—'}</IndexTable.Cell>
             <IndexTable.Cell>
-              <Button
-                size="slim"
+              <ListActionButton
+                kind="remove"
                 disabled={!editable}
                 onClick={() => onRemove(item.shopifyCollectionId)}
               >
                 Remove
-              </Button>
+              </ListActionButton>
             </IndexTable.Cell>
           </IndexTable.Row>
         ))}
@@ -316,9 +316,9 @@ function IndividualProductsPanel({
             setPage(1);
           }}
         />
-        <Button disabled={!editable} onClick={() => setPickerOpen(true)}>
+        <ListActionButton kind="add" disabled={!editable} onClick={() => setPickerOpen(true)}>
           Add products
-        </Button>
+        </ListActionButton>
       </InlineStack>
       <IndexTable
         selectable={false}
@@ -359,13 +359,13 @@ function IndividualProductsPanel({
                 </InlineStack>
               </IndexTable.Cell>
               <IndexTable.Cell>
-                <Button
-                  size="slim"
+                <ListActionButton
+                  kind="remove"
                   disabled={!editable}
                   onClick={() => onRemove(item.shopifyProductId)}
                 >
                   Remove
-                </Button>
+                </ListActionButton>
               </IndexTable.Cell>
             </IndexTable.Row>
           );
@@ -445,9 +445,13 @@ function ExclusionPanel({
           <Text as="h2" variant="headingMd">
             Excluded Products
           </Text>
-          <Button disabled={!editable} onClick={() => setProductPickerOpen(true)}>
+          <ListActionButton
+            kind="add"
+            disabled={!editable}
+            onClick={() => setProductPickerOpen(true)}
+          >
             Exclude products
-          </Button>
+          </ListActionButton>
         </InlineStack>
         <IndexTable
           selectable={false}
@@ -479,13 +483,13 @@ function ExclusionPanel({
                 </InlineStack>
               </IndexTable.Cell>
               <IndexTable.Cell>
-                <Button
-                  size="slim"
+                <ListActionButton
+                  kind="remove"
                   disabled={!editable}
                   onClick={() => onRemoveProduct(item.shopifyProductId)}
                 >
                   Remove
-                </Button>
+                </ListActionButton>
               </IndexTable.Cell>
             </IndexTable.Row>
           ))}
@@ -646,7 +650,6 @@ export default function ManagePage() {
   const [error, setError] = useState<ClassifiedError | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState(0);
-  const [outerTabIndex, setOuterTabIndex] = useState(0);
   const [failedModalOpen, setFailedModalOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -928,11 +931,11 @@ export default function ManagePage() {
   if (!summary) {
     return (
       <AppFont>
-        <Page title="Manage">
-          <Card>
+        <AppPage title="Manage">
+          <AvCard>
             <Text as="p">Loading…</Text>
-          </Card>
-        </Page>
+          </AvCard>
+        </AppPage>
       </AppFont>
     );
   }
@@ -942,10 +945,14 @@ export default function ManagePage() {
 
   return (
     <AppFont>
-      <Page
+      <AppPage
         title="Manage"
         subtitle="Control which products offer Try-On."
-        primaryAction={{ content: 'Sync products', onAction: syncProducts, loading: syncing }}
+        actions={
+          <Button size="large" icon={RefreshIcon} onClick={syncProducts} loading={syncing}>
+            Sync products
+          </Button>
+        }
       >
         {isDirty && (
           <ContextualSaveBar
@@ -963,7 +970,7 @@ export default function ManagePage() {
             </Banner>
           )}
 
-          <Card>
+          <AvCard>
             <BlockStack gap="200">
               <Checkbox
                 label="Enable Try-On on all products (except exclusions)"
@@ -975,10 +982,10 @@ export default function ManagePage() {
                 to — is excluded below. Click Save above to apply.
               </Text>
             </BlockStack>
-          </Card>
+          </AvCard>
 
           <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
-            <Card>
+            <AvCard>
               <BlockStack gap="200">
                 <Text as="p" tone="subdued">
                   Products Synced
@@ -1012,8 +1019,8 @@ export default function ManagePage() {
                   </div>
                 )}
               </BlockStack>
-            </Card>
-            <Card>
+            </AvCard>
+            <AvCard>
               <BlockStack gap="200">
                 <Text as="p" tone="subdued">
                   Try-On Enabled
@@ -1031,8 +1038,8 @@ export default function ManagePage() {
                     : 'Enabled individually or via a collection, minus exclusions.'}
                 </Text>
               </BlockStack>
-            </Card>
-            <Card>
+            </AvCard>
+            <AvCard>
               <BlockStack gap="200">
                 <Text as="p" tone="subdued">
                   Collections
@@ -1048,127 +1055,110 @@ export default function ManagePage() {
                   {summary.counts.excludedCollections} excluded
                 </Text>
               </BlockStack>
-            </Card>
+            </AvCard>
           </InlineGrid>
 
-          <Card>
-            <Tabs
-              // Polaris's TabProps[] is mutable; OUTER_TABS's `as const` tuple
-              // is readonly (TS4104), same reason TABS below is never passed
-              // directly either — .map(...) produces a fresh mutable array.
-              tabs={OUTER_TABS.map((t) => ({ ...t }))}
-              selected={outerTabIndex}
-              onSelect={setOuterTabIndex}
-            >
+          <AvCard fill>
+            <Box padding="400">
+              <PillTabs
+                label="Eligibility rules"
+                tabs={TABS.map((t) => ({ ...t, disabled: !isTabEditable(mode, t.id) }))}
+                selected={selectedTab}
+                onSelect={setSelectedTab}
+              />
               <Box padding="400">
-                {OUTER_TABS[outerTabIndex].id === 'eligibility' && (
-                  <Tabs
-                    tabs={TABS.map((t) => ({ ...t, disabled: !isTabEditable(mode, t.id) }))}
-                    selected={selectedTab}
-                    onSelect={setSelectedTab}
-                  >
-                    <Box padding="400">
-                      {activeTabId === 'collections' && (
-                        <DisabledTabView disabled={!isTabEditable(mode, 'collections')}>
-                          <CollectionsPanel
-                            basePath="/v1/shopify/activation/collections"
-                            editable={isTabEditable(mode, 'collections')}
-                            addLabel="Add collections"
-                            confirmVerb="Add"
-                            emptyHeading="No enabled collections"
-                            refreshToken={refreshToken}
-                            draft={enabledCollections}
-                            onAdd={(result) =>
-                              setEnabledCollections((d) => {
-                                const actions = new Map(d.actions).set(
-                                  result.shopifyCollectionId,
-                                  'add',
-                                );
-                                const meta = new Map(d.meta).set(result.shopifyCollectionId, {
-                                  ...result,
-                                  productCount: null,
-                                });
-                                return { actions, meta };
-                              })
-                            }
-                            onRemove={(id) =>
-                              setEnabledCollections((d) => ({
-                                actions: new Map(d.actions).set(id, 'remove'),
-                                meta: d.meta,
-                              }))
-                            }
-                            setError={setError}
-                          />
-                        </DisabledTabView>
-                      )}
-                      {activeTabId === 'individual' && (
-                        <DisabledTabView disabled={!isTabEditable(mode, 'individual')}>
-                          <IndividualProductsPanel
-                            editable={isTabEditable(mode, 'individual')}
-                            refreshToken={refreshToken}
-                            draft={individualProducts}
-                            onAdd={(item) =>
-                              setIndividualProducts((d) => ({
-                                actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
-                                meta: new Map(d.meta).set(item.shopifyProductId, item),
-                              }))
-                            }
-                            onRemove={(id) =>
-                              setIndividualProducts((d) => ({
-                                actions: new Map(d.actions).set(id, 'remove'),
-                                meta: d.meta,
-                              }))
-                            }
-                            setError={setError}
-                          />
-                        </DisabledTabView>
-                      )}
-                      {activeTabId === 'exclusion' && (
-                        <ExclusionPanel
-                          mode={mode}
-                          refreshToken={refreshToken}
-                          productDraft={excludedProducts}
-                          collectionDraft={excludedCollections}
-                          onAddProduct={(item) =>
-                            setExcludedProducts((d) => ({
-                              actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
-                              meta: new Map(d.meta).set(item.shopifyProductId, item),
-                            }))
-                          }
-                          onRemoveProduct={(id) =>
-                            setExcludedProducts((d) => ({
-                              actions: new Map(d.actions).set(id, 'remove'),
-                              meta: d.meta,
-                            }))
-                          }
-                          onAddCollection={(result) =>
-                            setExcludedCollections((d) => {
-                              const actions = new Map(d.actions).set(
-                                result.shopifyCollectionId,
-                                'add',
-                              );
-                              const meta = new Map(d.meta).set(result.shopifyCollectionId, {
-                                ...result,
-                                productCount: null,
-                              });
-                              return { actions, meta };
-                            })
-                          }
-                          onRemoveCollection={(id) =>
-                            setExcludedCollections((d) => ({
-                              actions: new Map(d.actions).set(id, 'remove'),
-                              meta: d.meta,
-                            }))
-                          }
-                          setError={setError}
-                        />
-                      )}
-                    </Box>
-                  </Tabs>
+                {activeTabId === 'collections' && (
+                  <DisabledTabView disabled={!isTabEditable(mode, 'collections')}>
+                    <CollectionsPanel
+                      basePath="/v1/shopify/activation/collections"
+                      editable={isTabEditable(mode, 'collections')}
+                      addLabel="Add collections"
+                      confirmVerb="Add"
+                      emptyHeading="No enabled collections"
+                      refreshToken={refreshToken}
+                      draft={enabledCollections}
+                      onAdd={(result) =>
+                        setEnabledCollections((d) => {
+                          const actions = new Map(d.actions).set(result.shopifyCollectionId, 'add');
+                          const meta = new Map(d.meta).set(result.shopifyCollectionId, {
+                            ...result,
+                            productCount: null,
+                          });
+                          return { actions, meta };
+                        })
+                      }
+                      onRemove={(id) =>
+                        setEnabledCollections((d) => ({
+                          actions: new Map(d.actions).set(id, 'remove'),
+                          meta: d.meta,
+                        }))
+                      }
+                      setError={setError}
+                    />
+                  </DisabledTabView>
+                )}
+                {activeTabId === 'individual' && (
+                  <DisabledTabView disabled={!isTabEditable(mode, 'individual')}>
+                    <IndividualProductsPanel
+                      editable={isTabEditable(mode, 'individual')}
+                      refreshToken={refreshToken}
+                      draft={individualProducts}
+                      onAdd={(item) =>
+                        setIndividualProducts((d) => ({
+                          actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
+                          meta: new Map(d.meta).set(item.shopifyProductId, item),
+                        }))
+                      }
+                      onRemove={(id) =>
+                        setIndividualProducts((d) => ({
+                          actions: new Map(d.actions).set(id, 'remove'),
+                          meta: d.meta,
+                        }))
+                      }
+                      setError={setError}
+                    />
+                  </DisabledTabView>
+                )}
+                {activeTabId === 'exclusion' && (
+                  <ExclusionPanel
+                    mode={mode}
+                    refreshToken={refreshToken}
+                    productDraft={excludedProducts}
+                    collectionDraft={excludedCollections}
+                    onAddProduct={(item) =>
+                      setExcludedProducts((d) => ({
+                        actions: new Map(d.actions).set(item.shopifyProductId, 'add'),
+                        meta: new Map(d.meta).set(item.shopifyProductId, item),
+                      }))
+                    }
+                    onRemoveProduct={(id) =>
+                      setExcludedProducts((d) => ({
+                        actions: new Map(d.actions).set(id, 'remove'),
+                        meta: d.meta,
+                      }))
+                    }
+                    onAddCollection={(result) =>
+                      setExcludedCollections((d) => {
+                        const actions = new Map(d.actions).set(result.shopifyCollectionId, 'add');
+                        const meta = new Map(d.meta).set(result.shopifyCollectionId, {
+                          ...result,
+                          productCount: null,
+                        });
+                        return { actions, meta };
+                      })
+                    }
+                    onRemoveCollection={(id) =>
+                      setExcludedCollections((d) => ({
+                        actions: new Map(d.actions).set(id, 'remove'),
+                        meta: d.meta,
+                      }))
+                    }
+                    setError={setError}
+                  />
                 )}
               </Box>
-            </Tabs>
-          </Card>
+            </Box>
+          </AvCard>
         </BlockStack>
 
         {failedModalOpen && (
@@ -1180,7 +1170,7 @@ export default function ManagePage() {
         )}
 
         {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
-      </Page>
+      </AppPage>
     </AppFont>
   );
 }

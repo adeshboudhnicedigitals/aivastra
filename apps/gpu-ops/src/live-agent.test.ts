@@ -40,6 +40,23 @@ describe('fleet agent contracts', () => {
     ).toThrow('Unexpected fleet agent response');
   });
 
+  it('accepts the 0.2 agent driver version, and an older agent without it', () => {
+    // Regression: the strict host parser rejected driverVersion, which broke the live panel for
+    // every box running agent 0.2 ("Unexpected fleet agent response: telemetry.host").
+    const base = fixture('agent-telemetry.fresh.json') as {
+      telemetry: { host: Record<string, unknown> };
+    };
+    expect(parseAgentTelemetryView(base).telemetry?.host.driverVersion).toBeUndefined();
+    const next = structuredClone(base);
+    next.telemetry.host.driverVersion = '595.58.03';
+    expect(parseAgentTelemetryView(next).telemetry?.host.driverVersion).toBe('595.58.03');
+    next.telemetry.host.driverVersion = 595;
+    expect(() => parseAgentTelemetryView(next)).toThrow('Unexpected fleet agent response');
+    next.telemetry.host.driverVersion = '595.58.03';
+    next.telemetry.host.somethingNew = 1;
+    expect(() => parseAgentTelemetryView(next)).toThrow('Unexpected fleet agent response');
+  });
+
   it('accepts the optional slowdown counters and error logs, and defaults them for an older agent', () => {
     const base = fixture('agent-telemetry.fresh.json') as {
       telemetry: { gpus: Record<string, unknown>[]; logs?: unknown };

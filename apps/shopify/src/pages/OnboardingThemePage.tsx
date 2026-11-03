@@ -1,27 +1,13 @@
-import { BlockStack, Button, Icon, InlineStack, Text } from '@shopify/polaris';
-import { CheckCircleIcon, ExternalIcon, InfoIcon, RefreshIcon } from '@shopify/polaris-icons';
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import tutorialImage from '../assets/theme-tutorial.png';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { OnboardingLayout } from '../components/OnboardingLayout';
+import { Glyph, Note, PageHead } from '../components/PageHead';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import { canShowThemePage, getOnboardingStep, onboardingPath } from '../lib/onboarding';
 import type { ShopifyMe } from '../types';
-
-// The panel is white in every colour scheme (see OnboardingShell), so this is a
-// fixed light grey rather than a Polaris surface token that would darken.
-const GREY_FILL = '#f1f1f1';
-
-// Polaris Button has no size above "large", so the two main buttons are made
-// taller through their own class.
-const TALL_BUTTONS_CSS = `
-.theme-tall-button .Polaris-Button {
-  min-height: 56px;
-  padding: 0 var(--p-space-600);
-  font-size: 16px;
-}`;
 
 const THEME_STEPS = [
   {
@@ -99,20 +85,6 @@ export default function OnboardingThemePage({
     }
   }
 
-  // Lets a merchant out of a step they can't finish right now (a theme that
-  // won't take the block, an update in flight). The Dashboard keeps prompting
-  // for the button until a storefront actually renders it.
-  async function skipForNow() {
-    setError(null);
-    try {
-      await apiFetch('/v1/shopify/onboarding/skip-theme', { method: 'POST' });
-      await onRefresh();
-      navigate('/');
-    } catch (err) {
-      setError(classifyError(err));
-    }
-  }
-
   const currentStep = getOnboardingStep(me);
   if (!canShowThemePage(currentStep)) {
     return <Navigate to={onboardingPath(currentStep)} replace />;
@@ -141,160 +113,117 @@ export default function OnboardingThemePage({
       continueLabel="Finish Setup"
       onContinue={() => navigate('/')}
       continueDisabled={!blockDone}
-      secondaryAction={blockDone ? undefined : { label: 'Skip for now', onAction: skipForNow }}
       fullWidth
-      padding="var(--p-space-600) var(--p-space-1600)"
+      padding="var(--p-space-400)"
     >
-      <BlockStack gap="300">
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
-        {/* Instructions on the left, the screenshot they refer to on the right;
-            the two wrap onto separate rows on a narrow window. */}
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 'var(--p-space-800)',
-            alignItems: 'center',
-          }}
-        >
-          <div style={{ flex: '1 1 380px', minWidth: 0 }}>
-            <BlockStack gap="500">
-              {/* Plain h1 for the same reason as the other onboarding headings:
-                  Polaris Text tops out at 28px. */}
-              <h1 style={{ margin: 0, fontSize: 34, lineHeight: 1.15, fontWeight: 700 }}>
-                Enable Virtual Try-On Button
-              </h1>
-              <Text as="p" tone="subdued">
-                Add the AI Vastra – Try It On button to your product pages so customers can try on
-                your products directly in your store.
-              </Text>
-              <BlockStack gap="300">
-                {THEME_STEPS.map((step, index) => (
-                  <InlineStack key={step.title} gap="400" blockAlign="start" wrap={false}>
-                    <div
-                      style={{
-                        width: 44,
-                        height: 44,
-                        flex: 'none',
-                        borderRadius: '50%',
-                        background: GREY_FILL,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 700,
-                        fontSize: 16,
-                      }}
-                    >
-                      {index + 1}
-                    </div>
-                    <BlockStack gap="050">
-                      <Text as="span" fontWeight="semibold">
-                        {step.title}
-                      </Text>
-                      <Text as="span" tone="subdued">
-                        {step.description}
-                      </Text>
-                    </BlockStack>
-                  </InlineStack>
-                ))}
-              </BlockStack>
-              <div className="theme-tall-button">
-                <style>{TALL_BUTTONS_CSS}</style>
-                <BlockStack gap="300">
-                  <Button
-                    variant="primary"
-                    size="large"
-                    fullWidth
-                    icon={ExternalIcon}
-                    onClick={() => openThemeEditor('block')}
-                    loading={openingEditor === 'block'}
-                    disabled={blockDone}
-                  >
-                    Open theme settings
-                  </Button>
-                  <Button
-                    size="large"
-                    fullWidth
-                    onClick={() => openThemeEditor('embed')}
-                    loading={openingEditor === 'embed'}
-                    disabled={iconDone}
-                  >
-                    Add try-on icon to product images (optional)
-                  </Button>
-                  <Button
-                    size="large"
-                    fullWidth
-                    icon={RefreshIcon}
-                    onClick={checkStatus}
-                    loading={checking}
-                    disabled={blockDone && iconDone}
-                  >
-                    Refresh status
-                  </Button>
-                </BlockStack>
-              </div>
+      <div style={{ maxWidth: 1080, width: '100%', margin: '0 auto' }}>
+        <PageHead
+          icon={
+            <Glyph size={44}>
+              <path d="M4 9.5L5.5 4h13L20 9.5" />
+              <path d="M4 9.5a2.8 2.8 0 0 0 5.4 0 2.8 2.8 0 0 0 5.2 0 2.8 2.8 0 0 0 5.4 0" />
+              <path d="M5.5 12.5V20h13v-7.5M10 20v-4.5h4V20" />
+            </Glyph>
+          }
+          title="Activate Virtual Try-On"
+          subtitle="Follow the steps below to enable Virtual Try-On in your Shopify theme."
+        />
+        <div style={{ marginTop: 12 }}>
+          <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        </div>
+        <div className="av-cols">
+          <div className="av-asteps">
+            <h2>Activation Steps</h2>
+            {THEME_STEPS.map((step, index) => (
               <div
-                style={{ background: GREY_FILL, borderRadius: 12, padding: 'var(--p-space-400)' }}
+                key={step.title}
+                className={`av-as${index === THEME_STEPS.length - 1 ? ' last' : ''}`}
               >
-                {blockDone ? (
-                  <InlineStack gap="200" blockAlign="center" wrap={false}>
-                    {/* Polaris Icon has `margin: auto`, which in a flex row soaks up the free
-                        space and drifts the icon (and the text after it) to the middle of
-                        the row. A shrink-wrapped wrapper leaves it nothing to absorb. */}
-                    <div style={{ display: 'flex', flex: 'none' }}>
-                      <Icon source={CheckCircleIcon} tone="success" />
-                    </div>
-                    <BlockStack gap="100">
-                      <Text as="span" tone="success" fontWeight="semibold">
-                        AI Vastra Try It On button activated
-                      </Text>
-                      <Text as="p" tone="subdued">
-                        {iconDone
-                          ? 'Product image icon on'
-                          : 'Product image icon: optional, not turned on'}
-                      </Text>
-                    </BlockStack>
-                  </InlineStack>
-                ) : (
-                  <InlineStack gap="300" blockAlign="start" wrap={false}>
-                    <div style={{ display: 'flex', flex: 'none' }}>
-                      <Icon source={InfoIcon} tone="subdued" />
-                    </div>
-                    <BlockStack gap="200">
-                      <Text as="p" tone="subdued">
-                        If Save is greyed out, it's already added. Press Refresh status and we'll
-                        detect it automatically.
-                      </Text>
-                      {checkedNotFound && (
-                        <Text as="p" tone="caution">
-                          Not detected yet. Make sure the Try It On button is saved to your product
-                          page, then press Refresh status again in a moment — or open any product
-                          page on your live store (not the theme editor preview), which also
-                          confirms it automatically.
-                        </Text>
-                      )}
-                    </BlockStack>
-                  </InlineStack>
-                )}
+                <span className="num">{index + 1}</span>
+                <div>
+                  <h3>{step.title}</h3>
+                  <p>{step.description}</p>
+                </div>
               </div>
-            </BlockStack>
+            ))}
+            <div className="av-btn-stack">
+              <button
+                type="button"
+                className="av-btn-primary av-btn-sm"
+                onClick={() => openThemeEditor('block')}
+                disabled={blockDone || openingEditor !== null}
+                aria-busy={openingEditor === 'block' || undefined}
+              >
+                Open theme settings
+              </button>
+              <button
+                type="button"
+                className="av-btn-ghost av-btn-sm"
+                onClick={() => openThemeEditor('embed')}
+                disabled={iconDone || openingEditor !== null}
+                aria-busy={openingEditor === 'embed' || undefined}
+              >
+                Add try-on icon to product images (optional)
+              </button>
+            </div>
           </div>
-          <div style={{ flex: '1.4 1 480px', minWidth: 0 }}>
-            {/* The numbers in the screenshot match the steps in the list. */}
-            {/* biome-ignore lint/performance/noImgElement: Polaris has no plain image component */}
+          <div className="av-mock">
+            {/* biome-ignore lint/performance/noImgElement: Vite SPA; the Next.js <Image> advice does not apply */}
             <img
               src={tutorialImage}
-              alt="The theme editor's App embeds panel with the Try It On switch marked 1 and the Save button marked 2 (optional icon step)"
-              style={{
-                display: 'block',
-                width: '100%',
-                borderRadius: 8,
-                border: '1px solid var(--p-color-border)',
-              }}
+              alt="The theme editor on a product page, with the Try It On button block added above the product description and the Save button at the top right"
             />
           </div>
         </div>
-      </BlockStack>
+
+        <div className="av-status">
+          <div>
+            <h2>Activation status</h2>
+            <p>
+              {blockDone
+                ? iconDone
+                  ? 'Product image icon on.'
+                  : 'Product image icon: optional, not turned on.'
+                : 'Checks whether Virtual Try-On is enabled in your store.'}
+            </p>
+          </div>
+          <div aria-live="polite">
+            {blockDone ? (
+              <span className="av-pill on">
+                <i />
+                Activated
+              </span>
+            ) : (
+              <span className="av-pill off">
+                <i />
+                Not activated
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            className="av-btn-ghost av-btn-sm"
+            onClick={checkStatus}
+            disabled={checking || (blockDone && iconDone)}
+            aria-busy={checking || undefined}
+          >
+            <Glyph size={20}>
+              <path d="M20 11a8 8 0 0 0-14.5-3.5L4 9M4 4v5h5M4 13a8 8 0 0 0 14.5 3.5L20 15M20 20v-5h-5" />
+            </Glyph>
+            {checking ? 'Checking…' : 'Check Status'}
+          </button>
+        </div>
+
+        {!blockDone && checkedNotFound && (
+          <div style={{ marginTop: 'var(--av-gap)' }}>
+            <Note>
+              Not detected yet. Make sure the Try It On button is saved to your product page, then
+              press Check Status again in a moment, or open any product page on your live store (not
+              the theme editor preview), which also confirms it automatically.
+            </Note>
+          </div>
+        )}
+      </div>
     </OnboardingLayout>
   );
 }

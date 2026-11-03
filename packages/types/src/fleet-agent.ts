@@ -133,6 +133,12 @@ export const agentHostSchema = z
     memPsiSome10: pct,
     uptimeSec: int(0, 2_147_483_647),
     ntpSynced: z.boolean().nullable(),
+    // NVIDIA driver version as nvidia-smi prints it ("550.127.05"). Optional so a v0.1 agent validates.
+    driverVersion: z
+      .string()
+      .regex(/^[0-9]{1,4}(\.[0-9]{1,4}){0,3}$/)
+      .nullable()
+      .optional(),
     disks: z.array(agentDiskSchema).max(16),
   })
   .strict();
@@ -337,3 +343,116 @@ export const fleetAgentSummariesSchema = z.object({
   // monitored by an agent, which is different from a monitored worker with no data.
   workers: z.array(fleetAgentSummarySchema),
 });
+
+// ---- Boxes and enrolment ---------------------------------------------------------------------
+// A box is a rented machine (fleet_hosts), named as vps-sync names it ("w6"). The agent on it reports
+// under that id. Enrolment is how a box gets its agent key without anyone copying one: vps-sync's
+// fleet-converge.sh calls POST /v1/fleet/enroll with an enrolment token and pipes the returned key
+// straight to the box.
+
+// Lower-case box names: "w6", "w10", "gpu-box-3". Also the agent's reported id.
+export const FLEET_BOX_ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+export const fleetBoxIdSchema = z.string().regex(FLEET_BOX_ID_RE, 'box id must be like "w6"');
+
+export const FLEET_ENROLL_TOKEN_PREFIX = 'fe_';
+export const FLEET_ENROLL_TOKEN_RE = /^fe_[A-Za-z0-9_-]{43}$/;
+
+export const fleetEnrollRequestSchema = z
+  .object({
+    boxId: fleetBoxIdSchema,
+    // The dispatcher worker this box serves (vps-sync boxes/fleet.txt), or null when it serves none.
+    workerId: z.string().min(1).max(100).nullable(),
+  })
+  .strict();
+export type FleetEnrollRequest = z.infer<typeof fleetEnrollRequestSchema>;
+
+export const fleetEnrollResponseSchema = z.object({
+  boxId: z.string(),
+  // The agent key, returned exactly once. vps-sync pipes it to the box; nothing else ever sees it.
+  key: z.string(),
+  keyPrefix: z.string(),
+  // Earlier keys of this box revoked by this enrolment: a box holds one working key.
+  revokedPrevious: z.number().int().min(0),
+  // The box is now linked to the given admin worker. false when none was given or no such worker
+  // exists; the box is enrolled and monitored either way.
+  workerLinked: z.boolean(),
+});
+export type FleetEnrollResponse = z.infer<typeof fleetEnrollResponseSchema>;
+
+export const fleetEnrollTokenViewSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  tokenPrefix: z.string(),
+  createdAt: z.string(),
+  revokedAt: z.string().nullable(),
+  lastUsedAt: z.string().nullable(),
+});
+export type FleetEnrollTokenView = z.infer<typeof fleetEnrollTokenViewSchema>;
+export const fleetEnrollTokenCreatedSchema = fleetEnrollTokenViewSchema.extend({
+  token: z.string(),
+});
+export type FleetEnrollTokenCreated = z.infer<typeof fleetEnrollTokenCreatedSchema>;
+
+// What a box last said about its hardware; kept on fleet_hosts so a quiet box still shows it.
+export const fleetBoxHardwareSchema = z.object({
+  gpus: z.array(
+    z.object({
+      index: z.number().int(),
+      name: z.string().nullable(),
+      vramTotalMib: z.number().int().nullable(),
+    }),
+  ),
+  driverVersion: z.string().nullable(),
+  cpuCount: z.number().int().nullable(),
+  ramTotalMib: z.number().int().nullable(),
+  diskTotalGb: z.number().nullable(),
+});
+export type FleetBoxHardware = z.infer<typeof fleetBoxHardwareSchema>;
+
+/**
+ * The dispatcher's relation to a box. A LABEL only, never the box's health:
+ *  in_rotation   linked worker is active and the dispatcher's last probe reached ComfyUI
+ *  not_reachable linked worker is active but the dispatcher's probe failed
+ *  disabled      linked worker is marked inactive in the admin panel
+ *  not_a_worker  no dispatcher worker is linked to this box
+ */
+export const fleetBoxDispatcherStateSchema = z.enum([
+  'in_rotation',
+  'not_reachable',
+  'disabled',
+  'not_a_worker',
+]);
+export type FleetBoxDispatcherState = z.infer<typeof fleetBoxDispatcherStateSchema>;
+
+export const fleetBoxSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  workerId: z.string().nullable(),
+  dispatcher: fleetBoxDispatcherStateSchema,
+  // An unrevoked agent key exists. false = enrolled once, key since revoked (or never enrolled).
+  agentEnrolled: z.boolean(),
+  // Received within the heartbeat TTL. null = the agent is silent (or not installed).
+  heartbeatAt: z.string().nullable(),
+  // Last time any key of this box was used, kept beyond the heartbeat TTL.
+  lastSeenAt: z.string().nullable(),
+  agentVersion: z.string().nullable(),
+  hardware: fleetBoxHardwareSchema.nullable(),
+  hardwareAt: z.string().nullable(),
+  // Live numbers; null when the agent has not reported within the last minute.
+  telemetry: fleetAgentSummarySchema.shape.telemetry,
+  // Jobs that ran on the linked worker in the last 24 h; null when the box is not a worker.
+  jobs24h: z
+    .object({
+      completed: z.number().int().min(0),
+      failed: z.number().int().min(0),
+    })
+    .nullable(),
+  incidents: fleetAgentSummarySchema.shape.incidents,
+});
+export type FleetBox = z.infer<typeof fleetBoxSchema>;
+
+export const fleetBoxesSchema = z.object({
+  generatedAt: z.string(),
+  boxes: z.array(fleetBoxSchema),
+});
+export type FleetBoxes = z.infer<typeof fleetBoxesSchema>;
