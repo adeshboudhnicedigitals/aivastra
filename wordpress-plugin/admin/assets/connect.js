@@ -9,12 +9,10 @@
  *
  * Also wires the password show/hide toggle — it lives in this one file
  * since it shares the same connect-step markup and only ever loads
- * alongside the form above. "Continue with Google" needs no JS of its own:
- * its form opens in a plain new tab via a static target="_blank"
- * (render_connect_form()'s own doc comment) — a sized window.open() popup
- * was tried first, but the merchant explicitly asked for a plain tab
- * instead ("previously it is opening in new tab that option is good... make
- * sure no new window opens").
+ * alongside the form above. "Continue with Google" opens in a centred
+ * popup window (the form's own target="_blank" stays as the fallback when a
+ * popup blocker refuses it) and the popup posts the result back and closes,
+ * so the merchant never leaves this wp-admin page.
  */
 (() => {
   if (typeof aivastraConnect === 'undefined') {
@@ -45,6 +43,30 @@
       messageEl.classList.add('is-visible', 'is-error');
     }
   });
+
+  // Open a sized, centred popup and point the Google form at it by name. If
+  // the browser blocks window.open(), the form still submits to its static
+  // target="_blank" tab, which the same opener/postMessage path handles.
+  var googleForm = document.getElementById('aivastra-google-connect-form');
+  if (googleForm) {
+    googleForm.addEventListener('submit', () => {
+      var w = 500;
+      var h = 640;
+      var left = Math.max(0, Math.round(window.screenX + (window.outerWidth - w) / 2));
+      var top = Math.max(0, Math.round(window.screenY + (window.outerHeight - h) / 2));
+      var popup = window.open(
+        '',
+        'aivastraGoogleConnect',
+        `popup=yes,width=${w},height=${h},left=${left},top=${top}`,
+      );
+      if (popup) {
+        googleForm.target = 'aivastraGoogleConnect';
+        popup.focus();
+      } else {
+        googleForm.target = '_blank';
+      }
+    });
+  }
 
   var pwdInput = document.getElementById('aivastra_connect_password');
   var pwdToggle = document.getElementById('aivastra-connect-password-toggle');

@@ -54,7 +54,10 @@
   function sendWidgetEvent(type) {
     const payload = { type, device: isMobileDevice ? 'mobile' : 'desktop' };
     if (widgetClientId) payload.clientId = widgetClientId;
-    if (config.productId) payload.productId = config.productId;
+    // wp_localize_script() hands every scalar over as a string ("873"); the API
+    // wants an integer, and used to reject every event over it.
+    const productId = Number(config.productId);
+    if (Number.isInteger(productId) && productId > 0) payload.productId = productId;
     fetch(`${config.apiBase}/v1/dev/widget-event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.widgetKey}` },
@@ -732,6 +735,138 @@
       });
   }
 
+  // Asks the site's own server who this shopper is, in a form the API can
+  // trust (Aivastra_Shopper_Token_Ajax) — only when the merchant set shopper
+  // limits. Resolves { blocked, loginUrl } when login is required and the
+  // shopper isn't logged in, otherwise { token } (undefined when no policy).
+  // A failed lookup resolves empty and lets the API decide: it refuses a
+  // request that needed a token, with a message the shopper can act on.
+  function shopperAuth() {
+    if (!config.shopperGate) return Promise.resolve({});
+    const form = new URLSearchParams();
+    form.set('action', config.shopperTokenAction);
+    form.set('redirect', window.location.href);
+    return fetch(config.ajaxUrl, { method: 'POST', credentials: 'same-origin', body: form })
+      .then((res) => res.json())
+      .then((body) => {
+        const data = body?.success ? body.data : null;
+        if (!data?.required) return {};
+        if (data.loginRequired && !data.loggedIn) {
+          return { blocked: true, loginUrl: data.loginUrl };
+        }
+        return { token: data.token };
+      })
+      .catch(() => ({}));
+  }
+
+  // Shown instead of the upload step when the store requires login for
+  // try-ons and the shopper isn't logged in.
+  function renderLoginRequired(loginUrl) {
+    const href = loginUrl ? escapeHtml(loginUrl) : '';
+    renderModal({
+      title: 'Virtual Try-On',
+      hideHistoryButton: true,
+      bodyHtml:
+        '<div class="aivastra-error-container">' +
+        '<div class="aivastra-error-icon-wrap">' +
+        ICONS.alert +
+        '</div>' +
+        '<p class="aivastra-error-title">Please log in to continue</p>' +
+        '<p class="aivastra-error-desc">This store lets logged-in customers use virtual try-on. Log in or create an account, then come back to this product.</p>' +
+        '</div>' +
+        '<div class="aivastra-button-stack">' +
+        (href ? `<a class="aivastra-primary-btn" href="${href}"><span>Log in</span></a>` : '') +
+        '<button type="button" class="aivastra-secondary-btn" data-close>Close</button>' +
+        '</div>',
+    });
+  }
+
+  // Shown for SHOPPER_LIMIT — retrying can't help until the 24h window rolls
+  // over, so unlike renderUnavailable() there is no "Try Again".
+  function renderLimitReached(message) {
+    renderModal({
+      title: 'Virtual Try-On',
+      hideHistoryButton: true,
+      bodyHtml:
+        '<div class="aivastra-error-container">' +
+        '<div class="aivastra-error-icon-wrap">' +
+        ICONS.alert +
+        '</div>' +
+        '<p class="aivastra-error-title">Try-on limit reached</p>' +
+        `<p class="aivastra-error-desc">${escapeHtml(message)}</p>` +
+        '</div>' +
+        '<div class="aivastra-button-stack">' +
+        '<button type="button" class="aivastra-secondary-btn" data-close>Close</button>' +
+        '</div>',
+    });
+  }
+
+  function submitTryOn(personDataUrl, shopperToken) {
+    // A remembered photo from an earlier visit is shown via a presigned
+    // storage URL (enterUploadStep()); a freshly picked one is a data: URL.
+    // The remembered one is sent by key, never re-downloaded here: fetching
+    // the presigned URL from the merchant's page is a cross-origin read the
+    // storage bucket's CORS doesn't allow, which used to fail every reuse
+    // with "Unable to complete try-on" (same approach as the Shopify widget).
+    const reuseKey = personDataUrl.startsWith('data:') ? null : getRememberedPhotoKey();
+    const personPart = reuseKey
+      ? Promise.resolve(null)
+      : fetch(personDataUrl).then((r) => r.blob());
+    return fetch(currentImage)
+      .then((r) => r.blob())
+      .then((garmentBlob) =>
+        personPart.then((personBlob) => {
+          const form = new FormData();
+          form.set('category', config.category || 'general');
+          if (reuseKey) {
+            form.set('personKey', reuseKey);
+          } else {
+            form.set('person', personBlob, 'person.jpg');
+          }
+          form.set('garment', garmentBlob, 'garment.jpg');
+          return fetch(`${config.apiBase}/v1/dev/tryon`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${config.widgetKey}`,
+              ...(shopperToken ? { 'X-Aivastra-Shopper': shopperToken } : {}),
+            },
+            body: form,
+          });
+        }),
+      )
+      .then((res) => res.json().then((body) => ({ status: res.status, body })))
+      .then((result) => {
+        if (result.status === 202 && result.body.jobId) {
+          rememberPhotoKey(result.body.personKey);
+          pollJob(result.body.jobId);
+          return;
+        }
+        const errCode = result.body?.error?.code;
+        if (errCode === 'PHOTO_NOT_AVAILABLE') {
+          // The remembered photo aged out server-side (24h) or was removed:
+          // drop it and ask for a new one rather than showing an error.
+          forgetRememberedPhoto();
+          lastPersonPhotoUrl = null;
+          renderUploadStep();
+          return;
+        }
+        if (errCode === 'INSUFFICIENT_CREDITS') {
+          renderCreditsExhausted();
+          return;
+        }
+        const message = window.AivastraWidgetLogic.friendlyErrorMessage(
+          result.status,
+          errCode,
+          result.body?.error?.message,
+        );
+        if (errCode === 'SHOPPER_LIMIT') {
+          renderLimitReached(message);
+          return;
+        }
+        renderUnavailable(message);
+      });
+  }
+
   function startTryOn(personDataUrl) {
     lastPersonPhotoUrl = personDataUrl;
     renderModal({
@@ -761,41 +896,13 @@
       probe.src = personDataUrl;
     }
 
-    fetch(currentImage)
-      .then((r) => r.blob())
-      .then((garmentBlob) =>
-        fetch(personDataUrl)
-          .then((r) => r.blob())
-          .then((personBlob) => {
-            const form = new FormData();
-            form.set('category', config.category || 'general');
-            form.set('person', personBlob, 'person.jpg');
-            form.set('garment', garmentBlob, 'garment.jpg');
-            return fetch(`${config.apiBase}/v1/dev/tryon`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${config.widgetKey}` },
-              body: form,
-            });
-          }),
-      )
-      .then((res) => res.json().then((body) => ({ status: res.status, body })))
-      .then((result) => {
-        if (result.status === 202 && result.body.jobId) {
-          rememberPhotoKey(result.body.personKey);
-          pollJob(result.body.jobId);
-          return;
+    shopperAuth()
+      .then((auth) => {
+        if (auth.blocked) {
+          renderLoginRequired(auth.loginUrl);
+          return null;
         }
-        if (result.body?.error?.code === 'INSUFFICIENT_CREDITS') {
-          renderCreditsExhausted();
-          return;
-        }
-        renderUnavailable(
-          window.AivastraWidgetLogic.friendlyErrorMessage(
-            result.status,
-            result.body?.error?.code,
-            result.body?.error?.message,
-          ),
-        );
+        return submitTryOn(personDataUrl, auth.token);
       })
       .catch(() => renderUnavailable());
   }
@@ -905,7 +1012,19 @@
 
   button.addEventListener('click', () => {
     sendWidgetEvent('button_click');
-    enterUploadStep();
+    if (!config.shopperGate) {
+      enterUploadStep();
+      return;
+    }
+    // Shopper limits are on: don't make a logged-out shopper pick a photo
+    // only to be turned away at the end — check login up front.
+    shopperAuth().then((auth) => {
+      if (auth.blocked) {
+        renderLoginRequired(auth.loginUrl);
+        return;
+      }
+      enterUploadStep();
+    });
   });
 
   modal.addEventListener('click', (event) => {

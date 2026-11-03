@@ -125,44 +125,6 @@ final class ConnectionSettingsTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    public function test_get_category_map_reads_from_the_options_row(): void
-    {
-        Functions\expect('get_option')
-            ->once()
-            ->with('aivastra_tryon_settings', [])
-            ->andReturn(['category_map' => [12 => 'saree']]);
-
-        $settings = new Aivastra_Connection_Settings();
-        $this->assertSame([12 => 'saree'], $settings->get_category_map());
-    }
-
-    public function test_get_category_map_returns_empty_array_when_unset(): void
-    {
-        Functions\expect('get_option')->once()->andReturn([]);
-        $settings = new Aivastra_Connection_Settings();
-        $this->assertSame([], $settings->get_category_map());
-    }
-
-    public function test_set_category_map_merges_into_the_existing_options_row(): void
-    {
-        Functions\expect('get_option')
-            ->once()
-            ->with('aivastra_tryon_settings', [])
-            ->andReturn(['widget_key' => 'sk_live_widget']);
-        Functions\expect('update_option')
-            ->once()
-            ->with('aivastra_tryon_settings', [
-                'widget_key' => 'sk_live_widget',
-                'category_map' => [12 => 'saree'],
-            ])
-            ->andReturn(true);
-
-        $settings = new Aivastra_Connection_Settings();
-        $settings->set_category_map([12 => 'saree']);
-
-        $this->addToAssertionCount(1);
-    }
-
     public function test_get_full_key_decrypts_the_stored_value(): void
     {
         Functions\when('wp_salt')->justReturn('a-fixed-test-salt-value-not-a-real-secret');
@@ -225,5 +187,43 @@ final class ConnectionSettingsTest extends TestCase
         $settings->set_widget_customization(['accentColor' => '#ff0000']);
 
         $this->addToAssertionCount(1);
+    }
+
+    public function test_get_shopper_policy_is_null_when_never_set(): void
+    {
+        Functions\expect('get_option')->once()->andReturn([]);
+        $this->assertNull((new Aivastra_Connection_Settings())->get_shopper_policy());
+    }
+
+    public function test_get_shopper_policy_normalises_the_stored_row(): void
+    {
+        Functions\expect('get_option')
+            ->once()
+            ->andReturn(['shopper_policy' => ['login_required' => 1, 'cap' => 0]]);
+        $this->assertSame(
+            ['login_required' => true, 'cap' => null],
+            (new Aivastra_Connection_Settings())->get_shopper_policy()
+        );
+    }
+
+    public function test_set_shopper_policy_stores_the_policy_and_an_encrypted_secret(): void
+    {
+        Functions\when('wp_salt')->justReturn('a-fixed-test-salt-value-not-a-real-secret');
+        Functions\expect('get_option')->once()->andReturn(['widget_key' => 'sk_live_widget']);
+        $stored = null;
+        Functions\expect('update_option')
+            ->once()
+            ->andReturnUsing(function ($key, $value) use (&$stored) {
+                $stored = $value;
+                return true;
+            });
+
+        $settings = new Aivastra_Connection_Settings();
+        $settings->set_shopper_policy(true, 5, 'sec_plain');
+
+        $this->assertSame(['login_required' => true, 'cap' => 5], $stored['shopper_policy']);
+        $this->assertSame('sk_live_widget', $stored['widget_key']);
+        $this->assertNotSame('sec_plain', $stored['shopper_token_secret']);
+        $this->assertSame('sec_plain', Aivastra_Crypto::decrypt($stored['shopper_token_secret']));
     }
 }

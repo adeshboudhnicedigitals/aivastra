@@ -87,14 +87,16 @@ class Aivastra_Settings_Page
     // dev` (port 4200), override this to 'http://localhost:4200'.
     public const CHATBOT_BASE = 'https://app.aivastra.com/chatbot';
 
-    // Set once a merchant finishes or skips the onboarding wizard's Step 2
-    // (categories/funnels — render_onboarding_categories()), so the bare page
-    // URL stops showing that step and moves on to Step 3
-    // (render_onboarding_button()) instead of re-showing it. Deleted by
-    // uninstall.php alongside the rest of the plugin's options. Public:
-    // Aivastra_Category_Map_Ajax (includes/class-category-map-ajax.php) needs
-    // it too, same cross-class reason API_BASE is public.
-    public const CATEGORIES_DONE_OPTION_KEY = 'aivastra_tryon_categories_done';
+    // Set once a merchant saves or skips the onboarding wizard's Step 2
+    // (try-on limits — render_onboarding_limits()), so the bare page URL moves
+    // on to Step 3 (render_onboarding_button()) instead of re-showing it.
+    // Deleted by uninstall.php alongside the rest of the plugin's options.
+    public const LIMITS_DONE_OPTION_KEY = 'aivastra_tryon_limits_done';
+
+    // Per-shopper try-on caps offered in the limits form (per rolling 24h) —
+    // the same short list the Shopify onboarding's limits step offers. null
+    // (empty value) = unlimited.
+    private const SHOPPER_CAP_CHOICES = [1, 2, 3, 5, 10, 20];
 
     // Set once a merchant finishes or skips the onboarding wizard's Step 3
     // (button customization — render_onboarding_button()), the last step, so
@@ -106,7 +108,7 @@ class Aivastra_Settings_Page
     // Step labels for the onboarding wizard's progress row, in order — read
     // by render_progress_steps() so every step's number and the total stay
     // in sync with this one list.
-    private const ONBOARDING_STEPS = ['Connect account', 'Categories & Funnels', 'Customize button'];
+    private const ONBOARDING_STEPS = ['Connect account', 'Try-on limits', 'Customize button'];
 
     // Every wp-admin screen this class renders (enqueue_assets() and
     // add_body_class() both gate on it).
@@ -187,6 +189,9 @@ class Aivastra_Settings_Page
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_menu_icon_style']);
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_assets']);
         add_filter('admin_body_class', [self::class, 'add_body_class']);
+        // Fires in wp-admin/admin-header.php right before the admin_notices
+        // hooks run — the last moment their callbacks can be removed.
+        add_action('in_admin_header', [self::class, 'suppress_foreign_notices']);
         add_action('admin_post_aivastra_tryon_connect', [self::class, 'handle_connect']);
         add_action('admin_post_aivastra_tryon_connect_start', [self::class, 'handle_connect_start']);
         // No nonce check on the callback action below — it's a cross-site
@@ -199,6 +204,29 @@ class Aivastra_Settings_Page
         add_action('admin_post_aivastra_tryon_skip_onboarding', [self::class, 'handle_skip_onboarding']);
         add_action('admin_post_aivastra_tryon_buy', [self::class, 'handle_buy']);
         add_action('admin_post_aivastra_tryon_save_widget_customization', [self::class, 'handle_save_widget_customization']);
+        add_action('admin_post_aivastra_tryon_save_limits', [self::class, 'handle_save_limits']);
+    }
+
+    /**
+     * Keeps other plugins' and core's admin notices (the WordPress update nag,
+     * WooCommerce's Action Scheduler warning, …) off this plugin's own screens.
+     * WordPress moves every such notice under a page's first heading, where
+     * they landed in the middle of our pages' layouts as unrelated noise.
+     *
+     * Safe to drop all of them here because this plugin never uses these
+     * hooks itself: its own messages are printed inline by render_notices().
+     * Scoped to PLUGIN_PAGES only, so every other wp-admin screen — the
+     * Dashboard, Plugins, WooCommerce — still shows them as before.
+     */
+    public static function suppress_foreign_notices(): void
+    {
+        if (!in_array($_GET['page'] ?? '', self::PLUGIN_PAGES, true)) {
+            return;
+        }
+        remove_all_actions('admin_notices');
+        remove_all_actions('all_admin_notices');
+        remove_all_actions('network_admin_notices');
+        remove_all_actions('user_admin_notices');
     }
 
     /**
@@ -311,19 +339,6 @@ class Aivastra_Settings_Page
         wp_localize_script('aivastra-tryon-connect', 'aivastraConnect', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce(Aivastra_Connect_Ajax::NONCE_ACTION),
-        ]);
-        wp_enqueue_script(
-            'aivastra-tryon-save-categories',
-            AIVASTRA_TRYON_URL . 'admin/assets/save-categories.js',
-            [],
-            AIVASTRA_TRYON_VERSION,
-            true
-        );
-        // No nonce here — the form's own wp_nonce_field() (render_category_routing_table())
-        // already carries it as _wpnonce, read straight out via FormData the
-        // same way the rest of that form's fields are.
-        wp_localize_script('aivastra-tryon-save-categories', 'aivastraSaveCategories', [
-            'ajaxUrl' => admin_url('admin-ajax.php'),
         ]);
         wp_enqueue_script(
             'aivastra-tryon-product-eligibility',
@@ -550,6 +565,9 @@ class Aivastra_Settings_Page
         } else {
             $service = new Aivastra_Connection_Service(new Aivastra_Connection_Settings(), self::API_BASE);
             $result = $service->connect($fullKey, $widgetKey);
+            if ($result['ok']) {
+                $service->sync_shopper_policy();
+            }
             $redirectArgs[$result['ok'] ? 'aivastra_connected' : 'aivastra_error'] =
                 $result['ok'] ? '1' : ($result['error'] ?? 'unknown');
         }
@@ -666,6 +684,9 @@ class Aivastra_Settings_Page
             } else {
                 $service = new Aivastra_Connection_Service(new Aivastra_Connection_Settings(), self::API_BASE);
                 $result = $service->exchange_connect_code($code);
+                if ($result['ok']) {
+                    $service->sync_shopper_policy();
+                }
                 $redirectArgs[$result['ok'] ? 'aivastra_connected' : 'aivastra_error'] =
                     $result['ok'] ? '1' : ($result['error'] ?? 'unknown');
             }
@@ -730,25 +751,16 @@ class Aivastra_Settings_Page
     // in place with a small confirmation next to it instead.
 
     /**
-     * Wipes the entire connection — widget key, snapshot, and category
-     * mapping — via Aivastra_Connection_Settings::clear(). No fields, no
+     * Wipes the entire connection — widget key, snapshot and widget
+     * appearance — via Aivastra_Connection_Settings::clear(). No fields, no
      * confirmation dance beyond WordPress's own nonce check; the button
      * itself is the confirmation.
      *
-     * Also deletes both onboarding wp_options — CATEGORIES_DONE_OPTION_KEY
-     * (step 2) and ONBOARDING_DONE_OPTION_KEY (the whole 3-step wizard) —
-     * neither of which Aivastra_Connection_Settings::clear() touches.
-     * Deleting only one of the two (as this method used to) is its own bug:
-     * a merchant who reconnects (same account or a different one) with
-     * CATEGORIES_DONE_OPTION_KEY still '1' from before has
-     * should_show_categories_step() report "already done" while
-     * should_show_button_step() reports "not done yet" — landing the
-     * reconnect straight on step 3, silently skipping step 2
-     * (categories/funnels) entirely, because that flag survived the
-     * disconnect. Contradicts this very method's own doc comment above
-     * ("a fresh connect afterward could be a different aivastra account...
-     * a stale mapping must not survive a disconnect") — both onboarding-done
-     * flags are exactly that kind of stale state and need to go too.
+     * Also deletes the two onboarding flags (LIMITS_DONE_OPTION_KEY and
+     * ONBOARDING_DONE_OPTION_KEY), which
+     * Aivastra_Connection_Settings::clear() doesn't touch: a fresh connect
+     * afterward could be a different aivastra account, and a stale "wizard
+     * finished" flag would skip its onboarding.
      */
     public static function handle_disconnect(): void
     {
@@ -758,7 +770,7 @@ class Aivastra_Settings_Page
         check_admin_referer('aivastra_tryon_disconnect');
 
         (new Aivastra_Connection_Settings())->clear();
-        delete_option(self::CATEGORIES_DONE_OPTION_KEY);
+        delete_option(self::LIMITS_DONE_OPTION_KEY);
         delete_option(self::ONBOARDING_DONE_OPTION_KEY);
 
         wp_safe_redirect(add_query_arg(
@@ -768,33 +780,17 @@ class Aivastra_Settings_Page
         exit;
     }
 
-    // "Save categories" is now AJAX (Aivastra_Category_Map_Ajax,
-    // admin/assets/save-categories.js) — same reasoning as "Refresh balance"
-    // above: a full-page admin-post.php round trip landed the merchant back
-    // on the page with a dismissible "Categories saved." WP admin notice,
-    // which core's own common.js relocates to right after the page's first
-    // <h1>/<h2>, popping up nowhere near the Save button that was actually
-    // clicked. AJAX saves the mapping in place and shows a small inline
-    // confirmation next to the button instead — except when this save is
-    // completing onboarding step 2, where the destination itself (the
-    // dashboard) is the confirmation, same as every other onboarding
-    // transition on this page; the AJAX handler tells the JS to navigate
-    // there instead of showing an inline message in that one case.
-
     /**
-     * "Skip for now" on the onboarding wizard's Step 2 or Step 3 — a
-     * merchant who isn't ready to map categories, or doesn't want to touch
-     * the button's appearance, yet needs a way off that step without being
-     * forced to fill it in first. Both steps' skip links post to this same
-     * handler/nonce; which one fired is read off state rather than a
-     * separate param, same idea as Aivastra_Category_Map_Ajax::handle()'s own
-     * $wasOnboarding check. Step 2 not yet done → this was that step's skip,
-     * so only CATEGORIES_DONE_OPTION_KEY advances (the wizard moves on to
-     * Step 3, it doesn't end). Step 2 already done → this was Step 3's skip,
-     * so ONBOARDING_DONE_OPTION_KEY also gets set, ending the wizard. No
-     * `section` query arg on the redirect (unlike before Step 3 existed) —
-     * that was an escape hatch that would skip Step 3 too; the persisted
-     * flags alone now decide which step, if any, shows next.
+     * "Skip for now" on the onboarding wizard's Step 2 (try-on limits) or
+     * Step 3 (button customization) — a merchant who doesn't want to touch a
+     * step yet needs a way off it without being forced to fill it in. Both
+     * steps' skip links post to this same handler/nonce; which one fired is
+     * read off state. Step 2 not yet done → only LIMITS_DONE_OPTION_KEY
+     * advances (no shopper policy is saved, so the storefront stays
+     * unrestricted). Step 2 done → this was Step 3's skip, so
+     * ONBOARDING_DONE_OPTION_KEY gets set, ending the wizard. No `section`
+     * query arg on the redirect: the persisted flags alone decide which step,
+     * if any, shows next.
      */
     public static function handle_skip_onboarding(): void
     {
@@ -803,13 +799,64 @@ class Aivastra_Settings_Page
         }
         check_admin_referer('aivastra_tryon_skip_onboarding');
 
-        if (get_option(self::CATEGORIES_DONE_OPTION_KEY) !== '1') {
-            update_option(self::CATEGORIES_DONE_OPTION_KEY, '1', false);
+        if (get_option(self::LIMITS_DONE_OPTION_KEY) !== '1') {
+            update_option(self::LIMITS_DONE_OPTION_KEY, '1', false);
         } else {
             update_option(self::ONBOARDING_DONE_OPTION_KEY, '1', false);
         }
 
         wp_safe_redirect(add_query_arg(['page' => 'aivastra-tryon'], admin_url('admin.php')));
+        exit;
+    }
+
+    /**
+     * Saves the storefront shopper limits — "require customer login" and the
+     * per-shopper 24h try-on cap — on the Ai Vastra API, which is what
+     * enforces them (Aivastra_Connection_Service::put_shopper_policy()). The
+     * same form and handler serve onboarding Step 2 and the Customize page;
+     * as with handle_save_widget_customization(), "this save completes the
+     * onboarding step" is read off state before the write, and that case
+     * lands on the dashboard (which then shows Step 3) instead of Customize.
+     * Nothing is stored locally unless the API accepted it, so the wizard
+     * can't claim limits are on when they aren't.
+     */
+    public static function handle_save_limits(): void
+    {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html('You do not have permission to do this.'), 403);
+        }
+        check_admin_referer('aivastra_tryon_save_limits');
+
+        $raw = wp_unslash($_POST['aivastra_limits'] ?? []);
+        $raw = is_array($raw) ? $raw : [];
+        $loginRequired = !empty($raw['login_required']);
+        $cap = isset($raw['cap']) && $raw['cap'] !== '' ? (int) $raw['cap'] : null;
+        if ($cap !== null && !in_array($cap, self::SHOPPER_CAP_CHOICES, true)) {
+            $cap = null;
+        }
+
+        $wasOnboarding = get_option(self::LIMITS_DONE_OPTION_KEY) !== '1';
+        $service = new Aivastra_Connection_Service(new Aivastra_Connection_Settings(), self::API_BASE);
+        $result = $service->put_shopper_policy($loginRequired, $cap);
+
+        if (!$result['ok']) {
+            wp_safe_redirect(add_query_arg(
+                ['page' => $wasOnboarding ? 'aivastra-tryon' : 'aivastra-tryon-customize', 'aivastra_error' => $result['error'] ?? 'Could not save the limits.'],
+                admin_url('admin.php')
+            ));
+            exit;
+        }
+
+        if ($wasOnboarding) {
+            update_option(self::LIMITS_DONE_OPTION_KEY, '1', false);
+            wp_safe_redirect(add_query_arg(['page' => 'aivastra-tryon'], admin_url('admin.php')));
+            exit;
+        }
+
+        wp_safe_redirect(add_query_arg(
+            ['page' => 'aivastra-tryon-customize', 'aivastra_limits_saved' => '1'],
+            admin_url('admin.php')
+        ));
         exit;
     }
 
@@ -872,13 +919,10 @@ class Aivastra_Settings_Page
 
         // Step 3 of onboarding (render_onboarding_button()) posts to this
         // same handler/nonce as the standalone Customize page — captured
-        // before the option write below, same "was this the step that
-        // completes the wizard" idea as Aivastra_Category_Map_Ajax::handle()'s
-        // own $wasOnboarding, just via a real redirect since this form isn't
-        // AJAX. Completing it finishes the wizard outright (there's no
-        // further step to land on), so this lands on the dashboard instead of
-        // back on Customize.
-        $wasOnboarding = get_option(self::CATEGORIES_DONE_OPTION_KEY) === '1'
+        // before the option write below. Completing it finishes the wizard
+        // outright (there's no further step to land on), so this lands on the
+        // dashboard instead of back on Customize.
+        $wasOnboarding = get_option(self::LIMITS_DONE_OPTION_KEY) === '1'
             && get_option(self::ONBOARDING_DONE_OPTION_KEY) !== '1';
         if ($wasOnboarding) {
             update_option(self::ONBOARDING_DONE_OPTION_KEY, '1', false);
@@ -1201,16 +1245,6 @@ class Aivastra_Settings_Page
                 </div>
                 <div class="aivastra-connect-card-heading">
                   <h1>Welcome Back</h1>
-                  <?php // 100 — same static fallback apps/catalogues-web's own
-                  // /login page defaults to before its live GET /v1/config/free-plan
-                  // fetch resolves. That fetch isn't repeated here: it's a
-                  // cross-origin call from the merchant's own site to
-                  // app.aivastra.com, and CORS there (apps/api/src/server.ts)
-                  // only allows Shopify origins and origins already on an
-                  // established store/api-key record — neither exists yet at
-                  // this unauthenticated step, so the request would just fail
-                  // silently every time rather than ever showing a live number. ?>
-                  <p class="aivastra-connect-perk"><?php echo self::icon('gift'); ?> Get 100 Free credits to start.</p>
                 </div>
                 <?php self::render_connect_form(false); ?>
               </div>
@@ -1316,33 +1350,36 @@ class Aivastra_Settings_Page
     }
 
     /**
-     * Step 2 of the wizard (render_onboarding_categories()) — same "no
-     * section in the URL" escape hatch as should_show_intro(), but it can't
-     * use should_show_intro()'s other trick of deriving "done" from state:
-     * an empty category map is a legitimate permanent choice (the button
-     * just doesn't show anywhere yet), not an unfinished step, so unlike the
-     * welcome page this needs an explicit, persisted "done" flag — set by
-     * either saving a mapping (Aivastra_Category_Map_Ajax::handle()) or
-     * skipping (handle_skip_onboarding()).
+     * Step 2 of the wizard (render_onboarding_limits()) — same "no section in
+     * the URL" escape hatch as should_show_intro(), but it can't derive
+     * "done" from state (no limits is a legitimate permanent choice, not an
+     * unfinished step), so it needs the explicit, persisted
+     * LIMITS_DONE_OPTION_KEY flag, set by either saving
+     * (handle_save_limits()) or skipping (handle_skip_onboarding()). A
+     * merchant who already finished the wizard before this step existed
+     * (ONBOARDING_DONE_OPTION_KEY) is never sent back to it.
      */
-    public static function should_show_categories_step(bool $connected): bool
+    public static function should_show_limits_step(bool $connected): bool
     {
-        return $connected && !isset($_GET['section']) && get_option(self::CATEGORIES_DONE_OPTION_KEY) !== '1';
+        return $connected
+            && !isset($_GET['section'])
+            && get_option(self::LIMITS_DONE_OPTION_KEY) !== '1'
+            && get_option(self::ONBOARDING_DONE_OPTION_KEY) !== '1';
     }
 
     /**
-     * Step 3 of the wizard (render_onboarding_button()) — same shape as
-     * should_show_categories_step() just one flag further along: only once
-     * Step 2 is done (CATEGORIES_DONE_OPTION_KEY) and before the wizard as a
-     * whole is (ONBOARDING_DONE_OPTION_KEY, set by either saving the widget
-     * appearance form — handle_save_widget_customization() — or skipping —
+     * Step 3 of the wizard (render_onboarding_button()), the last one — one
+     * flag further along: only once Step 2 is done (LIMITS_DONE_OPTION_KEY)
+     * and before the wizard as a whole is (ONBOARDING_DONE_OPTION_KEY, set by
+     * either saving the widget appearance form —
+     * handle_save_widget_customization() — or skipping —
      * handle_skip_onboarding()).
      */
     public static function should_show_button_step(bool $connected): bool
     {
         return $connected
             && !isset($_GET['section'])
-            && get_option(self::CATEGORIES_DONE_OPTION_KEY) === '1'
+            && get_option(self::LIMITS_DONE_OPTION_KEY) === '1'
             && get_option(self::ONBOARDING_DONE_OPTION_KEY) !== '1';
     }
 
@@ -1412,8 +1449,8 @@ class Aivastra_Settings_Page
     /**
      * Shared entry gate for every sidebar submenu page (Manage, Analytics,
      * Billing, Customize, Support) and the dashboard itself — the welcome
-     * screen, the connect step, and the mandatory categories and button-
-     * customization onboarding steps all have to come before any one of
+     * screen, the connect step, and the mandatory button-
+     * customization onboarding step all have to come before any one of
      * them, not just the dashboard, since a merchant can land on any
      * submenu's URL directly (sidebar click, bookmark) before ever
      * connecting. $contentRenderer is only called once every gate is clear,
@@ -1422,7 +1459,7 @@ class Aivastra_Settings_Page
      * render_analytics_page(), render_plans_page(), render_customize_page()
      * and render_support_page() already are, each independently, the same
      * shape should_show_intro()/render_onboarding_connect()/
-     * render_onboarding_categories()/render_onboarding_button() are below.
+     * render_onboarding_button() are below.
      */
     private static function render_gated(callable $contentRenderer): void
     {
@@ -1436,8 +1473,8 @@ class Aivastra_Settings_Page
             self::render_onboarding_connect($settings);
             return;
         }
-        if (self::should_show_categories_step($connected)) {
-            self::render_onboarding_categories($settings);
+        if (self::should_show_limits_step($connected)) {
+            self::render_onboarding_limits($settings);
             return;
         }
         if (self::should_show_button_step($connected)) {
@@ -1467,7 +1504,7 @@ class Aivastra_Settings_Page
      * .aivastra-page-flat-body like the rest, and .aivastra-dashboard-flat
      * (dead now — no page still carries it) was removed. No boxed white
      * panel around this page (or any other page in the plugin — see
-     * render_onboarding_connect(), render_onboarding_categories(),
+     * render_onboarding_connect(), render_onboarding_button(),
      * render_categories_page(), render_plans_page(), render_intro()) — a
      * fixed-height, internally-scrolling panel used to wrap every one of
      * them, which produced a second scrollbar nested inside wp-admin's own
@@ -1509,7 +1546,7 @@ class Aivastra_Settings_Page
      * every page has its own entry there. render_onboarding_topbar() itself
      * is untouched and still used, unchanged, by the two onboarding-only
      * steps that need its $backUrl/$showAdvanced options
-     * (render_onboarding_connect(), render_onboarding_categories()).
+     * (render_onboarding_connect(), render_onboarding_button()).
      * Reuses .aivastra-topbar-support's own <details>/dropdown mechanics —
      * support-chat.js's outside-click/Escape close and "Start a chat"
      * handling both target that class generically — only the trigger's look
@@ -1534,6 +1571,11 @@ class Aivastra_Settings_Page
             <span class="aivastra-platform-chip"><?php echo self::lucide('<circle cx="12" cy="12" r="10"/><path d="M3.5 9h6.2l2.3 6.6L14.3 9h6.2"/><path d="M8.1 9.5 12 20.4"/>', 16); ?>WordPress Plugin</span>
           </div>
 
+          <div class="aivastra-navbar-right">
+          <?php $companyName = (string) (new Aivastra_Connection_Settings())->get_company_name(); ?>
+          <?php if ($companyName !== ''): ?>
+            <span class="aivastra-store-chip"><i aria-hidden="true"><?php echo esc_html(strtoupper(mb_substr($companyName, 0, 1))); ?></i><?php echo esc_html($companyName); ?></span>
+          <?php endif; ?>
           <details class="aivastra-topbar-support aivastra-navbar-more">
             <summary class="aivastra-navbar-more-trigger" aria-label="More options" title="More options">
               <?php echo self::lucide('<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>', 18); ?>
@@ -1553,7 +1595,28 @@ class Aivastra_Settings_Page
               </form>
             </div>
           </details>
+          </div>
         </div>
+
+        <?php // Pill tabs under the header, same row the Shopify app shows
+        // (AppChrome.tsx) — the wp-admin sidebar lists the same pages, but the
+        // in-page row keeps the two apps' navigation identical. ?>
+        <nav class="aivastra-pilltabs" aria-label="App sections">
+          <?php
+          $currentPage = sanitize_key($_GET['page'] ?? 'aivastra-tryon');
+          foreach ([
+              'aivastra-tryon' => 'Dashboard',
+              'aivastra-tryon-manage' => 'Manage',
+              'aivastra-tryon-analytics' => 'Analytics',
+              'aivastra-tryon-billing' => 'Billing',
+              'aivastra-tryon-customize' => 'Customize',
+              'aivastra-tryon-support' => 'Support',
+          ] as $slug => $label):
+              $on = $currentPage === $slug;
+              ?>
+            <a class="aivastra-pilltab<?php echo $on ? ' is-active' : ''; ?>" href="<?php echo esc_url(admin_url('admin.php?page=' . $slug)); ?>"<?php echo $on ? ' aria-current="page"' : ''; ?>><?php echo esc_html($label); ?></a>
+          <?php endforeach; ?>
+        </nav>
         <?php
     }
 
@@ -1711,7 +1774,7 @@ class Aivastra_Settings_Page
 
     /**
      * The topbar shared by every onboarding wizard step (render_onboarding_connect(),
-     * render_onboarding_categories()): logo on the left, optionally preceded
+     * render_onboarding_button()): logo on the left, optionally preceded
      * by Back; Support — there's no sidebar on these steps to hold it, same
      * as the rest of the connected dashboard now (render_dashboard()) — as a
      * dropdown on the right, so it stays reachable before there's anything
@@ -1720,7 +1783,7 @@ class Aivastra_Settings_Page
      * @param ?string $backUrl Where Back goes, or null to omit it. Step 1
      *   passes the welcome page (should_show_intro()'s doc comment: plain
      *   navigation, nothing to unwind); step 2 passes the dashboard, with
-     *   ?section set only to satisfy should_show_categories_step()'s own
+     *   ?section set only to satisfy should_show_button_step()'s own
      *   escape hatch — connecting itself is a one-way action, not a form to
      *   revisit, but a merchant who connected the wrong account needs a way
      *   back to fix it, and the dashboard's own Connection card (render_dashboard())
@@ -1809,8 +1872,8 @@ class Aivastra_Settings_Page
     /**
      * The not-yet-connected experience: step 1 of the onboarding wizard
      * rather than the tabbed settings screen connected merchants get —
-     * render_onboarding_categories() is step 2, render_onboarding_button()
-     * is step 3 (ONBOARDING_STEPS, render_progress_steps()).
+     * render_onboarding_button() is step 2 (ONBOARDING_STEPS,
+     * render_progress_steps()).
      *
      * Still no render_onboarding_topbar() here (no logo row/Support menu,
      * no "Advanced: connect with API keys instead" accordion — that fallback
@@ -1844,34 +1907,14 @@ class Aivastra_Settings_Page
     }
 
     /**
-     * Step 2 of the onboarding wizard: map WooCommerce categories to Ai
-     * Vastra try-on categories right after connecting, rather than leaving
-     * the Try-On button hidden on every product until a merchant finds the
-     * Manage page's Routing tab on their own. Reuses
-     * render_category_routing_table() — the same list/dropdown table the
-     * Manage page's Routing tab renders — rather than a separate tile-grid
-     * layout, so a merchant sees one consistent garment-type-mapping UI
-     * throughout the plugin instead of two different ones. $categoriesResult
-     * is fetched here the same way render_categories_page() fetches it for
-     * that same table, since this step has no stats row to share the fetch
-     * with.
-     *
-     * Heading and intro copy are the Shopify app's own step 2 text, verbatim
-     * (apps/shopify/src/pages/OnboardingProductsPage.tsx's `heading` prop and
-     * its Card's description), with only "product" swapped for "category" in
-     * the second sentence — factual, not stylistic: what that page calls
-     * assigning each PRODUCT a "funnel" (shopify_funnel_templates /
-     * shopify_funnel_rules, a per-product routing table this plugin has no
-     * equivalent of — see CLAUDE.md's Shopify surface section) this plugin
-     * does per CATEGORY instead, via Aivastra_Category_Mapping::resolve().
-     * There's no separate "funnel" step to add; this single step already is
-     * this plugin's version of it.
+     * Step 2 of the onboarding wizard: who may use try-on and how often —
+     * the plugin's version of the Shopify app's "limits" step (a per-customer
+     * try-on cap and a "require customer login" switch). Reuses
+     * render_shopper_limits() — the same form and admin-post.php handler
+     * (handle_save_limits()) the Customize page's "Try-on limits" card uses.
      */
-    private static function render_onboarding_categories(Aivastra_Connection_Settings $settings): void
+    private static function render_onboarding_limits(Aivastra_Connection_Settings $settings): void
     {
-        $widgetKey = $settings->get_widget_key();
-        $service = new Aivastra_Connection_Service($settings, self::API_BASE);
-        $categoriesResult = $widgetKey !== null ? $service->list_categories($widgetKey) : ['ok' => false, 'categories' => []];
         ?>
         <div class="wrap aivastra-settings-wrap aivastra-onboarding-wrap">
           <?php self::render_onboarding_topbar(admin_url('admin.php?page=aivastra-tryon&section=connection')); ?>
@@ -1880,20 +1923,14 @@ class Aivastra_Settings_Page
             <?php self::render_progress_steps(2); ?>
 
             <div class="aivastra-onboarding-heading">
-              <h2>Describe Your Garment type for Accurate Virtual Try-On Results</h2>
-              <p>Choose the garment type, such as Upper Wear or Single-Piece Dress, for each category to ensure accurate virtual try-on results.</p>
+              <h2>Set Your Try-On Limits</h2>
+              <p>Choose who can use virtual try-on and how often. You can change these any time from Customize.</p>
             </div>
 
             <?php self::render_notices(false); ?>
 
             <div class="aivastra-onboarding-body">
-              <?php // true, false: boxed white card around the table — without it the
-              // table's header band and rows read as floating directly on the
-              // page background, easy to mistake for plain text ("too
-              // confusing" per merchant feedback) — but no "Routing"
-              // heading/description inside it, since this step's own heading
-              // and subtext above already say what to do. ?>
-              <?php self::render_category_routing_table($settings, $categoriesResult, true, false); ?>
+              <?php self::render_shopper_limits($settings, true, false); ?>
             </div>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-onboarding-skip">
@@ -1909,8 +1946,58 @@ class Aivastra_Settings_Page
     }
 
     /**
+     * The "Try-on limits" form: a per-shopper cap (per rolling 24 hours) and
+     * a "require customer login" switch. Enforced by the Ai Vastra API, not
+     * this page's JavaScript — see Aivastra_Shopper_Token_Ajax for how the
+     * storefront proves who the shopper is. Defaults for a store that never
+     * chose mirror the Shopify onboarding's: unlimited try-ons, login
+     * required.
+     */
+    private static function render_shopper_limits(Aivastra_Connection_Settings $settings, bool $wrapInCard = true, bool $showHeading = true): void
+    {
+        $policy = $settings->get_shopper_policy();
+        $cap = $policy['cap'] ?? null;
+        $loginRequired = $policy['login_required'] ?? true;
+        ?>
+        <?php if ($wrapInCard): ?><div class="aivastra-card aivastra-limits-card"><?php endif; ?>
+          <?php if ($showHeading): ?>
+            <h2 class="aivastra-card-heading"><?php echo self::heading_icon('check-circle'); ?>Try-on limits</h2>
+            <p class="aivastra-card-description">Control who can use virtual try-on and how often. Limits are enforced by Ai Vastra, so they can't be bypassed from the storefront.</p>
+          <?php endif; ?>
+          <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="aivastra-form aivastra-limits-form">
+            <input type="hidden" name="action" value="aivastra_tryon_save_limits">
+            <?php wp_nonce_field('aivastra_tryon_save_limits'); ?>
+
+            <div class="aivastra-field-row">
+              <label for="aivastra_limits_cap">Try-ons per customer</label>
+              <select id="aivastra_limits_cap" name="aivastra_limits[cap]" class="aivastra-select">
+                <option value="" <?php selected($cap, null); ?>>Unlimited</option>
+                <?php foreach (self::SHOPPER_CAP_CHOICES as $choice): ?>
+                  <option value="<?php echo esc_attr((string) $choice); ?>" <?php selected($cap, $choice); ?>><?php echo esc_html($choice . ($choice === 1 ? ' try-on' : ' try-ons') . ' per 24 hours'); ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <p class="aivastra-field-hint">Counted per logged-in customer. A visitor who isn't logged in is counted by browser and network address.</p>
+
+            <div class="aivastra-field-row aivastra-field-row-checkbox">
+              <label for="aivastra_limits_login">
+                <input type="checkbox" id="aivastra_limits_login" name="aivastra_limits[login_required]" value="1" class="aivastra-checkbox" <?php checked($loginRequired); ?>>
+                Require customer login to use virtual try-on
+              </label>
+            </div>
+            <p class="aivastra-field-hint">Customers who aren't logged in to your store are asked to log in first.</p>
+
+            <div class="aivastra-save-row">
+              <button type="submit" class="aivastra-btn aivastra-btn-primary">Save</button>
+            </div>
+          </form>
+        <?php if ($wrapInCard): ?></div><?php endif; ?>
+        <?php
+    }
+
+    /**
      * Step 3 of the onboarding wizard, the last one: customize the try-on
-     * button's appearance right after mapping categories, rather than
+     * button's appearance right after connecting, rather than
      * leaving it on its stock colors/copy until a merchant finds the
      * Customize submenu on their own. Reuses render_widget_customization()
      * — the exact same form, fields and admin-post.php handler
@@ -1939,8 +2026,8 @@ class Aivastra_Settings_Page
             <?php self::render_notices(false); ?>
 
             <div class="aivastra-onboarding-body">
-              <?php // true, false: boxed white card (same reasoning as step 2's own
-              // render_category_routing_table() call just above) and no
+              <?php // true, false: boxed white card, so the form doesn't read as
+              // floating on the page background, and no
               // "Try-on button" heading/description inside it — this step's
               // own heading and subtext above already say what to do. ?>
               <?php self::render_widget_customization($settings, true, false); ?>
@@ -2080,12 +2167,18 @@ class Aivastra_Settings_Page
           <?php endif; ?>
           <div class="aivastra-support-grid">
             <div class="aivastra-support-channel">
-              <h3 class="aivastra-support-channel-title">Email support</h3>
+              <div class="aivastra-support-channel-head">
+                <span class="aivastra-support-tile"><?php echo self::lucide('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M4 7.5l8 5.5 8-5.5"/>', 30); ?></span>
+                <h3 class="aivastra-support-channel-title">Email support</h3>
+              </div>
               <p class="aivastra-support-channel-body">Send us the details and we usually reply within 24 hours.</p>
-              <a href="mailto:support@aivastra.com" class="aivastra-btn aivastra-btn-secondary">Email us</a>
+              <a href="mailto:support@aivastra.com" class="aivastra-btn aivastra-btn-primary">Email us</a>
             </div>
             <div class="aivastra-support-channel">
-              <h3 class="aivastra-support-channel-title">Live chat</h3>
+              <div class="aivastra-support-channel-head">
+                <span class="aivastra-support-tile"><?php echo self::lucide('<path d="M4 5h16v11H9l-5 4V5z"/><path d="M8.5 10h7"/>', 30); ?></span>
+                <h3 class="aivastra-support-channel-title">Live chat</h3>
+              </div>
               <p class="aivastra-support-channel-body">Talk to the team in real time during business hours.</p>
               <button type="button" class="aivastra-btn aivastra-btn-secondary aivastra-start-chat-trigger">Start a chat</button>
             </div>
@@ -2161,12 +2254,10 @@ class Aivastra_Settings_Page
         // apps/catalogues-web's own /login page, cloned here at the
         // merchant's explicit request. A separate, fieldless form purely so
         // this button can submit via its own action/nonce, independent of
-        // the email/password form below. target="_blank" opens this
-        // submission into a normal new browser tab rather than navigating
-        // this one away from wp-admin — the merchant tried a sized
-        // window.open() popup first and explicitly asked for a plain tab
-        // instead ("previously it is opening in new tab that option is
-        // good"). No rel="noopener" here on purpose: window.opener must stay
+        // the email/password form below. connect.js opens a centred popup
+        // and retargets this form at it (the merchant wants to sign in
+        // without leaving the page); target="_blank" is the fallback if a
+        // popup blocker refuses it. No rel="noopener" here on purpose: window.opener must stay
         // reachable from the new tab for render_connect_popup_close() to
         // post back and auto-close it (see that method and connect.js's
         // own doc comments). handle_connect_start()/handle_connect_callback()
@@ -2291,7 +2382,7 @@ class Aivastra_Settings_Page
 
     /**
      * $showConnected: the "Connected successfully." notice — on by default.
-     * render_onboarding_categories() (step 2, arrived at straight from a
+     * render_onboarding_limits() (step 2, arrived at straight from a
      * successful connect) passes false: the progress row already advancing
      * to step 2, plus the whole page it lands on, is itself the confirmation
      * that connecting worked — a dismissible admin notice on top of that
@@ -2303,13 +2394,16 @@ class Aivastra_Settings_Page
             self::render_notice('success', 'Connected successfully.');
         }
         if (isset($_GET['aivastra_disconnected'])) {
-            self::render_notice('success', 'Disconnected. All stored settings, including your saved categories, have been cleared.');
+            self::render_notice('success', 'Disconnected. All stored settings, including your widget settings, have been cleared.');
         }
         if (isset($_GET['aivastra_cancelled'])) {
             self::render_notice('info', 'Connection cancelled — nothing was changed.');
         }
         if (isset($_GET['aivastra_widget_saved'])) {
             self::render_notice('success', 'Try-on button settings saved.');
+        }
+        if (isset($_GET['aivastra_limits_saved'])) {
+            self::render_notice('success', 'Try-on limits saved.');
         }
         if (isset($_GET['aivastra_error'])) {
             $code = sanitize_text_field(wp_unslash($_GET['aivastra_error']));
@@ -2333,7 +2427,7 @@ class Aivastra_Settings_Page
      *
      * $wrapInCard: false for render_plans_page(), the standalone "Buy credits"
      * destination (render_connection_section()'s credit stat links there) —
-     * same reasoning as render_category_routing_table()'s own $wrapInCard: a card
+     * same reasoning as render_widget_customization()'s own $wrapInCard: a card
      * box around the only thing on a page is a second box nested inside the
      * shell panel's own. true (default) keeps render_dashboard()'s old
      * inline look... except render_dashboard() no longer calls this at all,
@@ -2366,7 +2460,9 @@ class Aivastra_Settings_Page
         $result = $widgetKey !== null ? $service->list_plans($widgetKey) : ['ok' => false, 'plans' => []];
         ?>
         <?php if ($wrapInCard): ?><div class="aivastra-card aivastra-plans-card"><?php endif; ?>
-          <h2 class="aivastra-card-heading<?php echo $isStandalonePage ? ' aivastra-plans-page-heading' : ''; ?>"><?php echo self::heading_icon('credit-card'); ?>Plans &amp; credits</h2>
+          <?php if (!$isStandalonePage): ?>
+            <h2 class="aivastra-card-heading"><?php echo self::heading_icon('credit-card'); ?>Plans &amp; credits</h2>
+          <?php endif; ?>
           <?php if (!$result['ok']): ?>
             <p class="aivastra-empty-state">Could not load plans right now — try reloading this page.</p>
           <?php else: ?>
@@ -2418,25 +2514,22 @@ class Aivastra_Settings_Page
     /**
      * "Enabled" here means the button will actually render on that product's
      * page right now — both conditions Aivastra_Widget_Loader::render()
-     * checks: the per-product toggle isn't off (Aivastra_Product_Toggle) AND
-     * its WooCommerce category resolves to a mapped aivastra category
-     * (Aivastra_Category_Mapping::resolve() — null means hidden, see its doc
-     * comment). Just the two counts, not a per-product table — a merchant's
+     * checks: the per-product toggle isn't off (Aivastra_Product_Toggle).
+     * Just the two counts, not a per-product table — a merchant's
      * whole catalog (hundreds of rows on a real store) made this card
      * unusably long; Manage links to the Manage sidebar submenu
      * (render_categories_page(), via render_manage()) instead, where the
-     * actual lever (category mapping) lives. Manage is a third
+     * actual lever (the per-product Eligibility list) lives. Manage is a third
      * .aivastra-dashboard-stat tile in the same grid as the two count
      * tiles — not a button floating beside them — so it wraps onto its own
      * row together with them on a narrow screen instead of the button alone
      * getting squeezed out, and reads as three equal, self-explanatory
      * cards rather than two stats plus an unrelated control.
      *
-     * update_object_term_cache()/update_postmeta_cache() batch-prime the
-     * caches wp_get_post_terms()/get_post_meta() read per product below —
-     * without this a store with hundreds of products (this merchant's real
-     * store has 432) would run two extra queries per product instead of two
-     * queries total.
+     * update_postmeta_cache() batch-primes the cache get_post_meta() reads
+     * per product below — without this a store with hundreds of products
+     * (this merchant's real store has 432) would run one extra query per
+     * product instead of one query total.
      *
      * @param ?int $tryOnsTotal render_dashboard()'s own GET /v1/dev/analytics
      *   `cards.tryOns` figure, passed in rather than re-fetched here — this
@@ -2456,16 +2549,12 @@ class Aivastra_Settings_Page
             'fields' => 'ids',
         ]);
 
-        update_object_term_cache($productIds, 'product');
         update_postmeta_cache($productIds);
 
-        $categoryMap = $settings->get_category_map();
         $enabledCount = 0;
 
         foreach ($productIds as $productId) {
-            $termIds = wp_get_post_terms($productId, 'product_cat', ['fields' => 'ids']);
-            $category = Aivastra_Category_Mapping::resolve(is_array($termIds) ? $termIds : [], $categoryMap);
-            if (Aivastra_Product_Toggle::is_enabled($productId) && $category !== null) {
+            if (Aivastra_Product_Toggle::is_enabled($productId)) {
                 $enabledCount++;
             }
         }
@@ -2508,55 +2597,23 @@ class Aivastra_Settings_Page
 
     /**
      * The Manage sidebar submenu's page content (register_menu(),
-     * render_manage()) — redesigned to match a reference dashboard's Manage
-     * page the merchant supplied screenshots of: a left-aligned header, three
-     * stat cards, a "Where your products land" breakdown, then two tabs
-     * (Routing / Eligibility) — replacing the single always-visible
-     * category-mapping tile grid this page used to be entirely
-     * (render_category_routing_table() below — the onboarding wizard's own
-     * categories step, render_onboarding_categories(), now reuses this same
-     * table rather than that old tile grid, which has since been removed).
-     * Reuses render_navbar() for the shared logo/menu chrome; the wrap/body
-     * classes are the dashboard's own (aivastra-dashboard-wrap /
-     * .aivastra-dashboard, 1400px centred).
+     * render_manage()): a left-aligned header, two stat tiles and the
+     * per-product Eligibility list.
      *
-     * The reference this was modelled on is Shopify's embedded admin
-     * "Manage" page, which routes PRODUCTS individually into a "basket" (a
-     * per-product row, backed by a product-sync pipeline Shopify's app
-     * maintains). Neither concept transfers directly: WordPress has no
-     * product-sync step (products are native WooCommerce posts, read live),
-     * and this plugin has no per-product routing table — routing here is,
-     * and stays, per WooCommerce PRODUCT CATEGORY
-     * (Aivastra_Category_Mapping/render_category_routing_table() below, the
-     * exact same mechanism this page already used before this redesign) at
-     * the merchant's explicit request ("per-category is enough now, we'll
-     * build per-product routing later"). "Basket" is also Shopify-specific
-     * terminology with no WordPress equivalent; every place the reference
-     * says "basket" this page instead says "garment type" (the dev-API
-     * catalog slug/name a category is mapped to — GET /v1/dev/categories).
-     * The reference's "Products Synced" stat and "Sync products" button are
-     * dropped entirely for the same reason — there is no sync step here —
-     * replaced by a plain "Total Products" count read live from WooCommerce.
+     * Same wrap/navbar/.aivastra-page-flat-body shape as the other sidebar
+     * pages, so the shared chrome and the dashboard's own classes
+     * (aivastra-dashboard-wrap / .aivastra-dashboard, 1400px centred) apply.
      *
-     * The Eligibility tab (render_product_eligibility_list()) is a NEW bulk,
-     * per-product checkbox list, not a global "enable all except
-     * exclusions" switch — no such switch exists anywhere in this plugin's
-     * data model. The only per-product eligibility mechanism that already
-     * existed before this page was Aivastra_Product_Toggle's single
-     * checkbox on a product's own WooCommerce edit screen; this tab is a
-     * bulk-editable view over that same per-product meta, not a new concept
-     * layered on top of it.
+     * There is no routing here. Every product — whatever its WooCommerce
+     * category — runs the same general try-on workflow, the way the Shopify
+     * app sends every product through its one workflow. The only per-product
+     * control is the Eligibility list (render_product_eligibility_list()):
+     * a bulk view over Aivastra_Product_Toggle's per-product meta, the same
+     * switch as the checkbox on a product's own edit screen.
      */
     private static function render_categories_page(Aivastra_Connection_Settings $settings): void
     {
-        $widgetKey = $settings->get_widget_key();
-        $service = new Aivastra_Connection_Service($settings, self::API_BASE);
-        $categoriesResult = $widgetKey !== null ? $service->list_categories($widgetKey) : ['ok' => false, 'categories' => []];
-        $stats = self::get_manage_page_stats($settings, $categoriesResult);
-
-        $tab = ($_GET['tab'] ?? 'routing') === 'eligibility' ? 'eligibility' : 'routing';
-        $routingUrl = admin_url('admin.php?page=aivastra-tryon-manage&tab=routing');
-        $eligibilityUrl = admin_url('admin.php?page=aivastra-tryon-manage&tab=eligibility');
+        $stats = self::get_manage_page_stats();
         ?>
         <div class="wrap aivastra-settings-wrap aivastra-dashboard-wrap">
           <?php self::render_navbar(); ?>
@@ -2582,47 +2639,9 @@ class Aivastra_Settings_Page
                   </span>
                   <span class="aivastra-manage-stat-hint">Products with the Try-On button showing</span>
                 </div>
-                <div class="aivastra-manage-stat-card">
-                  <span class="aivastra-manage-stat-label"><?php echo self::icon('tag'); ?>Categories</span>
-                  <span class="aivastra-manage-stat-value"><?php echo esc_html(number_format_i18n($stats['linkedCategoryCount'])); ?> linked</span>
-                  <span class="aivastra-manage-stat-hint"><?php echo esc_html(number_format_i18n($stats['unlinkedCategoryCount'])); ?> unlinked</span>
-                </div>
               </div>
 
-              <div class="aivastra-card aivastra-manage-landing-card">
-                <h2 class="aivastra-card-heading"><?php echo self::heading_icon('grid'); ?>Where your products land</h2>
-                <?php if (!$stats['categoriesOk']): ?>
-                  <p class="aivastra-empty-state">Could not load your Ai Vastra garment types right now — try reloading this page.</p>
-                <?php elseif (empty($stats['garmentTypes']) && $stats['notRoutedCount'] === 0): ?>
-                  <p class="aivastra-empty-state">No published products yet.</p>
-                <?php else: ?>
-                  <ul class="aivastra-manage-landing-list">
-                    <?php foreach ($stats['garmentTypes'] as $type): ?>
-                      <li class="aivastra-manage-landing-row">
-                        <span class="aivastra-manage-landing-name"><?php echo self::icon('tag'); ?><?php echo esc_html($type['name']); ?></span>
-                        <span class="aivastra-manage-landing-count"><?php echo esc_html(number_format_i18n($type['count'])); ?> <?php echo $type['count'] === 1 ? 'product' : 'products'; ?></span>
-                      </li>
-                    <?php endforeach; ?>
-                    <?php if ($stats['notRoutedCount'] > 0): ?>
-                      <li class="aivastra-manage-landing-row aivastra-manage-landing-row--unrouted">
-                        <span class="aivastra-manage-landing-name"><?php echo self::icon('log-out'); ?>Not routed (try-on unavailable)</span>
-                        <span class="aivastra-manage-landing-count"><?php echo esc_html(number_format_i18n($stats['notRoutedCount'])); ?> <?php echo $stats['notRoutedCount'] === 1 ? 'product' : 'products'; ?></span>
-                      </li>
-                    <?php endif; ?>
-                  </ul>
-                <?php endif; ?>
-              </div>
-
-              <div class="aivastra-manage-tabs" role="tablist">
-                <a href="<?php echo esc_url($routingUrl); ?>" class="aivastra-manage-tab<?php echo $tab === 'routing' ? ' is-active' : ''; ?>" role="tab" aria-selected="<?php echo $tab === 'routing' ? 'true' : 'false'; ?>">Routing</a>
-                <a href="<?php echo esc_url($eligibilityUrl); ?>" class="aivastra-manage-tab<?php echo $tab === 'eligibility' ? ' is-active' : ''; ?>" role="tab" aria-selected="<?php echo $tab === 'eligibility' ? 'true' : 'false'; ?>">Eligibility</a>
-              </div>
-
-              <?php if ($tab === 'eligibility'): ?>
-                <?php self::render_product_eligibility_list(); ?>
-              <?php else: ?>
-                <?php self::render_category_routing_table($settings, $categoriesResult); ?>
-              <?php endif; ?>
+              <?php self::render_product_eligibility_list(); ?>
             </div>
           </div>
         </div>
@@ -2632,170 +2651,33 @@ class Aivastra_Settings_Page
     }
 
     /**
-     * Stats for the Manage page's header stat row and "Where your products
-     * land" card (render_categories_page()) — extends the same
-     * product-category iteration render_products_overview() already does
-     * for its own Total Products/Try-On Enabled tiles, grouping by resolved
-     * garment type for the landing breakdown too, so there is exactly one
-     * place that walks every published product rather than two slightly
-     * different ones.
+     * Stats for the Manage page's header stat row (render_categories_page()).
+     * A product shows the Try-On button when its own Eligibility switch is on
+     * — nothing else gates it.
      *
-     * @param array{ok:bool, categories:array<int, array{slug:string,name:string}>} $categoriesResult
-     * @return array{
-     *   totalProducts:int,
-     *   enabledCount:int,
-     *   linkedCategoryCount:int,
-     *   unlinkedCategoryCount:int,
-     *   garmentTypes:array<int, array{slug:string,name:string,count:int}>,
-     *   notRoutedCount:int,
-     *   categoriesOk:bool,
-     * }
+     * @return array{totalProducts:int, enabledCount:int}
      */
-    private static function get_manage_page_stats(Aivastra_Connection_Settings $settings, array $categoriesResult): array
+    private static function get_manage_page_stats(): array
     {
-        $categories = $categoriesResult['categories'];
-        $validSlugs = wp_list_pluck($categories, 'slug');
-
-        $terms = get_terms(['taxonomy' => 'product_cat', 'hide_empty' => false]);
-        $productCategories = is_wp_error($terms) ? [] : $terms;
-        $currentMap = $settings->get_category_map();
-
-        $linkedCategoryCount = 0;
-        foreach ($productCategories as $term) {
-            $mappedSlug = $currentMap[$term->term_id] ?? '';
-            if ($mappedSlug !== '' && in_array($mappedSlug, $validSlugs, true)) {
-                $linkedCategoryCount++;
-            }
-        }
-
         $productIds = get_posts([
             'post_type' => 'product',
             'post_status' => 'publish',
             'posts_per_page' => -1,
             'fields' => 'ids',
         ]);
-        update_object_term_cache($productIds, 'product');
         update_postmeta_cache($productIds);
 
-        $countsBySlug = [];
         $enabledCount = 0;
-        $notRoutedCount = 0;
         foreach ($productIds as $productId) {
-            $termIds = wp_get_post_terms($productId, 'product_cat', ['fields' => 'ids']);
-            $slug = Aivastra_Category_Mapping::resolve(is_array($termIds) ? $termIds : [], $currentMap);
-            if ($slug === null) {
-                $notRoutedCount++;
-                continue;
-            }
-            $countsBySlug[$slug] = ($countsBySlug[$slug] ?? 0) + 1;
             if (Aivastra_Product_Toggle::is_enabled($productId)) {
                 $enabledCount++;
-            }
-        }
-
-        $garmentTypes = [];
-        foreach ($categories as $cat) {
-            $count = $countsBySlug[$cat['slug']] ?? 0;
-            if ($count > 0) {
-                $garmentTypes[] = ['slug' => $cat['slug'], 'name' => $cat['name'], 'count' => $count];
             }
         }
 
         return [
             'totalProducts' => count($productIds),
             'enabledCount' => $enabledCount,
-            'linkedCategoryCount' => $linkedCategoryCount,
-            'unlinkedCategoryCount' => count($productCategories) - $linkedCategoryCount,
-            'garmentTypes' => $garmentTypes,
-            'notRoutedCount' => $notRoutedCount,
-            'categoriesOk' => $categoriesResult['ok'],
         ];
-    }
-
-    /**
-     * Routing tab (render_categories_page()) — the exact same per-category
-     * mapping mechanism this page used before the redesign
-     * (Aivastra_Category_Mapping, save-categories.js,
-     * Aivastra_Category_Map_Ajax — all three completely unchanged), restyled
-     * to pixel-match a reference "Individual product routing" table the
-     * merchant supplied a screenshot of: plain bold card title with no icon
-     * chip (unlike every other .aivastra-card-heading on this plugin, which
-     * does carry one — .aivastra-routing-card-heading below overrides that
-     * specifically for this card), a light grey table header band, a
-     * rounded icon tile on each row standing in for that reference's product
-     * photo (categories have no photo of their own to show), and row
-     * dividers/hover matching its spacing. Routing stays per WooCommerce
-     * PRODUCT CATEGORY, not per product, at the merchant's explicit request
-     * — see render_categories_page()'s own doc comment — so the title text
-     * itself stays "Routing"/"product categories", not the reference's own
-     * per-product copy; only the visual chrome was matched. $categoriesResult
-     * is the already-fetched GET /v1/dev/categories response
-     * (render_categories_page()), passed in rather than re-fetched here
-     * since get_manage_page_stats() right above needs that same data.
-     *
-     * $wrapInCard/$showHeading: render_onboarding_categories() passes both
-     * false so the table flows on the onboarding page's own background with
-     * no boxed card and no "Routing" heading/description, since that step's
-     * own heading and subtext above already say what to do.
-     */
-    private static function render_category_routing_table(Aivastra_Connection_Settings $settings, array $categoriesResult, bool $wrapInCard = true, bool $showHeading = true): void
-    {
-        $terms = get_terms(['taxonomy' => 'product_cat', 'hide_empty' => false]);
-        $productCategories = is_wp_error($terms) ? [] : $terms;
-        $currentMap = $settings->get_category_map();
-        ?>
-        <?php if ($wrapInCard): ?><div class="aivastra-card aivastra-routing-card"><?php endif; ?>
-          <?php if ($showHeading): ?>
-            <h2 class="aivastra-card-heading aivastra-routing-card-heading">Routing</h2>
-            <p class="aivastra-card-description">Choose which try-on garment type each of your product categories should use. A category with no garment type selected won't show the Try-On button at all.</p>
-          <?php endif; ?>
-          <?php if (!$categoriesResult['ok']): ?>
-            <p class="aivastra-empty-state">Could not load your Ai Vastra garment types right now — try reloading this page.</p>
-          <?php elseif (empty($categoriesResult['categories'])): ?>
-            <p class="aivastra-empty-state">You don't have any try-on garment types set up on your Ai Vastra account yet. The Try-On button won't show on any product until you add one and map it below.</p>
-          <?php elseif (empty($productCategories)): ?>
-            <p class="aivastra-empty-state">No WooCommerce product categories found — the Try-On button won't show on any product until its category is mapped below.</p>
-          <?php else: ?>
-            <form id="aivastra-category-map-form" class="aivastra-form">
-              <input type="hidden" name="action" value="aivastra_tryon_save_category_map">
-              <?php wp_nonce_field('aivastra_tryon_save_category_map'); ?>
-              <table class="aivastra-routing-table">
-                <thead>
-                  <tr>
-                    <th>Product category</th>
-                    <th>Garment type</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <?php foreach ($productCategories as $term): ?>
-                    <?php $mappedSlug = $currentMap[$term->term_id] ?? ''; ?>
-                    <tr>
-                      <td>
-                        <span class="aivastra-routing-table-category">
-                          <span class="aivastra-routing-table-icon"><?php echo self::icon('tag'); ?></span>
-                          <?php echo esc_html($term->name); ?>
-                        </span>
-                      </td>
-                      <td>
-                        <select id="aivastra-cat-map-<?php echo esc_attr($term->term_id); ?>" name="aivastra_category_map[<?php echo esc_attr($term->term_id); ?>]" class="aivastra-select">
-                          <option value="">No garment type selected</option>
-                          <?php foreach ($categoriesResult['categories'] as $cat): ?>
-                            <option value="<?php echo esc_attr($cat['slug']); ?>" <?php selected($mappedSlug, $cat['slug']); ?>><?php echo esc_html($cat['name']); ?></option>
-                          <?php endforeach; ?>
-                        </select>
-                      </td>
-                    </tr>
-                  <?php endforeach; ?>
-                </tbody>
-              </table>
-              <div class="aivastra-save-row">
-                <button type="submit" id="aivastra-category-map-submit" class="aivastra-btn aivastra-btn-primary">Save</button>
-                <span class="aivastra-refresh-confirm" id="aivastra-category-map-confirm" aria-live="polite"></span>
-              </div>
-            </form>
-          <?php endif; ?>
-        <?php if ($wrapInCard): ?></div><?php endif; ?>
-        <?php
     }
 
     /**
@@ -2823,7 +2705,7 @@ class Aivastra_Settings_Page
         ?>
         <div class="aivastra-card aivastra-eligibility-card">
           <h2 class="aivastra-card-heading"><?php echo self::heading_icon('check-circle'); ?>Eligibility</h2>
-          <p class="aivastra-card-description">Turn the Try-On button off for a specific product without changing its category routing. This is the same per-product switch available on that product's own edit screen, gathered here in one place.</p>
+          <p class="aivastra-card-description">Turn the Try-On button off for a specific product without affecting any other product. This is the same per-product switch available on that product's own edit screen, gathered here in one place.</p>
           <?php if (empty($productIds)): ?>
             <p class="aivastra-empty-state">No published products yet.</p>
           <?php else: ?>
@@ -2874,6 +2756,10 @@ class Aivastra_Settings_Page
             <?php self::render_notices(); ?>
 
             <div class="aivastra-dashboard">
+              <div class="aivastra-manage-header">
+                <h2 class="aivastra-manage-title">Billing</h2>
+                <p class="aivastra-page-subtitle">Buy credits once. They never expire.</p>
+              </div>
               <?php self::render_plans($settings, false); ?>
             </div>
           </div>
@@ -2907,6 +2793,7 @@ class Aivastra_Settings_Page
                 <p class="aivastra-page-subtitle">Make the try-on experience feel at home in your store.</p>
               </div>
               <?php self::render_widget_customization($settings); ?>
+              <?php self::render_shopper_limits($settings); ?>
             </div>
           </div>
         </div>
@@ -2992,9 +2879,8 @@ class Aivastra_Settings_Page
      * Popup content stays visible as a separate section within the same form.
      *
      * $showHeading: on by default (what render_customize_page() gets).
-     * render_onboarding_button() (step 3) passes false — that step's own page
-     * heading and subtext already say what to do, same reasoning as
-     * render_category_routing_table()'s own $showHeading.
+     * render_onboarding_limits() and render_onboarding_button() (steps 2 and 3) pass false — that step's own page
+     * heading and subtext already say what to do.
      */
     private static function render_widget_customization(Aivastra_Connection_Settings $settings, bool $wrapInCard = true, bool $showHeading = true): void
     {

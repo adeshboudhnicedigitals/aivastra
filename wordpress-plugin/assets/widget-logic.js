@@ -58,6 +58,19 @@
     if (code === 'RATE_LIMITED') {
       return 'Lots of people are trying this on right now. Please wait a moment and try again.';
     }
+    // Shopper-policy refusals (apps/api's modules/dev/shopper-policy.ts).
+    // Fixed copy rather than the backend message, like everything else here.
+    if (code === 'SHOPPER_LIMIT') {
+      // The cap is a rolling 24h window from the first try-on, not a calendar
+      // day — don't promise a reset at midnight.
+      return "You've reached the try-on limit for the last 24 hours. Please try again later.";
+    }
+    if (code === 'LOGIN_REQUIRED') {
+      return 'Please log in to your account to use virtual try-on.';
+    }
+    if (code === 'SHOPPER_TOKEN_INVALID') {
+      return 'Your session expired. Please reload the page and try again.';
+    }
     if (code === 'ENQUEUE_FAIL') {
       return "We're experiencing high demand right now. You haven't been charged — please try again in a moment.";
     }

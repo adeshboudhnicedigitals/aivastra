@@ -1,3 +1,85 @@
+# 2026-11-03 — WordPress plugin: connected pages follow the Shopify app layout (uncommitted)
+
+- Connect step: removed the "Get 100 Free credits" strip; Google button full width; mail/lock icons no
+  longer overlap placeholders; "Continue with Google" opens a centred popup (tab fallback) and the
+  popup posts back and closes, so the merchant stays on the wp-admin page.
+- Connected pages now mirror `apps/shopify` AppChrome/SupportPage: store chip (account name) in the
+  header, pill-tab row (Dashboard/Manage/Analytics/Billing/Customize/Support), Billing gets a page
+  title + subtitle instead of the centred "Plans & credits" heading, Support channels use the icon
+  tile + full-width button layout. Page artwork now fills the viewport on short pages.
+- Not mirrored: Shopify's Credits page also has a balance card, auto-refill and an "Included with
+  every pack" aside; the plugin's Billing page still shows only the plan tiles.
+
+# 2026-11-03 — WordPress plugin: no garment-type mapping; shopper limits enforced by the API (feat/fleet-boxes branch, uncommitted)
+
+- **Why:** Shopify sends every product through one workflow and lets the merchant limit try-ons and
+  require login; the WordPress plugin still made merchants map each WooCommerce category to a garment
+  type, and its widget called `/v1/dev/tryon` straight from the browser with the public widget key, so
+  no limit could be enforced.
+- **Done:**
+  - Plugin: category mapping removed (wizard step "Categories & Funnels", Manage Routing tab, category
+    AJAX/class/JS/tests). Every product sends the dev API's `general` category. Wizard is now Connect →
+    Try-on limits → Customize button; limits also live on the Customize page.
+  - API: `merchants.wordpress_shopper_policy` (migration `0251_slimy_anita_blake`, one nullable jsonb
+    column), `GET/PUT /v1/dev/shopper-policy` (full scope only), enforcement in `POST /v1/dev/tryon` for
+    `integration='wordpress'` widget keys only. Refusals: `SHOPPER_TOKEN_INVALID` 403, `LOGIN_REQUIRED`
+    403, `SHOPPER_LIMIT` 429. Quota is a Redis counter (24h from first try-on, fail-open on a Redis
+    error), reserved right before the credit charge and given back if job creation fails.
+  - Trust model: the plugin's server mints a 10-minute HMAC token (`X-Aivastra-Shopper`) naming the
+    shopper (`u:<wp user>` or `g:<cookie id>`). The HMAC secret is derived from `JWT_SECRET` +
+    merchant id + `secretVersion`, never stored. A guest is also counted by IP, so clearing the cookie
+    does not reset the cap; a logged-in shopper is counted by account only.
+- **Verified:** API unit `shopper-policy.test.ts` (9), integration `dev-shopper-policy.test.ts` (10) plus
+  the existing dev tryon/scope/openapi/rate-limit suites (53 total pass); plugin PHPUnit 87 and JS 16;
+  a PHP-signed token verifies in the API's Node verifier; wizard, Customize page and the token endpoint
+  (no policy / guest + login required / logged in / guest + cap with cookie) exercised on the local store.
+- **End-to-end (headless Chromium, local store → local API on an isolated Redis DB so no job reached a
+  GPU):** guest + login required → login prompt; logged-in, cap 2 → 2 jobs (credits charged), 3rd
+  refused with no charge; guest, cap 1 → 2nd refused, still refused in a fresh browser (IP counting);
+  direct API calls with no / forged / genuine-guest token → 403. Reused photos count against the cap.
+- **Bugs found by that run, fixed:**
+  - "Use my previous photo" failed every time ("Unable to complete try-on", no request sent): the widget
+    re-downloaded the presigned user-storage (R2) URL in the browser and CORS blocked it. Not
+    local-only — merchant domains are arbitrary. `/v1/dev/tryon` now takes `personKey` in place of
+    `person` (same ownership check as `/v1/dev/photo/preview`, plus a HEAD on the object, before any
+    charge; `PHOTO_NOT_AVAILABLE` 404 otherwise), via a new `DevTryonReuseJsonBody` so the extension's
+    shared `DevTryonJsonBody` is unchanged. Widget sends the key; on 404 it drops the photo and asks for
+    a new one. Same approach as the Shopify widget.
+  - Every storefront analytics event was rejected 400: `wp_localize_script` makes `productId` the string
+    `"873"`. Widget now sends a number, and `DevWidgetEventBody.productId` also accepts a numeric string
+    so installs on 0.5.13 and earlier start recording without updating.
+  - Limit copy said "for today" though the window is 24h from the first try-on; now "for the last 24
+    hours".
+- **wp-admin layout centring (measured, not eyeballed — element centre vs the visible area between the
+  admin sidebar and the window edge):** design.css zeroes `#wpcontent`'s 20px left padding, but both
+  header bars still pulled -20px to cancel it (slid under the sidebar) and the onboarding wraps kept a
+  20px right margin (content 10px off-centre); the welcome page was capped at 1176px with no auto
+  margins (52px off-centre) because a `:not()` chain out-specified its `max-width: none`; the welcome
+  block and connect card were `width: 100%` + side padding without border-box (48px horizontal
+  overflow below ~1100px). Manage now uses the shared 998px width (the 860px exception was for the
+  removed Routing tab) with a 2-column stat row; plan prices 40→34px so "+ GST" never wraps; plan
+  headers share one height; third-party notices moved into the onboarding heading get normal admin
+  type; the limits Save button is right-aligned like "Save appearance". Every page now measures
+  offset 0 at 1440 and 1280; welcome/connect also at 1024 and 390 with no horizontal scroll.
+- **Foreign admin notices hidden on plugin screens only** (`Aivastra_Settings_Page::suppress_foreign_notices`,
+  on `in_admin_header`): core's update nag, WooCommerce's Action Scheduler warning, etc. Safe because the
+  plugin never uses `admin_notices` itself (its messages are inline via `render_notices()`); every other
+  wp-admin screen still shows them. Locally, Action Scheduler's "436 past-due actions" means WP-Cron isn't
+  being triggered (no traffic), not a plugin fault.
+- **Not verified:** the migration on staging/production; a GPU-completed job (test jobs stayed QUEUED);
+  connected pages at 1024/390 (Dashboard showed horizontal scroll at 1024 before the border-box fix,
+  cause not confirmed — the store was disconnected mid-check);
+  product images served from a cross-origin CDN (the widget still `fetch()`es the garment image).
+- **Ship order matters:** deploy the API (migration + routes) BEFORE a plugin release. An old plugin
+  keeps working against the new API (no policy ⇒ no change). A new plugin against an old API cannot
+  save limits (404) and so never sets a policy.
+- **Known limits:** guests behind one shared IP share a cap; the window is a fixed 24h from the first
+  try-on, not a calendar day; a try-on that fails on the GPU after being created still counts.
+  Reconnecting a site pulls the account's existing policy back (`sync_shopper_policy`), because the
+  policy is per Ai Vastra account while each connect mints a new key pair.
+- **Leftovers:** `Aivastra_Connection_Service::list_categories()` and the routing-table CSS are now
+  unused.
+
 # 2026-11-03 — GPU dashboard is box-first; boxes enrol themselves through vps-sync (feat/fleet-boxes)
 
 - **Why:** the dashboard listed admin-panel workers and took health from the dispatcher, so disabling a

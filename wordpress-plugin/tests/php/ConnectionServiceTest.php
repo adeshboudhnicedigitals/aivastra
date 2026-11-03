@@ -725,4 +725,83 @@ final class ConnectionServiceTest extends TestCase
         $this->assertFalse($result['ok']);
         $this->assertSame('error', $result['status']);
     }
+
+    public function test_put_shopper_policy_sends_the_policy_with_the_full_key_and_stores_the_secret(): void
+    {
+        Functions\expect('wp_json_encode')->once()->andReturnUsing(fn ($v) => json_encode($v));
+        Functions\expect('wp_remote_request')
+            ->once()
+            ->with(
+                'https://api.aivastra.com/v1/dev/shopper-policy',
+                Mockery::on(fn ($args) => $args['method'] === 'PUT'
+                    && $args['headers']['Authorization'] === 'Bearer sk_live_full'
+                    && json_decode($args['body'], true) === ['loginRequired' => true, 'perShopperCap' => 3])
+            )
+            ->andReturn(['response' => ['code' => 200]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(200);
+        Functions\expect('wp_remote_retrieve_body')
+            ->once()
+            ->andReturn(json_encode(['loginRequired' => true, 'perShopperCap' => 3, 'windowHours' => 24, 'tokenSecret' => 'sec_abc']));
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_full_key')->andReturn('sk_live_full');
+        $settings->shouldReceive('set_shopper_policy')->once()->with(true, 3, 'sec_abc');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $this->assertTrue($service->put_shopper_policy(true, 3)['ok']);
+    }
+
+    public function test_put_shopper_policy_stores_nothing_when_the_api_refuses(): void
+    {
+        Functions\expect('wp_json_encode')->once()->andReturnUsing(fn ($v) => json_encode($v));
+        Functions\expect('wp_remote_request')->once()->andReturn(['response' => ['code' => 403]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(403);
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_full_key')->andReturn('sk_live_full');
+        $settings->shouldNotReceive('set_shopper_policy');
+
+        $service = new Aivastra_Connection_Service($settings, 'https://api.aivastra.com');
+        $result = $service->put_shopper_policy(false, null);
+        $this->assertFalse($result['ok']);
+    }
+
+    public function test_sync_shopper_policy_pulls_an_existing_policy_into_the_plugin(): void
+    {
+        Functions\expect('wp_remote_get')
+            ->once()
+            ->with(
+                'https://api.aivastra.com/v1/dev/shopper-policy',
+                Mockery::on(fn ($args) => $args['headers']['Authorization'] === 'Bearer sk_live_full')
+            )
+            ->andReturn(['response' => ['code' => 200]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(200);
+        Functions\expect('wp_remote_retrieve_body')
+            ->once()
+            ->andReturn(json_encode(['loginRequired' => false, 'perShopperCap' => 5, 'windowHours' => 24, 'tokenSecret' => 'sec_xyz']));
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_full_key')->andReturn('sk_live_full');
+        $settings->shouldReceive('set_shopper_policy')->once()->with(false, 5, 'sec_xyz');
+
+        (new Aivastra_Connection_Service($settings, 'https://api.aivastra.com'))->sync_shopper_policy();
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_sync_shopper_policy_ignores_a_404_no_policy_yet(): void
+    {
+        Functions\expect('wp_remote_get')->once()->andReturn(['response' => ['code' => 404]]);
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('wp_remote_retrieve_response_code')->once()->andReturn(404);
+
+        $settings = Mockery::mock(Aivastra_Connection_Settings::class);
+        $settings->shouldReceive('get_full_key')->andReturn('sk_live_full');
+        $settings->shouldNotReceive('set_shopper_policy');
+
+        (new Aivastra_Connection_Service($settings, 'https://api.aivastra.com'))->sync_shopper_policy();
+        $this->addToAssertionCount(1);
+    }
 }

@@ -13,3 +13,6 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 
 delete_option('aivastra_tryon_settings');
 delete_option('aivastra_tryon_onboarding_done');
+delete_option('aivastra_tryon_limits_done');
+// Legacy flag from the retired categories onboarding step.
+delete_option('aivastra_tryon_categories_done');
