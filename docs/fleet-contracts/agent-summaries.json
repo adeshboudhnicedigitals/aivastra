@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-11-02T12:00:00.000Z",
+  "workers": [
+    {
+      "workerId": "example-with-data",
+      "heartbeatAt": "2026-11-02T11:59:50.000Z",
+      "telemetry": {
+        "observedAt": "2026-11-02T11:59:49.000Z",
+        "stale": false,
+        "gpuCount": 1,
+        "tempMaxC": 62,
+        "clockRatioMin": 0.997,
+        "utilGpuPctMax": 91,
+        "powerWTotal": 312.4,
+        "vramUsedMib": 56031,
+        "vramTotalMib": 97887,
+        "ramAvailMib": 41000,
+        "ramTotalMib": 90503,
+        "swapUsedMib": 0,
+        "diskUsedPctMax": 95.8,
+        "comfy": { "reachable": true, "running": 1, "pending": 0 }
+      },
+      "incidents": { "critical": 0, "warning": 1, "info": 0 }
+    },
+    {
+      "workerId": "example-monitored-no-data",
+      "heartbeatAt": null,
+      "telemetry": null,
+      "incidents": { "critical": 0, "warning": 0, "info": 0 }
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "generatedAt": "2026-11-03T10:30:00.000Z",
+  "hasMore": true,
+  "items": [
+    {
+      "id": "command:6f9619ff-8b86-4011-b42d-00c04fc964ff",
+      "at": "2026-11-03T10:20:00.000Z",
+      "source": "COMMAND",
+      "action": "command.succeeded",
+      "actor": null,
+      "workerId": "w3",
+      "summary": "clear_queue on w3 succeeded: cleared 2 pending prompts"
+    },
+    {
+      "id": "audit:0b0f3c3e-5f7e-4a55-9c3b-2a8d9c1b7e10",
+      "at": "2026-11-03T10:19:00.000Z",
+      "source": "AUDIT",
+      "action": "fleet.command.request",
+      "actor": "ops@example.com",
+      "workerId": "w3",
+      "summary": "ops@example.com requested a command on w3"
+    },
+    {
+      "id": "incident:812",
+      "at": "2026-11-03T10:05:00.000Z",
+      "source": "INCIDENT",
+      "action": "ACK",
+      "actor": "ops@example.com",
+      "workerId": "w4",
+      "summary": "ops@example.com acknowledged disk_high on w4"
+    },
+    {
+      "id": "incident:811",
+      "at": "2026-11-03T09:40:00.000Z",
+      "source": "INCIDENT",
+      "action": "OPENED",
+      "actor": null,
+      "workerId": "w4",
+      "summary": "Incident opened: disk_high on w4"
+    }
+  ]
+}

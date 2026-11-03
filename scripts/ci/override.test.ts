@@ -23,7 +23,16 @@ const docsOnlyResult: DetectResult = {
   reasons: { docs: ['docs/readme.md'] },
 };
 
-const ALL_SERVICES = ['admin', 'api', 'chatbot', 'dispatcher', 'shopify-admin', 'support', 'web'];
+const ALL_SERVICES = [
+  'admin',
+  'api',
+  'chatbot',
+  'dispatcher',
+  'gpu-ops',
+  'shopify-admin',
+  'support',
+  'web',
+];
 
 describe('applyManualOverride with no override set', () => {
   it('returns the result unchanged', () => {

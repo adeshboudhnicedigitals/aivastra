@@ -28,4 +28,10 @@ useDefault = true
     # in commits on feat/whatsapp-catalog-bot, which the scheduled full-history
     # scan covers, so editing the test later would not clear the finding.
     '''tok-0123456789abcdefghij''',
+    # Not secrets — made-up worker API-key fixtures in the fleet integration tests
+    # (admin-fleet.test.ts, admin-fleet-inventory.test.ts, admin-fleet-operations.test.ts).
+    # The generic-api-key rule matches the "apiKey: '<token>'" shape. They sit in commits
+    # on feat/fleet-ui, so editing the tests later would not clear the finding in the
+    # scanned history.
+    '''(fleet|inv|ops)-secret-key-0123456789''',
   ]

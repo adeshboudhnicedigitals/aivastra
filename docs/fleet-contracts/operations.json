@@ -1,0 +1,51 @@
+{
+  "generatedAt": "2026-11-03T10:00:00.000Z",
+  "maintenance": [
+    {
+      "id": "5b0c6f56-6a39-4d0e-9d6f-0d9d4f8a2f10",
+      "workerId": "worker-1",
+      "startsAt": "2026-11-03T09:00:00.000Z",
+      "endsAt": "2026-11-03T11:00:00.000Z",
+      "owner": "Srinivas",
+      "reason": "driver upgrade",
+      "status": "ACTIVE",
+      "createdAt": "2026-11-02T10:00:00.000Z"
+    },
+    {
+      "id": "8c1d2b34-7f00-4b6a-a1f2-3e9b7c5d6a21",
+      "workerId": "worker-3",
+      "startsAt": "2026-11-05T01:00:00.000Z",
+      "endsAt": "2026-11-05T03:00:00.000Z",
+      "owner": "Srinivas",
+      "reason": "kernel update and reboot",
+      "status": "SCHEDULED",
+      "createdAt": "2026-11-03T08:00:00.000Z"
+    },
+    {
+      "id": "2f6e9a10-1c44-4d8b-8b7e-5a0d3c9e4b12",
+      "workerId": "worker-2",
+      "startsAt": "2026-11-01T01:00:00.000Z",
+      "endsAt": "2026-11-01T02:00:00.000Z",
+      "owner": "Srinivas",
+      "reason": "cancelled, no longer needed",
+      "status": "CANCELLED",
+      "createdAt": "2026-10-30T08:00:00.000Z"
+    }
+  ],
+  "reservations": [
+    {
+      "workerId": "worker-2",
+      "owner": "QA team",
+      "reason": "lent for regression runs",
+      "until": null,
+      "createdAt": "2026-11-03T08:00:00.000Z"
+    },
+    {
+      "workerId": "worker-4",
+      "owner": "Design team",
+      "reason": "demo on Friday",
+      "until": "2026-11-07T18:00:00.000Z",
+      "createdAt": "2026-11-03T08:30:00.000Z"
+    }
+  ]
+}

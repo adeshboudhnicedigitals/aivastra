@@ -1,0 +1,17 @@
+{
+  "workerId": "worker-6",
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "keys": [
+    {
+      "id": "0b6f6c8a-1111-4c1e-9d11-000000000004",
+      "label": "gpu6 main",
+      "keyPrefix": "fa_Jc5yU1aF",
+      "createdAt": "2026-11-02T09:00:00.000Z",
+      "revokedAt": null,
+      "lastSeenAt": null,
+      "agentVersion": null
+    }
+  ],
+  "heartbeat": null,
+  "rejectsLastHour": 42
+}

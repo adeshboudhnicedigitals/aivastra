@@ -19,6 +19,25 @@ export interface QueueSnapshot {
   pending: number | null;
   probedAt: number;
   error?: string;
+  // Prompt ids, so the fleet view can say whose work is on a worker. Display only, and capped:
+  // a list shorter than `running`/`pending` means ids were dropped and must read as unknown.
+  runningPromptIds?: string[];
+  pendingPromptIds?: string[];
+}
+
+const MAX_PROMPT_IDS = 50;
+
+// /queue entries are [number, prompt_id, prompt, extra_data, outputs]; only index 1 is read —
+// the prompt body is the whole workflow and must not be copied into Redis.
+export function promptIds(entries: unknown[]): string[] {
+  const ids: string[] = [];
+  for (const entry of entries) {
+    if (ids.length >= MAX_PROMPT_IDS) break;
+    if (Array.isArray(entry) && typeof entry[1] === 'string' && entry[1].length <= 128) {
+      ids.push(entry[1]);
+    }
+  }
+  return ids;
 }
 
 /** GET /queue → running + pending counts. Never throws; failure is recorded in `error`. */
@@ -38,7 +57,14 @@ export async function sampleQueue(url: string, apiKey: string): Promise<QueueSna
     const running = body.queue_running.length;
     const pending = body.queue_pending.length;
     comfyWorkerQueueProbesTotal.inc({ result: 'ok' });
-    return { queueRemaining: running + pending, running, pending, probedAt };
+    return {
+      queueRemaining: running + pending,
+      running,
+      pending,
+      probedAt,
+      runningPromptIds: promptIds(body.queue_running),
+      pendingPromptIds: promptIds(body.queue_pending),
+    };
   } catch (err) {
     comfyWorkerQueueProbesTotal.inc({ result: 'error' });
     return {

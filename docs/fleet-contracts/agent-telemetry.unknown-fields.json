@@ -1,0 +1,81 @@
+{
+  "workerId": "worker-9",
+  "generatedAt": "2026-11-02T10:00:00.000Z",
+  "telemetry": {
+    "v": 1,
+    "workerId": "worker-9",
+    "agentVersion": "0.1.0",
+    "bootId": "3f1c2b4a-0000-4000-8000-000000000001",
+    "seq": 1204,
+    "observedAt": 1793613597600,
+    "gpus": [
+      {
+        "index": 0,
+        "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+        "tempC": null,
+        "memTempC": null,
+        "fanPct": null,
+        "pstate": "P0",
+        "smClockMhz": null,
+        "smClockMaxMhz": null,
+        "memClockMhz": 14001,
+        "powerW": null,
+        "powerLimitW": 600,
+        "utilGpuPct": 88,
+        "utilMemPct": 52,
+        "vramUsedMib": null,
+        "vramTotalMib": 97887,
+        "throttleReasons": null,
+        "eccUncorrected": null
+      }
+    ],
+    "computeApps": [
+      {
+        "gpuIndex": 0,
+        "name": "python",
+        "vramMib": 40000
+      }
+    ],
+    "host": {
+      "cpuCount": 16,
+      "load1": 3.2,
+      "load5": 2.9,
+      "load15": 2.4,
+      "ramTotalMib": 84480,
+      "ramAvailMib": 6100,
+      "swapTotalMib": null,
+      "swapUsedMib": null,
+      "memPsiSome10": null,
+      "uptimeSec": 123456,
+      "ntpSynced": null,
+      "disks": []
+    },
+    "services": [
+      {
+        "name": "comfyui",
+        "active": "active",
+        "sub": "running",
+        "restarts": 0
+      }
+    ],
+    "comfy": [
+      {
+        "instance": "main",
+        "reachable": true,
+        "running": 1,
+        "pending": 0
+      }
+    ]
+  },
+  "receivedAt": "2026-11-02T09:59:57.650Z",
+  "stale": false,
+  "clockSkewMs": 50,
+  "signals": [
+    {
+      "index": 0,
+      "clockRatio": null,
+      "thermalCollapseNow": null,
+      "foreignVramMib": null
+    }
+  ]
+}

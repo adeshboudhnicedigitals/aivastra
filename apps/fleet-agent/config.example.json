@@ -1,0 +1,10 @@
+{
+  "workerId": "woker-7",
+  "ingestUrl": "https://app.aivastra.com/v1/fleet/agent/ingest",
+  "keyFile": "/etc/aivastra-agent.key",
+  "units": { "comfyui": "comfyui-main" },
+  "comfy": [{ "instance": "main", "port": 8339 }],
+  "logs": { "unit": "comfyui", "windowMinutes": 30 },
+  "disks": ["/"],
+  "intervalSec": 15
+}

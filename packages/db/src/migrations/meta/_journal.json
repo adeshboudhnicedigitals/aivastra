@@ -1674,6 +1674,62 @@
       "when": 1793352642868,
       "tag": "0239_solid_mephistopheles",
       "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "7",
+      "when": 1793352643868,
+      "tag": "0240_fleet_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 241,
+      "version": "7",
+      "when": 1793605077624,
+      "tag": "0241_fleet_agent_telemetry",
+      "breakpoints": true
+    },
+    {
+      "idx": 242,
+      "version": "7",
+      "when": 1793611349913,
+      "tag": "0242_fleet_alerting",
+      "breakpoints": true
+    },
+    {
+      "idx": 243,
+      "version": "7",
+      "when": 1793613186464,
+      "tag": "0243_fleet_rollups",
+      "breakpoints": true
+    },
+    {
+      "idx": 244,
+      "version": "7",
+      "when": 1793625182449,
+      "tag": "0244_fleet_thermal_slowdown",
+      "breakpoints": true
+    },
+    {
+      "idx": 245,
+      "version": "7",
+      "when": 1793630943128,
+      "tag": "0245_fleet_control",
+      "breakpoints": true
+    },
+    {
+      "idx": 246,
+      "version": "7",
+      "when": 1793682069976,
+      "tag": "0246_fleet_inventory",
+      "breakpoints": true
+    },
+    {
+      "idx": 247,
+      "version": "7",
+      "when": 1793684390653,
+      "tag": "0247_fleet_operations",
+      "breakpoints": true
     }
   ]
 }
