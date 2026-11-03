@@ -108,6 +108,17 @@ class Aivastra_Settings_Page
     // in sync with this one list.
     private const ONBOARDING_STEPS = ['Connect account', 'Categories & Funnels', 'Customize button'];
 
+    // Every wp-admin screen this class renders (enqueue_assets() and
+    // add_body_class() both gate on it).
+    private const PLUGIN_PAGES = [
+        'aivastra-tryon',
+        'aivastra-tryon-manage',
+        'aivastra-tryon-analytics',
+        'aivastra-tryon-billing',
+        'aivastra-tryon-customize',
+        'aivastra-tryon-support',
+    ];
+
     // Two internal short-codes get a friendly rewrite; every other value in
     // $_GET['aivastra_error'] already IS a human-readable message coming
     // straight from Aivastra_Connection_Service (e.g. "The full API key was
@@ -175,6 +186,7 @@ class Aivastra_Settings_Page
         add_action('admin_init', [self::class, 'redirect_legacy_url']);
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_menu_icon_style']);
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_assets']);
+        add_filter('admin_body_class', [self::class, 'add_body_class']);
         add_action('admin_post_aivastra_tryon_connect', [self::class, 'handle_connect']);
         add_action('admin_post_aivastra_tryon_connect_start', [self::class, 'handle_connect_start']);
         // No nonce check on the callback action below — it's a cross-site
@@ -187,6 +199,19 @@ class Aivastra_Settings_Page
         add_action('admin_post_aivastra_tryon_skip_onboarding', [self::class, 'handle_skip_onboarding']);
         add_action('admin_post_aivastra_tryon_buy', [self::class, 'handle_buy']);
         add_action('admin_post_aivastra_tryon_save_widget_customization', [self::class, 'handle_save_widget_customization']);
+    }
+
+    /**
+     * Marks the wp-admin <body> on this plugin's screens so design.css can
+     * paint the lavender backdrop behind the whole content area (#wpcontent),
+     * which sits outside .aivastra-settings-wrap and so can't be styled from it.
+     */
+    public static function add_body_class(string $classes): string
+    {
+        if (in_array($_GET['page'] ?? '', self::PLUGIN_PAGES, true)) {
+            $classes .= ' aivastra-admin';
+        }
+        return $classes;
     }
 
     /**
@@ -204,15 +229,7 @@ class Aivastra_Settings_Page
      */
     public static function enqueue_assets(string $hookSuffix): void
     {
-        $pluginPages = [
-            'aivastra-tryon',
-            'aivastra-tryon-manage',
-            'aivastra-tryon-analytics',
-            'aivastra-tryon-billing',
-            'aivastra-tryon-customize',
-            'aivastra-tryon-support',
-        ];
-        if (!in_array($_GET['page'] ?? '', $pluginPages, true)) {
+        if (!in_array($_GET['page'] ?? '', self::PLUGIN_PAGES, true)) {
             return;
         }
         // Same Google Fonts URL apps/shopify/index.html loads for its own
@@ -232,6 +249,25 @@ class Aivastra_Settings_Page
             AIVASTRA_TRYON_URL . 'admin/assets/settings-page.css',
             ['aivastra-tryon-public-sans'],
             AIVASTRA_TRYON_VERSION . '.' . filemtime(AIVASTRA_TRYON_DIR . 'admin/assets/settings-page.css')
+        );
+        wp_enqueue_style(
+            'aivastra-tryon-inter',
+            'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap',
+            [],
+            null
+        );
+        // Redesign layer: re-skins settings-page.css's tokens and components
+        // (lavender backdrop, glass cards, pill steps, violet buttons) without
+        // forking that file, so it must load after it.
+        wp_enqueue_style(
+            'aivastra-tryon-design',
+            AIVASTRA_TRYON_URL . 'admin/assets/design.css',
+            ['aivastra-tryon-settings', 'aivastra-tryon-inter'],
+            AIVASTRA_TRYON_VERSION . '.' . filemtime(AIVASTRA_TRYON_DIR . 'admin/assets/design.css')
+        );
+        wp_add_inline_style(
+            'aivastra-tryon-design',
+            'body.aivastra-admin{--aivastra-bg:url("' . esc_url_raw(AIVASTRA_TRYON_URL . 'admin/assets/images/design-bg.jpg') . '");}'
         );
         wp_enqueue_script(
             'aivastra-tryon-select',
@@ -1494,6 +1530,8 @@ class Aivastra_Settings_Page
           <div class="aivastra-navbar-left">
             <img src="<?php echo esc_url(AIVASTRA_TRYON_URL . 'admin/assets/images/logo.svg'); ?>" alt="" class="aivastra-logo-mark">
             <img src="<?php echo esc_url(AIVASTRA_TRYON_URL . 'admin/assets/images/logo-text.svg'); ?>" alt="Ai Vastra" class="aivastra-logo-text">
+            <span class="aivastra-vr" aria-hidden="true"></span>
+            <span class="aivastra-platform-chip"><?php echo self::lucide('<circle cx="12" cy="12" r="10"/><path d="M3.5 9h6.2l2.3 6.6L14.3 9h6.2"/><path d="M8.1 9.5 12 20.4"/>', 16); ?>WordPress Plugin</span>
           </div>
 
           <details class="aivastra-topbar-support aivastra-navbar-more">
@@ -1617,7 +1655,7 @@ class Aivastra_Settings_Page
     /**
      * The first-run welcome page — a port of the Shopify app's
      * apps/shopify/src/pages/OnboardingIntroPage.tsx (same copy, the same
-     * three photos, same card + connector layout), so a merchant sees the
+     * three photos, same trio + step-list layout), so a merchant sees the
      * same introduction on either platform. Replaces the whole settings
      * screen, header and nav included, until Continue is clicked; see
      * should_show_intro().
@@ -1625,107 +1663,47 @@ class Aivastra_Settings_Page
     private static function render_intro(): void
     {
         $images = AIVASTRA_TRYON_URL . 'admin/assets/images/';
-        // Card glyphs are 18px (not 22) so each caption stays on one line.
-        $cards = [
-            [
-                'image' => 'welcome-person.jpg',
-                'width' => 1080,
-                'height' => 1440,
-                'alt' => "A customer's own photo",
-                'icon' => self::lucide('<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>', 18),
-                'title' => 'Customer Photo',
-                'caption' => "Your customer's image",
-            ],
-            [
-                'image' => 'welcome-garment.jpg',
-                'width' => 1080,
-                'height' => 1438,
-                'alt' => 'A product photo from the store',
-                'icon' => self::lucide('<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>', 18),
-                'title' => 'Your Garment Image',
-                'caption' => 'From your store',
-            ],
-            [
-                'image' => 'welcome-result.jpg',
-                'width' => 1080,
-                'height' => 1440,
-                'alt' => 'The customer wearing the product',
-                'icon' => self::lucide('<path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/>', 18),
-                'title' => 'Virtual Try-On',
-                'caption' => 'Realistic results in seconds',
-            ],
-        ];
-        $benefits = [
-            // Three bars rising left to right, so it reads as "growth".
-            ['icon' => self::lucide('<path d="M5 21v-6"/><path d="M12 21V9"/><path d="M19 21V3"/>', 20), 'text' => 'Increase conversions'],
-            ['icon' => self::lucide('<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>', 20), 'text' => 'Reduce returns'],
-            ['icon' => self::lucide('<path d="M18 21a8 8 0 0 0-16 0"/><circle cx="10" cy="8" r="5"/><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"/>', 20), 'text' => 'Build customer confidence'],
+        $photos = [
+            ['image' => 'welcome-garment.jpg', 'alt' => 'A product photo from the store', 'width' => 1080, 'height' => 1438],
+            ['image' => 'welcome-person.jpg', 'alt' => "A customer's own photo", 'width' => 1080, 'height' => 1440],
+            ['image' => 'welcome-result.jpg', 'alt' => 'The customer wearing the product', 'width' => 1080, 'height' => 1440],
         ];
         ?>
         <div class="wrap aivastra-settings-wrap aivastra-intro-wrap">
           <?php // Screen-reader heading; WordPress also moves admin notices to just after the first h1/h2 in .wrap. ?>
           <h1 class="screen-reader-text">Welcome to Ai Vastra Try-On</h1>
-          <div class="aivastra-intro">
-            <div class="aivastra-intro-body">
-              <div class="aivastra-intro-logo">
-                <img src="<?php echo esc_url($images . 'logo.svg'); ?>" alt="" class="aivastra-intro-logo-mark">
-                <img src="<?php echo esc_url($images . 'logo-text.svg'); ?>" alt="AI Vastra" class="aivastra-intro-logo-text">
-              </div>
+          <div class="aivastra-welcome">
+            <span class="aivastra-welcome-eyebrow">WELCOME TO AI VASTRA</span>
+            <h2 class="aivastra-welcome-title">Bring <em>Virtual Try-On</em> to your store.</h2>
+            <p class="aivastra-welcome-lead">Let shoppers see how your products look on them, directly from your WooCommerce store.</p>
 
-              <div class="aivastra-intro-copy">
-                <h2 class="aivastra-intro-title">Let your customers see themselves in your garments.</h2>
-                <p class="aivastra-intro-subtitle">Help customers see how the dress suits them, increasing sales and reducing returns.</p>
-              </div>
-
-              <div class="aivastra-intro-cards">
-                <?php foreach ($cards as $index => $card): ?>
-                  <?php if ($index > 0): ?>
-                    <div class="aivastra-intro-connector" aria-hidden="true">
-                      <span class="aivastra-intro-circle aivastra-intro-circle--connector">
-                        <?php if ($index === 1): ?>
-                          <?php echo self::lucide('<path d="M5 12h14"/><path d="M12 5v14"/>', 20); ?>
-                        <?php else: ?>
-                          <span class="aivastra-intro-equals"><span></span><span></span></span>
-                        <?php endif; ?>
-                      </span>
-                    </div>
-                  <?php endif; ?>
-                  <div class="aivastra-intro-card">
-                    <img
-                      src="<?php echo esc_url($images . $card['image']); ?>"
-                      alt="<?php echo esc_attr($card['alt']); ?>"
-                      width="<?php echo (int) $card['width']; ?>"
-                      height="<?php echo (int) $card['height']; ?>"
-                      decoding="async"
-                      class="aivastra-intro-photo"
-                    >
-                    <div class="aivastra-intro-card-caption">
-                      <span class="aivastra-intro-circle aivastra-intro-circle--card"><?php echo $card['icon']; ?></span>
-                      <div>
-                        <p class="aivastra-intro-card-title"><?php echo esc_html($card['title']); ?></p>
-                        <p class="aivastra-intro-card-text"><?php echo esc_html($card['caption']); ?></p>
-                      </div>
-                    </div>
-                  </div>
-                <?php endforeach; ?>
-              </div>
-
-              <ul class="aivastra-intro-benefits">
-                <?php foreach ($benefits as $benefit): ?>
-                  <li>
-                    <span class="aivastra-intro-circle aivastra-intro-circle--benefit"><?php echo $benefit['icon']; ?></span>
-                    <span><?php echo esc_html($benefit['text']); ?></span>
-                  </li>
-                <?php endforeach; ?>
-              </ul>
+            <div class="aivastra-welcome-trio">
+              <?php foreach ($photos as $index => $photo): ?>
+                <?php if ($index > 0): ?>
+                  <span class="aivastra-welcome-arrow" aria-hidden="true"><?php echo self::lucide('<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>', 22); ?></span>
+                <?php endif; ?>
+                <img
+                  src="<?php echo esc_url($images . $photo['image']); ?>"
+                  alt="<?php echo esc_attr($photo['alt']); ?>"
+                  width="<?php echo (int) $photo['width']; ?>"
+                  height="<?php echo (int) $photo['height']; ?>"
+                  decoding="async"
+                  class="aivastra-welcome-photo<?php echo $index === count($photos) - 1 ? ' is-result' : ''; ?>"
+                >
+              <?php endforeach; ?>
             </div>
 
-            <div class="aivastra-intro-footer">
-              <a
-                href="<?php echo esc_url(add_query_arg(['page' => 'aivastra-tryon', 'section' => 'connection'], admin_url('admin.php'))); ?>"
-                class="aivastra-intro-continue"
-              >Continue</a>
-            </div>
+            <div class="aivastra-welcome-rule"><span></span><p>Complete your setup in <?php echo (int) count(self::ONBOARDING_STEPS); ?> simple steps</p><span></span></div>
+            <ol class="aivastra-welcome-steps">
+              <?php foreach (self::ONBOARDING_STEPS as $index => $label): ?>
+                <li><b><?php echo (int) ($index + 1); ?></b><?php echo esc_html($label); ?></li>
+              <?php endforeach; ?>
+            </ol>
+
+            <a
+              href="<?php echo esc_url(add_query_arg(['page' => 'aivastra-tryon', 'section' => 'connection'], admin_url('admin.php'))); ?>"
+              class="aivastra-welcome-start"
+            >Start Setup <?php echo self::lucide('<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>', 22); ?></a>
           </div>
         </div>
         <?php
@@ -1771,6 +1749,8 @@ class Aivastra_Settings_Page
               <img src="<?php echo esc_url(AIVASTRA_TRYON_URL . 'admin/assets/images/logo.svg'); ?>" alt="" class="aivastra-logo-mark">
               <img src="<?php echo esc_url(AIVASTRA_TRYON_URL . 'admin/assets/images/logo-text.svg'); ?>" alt="Ai Vastra" class="aivastra-logo-text">
             </div>
+            <span class="aivastra-vr" aria-hidden="true"></span>
+            <span class="aivastra-platform-chip"><?php echo self::lucide('<circle cx="12" cy="12" r="10"/><path d="M3.5 9h6.2l2.3 6.6L14.3 9h6.2"/><path d="M8.1 9.5 12 20.4"/>', 16); ?>WordPress Plugin</span>
           </div>
 
           <div class="aivastra-topbar-right">
@@ -1810,12 +1790,12 @@ class Aivastra_Settings_Page
         ?>
         <ol class="aivastra-progress-steps" aria-label="Getting started, step <?php echo (int) $current; ?> of <?php echo (int) $total; ?>">
           <?php foreach (self::ONBOARDING_STEPS as $index => $label): ?>
-            <?php $step = $index + 1; $reached = $step <= $current; ?>
+            <?php $step = $index + 1; $reached = $step <= $current; $done = $step < $current; ?>
             <?php if ($index > 0): ?>
               <li class="aivastra-progress-connector<?php echo $reached ? ' is-reached' : ''; ?>" aria-hidden="true"></li>
             <?php endif; ?>
             <li
-              class="aivastra-progress-step<?php echo $reached ? ' is-reached' : ''; ?><?php echo $step === $current ? ' is-current' : ''; ?>"
+              class="aivastra-progress-step<?php echo $reached ? ' is-reached' : ''; ?><?php echo $done ? ' is-done' : ''; ?><?php echo $step === $current ? ' is-current' : ''; ?>"
               <?php echo $step === $current ? 'aria-current="step"' : ''; ?>
             >
               <span class="aivastra-progress-circle"><?php echo (int) $step; ?></span>

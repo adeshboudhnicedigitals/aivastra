@@ -1,0 +1,644 @@
+/* ==========================================================================
+   Aivastra Try-On - admin redesign layer.
+
+   Loaded after settings-page.css (see Aivastra_Settings_Page::enqueue_assets())
+   and brings this plugin's wp-admin screens in line with the Shopify app's
+   redesign (apps/shopify/src/styles/design.css): lavender photo backdrop,
+   glass cards, ink + violet palette, pill steps and tabs, rounded violet
+   buttons. It re-points settings-page.css's own tokens first, so every
+   component that already reads them follows, then overrides the few
+   components whose shape (not just colour) changes. Selectors are prefixed
+   with body.aivastra-admin so they win over settings-page.css on specificity
+   alone, with no !important.
+   ========================================================================== */
+
+/* ---- Page backdrop (wp-admin's own content area, outside our .wrap) ---- */
+body.aivastra-admin,
+body.aivastra-admin #wpwrap {
+  background-color: #f3f0fd;
+}
+body.aivastra-admin #wpcontent {
+  background-color: #f3f0fd;
+  background-image: var(--aivastra-bg);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  padding-left: 0;
+}
+
+/* ---- Tokens ---- */
+body.aivastra-admin .aivastra-settings-wrap {
+  --aivastra-primary: #4a1fe0;
+  --aivastra-primary-hover: #3b17b8;
+  --aivastra-accent: #5a2cf0;
+  --aivastra-accent-soft: #ebe6fc;
+  --aivastra-accent-border: #d4c9fa;
+  --aivastra-surface: #ffffff;
+  --aivastra-surface-subtle: #faf9ff;
+  --aivastra-surface-muted: #f1eefc;
+  --aivastra-border: #e6e3f2;
+  --aivastra-text-main: #12101f;
+  --aivastra-text-muted: #5d5b78;
+  --aivastra-text-subtle: #7a7890;
+  --aivastra-success: #0b6a31;
+  --aivastra-success-soft: #dcf5e6;
+  --aivastra-danger: #b3202a;
+  --aivastra-danger-soft: #fde7e9;
+  --aivastra-danger-border: #f3b8be;
+  --aivastra-radius-card: 24px;
+  --aivastra-radius-control: 12px;
+  --aivastra-shadow-card: 0 22px 56px rgba(91, 44, 230, 0.08), 0 2px 6px rgba(20, 16, 40, 0.04);
+  --aivastra-chevron-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2312101f' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--aivastra-text-main);
+  -webkit-font-smoothing: antialiased;
+}
+body.aivastra-admin
+  .aivastra-settings-wrap:not(.aivastra-dashboard-wrap):not(.aivastra-onboarding-wrap) {
+  max-width: 1176px;
+}
+
+/* ---- Header (navbar on connected pages, topbar during onboarding) ---- */
+body.aivastra-admin .aivastra-navbar,
+body.aivastra-admin .aivastra-topbar {
+  padding: 14px 32px;
+  background: rgba(255, 255, 255, 0.6);
+  border-bottom: 1px solid rgba(91, 44, 230, 0.08);
+  backdrop-filter: blur(6px);
+}
+body.aivastra-admin .aivastra-topbar {
+  margin-left: -20px;
+}
+body.aivastra-admin .aivastra-navbar-left,
+body.aivastra-admin .aivastra-topbar-left {
+  gap: 12px;
+}
+body.aivastra-admin .aivastra-navbar .aivastra-logo-mark,
+body.aivastra-admin .aivastra-topbar .aivastra-logo-mark {
+  height: 30px;
+}
+body.aivastra-admin .aivastra-navbar .aivastra-logo-text,
+body.aivastra-admin .aivastra-topbar .aivastra-logo-text {
+  height: 28px;
+}
+.aivastra-vr {
+  width: 1px;
+  height: 28px;
+  margin: 0 4px;
+  background: #d9d6ea;
+}
+.aivastra-platform-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px 0 10px;
+  border-radius: 12px;
+  background: #eceaf6;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--aivastra-text-main);
+}
+body.aivastra-admin .aivastra-navbar-more-trigger {
+  width: 40px;
+  height: 40px;
+  border-color: #e1ddf0;
+  background: #fff;
+  color: var(--aivastra-text-main);
+}
+body.aivastra-admin .aivastra-topbar-support-trigger {
+  border-radius: 12px;
+  font-weight: 600;
+}
+body.aivastra-admin .aivastra-topbar-support-menu {
+  border-radius: 16px;
+  border-color: #e6e3f2;
+  box-shadow: 0 18px 44px rgba(91, 44, 230, 0.16);
+}
+body.aivastra-admin .aivastra-topbar-support-item:hover {
+  background: var(--aivastra-accent-soft);
+  color: #3b1bb8;
+}
+
+/* ---- Page body + titles ---- */
+body.aivastra-admin .aivastra-page-flat-body {
+  padding: 8px 32px 40px;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+body.aivastra-admin .aivastra-dashboard-wrap .aivastra-page-flat-body {
+  padding-top: 32px;
+}
+body.aivastra-admin .aivastra-manage-header {
+  margin-bottom: 28px;
+}
+body.aivastra-admin .aivastra-manage-title,
+body.aivastra-admin .aivastra-settings-wrap h1 {
+  font-size: 34px;
+  line-height: 1.12;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+body.aivastra-admin .aivastra-page-subtitle {
+  margin: 8px 0 0;
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 400;
+  color: var(--aivastra-text-muted);
+}
+body.aivastra-admin .aivastra-card-heading {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+body.aivastra-admin .aivastra-card-description {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* ---- Cards + tiles ---- */
+body.aivastra-admin .aivastra-card,
+body.aivastra-admin .aivastra-connect-card,
+body.aivastra-admin .aivastra-plan-tile,
+body.aivastra-admin .aivastra-manage-stat-card,
+body.aivastra-admin .aivastra-dashboard-stat,
+body.aivastra-admin .aivastra-stat-tile {
+  background: rgba(255, 255, 255, 0.93);
+  border: 0;
+  border-radius: 24px;
+  box-shadow: var(--aivastra-shadow-card);
+}
+body.aivastra-admin .aivastra-card {
+  padding: 26px 30px;
+  margin-bottom: 24px;
+}
+body.aivastra-admin .aivastra-manage-stat-card,
+body.aivastra-admin .aivastra-dashboard-stat,
+body.aivastra-admin .aivastra-stat-tile {
+  padding: 24px 28px;
+}
+body.aivastra-admin .aivastra-manage-stat-label,
+body.aivastra-admin .aivastra-dashboard-stat-label,
+body.aivastra-admin .aivastra-stat-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--aivastra-text-muted);
+}
+body.aivastra-admin .aivastra-manage-stat-value,
+body.aivastra-admin .aivastra-dashboard-stat-value,
+body.aivastra-admin .aivastra-stat-value,
+body.aivastra-admin .aivastra-credit-number {
+  font-size: 40px;
+  line-height: 1.05;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+body.aivastra-admin .aivastra-plan-name {
+  font-size: 22px;
+  font-weight: 700;
+}
+body.aivastra-admin .aivastra-plan-price-big {
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+body.aivastra-admin .aivastra-badge {
+  border-radius: 15px;
+  padding: 3px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ---- Buttons ---- */
+body.aivastra-admin .aivastra-btn {
+  min-height: 44px;
+  padding: 0 22px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+}
+body.aivastra-admin .aivastra-btn-primary,
+body.aivastra-admin .aivastra-btn-dark {
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(74, 31, 220, 0.26);
+}
+body.aivastra-admin .aivastra-btn-primary:hover,
+body.aivastra-admin .aivastra-btn-dark:hover {
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+  filter: brightness(1.08);
+  color: #fff;
+}
+body.aivastra-admin .aivastra-btn-secondary {
+  background: #fff;
+  border: 1.5px solid #dcd8ee;
+  color: var(--aivastra-text-main);
+}
+body.aivastra-admin .aivastra-btn-secondary:hover {
+  background: #faf9ff;
+}
+body.aivastra-admin .aivastra-btn:focus-visible,
+body.aivastra-admin .aivastra-welcome-start:focus-visible {
+  outline: 3px solid #12101f;
+  outline-offset: 3px;
+}
+
+/* ---- Form controls ---- */
+body.aivastra-admin .aivastra-settings-wrap input[type="text"],
+body.aivastra-admin .aivastra-settings-wrap input[type="email"],
+body.aivastra-admin .aivastra-settings-wrap input[type="url"],
+body.aivastra-admin .aivastra-settings-wrap input[type="password"],
+body.aivastra-admin .aivastra-settings-wrap input[type="number"],
+body.aivastra-admin .aivastra-settings-wrap textarea,
+body.aivastra-admin .aivastra-settings-wrap select,
+body.aivastra-admin .aivastra-select-trigger {
+  border: 1.5px solid #dcd8ee;
+  border-radius: 14px;
+  background-color: #fff;
+  color: var(--aivastra-text-main);
+  font-family: inherit;
+}
+body.aivastra-admin .aivastra-settings-wrap input[type="text"],
+body.aivastra-admin .aivastra-settings-wrap input[type="email"],
+body.aivastra-admin .aivastra-settings-wrap input[type="url"],
+body.aivastra-admin .aivastra-settings-wrap input[type="password"],
+body.aivastra-admin .aivastra-settings-wrap input[type="number"],
+body.aivastra-admin .aivastra-settings-wrap select,
+body.aivastra-admin .aivastra-select-trigger {
+  min-height: 48px;
+  padding-left: 18px;
+  font-size: 15px;
+}
+body.aivastra-admin .aivastra-settings-wrap input:focus,
+body.aivastra-admin .aivastra-settings-wrap select:focus,
+body.aivastra-admin .aivastra-settings-wrap textarea:focus {
+  border-color: #5a2cf0;
+  box-shadow: 0 0 0 4px rgba(90, 44, 240, 0.14);
+  outline: none;
+}
+body.aivastra-admin .aivastra-select-popup {
+  border-radius: 16px;
+  border: 1px solid #e6e3f2;
+  box-shadow: 0 18px 44px rgba(91, 44, 230, 0.16);
+}
+body.aivastra-admin .aivastra-settings-wrap input[type="checkbox"],
+body.aivastra-admin .aivastra-settings-wrap input[type="radio"] {
+  accent-color: #5a2cf0;
+}
+
+/* ---- Tables ---- */
+body.aivastra-admin .aivastra-routing-table,
+body.aivastra-admin .aivastra-analytics-table {
+  border-radius: 16px;
+  overflow: hidden;
+}
+body.aivastra-admin .aivastra-routing-table th,
+body.aivastra-admin .aivastra-analytics-table th {
+  background: #faf9ff;
+  color: var(--aivastra-text-muted);
+  font-weight: 600;
+}
+body.aivastra-admin .aivastra-routing-table td,
+body.aivastra-admin .aivastra-analytics-table td {
+  border-color: #ece9f6;
+}
+
+/* ---- Manage tabs ---- */
+body.aivastra-admin .aivastra-manage-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  border: 0;
+}
+body.aivastra-admin .aivastra-manage-tab {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  height: 42px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--aivastra-text-muted);
+  font-size: 15px;
+  font-weight: 600;
+}
+body.aivastra-admin .aivastra-manage-tab.is-active,
+body.aivastra-admin .aivastra-manage-tab[aria-selected="true"] {
+  background: #ebe6fc;
+  color: #3b1bb8;
+}
+
+/* ---- Onboarding: pill step row ---- */
+body.aivastra-admin .aivastra-progress-steps {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+  margin: 28px 0 36px;
+}
+body.aivastra-admin .aivastra-progress-step {
+  flex-direction: row;
+  gap: 10px;
+  height: 46px;
+  padding: 0 22px 0 5px;
+  border-radius: 23px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 4px 14px rgba(91, 44, 230, 0.08);
+}
+body.aivastra-admin .aivastra-progress-connector {
+  width: 30px;
+  margin-top: 0;
+  align-self: center;
+  background: var(--aivastra-text-main);
+}
+body.aivastra-admin .aivastra-progress-connector:not(.is-reached) {
+  background: #cfcbe3;
+}
+body.aivastra-admin .aivastra-progress-circle {
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--aivastra-text-main);
+  background: #fff;
+  color: var(--aivastra-text-main);
+  font-size: 16px;
+}
+body.aivastra-admin .aivastra-progress-step.is-reached .aivastra-progress-circle {
+  background: var(--aivastra-text-main);
+  border-color: var(--aivastra-text-main);
+  color: #fff;
+}
+body.aivastra-admin .aivastra-progress-step:not(.is-reached) .aivastra-progress-circle {
+  border-color: #cfcbe3;
+  color: var(--aivastra-text-muted);
+}
+body.aivastra-admin .aivastra-progress-step.is-done .aivastra-progress-circle {
+  font-size: 0;
+}
+body.aivastra-admin .aivastra-progress-step.is-done .aivastra-progress-circle::before {
+  content: "\2713";
+  font-size: 18px;
+  font-weight: 800;
+}
+body.aivastra-admin .aivastra-progress-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--aivastra-text-main);
+}
+body.aivastra-admin .aivastra-progress-step:not(.is-reached) .aivastra-progress-label {
+  color: var(--aivastra-text-muted);
+}
+body.aivastra-admin .aivastra-progress-step.is-current {
+  background: var(--aivastra-text-main);
+}
+body.aivastra-admin .aivastra-progress-step.is-current .aivastra-progress-label {
+  color: #fff;
+}
+body.aivastra-admin .aivastra-progress-step.is-current .aivastra-progress-circle {
+  background: #fff;
+  border-color: #fff;
+  color: var(--aivastra-text-main);
+}
+
+/* ---- Onboarding: headings + skip ---- */
+body.aivastra-admin .aivastra-onboarding-heading h2 {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+body.aivastra-admin .aivastra-onboarding-heading p {
+  font-size: 18px;
+  color: var(--aivastra-text-muted);
+}
+body.aivastra-admin .aivastra-onboarding-skip-link {
+  font-size: 17px;
+  font-weight: 600;
+  color: #4a4864;
+}
+body.aivastra-admin .aivastra-onboarding-skip-link:hover {
+  color: var(--aivastra-accent);
+}
+
+/* ---- Connect step ---- */
+body.aivastra-admin .aivastra-connect-card {
+  max-width: 960px;
+  margin: 0 auto;
+  border-radius: 32px;
+  box-shadow:
+    0 30px 70px rgba(91, 44, 230, 0.1),
+    0 2px 6px rgba(20, 16, 40, 0.04);
+}
+body.aivastra-admin .aivastra-connect-perk {
+  background: #efecfb;
+  color: #3b1bb8;
+  border-radius: 14px;
+}
+
+/* ---- Welcome page ---- */
+body.aivastra-admin .aivastra-settings-wrap.aivastra-intro-wrap {
+  max-width: none;
+  margin: 0;
+  min-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+}
+.aivastra-welcome {
+  margin: auto;
+  width: 100%;
+  max-width: 1040px;
+  padding: 40px 24px 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.aivastra-welcome-eyebrow {
+  display: inline-block;
+  padding: 10px 22px;
+  border-radius: 14px;
+  background: #e9e4fb;
+  color: #4b1fd6;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+}
+.aivastra-welcome-title {
+  margin: 24px 0 0;
+  font-size: clamp(34px, 4.6vw, 56px);
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  max-width: 900px;
+  color: var(--aivastra-text-main);
+}
+.aivastra-welcome-title em {
+  font-style: normal;
+  color: #5a2cf0;
+}
+.aivastra-welcome-lead {
+  margin: 16px 0 0;
+  max-width: 720px;
+  font-size: 21px;
+  line-height: 1.45;
+  color: var(--aivastra-text-muted);
+}
+.aivastra-welcome-trio {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin-top: 44px;
+}
+.aivastra-welcome-photo {
+  display: block;
+  height: 250px;
+  width: auto;
+  aspect-ratio: 3 / 4;
+  max-width: 100%;
+  object-fit: cover;
+  border-radius: 28px;
+  box-shadow: 0 14px 34px rgba(91, 44, 230, 0.1);
+}
+.aivastra-welcome-photo.is-result {
+  border: 2px solid #c8b8f8;
+  box-shadow:
+    0 0 0 7px rgba(139, 92, 246, 0.08),
+    0 14px 34px rgba(91, 44, 230, 0.14);
+}
+.aivastra-welcome-arrow {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid #e1ddf0;
+  color: var(--aivastra-text-main);
+}
+.aivastra-welcome-rule {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 900px;
+  margin-top: 44px;
+  color: var(--aivastra-text-muted);
+  font-size: 18px;
+}
+.aivastra-welcome-rule span {
+  flex: 1;
+  height: 1px;
+  background: #d9d6ea;
+}
+.aivastra-welcome-rule p {
+  margin: 0;
+}
+.aivastra-welcome-steps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 12px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.aivastra-welcome-steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0 26px;
+  font-size: 17px;
+  font-weight: 600;
+}
+.aivastra-welcome-steps li + li {
+  border-left: 1px solid #d9d6ea;
+}
+.aivastra-welcome-steps b {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #e9e4fb;
+  color: #4b1fd6;
+  font-size: 16px;
+  font-weight: 700;
+}
+.aivastra-welcome-start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 64px;
+  margin-top: 40px;
+  padding: 0 44px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #5a2ff0, #4219cf);
+  box-shadow: 0 12px 26px rgba(74, 31, 220, 0.28);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.aivastra-welcome-start:hover {
+  filter: brightness(1.08);
+  color: #fff;
+}
+
+/* ---- Support + chat ---- */
+body.aivastra-admin .aivastra-support-channel {
+  border-radius: 20px;
+  border-color: #e6e3f2;
+}
+body.aivastra-admin .aivastra-chat-modal {
+  border-radius: 24px;
+  box-shadow: 0 30px 80px rgba(60, 20, 160, 0.3);
+}
+
+@media (max-width: 782px) {
+  body.aivastra-admin .aivastra-navbar,
+  body.aivastra-admin .aivastra-topbar {
+    padding: 12px 16px;
+  }
+  .aivastra-vr,
+  .aivastra-platform-chip {
+    display: none;
+  }
+  body.aivastra-admin .aivastra-page-flat-body {
+    padding: 8px 16px 32px;
+  }
+  body.aivastra-admin .aivastra-manage-title,
+  body.aivastra-admin .aivastra-settings-wrap h1 {
+    font-size: 28px;
+  }
+  body.aivastra-admin .aivastra-progress-connector {
+    display: none;
+  }
+  body.aivastra-admin .aivastra-progress-step:not(.is-current) .aivastra-progress-label {
+    display: none;
+  }
+  body.aivastra-admin .aivastra-progress-step {
+    padding: 0 5px;
+  }
+  body.aivastra-admin .aivastra-progress-step.is-current {
+    padding: 0 18px 0 5px;
+  }
+  .aivastra-welcome-photo {
+    height: 180px;
+  }
+  .aivastra-welcome-arrow {
+    display: none;
+  }
+  .aivastra-welcome-steps li {
+    padding: 0 12px;
+  }
+  .aivastra-welcome-steps li + li {
+    border-left: 0;
+  }
+}
