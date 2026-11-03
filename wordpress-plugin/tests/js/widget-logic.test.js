@@ -67,6 +67,13 @@ test('friendlyErrorMessage: RATE_LIMITED gets a wait-and-retry message', () => {
   assert.match(result, /wait a moment/);
 });
 
+test('friendlyErrorMessage: shopper-policy refusals get fixed, specific copy', () => {
+  assert.match(friendlyErrorMessage(429, 'SHOPPER_LIMIT', 'x'), /last 24 hours/);
+  assert.doesNotMatch(friendlyErrorMessage(429, 'SHOPPER_LIMIT', 'x'), /today/);
+  assert.match(friendlyErrorMessage(403, 'LOGIN_REQUIRED', 'x'), /log in/);
+  assert.match(friendlyErrorMessage(403, 'SHOPPER_TOKEN_INVALID', 'x'), /reload the page/);
+});
+
 test('friendlyErrorMessage: ENQUEUE_FAIL reassures the shopper they were not charged', () => {
   const result = friendlyErrorMessage(503, 'ENQUEUE_FAIL', 'queue unavailable');
   assert.match(result, /haven't been charged/);

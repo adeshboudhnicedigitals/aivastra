@@ -48,21 +48,6 @@ class Aivastra_Connection_Settings
         return $this->all()['credits_as_of'] ?? null;
     }
 
-    /** @return array<int, string> WooCommerce product_cat term_id => aivastra category slug. */
-    public function get_category_map(): array
-    {
-        $map = $this->all()['category_map'] ?? [];
-        return is_array($map) ? $map : [];
-    }
-
-    /** @param array<int, string> $map */
-    public function set_category_map(array $map): void
-    {
-        $all = $this->all();
-        $all['category_map'] = $map;
-        update_option(self::OPTION_KEY, $all);
-    }
-
     public function get_credits(): ?int
     {
         return $this->all()['credits'] ?? null;
@@ -109,6 +94,44 @@ class Aivastra_Connection_Settings
     }
 
     /**
+     * The shopper policy last saved to the Ai Vastra API (login requirement
+     * and the per-shopper 24h cap), or null when none was ever set — in which
+     * case the storefront isn't gated at all.
+     *
+     * @return array{login_required:bool,cap:?int}|null
+     */
+    public function get_shopper_policy(): ?array
+    {
+        $stored = $this->all()['shopper_policy'] ?? null;
+        if (!is_array($stored)) {
+            return null;
+        }
+        $cap = $stored['cap'] ?? null;
+        return [
+            'login_required' => (bool) ($stored['login_required'] ?? false),
+            'cap' => is_int($cap) && $cap > 0 ? $cap : null,
+        ];
+    }
+
+    /**
+     * HMAC secret the storefront shopper tokens are signed with (see
+     * Aivastra_Shopper_Token_Ajax). Encrypted at rest like the full key.
+     */
+    public function get_shopper_token_secret(): ?string
+    {
+        $encrypted = $this->all()['shopper_token_secret'] ?? null;
+        return is_string($encrypted) ? Aivastra_Crypto::decrypt($encrypted) : null;
+    }
+
+    public function set_shopper_policy(bool $loginRequired, ?int $cap, string $tokenSecret): void
+    {
+        $all = $this->all();
+        $all['shopper_policy'] = ['login_required' => $loginRequired, 'cap' => $cap];
+        $all['shopper_token_secret'] = Aivastra_Crypto::encrypt($tokenSecret);
+        update_option(self::OPTION_KEY, $all);
+    }
+
+    /**
      * The only write path for a successful connection — sets the widget key,
      * the encrypted full key, and the display snapshot together, in one
      * wp_options write.
@@ -133,7 +156,7 @@ class Aivastra_Connection_Settings
 
     /**
      * Updates only the credit balance and its timestamp — deliberately
-     * leaves widget_key, company_name, and category_map untouched. Used by
+     * leaves widget_key and company_name untouched. Used by
      * the "Refresh balance" action, which reads GET /v1/dev/balance with the
      * already-stored widget key and so never needs to re-verify identity.
      *
@@ -154,10 +177,9 @@ class Aivastra_Connection_Settings
     }
 
     /**
-     * Wipes the entire stored option — widget key, snapshot, AND the category
-     * mapping. A fresh connect afterward could be a different aivastra
-     * account with an entirely different set of categories, so a stale
-     * mapping must not survive a disconnect.
+     * Wipes the entire stored option — widget key, snapshot and widget
+     * appearance. A fresh connect afterward could be a different aivastra
+     * account, so stale state must not survive a disconnect.
      */
     public function clear(): void
     {

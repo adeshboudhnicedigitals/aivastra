@@ -3879,6 +3879,8 @@ async function processWidgetJob(
       attemptId,
       imageBytes,
       jobId,
+      merchantId,
+      source: job.source,
       compression,
       db,
       pub,

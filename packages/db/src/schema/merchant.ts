@@ -5,6 +5,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -33,6 +34,17 @@ export const merchants = pgTable('merchants', {
   // apps/api/src/modules/dev/routes.ts), which caps raw request count, not job
   // creation specifically.
   jobRateLimitPerMin: integer('job_rate_limit_per_min'),
+  // Null = no policy: WordPress widget keys behave exactly as before (any caller
+  // holding the public widget key may create jobs). Non-null makes
+  // POST /v1/dev/tryon require a plugin-signed shopper token from
+  // integration='wordpress' widget keys — see apps/api/src/modules/dev/shopper-policy.ts.
+  // `secretVersion` is bumped to rotate the derived token-signing secret; the
+  // secret itself is never stored.
+  wordpressShopperPolicy: jsonb('wordpress_shopper_policy').$type<{
+    loginRequired: boolean;
+    perShopperCap: number | null;
+    secretVersion: number;
+  }>(),
   webhookUrl: text('webhook_url'),
   webhookSecret: text('webhook_secret'),
   // Nullable -- R2 object key for the merchant's uploaded logo, shown by the
@@ -40,6 +52,12 @@ export const merchants = pgTable('merchants', {
   // Aivastra default. Null means "no merchant logo, app uses its own default" --
   // see /v1/auth/device-login's logoUrl field in apps/api/src/modules/auth/routes.ts.
   logoKey: text('logo_key'),
+  // Whether merchant try-on results get logoKey composited onto their top-right
+  // corner by the dispatcher (workflow/widget-finalize.ts). Off by default: logoKey
+  // alone also drives the Android app's own branding, and merchants who uploaded one
+  // for that never asked for it on delivered images. No logoKey = nothing to attach,
+  // whatever this says.
+  logoOverlayEnabled: boolean('logo_overlay_enabled').notNull().default(false),
   // Nullable -- R2 object key for the merchant's uploaded loading/processing
   // video, shown by the Android app in place of the single global clip
   // configured at config:system.appVideo (packages/storage/src/keys.ts's

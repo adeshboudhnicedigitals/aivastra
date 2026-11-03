@@ -54,8 +54,13 @@ body.aivastra-admin .aivastra-settings-wrap {
   color: var(--aivastra-text-main);
   -webkit-font-smoothing: antialiased;
 }
+/* The welcome page is excluded too: its :not() chain out-specifies the
+   welcome wrap's own `max-width: none` below, and a 1176px cap with no auto
+   margins left the whole welcome screen ~50px left of centre. */
 body.aivastra-admin
-  .aivastra-settings-wrap:not(.aivastra-dashboard-wrap):not(.aivastra-onboarding-wrap) {
+.aivastra-settings-wrap:not(.aivastra-dashboard-wrap):not(.aivastra-onboarding-wrap):not(
+  .aivastra-intro-wrap
+) {
   max-width: 1176px;
 }
 
@@ -67,8 +72,14 @@ body.aivastra-admin .aivastra-topbar {
   border-bottom: 1px solid rgba(91, 44, 230, 0.08);
   backdrop-filter: blur(6px);
 }
+/* Flush with the content area on BOTH sides. settings-page.css pulls the
+   navbar -20px to cancel WP core's `#wpcontent { padding-left: 20px }`, but
+   this file already zeroes that padding (top of file), so the pull slid both
+   bars 20px under the admin sidebar: the logo sat 8px from the visible edge
+   while the right-hand button sat 32px from its edge. */
+body.aivastra-admin .aivastra-navbar,
 body.aivastra-admin .aivastra-topbar {
-  margin-left: -20px;
+  margin-left: 0;
 }
 body.aivastra-admin .aivastra-navbar-left,
 body.aivastra-admin .aivastra-topbar-left {
@@ -200,8 +211,20 @@ body.aivastra-admin .aivastra-plan-name {
   font-size: 22px;
   font-weight: 700;
 }
+/* Every plan header the same height, so a card with a "Best Value" badge
+   doesn't push its rows a couple of pixels below its neighbours. */
+body.aivastra-admin .aivastra-plan-head {
+  min-height: 30px;
+}
+/* 34px, not 40px: at 40px "₹10,000" plus "+ GST" no longer fit one line in
+   a four-across tile, so the Diamond card's GST wrapped and every row under
+   it sat lower than the other three cards. */
+body.aivastra-admin .aivastra-plan-price-row {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
 body.aivastra-admin .aivastra-plan-price-big {
-  font-size: 40px;
+  font-size: 34px;
   font-weight: 800;
   letter-spacing: -0.025em;
 }
@@ -424,6 +447,8 @@ body.aivastra-admin .aivastra-onboarding-skip-link:hover {
 
 /* ---- Connect step ---- */
 body.aivastra-admin .aivastra-connect-card {
+  /* Same overflow as .aivastra-welcome: width 100% + side padding. */
+  box-sizing: border-box;
   max-width: 960px;
   margin: 0 auto;
   border-radius: 32px;
@@ -431,10 +456,24 @@ body.aivastra-admin .aivastra-connect-card {
     0 30px 70px rgba(91, 44, 230, 0.1),
     0 2px 6px rgba(20, 16, 40, 0.04);
 }
-body.aivastra-admin .aivastra-connect-perk {
-  background: #efecfb;
-  color: #3b1bb8;
-  border-radius: 14px;
+
+/* Onboarding steps (limits, button): no outer margin, same as connected
+   pages. settings-page.css's `16px 20px 0 0` predates the zeroed #wpcontent
+   padding; with it, the step content sat 10px left of centre and the
+   topbar stopped 20px short of the right edge. */
+body.aivastra-admin .aivastra-settings-wrap.aivastra-onboarding-wrap {
+  margin: 0;
+}
+
+/* WordPress core moves every admin notice to just after a page's first
+   h1/h2. On the onboarding steps that h2 sits inside the centred, large-type
+   heading block, so a third-party notice (WooCommerce, Action Scheduler…)
+   inherited 19px centred text. Give notices their normal admin type back. */
+body.aivastra-admin .aivastra-onboarding-heading .notice,
+body.aivastra-admin .aivastra-onboarding-heading .notice p {
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
 }
 
 /* ---- Welcome page ---- */
@@ -446,9 +485,13 @@ body.aivastra-admin .aivastra-settings-wrap.aivastra-intro-wrap {
   flex-direction: column;
 }
 .aivastra-welcome {
+  /* border-box: width 100% plus 24px side padding was 48px wider than the
+     screen once max-width stopped capping it (below ~1100px), pushing the
+     welcome page sideways and off-centre. */
+  box-sizing: border-box;
   margin: auto;
   width: 100%;
-  max-width: 1040px;
+  max-width: 1088px; /* 1040px of content + 2×24px padding (border-box) */
   padding: 40px 24px 56px;
   display: flex;
   flex-direction: column;
@@ -641,4 +684,142 @@ body.aivastra-admin .aivastra-chat-modal {
   .aivastra-welcome-steps li + li {
     border-left: 0;
   }
+}
+
+/* Connect card: icon-bearing inputs need room for the 16px icon at left:12px;
+   the generic 18px input padding above would sit under it. */
+body.aivastra-admin .aivastra-settings-wrap .aivastra-field-icon-wrap input.aivastra-input {
+  padding-left: 42px;
+}
+body.aivastra-admin
+  .aivastra-settings-wrap
+  .aivastra-field-icon-wrap.has-toggle
+  input.aivastra-input {
+  padding-right: 42px;
+}
+
+/* Google button spans the card like the fields and Continue button, with its
+   logo + label centred (the form wrapper isn't a flex column, so the button's
+   align-self: stretch never applied). */
+#aivastra-google-connect-form {
+  display: block;
+}
+#aivastra-google-connect-form .aivastra-btn-google {
+  width: 100%;
+  margin-top: 0;
+}
+
+/* ---- Shopify-app layout parity (apps/shopify AppChrome / SupportPage) ---- */
+body.aivastra-admin .aivastra-navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.aivastra-store-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 16px 0 6px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid #e6e3f2;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.aivastra-store-chip i {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ebe6fc;
+  color: #4b1fd6;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 700;
+}
+body.aivastra-admin .aivastra-pilltabs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 28px 24px 0;
+}
+body.aivastra-admin .aivastra-pilltab {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 22px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 14px rgba(91, 44, 230, 0.08);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--aivastra-text-main);
+  text-decoration: none;
+}
+body.aivastra-admin .aivastra-pilltab:hover {
+  background: #fff;
+  color: var(--aivastra-text-main);
+}
+body.aivastra-admin .aivastra-pilltab.is-active {
+  background: var(--aivastra-text-main);
+  color: #fff;
+}
+body.aivastra-admin .aivastra-pilltab:focus-visible {
+  outline: 3px solid var(--aivastra-text-main);
+  outline-offset: 3px;
+  box-shadow: none;
+}
+body.aivastra-admin .aivastra-dashboard-wrap .aivastra-page-flat-body {
+  padding-top: 24px;
+}
+
+/* Support: icon tile + title, copy, full-width button pinned to the bottom. */
+body.aivastra-admin .aivastra-support-channel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.aivastra-support-channel-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.aivastra-support-tile {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: #ebe6fc;
+  color: #4b1fd6;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+body.aivastra-admin .aivastra-support-channel-title {
+  margin: 0;
+  font-size: 19px;
+}
+body.aivastra-admin .aivastra-support-channel-body {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--aivastra-text-muted);
+}
+body.aivastra-admin .aivastra-support-channel .aivastra-btn {
+  margin-top: auto;
+  width: 100%;
+  min-height: 48px;
+  font-size: 15px;
+}
+
+/* The artwork lives on #wpcontent, which is only as tall as the page content;
+   on short pages (Support, Billing) it stopped mid-screen above a flat strip.
+   Stretch it to the viewport (minus the 32px admin bar) so it always fills. */
+body.aivastra-admin #wpcontent {
+  min-height: calc(100vh - 32px);
 }

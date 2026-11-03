@@ -25,6 +25,7 @@ function auditMerchantSnapshot(row: {
   webhookUrl?: string | null;
   webhookSecret?: string | null;
   logoKey?: string | null;
+  logoOverlayEnabled?: boolean;
   loadingVideoKey?: string | null;
 }) {
   return {
@@ -38,6 +39,7 @@ function auditMerchantSnapshot(row: {
     webhookUrl: row.webhookUrl,
     webhookSecret: row.webhookSecret ? '(set)' : null,
     logoKey: row.logoKey,
+    logoOverlayEnabled: row.logoOverlayEnabled,
     loadingVideoKey: row.loadingVideoKey,
   };
 }
@@ -343,6 +345,9 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       }
       if (body.logoKey !== undefined) {
         updates.logoKey = body.logoKey;
+      }
+      if (body.logoOverlayEnabled !== undefined) {
+        updates.logoOverlayEnabled = body.logoOverlayEnabled;
       }
       if (body.loadingVideoKey !== undefined) {
         updates.loadingVideoKey = body.loadingVideoKey;

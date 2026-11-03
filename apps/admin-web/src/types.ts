@@ -293,6 +293,7 @@ export interface UserMerchant {
   jobRateLimitPerMin: number | null;
   logoKey: string | null;
   logoUrl: string | null;
+  logoOverlayEnabled: boolean;
   loadingVideoKey: string | null;
   loadingVideoUrl: string | null;
 }

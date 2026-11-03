@@ -68,29 +68,16 @@ class Aivastra_Widget_Loader
         $config = Aivastra_Widget_Config::build($product->get_id(), $product->get_name(), $imageUrl);
         $customization = $settings->get_widget_customization();
 
-        // Which try-on workflow runs is chosen server-side (dev_tryon_categories
-        // slug -> workflow_templates), never by the plugin — this only resolves
-        // WHICH slug to ask for, from the merchant's WooCommerce-category mapping
-        // (Settings -> Aivastra Try-On -> Category mapping). A product whose
-        // category has no explicit mapping gets no button at all — see
-        // Aivastra_Category_Mapping::resolve()'s doc comment for why this used
-        // to silently send 'general' and broke generation instead.
-        $categoryTermIds = wp_get_post_terms($product->get_id(), 'product_cat', ['fields' => 'ids']);
-        $category = Aivastra_Category_Mapping::resolve(
-            is_array($categoryTermIds) ? $categoryTermIds : [],
-            $settings->get_category_map()
-        );
-        if ($category === null) {
-            return;
-        }
-
         wp_enqueue_style('aivastra-tryon-widget', AIVASTRA_TRYON_URL . 'assets/widget.css', [], AIVASTRA_TRYON_VERSION . '.' . filemtime(AIVASTRA_TRYON_DIR . 'assets/widget.css'));
         wp_enqueue_script('aivastra-tryon-widget-logic', AIVASTRA_TRYON_URL . 'assets/widget-logic.js', [], AIVASTRA_TRYON_VERSION . '.' . filemtime(AIVASTRA_TRYON_DIR . 'assets/widget-logic.js'), true);
         wp_enqueue_script('aivastra-tryon-widget', AIVASTRA_TRYON_URL . 'assets/widget.js', ['aivastra-tryon-widget-logic'], AIVASTRA_TRYON_VERSION . '.' . filemtime(AIVASTRA_TRYON_DIR . 'assets/widget.js'), true);
         wp_localize_script('aivastra-tryon-widget', 'AivastraTryOn', array_merge($config, [
             'widgetKey' => $widgetKey,
             'apiBase' => self::API_BASE,
-            'category' => $category,
+            // Every product runs the one general workflow: the dev API's
+            // 'general' category (dev_tryon_categories -> workflow_templates)
+            // resolves it server-side. No per-WooCommerce-category routing.
+            'category' => 'general',
             // Shown in the "credits exhausted" modal so shoppers know who to
             // contact. Must be the MERCHANT's address, never Aivastra's —
             // shoppers are on the merchant's storefront. WooCommerce's
@@ -105,6 +92,13 @@ class Aivastra_Widget_Loader
             // Aivastra API — WooCommerce cart state lives here, not on the
             // dev-API. See Aivastra_Cart_Ajax.
             'ajaxUrl' => admin_url('admin-ajax.php'),
+            // True when the merchant set shopper limits (login required and/or
+            // a per-shopper 24h cap). The widget then asks the shopper-token
+            // endpoint (Aivastra_Shopper_Token_Ajax) who the shopper is before
+            // opening the upload step and before submitting — the API refuses
+            // any try-on without that token, so this is never optional.
+            'shopperGate' => self::shopper_gate_active($settings),
+            'shopperTokenAction' => Aivastra_Shopper_Token_Ajax::ACTION,
             'addToCartNonce' => wp_create_nonce(Aivastra_Cart_Ajax::NONCE_ACTION),
             // Merchant branding from Settings -> Aivastra Try-On -> Widget
             // appearance. widget.js applies accentColor as a CSS custom
@@ -158,5 +152,11 @@ class Aivastra_Widget_Loader
             return Aivastra_Widget_Customization::BUTTON_GRADIENTS[$gradientSlug];
         }
         return $customization['buttonColor'] ?? null;
+    }
+
+    private static function shopper_gate_active(Aivastra_Connection_Settings $settings): bool
+    {
+        $policy = $settings->get_shopper_policy();
+        return $policy !== null && ($policy['login_required'] || $policy['cap'] !== null);
     }
 }

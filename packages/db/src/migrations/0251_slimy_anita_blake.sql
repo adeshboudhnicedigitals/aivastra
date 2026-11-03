@@ -1,0 +1,1 @@
+ALTER TABLE "merchants" ADD COLUMN "wordpress_shopper_policy" jsonb;
