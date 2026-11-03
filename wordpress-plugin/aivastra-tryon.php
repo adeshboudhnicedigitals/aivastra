@@ -23,14 +23,13 @@ require_once AIVASTRA_TRYON_DIR . 'includes/class-widget-customization.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-connection-settings.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-connection-service.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-widget-config.php';
-require_once AIVASTRA_TRYON_DIR . 'includes/class-category-mapping.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-product-toggle.php';
+require_once AIVASTRA_TRYON_DIR . 'includes/class-shopper-token-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-cart-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-checkout-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-support-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-refresh-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-connect-ajax.php';
-require_once AIVASTRA_TRYON_DIR . 'includes/class-category-map-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'includes/class-product-eligibility-ajax.php';
 require_once AIVASTRA_TRYON_DIR . 'admin/class-settings-page.php';
 require_once AIVASTRA_TRYON_DIR . 'public/class-widget-loader.php';
@@ -98,9 +97,9 @@ add_action('plugins_loaded', function (): void {
     Aivastra_Support_Ajax::init();
     Aivastra_Refresh_Ajax::init();
     Aivastra_Connect_Ajax::init();
-    Aivastra_Category_Map_Ajax::init();
     Aivastra_Product_Eligibility_Ajax::init();
     Aivastra_Product_Toggle::init();
+    Aivastra_Shopper_Token_Ajax::init();
 });
 
 // On `init`, not `plugins_loaded`: building the checker schedules its cron

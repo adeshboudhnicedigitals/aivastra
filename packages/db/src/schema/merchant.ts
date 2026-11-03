@@ -5,6 +5,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -33,6 +34,17 @@ export const merchants = pgTable('merchants', {
   // apps/api/src/modules/dev/routes.ts), which caps raw request count, not job
   // creation specifically.
   jobRateLimitPerMin: integer('job_rate_limit_per_min'),
+  // Null = no policy: WordPress widget keys behave exactly as before (any caller
+  // holding the public widget key may create jobs). Non-null makes
+  // POST /v1/dev/tryon require a plugin-signed shopper token from
+  // integration='wordpress' widget keys — see apps/api/src/modules/dev/shopper-policy.ts.
+  // `secretVersion` is bumped to rotate the derived token-signing secret; the
+  // secret itself is never stored.
+  wordpressShopperPolicy: jsonb('wordpress_shopper_policy').$type<{
+    loginRequired: boolean;
+    perShopperCap: number | null;
+    secretVersion: number;
+  }>(),
   webhookUrl: text('webhook_url'),
   webhookSecret: text('webhook_secret'),
   // Nullable -- R2 object key for the merchant's uploaded logo, shown by the

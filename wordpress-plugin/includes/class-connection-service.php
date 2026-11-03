@@ -472,6 +472,82 @@ class Aivastra_Connection_Service
     }
 
     /**
+     * Saves the storefront shopper policy on the Ai Vastra API (PUT
+     * /v1/dev/shopper-policy, full scope) and returns the token-signing
+     * secret it answers with. The API is the enforcement point — the plugin
+     * only signs shopper tokens with that secret — so nothing is stored
+     * locally unless this call succeeded.
+     *
+     * @return array{ok: bool, tokenSecret?: string, error?: string}
+     */
+    public function put_shopper_policy(bool $loginRequired, ?int $cap): array
+    {
+        $fullKey = $this->settings->get_full_key();
+        if ($fullKey === null) {
+            return ['ok' => false, 'error' => 'not_connected'];
+        }
+
+        $response = wp_remote_request($this->apiBase . '/v1/dev/shopper-policy', [
+            'method' => 'PUT',
+            'headers' => [
+                'Authorization' => 'Bearer ' . $fullKey,
+                'Content-Type' => 'application/json',
+            ],
+            'body' => wp_json_encode(['loginRequired' => $loginRequired, 'perShopperCap' => $cap]),
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            return ['ok' => false, 'error' => 'Could not reach the aivastra API.'];
+        }
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            return ['ok' => false, 'error' => 'Could not save the limits (HTTP ' . $code . ').'];
+        }
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (!is_array($body) || !isset($body['tokenSecret']) || !is_string($body['tokenSecret'])) {
+            return ['ok' => false, 'error' => 'Unexpected response from the aivastra API.'];
+        }
+
+        $this->settings->set_shopper_policy($loginRequired, $cap, $body['tokenSecret']);
+        return ['ok' => true, 'tokenSecret' => $body['tokenSecret']];
+    }
+
+    /**
+     * Pulls whatever policy the API already holds for this account into the
+     * plugin (GET /v1/dev/shopper-policy). Run after a connect: the policy is
+     * per Ai Vastra account, so reconnecting a site (or connecting a second
+     * one) to an account that already has limits would otherwise leave the
+     * plugin without the signing secret — and the API refuses every try-on
+     * without a valid token. A 404 just means no policy exists yet. Best
+     * effort; a failure here must not fail the connect.
+     */
+    public function sync_shopper_policy(): void
+    {
+        $fullKey = $this->settings->get_full_key();
+        if ($fullKey === null) {
+            return;
+        }
+        $response = wp_remote_get($this->apiBase . '/v1/dev/shopper-policy', [
+            'headers' => ['Authorization' => 'Bearer ' . $fullKey],
+            'timeout' => 10,
+        ]);
+        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+            return;
+        }
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (!is_array($body) || !isset($body['tokenSecret'], $body['loginRequired']) || !is_string($body['tokenSecret'])) {
+            return;
+        }
+        $cap = $body['perShopperCap'] ?? null;
+        $this->settings->set_shopper_policy(
+            (bool) $body['loginRequired'],
+            is_int($cap) && $cap > 0 ? $cap : null,
+            $body['tokenSecret']
+        );
+    }
+
+    /**
      * Reads the Analytics card's data using the stored, encrypted full key —
      * GET /v1/dev/analytics requires full scope (aggregate business data,
      * unlike balance/plans/categories above). `cards.tryOns` and `daily` are

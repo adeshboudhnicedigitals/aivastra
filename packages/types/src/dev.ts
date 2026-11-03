@@ -50,6 +50,35 @@ export const DevTryonJsonBody = z.object({
   inhouse: z.boolean().optional(),
 });
 
+// WordPress storefront shopper policy (docs: apps/api/src/modules/dev/shopper-policy.ts).
+// perShopperCap is try-ons per shopper per rolling 24h window; null = unlimited.
+export const DevShopperPolicyBody = z.object({
+  loginRequired: z.boolean(),
+  perShopperCap: z.number().int().min(1).max(1000).nullable(),
+});
+
+export const DevShopperPolicyResponse = z.object({
+  loginRequired: z.boolean(),
+  perShopperCap: z.number().int().nullable(),
+  windowHours: z.literal(24),
+  // HMAC secret the plugin signs shopper tokens with. Returned only to a
+  // full-scope key — never to the public widget key.
+  tokenSecret: z.string(),
+});
+
+// POST /v1/dev/tryon's own body: DevTryonJsonBody plus `personKey`, which
+// reuses a photo this merchant already uploaded (the `personKey` a previous
+// 202 returned) instead of sending `person` again — exactly one of the two,
+// enforced by the route. This is how the storefront widget's "use my previous
+// photo" works: re-downloading the stored photo in the shopper's browser needs
+// CORS on the storage bucket, which arbitrary merchant domains can't rely on.
+// Kept separate so other routes sharing DevTryonJsonBody (the browser
+// extension's try-on) don't silently gain an optional `person`.
+export const DevTryonReuseJsonBody = DevTryonJsonBody.extend({
+  person: z.string().min(1).optional(),
+  personKey: z.string().min(1).max(512).optional(),
+});
+
 export const DevWorkerListItem = z.object({
   id: z.string(),
   label: z.string(),
@@ -558,7 +587,16 @@ export type DevWidgetEventType = z.infer<typeof DevWidgetEventType>;
 export const DevWidgetEventBody = z.object({
   type: DevWidgetEventType,
   // WooCommerce product id — omitted for events with no product context.
-  productId: z.number().int().positive().optional(),
+  // Accepts a numeric string too: WordPress's wp_localize_script() turns every
+  // scalar into a string, so plugin builds up to 0.5.13 sent "873" and every
+  // event was rejected. Coercing here makes those installs record events
+  // without a plugin update.
+  productId: z
+    .preprocess(
+      (v) => (typeof v === 'string' && /^[1-9]\d{0,15}$/.test(v) ? Number(v) : v),
+      z.number().int().positive(),
+    )
+    .optional(),
   // Client-generated, persisted in the shopper's browser localStorage —
   // never PII, just a random id for distinct-shopper counting.
   clientId: z.string().min(1).max(64).optional(),

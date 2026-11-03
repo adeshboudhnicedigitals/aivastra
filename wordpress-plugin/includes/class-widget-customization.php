@@ -11,8 +11,8 @@ if (!defined('ABSPATH')) {
  * shape of Shopify's ShopifyWidgetConfigPatch (packages/types/src/widget.ts)
  * so the two platforms stay conceptually aligned, but this is WordPress-only:
  * no backend round-trip, no metafield mirror, stored entirely in wp_options
- * via Aivastra_Connection_Settings. Pure functions only, like
- * Aivastra_Category_Mapping — no wp_options access here.
+ * via Aivastra_Connection_Settings. Pure functions only — no wp_options
+ * access here; that's Aivastra_Connection_Settings's job.
  */
 class Aivastra_Widget_Customization
 {

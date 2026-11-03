@@ -62,6 +62,10 @@ class Aivastra_Connect_Ajax
             ]);
         }
 
+        if ($result['status'] === 'connected') {
+            $service->sync_shopper_policy();
+        }
+
         wp_send_json_success([
             'status' => $result['status'],
             'companyName' => $result['companyName'] ?? null,

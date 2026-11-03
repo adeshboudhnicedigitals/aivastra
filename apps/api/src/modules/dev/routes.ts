@@ -17,9 +17,11 @@ import {
   DevPhotoPreviewResponse,
   DevPlansResponse,
   DevSareeMannequinJsonBody,
+  DevShopperPolicyBody,
+  DevShopperPolicyResponse,
   DevSupportSessionResponse,
-  DevTryonJsonBody,
   DevTryonResponse,
+  DevTryonReuseJsonBody,
   DevWidgetEventBody,
   DevWidgetEventResponse,
   DevWorkersResponse,
@@ -51,6 +53,12 @@ import { createDevTryonJob } from './create-job.js';
 import { createDevSareeMannequinJob } from './create-saree-mannequin-job.js';
 import { sniffImageMime } from './image-sniff.js';
 import { hashApiKey } from './keys.js';
+import {
+  buildShopperGate,
+  deriveTokenSecret,
+  SHOPPER_TOKEN_HEADER,
+  type ShopperPolicy,
+} from './shopper-policy.js';
 
 const ANALYTICS_CARDS_WINDOW_DAYS = 30;
 const ANALYTICS_DAILY_WINDOW_DAYS = 14;
@@ -441,6 +449,86 @@ export async function devRoutes(app: FastifyInstance) {
     },
   );
 
+  // WordPress shopper policy: "require login" + "N try-ons per shopper per 24h".
+  // Full scope only — the response carries the token-signing secret, which the
+  // public widget key must never see. The plugin saves it from wp-admin.
+  const shopperPolicyResponse = (merchantId: string, policy: ShopperPolicy) => ({
+    loginRequired: policy.loginRequired,
+    perShopperCap: policy.perShopperCap,
+    windowHours: 24 as const,
+    tokenSecret: deriveTokenSecret(app.env.JWT_SECRET, merchantId, policy.secretVersion),
+  });
+
+  app.get(
+    '/v1/dev/shopper-policy',
+    {
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'Get the WordPress shopper policy',
+        response: {
+          200: DevShopperPolicyResponse,
+          401: DevErrorResponse,
+          403: DevErrorResponse,
+          404: DevErrorResponse,
+          429: DevErrorResponse,
+        },
+      },
+    },
+    async (req) => {
+      const merchantId = req.merchantId as string;
+      const [row] = await app.db
+        .select({ policy: schema.merchants.wordpressShopperPolicy })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, merchantId))
+        .limit(1);
+      if (!row?.policy) throw new AppError('NOT_FOUND', 404, 'no shopper policy set');
+      return shopperPolicyResponse(merchantId, row.policy);
+    },
+  );
+
+  app.put(
+    '/v1/dev/shopper-policy',
+    {
+      preHandler: [app.requireApiKey, app.requireDevScope('full')],
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'Set the WordPress shopper policy',
+        body: DevShopperPolicyBody,
+        response: {
+          200: DevShopperPolicyResponse,
+          400: DevErrorResponse,
+          401: DevErrorResponse,
+          403: DevErrorResponse,
+          429: DevErrorResponse,
+        },
+      },
+    },
+    async (req) => {
+      const merchantId = req.merchantId as string;
+      const body = req.body as { loginRequired: boolean; perShopperCap: number | null };
+      const [existing] = await app.db
+        .select({ policy: schema.merchants.wordpressShopperPolicy })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, merchantId))
+        .limit(1);
+      // Keep the secret version stable across edits: bumping it would
+      // invalidate the secret the plugin already holds for no reason.
+      const policy: ShopperPolicy = {
+        loginRequired: body.loginRequired,
+        perShopperCap: body.perShopperCap,
+        secretVersion: existing?.policy?.secretVersion ?? 1,
+      };
+      await app.db
+        .update(schema.merchants)
+        .set({ wordpressShopperPolicy: policy })
+        .where(eq(schema.merchants.id, merchantId));
+      return shopperPolicyResponse(merchantId, policy);
+    },
+  );
+
   app.post(
     '/v1/dev/tryon',
     {
@@ -451,7 +539,7 @@ export async function devRoutes(app: FastifyInstance) {
       // @fastify/multipart streams via its own `fileSize` limit above, not this.
       bodyLimit: 60 * 1024 * 1024,
       // attachValidation, not the default auto-reject: this route handles multipart
-      // and JSON itself (see below) and does its own DevTryonJsonBody.safeParse for
+      // and JSON itself (see below) and does its own DevTryonReuseJsonBody.safeParse for
       // the JSON path. `body` here exists so Scalar/the OpenAPI spec can generate a
       // real request-body snippet -- Fastify still runs it against the multipart
       // request too (where it will never match), so its result must stay unused;
@@ -464,15 +552,17 @@ export async function devRoutes(app: FastifyInstance) {
           'Upload a person image and a garment image, either as multipart/form-data ' +
           '(fields: category, person, garment) or as a JSON body with base64-encoded ' +
           'images (fields: category, person, garment — plain base64 or a data: URI). ' +
-          'Returns a job id to poll.',
+          'Instead of `person`, `personKey` may name a photo you uploaded before (the ' +
+          '`personKey` a previous call returned, kept for 24h). Returns a job id to poll.',
         consumes: ['multipart/form-data', 'application/json'],
-        body: DevTryonJsonBody,
+        body: DevTryonReuseJsonBody,
         response: {
           202: DevTryonResponse,
           400: DevErrorResponse,
           401: DevErrorResponse,
           402: DevErrorResponse,
           403: DevErrorResponse,
+          404: DevErrorResponse,
           429: DevErrorResponse,
           503: DevErrorResponse,
         },
@@ -487,9 +577,32 @@ export async function devRoutes(app: FastifyInstance) {
         await assertWidgetKeyRateLimit(app, apiKeyId);
       }
 
+      // Shopper policy applies to the public WordPress widget key only — a
+      // full-scope key is the merchant's own server and is never throttled by
+      // storefront limits. Login/token problems are refused before the photos
+      // are read or stored; the quota is only *reserved* right before the
+      // charge, so a request that fails validation never spends a try-on.
+      let shopperGate: ReturnType<typeof buildShopperGate> = null;
+      if (req.apiKeyScope === 'widget' && req.integration === 'wordpress') {
+        const [policyRow] = await app.db
+          .select({ policy: schema.merchants.wordpressShopperPolicy })
+          .from(schema.merchants)
+          .where(eq(schema.merchants.id, merchantId))
+          .limit(1);
+        const rawToken = req.headers[SHOPPER_TOKEN_HEADER];
+        shopperGate = buildShopperGate(app, {
+          merchantId,
+          policy: policyRow?.policy ?? null,
+          token: typeof rawToken === 'string' ? rawToken : undefined,
+          ip: req.ip,
+        });
+        await shopperGate?.precheck();
+      }
+
       const maxFileBytes = await getUploadLimitBytes(req.server, 'devApiMaxBytes');
 
       let categorySlug: string | undefined;
+      let reusePersonKey: string | undefined;
       let primaryWorkerIds: string[] | undefined;
       let fallbackWorkerIds: string[] | undefined;
       let inhouse = false;
@@ -498,7 +611,7 @@ export async function devRoutes(app: FastifyInstance) {
       const isJson = (req.headers['content-type'] ?? '').startsWith('application/json');
 
       if (isJson) {
-        const parsed = DevTryonJsonBody.safeParse(req.body);
+        const parsed = DevTryonReuseJsonBody.safeParse(req.body);
         if (!parsed.success) {
           throw new AppError(
             'VALIDATION',
@@ -507,11 +620,14 @@ export async function devRoutes(app: FastifyInstance) {
           );
         }
         categorySlug = parsed.data.category;
+        reusePersonKey = parsed.data.personKey;
         primaryWorkerIds = parsed.data.primaryWorkerIds;
         fallbackWorkerIds = parsed.data.fallbackWorkerIds;
         inhouse = parsed.data.inhouse === true;
         for (const fieldname of ['person', 'garment'] as const) {
-          const raw = parsed.data[fieldname].replace(/^data:[^;]+;base64,/, '');
+          const value = parsed.data[fieldname];
+          if (value === undefined) continue;
+          const raw = value.replace(/^data:[^;]+;base64,/, '');
           const buf = Buffer.from(raw, 'base64');
           if (buf.length === 0 || buf.length > maxFileBytes) {
             throw new AppError(
@@ -539,6 +655,10 @@ export async function devRoutes(app: FastifyInstance) {
         for await (const part of parts) {
           if (part.type === 'field' && part.fieldname === 'category') {
             categorySlug = String(part.value);
+            continue;
+          }
+          if (part.type === 'field' && part.fieldname === 'personKey') {
+            reusePersonKey = String(part.value);
             continue;
           }
           // Comma-separated worker ids — mirrors how the multipart path already
@@ -596,38 +716,75 @@ export async function devRoutes(app: FastifyInstance) {
         throw new AppError('FORBIDDEN', 403, 'this account cannot use the inhouse lane');
       }
       if (!categorySlug) throw new AppError('VALIDATION', 400, 'category is required');
-      if (!files.person) throw new AppError('VALIDATION', 400, 'person image is required');
+      if (files.person && reusePersonKey) {
+        throw new AppError('VALIDATION', 400, 'send either person or personKey, not both');
+      }
+      if (!files.person && !reusePersonKey) {
+        throw new AppError('VALIDATION', 400, 'person image is required');
+      }
+      // Same ownership rule as /v1/dev/photo/preview: the key must carry this
+      // merchant's dev/ prefix AND still be inside its 24h reuse window, so a
+      // caller can neither point a job at another merchant's photo nor at an
+      // arbitrary object in the bucket.
+      if (reusePersonKey) {
+        const owned =
+          reusePersonKey.startsWith(keys.devUploadPrefix(merchantId)) &&
+          (await app.redis.get(`dev:person-photo:${merchantId}:${reusePersonKey}`));
+        // The object itself must still exist too — fail before the charge,
+        // not at dispatch time after it.
+        const exists =
+          owned &&
+          (await app.storage.headObject(reusePersonKey).then(
+            () => true,
+            () => false,
+          ));
+        if (!exists) {
+          throw new AppError('PHOTO_NOT_AVAILABLE', 404, 'that photo is no longer available');
+        }
+      }
       if (!files.garment) throw new AppError('VALIDATION', 400, 'garment image is required');
 
       // Upload before the credit transaction: an orphaned R2 object on a later
       // failure is harmless, a charge for a job whose inputs are missing is not.
-      const personKey = keys.devUpload(
-        merchantId,
-        randomUUID(),
-        EXT_BY_MIME[files.person.mime as keyof typeof EXT_BY_MIME],
-      );
+      const person = files.person;
+      const personKey =
+        reusePersonKey ??
+        keys.devUpload(
+          merchantId,
+          randomUUID(),
+          EXT_BY_MIME[person?.mime as keyof typeof EXT_BY_MIME],
+        );
       const garmentKey = keys.devUpload(
         merchantId,
         randomUUID(),
         EXT_BY_MIME[files.garment.mime as keyof typeof EXT_BY_MIME],
       );
       await Promise.all([
-        app.storage.putObject(personKey, files.person.buf, files.person.mime),
+        person ? app.storage.putObject(personKey, person.buf, person.mime) : Promise.resolve(),
         app.storage.putObject(garmentKey, files.garment.buf, files.garment.mime),
       ]);
 
-      const { jobId } = await createDevTryonJob(app, {
-        merchantId,
-        merchantUserId,
-        apiKeyId,
-        integration: (req.integration as 'generic' | 'wordpress') ?? 'generic',
-        categorySlug,
-        personKey,
-        garmentKey,
-        primaryWorkerIds,
-        fallbackWorkerIds,
-        inhouse,
-      });
+      await shopperGate?.reserve();
+      let jobId: string;
+      try {
+        ({ jobId } = await createDevTryonJob(app, {
+          merchantId,
+          merchantUserId,
+          apiKeyId,
+          integration: (req.integration as 'generic' | 'wordpress') ?? 'generic',
+          categorySlug,
+          personKey,
+          garmentKey,
+          primaryWorkerIds,
+          fallbackWorkerIds,
+          inhouse,
+        }));
+      } catch (err) {
+        // The shopper never got a try-on (no credits, bad category, …): give
+        // the quota slot back.
+        await shopperGate?.release();
+        throw err;
+      }
 
       // Lets a later /v1/dev/photo/preview call offer "reuse this photo"
       // without re-uploading it — same 24h renewable window as the Shopify

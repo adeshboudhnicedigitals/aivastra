@@ -1925,7 +1925,8 @@ a.aivastra-dashboard-stat {
 }
 
 .aivastra-routing-card .aivastra-save-row,
-.aivastra-widget-form .aivastra-save-row {
+.aivastra-widget-form .aivastra-save-row,
+.aivastra-limits-form .aivastra-save-row {
   justify-content: flex-end;
   margin-top: 16px;
 }
@@ -1934,8 +1935,17 @@ a.aivastra-dashboard-stat {
   order: -1;
 }
 
-.aivastra-widget-customization-card {
+.aivastra-widget-customization-card,
+.aivastra-limits-card {
   padding: 24px;
+}
+
+.aivastra-limits-card {
+  margin-top: 20px;
+}
+
+.aivastra-onboarding-body .aivastra-limits-card {
+  margin-top: 0;
 }
 
 .aivastra-widget-form {
@@ -2011,13 +2021,8 @@ a.aivastra-dashboard-stat {
    no 210px nav to its left, the content earns the extra width") and 1180px
    before that — both invented, not measured against apps/shopify, which is
    what actually made every connected page read wider than its Shopify
-   counterpart. .aivastra-manage-page's own 1040px override was removed for
-   the same reason — every apps/shopify page shares this one Page width,
-   Manage included — but the merchant then asked for Manage specifically to
-   be narrower still than this shared baseline, to sit closer to a reference
-   "Individual product routing" screenshot's proportions (see
-   .aivastra-manage-page below); that's a merchant-requested exception to the
-   shared width, not a reversion to the old invented 1040px guess. */
+   counterpart. Every apps/shopify page shares this one Page width, Manage
+   included, and so does every connected page here. */
 .aivastra-dashboard-wrap .aivastra-page-header,
 .aivastra-dashboard-wrap .aivastra-notice.notice,
 .aivastra-dashboard-wrap .aivastra-dashboard {
@@ -2026,16 +2031,10 @@ a.aivastra-dashboard-stat {
   margin-right: auto;
 }
 
-/* Manage page only — narrower than every other connected page's shared
-   998px Page width (above), per explicit merchant request to bring the
-   Routing tab's proportions closer to their reference screenshot. No exact
-   pixel target was measurable from that screenshot (a cropped product
-   photo, not a full-page capture), so 860px was chosen as a clearly visible
-   reduction that still leaves the two-column routing table and three-tile
-   stat row room to breathe. */
-.aivastra-dashboard-wrap .aivastra-manage-page {
-  max-width: 860px;
-}
+/* The Manage page used to be narrower (860px) for the Routing tab's
+   proportions. That tab is gone, and a different width made the content's
+   edges jump when switching pages, so Manage now uses the shared 998px
+   above like every other connected page. */
 
 .aivastra-topbar {
   display: flex;
@@ -2475,15 +2474,6 @@ a.aivastra-dashboard-stat {
   color: var(--aivastra-text-main);
 }
 
-.aivastra-connect-perk {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  font-size: 14px;
-  color: var(--aivastra-text-muted);
-}
-
 /* White, bordered — the one button on this card that isn't
    --aivastra-primary, since Google's own sign-in button guidelines call for
    a neutral surface, not a brand colour, behind their "G" mark. */
@@ -2831,7 +2821,9 @@ a.aivastra-dashboard-stat {
    Plans grid's 4-tile row, a different column count with its own cutoffs). */
 .aivastra-manage-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* Two tiles since the Categories tile went with category routing — three
+     columns left an empty third of the row on the right. */
+  grid-template-columns: repeat(2, 1fr);
   gap: 16px;
   margin-bottom: 20px;
 }
