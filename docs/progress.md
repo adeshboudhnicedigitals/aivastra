@@ -11,6 +11,7 @@
   - VPS `.env`: `VITE_FLEET_API_URL=https://gpus.aivastra.com` (see `.env.production.example`).
   - Unverified: that the admin refresh cookie works as intended under the new host. Check sign-in before relying on it.
 - **Decision:** production only, no staging copy of the dashboard (the user's call, 2026-11-03).
+- **Deploy path (read from `.github/workflows/ci.yml`):** a merge to `dev` deploys to **staging** (`docker-compose.staging.yml`, `.env.staging`), only `main` deploys to production (`docker-compose.prod.yml`, `.env.production`). The job builds every selected service with that environment's compose file, so `gpu-ops` is also defined in the staging compose (`:3109`, never behind a vhost, `VITE_FLEET_API_URL` defaults to staging-admin) or the staging deploy would fail with "no such service". The first run of migrations 0240-0247 will be on staging.
 - **Not done:** merge of PR #639; migrations 0240-0247 have never run through CI; agent not installed on any box.
 
 # 2026-11-02 — GPU fleet dashboard: live pages, admin sign-in, sample history (feat/fleet-api-read)
