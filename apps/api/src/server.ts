@@ -111,6 +111,7 @@ import { whatsappWebhookRoutes } from './modules/messaging/webhook.routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
 import { paymentsRoutes } from './modules/payments/routes.js';
 import { posePresetsRoutes } from './modules/pose-presets/routes.js';
+import { avatarRoutes } from './modules/profile/avatar.routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
 import { shopifyCustomerRoutes } from './modules/shopify/customer.routes.js';
 import { requestRef } from './modules/shopify/failure.js';
@@ -450,6 +451,7 @@ export async function buildServer(env: Env) {
   await app.register(catalogRoutes);
   await app.register(uploadsRoutes);
   await app.register(backgroundsRoutes);
+  await app.register(avatarRoutes);
   await app.register(jobsRoutes);
   await app.register(refundRequestsRoutes);
   await app.register(messagingConnectRoutes);

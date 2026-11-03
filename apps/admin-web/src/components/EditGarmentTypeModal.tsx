@@ -1485,6 +1485,12 @@ export function EditGarmentTypeModal({
   const [mannequinWorkflowTemplateId, setMannequinWorkflowTemplateId] = useState(
     garmentType.mannequinWorkflowTemplateId ?? '',
   );
+  const [requiresGarmentExtractStep, setRequiresGarmentExtractStep] = useState(
+    garmentType.requiresGarmentExtractStep ?? false,
+  );
+  const [garmentExtractWorkflowTemplateId, setGarmentExtractWorkflowTemplateId] = useState(
+    garmentType.garmentExtractWorkflowTemplateId ?? '',
+  );
   const [sareeStep2WorkflowTemplateId, setSareeStep2WorkflowTemplateId] = useState(
     garmentType.sareeStep2WorkflowTemplateId ?? '',
   );
@@ -1947,6 +1953,8 @@ export function EditGarmentTypeModal({
     tryonCategoryId !== (garmentType.tryonCategoryId ?? '') ||
     requiresMannequinStep !== (garmentType.requiresMannequinStep ?? false) ||
     mannequinWorkflowTemplateId !== (garmentType.mannequinWorkflowTemplateId ?? '') ||
+    requiresGarmentExtractStep !== (garmentType.requiresGarmentExtractStep ?? false) ||
+    garmentExtractWorkflowTemplateId !== (garmentType.garmentExtractWorkflowTemplateId ?? '') ||
     sareeStep2WorkflowTemplateId !== (garmentType.sareeStep2WorkflowTemplateId ?? '') ||
     mannequinTwoInputWorkflowTemplateId !==
       (garmentType.mannequinTwoInputWorkflowTemplateId ?? '') ||
@@ -1958,7 +1966,21 @@ export function EditGarmentTypeModal({
     faceMappingDirty ||
     backgroundMappingDirty;
 
+  const extractWorkflows = workflows.filter(
+    (w) => w.workflowType === 'garment_extract' && w.isActive,
+  );
+
   const save = async () => {
+    // Checked before any upload below runs, so a missing workflow can't leave images
+    // uploaded for a save that the server will then reject.
+    if (requiresGarmentExtractStep && !garmentExtractWorkflowTemplateId) {
+      toast({
+        kind: 'error',
+        title: 'Select a workflow',
+        body: 'Garment Extraction needs an extraction workflow. Pick one or turn it off.',
+      });
+      return;
+    }
     setSaving(true);
     try {
       const patchBody: Record<string, unknown> = {};
@@ -2045,6 +2067,14 @@ export function EditGarmentTypeModal({
       }
       if (mannequinWorkflowTemplateId !== (garmentType.mannequinWorkflowTemplateId ?? '')) {
         patchBody.mannequinWorkflowTemplateId = mannequinWorkflowTemplateId || null;
+      }
+      if (requiresGarmentExtractStep !== (garmentType.requiresGarmentExtractStep ?? false)) {
+        patchBody.requiresGarmentExtractStep = requiresGarmentExtractStep;
+      }
+      if (
+        garmentExtractWorkflowTemplateId !== (garmentType.garmentExtractWorkflowTemplateId ?? '')
+      ) {
+        patchBody.garmentExtractWorkflowTemplateId = garmentExtractWorkflowTemplateId || null;
       }
       if (sareeStep2WorkflowTemplateId !== (garmentType.sareeStep2WorkflowTemplateId ?? '')) {
         patchBody.sareeStep2WorkflowTemplateId = sareeStep2WorkflowTemplateId || null;
@@ -2269,6 +2299,63 @@ export function EditGarmentTypeModal({
           ),
         },
         {
+          title: 'Garment Extraction',
+          children: (
+            <>
+              <div className="setting-row" style={{ padding: 0, border: 0 }}>
+                <div>
+                  <div className="setting-lbl">Extract garment first (ghost mannequin)</div>
+                  <div className="setting-desc">
+                    For garments uploaded worn on a mannequin or person, e.g. lehenga. Converts the
+                    upload to a ghost-mannequin image before generating. Same job, same credits.
+                    {requiresMannequinStep && ' Turn off Two-Step Generation below to use this.'}
+                  </div>
+                </div>
+                <Switch
+                  checked={requiresGarmentExtractStep}
+                  onChange={(on) => {
+                    setRequiresGarmentExtractStep(on);
+                    // Nothing to choose between — don't make the admin pick the only option.
+                    if (on && !garmentExtractWorkflowTemplateId && extractWorkflows.length === 1) {
+                      setGarmentExtractWorkflowTemplateId(extractWorkflows[0]?.id ?? '');
+                    }
+                  }}
+                  disabled={saving || requiresMannequinStep}
+                />
+              </div>
+              {requiresGarmentExtractStep && (
+                <div className="field">
+                  <label>
+                    Garment Extraction Workflow <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <SearchableSelect
+                    options={extractWorkflows.map((w) => ({
+                      id: w.id,
+                      label: `${w.label} (${w.slug})`,
+                    }))}
+                    value={garmentExtractWorkflowTemplateId}
+                    disabled={saving}
+                    emptyLabel="— select a workflow —"
+                    placeholder="— search workflow —"
+                    onChange={setGarmentExtractWorkflowTemplateId}
+                  />
+                  {extractWorkflows.length === 0 ? (
+                    <span className="hint" style={{ color: 'var(--danger)' }}>
+                      No active extraction workflow yet. Upload one under Workflows → Upload
+                      workflow → "Garment extraction".
+                    </span>
+                  ) : (
+                    <span className="hint">
+                      Required while this is on. Turning it off returns this garment type to the
+                      normal single flow.
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
+          ),
+        },
+        {
           title: 'Two-Step Generation',
           children: (
             <>
@@ -2278,12 +2365,14 @@ export function EditGarmentTypeModal({
                   <div className="setting-desc">
                     Runs a one-time, free "mannequin" generation before the normal per-pose jobs,
                     reusing its output as the garment input for every pose. Used by Flat Saree.
+                    {requiresGarmentExtractStep &&
+                      ' Turn off Garment Extraction above to use this.'}
                   </div>
                 </div>
                 <Switch
                   checked={requiresMannequinStep}
                   onChange={setRequiresMannequinStep}
-                  disabled={saving}
+                  disabled={saving || requiresGarmentExtractStep}
                 />
               </div>
               {requiresMannequinStep && (

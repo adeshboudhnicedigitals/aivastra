@@ -617,6 +617,7 @@ export default function WorkflowsPage({ toast }: Props) {
                   { id: 'saree_step1_two_input', label: 'Saree Step 1 (2-input)' },
                   { id: 'regeneration', label: 'Regeneration' },
                   { id: 'fabric_to_garment', label: 'Fabric to Garment' },
+                  { id: 'garment_extract', label: 'Garment Extraction' },
                 ]}
                 value={typeFilter}
                 emptyLabel="All Types"
@@ -830,7 +831,9 @@ export default function WorkflowsPage({ toast }: Props) {
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          {isSuperAdmin && (
+                          {/* ReplaceWorkflowModal has no garment_extract branch — upload a new
+                              workflow and repoint the garment type instead. */}
+                          {isSuperAdmin && wf.workflowType !== 'garment_extract' && (
                             <button
                               className="btn sm ghost"
                               disabled={Boolean(wf.draining)}
@@ -1135,7 +1138,7 @@ export default function WorkflowsPage({ toast }: Props) {
                           paddingTop: 10,
                         }}
                       >
-                        {isSuperAdmin && (
+                        {isSuperAdmin && wf.workflowType !== 'garment_extract' && (
                           <button
                             className="btn sm ghost"
                             disabled={Boolean(wf.draining)}

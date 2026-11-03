@@ -43,6 +43,7 @@ import { patchWorkflow } from '../workflow/patcher.js';
 import { resolveWorkflowTemplateVersion } from '../workflow/resolve-template-version.js';
 import { announceWidgetCompleted, finalizeWidgetOutput } from '../workflow/widget-finalize.js';
 import { adoptComfyJob } from './adoption.js';
+import { runGarmentExtractPhase } from './garment-extract-phase.js';
 import { runMannequinPhase } from './mannequin-phase.js';
 import {
   acquireComfyJob,
@@ -896,6 +897,118 @@ async function processJobOwned(
         if (!cfgRow.promptGarmentPhase) effectivePromptGarmentPhase = null;
         if (!cfgRow.promptFacePhase) effectivePromptFacePhase = null;
       }
+    }
+  }
+
+  // Garment-extract pre-step: the upload is a garment worn on a mannequin/person, which
+  // the main workflow segments badly, so render it as a ghost mannequin first. Runs only
+  // when BOTH hold: the API snapshotted the flag at creation (never client-supplied — see
+  // resolveTryonPlan) and the garment type still has extraction switched on. The second
+  // check is what makes disabling a type take effect immediately and quietly: a job already
+  // queued falls back to the plain single flow instead of running a step the admin turned
+  // off (or failing on a workflow they retired). The workflow id and version still come from
+  // the snapshot. Sits outside the garmentTypeId branch above because that branch only runs
+  // for un-snapshotted jobs.
+  let garmentExtractEnabled = false;
+  if (rawParams.needsGarmentExtract === true && inputs.garmentTypeId) {
+    const [extractType] = await db
+      .select({ enabled: schema.garmentSubcategories.requiresGarmentExtractStep })
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, inputs.garmentTypeId));
+    garmentExtractEnabled = extractType?.enabled === true;
+    if (!garmentExtractEnabled) {
+      jobLog.info('garment extraction was disabled for this garment type — running single flow');
+    }
+  }
+  if (garmentExtractEnabled) {
+    const extractWorkflowId =
+      typeof rawParams.garmentExtractWorkflowTemplateId === 'string'
+        ? rawParams.garmentExtractWorkflowTemplateId
+        : null;
+    if (!extractWorkflowId || !effectiveUpperGarmentKey) {
+      await markFailed(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        extractWorkflowId
+          ? 'GARMENT_EXTRACT_INPUTS_MISSING'
+          : 'GARMENT_EXTRACT_WORKFLOW_NOT_CONFIGURED',
+        jobLog,
+        startedAt,
+      );
+      return;
+    }
+    try {
+      const extract = await runGarmentExtractPhase(cfg, {
+        jobId,
+        garmentKey: effectiveUpperGarmentKey,
+        garmentExtractWorkflowTemplateId: extractWorkflowId,
+        templateVersion:
+          typeof rawParams.garmentExtractTemplateVersion === 'number'
+            ? rawParams.garmentExtractTemplateVersion
+            : null,
+        jobLog,
+        jobType: job.source,
+      });
+      if (extract.status === 'cleanup_failed') {
+        await terminateJob(
+          cfg,
+          jobId,
+          userId,
+          stream,
+          messageId,
+          'QUEUE_CLEANUP_FAILED',
+          jobLog,
+          startedAt,
+          job.source,
+        );
+        return;
+      }
+      if (extract.status === 'no_worker') {
+        // Capacity, not failure — terminate past the max queue wait, otherwise requeue
+        // (same as the mannequin phase and the main claim).
+        const queueWaitBaseline = (job.queuedAt ?? job.createdAt).getTime();
+        if (Date.now() - queueWaitBaseline > MAX_QUEUE_WAIT_MS) {
+          jobLog.warn('no idle garment-extract worker — job exceeded max queue wait, terminating');
+          await terminateJob(
+            cfg,
+            jobId,
+            userId,
+            stream,
+            messageId,
+            'NO_WORKER',
+            jobLog,
+            startedAt,
+            job.source,
+          );
+        } else {
+          jobLog.warn('no idle garment-extract worker — re-enqueuing with backoff');
+          await requeueForNoWorker({
+            db,
+            owner: cfg.owner,
+            cfg,
+            userId,
+            pool: WORKER_POOL.SAREE,
+            redis,
+            jobId,
+            stream,
+            messageId,
+            retryCount,
+            jobLog,
+            startedAt,
+            jobType: job.source,
+          });
+        }
+        return;
+      }
+      effectiveUpperGarmentKey = extract.key;
+    } catch (err) {
+      jobLog.error({ err }, 'garment extract phase failed');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+      return;
     }
   }
 

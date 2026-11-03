@@ -162,6 +162,16 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   // 0-credit "mannequin" generation job before the normal per-pose jobs run.
   // See docs/superpowers/specs/2026-07-14-flat-saree-two-step-workflow-design.md.
   requiresMannequinStep: boolean('requires_mannequin_step').notNull().default(false),
+  // Garment-extract pre-step: for garments uploaded worn on a mannequin/person (lehenga,
+  // etc.) the catalogue workflow segments badly, so an in-job phase first renders the
+  // garment as a ghost mannequin and the main workflow consumes that instead. Same job,
+  // same charge — unlike requiresMannequinStep above, which is a separate 0-credit job.
+  // Mutually exclusive with requiresMannequinStep; enforced in the admin route.
+  requiresGarmentExtractStep: boolean('requires_garment_extract_step').notNull().default(false),
+  garmentExtractWorkflowTemplateId: uuid('garment_extract_workflow_template_id').references(
+    () => workflowTemplates.id,
+    { onDelete: 'set null' },
+  ),
   // Step-1 workflow: drapes the uploaded garment onto the selected face, once per job.
   mannequinWorkflowTemplateId: uuid('mannequin_workflow_template_id').references(
     () => workflowTemplates.id,

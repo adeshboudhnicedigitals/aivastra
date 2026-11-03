@@ -39,7 +39,10 @@ export const executionAttempts = pgTable(
   (t) => [
     check('execution_attempts_one_parent', sql`num_nonnulls(${t.jobId}, ${t.requestId}) = 1`),
     check('execution_attempts_positive_number', sql`${t.attemptNo} > 0`),
-    check('execution_attempts_phase', sql`${t.phase} IN ('main', 'mannequin', 'classify')`),
+    check(
+      'execution_attempts_phase',
+      sql`${t.phase} IN ('main', 'mannequin', 'garment_extract', 'classify')`,
+    ),
     check(
       'execution_attempts_state',
       sql`${t.state} IN ('PREPARING', 'SUBMITTING', 'ACCEPTED', 'OUTPUT_READY', 'SUCCEEDED', 'FAILED', 'UNKNOWN_RETRIED')`,

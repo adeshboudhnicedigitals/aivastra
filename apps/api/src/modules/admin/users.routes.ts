@@ -24,6 +24,7 @@ import {
 } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { avatarUrlFor } from '../../lib/avatar.js';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword } from '../auth/service.js';
 import { eraseComparisonsForSourceJobs } from '../comparison/erase.js';
@@ -129,6 +130,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           email: schema.users.email,
           username: schema.users.username,
           displayName: schema.users.displayName,
+          avatarKey: schema.users.avatarKey,
           phone: schema.users.phone,
           tier: schema.users.tier,
           maxActiveDevices: schema.users.maxActiveDevices,
@@ -189,7 +191,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .limit(pageSize)
         .offset((page - 1) * pageSize);
 
-      const items = rows.map(
+      const mapped = rows.map(
         ({
           unlimitedPlanId,
           unlimitedPlanStartAt,
@@ -214,6 +216,13 @@ export async function adminUsersRoutes(app: FastifyInstance) {
               : null,
           ),
         }),
+      );
+
+      const items = await Promise.all(
+        mapped.map(async ({ avatarKey, ...u }) => ({
+          ...u,
+          avatarUrl: await avatarUrlFor(app, avatarKey),
+        })),
       );
 
       return { page, pageSize, total, items };
@@ -296,6 +305,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           email: schema.users.email,
           username: schema.users.username,
           displayName: schema.users.displayName,
+          avatarKey: schema.users.avatarKey,
           phone: schema.users.phone,
           tier: schema.users.tier,
           maxActiveDevices: schema.users.maxActiveDevices,
@@ -376,8 +386,10 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           .orderBy(desc(schema.jobs.createdAt))
           .limit(5),
       ]);
+      const { avatarKey, ...userRest } = user;
       return {
-        ...user,
+        ...userRest,
+        avatarUrl: await avatarUrlFor(app, avatarKey),
         balance: credits?.balance ?? 0,
         unlimitedPlan: {
           ...deriveDisplayStatus(unlimitedPlan ?? null),

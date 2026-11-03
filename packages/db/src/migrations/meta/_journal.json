@@ -1730,6 +1730,20 @@
       "when": 1793684390653,
       "tag": "0247_fleet_operations",
       "breakpoints": true
+    },
+    {
+      "idx": 248,
+      "version": "7",
+      "when": 1793685390653,
+      "tag": "0248_lumpy_miss_america",
+      "breakpoints": true
+    },
+    {
+      "idx": 249,
+      "version": "7",
+      "when": 1793686390653,
+      "tag": "0249_outgoing_doctor_faustus",
+      "breakpoints": true
     }
   ]
 }

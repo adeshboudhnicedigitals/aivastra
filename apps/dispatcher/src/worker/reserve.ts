@@ -21,7 +21,7 @@ interface ReserveArgs {
   owner?: OwnerToken;
   jobId?: string;
   requestId?: string;
-  phase: 'main' | 'mannequin' | 'classify';
+  phase: 'main' | 'mannequin' | 'garment_extract' | 'classify';
   /** Claims a worker with the given token, or null when none is eligible. */
   select: (token: string) => Promise<ClaimedWorker | null>;
   log: Logger;

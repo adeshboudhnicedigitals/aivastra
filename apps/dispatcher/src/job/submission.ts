@@ -11,7 +11,7 @@ interface AttemptParent {
   owner?: OwnerToken;
   jobId?: string;
   requestId?: string;
-  phase: 'main' | 'mannequin' | 'classify';
+  phase: 'main' | 'mannequin' | 'garment_extract' | 'classify';
 }
 
 interface SubmissionOptions extends AttemptParent {

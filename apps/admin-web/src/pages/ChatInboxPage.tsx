@@ -70,6 +70,22 @@ function renderMessageContent(content: string) {
 
 // Short relative-time label for a conversation-list row ("2m", "3h", "5d") —
 // falls back to a short date once it's further back than a week.
+// A user's uploaded picture when there is one; Shopify tickets belong to a
+// per-store placeholder user and never carry one.
+function ChatAvatarFace({ url, fallback }: { url: string | null | undefined; fallback: string }) {
+  const [broken, setBroken] = useState(false);
+  if (!url || broken) return <>{fallback}</>;
+  return (
+    // biome-ignore lint/performance/noImgElement: short-lived presigned storage URL
+    <img
+      src={url}
+      alt=""
+      onError={() => setBroken(true)}
+      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+    />
+  );
+}
+
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const sec = Math.floor(diffMs / 1000);
@@ -123,6 +139,7 @@ interface ConvRow {
   // The ticket-owning platform user's own profile fields — same `users` row
   // userEmail already comes from, just not previously selected.
   userName: string | null;
+  userAvatarUrl: string | null;
   userPhone: string | null;
   userCompany: string | null;
   // Resolved server-side from assignedAgentId (admin_users -> users) — null
@@ -213,6 +230,7 @@ export default function ChatInboxPage({ toast }: Props) {
     userId: string;
     userEmail: string;
     userName: string | null;
+    userAvatarUrl: string | null;
     userPhone: string | null;
     userCompany: string | null;
     agentName: string | null;
@@ -363,6 +381,7 @@ export default function ChatInboxPage({ toast }: Props) {
       userId: conv.userId,
       userEmail: conv.userEmail,
       userName: conv.userName,
+      userAvatarUrl: conv.userAvatarUrl,
       userPhone: conv.userPhone,
       userCompany: conv.userCompany,
       agentName: conv.agentName,
@@ -701,8 +720,11 @@ export default function ChatInboxPage({ toast }: Props) {
                     className={`chat-row ${selectedConv === c.id ? 'active' : ''}`}
                     onClick={() => setSelectedConv(c.id)}
                   >
-                    <div className="chat-avatar">
-                      {(c.userEmail || '?').charAt(0).toUpperCase()}
+                    <div className="chat-avatar" style={{ overflow: 'hidden' }}>
+                      <ChatAvatarFace
+                        url={c.userAvatarUrl}
+                        fallback={(c.userEmail || '?').charAt(0).toUpperCase()}
+                      />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -854,14 +876,20 @@ export default function ChatInboxPage({ toast }: Props) {
                   flexWrap: 'wrap',
                 }}
               >
-                <div className="chat-avatar" style={{ width: 32, height: 32, fontSize: 12 }}>
-                  {(
-                    (selectedMeta?.shopDomain
-                      ? selectedMeta.shopName || selectedMeta.shopDomain
-                      : selectedMeta?.userEmail) || '?'
-                  )
-                    .charAt(0)
-                    .toUpperCase()}
+                <div
+                  className="chat-avatar"
+                  style={{ width: 32, height: 32, fontSize: 12, overflow: 'hidden' }}
+                >
+                  <ChatAvatarFace
+                    url={selectedMeta?.userAvatarUrl}
+                    fallback={(
+                      (selectedMeta?.shopDomain
+                        ? selectedMeta.shopName || selectedMeta.shopDomain
+                        : selectedMeta?.userEmail) || '?'
+                    )
+                      .charAt(0)
+                      .toUpperCase()}
+                  />
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div

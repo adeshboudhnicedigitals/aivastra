@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
+import { Area, AreaChart, ResponsiveContainer } from 'recharts';
 import { Icon } from '../components/Icons';
-import { StatusBadge } from '../components/StatusBadge';
+import { TicketAnalytics } from '../components/TicketAnalytics';
 import { apiErrorMessage, apiFetch, getToken } from '../lib/data';
 import { createAdminSSEConnection } from '../lib/sse';
 
@@ -58,6 +58,8 @@ interface Props {
 }
 
 const FALLBACK_INTERVAL = 60_000;
+// The chart that used a selectable range is gone; the endpoint still wants a window.
+const days = 7;
 
 function Delta({ value, dir }: { value: number | null; dir?: 'down' }) {
   if (value === null || value === undefined) return null;
@@ -76,7 +78,6 @@ export default function DashboardPage({ toast, onNavigateTab }: Props) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [secsAgo, setSecsAgo] = useState(0);
-  const [days, setDays] = useState<7 | 14 | 30>(7);
   const lastFetchRef = useRef<number>(0);
 
   const fetchStats = useCallback(async () => {
@@ -94,7 +95,7 @@ export default function DashboardPage({ toast, onNavigateTab }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [toast, days]);
+  }, [toast]);
 
   useEffect(() => {
     void fetchStats();
@@ -145,7 +146,6 @@ export default function DashboardPage({ toast, onNavigateTab }: Props) {
 
   const workersOk = stats.workersHealthy >= Math.max(1, stats.workersTotal * 0.5);
   const allOffline = stats.workersTotal > 0 && stats.workersHealthy === 0;
-  const dailyAvg = stats.periodTotal > 0 ? Math.round(stats.periodTotal / days) : 0;
   const nextRefreshSecs = Math.max(0, FALLBACK_INTERVAL / 1000 - secsAgo);
 
   return (
@@ -230,15 +230,40 @@ export default function DashboardPage({ toast, onNavigateTab }: Props) {
       <div>
         <div className="section-title">Today's activity</div>
         <div className="stat-grid" style={{ marginBottom: 0 }}>
-          <button className="stat" onClick={() => onNavigateTab('jobs')}>
+          <button
+            className="stat"
+            style={{ borderTop: '3px solid #e5566b' }}
+            onClick={() => onNavigateTab('jobs')}
+          >
             <div className="lbl">
               <Icon.Activity /> Jobs processed
             </div>
             <div className="val">{stats.jobsToday.toLocaleString()}</div>
             <Delta value={stats.jobsTodayDelta} />
+            {stats.jobsPerDay.length > 1 && (
+              <div style={{ height: 36, marginTop: 8 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats.jobsPerDay.map((v, i) => ({ i, v }))}>
+                    <Area
+                      type="monotone"
+                      dataKey="v"
+                      stroke="#e5566b"
+                      strokeWidth={1.5}
+                      fill="#e5566b"
+                      fillOpacity={0.15}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </button>
 
-          <button className="stat" onClick={() => onNavigateTab('users')}>
+          <button
+            className="stat"
+            style={{ borderTop: '3px solid #3b82f6' }}
+            onClick={() => onNavigateTab('users')}
+          >
             <div className="lbl">
               <Icon.Users /> Active users
             </div>
@@ -246,7 +271,11 @@ export default function DashboardPage({ toast, onNavigateTab }: Props) {
             <Delta value={stats.activeUsersDelta} />
           </button>
 
-          <button className="stat" onClick={() => onNavigateTab('users')}>
+          <button
+            className="stat"
+            style={{ borderTop: '3px solid #14a37f' }}
+            onClick={() => onNavigateTab('users')}
+          >
             <div className="lbl">
               <Icon.Plus /> New signups
             </div>
@@ -256,7 +285,11 @@ export default function DashboardPage({ toast, onNavigateTab }: Props) {
             </div>
           </button>
 
-          <button className="stat" onClick={() => onNavigateTab('users')}>
+          <button
+            className="stat"
+            style={{ borderTop: '3px solid #a56ae8' }}
+            onClick={() => onNavigateTab('users')}
+          >
             <div className="lbl">
               <Icon.Coin /> Credits consumed
             </div>
@@ -266,407 +299,7 @@ export default function DashboardPage({ toast, onNavigateTab }: Props) {
         </div>
       </div>
 
-      <div>
-        <div className="section-title">System health</div>
-        <div className="stat-grid">
-          <div className={`stat ${!workersOk && stats.workersTotal > 0 ? 'alert' : ''}`}>
-            <div className="lbl">
-              <Icon.Server /> Workers healthy
-            </div>
-            <div className="val">
-              {stats.workersTotal > 0 ? `${stats.workersHealthy}/${stats.workersTotal}` : '—'}
-            </div>
-            <div className="delta">
-              <span style={{ color: 'var(--muted)' }}>
-                {stats.workersTotal === 0
-                  ? 'none registered'
-                  : stats.workersHealthy === stats.workersTotal
-                    ? 'all systems go'
-                    : `${stats.workersTotal - stats.workersHealthy} offline`}
-              </span>
-            </div>
-          </div>
-
-          <button className="stat" onClick={() => onNavigateTab('jobs', { status: 'QUEUED' })}>
-            <div className="lbl">
-              <Icon.Queue /> Queue depth
-            </div>
-            <div className="val">{stats.queueDepth}</div>
-            <div className="delta">
-              <span style={{ color: 'var(--muted)' }}>
-                {stats.stuckJobs.length > 0
-                  ? `${stats.stuckJobs.length} stuck >10m`
-                  : 'pending jobs'}
-              </span>
-            </div>
-          </button>
-
-          <button
-            className={`stat ${stats.failed24h > 20 ? 'alert' : ''}`}
-            onClick={() => onNavigateTab('jobs', { status: 'FAILED' })}
-          >
-            <div className="lbl">
-              <Icon.Alert /> Failed · 24h
-            </div>
-            <div className="val">{stats.failed24h}</div>
-            <div className="delta">
-              <span style={{ color: 'var(--muted)' }}>
-                {stats.failed24h === 0 ? 'all clear' : 'job failures'}
-              </span>
-            </div>
-          </button>
-
-          <button
-            className={`stat ${stats.unclaimedChats > 0 ? 'alert' : ''}`}
-            style={
-              stats.unclaimedChats > 0
-                ? { borderColor: 'var(--accent)', background: 'var(--accent-soft)' }
-                : undefined
-            }
-            onClick={() => onNavigateTab('chat-inbox')}
-          >
-            <div
-              className="lbl"
-              style={stats.unclaimedChats > 0 ? { color: 'var(--accent-ink)' } : undefined}
-            >
-              <Icon.MessageSquare /> Queries
-            </div>
-            <div
-              className="val"
-              style={stats.unclaimedChats > 0 ? { color: 'var(--accent-ink)' } : undefined}
-            >
-              {stats.unclaimedChats}
-            </div>
-            <div className="delta">
-              <span style={{ color: 'var(--muted)' }}>
-                {stats.unclaimedChats === 0 ? 'inbox clear' : 'unclaimed chats'}
-              </span>
-            </div>
-          </button>
-        </div>
-      </div>
-
-      <div className="dash-grid-2col">
-        <div className="card">
-          <div className="card-head">
-            <h3>Jobs per day</h3>
-            <div style={{ display: 'flex', gap: 4, marginLeft: 12 }}>
-              {[7, 14, 30].map((d) => (
-                <button
-                  key={d}
-                  className="btn sm ghost"
-                  onClick={() => setDays(d as 7 | 14 | 30)}
-                  style={{
-                    padding: '2px 8px',
-                    fontSize: 11,
-                    background: days === d ? 'var(--bg-2)' : 'transparent',
-                    color: days === d ? 'var(--text)' : 'var(--muted)',
-                  }}
-                >
-                  {d}d
-                </button>
-              ))}
-            </div>
-            <div className="tools">
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--muted)' }}>
-                avg {dailyAvg}/day
-              </span>
-            </div>
-          </div>
-          <div className="card-body">
-            <div className="spark" style={{ minHeight: 200 }}>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart
-                  data={stats.jobsPerDay.map((jobs, i) => ({
-                    date: stats.jobsPerDayLabels[i],
-                    jobs,
-                  }))}
-                >
-                  <XAxis
-                    dataKey="date"
-                    stroke="var(--muted)"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip
-                    cursor={{ fill: 'rgba(128,128,128,0.08)' }}
-                    contentStyle={{
-                      background: 'var(--surface-2)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      fontSize: 12,
-                    }}
-                  />
-                  <Bar
-                    dataKey="jobs"
-                    fill="var(--accent)"
-                    radius={[4, 4, 0, 0]}
-                    onClick={() => onNavigateTab('jobs')}
-                    style={{ cursor: 'pointer' }}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div
-              style={{
-                display: 'flex',
-                gap: 28,
-                marginTop: 18,
-                paddingTop: 14,
-                borderTop: '1px solid var(--border)',
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: 'var(--muted)',
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {days}-day total
-                </div>
-                <div
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 500,
-                    fontVariantNumeric: 'tabular-nums',
-                    marginTop: 2,
-                  }}
-                >
-                  {stats.periodTotal.toLocaleString()} jobs
-                </div>
-              </div>
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: 'var(--muted)',
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  Daily avg
-                </div>
-                <div
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 500,
-                    fontVariantNumeric: 'tabular-nums',
-                    marginTop: 2,
-                  }}
-                >
-                  {dailyAvg.toLocaleString()}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-head">
-            <h3>Worker pool</h3>
-            <span className="sub">
-              {stats.workersHealthy} of {stats.workersTotal} healthy
-            </span>
-          </div>
-          <div className="card-body" style={{ padding: 0 }}>
-            {stats.workers.length === 0 ? (
-              <div style={{ padding: '24px 18px', color: 'var(--muted)', fontSize: 13 }}>
-                No workers registered.
-              </div>
-            ) : (
-              stats.workers.map((w) => (
-                <div
-                  key={w.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '10px 18px',
-                    borderBottom: '1px solid var(--border)',
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      flexShrink: 0,
-                      background: !w.healthy
-                        ? 'var(--danger)'
-                        : w.status === 'DRAINING'
-                          ? 'var(--warn)'
-                          : w.status === 'BUSY'
-                            ? 'var(--accent)'
-                            : 'var(--success)',
-                    }}
-                  />
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, flex: 1 }}>{w.id}</span>
-                  <StatusBadge status={w.healthy ? w.status : 'OFFLINE'} />
-                  {w.lastSeen && (
-                    <span
-                      style={{
-                        fontFamily: 'var(--mono)',
-                        fontSize: 11,
-                        color: 'var(--muted)',
-                        minWidth: 40,
-                        textAlign: 'right',
-                      }}
-                    >
-                      {w.lastSeen}
-                    </span>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="dash-grid-2col-even">
-        <div className="card" style={{ minWidth: 0, overflow: 'hidden' }}>
-          <div className="card-head">
-            <h3>Recent failures</h3>
-            <span className="sub">Last 24 hours</span>
-            <div className="tools">
-              <button
-                className="btn sm ghost"
-                onClick={() => onNavigateTab('jobs', { status: 'FAILED' })}
-              >
-                All <Icon.Chevron />
-              </button>
-            </div>
-          </div>
-          <div className="card-body" style={{ padding: 0 }}>
-            {stats.recentFailures.length === 0 ? (
-              <div
-                style={{
-                  padding: '20px 18px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  color: 'var(--muted)',
-                  fontSize: 12.5,
-                }}
-              >
-                <Icon.Check /> No failures in the last 24 hours.
-              </div>
-            ) : (
-              stats.recentFailures.map((j) => (
-                <div
-                  key={j.id}
-                  style={{
-                    padding: '11px 18px',
-                    borderBottom: '1px solid var(--border)',
-                    display: 'grid',
-                    gridTemplateColumns: '1fr auto',
-                    gap: '2px 10px',
-                    alignItems: 'center',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 12.5,
-                      fontWeight: 500,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {j.user}
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: 'var(--mono)',
-                      fontSize: 11,
-                      color: 'var(--muted)',
-                      textAlign: 'right',
-                    }}
-                  >
-                    {j.age}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 11.5,
-                      color: 'var(--danger)',
-                      fontFamily: 'var(--mono)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {j.error}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-head">
-            <h3>Stuck queue</h3>
-            <span className="sub">Pending &gt; 10 min</span>
-            <div className="tools">
-              <button
-                className="btn sm ghost"
-                onClick={() => onNavigateTab('jobs', { status: 'QUEUED' })}
-              >
-                View queue <Icon.Chevron />
-              </button>
-            </div>
-          </div>
-          <div className="card-body" style={{ padding: 0 }}>
-            {stats.stuckJobs.length === 0 ? (
-              <div
-                style={{
-                  padding: '20px 18px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  color: 'var(--muted)',
-                  fontSize: 12.5,
-                }}
-              >
-                <Icon.Check /> Queue is healthy — no stuck jobs.
-              </div>
-            ) : (
-              stats.stuckJobs.map((j) => (
-                <div
-                  key={j.id}
-                  style={{
-                    padding: '11px 18px',
-                    borderBottom: '1px solid var(--border)',
-                    display: 'grid',
-                    gridTemplateColumns: '1fr auto',
-                    gap: '2px 10px',
-                    alignItems: 'center',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 12.5,
-                      fontWeight: 500,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {j.user}
-                  </span>
-                  <span className="badge warn dot">Stuck {j.age}</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)' }}>
-                    {j.id}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
+      <TicketAnalytics toast={toast} onOpenInbox={() => onNavigateTab('chat-inbox')} />
     </>
   );
 }

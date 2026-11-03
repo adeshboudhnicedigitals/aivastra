@@ -1647,6 +1647,13 @@ textarea.input {
   display: inline-block;
   transition: background 120ms ease;
   vertical-align: middle;
+  /* In a .setting-row the description text is the flexible side; without this a long
+     description squeezes the 30px track into a sliver. */
+  flex-shrink: 0;
+}
+.switch.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .switch::after {
   content: "";

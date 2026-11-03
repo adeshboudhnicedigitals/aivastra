@@ -13,6 +13,7 @@ import { releaseStoreDailySlot } from '../shopify/limits.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 import { jobDurationSecondsSql } from './job-duration.js';
+import { loadJobStages, stageKeys } from './job-stages.js';
 import { jobTypeSql } from './job-type.js';
 import {
   describeJobsExportFilters,
@@ -282,6 +283,12 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .limit(pageSize)
       .offset((page - 1) * pageSize);
 
+    // Only jobs with an in-job pre-step get an entry — see job-stages.ts.
+    const stagesByJob = await loadJobStages(
+      app.db,
+      rows.map((r) => r.id),
+    );
+
     return {
       page,
       pageSize,
@@ -289,6 +296,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       items: await Promise.all(
         rows.map(async (r) => ({
           ...r,
+          stages: stagesByJob.get(r.id),
           outputUrl: r.outputKey
             ? (await app.storage.presignGet(r.outputKey, 3600)).url
             : undefined,
@@ -511,8 +519,22 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       const dispatchedOutputHeight =
         typeof dispatchedInputs?.outputHeight === 'number' ? dispatchedInputs.outputHeight : null;
 
+      const stages = (await loadJobStages(app.db, [id])).get(id);
+      const keysByPhase = stages
+        ? stageKeys(id, stages, { upperGarmentKey: row.upperGarmentKey, outputKey: row.outputKey })
+        : null;
+
       return {
         ...row,
+        stages: stages
+          ? await Promise.all(
+              stages.map(async (st) => ({
+                ...st,
+                inputUrl: await pu(keysByPhase?.get(st.phase)?.inputKey),
+                outputUrl: await pu(keysByPhase?.get(st.phase)?.outputKey),
+              })),
+            )
+          : undefined,
         outputUrl: await pu(row.outputKey),
         // Falls back to outputUrl on the frontend — see the list endpoint's note.
         thumbnailUrl: await pu(row.thumbnailKey),

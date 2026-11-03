@@ -126,11 +126,17 @@ export async function reassignAllWorkflowMappings(
     .set({ twoInputTryonWorkflowTemplateId: toId, updatedAt: new Date() })
     .where(eq(schema.garmentSubcategories.twoInputTryonWorkflowTemplateId, fromId))
     .returning({ id: schema.garmentSubcategories.id });
+  const garmentExtractMoved = await tx
+    .update(schema.garmentSubcategories)
+    .set({ garmentExtractWorkflowTemplateId: toId, updatedAt: new Date() })
+    .where(eq(schema.garmentSubcategories.garmentExtractWorkflowTemplateId, fromId))
+    .returning({ id: schema.garmentSubcategories.id });
   const garmentSubcategoryColumns =
     mannequinMoved.length +
     sareeStep2Moved.length +
     mannequinTwoInputMoved.length +
-    twoInputTryonMoved.length;
+    twoInputTryonMoved.length +
+    garmentExtractMoved.length;
 
   // 5. saree_mannequin_styles — the two per-style workflow slots.
   const styleMannequinMoved = await tx

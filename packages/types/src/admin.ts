@@ -449,6 +449,7 @@ export const CreateWorkflowBody = z
         'two_stage',
         'regeneration',
         'fabric_to_garment',
+        'garment_extract',
         'classify',
       ])
       .default('regular'),
@@ -500,6 +501,12 @@ export const CreateWorkflowBody = z
     // at upload time, so nothing is required here. The early return also keeps
     // classify out of the regular-workflow checks below (poseNodeId etc.).
     if (val.workflowType === 'classify') {
+      return;
+    }
+    // garment_extract: single image in, single image out, no prompt roles. Both nodes
+    // are detected at upload time (extractWorkflowInsertFields) and stored in the
+    // tryon columns, so nothing is Zod-required here either.
+    if (val.workflowType === 'garment_extract') {
       return;
     }
     // Only the two prompt-node fields are Zod-required here — tryonPersonNodeId
@@ -633,6 +640,7 @@ export const ParseWorkflowBody = z.object({
       'two_stage',
       'regeneration',
       'fabric_to_garment',
+      'garment_extract',
       'classify',
     ])
     .optional(),
@@ -951,6 +959,8 @@ export const PatchGarmentTypeBody = z.object({
   defaultPoseId: z.string().uuid().nullable().optional(),
   requiresMannequinStep: z.boolean().optional(),
   mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
+  requiresGarmentExtractStep: z.boolean().optional(),
+  garmentExtractWorkflowTemplateId: z.string().uuid().nullable().optional(),
   sareeStep2WorkflowTemplateId: z.string().uuid().nullable().optional(),
   mannequinTwoInputWorkflowTemplateId: z.string().uuid().nullable().optional(),
   twoInputTryonWorkflowTemplateId: z.string().uuid().nullable().optional(),

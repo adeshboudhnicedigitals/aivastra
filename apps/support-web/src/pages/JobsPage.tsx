@@ -62,7 +62,8 @@ export default function JobsPage({ toast }: Props) {
   const [filter, setFilter] = useState<FilterKey>(
     (location.state as { status?: FilterKey })?.status || 'all',
   );
-  const [query, setQuery] = useState('');
+  // Chat Inbox / Shopify Dashboard deep-link with `search` (a user id or email).
+  const [query, setQuery] = useState((location.state as { search?: string })?.search ?? '');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
