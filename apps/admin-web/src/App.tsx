@@ -255,7 +255,7 @@ export default function App() {
           onToggleTheme={toggleTheme}
           onOpenMobileNav={() => setMobileNavOpen(true)}
         />
-        <main className="content">
+        <main className={`content${segment === 'chat-inbox' ? ' content--bleed' : ''}`}>
           <Routes>
             <Route path="/" element={<DashboardPage {...pageProps} />} />
             <Route path="/dashboard" element={<DashboardPage {...pageProps} />} />
