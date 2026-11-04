@@ -354,6 +354,10 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     const h24ago = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const dNago = new Date(todayStart.getTime() - (validDays - 1) * 86400000);
     const stuckThreshold = new Date(now.getTime() - 10 * 60 * 1000);
+    // Second and third stuck-duration bucket boundaries, for the dashboard's
+    // stuck-queue histogram — stuckThreshold (10m) is already the first one.
+    const stuck20 = new Date(now.getTime() - 20 * 60 * 1000);
+    const stuck40 = new Date(now.getTime() - 40 * 60 * 1000);
 
     const [
       queueDepthRow,
@@ -365,9 +369,14 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       creditsTodayRows,
       creditsYesterdayRows,
       failed24hRows,
+      jobsLast24hRows,
       jobsPerDayRows,
       recentFailures,
+      failuresByCodeRows,
       stuckJobs,
+      stuck10to20Rows,
+      stuck20to40Rows,
+      stuck40PlusRows,
       newUsersRows,
       newContactsRows,
       unclaimedChatsRows,
@@ -434,6 +443,13 @@ export async function adminConfigRoutes(app: FastifyInstance) {
           ),
         ),
 
+      // Pairs with failed24hRows for a true same-window success-rate donut —
+      // jobsToday above is since local midnight, a different window.
+      app.db
+        .select({ c: count() })
+        .from(schema.jobs)
+        .where(and(gte(schema.jobs.createdAt, h24ago), notComparisonJob)),
+
       app.db
         .select({
           day: sql<string>`DATE(${schema.jobs.createdAt})`,
@@ -457,6 +473,23 @@ export async function adminConfigRoutes(app: FastifyInstance) {
         .orderBy(sql`${schema.jobs.createdAt} DESC`)
         .limit(5),
 
+      // Full 24h breakdown by error code, for the dashboard's failures-by-reason
+      // chart — recentFailures above is only the latest 5, too small a sample
+      // to chart as a distribution.
+      app.db
+        .select({ code: schema.jobs.errorCode, c: count() })
+        .from(schema.jobs)
+        .where(
+          and(
+            eq(schema.jobs.status, 'FAILED'),
+            gte(schema.jobs.createdAt, h24ago),
+            notComparisonJob,
+          ),
+        )
+        .groupBy(schema.jobs.errorCode)
+        .orderBy(sql`count(*) DESC`)
+        .limit(8),
+
       app.db
         .select({
           id: schema.jobs.id,
@@ -468,6 +501,41 @@ export async function adminConfigRoutes(app: FastifyInstance) {
         .where(and(eq(schema.jobs.status, 'QUEUED'), lte(schema.jobs.createdAt, stuckThreshold)))
         .orderBy(schema.jobs.createdAt)
         .limit(5),
+
+      // Stuck-duration histogram buckets — stuckJobs above is only the oldest
+      // 5, too small a sample to chart as a distribution across every stuck job.
+      app.db
+        .select({ c: count() })
+        .from(schema.jobs)
+        .where(
+          and(
+            eq(schema.jobs.status, 'QUEUED'),
+            lte(schema.jobs.createdAt, stuckThreshold),
+            gte(schema.jobs.createdAt, stuck20),
+            notComparisonJob,
+          ),
+        ),
+      app.db
+        .select({ c: count() })
+        .from(schema.jobs)
+        .where(
+          and(
+            eq(schema.jobs.status, 'QUEUED'),
+            lt(schema.jobs.createdAt, stuck20),
+            gte(schema.jobs.createdAt, stuck40),
+            notComparisonJob,
+          ),
+        ),
+      app.db
+        .select({ c: count() })
+        .from(schema.jobs)
+        .where(
+          and(
+            eq(schema.jobs.status, 'QUEUED'),
+            lt(schema.jobs.createdAt, stuck40),
+            notComparisonJob,
+          ),
+        ),
 
       app.db
         .select({ c: count() })
@@ -546,6 +614,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
 
     const periodTotal = jobsPerDay.reduce((a, b) => a + b, 0);
     const failed24h = failed24hRows[0]?.c ?? 0;
+    const jobsLast24h = jobsLast24hRows[0]?.c ?? 0;
     const newUsersToday = newUsersRows[0]?.c ?? 0;
     const newContacts = Number(newContactsRows[0]?.c ?? 0);
     const unclaimedChats = Number(unclaimedChatsRows[0]?.c ?? 0);
@@ -562,6 +631,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       workers,
       queueDepth: queueDepthRow[0]?.c ?? 0,
       failed24h,
+      jobsLast24h,
       jobsPerDay,
       jobsPerDayLabels,
       periodTotal,
@@ -571,11 +641,20 @@ export async function adminConfigRoutes(app: FastifyInstance) {
         error: j.errorCode ?? 'unknown',
         age: formatAge(j.createdAt),
       })),
+      failuresByCode: failuresByCodeRows.map((r) => ({
+        code: r.code ?? 'unknown',
+        count: Number(r.c),
+      })),
       stuckJobs: stuckJobs.map((j) => ({
         id: j.id.slice(0, 12),
         user: j.userEmail ?? '—',
         age: formatAge(j.createdAt),
       })),
+      stuckBuckets: [
+        { label: '10–20m', count: stuck10to20Rows[0]?.c ?? 0 },
+        { label: '20–40m', count: stuck20to40Rows[0]?.c ?? 0 },
+        { label: '40m+', count: stuck40PlusRows[0]?.c ?? 0 },
+      ],
       newUsersToday,
       newContacts,
       unclaimedChats,
