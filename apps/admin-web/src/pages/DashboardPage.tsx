@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { Donut } from '../components/Donut';
 import { Icon } from '../components/Icons';
 import { StatusBadge } from '../components/StatusBadge';
+import { TicketAnalytics } from '../components/TicketAnalytics';
 import { apiErrorMessage, apiFetch, getToken } from '../lib/data';
 import { createAdminSSEConnection } from '../lib/sse';
 
@@ -22,6 +33,14 @@ interface StuckJob {
   user: string;
   age: string;
 }
+interface ErrorCount {
+  code: string;
+  count: number;
+}
+interface StuckBucket {
+  label: string;
+  count: number;
+}
 
 interface Stats {
   jobsToday: number;
@@ -37,11 +56,14 @@ interface Stats {
   workers: Worker[];
   queueDepth: number;
   failed24h: number;
+  jobsLast24h: number;
   jobsPerDay: number[];
   jobsPerDayLabels: string[];
   periodTotal: number;
   recentFailures: RecentFailure[];
+  failuresByCode: ErrorCount[];
   stuckJobs: StuckJob[];
+  stuckBuckets: StuckBucket[];
 }
 
 interface Props {
@@ -60,6 +82,37 @@ function Delta({ value, dir }: { value: number | null; dir?: 'down' }) {
         {value > 0 ? '↑' : '↓'} {Math.abs(value)}%
       </span>
       <span style={{ color: 'var(--muted)' }}>vs yesterday</span>
+    </div>
+  );
+}
+
+// Compact stacked progress bar for a System health tile — a quick-glance ratio
+// (healthy/offline, moving/stuck, succeeded/failed) that doesn't need a full
+// chart's worth of space. Renders nothing once every segment is zero.
+function MiniRatioBar({ segments }: { segments: { value: number; color: string }[] }) {
+  const total = segments.reduce((a, s) => a + s.value, 0);
+  if (total <= 0) return null;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        height: 6,
+        borderRadius: 999,
+        overflow: 'hidden',
+        marginTop: 10,
+        background: 'var(--border)',
+      }}
+    >
+      {segments.map(
+        (s) =>
+          s.value > 0 && (
+            <div
+              key={s.color}
+              style={{ flex: s.value, background: s.color }}
+              title={`${s.value}`}
+            />
+          ),
+      )}
     </div>
   );
 }
@@ -143,6 +196,35 @@ export default function DashboardPage({ onNav, toast }: Props) {
   const allOffline = stats.workersTotal > 0 && stats.workersHealthy === 0;
   const dailyAvg = stats.periodTotal > 0 ? Math.round(stats.periodTotal / days) : 0;
   const nextRefreshSecs = Math.max(0, FALLBACK_INTERVAL / 1000 - secsAgo);
+  const totalStuck = stats.stuckBuckets.reduce((a, b) => a + b.count, 0);
+  const jobsSucceeded24h = Math.max(stats.jobsLast24h - stats.failed24h, 0);
+
+  // Same status→color mapping as the worker rows below, just rolled up into
+  // a donut's four slices instead of one dot per worker.
+  const workerBreakdown = [
+    {
+      name: 'Idle',
+      value: stats.workers.filter(
+        (w) => w.healthy && w.status !== 'BUSY' && w.status !== 'DRAINING',
+      ).length,
+      color: 'var(--success)',
+    },
+    {
+      name: 'Busy',
+      value: stats.workers.filter((w) => w.healthy && w.status === 'BUSY').length,
+      color: 'var(--accent)',
+    },
+    {
+      name: 'Draining',
+      value: stats.workers.filter((w) => w.healthy && w.status === 'DRAINING').length,
+      color: 'var(--warn)',
+    },
+    {
+      name: 'Offline',
+      value: stats.workers.filter((w) => !w.healthy).length,
+      color: 'var(--danger)',
+    },
+  ];
 
   return (
     <>
@@ -235,15 +317,40 @@ export default function DashboardPage({ onNav, toast }: Props) {
       <div>
         <div className="section-title">Today's activity</div>
         <div className="stat-grid" style={{ marginBottom: 0 }}>
-          <button className="stat" onClick={() => onNav('jobs', { page: 'jobs', filter: 'today' })}>
+          <button
+            className="stat"
+            style={{ borderTop: '3px solid #e5566b' }}
+            onClick={() => onNav('jobs', { page: 'jobs', filter: 'today' })}
+          >
             <div className="lbl">
               <Icon.Activity /> Jobs processed
             </div>
             <div className="val">{stats.jobsToday.toLocaleString()}</div>
             <Delta value={stats.jobsTodayDelta} />
+            {stats.jobsPerDay.length > 1 && (
+              <div style={{ height: 36, marginTop: 8 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats.jobsPerDay.map((v, i) => ({ i, v }))}>
+                    <Area
+                      type="monotone"
+                      dataKey="v"
+                      stroke="#e5566b"
+                      strokeWidth={1.5}
+                      fill="#e5566b"
+                      fillOpacity={0.15}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </button>
 
-          <button className="stat" onClick={() => onNav('users')}>
+          <button
+            className="stat"
+            style={{ borderTop: '3px solid #3b82f6' }}
+            onClick={() => onNav('users')}
+          >
             <div className="lbl">
               <Icon.Users /> Active users
             </div>
@@ -251,7 +358,11 @@ export default function DashboardPage({ onNav, toast }: Props) {
             <Delta value={stats.activeUsersDelta} />
           </button>
 
-          <button className="stat" onClick={() => onNav('users')}>
+          <button
+            className="stat"
+            style={{ borderTop: '3px solid #14a37f' }}
+            onClick={() => onNav('users')}
+          >
             <div className="lbl">
               <Icon.Plus /> New signups
             </div>
@@ -261,7 +372,11 @@ export default function DashboardPage({ onNav, toast }: Props) {
             </div>
           </button>
 
-          <button className="stat" onClick={() => onNav('users')}>
+          <button
+            className="stat"
+            style={{ borderTop: '3px solid #a56ae8' }}
+            onClick={() => onNav('users')}
+          >
             <div className="lbl">
               <Icon.Coin /> Credits consumed
             </div>
@@ -277,6 +392,9 @@ export default function DashboardPage({ onNav, toast }: Props) {
         <div className="stat-grid">
           <button
             className={`stat ${!workersOk && stats.workersTotal > 0 ? 'alert' : ''}`}
+            style={{
+              borderTop: `3px solid ${workersOk || stats.workersTotal === 0 ? 'var(--success)' : 'var(--danger)'}`,
+            }}
             onClick={() => onNav('workers')}
           >
             <div className="lbl">
@@ -294,10 +412,17 @@ export default function DashboardPage({ onNav, toast }: Props) {
                     : `${stats.workersTotal - stats.workersHealthy} offline`}
               </span>
             </div>
+            <MiniRatioBar
+              segments={[
+                { value: stats.workersHealthy, color: 'var(--success)' },
+                { value: stats.workersTotal - stats.workersHealthy, color: 'var(--danger)' },
+              ]}
+            />
           </button>
 
           <button
             className="stat"
+            style={{ borderTop: '3px solid var(--warn)' }}
             onClick={() => onNav('jobs', { page: 'jobs', filter: 'QUEUED' })}
           >
             <div className="lbl">
@@ -306,15 +431,22 @@ export default function DashboardPage({ onNav, toast }: Props) {
             <div className="val">{stats.queueDepth}</div>
             <div className="delta">
               <span style={{ color: 'var(--muted)' }}>
-                {stats.stuckJobs.length > 0
-                  ? `${stats.stuckJobs.length} stuck >10m`
-                  : 'pending jobs'}
+                {totalStuck > 0 ? `${totalStuck} stuck >10m` : 'pending jobs'}
               </span>
             </div>
+            <MiniRatioBar
+              segments={[
+                { value: Math.max(stats.queueDepth - totalStuck, 0), color: 'var(--accent)' },
+                { value: totalStuck, color: 'var(--warn)' },
+              ]}
+            />
           </button>
 
           <button
             className={`stat ${stats.failed24h > 20 ? 'alert' : ''}`}
+            style={{
+              borderTop: `3px solid ${stats.failed24h > 0 ? 'var(--danger)' : 'var(--success)'}`,
+            }}
             onClick={() => onNav('jobs', { page: 'jobs', filter: 'FAILED' })}
           >
             <div className="lbl">
@@ -326,6 +458,12 @@ export default function DashboardPage({ onNav, toast }: Props) {
                 {stats.failed24h === 0 ? 'all clear' : 'job failures'}
               </span>
             </div>
+            <MiniRatioBar
+              segments={[
+                { value: jobsSucceeded24h, color: 'var(--success)' },
+                { value: stats.failed24h, color: 'var(--danger)' },
+              ]}
+            />
           </button>
 
           <button
@@ -334,9 +472,10 @@ export default function DashboardPage({ onNav, toast }: Props) {
               stats.unclaimedChats > 0
                 ? {
                     borderColor: 'var(--accent)',
+                    borderTop: '3px solid var(--accent)',
                     background: 'var(--accent-soft)',
                   }
-                : undefined
+                : { borderTop: '3px solid var(--accent)' }
             }
             onClick={() => onNav('chat-inbox')}
           >
@@ -358,6 +497,28 @@ export default function DashboardPage({ onNav, toast }: Props) {
               </span>
             </div>
           </button>
+        </div>
+      </div>
+
+      {/* ── Job success rate ───────────────────────────────────── */}
+      <div className="card">
+        <div className="card-head">
+          <h3>Job success rate</h3>
+          <span className="sub">Last 24 hours</span>
+        </div>
+        <div className="card-body">
+          <Donut
+            data={[
+              {
+                name: 'Succeeded',
+                value: Math.max(stats.jobsLast24h - stats.failed24h, 0),
+                color: 'var(--success)',
+              },
+              { name: 'Failed', value: stats.failed24h, color: 'var(--danger)' },
+            ]}
+            centerLabel="last 24h"
+            centerValue={stats.jobsLast24h}
+          />
         </div>
       </div>
 
@@ -520,6 +681,11 @@ export default function DashboardPage({ onNav, toast }: Props) {
               </button>
             </div>
           </div>
+          {stats.workersTotal > 0 && (
+            <div style={{ padding: '16px 18px 4px', borderBottom: '1px solid var(--border)' }}>
+              <Donut data={workerBreakdown} centerLabel="workers" size={128} />
+            </div>
+          )}
           <div className="card-body" style={{ padding: 0 }}>
             {stats.workers.length === 0 ? (
               <div style={{ padding: '24px 18px', color: 'var(--muted)', fontSize: 13 }}>
@@ -590,6 +756,48 @@ export default function DashboardPage({ onNav, toast }: Props) {
               </button>
             </div>
           </div>
+          {stats.failuresByCode.length > 0 && (
+            <div style={{ padding: '14px 18px 6px', borderBottom: '1px solid var(--border)' }}>
+              <ResponsiveContainer
+                width="100%"
+                height={Math.max(stats.failuresByCode.length * 28, 60)}
+              >
+                <BarChart
+                  data={stats.failuresByCode}
+                  layout="vertical"
+                  margin={{ left: 0, right: 16 }}
+                >
+                  <XAxis
+                    type="number"
+                    allowDecimals={false}
+                    stroke="var(--muted)"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="code"
+                    stroke="var(--muted)"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    width={110}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(128,128,128,0.08)' }}
+                    contentStyle={{
+                      background: 'var(--surface-2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                  />
+                  <Bar dataKey="count" fill="var(--danger)" radius={[0, 4, 4, 0]} barSize={14} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
           <div className="card-body" style={{ padding: 0 }}>
             {stats.recentFailures.length === 0 ? (
               <div
@@ -670,6 +878,31 @@ export default function DashboardPage({ onNav, toast }: Props) {
               </button>
             </div>
           </div>
+          {stats.stuckBuckets.some((b) => b.count > 0) && (
+            <div style={{ padding: '14px 18px 6px', borderBottom: '1px solid var(--border)' }}>
+              <ResponsiveContainer width="100%" height={110}>
+                <BarChart data={stats.stuckBuckets} margin={{ top: 4 }}>
+                  <XAxis
+                    dataKey="label"
+                    stroke="var(--muted)"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(128,128,128,0.08)' }}
+                    contentStyle={{
+                      background: 'var(--surface-2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                  />
+                  <Bar dataKey="count" fill="var(--warn)" radius={[4, 4, 0, 0]} barSize={28} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
           <div className="card-body" style={{ padding: 0 }}>
             {stats.stuckJobs.length === 0 ? (
               <div
@@ -724,6 +957,9 @@ export default function DashboardPage({ onNav, toast }: Props) {
           </div>
         </div>
       </div>
+
+      {/* ── Ticket analytics ───────────────────────────────────── */}
+      <TicketAnalytics toast={toast} onOpenInbox={() => onNav('chat-inbox')} />
     </>
   );
 }
