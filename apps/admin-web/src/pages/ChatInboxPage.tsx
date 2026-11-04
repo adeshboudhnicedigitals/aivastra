@@ -8,6 +8,7 @@ import { useUrlState } from '../hooks/use-url-state';
 import type { ChatMessageT, WsAgentFrameT, WsServerFrameT } from '../lib/chatws';
 import { connectAgentWs, fetchChatbot } from '../lib/chatws';
 import { apiErrorMessage, apiFetch } from '../lib/data';
+import '../styles/chat-inbox.css';
 
 // Renders the light markdown subset the bot model emits (**bold**, numbered/bulleted
 // lists) — mirrors apps/catalogues-web/src/components/chat-widget.tsx so agents see the
@@ -68,24 +69,6 @@ function renderMessageContent(content: string) {
   return blocks;
 }
 
-// Short relative-time label for a conversation-list row ("2m", "3h", "5d") —
-// falls back to a short date once it's further back than a week.
-// A user's uploaded picture when there is one; Shopify tickets belong to a
-// per-store placeholder user and never carry one.
-function ChatAvatarFace({ url, fallback }: { url: string | null | undefined; fallback: string }) {
-  const [broken, setBroken] = useState(false);
-  if (!url || broken) return <>{fallback}</>;
-  return (
-    // biome-ignore lint/performance/noImgElement: short-lived presigned storage URL
-    <img
-      src={url}
-      alt=""
-      onError={() => setBroken(true)}
-      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-    />
-  );
-}
-
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const sec = Math.floor(diffMs / 1000);
@@ -110,47 +93,68 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function statusBadgeClass(status: string | null): string {
+function statusLabel(status: string | null): string {
   switch (status) {
     case 'OPEN':
-      return 'badge info';
+      return 'Waiting for an agent';
     case 'IN_PROGRESS':
-      return 'badge accent';
+      return 'Online';
     case 'RESOLVED':
-      return 'badge success';
+      return 'Resolved';
+    case 'CLOSED':
+      return 'Closed';
     default:
-      return 'badge';
+      return '';
   }
 }
 
+const AVATAR_COLORS = ['#e5566b', '#a56ae8', '#3b82f6', '#14a37f', '#e0892b', '#6b7280'];
+function avatarColor(seed: string): string {
+  let h = 0;
+  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length] as string;
+}
+
+// A user's uploaded picture, when there is one. Shopify tickets belong to a
+// per-store placeholder user, so they never carry one.
+function AvatarFace({ url, fallback }: { url: string | null | undefined; fallback: string }) {
+  const [broken, setBroken] = useState(false);
+  if (!url || broken) return <>{fallback}</>;
+  return (
+    // biome-ignore lint/performance/noImgElement: short-lived presigned storage URL
+    <img src={url} alt="" onError={() => setBroken(true)} />
+  );
+}
+
+function initials(label: string): string {
+  const words = label
+    .replace(/@.*$/, '')
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+  const letters =
+    words.length > 1 ? `${words[0]?.[0]}${words[1]?.[0]}` : (words[0] ?? '?').slice(0, 2);
+  return letters.toUpperCase();
+}
+
+// Mirrors the row shape GET /admin/chatbot/conversations already returns
+// (see apps/api/src/modules/admin/chatbot.routes.ts) — same fields
+// ChatInboxPage's own ConvRow uses.
 interface ConvRow {
   id: string;
   userId: string;
   status: string;
-  source: string;
   category: string | null;
   priority: string;
   subject: string | null;
-  assignedAgentId: string | null;
-  escalationReason: string | null;
   lastMessageAt: string;
-  userEmail: string;
   createdAt: string;
-  // The ticket-owning platform user's own profile fields — same `users` row
-  // userEmail already comes from, just not previously selected.
+  userEmail: string;
   userName: string | null;
   userAvatarUrl: string | null;
   userPhone: string | null;
   userCompany: string | null;
-  // Resolved server-side from assignedAgentId (admin_users -> users) — null
-  // until the ticket is claimed.
   agentName: string | null;
   agentEmail: string | null;
-  // Resolved server-side via shopify_stores.support_user_id — present only when
-  // this ticket was started from the Shopify embedded admin's Live chat, in
-  // which case userEmail above is that store's synthetic support identity, not
-  // a real person. shopDomain/shopName etc. are the merchant's own store details,
-  // the same ones shown on the admin panel's Shopify Stores tab.
   shopifyStoreId: string | null;
   shopDomain: string | null;
   shopName: string | null;
@@ -160,14 +164,9 @@ interface ConvRow {
   shopAddress: string | null;
 }
 
-interface Props {
-  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
-}
-
-// Per-admin "have I looked at this ticket's latest message" tracking. There's no
-// server-side read-receipt field for this (chatbot_conversations has no per-agent
-// last-seen column), so it's tracked client-side only, keyed by conversation id —
-// a convenience for this browser, not shared/synced state.
+// Same browser-local read-tracking key ChatInboxPage uses — sharing it means
+// "seen" state stays consistent whichever of the two pages an admin opens a
+// ticket from, since it's the same underlying ticket set either way.
 const SEEN_STORAGE_KEY = 'aivastra-chat-inbox-seen-at';
 
 function loadSeenMap(): Record<string, string> {
@@ -200,6 +199,10 @@ const PRIORITY_COLOR: Record<string, string> = {
   low: 'var(--muted-2)',
 };
 
+interface Props {
+  toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+}
+
 export default function ChatInboxPage({ toast }: Props) {
   const navigate = useNavigate();
   const [queue, setQueue] = useState<ConvRow[]>([]);
@@ -215,15 +218,7 @@ export default function ChatInboxPage({ toast }: Props) {
   const [selectedConv, setSelectedConv] = useUrlState('conv');
   const closeConv = useCloseOverlay(['conv']);
   const [messages, setMessages] = useState<ChatMessageT[]>([]);
-  // Tracks which conversation's messages are currently loaded, so the fetch
-  // effect below doesn't refire on every unrelated queue poll.
   const [messagesConvId, setMessagesConvId] = useState<string | null>(null);
-  // Tracks which conversation's status/fields/meta have been resolved from the
-  // queue/myTickets lists — lets a deep link resolve once those lists finish
-  // their initial load, without clobbering an in-progress subject edit on
-  // every later poll. A row can only be selected from a list it's visible in,
-  // so this always finds it once (even after it later moves between lists or
-  // leaves them on resolve/close).
   const [resolvedConvId, setResolvedConvId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [selectedMeta, setSelectedMeta] = useState<{
@@ -246,14 +241,10 @@ export default function ChatInboxPage({ toast }: Props) {
   const [seenMap, setSeenMap] = useState<Record<string, string>>(() => loadSeenMap());
   const [input, setInput] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  // Subject/category/priority editor is collapsed by default — it was sitting
-  // permanently at the top of the pane, above the messages, which made the
-  // thread read like a form instead of a chat. Tucked behind a toggle instead.
-  const [showTicketDetails, setShowTicketDetails] = useState(false);
+  // UI-only: whether the right-hand Details panel is shown.
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const [typing, setTyping] = useState<string | null>(null);
   const [wsReady, setWsReady] = useState(false);
-  // Local edit buffer for the selected ticket's subject/category/priority — seeded from
-  // the row when a conversation is selected, pushed to the server via updateFields.
   const [fields, setFields] = useState<{ subject: string; category: string; priority: string }>({
     subject: '',
     category: '',
@@ -277,9 +268,6 @@ export default function ChatInboxPage({ toast }: Props) {
       : null,
   );
 
-  // Records that this admin has seen a conversation's latest message as of `at`
-  // — skips the write if the stored timestamp is already at least that recent,
-  // so an out-of-order WS frame can't rewind it.
   const markSeen = useCallback((id: string, at: string) => {
     setSeenMap((prev) => {
       if (prev[id] && new Date(prev[id]).getTime() >= new Date(at).getTime()) return prev;
@@ -345,9 +333,6 @@ export default function ChatInboxPage({ toast }: Props) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Reconstructs the message list from the URL alone — hard refresh or deep
-  // link. Skipped once already loaded for this id, so a row click doesn't
-  // double-fetch.
   useEffect(() => {
     if (!selectedConv || messagesConvId === selectedConv) return;
     let cancelled = false;
@@ -411,13 +396,6 @@ export default function ChatInboxPage({ toast }: Props) {
     if (!selectedConv || !wsReady) return;
     wsRef.current?.send({ type: 'join', conversationId: selectedConv } as WsAgentFrameT);
   }, [selectedConv, wsReady]);
-
-  // Collapse the ticket-details editor again whenever a different conversation
-  // is opened, so it doesn't stay pinned open across tickets.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedConv is the trigger, not a value read in the body
-  useEffect(() => {
-    setShowTicketDetails(false);
-  }, [selectedConv]);
 
   async function claim(id: string) {
     try {
@@ -507,9 +485,6 @@ export default function ChatInboxPage({ toast }: Props) {
     setInput('');
   }
 
-  // Newest activity first, in both tabs — so a fresh reply always surfaces at
-  // the top instead of getting buried under older, higher-priority tickets.
-  // Priority is still visible per-row (colored dot + badge), just not the sort key.
   const byRecency = (a: ConvRow, b: ConvRow) =>
     new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
   const q = search.trim().toLowerCase();
@@ -538,279 +513,116 @@ export default function ChatInboxPage({ toast }: Props) {
     ...closedTickets,
   ].find((c) => c.id === selectedConv);
 
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        // Fixed to the viewport, not just given a starting height — overflow:hidden
-        // means anything that doesn't fit is clipped here (and absorbed by the
-        // internal overflowY:auto panels below) instead of growing the page itself
-        // and forcing a page-level scrollbar, which is what every other admin page
-        // avoids by simply having less content than a viewport's worth.
-        height: 'calc(100vh - 112px)',
-        maxHeight: 'calc(100vh - 112px)',
-        overflow: 'hidden',
-        gap: 12,
-      }}
-    >
-      <div className="page-head" style={{ flexShrink: 0 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>Chat Inbox</h2>
-          <div className="lede" style={{ margin: '2px 0 0' }}>
-            Replies from Contact Us, the Support form and the live chat widget land here.
-          </div>
-        </div>
-        <button
-          className="btn"
-          onClick={toggleDuty}
-          title={
-            onDuty
-              ? 'You can answer new tickets. Click to go offline.'
-              : 'Go online to start answering new tickets.'
-          }
-        >
-          <span
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: onDuty ? 'var(--success)' : 'var(--muted-2)',
-              display: 'inline-block',
-            }}
-          />
-          {onDuty ? 'Online' : 'Offline'}
-        </button>
-      </div>
+  const tabs = [
+    ['unclaimed', 'Unclaimed', queue.length],
+    ['claimed', 'Answered', claimed.length],
+    ['mine', 'My tickets', myTickets.length],
+    ['resolved', 'Resolved', resolvedTickets.length],
+    ['closed', 'Closed', closedTickets.length],
+  ] as const;
+  const emptyText = search
+    ? 'No tickets match your search.'
+    : activeTab === 'unclaimed'
+      ? 'No unclaimed tickets. You’re all caught up.'
+      : activeTab === 'claimed'
+        ? 'No tickets answered right now.'
+        : activeTab === 'mine'
+          ? 'You have no tickets assigned yet.'
+          : activeTab === 'resolved'
+            ? 'No resolved tickets yet.'
+            : 'No closed tickets yet.';
 
-      <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0 }}>
-        {/* Conversation list */}
-        <div
-          style={{
-            width: 540,
-            flexShrink: 0,
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--r-lg)',
-            overflow: 'hidden',
-          }}
-        >
-          <div style={{ padding: '10px 12px 0', flexShrink: 0 }}>
+  // System lines ("agent joined", reconnect notices) are bookkeeping, not conversation.
+  const visibleMessages = messages.filter((m) => m.role !== 'system');
+
+  const headTitle = selectedMeta?.shopDomain
+    ? selectedMeta.shopName || selectedMeta.shopDomain
+    : (selectedMeta?.userEmail ?? '—');
+  const answeredBy = selectedMeta?.agentName || selectedMeta?.agentEmail || null;
+
+  return (
+    <div className={`ci${selectedConv ? ' has-conv' : ''}`}>
+      <div className="ci-shell">
+        {/* Chat list */}
+        <div className="ci-list">
+          <div className="ci-list-head">
+            <h2>Chats</h2>
+            <button
+              className={`ci-duty${onDuty ? ' on' : ''}`}
+              onClick={toggleDuty}
+              title={
+                onDuty
+                  ? 'You can answer new tickets. Click to go offline.'
+                  : 'Go online to start answering new tickets.'
+              }
+            >
+              <i />
+              {onDuty ? 'Online' : 'Offline'}
+            </button>
+          </div>
+          <div className="ci-search">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="7" cy="7" r="4.8" />
+              <path d="M10.6 10.6 14 14" strokeLinecap="round" />
+            </svg>
             <input
-              className="input"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by email or subject…"
-              style={{ fontSize: 13, padding: '7px 10px' }}
+              placeholder="Search"
+              aria-label="Search by email or subject"
             />
           </div>
-          <div
-            className="tabs"
-            style={{
-              margin: '10px 12px 0',
-              flexShrink: 0,
-              flexWrap: 'nowrap',
-            }}
-          >
-            <button
-              className={`tab ${activeTab === 'unclaimed' ? 'active' : ''}`}
-              onClick={() => setActiveTab('unclaimed')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '9px 8px',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Unclaimed
-              <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
-                {queue.length}
-              </span>
-            </button>
-            <button
-              className={`tab ${activeTab === 'claimed' ? 'active' : ''}`}
-              onClick={() => setActiveTab('claimed')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '9px 8px',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Answered
-              <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
-                {claimed.length}
-              </span>
-            </button>
-            <button
-              className={`tab ${activeTab === 'mine' ? 'active' : ''}`}
-              onClick={() => setActiveTab('mine')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '9px 8px',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              My tickets
-              <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
-                {myTickets.length}
-              </span>
-            </button>
-            <button
-              className={`tab ${activeTab === 'resolved' ? 'active' : ''}`}
-              onClick={() => setActiveTab('resolved')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '9px 8px',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Resolved
-              <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
-                {resolvedTickets.length}
-              </span>
-            </button>
-            <button
-              className={`tab ${activeTab === 'closed' ? 'active' : ''}`}
-              onClick={() => setActiveTab('closed')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '9px 8px',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Closed
-              <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
-                {closedTickets.length}
-              </span>
-            </button>
+          <div className="ci-tabs">
+            {tabs.map(([key, label, n]) => (
+              <button
+                key={key}
+                className={`ci-tab${activeTab === key ? ' active' : ''}`}
+                onClick={() => setActiveTab(key)}
+              >
+                {label}
+                <span className="ci-tab-n">{n}</span>
+              </button>
+            ))}
           </div>
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          <div className="ci-rows">
             {list.length === 0 ? (
-              <div className="empty" style={{ padding: '32px 16px' }}>
-                {search
-                  ? 'No tickets match your search.'
-                  : activeTab === 'unclaimed'
-                    ? 'No unclaimed tickets. You’re all caught up.'
-                    : activeTab === 'claimed'
-                      ? 'No tickets answered right now.'
-                      : activeTab === 'mine'
-                        ? 'You have no tickets assigned yet.'
-                        : activeTab === 'resolved'
-                          ? 'No resolved tickets yet.'
-                          : 'No closed tickets yet.'}
-              </div>
+              <div className="ci-empty">{emptyText}</div>
             ) : (
               list.map((c) => {
                 const unread = isUnread(c, seenMap);
+                const title = c.shopDomain ? c.shopName || c.shopDomain : c.userEmail;
                 return (
                   <div
                     key={c.id}
-                    className={`chat-row ${selectedConv === c.id ? 'active' : ''}`}
+                    className={`ci-row${selectedConv === c.id ? ' active' : ''}`}
                     onClick={() => setSelectedConv(c.id)}
                   >
-                    <div className="chat-avatar" style={{ overflow: 'hidden' }}>
-                      <ChatAvatarFace
-                        url={c.userAvatarUrl}
-                        fallback={(c.userEmail || '?').charAt(0).toUpperCase()}
-                      />
+                    <div className="ci-avatar" style={{ background: avatarColor(title) }}>
+                      <AvatarFace url={c.userAvatarUrl} fallback={initials(title)} />
+                      <span className={`ci-dot ${c.status}`} title={c.status} />
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {unread && (
-                          <span
-                            title="Unread"
-                            style={{
-                              width: 7,
-                              height: 7,
-                              borderRadius: '50%',
-                              background: 'var(--accent)',
-                              flexShrink: 0,
-                            }}
-                          />
-                        )}
-                        <span
-                          style={{
-                            flex: 1,
-                            minWidth: 0,
-                            fontSize: 13,
-                            fontWeight: unread ? 700 : 500,
-                            color: 'var(--ink)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {/* A Shopify Live Chat ticket's userId is a synthetic per-store
-                              "support user" (shopify-support+<domain>@internal.aivastra.com),
-                              not a real person — show the merchant's store name instead. */}
-                          {c.shopDomain ? c.shopName || c.shopDomain : c.userEmail}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: 11,
-                            color: unread ? 'var(--accent)' : 'var(--muted-2)',
-                            fontWeight: unread ? 600 : 400,
-                            flexShrink: 0,
-                          }}
-                        >
+                    <div className="ci-row-body">
+                      <div className="ci-row-top">
+                        <span className={`ci-row-name${unread ? ' unread' : ''}`}>{title}</span>
+                        <span className={`ci-row-time${unread ? ' unread' : ''}`}>
                           {timeAgo(c.lastMessageAt)}
                         </span>
                       </div>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: unread ? 'var(--ink-2)' : 'var(--muted)',
-                          fontWeight: unread ? 500 : 400,
-                          marginTop: 2,
-                          marginLeft: unread ? 13 : 0,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {c.subject || 'No subject'}
+                      <div className={`ci-row-preview${unread ? ' unread' : ''}`}>
+                        <span>{c.subject || 'No subject'}</span>
+                        {unread && <i className="ci-unread-dot" title="Unread" />}
                       </div>
-                      <div
-                        title={c.createdAt}
-                        style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 3 }}
-                      >
-                        Raised {formatRaisedAt(c.createdAt)}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                        <span
+                      <div className="ci-row-meta">
+                        <i
+                          className="ci-prio"
                           title={`Priority: ${c.priority}`}
-                          style={{
-                            width: 6,
-                            height: 6,
-                            borderRadius: '50%',
-                            background: PRIORITY_COLOR[c.priority] ?? 'var(--muted-2)',
-                            flexShrink: 0,
-                          }}
+                          style={{ background: PRIORITY_COLOR[c.priority] ?? 'var(--muted-2)' }}
                         />
-                        <span className="badge accent" style={{ fontSize: 11, padding: '1px 7px' }}>
-                          {c.shopDomain ? 'Shopify' : 'Web'}
-                        </span>
-                        {c.category && (
-                          <span className="badge" style={{ fontSize: 11, padding: '1px 7px' }}>
-                            {c.category}
-                          </span>
-                        )}
+                        <span className="ci-chip accent">{c.shopDomain ? 'Shopify' : 'Web'}</span>
+                        {c.category && <span className="ci-chip">{c.category}</span>}
                         {activeTab === 'unclaimed' ? (
                           <button
-                            className="btn sm primary"
-                            style={{ marginLeft: 'auto', padding: '3px 10px', fontSize: 11 }}
+                            className="ci-btn primary xs"
                             onClick={(e) => {
                               e.stopPropagation();
                               claim(c.id);
@@ -819,27 +631,16 @@ export default function ChatInboxPage({ toast }: Props) {
                             Answer
                           </button>
                         ) : (
-                          <span
-                            className={statusBadgeClass(c.status)}
-                            style={{ marginLeft: 'auto', fontSize: 11, padding: '1px 7px' }}
-                          >
+                          <span className="ci-chip xs-right" style={{ marginLeft: 'auto' }}>
                             {c.status}
                           </span>
                         )}
                       </div>
+                      <div className="ci-row-sub" title={c.createdAt}>
+                        Raised {formatRaisedAt(c.createdAt)}
+                      </div>
                       {activeTab !== 'unclaimed' && (c.agentName || c.agentEmail) && (
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: 'var(--muted)',
-                            marginTop: 4,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          Answered by {c.agentName || c.agentEmail}
-                        </div>
+                        <div className="ci-row-sub">Answered by {c.agentName || c.agentEmail}</div>
                       )}
                     </div>
                   </div>
@@ -849,556 +650,173 @@ export default function ChatInboxPage({ toast }: Props) {
           </div>
         </div>
 
-        {/* Conversation pane */}
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--r-lg)',
-            overflow: 'hidden',
-          }}
-        >
+        {/* Conversation */}
+        <div className="ci-chat">
           {selectedConv ? (
             <>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '12px 16px',
-                  borderBottom: '1px solid var(--border)',
-                  flexShrink: 0,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div
-                  className="chat-avatar"
-                  style={{ width: 32, height: 32, fontSize: 12, overflow: 'hidden' }}
-                >
-                  <ChatAvatarFace
-                    url={selectedMeta?.userAvatarUrl}
-                    fallback={(
-                      (selectedMeta?.shopDomain
-                        ? selectedMeta.shopName || selectedMeta.shopDomain
-                        : selectedMeta?.userEmail) || '?'
-                    )
-                      .charAt(0)
-                      .toUpperCase()}
-                  />
-                </div>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: 'var(--ink)',
-                    }}
-                  >
-                    <span
-                      style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                    >
-                      {selectedMeta?.shopDomain
-                        ? selectedMeta.shopName || selectedMeta.shopDomain
-                        : (selectedMeta?.userEmail ?? '—')}
-                    </span>
-                    {selectedMeta && (
-                      <span className="badge accent" style={{ fontSize: 11, padding: '1px 7px' }}>
-                        {selectedMeta.shopDomain ? 'Shopify' : 'Web'}
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--muted)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {fields.subject || 'No subject'}
-                  </div>
-                  {selectedConversation && (
-                    <div
-                      title={selectedConversation.createdAt}
-                      style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 2 }}
-                    >
-                      Raised {formatRaisedAt(selectedConversation.createdAt)}
-                    </div>
-                  )}
-                  {(selectedMeta?.agentName || selectedMeta?.agentEmail) && (
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: 'var(--muted)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      Answered by {selectedMeta.agentName || selectedMeta.agentEmail}
-                      {selectedMeta.agentName && selectedMeta.agentEmail
-                        ? ` (${selectedMeta.agentEmail})`
-                        : ''}
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
-                    STATUS
-                  </span>
-                  <span className={statusBadgeClass(status)}>{status}</span>
-                </div>
-                {status === 'OPEN' && (
-                  <button
-                    className="btn sm primary"
-                    style={{ marginLeft: 6 }}
-                    onClick={() => claim(selectedConv)}
-                  >
-                    Answer Ticket
-                  </button>
-                )}
-                {status === 'IN_PROGRESS' && (
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn sm ghost" onClick={() => resolveConv(selectedConv)}>
-                      Resolve
-                    </button>
-                    <button className="btn sm ghost" onClick={() => endConv(selectedConv)}>
-                      Close
-                    </button>
-                  </div>
-                )}
+              <div className="ci-chat-head">
                 <button
-                  className="btn sm ghost"
-                  onClick={() => setShowTicketDetails((v) => !v)}
-                  title="Ticket details (subject, category, priority)"
-                  aria-label="Toggle ticket details"
-                  aria-expanded={showTicketDetails}
-                  style={{ padding: '6px 8px' }}
+                  className="ci-icon-btn ci-back"
+                  onClick={closeConv}
+                  aria-label="Back to chats"
                 >
                   <svg
                     viewBox="0 0 16 16"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="1.5"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
-                    style={{ width: 16, height: 16, display: 'block' }}
+                    strokeLinejoin="round"
                   >
-                    <circle cx="8" cy="3.2" r="0.9" fill="currentColor" stroke="none" />
-                    <circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none" />
-                    <circle cx="8" cy="12.8" r="0.9" fill="currentColor" stroke="none" />
+                    <path d="M10 3 5 8l5 5" />
                   </svg>
                 </button>
+                <div className="ci-avatar md" style={{ background: avatarColor(headTitle) }}>
+                  <AvatarFace url={selectedMeta?.userAvatarUrl} fallback={initials(headTitle)} />
+                  <span className={`ci-dot ${status ?? ''}`} />
+                </div>
+                <div className="ci-head-text">
+                  <div className="ci-head-name">
+                    <span>{headTitle}</span>
+                    {selectedMeta && (
+                      <span className="ci-chip accent">
+                        {selectedMeta.shopDomain ? 'Shopify' : 'Web'}
+                      </span>
+                    )}
+                  </div>
+                  <div className={`ci-head-status ${status ?? ''}`}>
+                    {statusLabel(status)}
+                    {selectedConversation &&
+                      ` · Raised ${formatRaisedAt(selectedConversation.createdAt)}`}
+                  </div>
+                </div>
+                <div className="ci-head-actions">
+                  {status === 'OPEN' && (
+                    <button className="ci-btn primary" onClick={() => claim(selectedConv)}>
+                      Answer Ticket
+                    </button>
+                  )}
+                  {status === 'IN_PROGRESS' && (
+                    <>
+                      <button className="ci-btn" onClick={() => resolveConv(selectedConv)}>
+                        Resolve
+                      </button>
+                      <button className="ci-btn" onClick={() => endConv(selectedConv)}>
+                        Close
+                      </button>
+                    </>
+                  )}
+                  <button
+                    className={`ci-icon-btn${detailsOpen ? ' on' : ''}`}
+                    onClick={() => setDetailsOpen((v) => !v)}
+                    title="Ticket details"
+                    aria-label="Toggle ticket details"
+                    aria-expanded={detailsOpen}
+                  >
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                    >
+                      <circle cx="8" cy="8" r="6.4" />
+                      <path d="M8 7.2v3.6" />
+                      <circle cx="8" cy="5" r="0.5" fill="currentColor" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
-              {/* Always visible (not behind the ticket-details toggle below) — a
-                  Shopify merchant's identity and contact details matter for every
-                  reply, not just when an agent is editing subject/category/priority. */}
-              {selectedMeta?.shopDomain && (
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                    padding: '10px 16px',
-                    borderBottom: '1px solid var(--border)',
-                    flexShrink: 0,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
-                      SHOPIFY STORE
-                    </span>
-                    <div style={{ display: 'flex', gap: 12 }}>
-                      <a
-                        href={`https://${selectedMeta.shopDomain}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--accent)',
-                          textDecoration: 'underline',
-                        }}
-                      >
-                        Visit store ↗
-                      </a>
-                      <button
-                        type="button"
-                        className="link"
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--accent)',
-                          textDecoration: 'underline',
-                          background: 'none',
-                          border: 0,
-                          padding: 0,
-                          cursor: 'pointer',
-                        }}
-                        onClick={() =>
-                          navigate(
-                            `/shopify-stores?store=${encodeURIComponent(selectedMeta.shopifyStoreId ?? '')}`,
-                          )
-                        }
-                      >
-                        View in Shopify Stores
-                      </button>
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                      gap: '4px 16px',
-                      fontSize: 12,
-                      color: 'var(--ink-2)',
-                    }}
-                  >
-                    <div>
-                      <span style={{ color: 'var(--muted)' }}>Domain: </span>
-                      {selectedMeta.shopDomain}
-                    </div>
-                    {selectedMeta.shopOwnerName && (
-                      <div>
-                        <span style={{ color: 'var(--muted)' }}>Owner: </span>
-                        {selectedMeta.shopOwnerName}
-                      </div>
-                    )}
-                    {selectedMeta.shopEmail && (
-                      <div>
-                        <span style={{ color: 'var(--muted)' }}>Email: </span>
-                        {selectedMeta.shopEmail}
-                      </div>
-                    )}
-                    {selectedMeta.shopPhone && (
-                      <div>
-                        <span style={{ color: 'var(--muted)' }}>Phone: </span>
-                        {selectedMeta.shopPhone}
-                      </div>
-                    )}
-                    {selectedMeta.shopAddress && (
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <span style={{ color: 'var(--muted)' }}>Address: </span>
-                        {selectedMeta.shopAddress}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Same treatment for a regular platform user — not a Shopify ticket,
-                  so userEmail here is a real person, not a synthetic store identity. */}
-              {selectedMeta && !selectedMeta.shopDomain && (
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                    padding: '10px 16px',
-                    borderBottom: '1px solid var(--border)',
-                    flexShrink: 0,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
-                      USER
-                    </span>
-                    <button
-                      type="button"
-                      className="link"
-                      style={{
-                        fontSize: 12,
-                        color: 'var(--accent)',
-                        textDecoration: 'underline',
-                        background: 'none',
-                        border: 0,
-                        padding: 0,
-                        cursor: 'pointer',
-                      }}
-                      onClick={() =>
-                        navigate(`/users?user=${encodeURIComponent(selectedMeta.userId)}`)
-                      }
-                    >
-                      View in Users
-                    </button>
-                  </div>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                      gap: '4px 16px',
-                      fontSize: 12,
-                      color: 'var(--ink-2)',
-                    }}
-                  >
-                    {selectedMeta.userName && (
-                      <div>
-                        <span style={{ color: 'var(--muted)' }}>Name: </span>
-                        {selectedMeta.userName}
-                      </div>
-                    )}
-                    <div>
-                      <span style={{ color: 'var(--muted)' }}>Email: </span>
-                      {selectedMeta.userEmail}
-                    </div>
-                    {selectedMeta.userPhone && (
-                      <div>
-                        <span style={{ color: 'var(--muted)' }}>Phone: </span>
-                        {selectedMeta.userPhone}
-                      </div>
-                    )}
-                    {selectedMeta.userCompany && (
-                      <div>
-                        <span style={{ color: 'var(--muted)' }}>Company: </span>
-                        {selectedMeta.userCompany}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {showTicketDetails && (
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 12,
-                    alignItems: 'flex-end',
-                    padding: '10px 16px',
-                    borderBottom: '1px solid var(--border)',
-                    flexShrink: 0,
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <div
-                    style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '2 1 200px' }}
-                  >
-                    <label
-                      htmlFor="chat-subject"
-                      style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}
-                    >
-                      SUBJECT
-                    </label>
-                    <input
-                      id="chat-subject"
-                      value={fields.subject}
-                      onChange={(e) => setFields((f) => ({ ...f, subject: e.target.value }))}
-                      onBlur={() => updateFields(selectedConv, { subject: fields.subject })}
-                      placeholder="No subject"
-                      style={{
-                        padding: '6px 10px',
-                        fontSize: 13,
-                        border: '1px solid var(--border)',
-                        borderRadius: 'var(--r)',
-                        background: 'var(--bg)',
-                        color: 'var(--ink)',
-                      }}
-                    />
-                  </div>
-                  <div
-                    style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 140px' }}
-                  >
-                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
-                      CATEGORY
-                    </span>
-                    <SearchableSelect
-                      options={CATEGORY_OPTIONS.map((c) => ({ id: c, label: capitalize(c) }))}
-                      value={fields.category}
-                      onChange={(category) => {
-                        setFields((f) => ({ ...f, category }));
-                        updateFields(selectedConv, { category });
-                      }}
-                      emptyLabel="Uncategorized"
-                      ariaLabel="Ticket category"
-                    />
-                  </div>
-                  <div
-                    style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 120px' }}
-                  >
-                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
-                      PRIORITY
-                    </span>
-                    <SearchableSelect
-                      options={PRIORITY_OPTIONS.map((p) => ({ id: p, label: capitalize(p) }))}
-                      value={fields.priority}
-                      onChange={(priority) => {
-                        setFields((f) => ({ ...f, priority }));
-                        updateFields(selectedConv, { priority });
-                      }}
-                      ariaLabel="Ticket priority"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div
-                style={{
-                  flex: 1,
-                  minHeight: 0,
-                  overflowY: 'auto',
-                  padding: 16,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                }}
-              >
-                {messages.map((m, idx) => {
-                  // System rows are status events ("ticket resolved", "escalated to
-                  // an agent"), not a conversational party — a left/right chat bubble
-                  // mislabels them (they used to render as a right-aligned "Bot"
-                  // bubble, indistinguishable from an actual agent reply). Render
-                  // them as a centered, bubble-less event line instead.
-                  if (m.role === 'system') {
-                    return (
-                      <div
-                        key={m.id}
-                        style={{
-                          alignSelf: 'center',
-                          maxWidth: '85%',
-                          textAlign: 'center',
-                          fontSize: 11.5,
-                          color: 'var(--muted)',
-                          background: 'var(--surface-2)',
-                          border: '1px solid var(--border)',
-                          borderRadius: 999,
-                          padding: '4px 12px',
-                        }}
-                      >
-                        {m.content}
-                        <span style={{ color: 'var(--muted-2)', marginLeft: 6 }}>
-                          {new Date(m.createdAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </span>
-                      </div>
-                    );
-                  }
-                  // 'user' and the legacy 'bot' role both read as "them" and sit on
-                  // the left; 'agent' is the admin replying, on the right.
-                  const mine = m.role === 'agent';
-                  // Only label the first bubble in a run of consecutive same-role
-                  // messages — repeating "User" on every single bubble (the old
-                  // behavior) is what made the thread look like stacked tags
-                  // instead of a conversation.
-                  const prev = messages[idx - 1];
-                  const showLabel = !prev || prev.role !== m.role;
-                  return (
-                    <div
-                      key={m.id}
-                      style={{
-                        alignSelf: mine ? 'flex-end' : 'flex-start',
-                        maxWidth: '70%',
-                        marginTop: showLabel && idx > 0 ? 6 : 0,
-                      }}
-                    >
-                      <div
-                        style={{
-                          background: mine ? 'var(--accent-soft)' : 'var(--surface-2)',
-                          borderRadius: 'var(--r-lg)',
-                          padding: '8px 12px',
-                          fontSize: 13,
-                        }}
-                      >
-                        {showLabel && (
-                          <div
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 600,
-                              color: 'var(--muted)',
-                              marginBottom: 2,
-                            }}
-                          >
-                            {mine ? 'You' : m.role === 'bot' ? 'Bot' : 'User'}
-                          </div>
-                        )}
-                        <div style={{ lineHeight: 1.5 }}>{renderMessageContent(m.content)}</div>
-                        {/* A shopper can attach a PDF (SupportModal and the presign route both
-                            accept one), so only images get an <img> — anything else would show
-                            the agent a broken image icon. Rows written before attachmentType
-                            was populated have none; those were images. */}
-                        {m.attachmentKey &&
-                          (!m.attachmentType || m.attachmentType.startsWith('image/') ? (
-                            // biome-ignore lint/performance/noImgElement: chatbot attachment preview, not a Next.js app
-                            <img
-                              src={`/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
-                              alt="attachment"
-                              style={{
-                                maxWidth: '100%',
-                                borderRadius: 6,
-                                marginTop: 4,
-                                cursor: 'zoom-in',
-                              }}
-                              onClick={() =>
-                                setPreviewUrl(
-                                  `/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey as string)}`,
-                                )
-                              }
-                            />
-                          ) : (
-                            <a
-                              href={`/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                display: 'inline-block',
-                                marginTop: 4,
-                                fontSize: 12,
-                                color: 'var(--accent)',
-                                textDecoration: 'underline',
-                              }}
-                            >
-                              View attachment
-                            </a>
-                          ))}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 10,
-                          color: 'var(--muted-2)',
-                          marginTop: 3,
-                          textAlign: mine ? 'right' : 'left',
-                        }}
-                      >
-                        {new Date(m.createdAt).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
+              <div className="ci-msgs">
+                {visibleMessages.map((m, idx) => {
+                  const prev = visibleMessages[idx - 1];
+                  const day = new Date(m.createdAt).toDateString();
+                  const dateSep =
+                    !prev || new Date(prev.createdAt).toDateString() !== day ? (
+                      <div className="ci-date" key={`d-${m.id}`}>
+                        {new Date(m.createdAt).toLocaleDateString(undefined, {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
                         })}
                       </div>
-                    </div>
+                    ) : null;
+                  const time = new Date(m.createdAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
+                  const mine = m.role === 'agent';
+                  const showLabel = !prev || prev.role !== m.role;
+                  return (
+                    <Fragment key={m.id}>
+                      {dateSep}
+                      <div
+                        className={`ci-msg${mine ? ' mine' : ''}${showLabel && idx > 0 ? ' gap' : ''}`}
+                      >
+                        <div
+                          className="ci-avatar sm"
+                          style={{
+                            background: mine
+                              ? 'var(--ci-red)'
+                              : m.role === 'bot'
+                                ? 'var(--muted)'
+                                : avatarColor(headTitle),
+                            visibility: showLabel ? 'visible' : 'hidden',
+                          }}
+                        >
+                          {m.role === 'user' ? (
+                            <AvatarFace
+                              url={selectedMeta?.userAvatarUrl}
+                              fallback={initials(headTitle).charAt(0)}
+                            />
+                          ) : mine ? (
+                            'A'
+                          ) : (
+                            'B'
+                          )}
+                        </div>
+                        <div className="ci-bubble-wrap">
+                          <div className="ci-bubble">
+                            <div>{renderMessageContent(m.content)}</div>
+                            {m.attachmentKey &&
+                              (!m.attachmentType || m.attachmentType.startsWith('image/') ? (
+                                // biome-ignore lint/performance/noImgElement: chatbot attachment preview, not a Next.js app
+                                <img
+                                  src={`/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                                  alt="attachment"
+                                  style={{
+                                    maxWidth: '100%',
+                                    borderRadius: 8,
+                                    marginTop: 6,
+                                    cursor: 'zoom-in',
+                                    display: 'block',
+                                  }}
+                                  onClick={() =>
+                                    setPreviewUrl(
+                                      `/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey as string)}`,
+                                    )
+                                  }
+                                />
+                              ) : (
+                                <a
+                                  className="ci-attach-link"
+                                  href={`/v1/support/attachment?key=${encodeURIComponent(m.attachmentKey)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  View attachment
+                                </a>
+                              ))}
+                          </div>
+                          <span className="ci-time">{time}</span>
+                        </div>
+                      </div>
+                    </Fragment>
                   );
                 })}
                 {typing && (
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--muted)',
-                      fontStyle: 'italic',
-                      padding: '4px 0',
-                    }}
-                  >
+                  <div className="ci-typing">
                     {typing === 'user' ? 'User' : typing === 'agent' ? 'You' : 'Bot'} is typing…
                   </div>
                 )}
@@ -1406,50 +824,35 @@ export default function ChatInboxPage({ toast }: Props) {
               </div>
 
               {status === 'IN_PROGRESS' ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    padding: '12px 16px',
-                    borderTop: '1px solid var(--border)',
-                    flexShrink: 0,
-                  }}
-                >
+                <div className="ci-compose">
                   <input
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && sendMsg()}
-                    placeholder="Type a reply…"
-                    style={{
-                      flex: 1,
-                      padding: '10px 14px',
-                      fontSize: 13,
-                      border: '1px solid var(--border)',
-                      borderRadius: 999,
-                      background: 'var(--bg)',
-                      color: 'var(--ink)',
-                    }}
+                    placeholder="Type your message..."
+                    aria-label="Type a reply"
                   />
                   <button
-                    className="btn primary"
+                    className="ci-send"
                     onClick={sendMsg}
                     disabled={!input.trim()}
-                    style={{ borderRadius: 999, padding: '10px 18px' }}
+                    aria-label="Send"
                   >
-                    Send
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M14 2 7 9" />
+                      <path d="M14 2 9.5 14 7 9 2 6.5 14 2z" />
+                    </svg>
                   </button>
                 </div>
               ) : (
-                <div
-                  style={{
-                    padding: '12px 16px',
-                    borderTop: '1px solid var(--border)',
-                    flexShrink: 0,
-                    fontSize: 12,
-                    color: 'var(--muted)',
-                    textAlign: 'center',
-                  }}
-                >
+                <div className="ci-compose-note">
                   {status === 'OPEN'
                     ? 'Answer this ticket to start replying.'
                     : `This conversation is ${(status ?? '').toLowerCase()} — no further replies can be sent.`}
@@ -1457,31 +860,210 @@ export default function ChatInboxPage({ toast }: Props) {
               )}
             </>
           ) : (
-            <div
-              className="empty"
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <div className="ico">
+            <div className="ci-blank">
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1"
+                strokeLinejoin="round"
+              >
+                <path d="M2 3h12v9H5l-3 2V3z" />
+              </svg>
+              Select a conversation to start chatting.
+            </div>
+          )}
+        </div>
+
+        {/* Details */}
+        {selectedConv && selectedMeta && detailsOpen && (
+          <aside className="ci-details">
+            <div className="ci-details-head">
+              <h3>Details</h3>
+              <button
+                className="ci-icon-btn"
+                onClick={() => setDetailsOpen(false)}
+                aria-label="Close details"
+              >
                 <svg
                   viewBox="0 0 16 16"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="1.4"
-                  style={{ width: 32, height: 32 }}
+                  strokeLinecap="round"
                 >
-                  <path d="M2 3h12v9H5l-3 2V3z" />
+                  <circle cx="8" cy="8" r="6.4" />
+                  <path d="m5.8 5.8 4.4 4.4M10.2 5.8l-4.4 4.4" />
                 </svg>
-              </div>
-              Select a conversation to start chatting.
+              </button>
             </div>
-          )}
-        </div>
+            <div className="ci-profile">
+              <div className="ci-avatar lg" style={{ background: avatarColor(headTitle) }}>
+                <AvatarFace url={selectedMeta.userAvatarUrl} fallback={initials(headTitle)} />
+              </div>
+              <div className="ci-profile-name">{headTitle}</div>
+              <div className="ci-quick">
+                {selectedMeta.shopDomain ? (
+                  <>
+                    <button
+                      className="ci-btn"
+                      onClick={() =>
+                        navigate(
+                          `/shopify-stores?store=${encodeURIComponent(selectedMeta.shopifyStoreId ?? '')}`,
+                        )
+                      }
+                      disabled={!selectedMeta.shopifyStoreId}
+                    >
+                      Store details
+                    </button>
+                    <button
+                      className="ci-btn primary"
+                      onClick={() =>
+                        navigate('/jobs', { state: { search: selectedMeta.shopEmail ?? '' } })
+                      }
+                      disabled={!selectedMeta.shopEmail}
+                    >
+                      Store jobs
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="ci-btn"
+                      onClick={() =>
+                        navigate(`/users?user=${encodeURIComponent(selectedMeta.userId)}`)
+                      }
+                    >
+                      User details
+                    </button>
+                    <button
+                      className="ci-btn primary"
+                      onClick={() => navigate('/jobs', { state: { search: selectedMeta.userId } })}
+                    >
+                      User jobs
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="ci-fields">
+              {selectedMeta.shopDomain ? (
+                <>
+                  <div className="ci-field">
+                    <span className="lbl">Store domain</span>
+                    <div className="val">{selectedMeta.shopDomain}</div>
+                  </div>
+                  {selectedMeta.shopOwnerName && (
+                    <div className="ci-field">
+                      <span className="lbl">Owner</span>
+                      <div className="val">{selectedMeta.shopOwnerName}</div>
+                    </div>
+                  )}
+                  {selectedMeta.shopPhone && (
+                    <div className="ci-field">
+                      <span className="lbl">Phone Number</span>
+                      <div className="val">{selectedMeta.shopPhone}</div>
+                    </div>
+                  )}
+                  {selectedMeta.shopEmail && (
+                    <div className="ci-field">
+                      <span className="lbl">Email</span>
+                      <div className="val">{selectedMeta.shopEmail}</div>
+                    </div>
+                  )}
+                  {selectedMeta.shopAddress && (
+                    <div className="ci-field">
+                      <span className="lbl">Address</span>
+                      <div className="val">{selectedMeta.shopAddress}</div>
+                    </div>
+                  )}
+                  <a
+                    className="ci-link"
+                    href={`https://${selectedMeta.shopDomain}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Visit store ↗
+                  </a>
+                </>
+              ) : (
+                <>
+                  {selectedMeta.userName && (
+                    <div className="ci-field">
+                      <span className="lbl">Name</span>
+                      <div className="val">{selectedMeta.userName}</div>
+                    </div>
+                  )}
+                  {selectedMeta.userPhone && (
+                    <div className="ci-field">
+                      <span className="lbl">Phone Number</span>
+                      <div className="val">{selectedMeta.userPhone}</div>
+                    </div>
+                  )}
+                  <div className="ci-field">
+                    <span className="lbl">Email</span>
+                    <div className="val">{selectedMeta.userEmail}</div>
+                  </div>
+                  {selectedMeta.userCompany && (
+                    <div className="ci-field">
+                      <span className="lbl">Company</span>
+                      <div className="val">{selectedMeta.userCompany}</div>
+                    </div>
+                  )}
+                </>
+              )}
+              <div className="ci-field">
+                <span className="lbl">Answered by</span>
+                <div className="val">
+                  {answeredBy
+                    ? `${answeredBy}${selectedMeta.agentName && selectedMeta.agentEmail ? ` (${selectedMeta.agentEmail})` : ''}`
+                    : 'Unassigned'}
+                </div>
+              </div>
+
+              <div className="ci-section">TICKET</div>
+              <div className="ci-field">
+                <label htmlFor="support-ticket-subject">Subject</label>
+                <input
+                  id="support-ticket-subject"
+                  value={fields.subject}
+                  onChange={(e) => setFields((f) => ({ ...f, subject: e.target.value }))}
+                  onBlur={() => updateFields(selectedConv, { subject: fields.subject })}
+                  placeholder="No subject"
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span className="lbl" style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  Category
+                </span>
+                <SearchableSelect
+                  options={CATEGORY_OPTIONS.map((c) => ({ id: c, label: capitalize(c) }))}
+                  value={fields.category}
+                  onChange={(category) => {
+                    setFields((f) => ({ ...f, category }));
+                    updateFields(selectedConv, { category });
+                  }}
+                  emptyLabel="Uncategorized"
+                  ariaLabel="Ticket category"
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span className="lbl" style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  Priority
+                </span>
+                <SearchableSelect
+                  options={PRIORITY_OPTIONS.map((p) => ({ id: p, label: capitalize(p) }))}
+                  value={fields.priority}
+                  onChange={(priority) => {
+                    setFields((f) => ({ ...f, priority }));
+                    updateFields(selectedConv, { priority });
+                  }}
+                  ariaLabel="Ticket priority"
+                />
+              </div>
+            </div>
+          </aside>
+        )}
       </div>
 
       {previewUrl && <ImageLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />}
