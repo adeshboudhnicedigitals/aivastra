@@ -10,6 +10,7 @@ interface CreateMerchantTryonJobInput {
   merchantUserId: string;
   upperGarmentKey: string;
   customerPhotoKey: string;
+  merchantCatalogItemId: string;
   workflowTemplateId: string;
   dispatchTemplateVersion?: number | null;
 }
@@ -44,6 +45,8 @@ export async function createMerchantTryonJob(
       params: {
         workflowTemplateId: input.workflowTemplateId,
         dispatchTemplateVersion: input.dispatchTemplateVersion ?? null,
+        // Analytics groups completed try-ons by this id (modules/merchant/analytics.ts).
+        merchantCatalogItemId: input.merchantCatalogItemId,
       },
     });
 

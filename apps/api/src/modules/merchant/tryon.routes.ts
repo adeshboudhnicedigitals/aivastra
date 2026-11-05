@@ -196,6 +196,7 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
                   merchantUserId: merchant.userId,
                   upperGarmentKey: garment.r2Key,
                   customerPhotoKey,
+                  merchantCatalogItemId,
                   workflowTemplateId: garment.workflowTemplateId,
                   dispatchTemplateVersion: garment.workflowTemplateVersion ?? null,
                 });

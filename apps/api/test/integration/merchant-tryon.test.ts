@@ -260,6 +260,12 @@ describe('merchant try-on jobs', () => {
     expect(jobRow.userId).toBe(merchantUser.id);
     expect(jobRow.source).toBe('merchant_tryon');
 
+    const [input] = await app.db
+      .select({ params: schema.jobInputs.params })
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect((input.params as Record<string, unknown>).merchantCatalogItemId).toBe(item.id);
+
     const [credits] = await app.db
       .select()
       .from(schema.userCredits)

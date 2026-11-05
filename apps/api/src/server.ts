@@ -95,6 +95,7 @@ import { fleetSettingsRoutes } from './modules/fleet/settings.routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
 import { refundRequestsRoutes } from './modules/jobs/refund-requests.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
+import { merchantAnalyticsRoutes } from './modules/merchant/analytics.routes.js';
 import { merchantApiKeysRoutes } from './modules/merchant/api-keys.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
 import { kioskDownloadRoutes } from './modules/merchant/kiosk-download.routes.js';
@@ -464,6 +465,7 @@ export async function buildServer(env: Env) {
   await app.register(merchantOnboardingRoutes);
   await app.register(merchantTryonRoutes);
   await app.register(merchantMeRoutes);
+  await app.register(merchantAnalyticsRoutes);
   await app.register(merchantTryonResultsRoutes);
   await app.register(merchantUploadSessionRoutes);
   await app.register(kioskDownloadRoutes);

@@ -1,3 +1,9 @@
+# 2026-11-05 — Merchant Analytics dashboard, step 1 (feat/merchant-analytics)
+
+- **Done:** `GET /v1/merchant/analytics?range=7d|30d|90d` (merchant-scoped, COMPLETED merchant try-ons only) and a catalogues-web `/analytics` page (overview cards, category donut, Top 10 products, empty Customers column). Kiosk single-garment try-on jobs now record `merchantCatalogItemId` in `job_inputs.params`. Spec/plan: `docs/superpowers/specs|plans/2026-11-05-merchant-analytics-dashboard*`.
+- **Verified:** API unit 4, integration 13 (incl. tenant isolation, mutation-checked) plus merchant-tryon suites; api and web typecheck, biome. Page screenshotted at 1920/1440/1280 light+dark against local data (only light-1920, light-1280, dark-1440 viewed).
+- **Not done / open:** product rankings start empty for existing merchants (no backfill; two-step saree jobs already carried the id); Customers block is an empty state until step 2 (optional kiosk phone capture, `merchant_customers` table, consent/erasure) which needs its own spec; web page has no automated test (no runner in catalogues-web); loading/error/"New"/down-pill visuals unchecked.
+
 # 2026-11-03 — WordPress plugin: connected pages follow the Shopify app layout (uncommitted)
 
 - Connect step: removed the "Get 100 Free credits" strip; Google button full width; mail/lock icons no
