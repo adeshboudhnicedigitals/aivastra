@@ -10,7 +10,12 @@ export interface DetectedGarmentExtractMappings {
   outputNodeId?: string;
 }
 
-export function detectGarmentExtractMappings(json: Record<string, unknown>): {
+// quick_tryon shares this shape but its lone input is the shopper's photo, so `input`
+// picks which titled node wins when a template also carries an unused sibling LoadImage.
+export function detectGarmentExtractMappings(
+  json: Record<string, unknown>,
+  input: 'garment' | 'person' = 'garment',
+): {
   detected: DetectedGarmentExtractMappings;
   allImageNodes: ParsedNode[];
 } {
@@ -18,7 +23,7 @@ export function detectGarmentExtractMappings(json: Record<string, unknown>): {
   const only = allImageNodes.length === 1 ? allImageNodes[0]?.id : undefined;
   return {
     detected: {
-      inputNodeId: tryon.garmentNodeId ?? only,
+      inputNodeId: (input === 'person' ? tryon.personNodeId : tryon.garmentNodeId) ?? only,
       outputNodeId: tryon.outputNodeId,
     },
     allImageNodes,

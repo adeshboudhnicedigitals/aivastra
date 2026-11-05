@@ -953,6 +953,7 @@ export function WorkflowUploadModal({
               workflowType === 'regeneration' ||
               workflowType === 'fabric_to_garment' ||
               workflowType === 'garment_extract' ||
+              workflowType === 'quick_tryon' ||
               workflowType === 'classify') && (
               <button
                 className="btn sm primary"
