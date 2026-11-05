@@ -14,7 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.core.view.WindowCompat
 import androidx.navigation.compose.rememberNavController
-import aivastra.nice.interactive.data.repository.AppVideoRepository
 import aivastra.nice.interactive.data.session.SessionManager
 import aivastra.nice.interactive.navigation.AppNavGraph
 import aivastra.nice.interactive.ui.components.NoInternetBanner
@@ -59,12 +58,5 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    override fun onDestroy() {
-        // Force the loading video to re-download on the next app open (rather than relying on
-        // whatever's left in cacheDir) so a backend video change shows up without a reinstall.
-        AppVideoRepository.clearCache(applicationContext)
-        super.onDestroy()
     }
 }

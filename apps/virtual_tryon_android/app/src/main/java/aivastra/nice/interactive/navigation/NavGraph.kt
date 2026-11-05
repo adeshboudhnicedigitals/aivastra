@@ -572,6 +572,23 @@ fun AppNavGraph(
                             if (!garmentId.isNullOrBlank() && !photoKey.isNullOrBlank()) {
                                 tryOnViewModel.startTryOn(garmentId, photoKey)
                                 navController.navigate(Screen.TryOnProcessing.route)
+                            } else {
+                                // Both are set before PhotoReview is ever shown, so this should
+                                // never trip — but a silent no-op here leaves the kiosk screen
+                                // stuck on a Proceed button that looks dead with no way to tell
+                                // why. Log which value went missing and recover by sending the
+                                // customer back to upload instead of stalling.
+                                CrashReporter.recordException(
+                                    IllegalStateException(
+                                        "Proceed tapped on PhotoReview with garmentIdMissing=" +
+                                            "${garmentId.isNullOrBlank()}, photoKeyMissing=" +
+                                            "${photoKey.isNullOrBlank()}"
+                                    ),
+                                    "PhotoReviewProceed"
+                                )
+                                navController.navigate(Screen.PhotoUpload.route) {
+                                    popUpTo(Screen.PhotoReview.route) { inclusive = true }
+                                }
                             }
                         }
                     },
@@ -645,6 +662,18 @@ fun AppNavGraph(
                         val photoKey = customerPhotoR2Key
                         if (!garmentId.isNullOrBlank() && !photoKey.isNullOrBlank()) {
                             tryOnViewModel.startTryOn(garmentId, photoKey)
+                        } else {
+                            CrashReporter.recordException(
+                                IllegalStateException(
+                                    "Retry tapped on TryOnProcessing with garmentIdMissing=" +
+                                        "${garmentId.isNullOrBlank()}, photoKeyMissing=" +
+                                        "${photoKey.isNullOrBlank()}"
+                                ),
+                                "TryOnProcessingRetry"
+                            )
+                            navController.navigate(Screen.PhotoUpload.route) {
+                                popUpTo(Screen.PhotoReview.route) { inclusive = true }
+                            }
                         }
                     }
                 }

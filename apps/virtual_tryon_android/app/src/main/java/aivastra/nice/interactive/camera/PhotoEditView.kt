@@ -417,10 +417,23 @@ private fun processAndSaveEditedBitmap(
                 rotatedBitmap
             }
 
+            // Both are full-resolution-scale intermediates distinct from the UI-bound source
+            // `bitmap` (which must stay alive — it's still on screen until this screen is left),
+            // so freeing them as soon as they're superseded keeps this from holding up to 3 full
+            // captures' worth of bitmaps in memory at once on a single edit/export.
+            if (rotatedBitmap !== bitmap && finalBitmap !== rotatedBitmap) {
+                rotatedBitmap.recycle()
+            }
+
             val file = File(context.cacheDir, "edited_photo_${System.currentTimeMillis()}.jpg")
             FileOutputStream(file).use { out ->
                 finalBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
             }
+
+            if (finalBitmap !== bitmap) {
+                finalBitmap.recycle()
+            }
+
             withContext(Dispatchers.Main) {
                 onResult(Uri.fromFile(file))
             }

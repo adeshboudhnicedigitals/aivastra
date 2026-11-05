@@ -18,7 +18,7 @@ import java.security.SecureRandom
 /**
  * Web (not Android-type) OAuth client id. Credential Manager's serverClientId must be
  * the exact same client id the backend verifies the Google ID token's `aud` claim
- * against (GOOGLE_CLIENT_ID in apps/api) â€” an Android-type client id here would
+ * against (GOOGLE_CLIENT_ID in apps/api) — an Android-type client id here would
  * produce a token the backend rejects as INVALID_GOOGLE_TOKEN.
  */
 private const val GOOGLE_WEB_CLIENT_ID =
