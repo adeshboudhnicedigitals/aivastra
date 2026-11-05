@@ -92,6 +92,38 @@ describe('garment extract (ghost mannequin pre-step)', () => {
       expect(body.tryonPersonNodeId).toBeNull();
     });
 
+    it('stores a quick_tryon input in the person column, skipping an unused garment-titled LoadImage', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/admin/workflows',
+        headers,
+        payload: {
+          slug: uniq('quick'),
+          label: 'Quick try-on test',
+          workflowType: 'quick_tryon',
+          jsonContent: {
+            '1': {
+              class_type: 'LoadImage',
+              inputs: { image: 'a.png' },
+              _meta: { title: 'person' },
+            },
+            '2': {
+              class_type: 'LoadImage',
+              inputs: { image: 'b.png' },
+              _meta: { title: 'garment' },
+            },
+            '3': { class_type: 'SomeNode', inputs: { image: ['1', 0] } },
+            '4': { class_type: 'SaveImage', inputs: { images: ['3', 0] } },
+          },
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.tryonPersonNodeId).toBe('1');
+      expect(body.tryonGarmentNodeId).toBeNull();
+      expect(body.tryonOutputNodeId).toBe('4');
+    });
+
     it('rejects a graph with no image input', async () => {
       const { '1': _img, ...noInput } = extractJson();
       const res = await uploadExtract(noInput);
