@@ -100,7 +100,8 @@ export interface WorkflowOption {
     | 'two_stage'
     | 'regeneration'
     | 'fabric_to_garment'
-    | 'garment_extract';
+    | 'garment_extract'
+    | 'quick_tryon';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;

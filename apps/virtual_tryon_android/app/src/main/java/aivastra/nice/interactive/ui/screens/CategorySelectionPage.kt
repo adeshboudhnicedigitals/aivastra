@@ -123,6 +123,7 @@ fun CategorySelectionPage(
     onCategorySelected: (categoryId: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
     onUploadProductsClick: () -> Unit = {},
+    onQuickTryOnClick: () -> Unit = {},
     onReportsClick: () -> Unit = {},
     onManageCreditsClick: () -> Unit = {},
     onLogoutSuccess: () -> Unit = {},
@@ -324,6 +325,14 @@ fun CategorySelectionPage(
                                                     title = "Upload Products",
                                                     subtitle = "Add your products",
                                                     onClick = { showProfileMenu = false; onUploadProductsClick() }
+                                                )
+                                                ProfileMenuItem(
+                                                    leadingIcon = {
+                                                        Icon(painterResource(R.drawable.camera_icon_), null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
+                                                    },
+                                                    title = "Quick Try-On",
+                                                    subtitle = "Take one photo, get a look",
+                                                    onClick = { showProfileMenu = false; onQuickTryOnClick() }
                                                 )
                                                 ProfileMenuItem(
                                                     leadingIcon = {

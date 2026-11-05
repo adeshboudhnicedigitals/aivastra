@@ -105,6 +105,10 @@ fun AppNavGraph(
     var selectedProduct by remember { mutableStateOf<CatalogProduct?>(null) }
     var activeSubcategoryProductList by remember { mutableStateOf<List<CatalogProduct>>(emptyList()) }
     var fromTryMoreOutfits by remember { mutableStateOf(false) }
+    // Quick try-on: one camera photo, no outfit. Set by the home menu entry and cleared as
+    // soon as an outfit is chosen, so the shared photo/processing/result screens know which
+    // job to start and where "Try More" leads.
+    var quickTryOn by remember { mutableStateOf(false) }
 
     var selectedCategory by remember { mutableStateOf("women") }
     var capturedPhotoUri by remember { mutableStateOf<String?>(null) }
@@ -290,6 +294,10 @@ fun AppNavGraph(
                 onUploadProductsClick = {
                     navController.navigate(Screen.TryOnLibrary.route)
                 },
+                onQuickTryOnClick = {
+                    quickTryOn = true
+                    navController.navigate(Screen.PhotoUpload.route)
+                },
                 onReportsClick = {
                     navController.navigate(Screen.Reports.route)
                 },
@@ -457,6 +465,7 @@ fun AppNavGraph(
                 onOutfitSelected = { product, productList ->
                     selectedCategory = backStackEntry.arguments?.getString("category").orEmpty()
                     selectedProduct = product
+                    quickTryOn = false
                     fromTryMoreOutfits = false
                     activeSubcategoryProductList = productList
                     navController.navigate(Screen.OutfitDetail.route)
@@ -562,7 +571,11 @@ fun AppNavGraph(
                     onBack = handleBackToUpload,
                     onRetake = handleBackToUpload,
                     onProceed = {
-                        if (hasEnteredTryMoreFlow) {
+                        val quickPhotoKey = customerPhotoR2Key
+                        if (quickTryOn && !quickPhotoKey.isNullOrBlank()) {
+                            tryOnViewModel.startTryOn(null, quickPhotoKey)
+                            navController.navigate(Screen.TryOnProcessing.route)
+                        } else if (hasEnteredTryMoreFlow) {
                             navController.navigate(Screen.TryMoreOutfits.route) {
                                 popUpTo(Screen.PhotoReview.route) { inclusive = false }
                             }
@@ -660,7 +673,9 @@ fun AppNavGraph(
                     } else {
                         val garmentId = selectedProduct?.id
                         val photoKey = customerPhotoR2Key
-                        if (!garmentId.isNullOrBlank() && !photoKey.isNullOrBlank()) {
+                        if (quickTryOn && !photoKey.isNullOrBlank()) {
+                            tryOnViewModel.startTryOn(null, photoKey)
+                        } else if (!garmentId.isNullOrBlank() && !photoKey.isNullOrBlank()) {
                             tryOnViewModel.startTryOn(garmentId, photoKey)
                         } else {
                             CrashReporter.recordException(
@@ -686,25 +701,42 @@ fun AppNavGraph(
             exitTransition = { ExitTransition.None }
         ) { entry ->
             tryOnUiState.shareUrl?.let { url ->
+                // Quick try-on has no outfit to swap, so leaving the result (back or
+                // "Try More") reopens the camera for a fresh photo; PhotoUpload's
+                // onUploadSuccess clears this session's results.
+                val reopenCamera: () -> Unit = {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastNavTime >= 350L) {
+                        lastNavTime = now
+                        navController.navigate(Screen.PhotoUpload.route) {
+                            popUpTo(Screen.PhotoUpload.route) { inclusive = true }
+                        }
+                    }
+                }
                 TryOnResultPage(
                     resultImageUrl = url,
-                    onBack = {
-                        hasEnteredTryMoreFlow = true
-                        val now = android.os.SystemClock.uptimeMillis()
-                        if (now - lastNavTime >= 350L) {
-                            lastNavTime = now
-                            navController.navigate(Screen.TryMoreOutfits.route) {
-                                popUpTo(Screen.PhotoReview.route) { inclusive = false }
+                    tryAnotherLabel = if (quickTryOn) "Try More" else "Try Another",
+                    onBack = if (quickTryOn) reopenCamera else {
+                        {
+                            hasEnteredTryMoreFlow = true
+                            val now = android.os.SystemClock.uptimeMillis()
+                            if (now - lastNavTime >= 350L) {
+                                lastNavTime = now
+                                navController.navigate(Screen.TryMoreOutfits.route) {
+                                    popUpTo(Screen.PhotoReview.route) { inclusive = false }
+                                }
                             }
                         }
                     },
-                    onTryAnother = {
-                        hasEnteredTryMoreFlow = true
-                        val now = android.os.SystemClock.uptimeMillis()
-                        if (now - lastNavTime >= 350L) {
-                            lastNavTime = now
-                            navController.navigate(Screen.TryMoreOutfits.route) {
-                                popUpTo(Screen.PhotoReview.route) { inclusive = false }
+                    onTryAnother = if (quickTryOn) reopenCamera else {
+                        {
+                            hasEnteredTryMoreFlow = true
+                            val now = android.os.SystemClock.uptimeMillis()
+                            if (now - lastNavTime >= 350L) {
+                                lastNavTime = now
+                                navController.navigate(Screen.TryMoreOutfits.route) {
+                                    popUpTo(Screen.PhotoReview.route) { inclusive = false }
+                                }
                             }
                         }
                     },

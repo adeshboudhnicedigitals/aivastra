@@ -331,6 +331,12 @@ export const MerchantTryonJobCreateBody = z.object({
 });
 export type MerchantTryonJobCreateBody = z.infer<typeof MerchantTryonJobCreateBody>;
 
+// Quick try-on: one camera photo, no garment — the admin-chosen workflow supplies the look.
+export const MerchantQuickTryonJobCreateBody = z.object({
+  customerPhotoKey: z.string().min(1),
+});
+export type MerchantQuickTryonJobCreateBody = z.infer<typeof MerchantQuickTryonJobCreateBody>;
+
 export const MerchantTryonJobDetailResponse = z.object({
   id: z.string().uuid(),
   status: z.string(),

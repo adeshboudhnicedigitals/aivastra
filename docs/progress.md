@@ -1,3 +1,20 @@
+# 2026-11-05 — Merchant quick try-on: one camera photo, admin-chosen workflow (uncommitted)
+
+- **What:** new `workflow_templates.workflow_type = 'quick_tryon'` (single LoadImage in → Save Image out,
+  detected at upload; input stored in `tryon_person_node_id`). Admin picks the one workflow under
+  **Quick try-on workflow** (`config:system.quickTryonWorkflowTemplateId`, repointed on workflow replace
+  like the Shopify pointer). `POST /v1/merchant/quick-tryon/jobs {customerPhotoKey}` charges the normal
+  merchant try-on cost, pins workflow + version onto `job_inputs.params` (`kind: 'quick_tryon'`,
+  `upper_garment_key` null); 409 `QUICK_TRYON_UNAVAILABLE` when none is configured. Presign and
+  status/result reuse `/v1/merchant/tryon/*`. Dispatcher's `processWidgetJob` skips the garment node for
+  that kind. Android: home profile menu → **Quick Try-On** → existing camera/review/processing → result
+  with **Download** and **Try More** (reopens camera).
+- **Verified:** API integration `merchant-quick-tryon` (3) + `merchant-tryon` (15, after extracting
+  `assertOwnedCustomerPhoto`), dispatcher unit 255, api/admin typecheck.
+- **Not verified:** Android code was not compiled (no SDK here) and nothing ran against a real ComfyUI
+  worker. The quick-tryon workflow must be uploaded as type "Quick try-on" and selected in admin before
+  the app entry works.
+
 # 2026-11-03 — WordPress plugin: connected pages follow the Shopify app layout (uncommitted)
 
 - Connect step: removed the "Get 100 Free credits" strip; Google button full width; mail/lock icons no

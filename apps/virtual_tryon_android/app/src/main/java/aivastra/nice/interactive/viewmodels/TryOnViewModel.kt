@@ -41,7 +41,8 @@ class TryOnViewModel @JvmOverloads constructor(
 
     private var pollingJob: Job? = null
 
-    fun startTryOn(garmentId: String, customerPhotoKey: String) {
+    /** [garmentId] null starts a quick try-on (customer photo only). */
+    fun startTryOn(garmentId: String?, customerPhotoKey: String) {
         pollingJob?.cancel()
         _uiState.value = TryOnUiState(state = TryOnState.CREATING_JOB)
 

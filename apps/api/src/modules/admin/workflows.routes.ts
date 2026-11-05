@@ -460,18 +460,23 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
     };
   }
 
-  if (workflowType === 'garment_extract') {
+  if (workflowType === 'garment_extract' || workflowType === 'quick_tryon') {
     // Single image in / single image out, no prompt roles. Stored in the tryon node
-    // columns so the dispatcher's garment-extract phase patches stored ids like every
-    // other template (see apps/dispatcher/src/job/garment-extract-phase.ts).
+    // columns so the dispatcher patches stored ids like every other template. The input
+    // is a garment for garment_extract (apps/dispatcher/src/job/garment-extract-phase.ts)
+    // and the shopper's camera photo for quick_tryon (the person column).
+    const inputIsPerson = workflowType === 'quick_tryon';
     const { detected: autoDetected } = detectGarmentExtractMappings(body.jsonContent);
-    const inputNodeId = body.tryonGarmentNodeId ?? autoDetected.inputNodeId ?? '';
+    const inputNodeId =
+      (inputIsPerson ? body.tryonPersonNodeId : body.tryonGarmentNodeId) ??
+      autoDetected.inputNodeId ??
+      '';
     const outputNodeId = body.tryonOutputNodeId ?? autoDetected.outputNodeId ?? '';
     if (!inputNodeId)
       throw new AppError(
         'VALIDATION',
         400,
-        'Could not detect input-image node — set tryonGarmentNodeId manually',
+        `Could not detect input-image node — set ${inputIsPerson ? 'tryonPersonNodeId' : 'tryonGarmentNodeId'} manually`,
       );
     if (!outputNodeId)
       throw new AppError(
@@ -1546,7 +1551,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           detectTryonTwoInputMappings(jsonContent);
         return { detected, allImageNodes, allPromptNodes };
       }
-      if (parseWorkflowType === 'garment_extract') {
+      if (parseWorkflowType === 'garment_extract' || parseWorkflowType === 'quick_tryon') {
         const { detected, allImageNodes } = detectGarmentExtractMappings(jsonContent);
         return { detected, allImageNodes, allPromptNodes: [] };
       }
