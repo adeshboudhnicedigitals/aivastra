@@ -11,7 +11,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { repointShopifyWorkflow } from '../../lib/resolution-config.js';
+import { repointQuickTryonWorkflow, repointShopifyWorkflow } from '../../lib/resolution-config.js';
 import { recordAudit } from './audit.js';
 import { getRolePermissions, requirePermission } from './guard.js';
 import {
@@ -325,6 +325,12 @@ export async function adminWorkflowChangeRequestsRoutes(app: FastifyInstance) {
         });
         if (moved)
           app.log.info({ ...repoint }, 'shopify workflow repointed after change-request approval');
+        await repointQuickTryonWorkflow(app, repoint.from, repoint.to).catch((err) => {
+          app.log.error(
+            { err, ...repoint },
+            'quick try-on workflow repoint failed after change-request approval',
+          );
+        });
       }
 
       return updated;

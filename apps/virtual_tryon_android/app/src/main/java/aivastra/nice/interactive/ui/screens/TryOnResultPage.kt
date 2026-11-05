@@ -69,6 +69,7 @@ fun TryOnResultPage(
     resultImageUrl: String,
     onBack: () -> Unit,
     onTryAnother: () -> Unit,
+    tryAnotherLabel: String = "Try Another",
     onDownload: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -201,13 +202,13 @@ fun TryOnResultPage(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
-                            contentDescription = "Try Another",
+                            contentDescription = tryAnotherLabel,
                             tint = Color(0xFF7E3D00),
                             modifier = Modifier.size(sdp(R.dimen._22sdp))
                         )
                         Spacer(Modifier.width(sdp(R.dimen._8sdp)))
                         Text(
-                            text = "Try Another",
+                            text = tryAnotherLabel,
                             color = Color(0xFF7E3D00),
                             fontSize = ssp(R.dimen._16ssp),
                             fontWeight = FontWeight.Bold,

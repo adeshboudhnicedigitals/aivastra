@@ -3508,7 +3508,10 @@ async function processWidgetJob(
     return;
   }
   const customerPhotoKey = job.customerPhotoKey;
-  if (!inputs.upperGarmentKey) {
+  // Quick try-on: the workflow takes the customer photo alone, so there is no garment
+  // (the API stamps kind on the job; see POST /v1/merchant/quick-tryon/jobs).
+  const isQuickTryon = rawParams.kind === 'quick_tryon';
+  if (!isQuickTryon && !inputs.upperGarmentKey) {
     await markWidgetFailed(
       cfg,
       jobId,
@@ -3522,7 +3525,7 @@ async function processWidgetJob(
     );
     return;
   }
-  const upperGarmentKey = inputs.upperGarmentKey;
+  const upperGarmentKey = isQuickTryon ? null : inputs.upperGarmentKey;
 
   // Resolve the per-job tryon workflow template — kiosk resolves this at job-creation
   // time via garment type -> tryon_categories -> workflow_templates, the SAME mechanism
@@ -3578,7 +3581,7 @@ async function processWidgetJob(
   const customerPhotoNodeId = templateRow.tryonPersonNodeId;
   const outputNodeId = templateRow.tryonOutputNodeId;
 
-  if (!garmentNodeId || !customerPhotoNodeId || !outputNodeId) {
+  if ((!isQuickTryon && !garmentNodeId) || !customerPhotoNodeId || !outputNodeId) {
     jobLog.error(
       { workflowTemplateId },
       'resolved tryon workflow template is missing node ID mappings',
@@ -3716,7 +3719,9 @@ async function processWidgetJob(
     jobLog.info('uploading merchant widget inputs to ComfyUI');
     const uploads = await measureJobStage(jobLog, 'input_read_and_upload', () =>
       Promise.all([
-        uploadToComfy(upperGarmentKey, 'merchant_garment'),
+        upperGarmentKey
+          ? uploadToComfy(upperGarmentKey, 'merchant_garment')
+          : Promise.resolve(null),
         uploadToComfy(customerPhotoKey, 'merchant_customer'),
         ...(garmentNodeId2 && inputs.thirdGarmentKey
           ? [uploadToComfy(inputs.thirdGarmentKey, 'merchant_garment2')]
@@ -3734,8 +3739,9 @@ async function processWidgetJob(
       string,
       { inputs?: Record<string, unknown> }
     >;
-    // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
-    if (workflow[garmentNodeId]?.inputs) workflow[garmentNodeId].inputs!.image = garmentFilename;
+    if (garmentNodeId && garmentFilename && workflow[garmentNodeId]?.inputs)
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[garmentNodeId].inputs!.image = garmentFilename;
     if (workflow[customerPhotoNodeId]?.inputs)
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
       workflow[customerPhotoNodeId].inputs!.image = customerPhotoFilename;

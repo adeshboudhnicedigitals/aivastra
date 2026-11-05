@@ -8,10 +8,12 @@ import { atomicMerchantDeduct } from './ledger.js';
 interface CreateMerchantTryonJobInput {
   merchantId: string;
   merchantUserId: string;
-  upperGarmentKey: string;
+  /** Null for a quick try-on: the workflow takes the customer photo alone. */
+  upperGarmentKey: string | null;
   customerPhotoKey: string;
   workflowTemplateId: string;
   dispatchTemplateVersion?: number | null;
+  kind?: 'quick_tryon';
 }
 
 export async function createMerchantTryonJob(
@@ -44,6 +46,7 @@ export async function createMerchantTryonJob(
       params: {
         workflowTemplateId: input.workflowTemplateId,
         dispatchTemplateVersion: input.dispatchTemplateVersion ?? null,
+        ...(input.kind ? { kind: input.kind } : {}),
       },
     });
 

@@ -98,6 +98,12 @@ const groups: NavGroup[] = [
         icon: Icon.Workflow,
         perm: 'config.write',
       },
+      {
+        k: 'quick-tryon-workflow',
+        label: 'Quick try-on workflow',
+        icon: Icon.Workflow,
+        perm: 'config.write',
+      },
     ],
   },
   {
