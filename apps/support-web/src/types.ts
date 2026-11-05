@@ -603,6 +603,43 @@ export interface StorePurchase {
   shopifyChargeId: string | null;
 }
 
+/** GET /admin/shopify-stores/:id/manage — the merchant Manage page's DB-backed state. */
+export interface StoreManageSummary {
+  mode: 'global' | 'selective';
+  counts: {
+    enabledCollections: number;
+    excludedCollections: number;
+    failedToSync: number;
+    tryonEnabledProducts: number;
+    syncedProductCount: number;
+  };
+  statusCounts: Record<string, number>;
+  lastSyncedAt: string | null;
+  enabledCollections: StoreManageCollection[];
+  excludedCollections: StoreManageCollection[];
+}
+
+export interface StoreManageCollection {
+  shopifyCollectionId: number;
+  title: string;
+  productCount: number;
+}
+
+/** One row of GET /admin/shopify-stores/:id/products. */
+export interface StoreManageProduct {
+  shopifyProductId: number;
+  title: string | null;
+  thumbnailUrl: string;
+  status: string;
+  failedReason: string | null;
+  enabled: boolean;
+  excluded: boolean;
+  productType: string | null;
+  vendor: string | null;
+  collections: string[] | null;
+  syncedAt: string;
+}
+
 /** One row of GET /admin/shopify/purchases (all stores). */
 export interface PackPurchase {
   id: string;
