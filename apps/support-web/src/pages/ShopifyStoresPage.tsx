@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import { Icon } from '../components/Icons';
 import { StatusBadge } from '../components/StatusBadge';
+import { StoreManageCard } from '../components/StoreManageCard';
 import { StorePurchasesCard } from '../components/StorePurchasesCard';
 import { useAuth } from '../context/AuthContext';
 import { useCrumb } from '../context/BreadcrumbContext';
@@ -1190,6 +1191,8 @@ export default function ShopifyStoresPage({ toast }: Props) {
             </button>
           )}
         </div>
+
+        <StoreManageCard storeId={selectedStore.id} toast={toast} />
 
         {grantOpen && (
           <div className="modal-overlay" onClick={closeConfirm}>
