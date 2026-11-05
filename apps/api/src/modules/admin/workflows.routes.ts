@@ -466,7 +466,10 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
     // is a garment for garment_extract (apps/dispatcher/src/job/garment-extract-phase.ts)
     // and the shopper's camera photo for quick_tryon (the person column).
     const inputIsPerson = workflowType === 'quick_tryon';
-    const { detected: autoDetected } = detectGarmentExtractMappings(body.jsonContent);
+    const { detected: autoDetected } = detectGarmentExtractMappings(
+      body.jsonContent,
+      inputIsPerson ? 'person' : 'garment',
+    );
     const inputNodeId =
       (inputIsPerson ? body.tryonPersonNodeId : body.tryonGarmentNodeId) ??
       autoDetected.inputNodeId ??
@@ -1552,7 +1555,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         return { detected, allImageNodes, allPromptNodes };
       }
       if (parseWorkflowType === 'garment_extract' || parseWorkflowType === 'quick_tryon') {
-        const { detected, allImageNodes } = detectGarmentExtractMappings(jsonContent);
+        const { detected, allImageNodes } = detectGarmentExtractMappings(
+          jsonContent,
+          parseWorkflowType === 'quick_tryon' ? 'person' : 'garment',
+        );
         return { detected, allImageNodes, allPromptNodes: [] };
       }
       if (parseWorkflowType === 'fabric_to_garment') {
