@@ -72,6 +72,36 @@ describe('admin Shopify Stores routes', () => {
         createdAt: new Date('2026-08-10T12:00:00Z'),
       },
     ]);
+
+    // Manage-page mirror fixtures: one individually enabled product, one failed
+    // product that is also excluded, one enabled collection.
+    await app.db.insert(schema.shopifyProductGarments).values([
+      {
+        storeId: creditedStoreId,
+        shopifyProductId: 1001,
+        r2Key: `test/${nonce}/1001.png`,
+        title: 'Enabled dress',
+        status: 'active',
+        enabled: true,
+      },
+      {
+        storeId: creditedStoreId,
+        shopifyProductId: 1002,
+        r2Key: `test/${nonce}/1002.png`,
+        title: 'Broken kurta',
+        status: 'failed',
+        failedReason: 'image download failed',
+        excluded: true,
+      },
+    ]);
+    await app.db.insert(schema.shopifyCollections).values({
+      storeId: creditedStoreId,
+      shopifyCollectionId: 77,
+      title: 'Summer',
+    });
+    await app.db
+      .insert(schema.shopifyEnabledCollections)
+      .values({ storeId: creditedStoreId, shopifyCollectionId: 77 });
   }, 60_000);
 
   afterAll(async () => {
@@ -119,6 +149,65 @@ describe('admin Shopify Stores routes', () => {
     ]);
     expect(body.entries.map((entry) => entry.delta)).toEqual([20, -3, 25]);
     expect(body.nextCursor).toBeNull();
+  });
+
+  it("mirrors a store's Manage page state without calling Shopify", async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/shopify-stores/${creditedStoreId}/manage`,
+      headers: adminAuth,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.mode).toBe('selective');
+    expect(body.counts).toMatchObject({
+      enabledCollections: 1,
+      excludedCollections: 0,
+      failedToSync: 1,
+      syncedProductCount: 1,
+    });
+    expect(body.statusCounts).toEqual({ active: 1, failed: 1 });
+    expect(body.enabledCollections).toEqual([
+      { shopifyCollectionId: 77, title: 'Summer', productCount: 0 },
+    ]);
+    expect(body.lastSyncedAt).not.toBeNull();
+  });
+
+  it("filters a store's synced products like the merchant list does", async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/shopify-stores/${creditedStoreId}/products?excluded=true`,
+      headers: adminAuth,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.total).toBe(1);
+    expect(body.items[0]).toMatchObject({
+      shopifyProductId: 1002,
+      status: 'failed',
+      failedReason: 'image download failed',
+      excluded: true,
+      enabled: false,
+    });
+    expect(body.items[0].thumbnailUrl).toEqual(expect.any(String));
+  });
+
+  it('404s the Manage mirror for an unknown store and forbids non-admins', async () => {
+    const missing = await app.inject({
+      method: 'GET',
+      url: `/admin/shopify-stores/${crypto.randomUUID()}/manage`,
+      headers: adminAuth,
+    });
+    const forbidden = await app.inject({
+      method: 'GET',
+      url: `/admin/shopify-stores/${creditedStoreId}/products`,
+      headers: nonAdminAuth,
+    });
+
+    expect(missing.statusCode).toBe(404);
+    expect(forbidden.statusCode).toBe(403);
   });
 
   it('forbids non-admin sessions from both routes', async () => {

@@ -54,7 +54,12 @@ const CollectionIdsBody = z.object({ shopifyCollectionIds: z.array(z.number().in
 const SearchQuery = z.object({ q: z.string().default('') });
 const CollectionIdParams = z.object({ shopifyCollectionId: z.coerce.number().int() });
 
-async function summaryCounts(
+/**
+ * Every Manage-page figure that comes from our own DB. Split from
+ * `summaryCounts` so the admin panel can mirror the page without the live
+ * Shopify call (an uninstalled store has no usable token).
+ */
+export async function activationDbCounts(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
 ) {
@@ -101,16 +106,60 @@ async function summaryCounts(
 
   const tryonEnabledProducts = await countEffectivelyEnabled(app, store);
 
-  const totalProductCount = await fetchTotalProductCount(app, store);
-
   return {
     enabledCollections,
     excludedCollections,
     failedToSync,
     tryonEnabledProducts,
     syncedProductCount: totalSynced,
-    totalProductCount,
   };
+}
+
+async function summaryCounts(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+) {
+  const counts = await activationDbCounts(app, store);
+  const totalProductCount = await fetchTotalProductCount(app, store);
+  return { ...counts, totalProductCount };
+}
+
+/** The collections in one selection table (enabled or excluded), with titles and member counts. */
+export async function loadCollectionSelection(
+  app: FastifyInstance,
+  storeId: string,
+  table: typeof schema.shopifyEnabledCollections | typeof schema.shopifyExcludedCollections,
+) {
+  const selections = await app.db.select().from(table).where(eq(table.storeId, storeId));
+
+  return Promise.all(
+    selections.map(async (s) => {
+      const [collectionRow] = await app.db
+        .select({ title: schema.shopifyCollections.title })
+        .from(schema.shopifyCollections)
+        .where(
+          and(
+            eq(schema.shopifyCollections.storeId, storeId),
+            eq(schema.shopifyCollections.shopifyCollectionId, s.shopifyCollectionId),
+          ),
+        )
+        .limit(1);
+      const [{ productCount }] = await app.db
+        .select({ productCount: count() })
+        .from(schema.shopifyCollectionProducts)
+        .where(
+          and(
+            eq(schema.shopifyCollectionProducts.storeId, storeId),
+            eq(schema.shopifyCollectionProducts.shopifyCollectionId, s.shopifyCollectionId),
+          ),
+        );
+      return {
+        shopifyCollectionId: s.shopifyCollectionId,
+        title: collectionRow?.title ?? '',
+        productCount,
+      };
+    }),
+  );
 }
 
 function registerCollectionSetRoutes(
@@ -121,37 +170,7 @@ function registerCollectionSetRoutes(
 ) {
   app.get(basePath, { preHandler: app.requireShopifySession }, async (req) => {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-    const selections = await app.db.select().from(table).where(eq(table.storeId, store.id));
-
-    const items = await Promise.all(
-      selections.map(async (s) => {
-        const [collectionRow] = await app.db
-          .select({ title: schema.shopifyCollections.title })
-          .from(schema.shopifyCollections)
-          .where(
-            and(
-              eq(schema.shopifyCollections.storeId, store.id),
-              eq(schema.shopifyCollections.shopifyCollectionId, s.shopifyCollectionId),
-            ),
-          )
-          .limit(1);
-        const [{ productCount }] = await app.db
-          .select({ productCount: count() })
-          .from(schema.shopifyCollectionProducts)
-          .where(
-            and(
-              eq(schema.shopifyCollectionProducts.storeId, store.id),
-              eq(schema.shopifyCollectionProducts.shopifyCollectionId, s.shopifyCollectionId),
-            ),
-          );
-        return {
-          shopifyCollectionId: s.shopifyCollectionId,
-          title: collectionRow?.title ?? '',
-          productCount,
-        };
-      }),
-    );
-    return { items };
+    return { items: await loadCollectionSelection(app, store.id, table) };
   });
 
   app.post(
