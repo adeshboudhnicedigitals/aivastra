@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import { GrantShopifyStoreCreditsBody } from '@aivastra/types';
-import { desc, eq, sql } from 'drizzle-orm';
+import { count, desc, eq, max, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { eraseComparisonsForSourceJobs } from '../comparison/erase.js';
 import { grantStore } from '../credits/shopify-ledger.js';
+import { activationDbCounts, loadCollectionSelection } from '../shopify/activation.routes.js';
+import { buildProductFilter, ProductListQuerySchema } from '../shopify/products.filter.js';
 import { shopifyStoreLifecycleLockKey } from '../shopify/store-lock.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
@@ -252,6 +254,96 @@ export async function adminShopifyStoresRoutes(app: FastifyInstance) {
         .orderBy(desc(schema.shopifyCreditPurchases.createdAt))
         .limit(50);
       return { purchases };
+    },
+  );
+
+  // Read-only mirror of the merchant's Manage page, for debugging. Same helpers
+  // as /v1/shopify/activation and /v1/shopify/products (those resolve the store
+  // from the Shopify session; these take it from the URL), so the figures can't
+  // drift from what the merchant sees. Deliberately no live Shopify call — see
+  // activationDbCounts — so it also works for uninstalled stores.
+  app.get(
+    '/admin/shopify-stores/:id/manage',
+    { preHandler: RO, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [store] = await app.db
+        .select()
+        .from(schema.shopifyStores)
+        .where(eq(schema.shopifyStores.id, id))
+        .limit(1);
+      if (!store) throw new AppError('NOT_FOUND', 404, 'store not found');
+
+      const [counts, enabledCollections, excludedCollections, statusRows, [sync]] =
+        await Promise.all([
+          activationDbCounts(app, store),
+          loadCollectionSelection(app, id, schema.shopifyEnabledCollections),
+          loadCollectionSelection(app, id, schema.shopifyExcludedCollections),
+          app.db
+            .select({ status: schema.shopifyProductGarments.status, n: count() })
+            .from(schema.shopifyProductGarments)
+            .where(eq(schema.shopifyProductGarments.storeId, id))
+            .groupBy(schema.shopifyProductGarments.status),
+          app.db
+            .select({ lastSyncedAt: max(schema.shopifyProductGarments.syncedAt) })
+            .from(schema.shopifyProductGarments)
+            .where(eq(schema.shopifyProductGarments.storeId, id)),
+        ]);
+
+      return {
+        mode: store.settings.activation?.mode ?? 'selective',
+        counts,
+        statusCounts: Object.fromEntries(statusRows.map((r) => [r.status, r.n])),
+        lastSyncedAt: sync?.lastSyncedAt ?? null,
+        enabledCollections,
+        excludedCollections,
+      };
+    },
+  );
+
+  app.get(
+    '/admin/shopify-stores/:id/products',
+    {
+      preHandler: RO,
+      schema: { params: z.object({ id: z.string().uuid() }), querystring: ProductListQuerySchema },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { page, pageSize, ...filter } = req.query as z.infer<typeof ProductListQuerySchema>;
+      const where = buildProductFilter(id, filter);
+
+      const [{ total }] = await app.db
+        .select({ total: count() })
+        .from(schema.shopifyProductGarments)
+        .where(where);
+
+      const rows = await app.db
+        .select({
+          shopifyProductId: schema.shopifyProductGarments.shopifyProductId,
+          title: schema.shopifyProductGarments.title,
+          r2Key: schema.shopifyProductGarments.r2Key,
+          status: schema.shopifyProductGarments.status,
+          failedReason: schema.shopifyProductGarments.failedReason,
+          enabled: schema.shopifyProductGarments.enabled,
+          excluded: schema.shopifyProductGarments.excluded,
+          productType: schema.shopifyProductGarments.productType,
+          vendor: schema.shopifyProductGarments.vendor,
+          collections: schema.shopifyProductGarments.collections,
+          syncedAt: schema.shopifyProductGarments.syncedAt,
+        })
+        .from(schema.shopifyProductGarments)
+        .where(where)
+        .orderBy(schema.shopifyProductGarments.shopifyProductId)
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
+
+      const items = await Promise.all(
+        rows.map(async ({ r2Key, ...r }) => ({
+          ...r,
+          thumbnailUrl: (await app.storage.presignGet(r2Key, 3600)).url,
+        })),
+      );
+      return { page, pageSize, total, items };
     },
   );
 
