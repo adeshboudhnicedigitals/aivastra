@@ -246,6 +246,38 @@ export async function getShopifyWorkflowTemplateId(app: FastifyInstance): Promis
   }
 }
 
+/** The single workflow every merchant quick try-on runs, as chosen in the admin panel. */
+export async function getQuickTryonWorkflowTemplateId(
+  app: FastifyInstance,
+): Promise<string | null> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const id = cfg.quickTryonWorkflowTemplateId;
+    return typeof id === 'string' && id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Repoints the Shopify and quick try-on workflows when the workflow either names is
+ * replaced. Same contract as the Shopify-only version it generalises: called after the
+ * replacing transaction commits, a no-op for a pointer naming some other workflow.
+ */
+export async function repointQuickTryonWorkflow(
+  app: FastifyInstance,
+  fromId: string,
+  toId: string,
+): Promise<boolean> {
+  const raw = await app.redis.get(CONFIG_KEY);
+  const cfg = raw ? JSON.parse(raw) : {};
+  if (cfg.quickTryonWorkflowTemplateId !== fromId) return false;
+  cfg.quickTryonWorkflowTemplateId = toId;
+  await app.redis.set(CONFIG_KEY, JSON.stringify(cfg));
+  return true;
+}
+
 /**
  * Repoints the Shopify workflow when the workflow it names is replaced. Called
  * after the replacing transaction commits (config lives in Redis, not Postgres).

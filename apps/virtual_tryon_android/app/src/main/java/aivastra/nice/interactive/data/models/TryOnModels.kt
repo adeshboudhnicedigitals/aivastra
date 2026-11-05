@@ -7,6 +7,11 @@ data class TryOnJobRequest(
     @SerializedName("customerPhotoKey") val customerPhotoKey: String
 )
 
+/** Quick try-on: the camera photo alone, the admin-chosen workflow supplies the look. */
+data class QuickTryOnJobRequest(
+    @SerializedName("customerPhotoKey") val customerPhotoKey: String
+)
+
 data class TryOnJobResponse(
     @SerializedName("jobId") val jobId: String
 )

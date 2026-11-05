@@ -62,6 +62,11 @@ interface ApiService {
         @Body request: aivastra.nice.interactive.data.models.TryOnJobRequest
     ): Response<aivastra.nice.interactive.data.models.TryOnJobResponse>
 
+    @POST("v1/merchant/quick-tryon/jobs")
+    suspend fun createQuickTryOnJob(
+        @Body request: aivastra.nice.interactive.data.models.QuickTryOnJobRequest
+    ): Response<aivastra.nice.interactive.data.models.TryOnJobResponse>
+
     @GET("v1/merchant/tryon/jobs/{jobId}")
     suspend fun getTryOnJobStatus(
         @Path("jobId") jobId: String

@@ -238,6 +238,8 @@ export const SystemConfigBody = z.object({
   // `shopify`) because PATCH /admin/config replaces whole top-level objects, so
   // the credits tab's `shopify` write would otherwise erase it.
   shopifyWorkflowTemplateId: z.string().uuid().nullable().optional(),
+  // Chosen from the admin "Quick try-on workflow" page; same top-level-key reasoning.
+  quickTryonWorkflowTemplateId: z.string().uuid().nullable().optional(),
   // Admin-configurable per-surface upload size ceilings. Each replaces a previously
   // hardcoded byte constant (see apps/api/src/lib/upload-limits-config.ts for
   // defaults/readers). Omitted = fall back to the hardcoded default. No minimum
@@ -451,6 +453,7 @@ export const CreateWorkflowBody = z
         'fabric_to_garment',
         'garment_extract',
         'classify',
+        'quick_tryon',
       ])
       .default('regular'),
     // Only meaningful for workflowType='regular' — see garmentView on the
@@ -506,7 +509,7 @@ export const CreateWorkflowBody = z
     // garment_extract: single image in, single image out, no prompt roles. Both nodes
     // are detected at upload time (extractWorkflowInsertFields) and stored in the
     // tryon columns, so nothing is Zod-required here either.
-    if (val.workflowType === 'garment_extract') {
+    if (val.workflowType === 'garment_extract' || val.workflowType === 'quick_tryon') {
       return;
     }
     // Only the two prompt-node fields are Zod-required here — tryonPersonNodeId
@@ -642,6 +645,7 @@ export const ParseWorkflowBody = z.object({
       'fabric_to_garment',
       'garment_extract',
       'classify',
+      'quick_tryon',
     ])
     .optional(),
 });

@@ -2,6 +2,7 @@ package aivastra.nice.interactive.data.repository
 
 import aivastra.nice.interactive.api.ApiClient
 import aivastra.nice.interactive.api.ApiService
+import aivastra.nice.interactive.data.models.QuickTryOnJobRequest
 import aivastra.nice.interactive.data.models.TryOnJobRequest
 import aivastra.nice.interactive.data.models.TryOnStatusResponse
 import aivastra.nice.interactive.utils.ErrorParser
@@ -29,18 +30,23 @@ class TryOnRepository(
      * this is a single one-shot call, so it gets its own short retry here.
      */
     suspend fun createTryOnJob(
-        garmentId: String,
+        garmentId: String?,
         customerPhotoKey: String
     ): TryOnResult<String> = withContext(Dispatchers.IO) {
         var lastNetworkError: IOException? = null
         repeat(CREATE_JOB_NETWORK_RETRY_ATTEMPTS) { attempt ->
             try {
-                val response = apiService.createTryOnJob(
-                    TryOnJobRequest(
-                        merchantCatalogItemId = garmentId,
-                        customerPhotoKey = customerPhotoKey
+                // A null garment is the quick try-on: photo only, workflow chosen in admin.
+                val response = if (garmentId == null) {
+                    apiService.createQuickTryOnJob(QuickTryOnJobRequest(customerPhotoKey))
+                } else {
+                    apiService.createTryOnJob(
+                        TryOnJobRequest(
+                            merchantCatalogItemId = garmentId,
+                            customerPhotoKey = customerPhotoKey
+                        )
                     )
-                )
+                }
                 val body = response.body()
                 return@withContext if (response.isSuccessful && body != null) {
                     TryOnResult.Success(body.jobId)

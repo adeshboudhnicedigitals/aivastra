@@ -14,6 +14,7 @@ import aivastra.nice.interactive.data.models.ForceLoginRequest
 import aivastra.nice.interactive.data.models.GoogleLoginRequest
 import aivastra.nice.interactive.data.repository.AuthResult
 import aivastra.nice.interactive.data.repository.UserRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,9 +44,11 @@ class LoginViewModel(
     private val _uiState = MutableStateFlow<LoginUiState>(LoginUiState.Idle)
     val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
 
-    /** Cached device info for subsequent force-login call */
-    private var cachedDeviceId: String = "23dsfsdf"
-    private var cachedDeviceName: String = "vido"
+    // Cached device info for the subsequent force-login call — populated by login()/
+    // loginWithGoogle() before forceLogin() can ever become reachable (it only fires from a
+    // DeviceLimitReached state that those two produce), so these defaults are never actually used.
+    private var cachedDeviceId: String = ""
+    private var cachedDeviceName: String = ""
     private val platform: String = "kiosk"
 
     // ─── Login ─────────────────────────────────────────────────────────────
@@ -103,6 +106,8 @@ class LoginViewModel(
                         is AuthResult.Failure -> LoginUiState.Error(result.message)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.update { LoginUiState.Error(e.message ?: "An unexpected error occurred during login") }
             }
@@ -167,6 +172,8 @@ class LoginViewModel(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.update { LoginUiState.Error(e.message ?: "Google sign-in error occurred") }
             }
@@ -208,6 +215,8 @@ class LoginViewModel(
                         is AuthResult.Failure -> LoginUiState.Error(result.message)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.update { LoginUiState.Error(e.message ?: "Force login error occurred") }
             }

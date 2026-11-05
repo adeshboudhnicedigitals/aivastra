@@ -1,6 +1,7 @@
 package aivastra.nice.interactive.data.repository
 
 import com.google.gson.Gson
+import kotlinx.coroutines.CancellationException
 import aivastra.nice.interactive.api.ApiClient
 import aivastra.nice.interactive.data.models.DeviceLoginRequest
 import aivastra.nice.interactive.data.models.DeviceLoginResponse
@@ -55,6 +56,8 @@ class UserRepository {
                     AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Login failed. Please check your credentials."))
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AuthResult.Failure(e.message ?: "Network error. Check your connection.")
         }
@@ -82,6 +85,8 @@ class UserRepository {
                     AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Google login failed."))
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AuthResult.Failure(e.message ?: "Network error. Check your connection.")
         }
@@ -97,6 +102,8 @@ class UserRepository {
             } else {
                 AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Force login failed."))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AuthResult.Failure(e.message ?: "Network error. Check your connection.")
         }
@@ -112,6 +119,8 @@ class UserRepository {
             } else {
                 AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Session refresh failed."))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AuthResult.Failure(e.message ?: "Network error. Check your connection.")
         }
@@ -130,6 +139,8 @@ class UserRepository {
             } else {
                 AuthResult.Failure(ErrorParser.parseErrorMessage(response, "Logout failed."))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             AuthResult.Failure(e.message ?: "Network error. Check your connection.")
         }

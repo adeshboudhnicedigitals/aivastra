@@ -21,6 +21,7 @@ import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
 import PaymentsPage from './pages/PaymentsPage';
 import PixversePage from './pages/PixversePage';
+import QuickTryonWorkflowPage from './pages/QuickTryonWorkflowPage';
 import RecycleBinPage from './pages/RecycleBinPage';
 import RefundRequestsPage from './pages/RefundRequestsPage';
 import SareePage from './pages/SareePage';
@@ -60,6 +61,7 @@ const PATH_LABELS: Record<string, string> = {
   workers: 'Workers',
   saree: 'Saree',
   'shopify-workflow': 'Shopify workflow',
+  'quick-tryon-workflow': 'Quick try-on workflow',
   'credit-analysis': 'Credit Analysis',
   payments: 'Payments',
   'shopify-stores': 'Shopify Dashboard',
@@ -278,6 +280,10 @@ export default function App() {
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/workflow-approvals" element={<FlowApprovalsPage {...pageProps} />} />
             <Route path="/shopify-workflow" element={<ShopifyWorkflowPage {...pageProps} />} />
+            <Route
+              path="/quick-tryon-workflow"
+              element={<QuickTryonWorkflowPage {...pageProps} />}
+            />
             <Route path="/shopify-funnels" element={<Navigate to="/shopify-workflow" replace />} />
             <Route path="/credit-analysis" element={<CreditAnalysisPage {...pageProps} />} />
             <Route path="/payments" element={<PaymentsPage {...pageProps} />} />

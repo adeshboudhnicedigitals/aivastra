@@ -618,6 +618,7 @@ export default function WorkflowsPage({ toast }: Props) {
                   { id: 'regeneration', label: 'Regeneration' },
                   { id: 'fabric_to_garment', label: 'Fabric to Garment' },
                   { id: 'garment_extract', label: 'Garment Extraction' },
+                  { id: 'quick_tryon', label: 'Quick Try-on' },
                 ]}
                 value={typeFilter}
                 emptyLabel="All Types"
@@ -833,22 +834,24 @@ export default function WorkflowsPage({ toast }: Props) {
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                           {/* ReplaceWorkflowModal has no garment_extract branch — upload a new
                               workflow and repoint the garment type instead. */}
-                          {isSuperAdmin && wf.workflowType !== 'garment_extract' && (
-                            <button
-                              className="btn sm ghost"
-                              disabled={Boolean(wf.draining)}
-                              onClick={() =>
-                                setModalParams({ modal: 'replace-workflow', editId: wf.id })
-                              }
-                              title={
-                                wf.draining
-                                  ? 'Cannot replace while draining previous version'
-                                  : 'Replace workflow in place (updates ComfyUI graph)'
-                              }
-                            >
-                              <Icon.Replace /> Replace
-                            </button>
-                          )}
+                          {isSuperAdmin &&
+                            wf.workflowType !== 'garment_extract' &&
+                            wf.workflowType !== 'quick_tryon' && (
+                              <button
+                                className="btn sm ghost"
+                                disabled={Boolean(wf.draining)}
+                                onClick={() =>
+                                  setModalParams({ modal: 'replace-workflow', editId: wf.id })
+                                }
+                                title={
+                                  wf.draining
+                                    ? 'Cannot replace while draining previous version'
+                                    : 'Replace workflow in place (updates ComfyUI graph)'
+                                }
+                              >
+                                <Icon.Replace /> Replace
+                              </button>
+                            )}
                           <button
                             className="btn sm ghost"
                             onClick={() =>
@@ -1138,22 +1141,24 @@ export default function WorkflowsPage({ toast }: Props) {
                           paddingTop: 10,
                         }}
                       >
-                        {isSuperAdmin && wf.workflowType !== 'garment_extract' && (
-                          <button
-                            className="btn sm ghost"
-                            disabled={Boolean(wf.draining)}
-                            onClick={() =>
-                              setModalParams({ modal: 'replace-workflow', editId: wf.id })
-                            }
-                            title={
-                              wf.draining
-                                ? 'Cannot replace while draining previous version'
-                                : 'Replace workflow in place (updates ComfyUI graph)'
-                            }
-                          >
-                            <Icon.Replace /> Replace
-                          </button>
-                        )}
+                        {isSuperAdmin &&
+                          wf.workflowType !== 'garment_extract' &&
+                          wf.workflowType !== 'quick_tryon' && (
+                            <button
+                              className="btn sm ghost"
+                              disabled={Boolean(wf.draining)}
+                              onClick={() =>
+                                setModalParams({ modal: 'replace-workflow', editId: wf.id })
+                              }
+                              title={
+                                wf.draining
+                                  ? 'Cannot replace while draining previous version'
+                                  : 'Replace workflow in place (updates ComfyUI graph)'
+                              }
+                            >
+                              <Icon.Replace /> Replace
+                            </button>
+                          )}
                         <button
                           className="btn sm ghost"
                           onClick={() => setModalParams({ modal: 'edit-workflow', editId: wf.id })}

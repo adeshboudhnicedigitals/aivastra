@@ -9,6 +9,7 @@ import aivastra.nice.interactive.data.models.CatalogProduct
 import aivastra.nice.interactive.data.models.GarmentSubcategory
 import aivastra.nice.interactive.data.repository.CatalogRepository
 import aivastra.nice.interactive.data.repository.CatalogResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -152,6 +153,8 @@ class OutfitSelectionViewModel(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.update { state ->
                     state.copy(

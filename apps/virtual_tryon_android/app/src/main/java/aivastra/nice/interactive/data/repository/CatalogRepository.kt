@@ -25,21 +25,67 @@ sealed interface CatalogResult {
 // Custom exception for clean exception propagation within supervisorScope
 private class CatalogUnauthorizedException(message: String = "Session expired. Please sign in again.") : Exception(message)
 
-// Process-wide cache: merchant-wide catalog caching
+// Process-wide cache: merchant-wide catalog caching.
+//
+// `fetchLock` serializes field reads/writes themselves — invalidate() can be called from a plain
+// (non-suspend) context (SessionManager.save()/clear() on login/logout) at the same moment another
+// coroutine is mid-write inside productsMutex/subcategoriesMutex below, since neither of those is
+// held while invalidate() runs. Without this, a logout racing an in-flight catalog fetch could tear
+// a map write mid-iteration (ConcurrentModificationException) or leave products/subcategories out of
+// sync with each other. fetchLock is only ever held across plain field access, never across a
+// suspend point, so a plain JVM monitor is correct here — unlike productsMutex/subcategoriesMutex
+// below, which guard the network fetch itself and must stay coroutine-aware (Mutex) so they don't
+// block a thread while awaiting the response.
 private object CatalogCache {
     private const val TTL_MILLIS = 5 * 60 * 1000L
+    private val fetchLock = Any()
 
     val productsMutex = Mutex()
-    var products: List<CatalogProduct>? = null
-    var productsFetchedAt: Long = 0L
-
     val subcategoriesMutex = Mutex()
-    val subcategoriesByCategory = mutableMapOf<String, List<GarmentSubcategory>>()
-    val subcategoriesFetchedAtByCategory = mutableMapOf<String, Long>()
 
-    fun isFresh(fetchedAt: Long) = fetchedAt != 0L && (System.currentTimeMillis() - fetchedAt) < TTL_MILLIS
+    private var products: List<CatalogProduct>? = null
+    private var productsFetchedAt: Long = 0L
+    private val subcategoriesByCategory = mutableMapOf<String, List<GarmentSubcategory>>()
+    private val subcategoriesFetchedAtByCategory = mutableMapOf<String, Long>()
 
-    fun invalidate() {
+    private fun isFresh(fetchedAt: Long) = fetchedAt != 0L && (System.currentTimeMillis() - fetchedAt) < TTL_MILLIS
+
+    fun productsFresh(): Boolean = synchronized(fetchLock) {
+        products != null && isFresh(productsFetchedAt)
+    }
+
+    fun freshProducts(): List<CatalogProduct>? = synchronized(fetchLock) {
+        products?.takeIf { isFresh(productsFetchedAt) }
+    }
+
+    // Pass null (or an empty list) to mark as "not cached" — callers rely on this to avoid
+    // caching an empty result as fresh data, so newly granted access still fetches a fresh catalog.
+    fun storeProducts(items: List<CatalogProduct>?) = synchronized(fetchLock) {
+        val nonEmpty = items?.takeIf { it.isNotEmpty() }
+        products = nonEmpty
+        productsFetchedAt = if (nonEmpty != null) System.currentTimeMillis() else 0L
+    }
+
+    fun subcategoriesFresh(category: String): Boolean = synchronized(fetchLock) {
+        subcategoriesByCategory[category] != null && isFresh(subcategoriesFetchedAtByCategory[category] ?: 0L)
+    }
+
+    fun freshSubcategories(category: String): List<GarmentSubcategory>? = synchronized(fetchLock) {
+        subcategoriesByCategory[category]?.takeIf { isFresh(subcategoriesFetchedAtByCategory[category] ?: 0L) }
+    }
+
+    fun storeSubcategories(category: String, items: List<GarmentSubcategory>?) = synchronized(fetchLock) {
+        val nonEmpty = items?.takeIf { it.isNotEmpty() }
+        if (nonEmpty != null) {
+            subcategoriesByCategory[category] = nonEmpty
+            subcategoriesFetchedAtByCategory[category] = System.currentTimeMillis()
+        } else {
+            subcategoriesByCategory.remove(category)
+            subcategoriesFetchedAtByCategory.remove(category)
+        }
+    }
+
+    fun invalidate() = synchronized(fetchLock) {
         products = null
         productsFetchedAt = 0L
         subcategoriesByCategory.clear()
@@ -57,12 +103,9 @@ class CatalogRepository(
     }
 
     suspend fun getCatalog(category: String, forceReload: Boolean = false): CatalogResult {
-        val subcategoriesFresh = CatalogCache.subcategoriesByCategory[category] != null &&
-                CatalogCache.isFresh(CatalogCache.subcategoriesFetchedAtByCategory[category] ?: 0L)
-        val productsFresh = CatalogCache.products != null &&
-                CatalogCache.isFresh(CatalogCache.productsFetchedAt)
-
-        val shouldForce = forceReload || !subcategoriesFresh || !productsFresh
+        val shouldForce = forceReload ||
+            !CatalogCache.subcategoriesFresh(category) ||
+            !CatalogCache.productsFresh()
         if (shouldForce) {
             CatalogCache.invalidate()
         }
@@ -109,11 +152,11 @@ class CatalogRepository(
     }
 
     private suspend fun loadProducts(): List<CatalogProduct>? {
-        CatalogCache.products?.takeIf { CatalogCache.isFresh(CatalogCache.productsFetchedAt) }?.let { return it }
+        CatalogCache.freshProducts()?.let { return it }
 
         return try {
             CatalogCache.productsMutex.withLock {
-                val cached = CatalogCache.products?.takeIf { CatalogCache.isFresh(CatalogCache.productsFetchedAt) }
+                val cached = CatalogCache.freshProducts()
                 if (cached != null) {
                     cached
                 } else {
@@ -125,14 +168,7 @@ class CatalogRepository(
                         null
                     } else {
                         val items = response.body()?.items.orEmpty()
-                        if (items.isNotEmpty()) {
-                            CatalogCache.products = items
-                            CatalogCache.productsFetchedAt = System.currentTimeMillis()
-                        } else {
-                            // Do not cache empty product lists as fresh data so newly granted access fetches fresh catalog
-                            CatalogCache.products = null
-                            CatalogCache.productsFetchedAt = 0L
-                        }
+                        CatalogCache.storeProducts(items)
                         items
                     }
                 }
@@ -144,14 +180,11 @@ class CatalogRepository(
     }
 
     private suspend fun loadSubcategories(category: String): List<GarmentSubcategory>? {
-        CatalogCache.subcategoriesByCategory[category]
-            ?.takeIf { CatalogCache.isFresh(CatalogCache.subcategoriesFetchedAtByCategory[category] ?: 0L) }
-            ?.let { return it }
+        CatalogCache.freshSubcategories(category)?.let { return it }
 
         return try {
             CatalogCache.subcategoriesMutex.withLock {
-                val cached = CatalogCache.subcategoriesByCategory[category]
-                    ?.takeIf { CatalogCache.isFresh(CatalogCache.subcategoriesFetchedAtByCategory[category] ?: 0L) }
+                val cached = CatalogCache.freshSubcategories(category)
                 if (cached != null) {
                     cached
                 } else {
@@ -165,13 +198,7 @@ class CatalogRepository(
                         val items = response.body()?.items.orEmpty()
                             .filter { it.productCount > 0 }
                             .sortedBy { it.sortOrder }
-                        if (items.isNotEmpty()) {
-                            CatalogCache.subcategoriesByCategory[category] = items
-                            CatalogCache.subcategoriesFetchedAtByCategory[category] = System.currentTimeMillis()
-                        } else {
-                            CatalogCache.subcategoriesByCategory.remove(category)
-                            CatalogCache.subcategoriesFetchedAtByCategory.remove(category)
-                        }
+                        CatalogCache.storeSubcategories(category, items)
                         items
                     }
                 }
