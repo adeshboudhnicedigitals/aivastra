@@ -1,3 +1,54 @@
+# 2026-11-06 — v1.0 step 3a: Merchant Web foundation (committed locally, not pushed)
+
+- **Done:**
+  - Commits since `6f79c158` (`git log --oneline 6f79c158..HEAD`):
+    `27683521` feat(merchant): org/me limits and admin staff password reset;
+    `7fc5f754` feat(merchant-web): scaffold app;
+    `50ccf3aa` feat(merchant-web): login, BFF auth and session;
+    `77abadf5` fix(merchant-web): 403 recheck before sign-out, drop unprefixed cookie clear;
+    `8396bad5` feat(merchant-web): shell and overview;
+    `a5e3f234` feat(merchant-web): branches screen;
+    `1b76d416` feat(merchant-web): staff screen;
+    `9490ecf6` fix(merchant-web): restore focus after password reset modal closes;
+    `c178b6ed` feat(merchant-web): devices screen;
+    `a060212f` fix(merchant-web): restore focus when ConfirmDialog closes;
+    `db767340` chore(merchant-web): docker, compose and CI wiring.
+  - Verified at API/BFF level with curl against a local `pnpm --filter @aivastra/merchant-web dev` (port 3010) and the
+    dev API (4000), local `tryon_dev` only, using throwaway `mw-verify-*@example.test` accounts (all PASS):
+    admin login 200 with `accessToken` and `me.role=admin`, `mw_refresh` cookie HttpOnly + SameSite=lax; staff login
+    gives `role=staff` and a `branchId`; a shopper with no merchant row gets 403 `This account has no merchant access.`
+    and no cookie; bad password 401 and no cookie; `/api/auth/refresh` returns a new `accessToken` and rotates the cookie,
+    and 401 with no cookie; middleware redirects `/branches` to `/login` (307), `/login` is 200 with a CSP carrying a
+    nonce, `/api/auth/*` is not redirected; `GET /v1/merchant/org/me` returns `companyName`, `staffLimitPerBranch` (2),
+    `deviceQuotaPerMonth`; branch create 201; staff create 201 x2 then 409 `STAFF_LIMIT_REACHED`; staff sees only its own
+    branch (admin 2, staff 1) and gets 403 on branch create; admin password reset 200, new password logs in, old one gets
+    401, the staff's earlier refresh cookie gets 401, a staff token on the reset route gets 403; device create 201 with a
+    pairing code, `POST /v1/device/pair` 200 with a device token, `GET /v1/device/me` 200, code reuse 400, PATCH
+    `isActive:false` 200 and the next device request 401 `DEVICE_INACTIVE`.
+  - Decisions: admin-driven staff password reset via `POST /v1/merchant/org/staff/:id/password` (it also revokes the
+    staff member's refresh tokens); domain `merchant.aivastra.com`; data calls go browser -> API directly (only login,
+    refresh and logout are server-side BFF); initial staff password is set at creation, resettable but never viewable.
+- **Failed / Not done:**
+  - NOT RUN — needs a person in a browser: visual layout at 375px; confirm dialogs; modal focus trap and Escape;
+    focus restore after the two focus fixes (including the StrictMode focus quirk); the pairing-code copy button and
+    expiry countdown; silent token refresh on reload / expiry in a real browser; that staff cannot reach `/branches` or
+    `/staff` in the UI (only the API-level 403 was checked).
+  - Nothing deployed. `pnpm-lock.yaml` carries a pre-existing uncommitted local diff that was NOT committed. The
+    merchant-web importer entry must be committed in the lockfile before any `--frozen-lockfile` CI run.
+- **Open questions / out-of-repo state:**
+  - CORS finding (real, blocks use): apps/merchant-web calls the Fastify API directly from the browser, so `CORS_ORIGIN`
+    in each environment's `.env` must include the Merchant Web origin (dev `http://localhost:3010`; prod and staging
+    merchant domains). Observed locally: a preflight with `Origin: http://localhost:3010` to `/v1/merchant/org/me`
+    returns 404 with no `Access-Control-*` headers, while `http://localhost:3000` returns 204 and is allowed. The dev
+    `.env` sets no `CORS_ORIGIN`, so the default `http://localhost:3000` applies. Production and staging `.env` list only
+    the app and admin hosts. Without the change, login works (server-side) but every data call is CORS-blocked in the
+    browser. Alternative: a BFF catch-all proxy for data calls.
+  - CloudPanel vhost for `merchant.aivastra.com` (and a staging equivalent), DNS and Cloudflare rules: not created.
+  - `NEXT_PUBLIC_API_URL` must be set in `.env.production` and `.env.staging` (build time, so rebuild and confirm the
+    asset hash changes). Ports 3010 (prod) and 3110 (staging) must be free on the VPS.
+  - Refresh-token reuse: presenting an already-rotated cookie right after rotation still returned 200 (the existing
+    race-tolerance in `/v1/auth/refresh` when a live successor exists); not changed here.
+
 # 2026-11-06 — v1.0 step 2: devices, in-store sessions, entitlement (uncommitted, staged)
 
 - **Done:**

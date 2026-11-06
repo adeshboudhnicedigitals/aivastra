@@ -101,7 +101,9 @@ confirm). Loading, empty and error states on every list. Mobile-friendly layout 
 - **Domain:** the HLD leaves the name open (suggestion `merchant.aivastra.com`). Needed before
   production exposure; the compose service can ship without a vhost. CloudPanel vhost and any
   Cloudflare rules are out-of-repo state and must be recorded in `docs/progress.md` when done.
-- CORS is not involved: the BFF calls the API server-to-server.
+- CORS: only the auth BFF (login, refresh, logout) calls the API server-to-server. Data calls (org, branches,
+  staff, devices) go from the browser straight to the API, so `CORS_ORIGIN` in each environment's `.env` must
+  include the Merchant Web origin (dev `http://localhost:3010`).
 
 ## Testing
 
@@ -123,8 +125,10 @@ Android work.
 
 ## Open questions
 
-- Domain name for Merchant Web.
-- Password reset for staff: admin sets a new password in Merchant Web (needs a small new API route),
-  or staff use the existing forgot-password email flow (needs the reset page to live here).
-- Should a merchant admin be able to see/modify the initial staff password after creation? Proposed: no.
-  Set once at creation; staff change their own later (not in 3a).
+Answered for 3a (2026-11-06):
+
+- Domain name for Merchant Web: `merchant.aivastra.com`.
+- Password reset for staff: the admin sets a new password in Merchant Web via
+  `POST /v1/merchant/org/staff/:id/password`. Resetting also signs the staff member out everywhere.
+- Initial staff password: set once at creation. The admin can reset it but never view it. Staff changing
+  their own password is not in 3a.
