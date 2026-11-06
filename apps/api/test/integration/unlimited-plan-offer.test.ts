@@ -128,6 +128,33 @@ describe('unlimited plan offers (agreed price the user pays) + Android renewal p
     expect(rows[0]).toMatchObject({ status: 'offered', pricePaise: 350000, durationDays: 60 });
   });
 
+  it('only Super Admin and Admin may set or cancel an agreed price', async () => {
+    const { userId } = await newUser();
+    const support = await adminAuthHeader(app, 'SUPPORT');
+    const res = await app.inject({
+      method: 'POST',
+      url: `/admin/users/${userId}/unlimited-plan/offer`,
+      headers: support,
+      payload: { pricePaise: 400000, durationDays: 30 },
+    });
+    expect(res.statusCode).toBe(403);
+
+    const asAdmin = await app.inject({
+      method: 'POST',
+      url: `/admin/users/${userId}/unlimited-plan/offer`,
+      headers: await adminAuthHeader(app, 'ADMIN'),
+      payload: { pricePaise: 400000, durationDays: 30 },
+    });
+    expect(asAdmin.statusCode).toBe(200);
+
+    const cancel = await app.inject({
+      method: 'POST',
+      url: `/admin/users/${userId}/unlimited-plan/offer/cancel`,
+      headers: support,
+    });
+    expect(cancel.statusCode).toBe(403);
+  });
+
   it('refuses an offer while a plan is in force', async () => {
     const { userId } = await newUser();
     const now = Date.now();

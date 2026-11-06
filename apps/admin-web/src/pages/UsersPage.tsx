@@ -125,6 +125,8 @@ export default function UsersPage({ onNav, toast }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
+  // Mirrors the API's requireAdmin(['SUPER_ADMIN', 'ADMIN']) on the agreed-price routes.
+  const canSetAgreedPrice = myRole === 'SUPER_ADMIN' || myRole === 'ADMIN';
   const [query, setQuery] = useState(
     (location.state as { search?: string; filter?: string })?.search ||
       (location.state as { search?: string; filter?: string })?.filter ||
@@ -530,7 +532,7 @@ export default function UsersPage({ onNav, toast }: Props) {
       plan.status !== 'expired' &&
       !isOffer;
     setUnlimitedPlanForm({
-      mode: hasActive ? 'grant' : 'offer',
+      mode: hasActive || !canSetAgreedPrice ? 'grant' : 'offer',
       durationDays: isOffer && plan?.durationDays ? String(plan.durationDays) : '30',
       startAt: hasActive && plan?.startAt ? plan.startAt.slice(0, 10) : today,
       endAt:
@@ -542,7 +544,7 @@ export default function UsersPage({ onNav, toast }: Props) {
         (hasActive || isOffer) && plan?.pricePaise != null ? String(plan.pricePaise / 100) : '',
       queueStream: ((hasActive || isOffer) && plan?.queueStream) || 'normal',
     });
-  }, [showMonthlyPlanEditor, unlimitedPlanForm, detail]);
+  }, [showMonthlyPlanEditor, unlimitedPlanForm, detail, canSetAgreedPrice]);
 
   const MODAL_LABELS: Record<string, string> = {
     'adjust-credits': 'Adjust credits',
@@ -2110,7 +2112,7 @@ export default function UsersPage({ onNav, toast }: Props) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {/* An agreed price can't be set while a plan is in force — the API refuses
                   it, so the switch only appears when there's nothing active to edit. */}
-              {!hasActiveUnlimitedPlan(u) && (
+              {!hasActiveUnlimitedPlan(u) && canSetAgreedPrice && (
                 <div className="field">
                   <label>How should this user get the plan?</label>
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -2268,7 +2270,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     {revokingUnlimitedPlan ? 'Revoking…' : 'Revoke monthly plan'}
                   </button>
                 )}
-              {u.unlimitedPlan?.status === 'offered' && (
+              {u.unlimitedPlan?.status === 'offered' && canSetAgreedPrice && (
                 <button
                   type="button"
                   className="btn danger"

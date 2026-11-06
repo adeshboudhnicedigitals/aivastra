@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { deriveDisplayStatus } from '../credits/unlimited-plan.js';
 import { recordAudit } from './audit.js';
-import { requirePermission } from './guard.js';
+import { requireAdmin, requirePermission } from './guard.js';
 
 /**
  * Reuses the existing credits.read/credits.write permissions rather than
@@ -36,6 +36,10 @@ export async function getAdminVisiblePlan(app: FastifyInstance, userId: string) 
 export async function adminUnlimitedPlanRoutes(app: FastifyInstance) {
   const READ = requirePermission('credits.read');
   const WRITE = requirePermission('credits.write');
+  // Agreed prices are a pricing decision, not support work: role-gated to Super Admin
+  // and Admin rather than the credits.write permission, which support-facing roles
+  // may hold for routine credit adjustments.
+  const PRICING = requireAdmin(['SUPER_ADMIN', 'ADMIN']);
 
   app.get(
     '/admin/users/:id/unlimited-plan',
@@ -167,7 +171,7 @@ export async function adminUnlimitedPlanRoutes(app: FastifyInstance) {
   app.post(
     '/admin/users/:id/unlimited-plan/offer',
     {
-      preHandler: WRITE,
+      preHandler: PRICING,
       schema: { params: z.object({ id: z.string().uuid() }), body: OfferUnlimitedPlanBody },
     },
     async (req) => {
@@ -257,7 +261,7 @@ export async function adminUnlimitedPlanRoutes(app: FastifyInstance) {
 
   app.post(
     '/admin/users/:id/unlimited-plan/offer/cancel',
-    { preHandler: WRITE, schema: { params: z.object({ id: z.string().uuid() }) } },
+    { preHandler: PRICING, schema: { params: z.object({ id: z.string().uuid() }) } },
     async (req) => {
       const { id } = req.params as { id: string };
       await app.db.transaction(async (tx) => {
