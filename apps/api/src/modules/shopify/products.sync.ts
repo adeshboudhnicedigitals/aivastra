@@ -44,14 +44,9 @@ const ALLOWED_HOSTS = /(^|\.)(myshopify\.com|shopify\.com|cdn\.shopify\.com)$/;
 // socket stayed open.
 const HEADERS_TIMEOUT_MS = 10_000;
 const BODY_TIMEOUT_MS = 30_000;
-// Products fetched/uploaded in parallel within one page of a full sync. Each
-// product is dominated by waiting (CDN round trip + MinIO put), not CPU, so a
-// handful in flight cuts wall-clock roughly by that factor. Not higher: the
-// image downloads all hit the same CDN from one process.
+// Products upserted in parallel within one page of a full sync. Each is dominated
+// by waiting on the database, not CPU.
 const SYNC_CONCURRENCY = 5;
-// Above this, one product is logged at warn so a stalling step stands out from
-// the per-product debug lines.
-const SLOW_PRODUCT_MS = 5_000;
 // One retry, not a loop: a dropped connection or a CDN 5xx/429 is usually gone a
 // moment later, while anything longer would stall the sync consumer (which runs
 // products one at a time) for a product that is genuinely broken.
@@ -178,6 +173,8 @@ async function upsertGarment(
   collections: string[] | null,
   category: string | null,
   failedReason?: string,
+  // undefined leaves the stored URL alone (failure rows carry no product data).
+  imageUrl?: string | null,
 ) {
   const [row] = await app.db
     .insert(schema.shopifyProductGarments)
@@ -186,6 +183,7 @@ async function upsertGarment(
       shopifyProductId: productId,
       shopifyVariantId: NO_VARIANT_SENTINEL,
       r2Key,
+      imageUrl,
       title,
       status,
       productType,
@@ -202,6 +200,7 @@ async function upsertGarment(
         schema.shopifyProductGarments.shopifyVariantId,
       ],
       set: {
+        ...(imageUrl !== undefined ? { imageUrl } : {}),
         title,
         status,
         productType,
@@ -340,11 +339,61 @@ function describeError(err: unknown): string {
   return detail ? `${e.message} (${detail})` : e.message;
 }
 
+/** The copy at r2Key is a cache of the Shopify image, so a changed featured image
+ *  invalidates it. Merchant-picked overrides live under their own key and are
+ *  left alone. A row from before image_url existed has no URL to compare, so its
+ *  copy is dropped too — the next try-on re-downloads it. */
+async function dropStaleGarmentCopy(
+  app: FastifyInstance,
+  storeId: string,
+  productId: number,
+  r2Key: string,
+  imageUrl: string,
+): Promise<void> {
+  const [existing] = await app.db
+    .select({
+      imageUrl: schema.shopifyProductGarments.imageUrl,
+      r2Key: schema.shopifyProductGarments.r2Key,
+    })
+    .from(schema.shopifyProductGarments)
+    .where(
+      and(
+        eq(schema.shopifyProductGarments.storeId, storeId),
+        eq(schema.shopifyProductGarments.shopifyProductId, productId),
+        eq(schema.shopifyProductGarments.shopifyVariantId, NO_VARIANT_SENTINEL),
+      ),
+    )
+    .limit(1);
+  if (!existing || existing.r2Key !== r2Key || existing.imageUrl === imageUrl) return;
+  await app.storage.deleteObject(r2Key);
+}
+
+/** Sync records the product's metadata and image URL only; this fetches the image
+ *  into storage on first use (a try-on) and is a no-op once it is there. Throws
+ *  when the image cannot be fetched, so the caller can refresh the product from
+ *  Shopify instead of charging for a job that has no garment. */
+export async function ensureGarmentImage(
+  app: FastifyInstance,
+  garment: { r2Key: string; imageUrl: string | null },
+  fetchFn: FetchLike = fetch as unknown as FetchLike,
+): Promise<void> {
+  try {
+    await app.storage.headObject(garment.r2Key);
+    return;
+  } catch {
+    // not cached yet
+  }
+  if (!garment.imageUrl) throw new Error('no product image url');
+  assertShopifyCdn(garment.imageUrl);
+  const maxBytes = await getUploadLimitBytes(app, 'shopifyProductSyncMaxBytes');
+  const { buf, contentType } = await downloadWithRetry(garment.imageUrl, fetchFn, maxBytes);
+  await app.storage.putObject(garment.r2Key, buf, contentType);
+}
+
 export async function syncProduct(
   app: FastifyInstance,
   storeId: string,
   product: ShopifyProduct,
-  fetchFn: FetchLike = fetch as unknown as FetchLike,
 ): Promise<void> {
   const r2Key = keys.shopifyProductGarment(storeId, product.id);
   const productType = product.productType ?? null;
@@ -353,80 +402,33 @@ export async function syncProduct(
   const collections = product.collections ?? null;
   const category = product.category ?? null;
   const src = product.imageUrl;
-  if (!src) {
-    await upsertGarment(
+  const record = (status: string, failedReason?: string) =>
+    upsertGarment(
       app,
       storeId,
       product.id,
       r2Key,
       product.title,
-      'failed',
+      status,
       productType,
       tags,
       vendor,
       collections,
       category,
-      'no product image',
+      failedReason,
+      src ?? null,
     );
+  if (!src) {
+    await record('failed', 'no product image');
     return;
   }
-  // Per-step wall-clock, so a slow import can be attributed to the CDN download,
-  // the storage put or the DB write instead of guessed at.
-  const t0 = Date.now();
-  let downloadMs = 0;
-  let putMs = 0;
-  let bytes = 0;
   try {
     assertShopifyCdn(src);
-    const maxSyncBytes = await getUploadLimitBytes(app, 'shopifyProductSyncMaxBytes');
-    const { buf, contentType } = await downloadWithRetry(src, fetchFn, maxSyncBytes);
-    downloadMs = Date.now() - t0;
-    bytes = buf.byteLength;
-    await app.storage.putObject(r2Key, buf, contentType);
-    putMs = Date.now() - t0 - downloadMs;
-    await upsertGarment(
-      app,
-      storeId,
-      product.id,
-      r2Key,
-      product.title,
-      'active',
-      productType,
-      tags,
-      vendor,
-      collections,
-      category,
-    );
-    const timing = {
-      storeId,
-      productId: product.id,
-      bytes,
-      downloadMs,
-      putMs,
-      dbMs: Date.now() - t0 - downloadMs - putMs,
-      totalMs: Date.now() - t0,
-    };
-    if (timing.totalMs >= SLOW_PRODUCT_MS) app.log.warn(timing, 'slow product sync');
-    else app.log.debug(timing, 'product sync timing');
+    await dropStaleGarmentCopy(app, storeId, product.id, r2Key, src);
+    await record('active');
   } catch (err) {
-    app.log.warn(
-      { err, storeId, productId: product.id, downloadMs, putMs, totalMs: Date.now() - t0 },
-      'product sync failed',
-    );
-    await upsertGarment(
-      app,
-      storeId,
-      product.id,
-      r2Key,
-      product.title,
-      'failed',
-      productType,
-      tags,
-      vendor,
-      collections,
-      category,
-      describeError(err),
-    );
+    app.log.warn({ err, storeId, productId: product.id }, 'product sync failed');
+    await record('failed', describeError(err));
   }
 }
 
@@ -457,6 +459,72 @@ async function forEachLimit<T>(
   if (failure) throw (failure as { err: unknown }).err;
 }
 
+/** Turns one Shopify product id into a garment row: fetch it, then syncProduct,
+ *  or record a per-product failure / deletion. Shared by 'product' mode (a
+ *  webhook-driven id), the new-product discovery branch of 'reconcile' mode, and
+ *  syncProductNow. */
+export async function fetchAndSyncProduct(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+  productId: number,
+  auth: { token: string; onUnauthorized: () => Promise<string> },
+): Promise<void> {
+  let node: GraphQLProductNode | null;
+  try {
+    const data = await shopifyGraphQL<{ product: GraphQLProductNode | null }>(
+      store.shopDomain,
+      auth.token,
+      ONE_PRODUCT,
+      { id: toGid('Product', productId) },
+      { onUnauthorized: auth.onUnauthorized },
+    );
+    node = data.product;
+  } catch (err) {
+    // SHOPIFY_REAUTH_REQUIRED is a store-wide auth failure, not a per-product
+    // one — blanking this one garment row doesn't address it, and the whole
+    // store needs reauth. Propagate it so the caller's mode aborts instead of
+    // recording a misleading per-product failure.
+    if (err instanceof AppError && err.code === 'SHOPIFY_REAUTH_REQUIRED') throw err;
+    app.log.warn({ err, storeId: store.id, productId }, 'shopify product fetch failed during sync');
+    await upsertGarmentFailure(
+      app,
+      store.id,
+      productId,
+      `product fetch failed: ${(err as Error).message}`,
+    );
+    return;
+  }
+
+  if (!node) {
+    // Shopify's products(...) query (and this single-product lookup) is
+    // never filtered by status, so "not found" reliably means gone, not
+    // merely draft/archived.
+    app.log.info(
+      { storeId: store.id, productId },
+      'shopify product not found during sync — marking deleted',
+    );
+    await upsertGarmentFailure(app, store.id, productId, 'product not found on Shopify', 'deleted');
+    return;
+  }
+
+  await syncProduct(app, store.id, toShopifyProduct(node));
+}
+
+/** Syncs one product immediately, bypassing the sync queue. A try-on for a
+ *  product not yet synced would otherwise wait behind a full sync of the whole
+ *  catalog, which is what the shopper sees as "preparing". */
+export async function syncProductNow(
+  app: FastifyInstance,
+  store: typeof schema.shopifyStores.$inferSelect,
+  productId: number,
+): Promise<void> {
+  const token = await getValidAccessToken(app, store);
+  await fetchAndSyncProduct(app, store, productId, {
+    token,
+    onUnauthorized: () => getValidAccessToken(app, store),
+  });
+}
+
 export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise<void> {
   const [store] = await app.db
     .select()
@@ -482,56 +550,8 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
   // Shared by 'product' mode (a single webhook-driven id) and the new-product
   // discovery branch of 'reconcile' mode below — both need to turn one
   // Shopify product id into a garment row via the identical fetch/error path.
-  async function fetchAndSyncOneProduct(productId: number): Promise<void> {
-    let node: GraphQLProductNode | null;
-    try {
-      const data = await shopifyGraphQL<{ product: GraphQLProductNode | null }>(
-        shop,
-        token,
-        ONE_PRODUCT,
-        { id: toGid('Product', productId) },
-        { onUnauthorized },
-      );
-      node = data.product;
-    } catch (err) {
-      // SHOPIFY_REAUTH_REQUIRED is a store-wide auth failure, not a per-product
-      // one — blanking this one garment row doesn't address it, and the whole
-      // store needs reauth. Propagate it so the caller's mode aborts instead of
-      // recording a misleading per-product failure.
-      if (err instanceof AppError && err.code === 'SHOPIFY_REAUTH_REQUIRED') throw err;
-      app.log.warn(
-        { err, storeId: store.id, productId },
-        'shopify product fetch failed during sync',
-      );
-      await upsertGarmentFailure(
-        app,
-        store.id,
-        productId,
-        `product fetch failed: ${(err as Error).message}`,
-      );
-      return;
-    }
-
-    if (!node) {
-      // Shopify's products(...) query (and this single-product lookup) is
-      // never filtered by status, so "not found" reliably means gone, not
-      // merely draft/archived.
-      app.log.info(
-        { storeId: store.id, productId },
-        'shopify product not found during sync — marking deleted',
-      );
-      await upsertGarmentFailure(
-        app,
-        store.id,
-        productId,
-        'product not found on Shopify',
-        'deleted',
-      );
-      return;
-    }
-
-    await syncProduct(app, store.id, toShopifyProduct(node));
-  }
+  const fetchAndSyncOneProduct = (productId: number) =>
+    fetchAndSyncProduct(app, store, productId, { token, onUnauthorized });
 
   // Shared by 'reconcile' mode and the full sync's final reconciliation pass
   // below — both need the store's complete current-Shopify id set via the

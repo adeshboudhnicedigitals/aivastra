@@ -34,6 +34,7 @@ import {
   ShopperLimitRaceRefusal,
 } from './limits.js';
 import { markThemeSurfaceSeen } from './onboarding.routes.js';
+import { ensureGarmentImage, syncProductNow } from './products.sync.js';
 import { resolveShopper } from './shopper.js';
 import { formatResetTime, windowEnd } from './store-day.js';
 import { shopifyStoreLifecycleLockKey } from './store-lock.js';
@@ -363,21 +364,34 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         );
       }
 
-      const [garment] = await app.db
-        .select()
-        .from(schema.shopifyProductGarments)
-        .where(
-          and(
-            eq(schema.shopifyProductGarments.storeId, storeId),
-            eq(schema.shopifyProductGarments.shopifyProductId, shopifyProductId),
-            eq(schema.shopifyProductGarments.status, 'active'),
-          ),
-        )
-        .limit(1);
-
-      if (!garment) {
-        const enq = await getEnqueueSync();
-        await enq(app.redis, { storeId, mode: 'product', shopifyProductId });
+      const findGarment = async () => {
+        const [row] = await app.db
+          .select()
+          .from(schema.shopifyProductGarments)
+          .where(
+            and(
+              eq(schema.shopifyProductGarments.storeId, storeId),
+              eq(schema.shopifyProductGarments.shopifyProductId, shopifyProductId),
+            ),
+          )
+          .limit(1);
+        return row;
+      };
+      let garment = await findGarment();
+      // Never synced (or still mid-sync): fetch just this product now rather than
+      // queueing it behind a full sync. A failed/deleted row is left to the
+      // hourly retry so a product with no image does not hit Shopify per request.
+      if (!garment || garment.status === 'processing') {
+        try {
+          await syncProductNow(app, store, shopifyProductId);
+          garment = await findGarment();
+        } catch (err) {
+          app.log.warn({ err, storeId, shopifyProductId }, 'inline product sync failed');
+          const enq = await getEnqueueSync();
+          await enq(app.redis, { storeId, mode: 'product', shopifyProductId });
+        }
+      }
+      if (garment?.status !== 'active') {
         return reply
           .code(202)
           .send({ message: "We're preparing this product for try-on. Check back in a moment." });
@@ -387,6 +401,20 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         return reply
           .code(202)
           .send({ message: 'This product is not available for try-on right now.' });
+      }
+
+      // Sync stores the image URL only; the first try-on fetches the image. Done
+      // before anything is reserved or charged, and a failure re-syncs the product
+      // (a stale URL is replaced) rather than creating a job with no garment.
+      try {
+        await ensureGarmentImage(app, garment);
+      } catch (err) {
+        app.log.warn({ err, storeId, shopifyProductId }, 'shopify garment image unavailable');
+        const enq = await getEnqueueSync();
+        await enq(app.redis, { storeId, mode: 'product', shopifyProductId });
+        return reply
+          .code(202)
+          .send({ message: "We're preparing this product for try-on. Check back in a moment." });
       }
 
       const resolvedWorkflow = await resolveShopifyWorkflow(app);

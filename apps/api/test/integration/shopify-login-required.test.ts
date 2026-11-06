@@ -69,6 +69,11 @@ describe('Shopify login-required try-on creation', () => {
       })
       .returning();
     await app.db.insert(schema.shopifyStoreCredits).values({ storeId: store.id, balance: 100 });
+    await app.storage.putObject(
+      `shopify-garments/${store.id}/${PRODUCT_ID}/garment.jpg`,
+      Buffer.from('garment'),
+      'image/jpeg',
+    );
     await app.db.insert(schema.shopifyProductGarments).values({
       storeId: store.id,
       shopifyProductId: PRODUCT_ID,
