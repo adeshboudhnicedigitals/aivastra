@@ -210,6 +210,38 @@ describe('admin Shopify Stores routes', () => {
     expect(forbidden.statusCode).toBe(403);
   });
 
+  it('queues a full product sync once, reports it running, and refuses a duplicate', async () => {
+    const url = `/admin/shopify-stores/${creditedStoreId}/sync`;
+    const first = await app.inject({ method: 'POST', url, headers: adminAuth });
+    expect(first.statusCode).toBe(202);
+    expect(first.json()).toEqual({ queued: true });
+
+    const status = await app.inject({
+      method: 'GET',
+      url: `${url}/status`,
+      headers: adminAuth,
+    });
+    expect(status.json().state).toBe('running');
+
+    const second = await app.inject({ method: 'POST', url, headers: adminAuth });
+    expect(second.json()).toEqual({ queued: false, alreadyRunning: true });
+  });
+
+  it('404s a sync for an unknown store and forbids non-admins', async () => {
+    const missing = await app.inject({
+      method: 'POST',
+      url: `/admin/shopify-stores/${crypto.randomUUID()}/sync`,
+      headers: adminAuth,
+    });
+    const forbidden = await app.inject({
+      method: 'POST',
+      url: `/admin/shopify-stores/${creditedStoreId}/sync`,
+      headers: nonAdminAuth,
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(forbidden.statusCode).toBe(403);
+  });
+
   it('forbids non-admin sessions from both routes', async () => {
     const listRes = await app.inject({
       method: 'GET',

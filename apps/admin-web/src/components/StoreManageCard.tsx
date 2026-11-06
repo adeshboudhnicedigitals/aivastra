@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { StoreManageProduct, StoreManageSummary } from '../types';
 import { Icon } from './Icons';
@@ -89,6 +90,53 @@ export function StoreManageCard({ storeId, toast }: Props) {
   const [loading, setLoading] = useState(true);
   // Bumped by the Refresh button; both fetch effects re-run on it.
   const [refreshToken, setRefreshToken] = useState(0);
+  const { hasPermission } = useAuth();
+  const canSync = hasPermission('shopify_stores.sync');
+  const [syncing, setSyncing] = useState(false);
+
+  // A full sync of a big catalog runs for many minutes in the background, so
+  // pick up one already in flight on mount and poll until it finishes.
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const s = await apiFetch<{ state: string }>(`/admin/shopify-stores/${storeId}/sync/status`);
+        if (cancelled) return;
+        const running = s.state === 'running';
+        setSyncing((was) => {
+          if (was && !running) setRefreshToken((n) => n + 1);
+          return running;
+        });
+      } catch {
+        // status is advisory; the next tick retries
+      }
+    };
+    check();
+    const t = setInterval(check, syncing ? 3000 : 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [storeId, syncing]);
+
+  const startSync = async () => {
+    try {
+      const r = await apiFetch<{ queued: boolean; alreadyRunning?: boolean }>(
+        `/admin/shopify-stores/${storeId}/sync`,
+        { method: 'POST' },
+      );
+      setSyncing(true);
+      toast({
+        title: r.alreadyRunning ? 'A sync is already running' : 'Product sync started',
+      });
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to start sync',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    }
+  };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshToken is a deliberate refetch trigger, not referenced in the body
   useEffect(() => {
@@ -169,15 +217,28 @@ export function StoreManageCard({ storeId, toast }: Props) {
     <div className="card">
       <div className="card-head">
         <h3>Manage page (merchant view, read-only)</h3>
-        <button
-          type="button"
-          className="btn ghost"
-          disabled={loading || !summary}
-          onClick={() => setRefreshToken((n) => n + 1)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-        >
-          <Icon.Refresh /> Refresh
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {canSync && (
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={syncing}
+              onClick={startSync}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <Icon.Refresh /> {syncing ? 'Syncing…' : 'Sync products'}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={loading || !summary}
+            onClick={() => setRefreshToken((n) => n + 1)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Icon.Refresh /> Refresh
+          </button>
+        </div>
       </div>
       <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {!summary || !counts ? (
