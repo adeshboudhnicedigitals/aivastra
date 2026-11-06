@@ -1233,6 +1233,11 @@
   vertical-align: baseline;
   background-color: #fff;
   pointer-events: none;
+  /* The icon stays white under a forced dark theme: `only light` opts the
+     badge out of browser auto-darkening, and forced-color-adjust keeps
+     high-contrast / forced-colors modes from swapping the fill. */
+  color-scheme: only light;
+  forced-color-adjust: none;
 }
 .aivastra-tryon .aivastra-tryon__icon-btn .aivastra-tryon__icon-label {
   font-weight: 300;

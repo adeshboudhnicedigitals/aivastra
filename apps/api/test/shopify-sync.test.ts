@@ -7,6 +7,7 @@ import {
   syncOneTask,
   syncProduct,
   syncProductNow,
+  syncProducts,
 } from '../src/modules/shopify/products.sync.js';
 import { isProductSyncActive } from '../src/modules/shopify/service.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
@@ -119,6 +120,129 @@ describe('syncProduct', () => {
     await syncProduct(app, storeId, { ...product, imageUrl: 'https://cdn.shopify.com/p.jpg?v=2' });
     expect((await app.storage.headObject(overrideKey)).contentLength).toBe(1);
     expect((await rowFor(50)).r2Key).toBe(overrideKey);
+  });
+});
+
+describe('syncProducts', () => {
+  const rowFor = async (productId: number) => {
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, productId),
+        ),
+      );
+    return row;
+  };
+
+  it('writes a whole page in one pass, including a product with no image and one off the Shopify CDN', async () => {
+    await syncProducts(app, storeId, [
+      { id: 9700, title: 'A', imageUrl: 'https://cdn.shopify.com/a.jpg', vendor: 'V', tags: ['x'] },
+      { id: 9701, title: 'B', imageUrl: null },
+      { id: 9702, title: 'C', imageUrl: 'https://evil.example.com/c.jpg' },
+    ]);
+    const a = await rowFor(9700);
+    expect(a).toMatchObject({
+      status: 'active',
+      imageUrl: 'https://cdn.shopify.com/a.jpg',
+      vendor: 'V',
+      tags: ['x'],
+    });
+    expect(await rowFor(9701)).toMatchObject({
+      status: 'failed',
+      failedReason: 'no product image',
+    });
+    expect((await rowFor(9702)).status).toBe('failed');
+  });
+
+  it('updates existing rows on a second pass and keeps a merchant override key', async () => {
+    await syncProducts(app, storeId, [
+      { id: 9710, title: 'Old', imageUrl: 'https://cdn.shopify.com/o.jpg?v=1' },
+    ]);
+    const overrideKey = `shopify-garments/${storeId}/9710/garment-override.jpg`;
+    await app.db
+      .update(schema.shopifyProductGarments)
+      .set({ r2Key: overrideKey })
+      .where(eq(schema.shopifyProductGarments.shopifyProductId, 9710));
+    await syncProducts(app, storeId, [
+      { id: 9710, title: 'New', imageUrl: 'https://cdn.shopify.com/o.jpg?v=2' },
+    ]);
+    expect(await rowFor(9710)).toMatchObject({
+      title: 'New',
+      r2Key: overrideKey,
+      imageUrl: 'https://cdn.shopify.com/o.jpg?v=2',
+    });
+  });
+
+  it('drops the stored copy only for the products whose image changed', async () => {
+    const same = { id: 9720, title: 'Same', imageUrl: 'https://cdn.shopify.com/s.jpg?v=1' };
+    const changed = { id: 9721, title: 'Changed', imageUrl: 'https://cdn.shopify.com/c.jpg?v=1' };
+    await syncProducts(app, storeId, [same, changed]);
+    const keySame = (await rowFor(9720)).r2Key;
+    const keyChanged = (await rowFor(9721)).r2Key;
+    await app.storage.putObject(keySame, Buffer.from([1]), 'image/jpeg');
+    await app.storage.putObject(keyChanged, Buffer.from([1]), 'image/jpeg');
+
+    await syncProducts(app, storeId, [
+      same,
+      { ...changed, imageUrl: 'https://cdn.shopify.com/c.jpg?v=2' },
+    ]);
+    expect((await app.storage.headObject(keySame)).contentLength).toBe(1);
+    await expect(app.storage.headObject(keyChanged)).rejects.toBeTruthy();
+  });
+
+  it('falls back to one-by-one writes when the page write is rejected', async () => {
+    const insert = vi.spyOn(app.db, 'insert').mockImplementationOnce(() => {
+      throw new Error('batch rejected');
+    });
+    await syncProducts(app, storeId, [
+      { id: 9730, title: 'one', imageUrl: 'https://cdn.shopify.com/1.jpg' },
+      { id: 9731, title: 'two', imageUrl: 'https://cdn.shopify.com/2.jpg' },
+    ]);
+    insert.mockRestore();
+    expect((await rowFor(9730)).status).toBe('active');
+    expect((await rowFor(9731)).status).toBe('active');
+  });
+
+  it('does not rewrite a product that is already stored the same way, but still moves its timestamp', async () => {
+    const product = {
+      id: 9740,
+      title: 'Stable',
+      imageUrl: 'https://cdn.shopify.com/st.jpg',
+      tags: ['a'],
+    };
+    await syncProducts(app, storeId, [product]);
+    const before = await rowFor(9740);
+    const insert = vi.spyOn(app.db, 'insert');
+    await new Promise((r) => setTimeout(r, 20));
+    await syncProducts(app, storeId, [product]);
+    expect(insert).not.toHaveBeenCalled();
+    insert.mockRestore();
+    const after = await rowFor(9740);
+    expect(after.syncedAt.getTime()).toBeGreaterThan(before.syncedAt.getTime());
+
+    await syncProducts(app, storeId, [{ ...product, tags: ['a', 'b'] }]);
+    expect((await rowFor(9740)).tags).toEqual(['a', 'b']);
+  });
+
+  it('rewrites a row that has no image URL yet, which is every product synced before this change', async () => {
+    await syncProducts(app, storeId, [
+      { id: 9741, title: 'Legacy', imageUrl: 'https://cdn.shopify.com/l.jpg' },
+    ]);
+    await app.db
+      .update(schema.shopifyProductGarments)
+      .set({ imageUrl: null })
+      .where(eq(schema.shopifyProductGarments.shopifyProductId, 9741));
+    await syncProducts(app, storeId, [
+      { id: 9741, title: 'Legacy', imageUrl: 'https://cdn.shopify.com/l.jpg' },
+    ]);
+    expect((await rowFor(9741)).imageUrl).toBe('https://cdn.shopify.com/l.jpg');
+  });
+
+  it('does nothing for an empty page', async () => {
+    await expect(syncProducts(app, storeId, [])).resolves.toBeUndefined();
   });
 });
 
