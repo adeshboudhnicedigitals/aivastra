@@ -1,0 +1,66 @@
+// Origins are derived from this build's own env vars rather than hardcoded, so
+// the CSP always matches whatever this specific build actually talks to.
+// API_URL is the server-side (runtime) value; NEXT_PUBLIC_API_URL is the
+// build-time fallback (see CLAUDE.md "Build-time vs runtime config").
+function originOf(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+const apiOrigin = originOf(
+  process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000',
+);
+
+/**
+ * Nonce + 'strict-dynamic': Next.js auto-tags its own inline/streaming
+ * scripts with the nonce it finds on the request, and 'strict-dynamic' lets
+ * those trusted scripts load further scripts (Next's chunks) without every
+ * origin being individually allow-listed. 'self' stays as a fallback for
+ * browsers that don't support strict-dynamic.
+ */
+export function buildCsp(nonce: string): string {
+  const isDev = process.env.NODE_ENV !== 'production';
+
+  const directives: Record<string, string[]> = {
+    'default-src': ["'self'"],
+    'script-src': [
+      "'self'",
+      `'nonce-${nonce}'`,
+      "'strict-dynamic'",
+      ...(isDev ? ["'unsafe-eval'"] : []), // Next dev/HMR needs eval; never shipped to prod
+    ],
+    // Inline `style="..."` attributes are pervasive — style-src unsafe-inline
+    // can't execute JS, so the risk it accepts is far smaller than script-src would be.
+    'style-src': ["'self'", "'unsafe-inline'"],
+    'img-src': [
+      "'self'",
+      'data:',
+      'blob:',
+      'http://127.0.0.1:*', // local MinIO in dev — loopback-only, harmless outside a dev machine
+      'https://*.r2.cloudflarestorage.com',
+      'https://app.aivastra.com',
+      ...(apiOrigin ? [apiOrigin] : []),
+    ],
+    'font-src': ["'self'", 'data:'],
+    'connect-src': [
+      "'self'",
+      'http://127.0.0.1:*',
+      'https://*.r2.cloudflarestorage.com',
+      'https://app.aivastra.com',
+      ...(apiOrigin ? [apiOrigin] : []),
+      ...(isDev ? ['ws://127.0.0.1:*', 'ws://localhost:*'] : []), // Next dev HMR websocket
+    ],
+    'object-src': ["'none'"],
+    'base-uri': ["'self'"],
+    'form-action': ["'self'"],
+    'frame-ancestors': ["'self'"],
+  };
+
+  return Object.entries(directives)
+    .map(([directive, sources]) => `${directive} ${sources.join(' ')}`)
+    .join('; ');
+}

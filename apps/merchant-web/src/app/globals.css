@@ -1,0 +1,199 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --icon-invert: none;
+  --icon-invert-light: invert(1);
+  --c-pink: #f55c7a;
+  --c-amber: #f6b553;
+  --c-dark: #141414;
+  --c-dark2: #282828;
+  --c-on-dark: #fefefe;
+  --c-white: #fefefe;
+  --c-bg: #fbfbfb;
+  --c-card: #ffffff;
+  --c-border: #eeeeee;
+  --c-border2: #e8e8e8;
+  --c-text: #141414;
+  --c-mid: #626262;
+  --c-light: #767676;
+  --c-lighter: #eeeeee;
+  --c-field: #f9f9f9;
+  --c-mint: #209e46;
+  --c-grad-subtle: linear-gradient(135deg, rgba(245, 92, 122, 0.15), rgba(246, 181, 83, 0.15));
+  /* Sidebar is always-navy regardless of theme; navbar only adopts it in dark mode (see html.dark) */
+  --c-side-nav: #131524;
+  --c-navbar-bg: var(--c-white);
+  /* Default GradBtn fill; job-submission buttons pass `final` to stay on the fixed
+     pink->orange `grad` gradient in every theme instead of this token. */
+  --c-btn-primary-bg: linear-gradient(91.84deg, #521d9c 0.33%, #bd2587 50.77%, #f96657 99.67%);
+  --c-toggle-active: var(--c-pink);
+
+  /* Merchant portal tokens */
+  --c-merchant-bg: #f7f8fa;
+  --c-merchant-accent: #7c5cfc;
+  --c-merchant-accent-light: #f3f0ff;
+  --c-merchant-text-secondary: #374151;
+  --c-merchant-text-muted: #6b7280;
+  --c-merchant-text-placeholder: #9ca3af;
+  --c-merchant-border: #ebebeb;
+  --c-merchant-border-light: #e9ecef;
+  --c-merchant-hover: #f3f4f6;
+  --c-merchant-divider: #c4c4cc;
+  --c-merchant-success: #10b981;
+  --c-merchant-danger: #ef4444;
+  --c-merchant-warning: #f59e0b;
+  --c-merchant-code-bg: #f8f9fa;
+  --c-merchant-input-border: #e5e7eb;
+  --c-merchant-toggle-off: #e5e7eb;
+  --c-merchant-status-green: #00a860;
+  --c-merchant-status-red: #d0244a;
+  --c-merchant-status-blue: #6464f0;
+  --c-merchant-scrollbar: #e0e0e0;
+  --c-merchant-success-tint: rgba(16, 185, 129, 0.08);
+  --c-merchant-danger-tint: rgba(239, 68, 68, 0.08);
+  --c-merchant-accent-tint: rgba(124, 92, 252, 0.08);
+  --c-merchant-warning-tint: rgba(245, 158, 11, 0.08);
+  --c-merchant-muted-tint: rgba(107, 114, 128, 0.08);
+  --c-merchant-blue-tint: rgba(100, 100, 240, 0.08);
+  --c-pink-tint: rgba(245, 92, 122, 0.12);
+  --c-amber-tint: rgba(246, 181, 83, 0.12);
+
+  /* Try-On page specific tokens */
+  --tryon-garment-dashed: #c4b5fd;
+  --tryon-person-dashed: #fbcfe8;
+  --tryon-step-bg-1: #ede9fe;
+  --tryon-step-bg-2: #fce7f3;
+  --tryon-step-bg-3: #ffedd5;
+  --tryon-step-bg-4: #d1fae5;
+  --tryon-garment-icon-bg: #f5f3ff;
+  --tryon-badge-icon-bg: #f5f3ff;
+  --tryon-tips-bg: linear-gradient(90deg, #fdf4ff 0%, #f5f3ff 100%);
+}
+
+html.dark {
+  color-scheme: dark;
+  --icon-invert: invert(1);
+  --icon-invert-light: none;
+  /* Neutrals pinned to the BLACK scale in /color-pallet.txt (Figma source of truth) */
+  --c-bg: #0f1017;
+  --c-card: #1a1d2e;
+  --c-white: #1a1d2e;
+  --c-surface-text: #e9e9e9; /* black-50 */
+  --c-border: #4c4c4f; /* black-400 */
+  --c-border2: #69696c; /* black-300 */
+  --c-text: #e9e9e9; /* black-50 */
+  --c-mid: #bababb; /* black-100 */
+  --c-light: #98989a; /* black-200 */
+  --c-lighter: #4c4c4f; /* black-400 */
+  --c-field: #1f1f23; /* black-500 */
+  --c-mint: #2ecc57;
+  --c-navbar-bg: var(--c-side-nav);
+  --c-btn-primary-bg: #5128b3;
+  --c-toggle-active: #5128b3;
+  --c-grad-subtle: linear-gradient(135deg, rgba(245, 92, 122, 0.2), rgba(246, 181, 83, 0.2));
+
+  /* Merchant portal dark tokens */
+  --c-merchant-bg: #0f0f11;
+  --c-merchant-accent: #7c5cfc;
+  --c-merchant-accent-light: #1f1b33;
+  --c-merchant-text-secondary: #a1a1aa;
+  --c-merchant-text-muted: #71717a;
+  --c-merchant-text-placeholder: #52525b;
+  --c-merchant-border: #27272a;
+  --c-merchant-border-light: #1f1f23;
+  --c-merchant-hover: #222228;
+  --c-merchant-divider: #3f3f46;
+  --c-merchant-success: #2ecc71;
+  --c-merchant-danger: #ff6b6b;
+  --c-merchant-warning: #f0a83e;
+  --c-merchant-code-bg: #1a1a1d;
+  --c-merchant-input-border: #27272a;
+  --c-merchant-toggle-off: #3f3f46;
+  --c-merchant-status-green: #2ecc71;
+  --c-merchant-status-red: #ff6b6b;
+  --c-merchant-status-blue: #8b8bff;
+  --c-merchant-scrollbar: #3f3f46;
+  --c-merchant-success-tint: rgba(46, 204, 113, 0.12);
+  --c-merchant-danger-tint: rgba(255, 107, 107, 0.12);
+  --c-merchant-accent-tint: rgba(124, 92, 252, 0.12);
+  --c-merchant-warning-tint: rgba(240, 168, 62, 0.12);
+  --c-merchant-muted-tint: rgba(161, 161, 170, 0.08);
+  --c-merchant-blue-tint: rgba(139, 139, 255, 0.12);
+  --c-pink-tint: rgba(245, 92, 122, 0.18);
+  --c-amber-tint: rgba(246, 181, 83, 0.18);
+
+  /* Try-On page dark overrides — muted so they're not glaring */
+  --tryon-garment-dashed: rgba(196, 181, 253, 0.28);
+  --tryon-person-dashed: rgba(251, 207, 232, 0.22);
+  --tryon-step-bg-1: rgba(124, 58, 237, 0.18);
+  --tryon-step-bg-2: rgba(236, 72, 153, 0.18);
+  --tryon-step-bg-3: rgba(249, 115, 22, 0.18);
+  --tryon-step-bg-4: rgba(16, 185, 129, 0.18);
+  --tryon-garment-icon-bg: rgba(129, 140, 248, 0.14);
+  --tryon-badge-icon-bg: rgba(99, 102, 241, 0.14);
+  --tryon-tips-bg: rgba(129, 140, 248, 0.08);
+}
+
+html {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: var(--font-poppins), "Poppins", sans-serif;
+  background: var(--c-bg);
+  color: var(--c-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--c-merchant-scrollbar);
+  border-radius: 5px;
+}
+
+/* Universal focus ring for custom interactive elements */
+.focus-ring {
+  outline: none;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid var(--c-pink);
+  outline-offset: 2px;
+}
+
+/* Hover — standard surface swap */
+.hover-surface {
+  transition: background 0.12s;
+}
+.hover-surface:hover {
+  background: var(--c-merchant-hover);
+}
