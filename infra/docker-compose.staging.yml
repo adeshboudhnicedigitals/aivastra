@@ -13,6 +13,7 @@ name: aivastra-staging
 #   staging-app.aivastra.com/         -> localhost:3100  (Next.js web)
 #   staging-app.aivastra.com/v1/      -> localhost:4100  (Fastify API)
 #   staging-app.aivastra.com/minio/   -> localhost:9100  (MinIO pass-through)
+#   staging-merchant.aivastra.com/    -> localhost:3110  (Next.js merchant-web)
 #   staging-admin.aivastra.com/       -> localhost:3101  (Admin SPA)
 #   staging-admin.aivastra.com/admin/ -> localhost:4100  (Fastify API)
 #   staging-admin.aivastra.com/v1/    -> localhost:4100  (Fastify API)
@@ -201,6 +202,24 @@ services:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     ports:
       - "127.0.0.1:3100:3000"
+    networks:
+      - aivastra-staging-net
+
+  # Merchant portal on its own subdomain (staging-merchant.aivastra.com); the CloudPanel
+  # vhost (out-of-repo) proxies / to this container. API_URL is the server-side
+  # BFF target, read at start; only NEXT_PUBLIC_API_URL is baked in at build.
+  merchant-web:
+    build:
+      context: ..
+      dockerfile: apps/merchant-web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    container_name: aivastra-staging-merchant-web
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:4000
+    ports:
+      - "127.0.0.1:3110:3010"
     networks:
       - aivastra-staging-net
 

@@ -29,6 +29,7 @@ const ALL_SERVICES = [
   'chatbot',
   'dispatcher',
   'gpu-ops',
+  'merchant-web',
   'shopify-admin',
   'support',
   'web',

@@ -88,7 +88,6 @@ describe('real repository workspace', () => {
     expect(dirs).not.toContain('apps/admin-mobile');
     expect(dirs).not.toContain('apps/web');
     expect(dirs).not.toContain('apps/admin');
-    expect(dirs).not.toContain('apps/merchant-web');
   });
 
   it('reproduces the documented shared-package impact table', () => {
@@ -97,6 +96,7 @@ describe('real repository workspace', () => {
       'api',
       'chatbot',
       'dispatcher',
+      'merchant-web',
       'shopify-admin',
       'web',
     ]);

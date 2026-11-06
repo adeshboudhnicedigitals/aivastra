@@ -9,6 +9,13 @@
       "composeService": "web"
     },
     {
+      "name": "merchant-web",
+      "dir": "apps/merchant-web",
+      "packageName": "@aivastra/merchant-web",
+      "dockerfile": "apps/merchant-web/Dockerfile",
+      "composeService": "merchant-web"
+    },
+    {
       "name": "admin",
       "dir": "apps/admin-web",
       "packageName": "@aivastra/admin",
