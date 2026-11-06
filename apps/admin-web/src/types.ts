@@ -320,13 +320,15 @@ export interface User {
   demoData?: boolean | null;
   balance: number;
   unlimitedPlan?: {
-    status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none';
+    // 'offered' = agreed price set, user hasn't paid yet (grants nothing).
+    status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'offered' | 'none';
     startAt: string | null;
     endAt: string | null;
     daysRemaining: number | null;
     note: string | null;
     pricePaise: number | null;
     queueStream: 'priority' | 'normal' | 'low' | null;
+    durationDays?: number | null;
     charges?: {
       id: string;
       pricePaise: number;

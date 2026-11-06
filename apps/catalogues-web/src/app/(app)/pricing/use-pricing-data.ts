@@ -284,11 +284,12 @@ export function usePricingData() {
     balance: number;
     firstPurchaseBonusPercent: number | null;
     unlimitedPlan: {
-      status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none';
+      status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'offered' | 'none';
       startAt: string | null;
       endAt: string | null;
       daysRemaining: number | null;
       pricePaise: number | null;
+      durationDays: number | null;
     };
     recent: { delta: number; reason: string; createdAt: string }[];
   }>({
@@ -691,13 +692,18 @@ export function usePricingData() {
   // rather than dropping back to the generic credits banner exactly when
   // self-serve renewal matters most. Only 'revoked' and 'none' fall back.
   const unlimitedPlan = credits?.unlimitedPlan ?? null;
+  // 'offered' = an admin set this user's agreed price but nothing is paid yet. It
+  // shares the banner and the renewal checkout: paying it is what starts the plan.
+  const isUnlimitedOffered = unlimitedPlan?.status === 'offered';
   const isUnlimited =
     unlimitedPlan?.status === 'active' ||
     unlimitedPlan?.status === 'expiring_soon' ||
-    unlimitedPlan?.status === 'expired';
+    unlimitedPlan?.status === 'expired' ||
+    isUnlimitedOffered;
   const DAY_MS = 24 * 60 * 60 * 1000;
-  const unlimitedTotalDays =
-    isUnlimited && unlimitedPlan?.startAt && unlimitedPlan?.endAt
+  const unlimitedTotalDays = isUnlimitedOffered
+    ? (unlimitedPlan?.durationDays ?? null)
+    : isUnlimited && unlimitedPlan?.startAt && unlimitedPlan?.endAt
       ? Math.max(
           1,
           Math.round(
@@ -745,11 +751,17 @@ export function usePricingData() {
   const usageValue = isUnlimited ? (unlimitedDaysLeft ?? 0) : balance;
   const usageTotal = isUnlimited ? unlimitedTotalDays : planCredits;
   const isUnlimitedExpired = unlimitedPlan?.status === 'expired';
-  const footerText = isUnlimitedExpired
-    ? 'Your monthly plan has expired — recharge to continue generating without a credit balance.'
-    : isUnlimited
-      ? 'Unlimited AI Catalogue Generation and AI Virtual Tryon for the duration of your plan.'
-      : 'Credits are shared across AI Catalogue Generation and AI Virtual Tryon.';
+  const footerText = isUnlimitedOffered
+    ? `Your agreed monthly plan is ready: ${
+        unlimitedPlan?.pricePaise != null
+          ? `${formatPrice(unlimitedPlan.pricePaise, country, rates)} + GST`
+          : ''
+      } for ${unlimitedPlan?.durationDays ?? 30} days. Pay now to activate it.`
+    : isUnlimitedExpired
+      ? 'Your monthly plan has expired — recharge to continue generating without a credit balance.'
+      : isUnlimited
+        ? 'Unlimited AI Catalogue Generation and AI Virtual Tryon for the duration of your plan.'
+        : 'Credits are shared across AI Catalogue Generation and AI Virtual Tryon.';
   const unlimitedRenewalPricePaise = isUnlimited ? (unlimitedPlan?.pricePaise ?? null) : null;
 
   return {
@@ -810,6 +822,9 @@ export function usePricingData() {
       usageValue,
       usageTotal,
       footerText,
+      // The banner's single checkout button: 'Pay now' starts an offered plan,
+      // 'Renew' extends an existing one — same /v1/unlimited-plan/renew flow.
+      renewLabel: isUnlimitedOffered ? 'Pay now' : 'Renew',
     },
   };
 }

@@ -14,6 +14,7 @@ import ImageCompressionTab from './settings/ImageCompressionTab';
 import JobCostsTab from './settings/JobCostsTab';
 import ProdSnapshotTab from './settings/ProdSnapshotTab';
 import PurchasablePlansTab from './settings/PurchasablePlansTab';
+import RenewalPopupTab from './settings/RenewalPopupTab';
 import RolesPermissionsTab from './settings/RolesPermissionsTab';
 import ShopifyCreditsTab from './settings/ShopifyCreditsTab';
 
@@ -269,8 +270,12 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     ? requestedSection
     : 'appearance';
   const [creditTabParam, setCreditTabParam] = useUrlState('creditTab');
-  const creditSubTab: 'purchasable' | 'job-costs' | 'shopify' =
-    creditTabParam === 'job-costs' || creditTabParam === 'shopify' ? creditTabParam : 'purchasable';
+  const creditSubTab: 'purchasable' | 'job-costs' | 'shopify' | 'renewal-popup' =
+    creditTabParam === 'job-costs' ||
+    creditTabParam === 'shopify' ||
+    creditTabParam === 'renewal-popup'
+      ? creditTabParam
+      : 'purchasable';
   const [pageSize, setPageSize] = useState<number>(25);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -735,6 +740,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                 { k: 'purchasable', label: 'Purchasable Plans' },
                 { k: 'job-costs', label: 'Job Costs' },
                 { k: 'shopify', label: 'Shopify' },
+                { k: 'renewal-popup', label: 'Renewal popup' },
               ] as const
             ).map((t) => (
               <button
@@ -750,6 +756,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           {creditSubTab === 'purchasable' && <PurchasablePlansTab toast={toast} />}
           {creditSubTab === 'job-costs' && <JobCostsTab toast={toast} />}
           {creditSubTab === 'shopify' && <ShopifyCreditsTab toast={toast} />}
+          {creditSubTab === 'renewal-popup' && <RenewalPopupTab toast={toast} />}
         </>
       )}
 

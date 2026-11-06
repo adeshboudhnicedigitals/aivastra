@@ -83,13 +83,21 @@ export const unlimitedPlans = pgTable('unlimited_plans', {
     .references(() => users.id, { onDelete: 'cascade' }),
   startAt: timestamp('start_at', { withTimezone: true }).notNull(),
   endAt: timestamp('end_at', { withTimezone: true }).notNull(),
-  status: text('status').notNull().default('active'), // 'active' | 'expired' | 'revoked'
+  // 'active' | 'expired' | 'revoked' | 'offered'. 'offered' = an admin has set the
+  // agreed price (and durationDays) but the user hasn't paid yet: it grants nothing,
+  // and the user's first self-serve payment turns it 'active' for durationDays from
+  // that moment (applyUnlimitedPlanRenewalPayment). Its startAt/endAt are a
+  // placeholder (both the offer time) until then — never read them for an offer.
+  status: text('status').notNull().default('active'),
   note: text('note'),
   // Negotiated, per-user price for this grant — there's no fixed SKU (see
   // table comment), so this is set individually every time an admin grants or
   // renews. Charged again (see unlimitedPlanCharges) on every renewal, not
   // just the first grant.
   pricePaise: integer('price_paise').notNull().default(0),
+  // Length of one paid cycle. Set for offers (which have no meaningful window yet);
+  // null on admin grants, whose renewals keep re-using their [startAt, endAt] span.
+  durationDays: integer('duration_days'),
   // Same 'priority' | 'normal' | 'low' vocabulary as credit_plans.queueStream —
   // overrides the user's tier-derived routing for the life of this grant (see
   // resolveQueueRouting, apps/api/src/modules/jobs/create.ts).

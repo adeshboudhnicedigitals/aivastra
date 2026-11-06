@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { resolveCampaignId } from '../auth/campaign.js';
-import { deriveDisplayStatus } from './unlimited-plan.js';
+import { deriveDisplayStatus, getLatestUnlimitedPlan } from './unlimited-plan.js';
 
 // Mirrors the eligibility check in grantPurchaseCredits (apps/api/src/modules/payments/routes.ts):
 // a campaign-attributed user who hasn't made a paid purchase yet. Doesn't gate on the
@@ -65,15 +65,10 @@ export async function creditsRoutes(app: FastifyInstance) {
       .where(eq(schema.creditLedger.userId, req.userId))
       .orderBy(desc(schema.creditLedger.createdAt))
       .limit(20);
-    const [unlimitedPlan] = await app.db
-      .select()
-      .from(schema.unlimitedPlans)
-      .where(
-        and(
-          eq(schema.unlimitedPlans.userId, req.userId),
-          eq(schema.unlimitedPlans.status, 'active'),
-        ),
-      );
+    // Not just status='active': the hourly tick flips a lapsed plan to 'expired', and an
+    // admin offer is 'offered' — both must still reach the pricing page, or its Renew/Pay
+    // button disappears for exactly the users the renewal popup sends there.
+    const unlimitedPlan = await getLatestUnlimitedPlan(app.db, req.userId);
     return {
       balance: bal?.balance ?? 0,
       unlimitedPlan: deriveDisplayStatus(unlimitedPlan ?? null),

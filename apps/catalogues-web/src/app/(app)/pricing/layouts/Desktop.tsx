@@ -171,6 +171,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
           usageValue,
           usageTotal,
           footerText,
+          renewLabel,
         } = banner;
 
         return (
@@ -324,7 +325,7 @@ export function Desktop(props: PricingLayoutProps): React.ReactElement {
                     gap: 6,
                   }}
                 >
-                  {renewingUnlimitedPlan ? 'Processing…' : 'Renew'}
+                  {renewingUnlimitedPlan ? 'Processing…' : renewLabel}
                 </button>
               )}
             </div>
