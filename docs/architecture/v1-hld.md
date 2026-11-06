@@ -124,7 +124,7 @@ Per-brand plan prices are owned by the subscription module.
 | Table | Key columns | Notes |
 |---|---|---|
 | `merchant_branches` | merchant_id, name, city, address, is_active | |
-| `merchant_staff` | merchant_id, branch_id, user_id, role (`admin`\|`staff`), is_active | Membership row; the login is a `users` row (same pattern as `merchants`, `admin_users`) so password/reset/OTP flows are reused. The existing merchant owner gets an `admin` row. `branch_id` null for `admin` |
+| `merchant_staff` | merchant_id, branch_id, user_id (unique), is_active | Staff only. The merchant owner (`merchants.user_id`) is the implicit merchant admin and has no row, so no merchant-creation path changes. Login is a `users` row (`emailVerified: true`) |
 | `merchant_devices` | merchant_id, branch_id, name, device_token_hash, pairing_code_hash, pairing_expires_at, last_seen_at, is_active | sha256-hashed token, like `api_keys` |
 | `shoppers` | merchant_id, phone_e164, consent_at, consent_version, anonymised_at | Unique on (merchant_id, phone_e164). Never linked across merchants |
 | `instore_sessions` | merchant_id, branch_id, device_id, staff_id?, shopper_id, mode (`kiosk`\|`assisted`), consent_by_staff, started_at, ended_at | One visit |
@@ -205,7 +205,7 @@ isDeviceCovered(deviceId)            ← provided by the subscription module
 ## 7. Security and privacy
 
 - **Authorization in the API**, never only the UI: every Merchant Web request resolves the
-  caller's `merchant_staff` row; staff queries are filtered server-side to their branch
+  caller as the merchant owner (admin) or a `merchant_staff` row; staff queries are filtered server-side to their branch
   and their own sessions; only `admin` manages staff, branches, devices and brand settings.
 - **Staff limit** is checked inside the same transaction as the staff insert, so
   concurrent creates cannot exceed it.

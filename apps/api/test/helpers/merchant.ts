@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
+import { signAccess } from '../../src/modules/auth/service.js';
 import { generateApiKey } from '../../src/modules/dev/keys.js';
 import type { TestApp } from './api.js';
 
@@ -267,4 +268,51 @@ export async function createTestDevSareeMannequinConfig(
     });
 
   return { workflowTemplateId: wf.id };
+}
+
+export async function createTestBranch(
+  app: TestApp,
+  merchantId: string,
+  opts: { name?: string; isActive?: boolean } = {},
+) {
+  const [branch] = await app.db
+    .insert(schema.merchantBranches)
+    .values({
+      merchantId,
+      name: opts.name ?? `Branch ${randomUUID().slice(0, 6)}`,
+      isActive: opts.isActive ?? true,
+    })
+    .returning();
+  if (!branch) throw new Error('failed to create test branch');
+  return branch;
+}
+
+export async function memberAuthHeader(app: TestApp, userId: string) {
+  const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+  const token = await signAccess(secret, userId, { kind: 'access' }, '15m');
+  return { authorization: `Bearer ${token}` };
+}
+
+export async function createTestStaff(
+  app: TestApp,
+  merchantId: string,
+  branchId: string,
+  opts: { isActive?: boolean } = {},
+) {
+  const [user] = await app.db
+    .insert(schema.users)
+    .values({
+      email: `staff-${randomUUID()}@test.com`,
+      displayName: 'Test Staff',
+      emailVerified: true,
+    })
+    .returning();
+  if (!user) throw new Error('failed to create staff user');
+  await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+  const [staff] = await app.db
+    .insert(schema.merchantStaff)
+    .values({ merchantId, branchId, userId: user.id, isActive: opts.isActive ?? true })
+    .returning();
+  if (!staff) throw new Error('failed to create staff row');
+  return { staffId: staff.id, userId: user.id, auth: await memberAuthHeader(app, user.id) };
 }

@@ -1,3 +1,42 @@
+# 2026-11-06 — v1.0 step 1: merchant org model (branches + staff), admin controls (uncommitted, staged)
+
+- **Done:**
+  - Schema + migration `0255` (`merchant_branches`, `merchant_staff`, and `merchants.staff_limit_per_branch`
+    / `device_quota_per_month` / `store_url`). Applied to the LOCAL dev DB only.
+  - `app.requireMerchantMember` / `app.requireMerchantAdmin` (`plugins/portal-auth.ts`).
+  - `/v1/merchant/org/*` (me, branches, staff); the per-branch staff limit is enforced in the same
+    transaction as the staff insert.
+  - `/admin/merchants/:id/org` plus branch/staff PATCH routes, and the three new fields on
+    `PATCH /admin/merchants/:id`; admin-web edit-drawer fields + `MerchantOrgPanel`.
+  - **Deviation from the HLD:** the merchant owner (`merchants.user_id`) is the implicit merchant admin;
+    `merchant_staff` holds staff only and has no role column. HLD §4.1 updated to match.
+- **Review fixes (final whole-branch review, 3 waves):**
+  - `updateStaff` now checks the target branch belongs to the merchant on every branch change (a foreign
+    branch UUID returned 200 for inactive staff); staff-create duplicate-email check is case-insensitive.
+  - Google sign-in no longer auto-links onto an account that is a merchant staff member
+    (`STAFF_GOOGLE_LINK_REFUSED`, 403): a merchant admin could otherwise pre-create a verified account for an
+    unregistered email and keep its password after the real owner signed in with Google.
+  - The three merchant-creation paths (WordPress login/connect, Android onboarding, `POST /admin/merchants`)
+    refuse a user who is already staff (`USER_IS_STAFF`, 409) via `assertUserIsNotStaff`.
+  - Drawer blocks an empty/invalid staff limit (was `Number('')` = 0); panel keyed by merchant id;
+    `storeUrl` is http(s)-only and non-URL input is a 400; `deviceQuotaPerMonth` max 1,000,000.
+- **Verified:** API integration `merchant-org` (17), `admin-merchant-org` (7), `merchant-staff-account-guards` (3),
+  `merchant-me` (2) green (29/29, re-run after the last fix); `google-upsert` unit 8; typecheck/build clean.
+- **Failed / Not done:**
+  - The admin-web UI (`MerchantOrgPanel` + drawer fields) was NOT exercised in a browser.
+  - Migration `0255` is not applied to staging/prod; it ships via push -> CI/CD -> `db:migrate:prod`.
+  - Minors deferred: no DB CHECK constraints on the new columns (zod only); no confirm on branch
+    deactivate; `hashPassword` runs before the capacity check; no unique (merchant_id, name) on branches;
+    `lower(users.email)` lookup is unindexed; the browser Google callback shows raw JSON for the staff
+    refusal (same as the existing BANNED case); Android display of the new 403 untraced.
+- **Open questions:**
+  - Decided (option A): ADMIN and SUPER_ADMIN edit branches/staff (`requireAdmin`, same as agreed price);
+    staff limit / device quota / store URL stay `merchants.write` (SUPER_ADMIN). Panel and the merchant
+    Edit button hide for roles that cannot use them. Product intent that ADMIN alters *any* merchant
+    setting still needs a permissions migration if wanted later.
+  - Merchant Web (`apps/merchant-web`, build step 3) will consume `/v1/merchant/org/*`; nothing in
+    v1.0 steps 2-7 is started.
+
 # 2026-11-05 — Merchant quick try-on: one camera photo, admin-chosen workflow (uncommitted)
 
 - **What:** new `workflow_templates.workflow_type = 'quick_tryon'` (single LoadImage in → Save Image out,

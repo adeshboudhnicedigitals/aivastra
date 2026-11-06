@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { resolveFreeCredits, upsertGoogleUser } from '../src/modules/auth/google-upsert.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
+import { createTestBranch, createTestMerchant, createTestStaff } from './helpers/merchant.js';
 
 let c: Containers;
 let app: TestApp;
@@ -93,6 +94,29 @@ describe('upsertGoogleUser', () => {
     const [after] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
     expect(after?.emailVerified).toBe(true);
     expect(after?.passwordHash).toBe('x');
+  });
+
+  it('refuses to link Google onto a merchant staff account', async () => {
+    const m = await createTestMerchant(app);
+    const b = await createTestBranch(app, m.merchantId);
+    const st = await createTestStaff(app, m.merchantId, b.id);
+    await app.db
+      .update(schema.users)
+      .set({ passwordHash: 'x', emailVerified: false })
+      .where(eq(schema.users.id, st.userId));
+    const [u] = await app.db.select().from(schema.users).where(eq(schema.users.id, st.userId));
+
+    await expect(
+      app.db.transaction((tx) => upsertGoogleUser(tx, identity({ email: u!.email }), 0)),
+    ).rejects.toMatchObject({ code: 'STAFF_GOOGLE_LINK_REFUSED', statusCode: 403 });
+
+    const [after] = await app.db.select().from(schema.users).where(eq(schema.users.id, st.userId));
+    expect(after?.emailVerified).toBe(false);
+    const links = await app.db
+      .select()
+      .from(schema.oauthAccounts)
+      .where(eq(schema.oauthAccounts.userId, st.userId));
+    expect(links).toHaveLength(0);
   });
 
   it('rejects a banned account', async () => {

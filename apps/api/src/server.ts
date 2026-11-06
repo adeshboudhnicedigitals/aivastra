@@ -48,6 +48,7 @@ import { adminImageCompressionRoutes } from './modules/admin/image-compression.r
 import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
 import { adminMeRoutes } from './modules/admin/me.routes.js';
 import { adminMerchantCatalogRoutes } from './modules/admin/merchant-catalog.routes.js';
+import { adminMerchantOrgRoutes } from './modules/admin/merchant-org.routes.js';
 import { adminMerchantsRoutes } from './modules/admin/merchants.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminPaymentsRoutes } from './modules/admin/payments.routes.js';
@@ -101,6 +102,7 @@ import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
 import { kioskDownloadRoutes } from './modules/merchant/kiosk-download.routes.js';
 import { merchantMeRoutes } from './modules/merchant/me.routes.js';
 import { merchantOnboardingRoutes } from './modules/merchant/onboarding.routes.js';
+import { merchantOrgRoutes } from './modules/merchant/org.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
 import { merchantTryonRoutes } from './modules/merchant/tryon.routes.js';
 import { merchantTryonResultsRoutes } from './modules/merchant/tryon-results.routes.js';
@@ -466,6 +468,7 @@ export async function buildServer(env: Env) {
   await app.register(merchantOnboardingRoutes);
   await app.register(merchantTryonRoutes);
   await app.register(merchantMeRoutes);
+  await app.register(merchantOrgRoutes);
   await app.register(merchantTryonResultsRoutes);
   await app.register(merchantUploadSessionRoutes);
   await app.register(kioskDownloadRoutes);
@@ -536,6 +539,7 @@ export async function buildServer(env: Env) {
   await app.register(adminSareeRoutes);
   await app.register(adminContactRoutes);
   await app.register(adminMerchantsRoutes);
+  await app.register(adminMerchantOrgRoutes);
   await app.register(resultsRoutes);
   await app.register(supportRoutes);
   await app.register(paymentsRoutes);

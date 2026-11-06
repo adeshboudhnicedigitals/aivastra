@@ -297,6 +297,9 @@ export interface UserMerchant {
   logoOverlayEnabled: boolean;
   loadingVideoKey: string | null;
   loadingVideoUrl: string | null;
+  staffLimitPerBranch: number;
+  deviceQuotaPerMonth: number | null;
+  storeUrl: string | null;
 }
 
 export interface User {
@@ -740,4 +743,31 @@ export interface RefundRequest {
   downloadedAt: string | null;
   imageUrl: string;
   previewUrl: string;
+}
+
+export interface MerchantOrgStaff {
+  id: string;
+  branchId: string;
+  userId: string;
+  email: string | null;
+  displayName: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface MerchantOrgBranch {
+  id: string;
+  name: string;
+  city: string | null;
+  address: string | null;
+  isActive: boolean;
+  createdAt: string;
+  staff: MerchantOrgStaff[];
+}
+
+export interface MerchantOrg {
+  staffLimitPerBranch: number;
+  deviceQuotaPerMonth: number | null;
+  storeUrl: string | null;
+  branches: MerchantOrgBranch[];
 }
