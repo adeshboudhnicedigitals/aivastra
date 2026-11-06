@@ -1,5 +1,5 @@
 {
-  "id": "7280af8b-4afd-4a76-a253-06c336841d09",
+  "id": "2172220e-54a4-4625-a293-9b3dbd5ea7e3",
   "prevId": "2b8f3a95-3693-45f4-bb6e-8dd70121eb6e",
   "version": "7",
   "dialect": "postgresql",
@@ -1896,12 +1896,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
-        },
-        "duration_days": {
-          "name": "duration_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
         },
         "queue_stream": {
           "name": "queue_stream",
@@ -11004,6 +10998,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "image_url": {
+          "name": "image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "title": {
           "name": "title",
