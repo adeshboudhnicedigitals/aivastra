@@ -1786,6 +1786,20 @@
       "when": 1793964182021,
       "tag": "0255_silky_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 256,
+      "version": "7",
+      "when": 1793967284543,
+      "tag": "0256_dark_shen",
+      "breakpoints": true
+    },
+    {
+      "idx": 257,
+      "version": "7",
+      "when": 1793969602398,
+      "tag": "0257_military_iron_lad",
+      "breakpoints": true
     }
   ]
 }

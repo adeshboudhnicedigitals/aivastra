@@ -48,6 +48,7 @@ import { adminImageCompressionRoutes } from './modules/admin/image-compression.r
 import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
 import { adminMeRoutes } from './modules/admin/me.routes.js';
 import { adminMerchantCatalogRoutes } from './modules/admin/merchant-catalog.routes.js';
+import { adminMerchantDeviceRoutes } from './modules/admin/merchant-devices.routes.js';
 import { adminMerchantOrgRoutes } from './modules/admin/merchant-org.routes.js';
 import { adminMerchantsRoutes } from './modules/admin/merchants.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
@@ -81,6 +82,7 @@ import { devBackgroundsRoutes } from './modules/dev/backgrounds.routes.js';
 import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { minioProxyRoutes } from './modules/dev/minio-proxy.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
+import { deviceRoutes } from './modules/device/routes.js';
 import { extensionRoutes } from './modules/extension/routes.js';
 import { fleetActivityRoutes } from './modules/fleet/activity.routes.js';
 import { fleetAgentAdminRoutes } from './modules/fleet/agent.routes.js';
@@ -103,6 +105,7 @@ import { kioskDownloadRoutes } from './modules/merchant/kiosk-download.routes.js
 import { merchantMeRoutes } from './modules/merchant/me.routes.js';
 import { merchantOnboardingRoutes } from './modules/merchant/onboarding.routes.js';
 import { merchantOrgRoutes } from './modules/merchant/org.routes.js';
+import { merchantOrgDeviceRoutes } from './modules/merchant/org-devices.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
 import { merchantTryonRoutes } from './modules/merchant/tryon.routes.js';
 import { merchantTryonResultsRoutes } from './modules/merchant/tryon-results.routes.js';
@@ -469,6 +472,8 @@ export async function buildServer(env: Env) {
   await app.register(merchantTryonRoutes);
   await app.register(merchantMeRoutes);
   await app.register(merchantOrgRoutes);
+  await app.register(merchantOrgDeviceRoutes);
+  await app.register(deviceRoutes);
   await app.register(merchantTryonResultsRoutes);
   await app.register(merchantUploadSessionRoutes);
   await app.register(kioskDownloadRoutes);
@@ -540,6 +545,7 @@ export async function buildServer(env: Env) {
   await app.register(adminContactRoutes);
   await app.register(adminMerchantsRoutes);
   await app.register(adminMerchantOrgRoutes);
+  await app.register(adminMerchantDeviceRoutes);
   await app.register(resultsRoutes);
   await app.register(supportRoutes);
   await app.register(paymentsRoutes);

@@ -1,3 +1,66 @@
+# 2026-11-06 — v1.0 step 2: devices, in-store sessions, entitlement (uncommitted, staged)
+
+- **Done:**
+  - Schema + migration `0256_dark_shen` (`merchant_devices`, `instore_sessions`, `session_items`, plus four nullable
+    `ON DELETE SET NULL` attribution columns on `jobs`). Applied to the LOCAL dev DB only.
+  - `app.requireDevice` (`plugins/portal-auth.ts`) and `device/` module: token/pairing-code secrets, audit helper.
+  - Pairing: `POST /v1/device/pair` (atomic claim, one generic 400 for every failure, per-IP rate limit) and device `me`.
+  - Merchant device management (`merchant/org-devices.routes.ts`) and admin device management
+    (`admin/merchant-devices.routes.ts`), audited; cross-merchant access refused.
+  - Sessions, items and sale void: device routes for start (idempotent), end, add item, undo; merchant void route.
+    Staff may undo within 24 h, admin any time; undo sets `voided_at`, never a delete.
+  - Idle sweeper (`device/session-sweeper.ts`), started in `main.ts` after `startUploadSweeper`.
+  - Entitlement: `chargeInStoreTryon` + `isDeviceCovered` seam (`device/entitlement.ts`); 402 when not covered, a throwing
+    coverage check means not covered.
+  - Attributed job creation via `JobAttribution` / `attributionColumns` / `chargeJob` in `create-tryon-job.ts`; device
+    routes for photo presign and `POST`/`GET` try-on jobs (GET scoped by `device_id`, POST under `withIdempotency`).
+  - Extracted `createGarmentTryonJob` + `assertOwnedCustomerPhoto` to `merchant/tryon-job-service.ts`; the legacy
+    `tryon.routes.ts` handler now delegates to it (same order and errors).
+  - HLD §4.1 updated: `merchant_devices` token hash unique/nullable until paired; `instore_sessions` loses
+    `shopper_id`/`consent_by_staff` and gains `last_activity_at`; `session_items.catalog_item_id` has no FK;
+    `shoppers`/`shopper_page_events` marked unchanged by step 2.
+- **Review fixes (final whole-branch review, 1 wave, re-review Approved):**
+  - Job attribution uses the session's branch; moving or deactivating a device ends its open sessions in the same
+    transaction, and a move to an inactive branch is refused (400).
+  - `chargeInStoreTryon` treats only `=== true` as covered and catches a synchronous throw (both mean credits are charged).
+  - Wishlist/sold items must reference the merchant's own catalog item or an allowed demo item (404 otherwise), via
+    `merchantCanReferenceCatalogItem` in `resolve-tryon-garment.ts` (`resolveTryonGarment` unchanged).
+  - Migration `0257_military_iron_lad` (indexes only): partial unique on `merchant_devices.pairing_code_hash`
+    and a partial index on `instore_sessions.last_activity_at WHERE ended_at IS NULL`. Local DB only.
+  - Non-uuid path params return 400; `x-staff-authorization` added to the logger redact list; saree two-step device
+    try-on test added; audit and status assertions tightened.
+- **Deviations from the plan:** `memberFromUserId(userId)` takes no `req`; `DeviceRow` type reordered in the merchant device
+  routes; the admin device routes import their body schema as a value. No logic changes.
+- **Verified:** API integration run `device- merchant-org admin-merchant-org merchant-staff-account-guards merchant-me
+  merchant-tryon merchant-quick-tryon unlimited-plan-offer` -> 18 files / 127 tests passed (the `device-` pattern also
+  matches the pre-existing `catalog-app-device-*` and `device-login-*` files). Step-2 files: device-schema 1,
+  device-auth 7, device-management 6, device-sessions 11, device-tryon 11. Guards: merchant-org 17, admin-merchant-org 8,
+  merchant-staff-account-guards 3, merchant-me 2, merchant-tryon 15, merchant-quick-tryon 3, unlimited-plan-offer 12.
+  `pnpm -r --filter "!@aivastra/admin-mobile" run typecheck` clean; `pnpm biome check . --diagnostic-level=error` no errors.
+  Legacy suites (merchant-tryon, quick-tryon, history, results) identical before and after the route extraction (24/24).
+  `pnpm --filter @aivastra/api test` unit run after Task 5: 119 files / 1206 tests.
+- **Failed / Not done:**
+  - No admin-web, Merchant Web or Android UI for any of this; nothing exercised in a browser or on a device.
+  - Quota / subscription coverage is not enforced: `isDeviceCovered` always returns false, so every device try-on is
+    charged to credits.
+  - The idle sweeper's session ends are not audited (no actor).
+  - Migrations `0256` and `0257` are not applied to staging/prod; it ships via push -> CI/CD -> `db:migrate:prod`.
+  - The legacy email-login kiosk path is untouched.
+- **Open questions:**
+  - How and when customers move off the email-login kiosk: per-customer, later.
+  - Please confirm the four spec gaps the plan closed: (1) device photo presign + job read routes were added;
+    (2) an admin sale-void route was added; (3) `session_items.catalog_item_id` has no FK; (4) the sweeper is not audited.
+  - Deferred on purpose: indexes on the four new `jobs` columns (a non-concurrent index build on the production `jobs`
+    table can block writes; plan it for step 3 with a deliberate window); sales attributed to a staff member who was
+    deactivated mid-session; no re-pair endpoint and a re-activated device regains its old token (product decision);
+    `last_seen_at` write on every device request (throttle later); store-NAT shares the 200 req/min limit, so the
+    Android client should poll job status gently; `withIdempotency` is check-then-set (pre-existing); a sale or job can
+    land just after a session ends; `/pair` does not check that branch/merchant are active (the token is rejected by
+    `requireDevice` anyway).
+  - Final verification after the fix wave: `device- merchant-org admin-merchant-org merchant-staff-account-guards
+    merchant-me merchant-tryon merchant-quick-tryon unlimited-plan-offer` -> 18 files / 138 tests passed; api unit
+    1206 passed; typecheck clean; biome 0 errors.
+
 # 2026-11-06 — v1.0 step 1: merchant org model (branches + staff), admin controls (uncommitted, staged)
 
 - **Done:**

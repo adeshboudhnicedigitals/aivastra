@@ -23,6 +23,7 @@ export * from './image-compression.js';
 export * from './job-refunds.js';
 export * from './job-taxonomy.js';
 export * from './jobs.js';
+export * from './merchant-device.js';
 export * from './merchant-org.js';
 export * from './messaging.js';
 export * from './phone.js';

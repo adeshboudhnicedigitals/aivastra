@@ -215,6 +215,52 @@ export async function resolveTryonGarment(
   };
 }
 
+/**
+ * Ownership-only form of resolveTryonGarment's lookup, for callers that record a catalog
+ * item without running a try-on (in-store wishlist / sale). Same rule: the merchant's own
+ * row, or an admin demo item in a set assigned to a demo-data merchant. Deliberately
+ * ignores active/moderation/workflow state: those gate generating a try-on, not
+ * remembering what a customer liked or bought.
+ */
+export async function merchantCanReferenceCatalogItem(
+  app: FastifyInstance,
+  merchantId: string,
+  itemId: string,
+): Promise<boolean> {
+  const [own] = await app.db
+    .select({ id: schema.merchantCatalogItems.id })
+    .from(schema.merchantCatalogItems)
+    .where(
+      and(
+        eq(schema.merchantCatalogItems.id, itemId),
+        eq(schema.merchantCatalogItems.merchantId, merchantId),
+      ),
+    )
+    .limit(1);
+  if (own) return true;
+  const [demo] = await app.db
+    .select({ id: schema.demoCatalogItems.id })
+    .from(schema.demoCatalogItems)
+    .innerJoin(
+      schema.demoCatalogSubcategories,
+      eq(schema.demoCatalogSubcategories.id, schema.demoCatalogItems.subcategoryId),
+    )
+    .innerJoin(
+      schema.demoCatalogAssignments,
+      and(
+        eq(schema.demoCatalogAssignments.setId, schema.demoCatalogSubcategories.setId),
+        eq(schema.demoCatalogAssignments.merchantId, merchantId),
+      ),
+    )
+    .innerJoin(
+      schema.merchants,
+      and(eq(schema.merchants.id, merchantId), eq(schema.merchants.demoData, true)),
+    )
+    .where(eq(schema.demoCatalogItems.id, itemId))
+    .limit(1);
+  return Boolean(demo);
+}
+
 function assertWorkflow(row: {
   workflowTemplateId: string | null;
   tryonCategoryIsActive: boolean | null;

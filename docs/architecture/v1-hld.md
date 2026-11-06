@@ -125,11 +125,11 @@ Per-brand plan prices are owned by the subscription module.
 |---|---|---|
 | `merchant_branches` | merchant_id, name, city, address, is_active | |
 | `merchant_staff` | merchant_id, branch_id, user_id (unique), is_active | Staff only. The merchant owner (`merchants.user_id`) is the implicit merchant admin and has no row, so no merchant-creation path changes. Login is a `users` row (`emailVerified: true`) |
-| `merchant_devices` | merchant_id, branch_id, name, device_token_hash, pairing_code_hash, pairing_expires_at, last_seen_at, is_active | sha256-hashed token, like `api_keys` |
-| `shoppers` | merchant_id, phone_e164, consent_at, consent_version, anonymised_at | Unique on (merchant_id, phone_e164). Never linked across merchants |
-| `instore_sessions` | merchant_id, branch_id, device_id, staff_id?, shopper_id, mode (`kiosk`\|`assisted`), consent_by_staff, started_at, ended_at | One visit |
-| `session_items` | session_id, catalog_item_id, job_id?, action (`tried`\|`wishlisted`\|`sold`), staff_id?, voided_at?, voided_by? | "Sold" undo sets `voided_at` — never a delete |
-| `shopper_page_events` | session_id, event (`opened`\|`viewed_item`\|`buy_online_click`), catalog_item_id? | Advisory only — never read for credit, limit or authorization decisions |
+| `merchant_devices` | merchant_id, branch_id, name, device_token_hash, pairing_code_hash, pairing_expires_at, last_seen_at, is_active | sha256-hashed token, like `api_keys`; token hash unique and nullable until paired |
+| `shoppers` | merchant_id, phone_e164, consent_at, consent_version, anonymised_at | Step 5, unchanged by step 2. Unique on (merchant_id, phone_e164). Never linked across merchants |
+| `instore_sessions` | merchant_id, branch_id, device_id, staff_id?, mode (`kiosk`\|`assisted`), started_at, ended_at, last_activity_at | One visit. `last_activity_at` drives the 10-minute idle sweep. `shopper_id` and `consent_by_staff` are added by step 5, not step 2 |
+| `session_items` | session_id, catalog_item_id, job_id?, action (`tried`\|`wishlisted`\|`sold`), staff_id?, voided_at?, voided_by? | "Sold" undo sets `voided_at` — never a delete. `catalog_item_id` has no FK (demo items) |
+| `shopper_page_events` | session_id, event (`opened`\|`viewed_item`\|`buy_online_click`), catalog_item_id? | Step 5, unchanged by step 2. Advisory only — never read for credit, limit or authorization decisions |
 
 ### 4.2 Changes to existing tables
 

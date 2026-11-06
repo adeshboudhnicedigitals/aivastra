@@ -13,7 +13,7 @@ import { requireAdmin, requirePermission } from './guard.js';
 // Same role gate as the agreed-price routes (unlimitedPlan.routes.ts): correcting a
 // merchant's branches and staff is open to ADMIN, while staff limit / quota / store URL
 // stay on merchants.write (SUPER_ADMIN) in merchants.routes.ts.
-const ORG_EDIT = requireAdmin(['SUPER_ADMIN', 'ADMIN']);
+export const ORG_EDIT = requireAdmin(['SUPER_ADMIN', 'ADMIN']);
 
 export async function adminMerchantOrgRoutes(app: FastifyInstance) {
   app.get(

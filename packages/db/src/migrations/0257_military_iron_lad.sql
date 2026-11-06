@@ -1,0 +1,2 @@
+CREATE INDEX IF NOT EXISTS "instore_sessions_open_activity_idx" ON "instore_sessions" USING btree ("last_activity_at") WHERE "instore_sessions"."ended_at" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "merchant_devices_pairing_code_hash_uq" ON "merchant_devices" USING btree ("pairing_code_hash") WHERE "merchant_devices"."pairing_code_hash" is not null;
