@@ -16,6 +16,7 @@ import aivastra.nice.interactive.data.models.LogoutRequest
 import aivastra.nice.interactive.data.models.LogoutResponse
 import aivastra.nice.interactive.data.models.RefreshTokenRequest
 import aivastra.nice.interactive.data.models.RefreshTokenResponse
+import aivastra.nice.interactive.data.models.RenewalPromptResponse
 import aivastra.nice.interactive.data.models.CatalogResponse
 import aivastra.nice.interactive.data.models.SubcategoryResponse
 import aivastra.nice.interactive.data.models.CreateUploadSessionResponse
@@ -38,6 +39,10 @@ interface ApiService {
     /** App-wide loading/generation video config. Public — no merchant auth required. */
     @GET("v1/config/app-video")
     suspend fun getAppVideoConfig(): Response<AppVideoConfigResponse>
+
+    /** Whether to show the plan-renewal popup now, and its copy. See RenewalPromptGate. */
+    @GET("v1/app/renewal-prompt")
+    suspend fun getRenewalPrompt(): Response<RenewalPromptResponse>
 
     @POST("v1/merchant/tryon/upload-sessions")
     suspend fun createUploadSession(): Response<CreateUploadSessionResponse>

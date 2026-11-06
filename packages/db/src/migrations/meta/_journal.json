@@ -1765,6 +1765,13 @@
       "when": 1793707640392,
       "tag": "0252_spooky_vulture",
       "breakpoints": true
+    },
+    {
+      "idx": 253,
+      "version": "7",
+      "when": 1793952684281,
+      "tag": "0253_natural_multiple_man",
+      "breakpoints": true
     }
   ]
 }

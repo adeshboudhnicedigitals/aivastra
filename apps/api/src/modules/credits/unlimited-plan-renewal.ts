@@ -5,7 +5,7 @@
 // webhook is the only account of a payment that completed after the browser
 // tab closed before /verify ran.
 import { schema } from '@aivastra/db';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -59,16 +59,35 @@ export async function applyUnlimitedPlanRenewalPayment(
 
     applied = true;
 
-    const [plan] = await tx
+    const [charged] = await tx
       .select()
       .from(schema.unlimitedPlans)
       .where(eq(schema.unlimitedPlans.id, charge.unlimitedPlanId))
       .for('update');
-    if (!plan) return; // FK guarantees this row exists; guard anyway
+    if (!charged) return; // FK guarantees this row exists; guard anyway
 
+    // The money has already moved, so this must not fail. If the user meanwhile got a
+    // different active plan (an admin grant superseding the offer this order was
+    // for), extend that one: activating the charged row too would violate
+    // unlimited_plans_one_active_per_user and roll the whole settlement back.
+    const [otherActive] = await tx
+      .select()
+      .from(schema.unlimitedPlans)
+      .where(
+        and(
+          eq(schema.unlimitedPlans.userId, charged.userId),
+          eq(schema.unlimitedPlans.status, 'active'),
+          ne(schema.unlimitedPlans.id, charged.id),
+        ),
+      )
+      .for('update');
+    const plan = otherActive ?? charged;
+
+    // An offer carries its cycle length explicitly (its window is a placeholder);
+    // an admin grant keeps re-using the span the admin originally set.
     const durationDays = Math.max(
       1,
-      Math.round((plan.endAt.getTime() - plan.startAt.getTime()) / DAY_MS),
+      plan.durationDays ?? Math.round((plan.endAt.getTime() - plan.startAt.getTime()) / DAY_MS),
     );
     const now = new Date();
     const newEndAt = new Date(now.getTime() + durationDays * DAY_MS);
