@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { REFRESH_COOKIE, setAuthCookies } from '@/lib/auth-cookies';
 import { safeJson } from '@/lib/bff';
-import { readSetCookie, serverApiUrl } from '@/lib/server-api';
+import { forwardedIpHeaders, readSetCookie, serverApiUrl } from '@/lib/server-api';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
 
     const res = await fetch(`${serverApiUrl()}/v1/auth/refresh`, {
       method: 'POST',
-      headers: { Cookie: `refresh=${refreshToken}` },
+      headers: { Cookie: `refresh=${refreshToken}`, ...forwardedIpHeaders(req) },
     });
     const [data, ok] = await safeJson(res);
     if (!ok) return NextResponse.json(data, { status: res.status });

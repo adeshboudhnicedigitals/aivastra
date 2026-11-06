@@ -30,4 +30,29 @@ describe('POST /api/auth/refresh', () => {
     expect(f.mock.calls[0]?.[1].headers.Cookie).toBe('refresh=rt1');
     expect(res.headers.get('set-cookie')).toContain('mw_refresh=rt2');
   });
+
+  it('forwards cf-connecting-ip only when the visitor request has it', async () => {
+    const f = vi.fn().mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ accessToken: 'new' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', f);
+    await POST(
+      new NextRequest('http://localhost:3010/api/auth/refresh', {
+        method: 'POST',
+        headers: { cookie: 'mw_refresh=rt1', 'cf-connecting-ip': '203.0.113.7' },
+      }),
+    );
+    expect(f.mock.calls[0]?.[1].headers['cf-connecting-ip']).toBe('203.0.113.7');
+    await POST(
+      new NextRequest('http://localhost:3010/api/auth/refresh', {
+        method: 'POST',
+        headers: { cookie: 'mw_refresh=rt1' },
+      }),
+    );
+    expect(f.mock.calls[1]?.[1].headers).not.toHaveProperty('cf-connecting-ip');
+  });
 });

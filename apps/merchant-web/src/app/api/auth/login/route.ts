@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { clearAuthCookies, setAuthCookies } from '@/lib/auth-cookies';
 import { safeJson } from '@/lib/bff';
 import type { OrgMe } from '@/lib/roles';
-import { readSetCookie, serverApiUrl } from '@/lib/server-api';
+import { forwardedIpHeaders, readSetCookie, serverApiUrl } from '@/lib/server-api';
 
 const NO_ACCESS = 'This account has no merchant access.';
 
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const res = await fetch(`${API_URL}/v1/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...forwardedIpHeaders(req) },
       body: JSON.stringify(body),
     });
     const [data, ok] = await safeJson(res);
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
 
     const accessToken = (data as { accessToken?: string }).accessToken ?? '';
     const meRes = await fetch(`${API_URL}/v1/merchant/org/me`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: `Bearer ${accessToken}`, ...forwardedIpHeaders(req) },
     });
     if (meRes.status === 403) {
       // Generic on purpose: do not reveal which check (merchant / role / status) failed.

@@ -1,7 +1,8 @@
 // Origins are derived from this build's own env vars rather than hardcoded, so
 // the CSP always matches whatever this specific build actually talks to.
-// API_URL is the server-side (runtime) value; NEXT_PUBLIC_API_URL is the
-// build-time fallback (see CLAUDE.md "Build-time vs runtime config").
+// Only NEXT_PUBLIC_API_URL: the browser calls the API at that URL (see
+// lib/api.ts). The server-only API_URL is a container-internal address
+// (e.g. http://api:4000) the browser cannot reach, so it must not appear here.
 function originOf(url: string | undefined): string | null {
   if (!url) return null;
   try {
@@ -11,9 +12,7 @@ function originOf(url: string | undefined): string | null {
   }
 }
 
-const apiOrigin = originOf(
-  process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000',
-);
+const apiOrigin = originOf(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000');
 
 /**
  * Nonce + 'strict-dynamic': Next.js auto-tags its own inline/streaming
@@ -42,7 +41,6 @@ export function buildCsp(nonce: string): string {
       'blob:',
       'http://127.0.0.1:*', // local MinIO in dev — loopback-only, harmless outside a dev machine
       'https://*.r2.cloudflarestorage.com',
-      'https://app.aivastra.com',
       ...(apiOrigin ? [apiOrigin] : []),
     ],
     'font-src': ["'self'", 'data:'],
@@ -50,7 +48,6 @@ export function buildCsp(nonce: string): string {
       "'self'",
       'http://127.0.0.1:*',
       'https://*.r2.cloudflarestorage.com',
-      'https://app.aivastra.com',
       ...(apiOrigin ? [apiOrigin] : []),
       ...(isDev ? ['ws://127.0.0.1:*', 'ws://localhost:*'] : []), // Next dev HMR websocket
     ],

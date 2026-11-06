@@ -12,10 +12,10 @@ const ME = {
   deviceQuotaPerMonth: null,
 };
 
-function loginReq() {
+function loginReq(extra: Record<string, string> = {}) {
   return new NextRequest('http://localhost:3010/api/auth/login', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...extra },
     body: JSON.stringify({ email: 'a@b.co', password: 'pw' }),
   });
 }
@@ -71,6 +71,22 @@ describe('POST /api/auth/login', () => {
     const res = await POST(loginReq());
     expect(res.status).toBe(401);
     expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('forwards cf-connecting-ip on both upstream calls when present', async () => {
+    const f = vi.fn().mockResolvedValueOnce(loginOk()).mockResolvedValueOnce(json(ME));
+    vi.stubGlobal('fetch', f);
+    await POST(loginReq({ 'cf-connecting-ip': '203.0.113.7' }));
+    expect(f.mock.calls[0]?.[1].headers['cf-connecting-ip']).toBe('203.0.113.7');
+    expect(f.mock.calls[1]?.[1].headers['cf-connecting-ip']).toBe('203.0.113.7');
+  });
+
+  it('sends no cf-connecting-ip when the visitor request has none', async () => {
+    const f = vi.fn().mockResolvedValueOnce(loginOk()).mockResolvedValueOnce(json(ME));
+    vi.stubGlobal('fetch', f);
+    await POST(loginReq());
+    expect(f.mock.calls[0]?.[1].headers).not.toHaveProperty('cf-connecting-ip');
+    expect(f.mock.calls[1]?.[1].headers).not.toHaveProperty('cf-connecting-ip');
   });
 
   it('returns 503 when fetch throws', async () => {
