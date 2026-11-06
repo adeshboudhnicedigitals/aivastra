@@ -22,5 +22,4 @@ export function setAuthCookies(response: NextResponse, setCookieHeader: string |
 
 export function clearAuthCookies(response: NextResponse): void {
   response.cookies.set(REFRESH_COOKIE, '', { maxAge: 0, path: '/' });
-  response.cookies.set('access_token', '', { maxAge: 0, path: '/' });
 }

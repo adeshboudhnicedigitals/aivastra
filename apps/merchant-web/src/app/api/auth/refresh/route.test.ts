@@ -27,7 +27,7 @@ describe('POST /api/auth/refresh', () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(f.mock.calls[0][1].headers.Cookie).toBe('refresh=rt1');
+    expect(f.mock.calls[0]?.[1].headers.Cookie).toBe('refresh=rt1');
     expect(res.headers.get('set-cookie')).toContain('mw_refresh=rt2');
   });
 });

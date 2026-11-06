@@ -63,6 +63,16 @@ async function send(path: string, init: RequestInit, token: string | null): Prom
   }
 }
 
+const ORG_ME_PATH = '/v1/merchant/org/me';
+
+async function accountRejected(token: string | null): Promise<boolean> {
+  try {
+    return (await send(ORG_ME_PATH, {}, token)).status === 403;
+  } catch {
+    return false;
+  }
+}
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   // No token yet (fresh page load): refresh first rather than burn a guaranteed 401.
   let token = memToken ?? (await tryRefresh());
@@ -81,7 +91,13 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
   if (!res.ok) {
     const err = await responseError(res);
-    if (err.status === 403 && err.code === 'FORBIDDEN') forbiddenHandler?.();
+    if (err.status === 403 && err.code === 'FORBIDDEN') {
+      // FORBIDDEN is also an ordinary denial (e.g. staff hitting an admin action),
+      // so only sign out when the account itself is rejected: the org/me re-check
+      // is 403 too. The re-check goes through send(), not apiFetch(), so its own
+      // 403 cannot re-enter this branch.
+      if (path === ORG_ME_PATH || (await accountRejected(token))) forbiddenHandler?.();
+    }
     throw err;
   }
   return (await readResponseBody(res)) as T;
