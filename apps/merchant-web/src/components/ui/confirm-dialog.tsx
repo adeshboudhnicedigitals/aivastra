@@ -3,6 +3,25 @@ import { Loader2 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { C } from '@/components/tokens';
 
+/**
+ * Return focus to the element that opened the dialog. When that element is gone (e.g. a
+ * Deactivate button swapped for Reactivate once the list refetches), fall back to the page's
+ * main landmark, but only if focus has been dropped to body so a user's own move is kept.
+ */
+function restoreFocus(opener: HTMLElement | null) {
+  const fallback = () => document.querySelector<HTMLElement>('main')?.focus();
+  if (opener?.isConnected) opener.focus();
+  else return fallback();
+  // The opener may be removed a moment later, by the refetch that follows a confirm.
+  const obs = new MutationObserver(() => {
+    if (opener.isConnected) return;
+    obs.disconnect();
+    if (document.activeElement === document.body || document.activeElement === null) fallback();
+  });
+  obs.observe(document.body, { childList: true, subtree: true });
+  window.setTimeout(() => obs.disconnect(), 5000);
+}
+
 /** Confirmation modal; controlled via `open`, parent owns the action and busy state. */
 export function ConfirmDialog({
   open,
@@ -41,6 +60,8 @@ export function ConfirmDialog({
     if (!open) return;
     const el = dialogRef.current;
     if (!el) return;
+    // Captured before the dialog takes focus below; restored when it closes or unmounts.
+    const opener = document.activeElement as HTMLElement | null;
     const focusable = el.querySelectorAll<HTMLElement>('button:not([disabled])');
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
@@ -53,7 +74,10 @@ export function ConfirmDialog({
       }
     };
     document.addEventListener('keydown', trap);
-    return () => document.removeEventListener('keydown', trap);
+    return () => {
+      document.removeEventListener('keydown', trap);
+      restoreFocus(opener);
+    };
   }, [open]);
 
   if (!open) return null;

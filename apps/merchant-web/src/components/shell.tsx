@@ -89,7 +89,9 @@ export function Shell({ children }: { children: React.ReactNode }): React.ReactE
             );
           })}
         </nav>
-        <main className="min-w-0 flex-1 p-4 pb-24 md:p-6 md:pb-6">{children}</main>
+        <main tabIndex={-1} className="min-w-0 flex-1 p-4 pb-24 md:p-6 md:pb-6">
+          {children}
+        </main>
       </div>
     </div>
   );
