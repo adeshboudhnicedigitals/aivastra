@@ -72,6 +72,7 @@ import { googleAuthRoutes } from './modules/auth/google.routes.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { backgroundsRoutes } from './modules/backgrounds/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
+import { renewalPromptRoutes } from './modules/credits/renewal-prompt.routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
 import { unlimitedPlanLoginCheckRoutes } from './modules/credits/unlimited-plan-login-check.routes.js';
 import { unlimitedPlanRenewalRoutes } from './modules/credits/unlimited-plan-renewal.routes.js';
@@ -449,6 +450,7 @@ export async function buildServer(env: Env) {
   await app.register(creditsRoutes);
   await app.register(unlimitedPlanRenewalRoutes);
   await app.register(unlimitedPlanLoginCheckRoutes);
+  await app.register(renewalPromptRoutes);
   await app.register(catalogRoutes);
   await app.register(uploadsRoutes);
   await app.register(backgroundsRoutes);

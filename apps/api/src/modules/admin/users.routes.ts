@@ -34,6 +34,7 @@ import { disconnect as disconnectGoogleDrive } from '../google-drive/token.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 import { jobTypeSql } from './job-type.js';
+import { getAdminVisiblePlan } from './unlimitedPlan.routes.js';
 import { renderUsersExportPdf } from './users-export-pdf.js';
 import { loadUsersForExport, UsersExportQuery } from './users-export-query.js';
 import { renderUsersExportXlsx } from './users-export-xlsx.js';
@@ -336,12 +337,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .select()
         .from(schema.userCredits)
         .where(eq(schema.userCredits.userId, id));
-      const [unlimitedPlan] = await app.db
-        .select()
-        .from(schema.unlimitedPlans)
-        .where(
-          and(eq(schema.unlimitedPlans.userId, id), eq(schema.unlimitedPlans.status, 'active')),
-        );
+      const unlimitedPlan = await getAdminVisiblePlan(app, id);
       const unlimitedPlanCharges = await app.db
         .select({
           id: schema.unlimitedPlanCharges.id,

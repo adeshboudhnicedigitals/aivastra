@@ -280,7 +280,8 @@ export interface User {
   demoData?: boolean | null;
   balance: number;
   unlimitedPlan?: {
-    status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'none';
+    // 'offered' = agreed price set in the admin panel, user hasn't paid yet.
+    status: 'active' | 'expiring_soon' | 'expired' | 'revoked' | 'offered' | 'none';
     startAt: string | null;
     endAt: string | null;
     daysRemaining: number | null;

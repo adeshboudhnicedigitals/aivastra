@@ -181,7 +181,7 @@ export async function checkUnlimitedPlanReminderOnLogin(
     daysRemaining: null,
     endDateLabel: null,
   };
-  if (!row || row.status === 'revoked') return none;
+  if (!row || row.status === 'revoked' || row.status === 'offered') return none;
 
   const daysRemaining = Math.ceil((row.endAt.getTime() - Date.now()) / DAY_MS);
   const stage = targetStageFor(daysRemaining);

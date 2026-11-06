@@ -92,6 +92,11 @@ describe('shopify customer routes', () => {
   }
 
   async function seedGarment(storeId: string, shopifyProductId: number, funnelTemplateId?: string) {
+    await app.storage.putObject(
+      `shopify-garments/${storeId}/${shopifyProductId}/garment.jpg`,
+      Buffer.from('garment'),
+      'image/jpeg',
+    );
     const [garment] = await app.db
       .insert(schema.shopifyProductGarments)
       .values({
@@ -292,12 +297,88 @@ describe('shopify customer routes', () => {
     expect(credits.balance).toBeLessThan(100);
   });
 
+  describe('garment image fetched on first try-on', () => {
+    async function seedUncachedGarment(
+      storeId: string,
+      shopifyProductId: number,
+      imageUrl: string,
+    ) {
+      await app.db.insert(schema.shopifyProductGarments).values({
+        storeId,
+        shopifyProductId,
+        r2Key: `shopify-garments/${storeId}/${shopifyProductId}/garment.jpg`,
+        imageUrl,
+        title: 'Uncached',
+        status: 'active',
+        enabled: true,
+      });
+    }
+
+    it('downloads the Shopify image into storage, then creates the job', async () => {
+      await seedFunnelTemplate();
+      const owner = await seedOwner(100);
+      const store = await seedStore(owner.id);
+      const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+      await seedUncachedGarment(store.id, 81, 'https://cdn.shopify.com/uncached.jpg');
+      const originalFetch = global.fetch;
+      global.fetch = (async () =>
+        new Response(new Uint8Array([1, 2, 3, 4]), {
+          status: 200,
+          headers: { 'Content-Type': 'image/jpeg' },
+        })) as typeof fetch;
+      try {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/shopify/customer/jobs',
+          headers: { 'x-widget-key': store.storeKey },
+          payload: { customerPhotoKey: r2Key, shopifyProductId: 81 },
+        });
+        expect(res.statusCode).toBe(201);
+      } finally {
+        global.fetch = originalFetch;
+      }
+      const head = await app.storage.headObject(`shopify-garments/${store.id}/81/garment.jpg`);
+      expect(head.contentLength).toBe(4);
+    });
+
+    it('answers 202 and charges nothing when the image cannot be fetched', async () => {
+      const owner = await seedOwner(100);
+      const store = await seedStore(owner.id);
+      const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+      await seedUncachedGarment(store.id, 82, 'https://cdn.shopify.com/gone.jpg');
+      const originalFetch = global.fetch;
+      global.fetch = (async () => new Response('gone', { status: 404 })) as typeof fetch;
+      try {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/shopify/customer/jobs',
+          headers: { 'x-widget-key': store.storeKey },
+          payload: { customerPhotoKey: r2Key, shopifyProductId: 82 },
+        });
+        expect(res.statusCode).toBe(202);
+        expect(res.json()).not.toHaveProperty('jobId');
+      } finally {
+        global.fetch = originalFetch;
+      }
+      const [credits] = await app.db
+        .select()
+        .from(schema.shopifyStoreCredits)
+        .where(eq(schema.shopifyStoreCredits.storeId, store.id));
+      expect(credits.balance).toBe(100);
+    });
+  });
+
   it('allows a try-on for a product enabled only via an enabled collection', async () => {
     const funnelTemplateId = await seedFunnelTemplate();
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);
     const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
 
+    await app.storage.putObject(
+      `shopify-garments/${store.id}/900/garment.jpg`,
+      Buffer.from('garment'),
+      'image/jpeg',
+    );
     await app.db.insert(schema.shopifyProductGarments).values({
       storeId: store.id,
       shopifyProductId: 900,
@@ -341,6 +422,11 @@ describe('shopify customer routes', () => {
     // enabled: true is deliberate — the old code's plain `!garment.enabled`
     // check would have let this one through (a real regression). Only the
     // resolver's exclusion-first rule catches it.
+    await app.storage.putObject(
+      `shopify-garments/${store.id}/901/garment.jpg`,
+      Buffer.from('garment'),
+      'image/jpeg',
+    );
     await app.db.insert(schema.shopifyProductGarments).values({
       storeId: store.id,
       shopifyProductId: 901,
@@ -539,6 +625,11 @@ describe('shopify customer routes', () => {
         .update(schema.shopifyStores)
         .set({ settings: { activation: { mode: 'global' } } })
         .where(eq(schema.shopifyStores.id, store.id));
+      await app.storage.putObject(
+        `shopify-garments/${store.id}/902/garment.jpg`,
+        Buffer.from('garment'),
+        'image/jpeg',
+      );
       await app.db.insert(schema.shopifyProductGarments).values({
         storeId: store.id,
         shopifyProductId: 902,

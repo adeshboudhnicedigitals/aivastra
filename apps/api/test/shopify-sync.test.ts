@@ -2,7 +2,12 @@ import { schema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
-import { syncOneTask, syncProduct } from '../src/modules/shopify/products.sync.js';
+import {
+  ensureGarmentImage,
+  syncOneTask,
+  syncProduct,
+  syncProductNow,
+} from '../src/modules/shopify/products.sync.js';
 import { isProductSyncActive } from '../src/modules/shopify/service.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
@@ -42,172 +47,160 @@ const mockFetch = (async () =>
   }) as unknown as Response) as typeof fetch;
 
 describe('syncProduct', () => {
-  it('uploads first image to R2 and upserts an active garment row', async () => {
-    const fakeFetch = (async () =>
-      ({
-        ok: true,
-        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
-        headers: new Map([['content-type', 'image/jpeg']]),
-      }) as unknown as Response) as typeof fetch;
-    await syncProduct(
-      app,
-      storeId,
-      { id: 42, title: 'Test Product', imageUrl: 'https://cdn.shopify.com/x.jpg' },
-      fakeFetch,
-    );
+  const rowFor = async (productId: number) => {
     const [row] = await app.db
       .select()
       .from(schema.shopifyProductGarments)
       .where(
         and(
           eq(schema.shopifyProductGarments.storeId, storeId),
-          eq(schema.shopifyProductGarments.shopifyProductId, 42),
+          eq(schema.shopifyProductGarments.shopifyProductId, productId),
         ),
       );
+    return row;
+  };
+
+  it('upserts an active garment row and records the image URL without downloading it', async () => {
+    await syncProduct(app, storeId, {
+      id: 42,
+      title: 'Test Product',
+      imageUrl: 'https://cdn.shopify.com/x.jpg',
+    });
+    const row = await rowFor(42);
     expect(row.status).toBe('active');
     expect(row.title).toBe('Test Product');
+    expect(row.imageUrl).toBe('https://cdn.shopify.com/x.jpg');
     expect(row.r2Key).toBe(`shopify-garments/${storeId}/42/garment.jpg`);
-    const head = await app.storage.headObject(row.r2Key);
-    expect(head.contentLength).toBe(3);
+    await expect(app.storage.headObject(row.r2Key)).rejects.toBeTruthy();
   });
 
   it('marks failed when a product has no image', async () => {
-    const fakeFetch = (async () => {
-      throw new Error('should not be called');
-    }) as typeof fetch;
-    await syncProduct(
-      app,
-      storeId,
-      { id: 43, title: 'No Image Product', imageUrl: null },
-      fakeFetch,
-    );
-    const [row] = await app.db
-      .select()
-      .from(schema.shopifyProductGarments)
-      .where(
-        and(
-          eq(schema.shopifyProductGarments.storeId, storeId),
-          eq(schema.shopifyProductGarments.shopifyProductId, 43),
-        ),
-      );
+    await syncProduct(app, storeId, { id: 43, title: 'No Image Product', imageUrl: null });
+    const row = await rowFor(43);
     expect(row.status).toBe('failed');
     expect(row.failedReason).toBeTruthy();
   });
 
-  it('requests redirect: "error" and a live AbortSignal, so a CDN redirect to an off-allowlist host is never followed', async () => {
+  it('marks failed when the image host is not Shopify', async () => {
+    await syncProduct(app, storeId, {
+      id: 45,
+      title: 'Off Host',
+      imageUrl: 'https://evil.example.com/x.jpg',
+    });
+    const row = await rowFor(45);
+    expect(row.status).toBe('failed');
+    expect(row.failedReason).toContain('image host not allowed');
+  });
+
+  it('drops the stored copy when the product image URL changes, and keeps it when it does not', async () => {
+    const product = { id: 49, title: 'Reshot', imageUrl: 'https://cdn.shopify.com/a.jpg?v=1' };
+    await syncProduct(app, storeId, product);
+    const { r2Key } = await rowFor(49);
+    await app.storage.putObject(r2Key, Buffer.from([1, 2, 3]), 'image/jpeg');
+
+    await syncProduct(app, storeId, product);
+    expect((await app.storage.headObject(r2Key)).contentLength).toBe(3);
+
+    await syncProduct(app, storeId, { ...product, imageUrl: 'https://cdn.shopify.com/a.jpg?v=2' });
+    await expect(app.storage.headObject(r2Key)).rejects.toBeTruthy();
+    expect((await rowFor(49)).imageUrl).toBe('https://cdn.shopify.com/a.jpg?v=2');
+  });
+
+  it('leaves a merchant-picked override image alone when the product image changes', async () => {
+    const product = { id: 50, title: 'Pinned', imageUrl: 'https://cdn.shopify.com/p.jpg?v=1' };
+    await syncProduct(app, storeId, product);
+    const overrideKey = `shopify-garments/${storeId}/50/garment-override.jpg`;
+    await app.storage.putObject(overrideKey, Buffer.from([9]), 'image/jpeg');
+    await app.db
+      .update(schema.shopifyProductGarments)
+      .set({ r2Key: overrideKey })
+      .where(eq(schema.shopifyProductGarments.shopifyProductId, 50));
+
+    await syncProduct(app, storeId, { ...product, imageUrl: 'https://cdn.shopify.com/p.jpg?v=2' });
+    expect((await app.storage.headObject(overrideKey)).contentLength).toBe(1);
+    expect((await rowFor(50)).r2Key).toBe(overrideKey);
+  });
+});
+
+describe('ensureGarmentImage', () => {
+  const okResponse = () =>
+    ({
+      ok: true,
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      headers: new Map([['content-type', 'image/jpeg']]),
+    }) as unknown as Response;
+  let n = 0;
+  const garment = (imageUrl: string | null = 'https://cdn.shopify.com/x.jpg') => ({
+    r2Key: `shopify-garments/${storeId}/ensure-${++n}/garment.jpg`,
+    imageUrl,
+  });
+
+  it('downloads the image into storage on first use and skips the CDN once it is there', async () => {
+    const g = garment();
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls++;
+      return okResponse();
+    }) as typeof fetch;
+    await ensureGarmentImage(app, g, fetchFn);
+    expect((await app.storage.headObject(g.r2Key)).contentLength).toBe(3);
+    await ensureGarmentImage(app, g, fetchFn);
+    expect(calls).toBe(1);
+  });
+
+  it('requests redirect: "error" and a live AbortSignal, so a CDN redirect off the allowlist is never followed', async () => {
     let capturedInit: RequestInit | undefined;
-    const fakeFetch = (async (_url: string, init?: RequestInit) => {
+    const fetchFn = (async (_url: string, init?: RequestInit) => {
       capturedInit = init;
-      return {
-        ok: true,
-        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
-        headers: new Map([['content-type', 'image/jpeg']]),
-      } as unknown as Response;
+      return okResponse();
     }) as unknown as typeof fetch;
-    await syncProduct(
-      app,
-      storeId,
-      {
-        id: 44,
-        title: 'Redirect Check Product',
-        imageUrl: 'https://cdn.shopify.com/redirect-check.jpg',
-      },
-      fakeFetch,
-    );
+    await ensureGarmentImage(app, garment(), fetchFn);
     expect(capturedInit?.redirect).toBe('error');
     expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
 
-    // Simulate what real fetch does when redirect: 'error' hits a 3xx: it throws instead
-    // of following it, which must land in the existing failed-status path.
-    const redirectingFetch = (async () => {
+    const redirecting = (async () => {
       throw new TypeError('unexpected redirect');
     }) as unknown as typeof fetch;
-    await syncProduct(
-      app,
-      storeId,
-      {
-        id: 45,
-        title: 'Redirects Elsewhere Product',
-        imageUrl: 'https://cdn.shopify.com/redirects-elsewhere.jpg',
-      },
-      redirectingFetch,
-    );
-    const [row] = await app.db
-      .select()
-      .from(schema.shopifyProductGarments)
-      .where(
-        and(
-          eq(schema.shopifyProductGarments.storeId, storeId),
-          eq(schema.shopifyProductGarments.shopifyProductId, 45),
-        ),
-      );
-    expect(row.status).toBe('failed');
-    expect(row.failedReason).toContain('redirect');
+    await expect(ensureGarmentImage(app, garment(), redirecting)).rejects.toThrow('redirect');
   });
 
-  it('marks failed when the content-length header exceeds the 20MB cap, without downloading the body', async () => {
+  it('throws without a URL or for a non-Shopify host, before any download', async () => {
+    const never = (async () => {
+      throw new Error('should not be called');
+    }) as typeof fetch;
+    await expect(ensureGarmentImage(app, garment(null), never)).rejects.toThrow('no product image');
+    await expect(
+      ensureGarmentImage(app, garment('https://evil.example.com/x.jpg'), never),
+    ).rejects.toThrow('image host not allowed');
+  });
+
+  it('rejects an image over the 20MB cap from the header, without reading the body', async () => {
     let arrayBufferCalled = false;
-    const fakeFetch = (async () =>
+    const fetchFn = (async () =>
       ({
         ok: true,
         arrayBuffer: async () => {
           arrayBufferCalled = true;
-          return new Uint8Array([1, 2, 3]).buffer;
+          return new Uint8Array([1]).buffer;
         },
         headers: new Map([
           ['content-type', 'image/jpeg'],
           ['content-length', String(21 * 1024 * 1024)],
         ]),
       }) as unknown as Response) as typeof fetch;
-    await syncProduct(
-      app,
-      storeId,
-      { id: 46, title: 'Big Product', imageUrl: 'https://cdn.shopify.com/big.jpg' },
-      fakeFetch,
-    );
-    const [row] = await app.db
-      .select()
-      .from(schema.shopifyProductGarments)
-      .where(
-        and(
-          eq(schema.shopifyProductGarments.storeId, storeId),
-          eq(schema.shopifyProductGarments.shopifyProductId, 46),
-        ),
-      );
-    expect(row.status).toBe('failed');
-    expect(row.failedReason).toContain('20MB');
+    await expect(ensureGarmentImage(app, garment(), fetchFn)).rejects.toThrow('20MB');
     expect(arrayBufferCalled).toBe(false);
   });
 
-  it('marks failed when the actual downloaded body exceeds the 20MB cap (no content-length header)', async () => {
+  it('rejects an image whose body exceeds the cap when there is no content-length', async () => {
     const oversized = new Uint8Array(21 * 1024 * 1024);
-    const fakeFetch = (async () =>
+    const fetchFn = (async () =>
       ({
         ok: true,
         arrayBuffer: async () => oversized.buffer,
         headers: new Map([['content-type', 'image/jpeg']]),
       }) as unknown as Response) as typeof fetch;
-    await syncProduct(
-      app,
-      storeId,
-      {
-        id: 47,
-        title: 'Big No Header Product',
-        imageUrl: 'https://cdn.shopify.com/big-no-header.jpg',
-      },
-      fakeFetch,
-    );
-    const [row] = await app.db
-      .select()
-      .from(schema.shopifyProductGarments)
-      .where(
-        and(
-          eq(schema.shopifyProductGarments.storeId, storeId),
-          eq(schema.shopifyProductGarments.shopifyProductId, 47),
-        ),
-      );
-    expect(row.status).toBe('failed');
-    expect(row.failedReason).toContain('20MB');
+    await expect(ensureGarmentImage(app, garment(), fetchFn)).rejects.toThrow('20MB');
   });
 
   it('respects an admin-configured limit lower than the default 20MB cap', async () => {
@@ -216,176 +209,98 @@ describe('syncProduct', () => {
       JSON.stringify({ uploadLimits: { shopifyProductSyncMaxBytes: 5 } }),
     );
     try {
-      const fakeFetch = (async () =>
+      const fetchFn = (async () =>
         ({
           ok: true,
           arrayBuffer: async () => new Uint8Array([1, 2, 3, 4, 5, 6]).buffer,
           headers: new Map([['content-type', 'image/jpeg']]),
         }) as unknown as Response) as typeof fetch;
-      await syncProduct(
-        app,
-        storeId,
-        {
-          id: 48,
-          title: 'Configured Limit Product',
-          imageUrl: 'https://cdn.shopify.com/c.jpg',
-        },
-        fakeFetch,
-      );
-      const [row] = await app.db
-        .select()
-        .from(schema.shopifyProductGarments)
-        .where(
-          and(
-            eq(schema.shopifyProductGarments.storeId, storeId),
-            eq(schema.shopifyProductGarments.shopifyProductId, 48),
-          ),
-        );
-      expect(row.status).toBe('failed');
-      expect(row.failedReason).toContain('MB');
+      await expect(ensureGarmentImage(app, garment(), fetchFn)).rejects.toThrow('MB');
     } finally {
       await app.redis.del('config:system');
     }
   });
 
-  describe('download retry', () => {
-    const okResponse = () =>
-      ({
-        ok: true,
-        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
-        headers: new Map([['content-type', 'image/jpeg']]),
-      }) as unknown as Response;
-
-    const rowFor = async (productId: number) => {
-      const [row] = await app.db
-        .select()
-        .from(schema.shopifyProductGarments)
-        .where(
-          and(
-            eq(schema.shopifyProductGarments.storeId, storeId),
-            eq(schema.shopifyProductGarments.shopifyProductId, productId),
-          ),
-        );
-      return row;
-    };
-
-    it('retries once after a dropped connection and ends up active', async () => {
-      let calls = 0;
-      const flaky = (async () => {
-        calls++;
-        if (calls === 1) throw new TypeError('fetch failed');
-        return okResponse();
-      }) as typeof fetch;
-      await syncProduct(
-        app,
-        storeId,
-        { id: 60, title: 'Flaky', imageUrl: 'https://cdn.shopify.com/x.jpg' },
-        flaky,
-      );
-      expect(calls).toBe(2);
-      expect((await rowFor(60)).status).toBe('active');
-    });
-
-    it('retries once after a CDN 503 and ends up active', async () => {
-      let calls = 0;
-      const flaky = (async () => {
-        calls++;
-        return calls === 1 ? ({ ok: false, status: 503 } as unknown as Response) : okResponse();
-      }) as typeof fetch;
-      await syncProduct(
-        app,
-        storeId,
-        { id: 61, title: 'Busy CDN', imageUrl: 'https://cdn.shopify.com/x.jpg' },
-        flaky,
-      );
-      expect(calls).toBe(2);
-      expect((await rowFor(61)).status).toBe('active');
-    });
-
-    it('aborts and retries a body that stalls after the headers arrived', async () => {
-      // The abort timer used to be cleared once headers came back, so a body
-      // that stalled mid-stream had no bound. Fake only the timers: the DB and
-      // MinIO calls are real socket I/O and finish on their own.
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-      try {
-        let calls = 0;
-        const stallsOnce = (async (_url: string, init?: RequestInit) => {
-          calls++;
-          if (calls > 1) {
-            // Fake timers must not outlive the download: the MinIO client's own
-            // request timers would fire under them and fail the put.
-            vi.useRealTimers();
-            return okResponse();
-          }
-          return {
-            ok: true,
-            headers: new Map([['content-type', 'image/jpeg']]),
-            arrayBuffer: () =>
-              new Promise<ArrayBuffer>((_resolve, reject) => {
-                init?.signal?.addEventListener('abort', () => reject(new TypeError('aborted')));
-              }),
-          } as unknown as Response;
-        }) as unknown as typeof fetch;
-        const done = syncProduct(
-          app,
-          storeId,
-          { id: 460, title: 'Stalled Body', imageUrl: 'https://cdn.shopify.com/stall.jpg' },
-          stallsOnce,
-        );
-        const tick = () => new Promise((r) => setImmediate(r));
-        // The abort timer is only armed once the first fetch is under way.
-        while (calls < 1) await tick();
-        await vi.advanceTimersByTimeAsync(30_001);
-        while (calls < 2) {
-          await vi.advanceTimersByTimeAsync(500);
-          await tick();
-        }
-        await done;
-        expect(calls).toBe(2);
-        expect((await rowFor(460)).failedReason).toBeNull();
-        expect((await rowFor(460)).status).toBe('active');
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it('does not retry a 404, and fails with the status', async () => {
-      let calls = 0;
-      const gone = (async () => {
-        calls++;
-        return { ok: false, status: 404 } as unknown as Response;
-      }) as typeof fetch;
-      await syncProduct(
-        app,
-        storeId,
-        { id: 62, title: 'Gone', imageUrl: 'https://cdn.shopify.com/x.jpg' },
-        gone,
-      );
-      expect(calls).toBe(1);
-      const row = await rowFor(62);
-      expect(row.status).toBe('failed');
-      expect(row.failedReason).toBe('download HTTP 404');
-    });
-
-    it('gives up after the second failure and records the underlying cause, not just "fetch failed"', async () => {
-      let calls = 0;
-      const down = (async () => {
-        calls++;
-        throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ETIMEDOUT' } });
-      }) as typeof fetch;
-      await syncProduct(
-        app,
-        storeId,
-        { id: 63, title: 'Down', imageUrl: 'https://cdn.shopify.com/x.jpg' },
-        down,
-      );
-      expect(calls).toBe(2);
-      const row = await rowFor(63);
-      expect(row.status).toBe('failed');
-      expect(row.failedReason).toBe('fetch failed (ETIMEDOUT)');
-    });
+  it('retries once after a dropped connection', async () => {
+    let calls = 0;
+    const flaky = (async () => {
+      calls++;
+      if (calls === 1) throw new TypeError('fetch failed');
+      return okResponse();
+    }) as typeof fetch;
+    await ensureGarmentImage(app, garment(), flaky);
+    expect(calls).toBe(2);
   });
 
+  it('retries once after a CDN 503', async () => {
+    let calls = 0;
+    const flaky = (async () => {
+      calls++;
+      return calls === 1 ? ({ ok: false, status: 503 } as unknown as Response) : okResponse();
+    }) as typeof fetch;
+    await ensureGarmentImage(app, garment(), flaky);
+    expect(calls).toBe(2);
+  });
+
+  it('aborts and retries a body that stalls after the headers arrived', async () => {
+    // Fake only the timers: the DB and MinIO calls are real socket I/O.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let calls = 0;
+      const stallsOnce = (async (_url: string, init?: RequestInit) => {
+        calls++;
+        if (calls > 1) {
+          // Fake timers must not outlive the download: the MinIO client's own
+          // request timers would fire under them and fail the put.
+          vi.useRealTimers();
+          return okResponse();
+        }
+        return {
+          ok: true,
+          headers: new Map([['content-type', 'image/jpeg']]),
+          arrayBuffer: () =>
+            new Promise<ArrayBuffer>((_resolve, reject) => {
+              init?.signal?.addEventListener('abort', () => reject(new TypeError('aborted')));
+            }),
+        } as unknown as Response;
+      }) as unknown as typeof fetch;
+      const done = ensureGarmentImage(app, garment(), stallsOnce);
+      const tick = () => new Promise((r) => setImmediate(r));
+      while (calls < 1) await tick();
+      await vi.advanceTimersByTimeAsync(30_001);
+      while (calls < 2) {
+        await vi.advanceTimersByTimeAsync(500);
+        await tick();
+      }
+      await done;
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not retry a 404, and fails with the status', async () => {
+    let calls = 0;
+    const gone = (async () => {
+      calls++;
+      return { ok: false, status: 404 } as unknown as Response;
+    }) as typeof fetch;
+    await expect(ensureGarmentImage(app, garment(), gone)).rejects.toThrow('download HTTP 404');
+    expect(calls).toBe(1);
+  });
+
+  it('gives up after the second failure', async () => {
+    let calls = 0;
+    const down = (async () => {
+      calls++;
+      throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ETIMEDOUT' } });
+    }) as typeof fetch;
+    await expect(ensureGarmentImage(app, garment(), down)).rejects.toThrow('fetch failed');
+    expect(calls).toBe(2);
+  });
+});
+
+describe('syncProduct metadata', () => {
   it('persists product_type/tags/vendor', async () => {
     await syncProduct(
       app,
@@ -1101,12 +1016,12 @@ describe('syncOneTask — collection mode, refreshProducts', () => {
   });
 });
 
-describe('syncOneTask — full sync concurrency', () => {
+describe('syncOneTask — full sync image handling', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('downloads products within a page in parallel, capped at 5, and still syncs every one', async () => {
+  it('syncs every product of a page without requesting any image', async () => {
     const store = await upsertShopifyStore(
       app,
       {
@@ -1120,8 +1035,7 @@ describe('syncOneTask — full sync concurrency', () => {
       'read_products',
     );
     const ids = Array.from({ length: 12 }, (_, i) => 7000 + i);
-    let inFlight = 0;
-    let maxInFlight = 0;
+    let imageRequests = 0;
     const originalFetch = global.fetch;
     global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
@@ -1150,10 +1064,7 @@ describe('syncOneTask — full sync concurrency', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
-      inFlight++;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise((r) => setTimeout(r, 40));
-      inFlight--;
+      imageRequests++;
       return new Response(new Uint8Array([1, 2, 3]), {
         status: 200,
         headers: { 'Content-Type': 'image/jpeg' },
@@ -1172,8 +1083,8 @@ describe('syncOneTask — full sync concurrency', () => {
       .where(eq(schema.shopifyProductGarments.storeId, store.id));
     expect(rows).toHaveLength(12);
     expect(rows.every((r) => r.status === 'active')).toBe(true);
-    expect(maxInFlight).toBeGreaterThan(1);
-    expect(maxInFlight).toBeLessThanOrEqual(5);
+    expect(rows.every((r) => r.imageUrl?.startsWith('https://cdn.shopify.com/'))).toBe(true);
+    expect(imageRequests).toBe(0);
   });
 });
 
@@ -1196,5 +1107,57 @@ describe('isProductSyncActive', () => {
         now,
       ),
     ).toBe(false);
+  });
+});
+
+describe('syncProductNow', () => {
+  it('fetches and records one product immediately, without touching the image', async () => {
+    const store = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 9706,
+        shopDomain: 'inline.myshopify.com',
+        myshopifyDomain: 'inline.myshopify.com',
+        name: 'Inline Store',
+        email: 'inline@s.com',
+      },
+      'tok',
+      'read_products',
+    );
+    const originalFetch = global.fetch;
+    const urls: string[] = [];
+    global.fetch = (async (input: string | URL | Request) => {
+      urls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          data: {
+            product: {
+              id: 'gid://shopify/Product/8123',
+              title: 'Inline Shirt',
+              featuredImage: { url: 'https://cdn.shopify.com/inline.jpg' },
+              collections: { nodes: [] },
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+    try {
+      await syncProductNow(app, store, 8123);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, store.id),
+          eq(schema.shopifyProductGarments.shopifyProductId, 8123),
+        ),
+      );
+    expect(row.status).toBe('active');
+    expect(row.imageUrl).toBe('https://cdn.shopify.com/inline.jpg');
+    expect(urls.every((u) => u.endsWith('/graphql.json'))).toBe(true);
   });
 });

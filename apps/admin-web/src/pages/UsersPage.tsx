@@ -125,6 +125,8 @@ export default function UsersPage({ onNav, toast }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
+  // Mirrors the API's requireAdmin(['SUPER_ADMIN', 'ADMIN']) on the agreed-price routes.
+  const canSetAgreedPrice = myRole === 'SUPER_ADMIN' || myRole === 'ADMIN';
   const [query, setQuery] = useState(
     (location.state as { search?: string; filter?: string })?.search ||
       (location.state as { search?: string; filter?: string })?.filter ||
@@ -173,6 +175,10 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [selectedMaxDevices, setSelectedMaxDevices] = useState('1');
   const [deviceLimitSaving, setDeviceLimitSaving] = useState(false);
   const [unlimitedPlanForm, setUnlimitedPlanForm] = useState<{
+    // 'grant' gives the plan now (existing flow); 'offer' only sets the agreed
+    // price — the user pays it from the pricing page, and that starts the plan.
+    mode: 'grant' | 'offer';
+    durationDays: string;
     startAt: string;
     endAt: string;
     note: string;
@@ -181,6 +187,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   } | null>(null);
   const [savingUnlimitedPlan, setSavingUnlimitedPlan] = useState(false);
   const [revokingUnlimitedPlan, setRevokingUnlimitedPlan] = useState(false);
+  const [cancellingOffer, setCancellingOffer] = useState(false);
   const [grantMerchantForm, setGrantMerchantForm] = useState(EMPTY_GRANT_MERCHANT_FORM);
   const [grantingMerchant, setGrantingMerchant] = useState(false);
   const [merchantEditForm, setMerchantEditForm] = useState(EMPTY_EDIT_MERCHANT_FORM);
@@ -517,19 +524,27 @@ export default function UsersPage({ onNav, toast }: Props) {
     if (!showMonthlyPlanEditor || unlimitedPlanForm || !detail) return;
     const today = new Date().toISOString().slice(0, 10);
     const plan = detail.unlimitedPlan;
+    const isOffer = plan?.status === 'offered';
     const hasActive =
-      plan && plan.status !== 'none' && plan.status !== 'revoked' && plan.status !== 'expired';
+      plan &&
+      plan.status !== 'none' &&
+      plan.status !== 'revoked' &&
+      plan.status !== 'expired' &&
+      !isOffer;
     setUnlimitedPlanForm({
+      mode: hasActive || !canSetAgreedPrice ? 'grant' : 'offer',
+      durationDays: isOffer && plan?.durationDays ? String(plan.durationDays) : '30',
       startAt: hasActive && plan?.startAt ? plan.startAt.slice(0, 10) : today,
       endAt:
         hasActive && plan?.endAt
           ? plan.endAt.slice(0, 10)
           : new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10),
-      note: (hasActive && plan?.note) || '',
-      priceRupees: hasActive && plan?.pricePaise != null ? String(plan.pricePaise / 100) : '',
-      queueStream: (hasActive && plan?.queueStream) || 'normal',
+      note: ((hasActive || isOffer) && plan?.note) || '',
+      priceRupees:
+        (hasActive || isOffer) && plan?.pricePaise != null ? String(plan.pricePaise / 100) : '',
+      queueStream: ((hasActive || isOffer) && plan?.queueStream) || 'normal',
     });
-  }, [showMonthlyPlanEditor, unlimitedPlanForm, detail]);
+  }, [showMonthlyPlanEditor, unlimitedPlanForm, detail, canSetAgreedPrice]);
 
   const MODAL_LABELS: Record<string, string> = {
     'adjust-credits': 'Adjust credits',
@@ -558,30 +573,45 @@ export default function UsersPage({ onNav, toast }: Props) {
   const handleGrantUnlimitedPlan = async () => {
     if (!detail || !unlimitedPlanForm) return;
     setSavingUnlimitedPlan(true);
+    const isOffer = unlimitedPlanForm.mode === 'offer';
     try {
+      const pricePaise = Math.round((parseFloat(unlimitedPlanForm.priceRupees) || 0) * 100);
       const updated = await apiFetch<NonNullable<User['unlimitedPlan']>>(
-        `/admin/users/${detail.id}/unlimited-plan`,
+        isOffer
+          ? `/admin/users/${detail.id}/unlimited-plan/offer`
+          : `/admin/users/${detail.id}/unlimited-plan`,
         {
           method: 'POST',
-          body: JSON.stringify({
-            startAt: new Date(unlimitedPlanForm.startAt).toISOString(),
-            endAt: new Date(unlimitedPlanForm.endAt).toISOString(),
-            note: unlimitedPlanForm.note.trim() || undefined,
-            pricePaise: Math.round((parseFloat(unlimitedPlanForm.priceRupees) || 0) * 100),
-            queueStream: unlimitedPlanForm.queueStream,
-          }),
+          body: JSON.stringify(
+            isOffer
+              ? {
+                  pricePaise,
+                  durationDays: Number(unlimitedPlanForm.durationDays),
+                  note: unlimitedPlanForm.note.trim() || undefined,
+                  queueStream: unlimitedPlanForm.queueStream,
+                }
+              : {
+                  startAt: new Date(unlimitedPlanForm.startAt).toISOString(),
+                  endAt: new Date(unlimitedPlanForm.endAt).toISOString(),
+                  note: unlimitedPlanForm.note.trim() || undefined,
+                  pricePaise,
+                  queueStream: unlimitedPlanForm.queueStream,
+                },
+          ),
         },
       );
       setDetail((prev) => (prev ? { ...prev, unlimitedPlan: updated } : null));
       setUsers((prev) =>
         prev.map((u) => (u.id === detail.id ? { ...u, unlimitedPlan: updated } : u)),
       );
-      toast({ title: 'Monthly plan saved' });
+      toast({
+        title: isOffer ? 'Agreed price saved — the user can now pay' : 'Monthly plan saved',
+      });
       closeUnlimitedPlanEditor();
     } catch (err) {
       toast({
         kind: 'error',
-        title: 'Failed to save monthly plan',
+        title: isOffer ? 'Failed to save agreed price' : 'Failed to save monthly plan',
         body: apiErrorMessage(err, 'Please try again.'),
       });
     } finally {
@@ -617,6 +647,38 @@ export default function UsersPage({ onNav, toast }: Props) {
       });
     } finally {
       setRevokingUnlimitedPlan(false);
+    }
+  };
+
+  const handleCancelOffer = async () => {
+    if (!detail) return;
+    setCancellingOffer(true);
+    try {
+      await apiFetch(`/admin/users/${detail.id}/unlimited-plan/offer/cancel`, { method: 'POST' });
+      const cleared = {
+        status: 'none' as const,
+        startAt: null,
+        endAt: null,
+        daysRemaining: null,
+        note: null,
+        pricePaise: null,
+        queueStream: null,
+        durationDays: null,
+      };
+      setDetail((prev) => (prev ? { ...prev, unlimitedPlan: cleared } : null));
+      setUsers((prev) =>
+        prev.map((u) => (u.id === detail.id ? { ...u, unlimitedPlan: cleared } : u)),
+      );
+      toast({ title: 'Agreed price cancelled' });
+      closeUnlimitedPlanEditor();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to cancel agreed price',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setCancellingOffer(false);
     }
   };
 
@@ -1280,7 +1342,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                       className={`badge dot ${
                         u.unlimitedPlan.status === 'active'
                           ? 'success'
-                          : u.unlimitedPlan.status === 'expiring_soon'
+                          : u.unlimitedPlan.status === 'expiring_soon' ||
+                              u.unlimitedPlan.status === 'offered'
                             ? 'warn'
                             : 'danger'
                       }`}
@@ -1289,6 +1352,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                       {u.unlimitedPlan.status === 'expiring_soon' && 'Expiring soon'}
                       {u.unlimitedPlan.status === 'expired' && 'Expired'}
                       {u.unlimitedPlan.status === 'revoked' && 'Revoked'}
+                      {u.unlimitedPlan.status === 'offered' &&
+                        `Awaiting payment · ₹${((u.unlimitedPlan.pricePaise ?? 0) / 100).toLocaleString('en-IN')}`}
                     </span>
                   ) : (
                     'None'
@@ -2023,44 +2088,109 @@ export default function UsersPage({ onNav, toast }: Props) {
             saveLabel={
               savingUnlimitedPlan
                 ? 'Saving…'
-                : u.unlimitedPlan && u.unlimitedPlan.status !== 'none'
-                  ? 'Save changes'
-                  : 'Grant monthly plan'
+                : unlimitedPlanForm.mode === 'offer'
+                  ? 'Save agreed price'
+                  : u.unlimitedPlan &&
+                      u.unlimitedPlan.status !== 'none' &&
+                      u.unlimitedPlan.status !== 'offered'
+                    ? 'Save changes'
+                    : 'Grant monthly plan'
             }
             saveDisabled={
               savingUnlimitedPlan ||
-              !unlimitedPlanForm.startAt ||
-              !unlimitedPlanForm.endAt ||
-              unlimitedPlanForm.endAt <= unlimitedPlanForm.startAt
+              (unlimitedPlanForm.mode === 'offer'
+                ? !(parseFloat(unlimitedPlanForm.priceRupees) > 0) ||
+                  !(
+                    Number(unlimitedPlanForm.durationDays) >= 1 &&
+                    Number(unlimitedPlanForm.durationDays) <= 366
+                  )
+                : !unlimitedPlanForm.startAt ||
+                  !unlimitedPlanForm.endAt ||
+                  unlimitedPlanForm.endAt <= unlimitedPlanForm.startAt)
             }
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <p className="hint">
-                No credit balance is used for this plan — the user's job spend bypasses their credit
-                balance entirely for the dates below.
-              </p>
-              <div className="field">
-                <label>Start date</label>
-                <input
-                  className="input"
-                  type="date"
-                  value={unlimitedPlanForm.startAt}
-                  onChange={(e) =>
-                    setUnlimitedPlanForm((f) => (f ? { ...f, startAt: e.target.value } : f))
-                  }
-                />
-              </div>
-              <div className="field">
-                <label>End date</label>
-                <input
-                  className="input"
-                  type="date"
-                  value={unlimitedPlanForm.endAt}
-                  onChange={(e) =>
-                    setUnlimitedPlanForm((f) => (f ? { ...f, endAt: e.target.value } : f))
-                  }
-                />
-              </div>
+              {/* An agreed price can't be set while a plan is in force — the API refuses
+                  it, so the switch only appears when there's nothing active to edit. */}
+              {!hasActiveUnlimitedPlan(u) && canSetAgreedPrice && (
+                <div className="field">
+                  <label>How should this user get the plan?</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {(
+                      [
+                        ['offer', 'Set agreed price (user pays)'],
+                        ['grant', 'Grant now (no payment)'],
+                      ] as const
+                    ).map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-pressed={unlimitedPlanForm.mode === mode}
+                        className={`btn sm ${unlimitedPlanForm.mode === mode ? 'primary' : 'ghost'}`}
+                        onClick={() => setUnlimitedPlanForm((f) => (f ? { ...f, mode } : f))}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {unlimitedPlanForm.mode === 'offer' ? (
+                <>
+                  <p className="hint">
+                    Nothing is granted yet. The user sees this price (+18% GST) on the pricing page
+                    and the Android app's renewal popup; paying it starts the plan for the days
+                    below.
+                    {u.unlimitedPlan?.status === 'offered' &&
+                      ' An agreed price is already set — saving replaces it.'}
+                  </p>
+                  <div className="field">
+                    <label>Plan length (days)</label>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      max={366}
+                      step={1}
+                      value={unlimitedPlanForm.durationDays}
+                      onChange={(e) =>
+                        setUnlimitedPlanForm((f) =>
+                          f ? { ...f, durationDays: e.target.value } : f,
+                        )
+                      }
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="hint">
+                    No credit balance is used for this plan — the user's job spend bypasses their
+                    credit balance entirely for the dates below.
+                  </p>
+                  <div className="field">
+                    <label>Start date</label>
+                    <input
+                      className="input"
+                      type="date"
+                      value={unlimitedPlanForm.startAt}
+                      onChange={(e) =>
+                        setUnlimitedPlanForm((f) => (f ? { ...f, startAt: e.target.value } : f))
+                      }
+                    />
+                  </div>
+                  <div className="field">
+                    <label>End date</label>
+                    <input
+                      className="input"
+                      type="date"
+                      value={unlimitedPlanForm.endAt}
+                      onChange={(e) =>
+                        setUnlimitedPlanForm((f) => (f ? { ...f, endAt: e.target.value } : f))
+                      }
+                    />
+                  </div>
+                </>
+              )}
               <div style={{ display: 'flex', gap: 14 }}>
                 <div className="field" style={{ flex: 1 }}>
                   <label>Price (₹)</label>
@@ -2092,8 +2222,9 @@ export default function UsersPage({ onNav, toast }: Props) {
                     />
                   </div>
                   <p className="hint">
-                    Negotiated price for this user — charged again on every renewal. Not billed
-                    automatically; no GST invoice is generated.
+                    {unlimitedPlanForm.mode === 'offer'
+                      ? 'Agreed price excluding GST — also the price of every later renewal.'
+                      : 'Negotiated price for this user — charged again on every renewal. Not billed automatically; no GST invoice is generated.'}
                   </p>
                 </div>
                 <div className="field" style={{ flex: 1 }}>
@@ -2139,6 +2270,16 @@ export default function UsersPage({ onNav, toast }: Props) {
                     {revokingUnlimitedPlan ? 'Revoking…' : 'Revoke monthly plan'}
                   </button>
                 )}
+              {u.unlimitedPlan?.status === 'offered' && canSetAgreedPrice && (
+                <button
+                  type="button"
+                  className="btn danger"
+                  disabled={cancellingOffer}
+                  onClick={handleCancelOffer}
+                >
+                  {cancellingOffer ? 'Cancelling…' : 'Cancel agreed price'}
+                </button>
+              )}
               {u.unlimitedPlan?.charges && u.unlimitedPlan.charges.length > 0 && (
                 <div className="field">
                   <label>Charge history</label>

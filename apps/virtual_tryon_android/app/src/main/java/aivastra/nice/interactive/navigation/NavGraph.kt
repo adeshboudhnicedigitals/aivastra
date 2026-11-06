@@ -843,4 +843,6 @@ fun AppNavGraph(
             )
         }
     }
+
+    RenewalPromptGate(navController)
 }

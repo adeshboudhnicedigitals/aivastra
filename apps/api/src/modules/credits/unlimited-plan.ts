@@ -30,7 +30,12 @@ export async function getActiveUnlimitedPlan(
 }
 
 /**
- * Most recently updated unlimited-plan row for this user, regardless of
+ * The plan this user would pay for next: the active one if any, else an open
+ * offer, else the most recently updated row. Ranked rather than plain
+ * "latest updatedAt" so an old expired/revoked row touched after an offer was
+ * made can never shadow that offer, and an active plan always wins.
+ *
+ * Original contract: most recently updated unlimited-plan row for this user, regardless of
  * status — used by the self-serve renewal flow, which (unlike
  * getActiveUnlimitedPlan) must also find an *expired* plan to recharge, not
  * just a currently-active one. Excludes nothing itself; callers decide what
@@ -45,7 +50,10 @@ export async function getLatestUnlimitedPlan(
     .select()
     .from(schema.unlimitedPlans)
     .where(eq(schema.unlimitedPlans.userId, userId))
-    .orderBy(desc(schema.unlimitedPlans.updatedAt))
+    .orderBy(
+      sql`case ${schema.unlimitedPlans.status} when 'active' then 0 when 'offered' then 1 else 2 end`,
+      desc(schema.unlimitedPlans.updatedAt),
+    )
     .limit(1);
   return row ?? null;
 }
@@ -55,6 +63,8 @@ export type UnlimitedPlanDisplayStatus =
   | 'expiring_soon'
   | 'expired'
   | 'revoked'
+  // An admin-set agreed price the user hasn't paid yet — grants nothing.
+  | 'offered'
   | 'none';
 
 export interface UnlimitedPlanDisplay {
@@ -65,6 +75,8 @@ export interface UnlimitedPlanDisplay {
   note: string | null;
   pricePaise: number | null;
   queueStream: string | null;
+  /** Days one paid cycle buys — set for offers; null for admin grants (window span applies). */
+  durationDays: number | null;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -86,6 +98,7 @@ export function deriveDisplayStatus(plan: UnlimitedPlanRow | null): UnlimitedPla
       note: null,
       pricePaise: null,
       queueStream: null,
+      durationDays: null,
     };
   }
   const base = {
@@ -94,7 +107,12 @@ export function deriveDisplayStatus(plan: UnlimitedPlanRow | null): UnlimitedPla
     note: plan.note,
     pricePaise: plan.pricePaise,
     queueStream: plan.queueStream,
+    durationDays: plan.durationDays,
   };
+  if (plan.status === 'offered') {
+    // The window is a placeholder until the first payment (see the schema comment).
+    return { ...base, startAt: null, endAt: null, status: 'offered', daysRemaining: null };
+  }
   if (plan.status === 'revoked') {
     return { ...base, status: 'revoked', daysRemaining: null };
   }

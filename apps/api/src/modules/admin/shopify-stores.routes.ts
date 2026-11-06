@@ -9,7 +9,10 @@ import { eraseComparisonsForSourceJobs } from '../comparison/erase.js';
 import { grantStore } from '../credits/shopify-ledger.js';
 import { activationDbCounts, loadCollectionSelection } from '../shopify/activation.routes.js';
 import { buildProductFilter, ProductListQuerySchema } from '../shopify/products.filter.js';
+import { thumbnailFor } from '../shopify/products.thumbnail.js';
+import { getProductSyncStatus } from '../shopify/service.js';
 import { shopifyStoreLifecycleLockKey } from '../shopify/store-lock.js';
+import { requestFullSync } from '../shopify/sync-request.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
 
@@ -322,6 +325,7 @@ export async function adminShopifyStoresRoutes(app: FastifyInstance) {
           shopifyProductId: schema.shopifyProductGarments.shopifyProductId,
           title: schema.shopifyProductGarments.title,
           r2Key: schema.shopifyProductGarments.r2Key,
+          imageUrl: schema.shopifyProductGarments.imageUrl,
           status: schema.shopifyProductGarments.status,
           failedReason: schema.shopifyProductGarments.failedReason,
           enabled: schema.shopifyProductGarments.enabled,
@@ -338,12 +342,57 @@ export async function adminShopifyStoresRoutes(app: FastifyInstance) {
         .offset((page - 1) * pageSize);
 
       const items = await Promise.all(
-        rows.map(async ({ r2Key, ...r }) => ({
+        rows.map(async ({ r2Key, imageUrl, ...r }) => ({
           ...r,
-          thumbnailUrl: (await app.storage.presignGet(r2Key, 3600)).url,
+          thumbnailUrl: await thumbnailFor(app, id, {
+            shopifyProductId: r.shopifyProductId,
+            r2Key,
+            imageUrl,
+          }),
         })),
       );
       return { page, pageSize, total, items };
+    },
+  );
+
+  // Re-imports every product's metadata and image URL. Needed after the image_url
+  // column shipped (rows synced before it have no URL) and as a manual repair.
+  // Gated on its own permission rather than reusing read, since it queues work
+  // against the merchant's Shopify API quota.
+  app.post(
+    '/admin/shopify-stores/:id/sync',
+    {
+      preHandler: requirePermission('shopify_stores.sync'),
+      schema: { params: z.object({ id: z.string().uuid() }) },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const [store] = await app.db
+        .select()
+        .from(schema.shopifyStores)
+        .where(eq(schema.shopifyStores.id, id))
+        .limit(1);
+      if (!store) throw new AppError('NOT_FOUND', 404, 'store not found');
+      if (store.uninstalledAt) throw new AppError('CONFLICT', 409, 'store is uninstalled');
+      await app.db.transaction(async (tx) => {
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'shopify_stores.sync',
+          resourceType: 'shopify_store',
+          resourceId: id,
+          request: req,
+        });
+      });
+      return reply.code(202).send(await requestFullSync(app, store));
+    },
+  );
+
+  app.get(
+    '/admin/shopify-stores/:id/sync/status',
+    { preHandler: RO, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      return getProductSyncStatus(app.redis, id);
     },
   );
 

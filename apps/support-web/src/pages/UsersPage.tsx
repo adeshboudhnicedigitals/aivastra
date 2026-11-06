@@ -446,7 +446,8 @@ export default function UsersPage({ toast }: Props) {
                       className={`badge dot ${
                         u.unlimitedPlan.status === 'active'
                           ? 'success'
-                          : u.unlimitedPlan.status === 'expiring_soon'
+                          : u.unlimitedPlan.status === 'expiring_soon' ||
+                              u.unlimitedPlan.status === 'offered'
                             ? 'warn'
                             : 'danger'
                       }`}
@@ -455,6 +456,8 @@ export default function UsersPage({ toast }: Props) {
                       {u.unlimitedPlan.status === 'expiring_soon' && 'Expiring soon'}
                       {u.unlimitedPlan.status === 'expired' && 'Expired'}
                       {u.unlimitedPlan.status === 'revoked' && 'Revoked'}
+                      {u.unlimitedPlan.status === 'offered' &&
+                        `Awaiting payment · ₹${((u.unlimitedPlan.pricePaise ?? 0) / 100).toLocaleString('en-IN')}`}
                     </span>
                   ) : (
                     'None'

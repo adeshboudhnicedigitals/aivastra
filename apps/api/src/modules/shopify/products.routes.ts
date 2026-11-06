@@ -10,6 +10,7 @@ import { type BulkBody, BulkBodySchema, bulkUpdateProducts } from './products.bu
 import { loadProductFacets } from './products.facets.js';
 import { buildProductFilter, ProductListQuerySchema } from './products.filter.js';
 import { assertShopifyCdn } from './products.sync.js';
+import { thumbnailFor } from './products.thumbnail.js';
 import { enqueueSync, numericIdFromGid, shopifyGraphQL, toGid } from './service.js';
 import { getValidAccessToken } from './token.js';
 
@@ -79,6 +80,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
           shopifyProductId: schema.shopifyProductGarments.shopifyProductId,
           title: schema.shopifyProductGarments.title,
           r2Key: schema.shopifyProductGarments.r2Key,
+          imageUrl: schema.shopifyProductGarments.imageUrl,
           status: schema.shopifyProductGarments.status,
           enabled: schema.shopifyProductGarments.enabled,
           excluded: schema.shopifyProductGarments.excluded,
@@ -99,7 +101,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
           return {
             shopifyProductId: r.shopifyProductId,
             title: r.title,
-            thumbnailUrl: (await app.storage.presignGet(r.r2Key, 3600)).url,
+            thumbnailUrl: await thumbnailFor(app, store.id, r),
             status: r.status,
             enabled: r.enabled,
             excluded: r.excluded,
@@ -263,7 +265,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
       return {
         shopifyProductId: updated.shopifyProductId,
         title: updated.title,
-        thumbnailUrl: (await app.storage.presignGet(updated.r2Key, 3600)).url,
+        thumbnailUrl: await thumbnailFor(app, store.id, updated),
         status: updated.status,
         enabled: updated.enabled,
         excluded: updated.excluded,

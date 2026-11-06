@@ -31,6 +31,16 @@ export const GrantUnlimitedPlanBody = z
     message: 'endAt must be after startAt',
     path: ['endAt'],
   });
+// An agreed price the user pays themselves from the pricing page (status
+// 'offered' — grants nothing until paid). Unlike GrantUnlimitedPlanBody there is
+// no window: the cycle starts when the payment lands, for durationDays.
+export const OfferUnlimitedPlanBody = z.object({
+  // > 0: a free offer would be a grant, which already has its own form.
+  pricePaise: z.number().int().positive().max(100_000_000),
+  durationDays: z.number().int().min(1).max(366),
+  note: z.string().max(500).optional(),
+  queueStream: z.enum(['priority', 'normal', 'low']).default('normal'),
+});
 export const UpdateUserBody = z.object({
   tier: z.string().min(1).max(64).optional(),
   maxActiveDevices: z.number().int().min(1).max(50).optional(),
@@ -257,6 +267,24 @@ export const SystemConfigBody = z.object({
       // Different ceiling: this is a ZIP of many images (admin bulk asset import),
       // not a single photo.
       bulkImportMaxBytes: z.number().int().positive().max(3_221_225_472).optional(),
+    })
+    .optional(),
+  // Renewal popup shown by the virtual try-on Android app (GET /v1/app/renewal-prompt)
+  // to every user without an active monthly plan. Server-side on purpose: switching it
+  // on, its start time and its copy all change without an app release.
+  renewalPrompt: z
+    .object({
+      enabled: z.boolean(),
+      // Not shown before this instant even when enabled; null = immediately.
+      startsAt: z.string().datetime().nullable(),
+      // true = no close button; the user can only renew or contact support.
+      blocking: z.boolean(),
+      title: z.string().min(1).max(120),
+      message: z.string().min(1).max(500),
+      ctaLabel: z.string().min(1).max(40),
+      // "For any help, contact us" lines; null/empty hides that line.
+      supportWhatsapp: z.string().max(30).nullable(),
+      supportEmail: z.string().email().max(120).nullable(),
     })
     .optional(),
   // Seller details printed on every GST invoice (issueInvoiceIfNeeded,

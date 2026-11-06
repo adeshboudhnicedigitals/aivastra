@@ -1,0 +1,1 @@
+ALTER TABLE "unlimited_plans" ADD COLUMN "duration_days" integer;

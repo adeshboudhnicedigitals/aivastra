@@ -65,6 +65,11 @@ describe('shopify try-on uses one configured workflow', () => {
     shopifyProductId: number,
     tags: string[] | null = null,
   ) {
+    await app.storage.putObject(
+      `shopify-garments/${storeId}/${shopifyProductId}/garment.jpg`,
+      Buffer.from('garment'),
+      'image/jpeg',
+    );
     const [garment] = await app.db
       .insert(schema.shopifyProductGarments)
       .values({
