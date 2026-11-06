@@ -91,7 +91,7 @@ confirm). Loading, empty and error states on every list. Mobile-friendly layout 
 ## Deploy wiring (new files and additions only)
 
 - `apps/merchant-web/Dockerfile` (like `catalogues-web`'s) and a `merchant-web` service in
-  `infra/docker-compose.yml`, `.staging.yml` and `.prod.yml`. Host ports: next free port above
+  `infra/docker-compose.staging.yml` and `.prod.yml` (the dev `infra/docker-compose.yml` has no app services). Host ports: next free port above
   the highest in use (support 3008, gpu-ops 3009 in prod at time of writing; verify at plan time),
   staging = production + 100, bound to `127.0.0.1`.
 - `scripts/ci/detect-affected.mts` and the CI workflow learn the new app so it builds and

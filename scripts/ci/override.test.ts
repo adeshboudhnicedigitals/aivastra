@@ -66,7 +66,11 @@ describe('applyManualOverride with FORCE_ALL', () => {
   });
 
   it('selects every testable package', () => {
-    expect(forced().testTargets).toEqual(['@aivastra/api', '@aivastra/dispatcher']);
+    expect(forced().testTargets).toEqual([
+      '@aivastra/api',
+      '@aivastra/dispatcher',
+      '@aivastra/merchant-web',
+    ]);
   });
 
   it('forces migrations to be considered changed so verify still runs', () => {

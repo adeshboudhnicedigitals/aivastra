@@ -83,7 +83,7 @@
       "reason": "on-box telemetry agent (Python); installed by hand on the GPU boxes, not a container image"
     }
   ],
-  "testablePackages": ["@aivastra/api", "@aivastra/dispatcher"],
+  "testablePackages": ["@aivastra/api", "@aivastra/dispatcher", "@aivastra/merchant-web"],
   "testOnlyDependents": { "@aivastra/api": ["@aivastra/dispatcher"] },
   "docsPaths": ["docs/**", "*.md", "LICENSE"],
   "ciPaths": [".github/**", "config/ci-targets.json", "scripts/ci/**", "vitest.config.ts"],

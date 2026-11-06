@@ -224,6 +224,7 @@ describe('test targets', () => {
     expect(run(['packages/types/src/jobs.ts']).testTargets).toEqual([
       '@aivastra/api',
       '@aivastra/dispatcher',
+      '@aivastra/merchant-web',
     ]);
   });
 

@@ -66,7 +66,7 @@ export function Shell({ children }: { children: React.ReactNode }): React.ReactE
       <div className="flex flex-1 flex-col md:flex-row">
         <nav
           aria-label="Main"
-          className="fixed bottom-0 left-0 right-0 z-40 flex justify-around md:static md:w-52 md:flex-col md:justify-start md:gap-1 md:p-3"
+          className="fixed bottom-0 left-0 right-0 z-40 flex h-[var(--mw-nav-h)] justify-around md:static md:h-auto md:w-52 md:flex-col md:justify-start md:gap-1 md:p-3"
           style={{ background: C.navbar, borderTop: `1px solid ${C.border}` }}
         >
           {items.map(({ href, label, icon: Icon }) => {

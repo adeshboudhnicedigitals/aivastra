@@ -54,10 +54,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={api}>
       {children}
       <div
+        className="mw-toast-stack"
         style={{
           position: 'fixed',
           right: 16,
-          bottom: 16,
           left: 16,
           zIndex: 1200,
           display: 'flex',

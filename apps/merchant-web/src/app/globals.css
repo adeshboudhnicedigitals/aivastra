@@ -35,6 +35,8 @@
   --c-toggle-active: var(--c-pink);
 
   /* Merchant portal tokens */
+  /* Height of the fixed bottom nav at phone width; shell nav and toast stack share it. */
+  --mw-nav-h: 56px;
   --c-merchant-bg: #f7f8fa;
   --c-merchant-accent: #7c5cfc;
   --c-merchant-accent-light: #f3f0ff;
@@ -196,4 +198,14 @@ a {
 }
 .hover-surface:hover {
   background: var(--c-merchant-hover);
+}
+
+/* Lift toasts above the fixed bottom nav below the md breakpoint (768px, see tailwind.config.ts). */
+.mw-toast-stack {
+  bottom: calc(var(--mw-nav-h) + 16px);
+}
+@media (min-width: 768px) {
+  .mw-toast-stack {
+    bottom: 16px;
+  }
 }
