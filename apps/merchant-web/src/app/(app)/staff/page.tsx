@@ -139,6 +139,17 @@ function ResetPasswordModal({ staff, onClose }: { staff: Staff; onClose: () => v
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLFormElement>(null);
+  // Captured during the first render, before the autofocused field steals focus from the
+  // trigger. Restored on unmount, which covers cancel, Escape and a successful reset alike.
+  const [opener] = useState(() =>
+    typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null),
+  );
+  useEffect(
+    () => () => {
+      if (opener?.isConnected) opener.focus();
+    },
+    [opener],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
