@@ -35,7 +35,13 @@ describe('merchant org — member resolution', () => {
       headers: await memberAuthHeader(app, m.userId),
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ merchantId: m.merchantId, role: 'admin', branchId: null });
+    expect(res.json()).toMatchObject({
+      merchantId: m.merchantId,
+      role: 'admin',
+      branchId: null,
+      companyName: 'Test Co',
+      staffLimitPerBranch: 2,
+    });
   });
 
   it('resolves a staff user to their branch', async () => {
@@ -44,7 +50,13 @@ describe('merchant org — member resolution', () => {
     const s = await createTestStaff(app, m.merchantId, b.id);
     const res = await app.inject({ method: 'GET', url: '/v1/merchant/org/me', headers: s.auth });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ merchantId: m.merchantId, role: 'staff', branchId: b.id });
+    expect(res.json()).toMatchObject({
+      merchantId: m.merchantId,
+      role: 'staff',
+      branchId: b.id,
+      companyName: 'Test Co',
+      staffLimitPerBranch: 2,
+    });
   });
 
   it('rejects deactivated staff, staff of a deactivated branch, and inactive merchants', async () => {

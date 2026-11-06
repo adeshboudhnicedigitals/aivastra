@@ -3,6 +3,7 @@ import {
   MerchantBranchCreateBody,
   MerchantBranchUpdateBody,
   MerchantStaffCreateBody,
+  MerchantStaffPasswordBody,
   MerchantStaffUpdateBody,
 } from '@aivastra/types';
 import { and, asc, count, eq, sql } from 'drizzle-orm';
@@ -74,7 +75,23 @@ export async function assertBranchHasStaffCapacity(
 export async function merchantOrgRoutes(app: FastifyInstance) {
   app.get('/v1/merchant/org/me', { preHandler: app.requireMerchantMember }, async (req) => {
     const m = req.merchantMember!;
-    return { merchantId: m.merchantId, role: m.role, branchId: m.branchId, staffId: m.staffId };
+    const [merchant] = await app.db
+      .select({
+        companyName: schema.merchants.companyName,
+        staffLimitPerBranch: schema.merchants.staffLimitPerBranch,
+        deviceQuotaPerMonth: schema.merchants.deviceQuotaPerMonth,
+      })
+      .from(schema.merchants)
+      .where(eq(schema.merchants.id, m.merchantId));
+    return {
+      merchantId: m.merchantId,
+      role: m.role,
+      branchId: m.branchId,
+      staffId: m.staffId,
+      companyName: merchant?.companyName ?? '',
+      staffLimitPerBranch: merchant?.staffLimitPerBranch ?? 0,
+      deviceQuotaPerMonth: merchant?.deviceQuotaPerMonth ?? null,
+    };
   });
 
   app.get('/v1/merchant/org/branches', { preHandler: app.requireMerchantMember }, async (req) => {
@@ -264,6 +281,48 @@ export async function merchantOrgRoutes(app: FastifyInstance) {
         merchantId: m.merchantId,
         actor: { userId: m.userId, role: MERCHANT_ADMIN_ACTOR_ROLE },
       });
+    },
+  );
+
+  // Staff accounts are created by the merchant admin and have no email-reset
+  // flow, so the admin sets a new password directly. Existing sessions are
+  // revoked exactly as /v1/auth/reset-password does.
+  app.post(
+    '/v1/merchant/org/staff/:id/password',
+    { preHandler: app.requireMerchantAdmin, schema: { body: MerchantStaffPasswordBody } },
+    async (req) => {
+      const m = req.merchantMember!;
+      const { id } = req.params as { id: string };
+      const body = req.body as MerchantStaffPasswordBody;
+      const passwordHash = await hashPassword(body.password);
+      await app.db.transaction(async (tx) => {
+        const [staff] = await tx
+          .select({ userId: schema.merchantStaff.userId })
+          .from(schema.merchantStaff)
+          .where(
+            and(eq(schema.merchantStaff.id, id), eq(schema.merchantStaff.merchantId, m.merchantId)),
+          )
+          .for('update');
+        if (!staff) throw new AppError('NOT_FOUND', 404, 'staff not found');
+        await tx
+          .update(schema.users)
+          .set({ passwordHash })
+          .where(eq(schema.users.id, staff.userId));
+        await tx
+          .update(schema.refreshTokens)
+          .set({ revokedAt: new Date() })
+          .where(eq(schema.refreshTokens.userId, staff.userId));
+        // Never put the password or its hash in the audit payload.
+        await recordAudit(tx, {
+          actor: { userId: m.userId, role: MERCHANT_ADMIN_ACTOR_ROLE },
+          action: 'merchant_staff.password_reset',
+          resourceType: 'merchant_staff',
+          resourceId: id,
+          after: { userId: staff.userId },
+          request: req,
+        });
+      });
+      return { ok: true };
     },
   );
 }

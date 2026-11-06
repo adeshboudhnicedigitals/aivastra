@@ -29,6 +29,11 @@ export const MerchantStaffUpdateBody = z
   });
 export type MerchantStaffUpdateBody = z.infer<typeof MerchantStaffUpdateBody>;
 
+export const MerchantStaffPasswordBody = z.object({
+  password: z.string().min(8).max(128),
+});
+export type MerchantStaffPasswordBody = z.infer<typeof MerchantStaffPasswordBody>;
+
 // AiVastra admin uses the same shapes — kept as named aliases so the admin
 // routes read clearly and can diverge later without touching merchant routes.
 export const AdminMerchantBranchUpdateBody = MerchantBranchUpdateBody;
