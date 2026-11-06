@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { SessionProvider, useSession } from '@/components/session-provider';
 import { Shell } from '@/components/shell';
 import { C } from '@/components/tokens';
+import { ToastProvider } from '@/components/ui/toast';
 
 function Gate({ children }: { children: React.ReactNode }) {
   const { status } = useSession();
@@ -31,7 +32,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <SessionProvider>
-        <Gate>{children}</Gate>
+        <ToastProvider>
+          <Gate>{children}</Gate>
+        </ToastProvider>
       </SessionProvider>
     </QueryClientProvider>
   );
