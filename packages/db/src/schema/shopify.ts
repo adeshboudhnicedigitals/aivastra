@@ -383,6 +383,11 @@ export const shopifyProductGarments = pgTable(
     shopifyProductId: bigint('shopify_product_id', { mode: 'number' }).notNull(),
     shopifyVariantId: bigint('shopify_variant_id', { mode: 'number' }),
     r2Key: text('r2_key').notNull(),
+    // Shopify CDN URL of the product's featured image as of the last sync. Sync no
+    // longer downloads it: the copy at r2Key is fetched on the first try-on and
+    // dropped when this URL changes. Null on rows synced before this column existed
+    // (their r2Key object is already there).
+    imageUrl: text('image_url'),
     title: text('title'),
     status: text('status').notNull().default('processing'), // active|processing|failed|deleted
     failedReason: text('failed_reason'),

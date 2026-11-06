@@ -59,6 +59,24 @@ export async function fetchLiveProductImages(
   return images.map((img) => ({ id: numericIdFromGid(img.id), src: img.url }));
 }
 
+/** The list is the only place thumbnails are shown, so it points at Shopify's CDN
+ *  (resized there) instead of a stored copy. A merchant-picked override has no
+ *  Shopify URL, and a legacy row may have none yet, so those fall back to the
+ *  stored object. */
+async function thumbnailFor(
+  app: FastifyInstance,
+  storeId: string,
+  row: { shopifyProductId: number; r2Key: string; imageUrl: string | null },
+): Promise<string> {
+  const isOverride = row.r2Key !== keys.shopifyProductGarment(storeId, row.shopifyProductId);
+  if (row.imageUrl && !isOverride) {
+    const u = new URL(row.imageUrl);
+    u.searchParams.set('width', '200');
+    return u.toString();
+  }
+  return (await app.storage.presignGet(row.r2Key, 3600)).url;
+}
+
 export async function shopifyProductsRoutes(app: FastifyInstance) {
   app.get(
     '/v1/shopify/products',
@@ -79,6 +97,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
           shopifyProductId: schema.shopifyProductGarments.shopifyProductId,
           title: schema.shopifyProductGarments.title,
           r2Key: schema.shopifyProductGarments.r2Key,
+          imageUrl: schema.shopifyProductGarments.imageUrl,
           status: schema.shopifyProductGarments.status,
           enabled: schema.shopifyProductGarments.enabled,
           excluded: schema.shopifyProductGarments.excluded,
@@ -99,7 +118,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
           return {
             shopifyProductId: r.shopifyProductId,
             title: r.title,
-            thumbnailUrl: (await app.storage.presignGet(r.r2Key, 3600)).url,
+            thumbnailUrl: await thumbnailFor(app, store.id, r),
             status: r.status,
             enabled: r.enabled,
             excluded: r.excluded,
@@ -263,7 +282,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
       return {
         shopifyProductId: updated.shopifyProductId,
         title: updated.title,
-        thumbnailUrl: (await app.storage.presignGet(updated.r2Key, 3600)).url,
+        thumbnailUrl: await thumbnailFor(app, store.id, updated),
         status: updated.status,
         enabled: updated.enabled,
         excluded: updated.excluded,
