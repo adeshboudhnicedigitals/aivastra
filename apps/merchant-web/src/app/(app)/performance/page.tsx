@@ -15,10 +15,16 @@ import { ListState } from '@/components/ui/state';
 import { ANALYTICS_TZ, useAnalyticsBreakdown } from '@/lib/analytics';
 import { apiFetch } from '@/lib/api';
 import { isValidCustomRange, rangeFor } from '@/lib/date-range';
+import { type PerformanceState, performanceUrl } from '@/lib/performance-url';
 import { canManageOrg } from '@/lib/roles';
 import { sortRows } from '@/lib/table-sort';
 
-const TABS: { id: AnalyticsBreakdownBy; param: string; label: string; header: string }[] = [
+const TABS: {
+  id: AnalyticsBreakdownBy;
+  param: PerformanceState['tab'];
+  label: string;
+  header: string;
+}[] = [
   { id: 'branch', param: 'branches', label: 'Branches', header: 'Branch' },
   { id: 'staff', param: 'staff', label: 'Staff', header: 'Staff' },
   { id: 'device', param: 'devices', label: 'Devices', header: 'Device' },
@@ -105,12 +111,9 @@ function Performance() {
     tab.id === 'device' ? { staffId } : {},
   );
 
-  const go = (next: { tab: string; branchId?: string; staffId?: string }) => {
-    const p = new URLSearchParams({ tab: next.tab });
-    if (next.branchId) p.set('branchId', next.branchId);
-    if (next.staffId) p.set('staffId', next.staffId);
-    router.replace(`/performance?${p.toString()}`);
-  };
+  // Tab clicks and drill-downs push (Back steps up a level); chip removal replaces.
+  const go = (next: PerformanceState, mode: 'push' | 'replace' = 'push') =>
+    router[mode](performanceUrl(next));
 
   const rows = useMemo<BreakdownDisplayRow[]>(
     () =>
@@ -164,9 +167,7 @@ function Performance() {
               id={`tab-${t.param}`}
               aria-selected={active}
               aria-controls="perf-panel"
-              onClick={() =>
-                go({ tab: t.param, branchId, staffId: t.id === 'device' ? staffId : undefined })
-              }
+              onClick={() => go({ tab: t.param, branchId, staffId })}
               style={{
                 height: 36,
                 padding: '0 14px',
@@ -193,7 +194,7 @@ function Performance() {
               type="button"
               style={chip}
               aria-label={`Remove branch filter ${branchName ?? ''}`.trim()}
-              onClick={() => go({ tab: tab.id === 'device' ? 'staff' : tab.param })}
+              onClick={() => go({ tab: tab.id === 'device' ? 'staff' : tab.param }, 'replace')}
             >
               Branch: {branchName ?? 'Selected branch'} <span aria-hidden="true">{'×'}</span>
             </button>
@@ -203,7 +204,7 @@ function Performance() {
               type="button"
               style={chip}
               aria-label={`Remove staff filter ${staffName ?? ''}`.trim()}
-              onClick={() => go({ tab: tab.param, branchId })}
+              onClick={() => go({ tab: tab.param, branchId }, 'replace')}
             >
               Staff: {staffName ?? 'Selected staff'} <span aria-hidden="true">{'×'}</span>
             </button>
