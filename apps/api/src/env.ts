@@ -69,6 +69,8 @@ const Env = z.object({
   // passed to Credential Manager as serverClientId).
   GOOGLE_DEVICE_AUDIENCES: z.string().optional(),
   WEB_URL: z.string().url().default('http://localhost:3000'),
+  // Where the Google callback hands a Merchant Web sign-in (/v1/auth/google/init?portal=merchant).
+  MERCHANT_WEB_URL: z.string().url().default('http://localhost:3010'),
   RESEND_API_KEY: z.string().min(1),
   EMAIL_FROM: z.string().min(1).default('noreply@aivastra.com'),
   // GPU fleet alert emails. Opt-in: with no recipients nothing is ever sent, which is what keeps a

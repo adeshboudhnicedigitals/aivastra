@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -41,6 +41,29 @@ function parseWordpressConnectNext(
   }
 }
 
+/** True when this user may enter Merchant Web: the owner of an active merchant, or active staff. */
+async function isMerchantMemberUser(app: FastifyInstance, userId: string): Promise<boolean> {
+  const [owner] = await app.db
+    .select({ id: schema.merchants.id })
+    .from(schema.merchants)
+    .where(and(eq(schema.merchants.userId, userId), eq(schema.merchants.isActive, true)))
+    .limit(1);
+  if (owner) return true;
+  const [staff] = await app.db
+    .select({ id: schema.merchantStaff.id })
+    .from(schema.merchantStaff)
+    .innerJoin(schema.merchants, eq(schema.merchants.id, schema.merchantStaff.merchantId))
+    .where(
+      and(
+        eq(schema.merchantStaff.userId, userId),
+        eq(schema.merchantStaff.isActive, true),
+        eq(schema.merchants.isActive, true),
+      ),
+    )
+    .limit(1);
+  return Boolean(staff);
+}
+
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
@@ -56,6 +79,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
   const clientSecret = app.env.GOOGLE_CLIENT_SECRET;
   const callbackUrl = app.env.GOOGLE_CALLBACK_URL;
   const webUrl = app.env.WEB_URL;
+  const merchantWebUrl = app.env.MERCHANT_WEB_URL;
 
   // ── Init ─────────────────────────────────────────────────────────────────
   app.get('/v1/auth/google/init', async (req, reply) => {
@@ -64,7 +88,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     // the merchant/shopper account-link flow, which relies on the popup
     // posting back to window.opener after this OAuth round trip completes.
     reply.header('Cross-Origin-Opener-Policy', 'unsafe-none');
-    const { next, src } = req.query as { next?: string; src?: string };
+    const { next, src, portal } = req.query as { next?: string; src?: string; portal?: string };
     const state = randomBytes(32).toString('base64url');
     reply.setCookie('google_state', state, {
       httpOnly: true,
@@ -86,6 +110,20 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         maxAge: 300,
         signed: false,
       });
+    }
+    // Merchant Web sign-in: remembered across the Google round trip so the callback hands off
+    // to Merchant Web and never creates an account.
+    if (portal === 'merchant') {
+      reply.setCookie('google_portal', 'merchant', {
+        httpOnly: true,
+        secure: app.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/v1/auth/google',
+        maxAge: 300,
+        signed: false,
+      });
+    } else {
+      reply.clearCookie('google_portal', { path: '/v1/auth/google' });
     }
     if (src) {
       reply.setCookie('google_src', encodeURIComponent(src), {
@@ -115,6 +153,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     const storedState = req.cookies.google_state;
     const next = req.cookies.google_next ? decodeURIComponent(req.cookies.google_next) : undefined;
     const src = req.cookies.google_src ? decodeURIComponent(req.cookies.google_src) : undefined;
+    const isMerchantPortal = req.cookies.google_portal === 'merchant';
 
     // A failed round trip here previously surfaced as a raw JSON error page —
     // a dead end on mobile, where there's no back button affordance next to
@@ -124,9 +163,10 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       reply.clearCookie('google_state', { path: '/v1/auth/google' });
       if (next) reply.clearCookie('google_next', { path: '/v1/auth/google' });
       if (src) reply.clearCookie('google_src', { path: '/v1/auth/google' });
-      const url = new URL(`${webUrl}/login`);
+      reply.clearCookie('google_portal', { path: '/v1/auth/google' });
+      const url = new URL(`${isMerchantPortal ? merchantWebUrl : webUrl}/login`);
       url.searchParams.set('error', reason);
-      if (next) url.searchParams.set('next', next);
+      if (next && !isMerchantPortal) url.searchParams.set('next', next);
       return reply.redirect(url.toString(), 302);
     };
 
@@ -137,6 +177,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     reply.clearCookie('google_state', { path: '/v1/auth/google' });
     if (next) reply.clearCookie('google_next', { path: '/v1/auth/google' });
     if (src) reply.clearCookie('google_src', { path: '/v1/auth/google' });
+    reply.clearCookie('google_portal', { path: '/v1/auth/google' });
 
     // Exchange code for Google access token
     const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
@@ -165,21 +206,57 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       picture?: string;
     };
 
-    const { userId, isNewUser } = await app.db.transaction(async (tx) => {
-      const campaignId = await resolveCampaignId(tx, src);
-      const freeCredits = await resolveFreeCredits(tx, campaignId);
-      return upsertGoogleUser(
-        tx,
-        {
-          sub: googleUser.sub,
-          email: googleUser.email.toLowerCase(),
-          name: googleUser.name,
-          picture: googleUser.picture,
-        },
-        freeCredits,
-        campaignId,
-      );
-    });
+    if (isMerchantPortal) {
+      // Merchant Web never creates accounts: only an existing Google link, or a merchant
+      // owner's email (which upsertGoogleUser links), may proceed. Staff logins are
+      // password-only; upsertGoogleUser refuses to link Google onto them.
+      const email = googleUser.email.toLowerCase();
+      const [link] = await app.db
+        .select({ userId: schema.oauthAccounts.userId })
+        .from(schema.oauthAccounts)
+        .where(
+          and(
+            eq(schema.oauthAccounts.provider, 'google'),
+            eq(schema.oauthAccounts.providerId, googleUser.sub),
+          ),
+        )
+        .limit(1);
+      const [byEmail] = link
+        ? [undefined]
+        : await app.db
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.email, email))
+            .limit(1);
+      const knownUserId = link?.userId ?? byEmail?.id;
+      if (!knownUserId || !(await isMerchantMemberUser(app, knownUserId))) {
+        return failRedirect('not_a_merchant');
+      }
+    }
+
+    let userId: string;
+    let isNewUser: boolean;
+    try {
+      ({ userId, isNewUser } = await app.db.transaction(async (tx) => {
+        const campaignId = await resolveCampaignId(tx, src);
+        const freeCredits = await resolveFreeCredits(tx, campaignId);
+        return upsertGoogleUser(
+          tx,
+          {
+            sub: googleUser.sub,
+            email: googleUser.email.toLowerCase(),
+            name: googleUser.name,
+            picture: googleUser.picture,
+          },
+          freeCredits,
+          campaignId,
+        );
+      }));
+    } catch (err) {
+      // Merchant Web wants a login-page message (banned / staff-link refused), not raw JSON.
+      if (isMerchantPortal && err instanceof AppError) return failRedirect('not_a_merchant');
+      throw err;
+    }
 
     if (isNewUser) {
       try {
@@ -235,9 +312,11 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     const otp = randomUUID();
     await app.redis.set(`oauth:otp:${otp}`, userId, 'EX', 60);
 
-    const redirectUrl = new URL(`${webUrl}/api/auth/google/callback`);
+    const redirectUrl = new URL(
+      `${isMerchantPortal ? merchantWebUrl : webUrl}/api/auth/google/callback`,
+    );
     redirectUrl.searchParams.set('code', otp);
-    if (next) redirectUrl.searchParams.set('next', next);
+    if (next && !isMerchantPortal) redirectUrl.searchParams.set('next', next);
     return reply.redirect(redirectUrl.toString(), 302);
   });
 
@@ -248,12 +327,15 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       schema: {
         body: z.object({
           code: z.string().min(1),
-          portal: z.enum(['web', 'catalog-app']).optional(),
+          portal: z.enum(['web', 'catalog-app', 'merchant']).optional(),
         }),
       },
     },
     async (req, reply) => {
-      const { code, portal } = req.body as { code: string; portal?: 'web' | 'catalog-app' };
+      const { code, portal } = req.body as {
+        code: string;
+        portal?: 'web' | 'catalog-app' | 'merchant';
+      };
       const userId = await app.redis.getdel(`oauth:otp:${code}`);
       if (!userId) throw new AppError('INVALID_OTP', 400, 'invalid or expired OTP');
       if (portal === 'catalog-app') {
@@ -266,7 +348,17 @@ export async function googleAuthRoutes(app: FastifyInstance) {
           throw new AppError('NOT_A_MERCHANT', 403, 'This account has no Try On Library access.');
         }
       }
-      return createSessionTokens(app, userId, reply, 200, portal ?? 'web');
+      if (portal === 'merchant' && !(await isMerchantMemberUser(app, userId))) {
+        throw new AppError('NOT_A_MERCHANT', 403, 'This account has no merchant access.');
+      }
+      // Merchant Web uses the ordinary web session; its BFF re-keys the cookie to mw_refresh.
+      return createSessionTokens(
+        app,
+        userId,
+        reply,
+        200,
+        portal === 'catalog-app' ? 'catalog-app' : 'web',
+      );
     },
   );
 }
