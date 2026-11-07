@@ -178,6 +178,15 @@ export const merchantCatalogItems = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    // Staff soft delete: merchant-facing reads exclude deleted_at IS NOT NULL. is_active is
+    // admin moderation and is deliberately NOT reused for this.
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedByStaffId: uuid('deleted_by_staff_id').references(() => merchantStaff.id, {
+      onDelete: 'set null',
+    }),
+    updatedByStaffId: uuid('updated_by_staff_id').references(() => merchantStaff.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     index('merchant_catalog_items_merchant_idx').on(t.merchantId, t.isActive),

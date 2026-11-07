@@ -1800,6 +1800,13 @@
       "when": 1793969602398,
       "tag": "0257_military_iron_lad",
       "breakpoints": true
+    },
+    {
+      "idx": 258,
+      "version": "7",
+      "when": 1794023121640,
+      "tag": "0258_thankful_gorilla_man",
+      "breakpoints": true
     }
   ]
 }
