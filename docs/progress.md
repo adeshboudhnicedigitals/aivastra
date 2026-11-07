@@ -31,8 +31,12 @@
     (a11y label warnings in the ported manager files), no errors.
   - Decisions: subcategory DELETE is owner-only (it cascades to items, so staff get 403, a deviation from the spec text);
     staff also cannot call four owner-only routes (`saree-subcategories`, `saree-styles`, `/v1/merchant/catalogues`,
-    `generate/status`); staff item delete is a soft delete (no restore UI yet: an AiVastra admin must restore via SQL
-    by clearing `deleted_at`/`deleted_by_staff_id`; a soft-deleted imported or generated item keeps blocking re-import
+    `generate/status`); staff item delete is a soft delete (row and storage objects retained, `deleted_at`/`deleted_by_staff_id`
+    set) but there is currently NO sanctioned restore path: no UI, no admin endpoint, `audit-revert` has no handler
+    for `merchant_catalog.soft_delete`, and the admin moderation list hides soft-deleted rows. A restore must be
+    built as a follow-up (options: a SUPER_ADMIN restore endpoint that clears the columns and writes an audit row,
+    or an audit-revert handler); it needs a product decision. Until then do not promise restore to merchants and do
+    not restore via ad-hoc production SQL (CLAUDE.md Production safety); a soft-deleted imported or generated item keeps blocking re-import
     of its source job with 409); the reconcile-held route creates products unaudited; bulk generate audits one row per
     job; staff generate progress polls every 3s; owner item JSON omits `deletedAt`, `deletedByStaffId` and
     `updatedByStaffId`.
@@ -42,6 +46,16 @@
     vanish; owner hard delete; subcategory delete button hidden for staff; layout at 375px; the bottom nav with five
     items (Overview, Catalogue, Branches, Staff, Devices) at phone width.
   - Follow-ups not built: restore UI for staff soft-deleted items; audit of owner writes; owner soft delete.
+  - Minor follow-ups from the final review:
+    - staff PATCH `before` snapshot is read outside the transaction
+    - no test that a failed audit write rolls the mutation back
+    - admin audit UI shows a Revert button for `merchant_catalog.update` / `merchant_catalog_subcategory.update`
+      that fails with 400
+    - staff `deleteProduct` cleanup leaves hidden rows and objects
+    - `keysInUse` scans the whole table on staff create
+    - staff can fetch the owner's other completed job results by id through GET generate/:jobId (UUID-guarded)
+    - no per-staff spend cap (3c)
+    - generate/generate-bulk and the browser checklist were never run end to end
   - Nothing deployed or pushed. `pnpm-lock.yaml` still carries a pre-existing uncommitted diff, not committed here.
 - **Open questions / out-of-repo state:**
   - COPY PAIR: until `/tryon` is retired, a bug fix to any of the six manager files under

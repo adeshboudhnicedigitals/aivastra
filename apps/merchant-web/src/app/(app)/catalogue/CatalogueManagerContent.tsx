@@ -1345,7 +1345,7 @@ export function CatalogueManagerContent() {
         title="Delete Product"
         body={
           isStaff
-            ? 'This hides the product from your catalogue. An AiVastra admin can restore it.'
+            ? 'This removes the product from your catalogue.'
             : `Are you sure you want to delete "${deleteProd?.label}"?`
         }
         confirmLabel="Delete"
