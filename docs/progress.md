@@ -1,3 +1,104 @@
+# 2026-11-07 — v1.0 step 3c: Merchant Web dashboards (committed locally, not pushed)
+
+- **Done:**
+  - Commits since the plan commit `ebbbde9b` (`git log --oneline ebbbde9b..HEAD`):
+    `22da7c59` feat(db): partial indexes on jobs attribution columns;
+    `35c4ea6f` feat(merchant): analytics summary endpoint;
+    `49b54b1f` feat(merchant): analytics timeseries and breakdown endpoints;
+    `3411ea7b` feat(merchant): brand settings endpoints;
+    `08ae4252` feat(merchant-web): overview dashboard;
+    `e7da8ac2` feat(merchant-web): performance and settings pages;
+    `5d16213a` fix(merchant-web): performance drill-down history and tab filters.
+  - Verified at API/BFF level with curl and Python against a locally started API (port 4000) and
+    `pnpm --filter @aivastra/merchant-web dev` (port 3010), local `tryon_dev` only (host 127.0.0.1); both processes
+    stopped afterwards and no listener remains on 4000/3010. No browser was driven. Seed data: two new devices
+    (`MW3c Device A` in `MW Verify Branch`, `MW3c Device B` in `MW Verify Branch 2`) created and paired through
+    `POST /v1/merchant/org/devices` and `POST /v1/device/pair`; 7 sessions, wishlist and sold items created through the device
+    routes (assisted sessions with `x-staff-authorization` for staff1 and staff2); one sale voided through the admin void
+    route. Then written DIRECTLY by SQL because they need the GPU pipeline or specific timestamps: session/item
+    timestamps (moved to chosen IST instants, including visits starting 23:58 and 00:02 IST), 6 `jobs` rows with their
+    `session_items(action='tried')` rows, one legacy `jobs` row with no session, one `credit_ledger` row
+    `JOB_FAIL_REFUND` for a failed job, and a branch + device + one session for the other merchant `MW3B Other Co`.
+    Window 2026-11-03..2026-11-07 (Asia/Kolkata). All PASS (26 of 26 after one test-harness slip, see below):
+    - summary equals an independent plain-SQL aggregate: sessions 6, tried 5, sold 3 (voided sale excluded), wishlisted 6,
+      credits spent 9, legacy 1 job / 5 credits; conversion 0.5;
+    - credits are net of the refunded job: in-store 9 + legacy 5 = 14 = NET of all jobs in SQL; gross with the refunded
+      job would be 16;
+    - timeseries: 5 points (one per local day), 11-03 and 11-04 zero-filled, 11-05 = 2 sessions, 11-06 = 2, 11-07 = 2;
+      the 23:58 IST visit counts on 11-05 even though its items were created after midnight, the 00:02 IST visit on
+      11-06; equals the SQL per-day counts, totals equal the summary;
+    - breakdown by branch (4 / 2 sessions), device (4 / 2) and staff (staff1 2, staff2 1, kiosk sessions unattributed)
+      equal SQL aggregates for sessions, tried, sold, wishlisted and credits;
+    - staff1 summary is limited to the own branch (4 sessions, 4 tried, 3 sold, 4 wishlisted, 6 credits), has `mine`
+      (2/2/2), `creditsBalance: null`, `unattributed: null`; other branch id 403; other staff id 403; own ids 200;
+      staff breakdowns by branch/staff/device return only the own branch / own row / own branch's devices;
+    - validation: 367-day range, from after to, `tz=Mars/Phobos`, bad uuid all 400; a 365-day range 200;
+    - cross-merchant: an admin passing the other merchant's branch id or device id gets 200 with zeros, although that
+      merchant has a session, and an empty breakdown;
+    - brand: GET as admin and staff 200 with no `logoKey`; admin PATCH `https://example.com/buy` 200; audit row
+      `merchant.brand_update` with `resource_id` = the merchant id (2 rows after the run); `javascript:alert(1)` 400;
+      `null` clears (200); staff PATCH 403;
+    - pages `/`, `/performance`, `/settings`: 307 to `/login` without a session cookie, 200 with an admin and with a staff
+      `mw_refresh` cookie;
+    - index sanity: the four attribution indexes (`jobs_branch_idx`, `jobs_device_idx`, `jobs_session_idx`,
+      `jobs_staff_idx`) exist locally; the summary jobs aggregate ran in 0.07 ms on a 22-row table with a sequential scan
+      (the planner prefers that for a table this small); with `enable_seqscan=off` the same predicate uses
+      `jobs_merchant_created_idx` (index only scan). Not a scale test; Task 2 measured 8-47 ms at 50k sessions per merchant.
+  - One slip in my own verification script, not a product defect: the first run of the cross-merchant check sent an empty
+    branch id because `MW3B Other Co` had no branch (400); after inserting a branch the check passed.
+  - Decisions: credits spent is NET of refunds (a job with any `JOB_REFUND_REASONS` ledger row is excluded; partial
+    refunds are treated as full; Shopify ledger refunds are not modelled); wishlisted counts are attributed to the
+    session's staff when the item carries none; staff do not see the credit balance (`creditsBalance: null`,
+    `lowCredit: false`); deactivated branches, staff and devices are listed only when they have activity in the window;
+    timezone is fixed to Asia/Kolkata; a window counts a visit by its session start; a foreign id gives an admin zeros
+    and a staff 403.
+- **Failed / Not done:**
+  - NOT RUN — needs a person in a browser: KPI cards, range picker including a custom range, trend chart, branch / staff /
+    device drill-down including the Back button and a reload, phone width including the 7-item admin bottom nav at
+    360px, empty state, settings save and clear.
+  - Follow-ups not built: CSV export, per-merchant timezone, unique shoppers (step 5), rollups when volume requires.
+  - Known limitations: conversion under `by=staff` can exceed 100% (sold by a colleague's item vs session owner); preset
+    ranges do not roll over midnight until re-clicked; the empty state says "pair a tablet" for any zero-session range;
+    staff briefly see a balance-card skeleton while loading.
+  - Deferred minors from the task reviews (the SDD ledger is git-ignored and will be deleted):
+    - plain `CREATE INDEX` on `jobs` takes a SHARE lock (see Open questions);
+    - unattributed (legacy) line is 0 under any filter by definition; a deleted session leaves a job with branch/device/staff ids
+      and a null session;
+    - a missing `user_credits` row reads as balance 0 and `lowCredit: true`;
+    - staff 403 tests do not assert an empty body; no deactivated-branch test;
+    - `AnalyticsWindow` name clash between the types package and `params.ts`;
+    - breakdown zero-row padding is noisy under cross-kind filters (`by=branch&deviceId`, `by=device&staffId`);
+    - a staff name can read "null" if the user has neither display name nor email;
+    - `expectNoMetrics` regex `/:\s*\d/` is brittle;
+    - the logo presign is duplicated from `auth/routes.ts`; the fail-closed brand test asserts only >=500; extra brand body
+      keys are stripped;
+    - chart mid tick rounding with a tiny max; help text hidden when the trend errors; branch table recomputes conversion
+      client-side;
+    - URL `branchId`/`staffId` are not UUID-validated (400 shows the error state with retry); a hand-typed
+      `?tab=branches&branchId=x` shows the chip over an unfiltered table; tabs lack roving tabindex and arrow keys;
+      Clear in settings only empties the input (save is required); the client accepts `http:x.com` which the server rejects;
+      the chip aria-label differs from the visible text;
+    - the Task 3 commit trailer says "Claude Opus 5.5" (cosmetic, unpushed; amend at squash).
+  - Two unit files (`shopify-activation-count`, `dev-saree-mannequin-create`) failed once under full-suite load and passed
+    alone; not investigated.
+  - Nothing deployed or pushed. `pnpm-lock.yaml` still carries a pre-existing uncommitted diff, not committed here.
+  - Local data left behind (not deleted): devices `MW3c Device A`/`B`, 7 sessions with items, 6 jobs + 1 legacy job
+    (`11111111-3c3c-4c3c-8c3c-000000000001`), 1 refund ledger row, and `MW3c Other Branch`/`Device`/one session under
+    `MW3B Other Co` (ids `22222222-3c3c-4c3c-8c3c-00000000000{1,2,3}`). Passwords of the three `mw-verify-*` accounts were
+    reset locally again to a throwaway value.
+- **Open questions / out-of-repo state:**
+  - PRODUCTION `jobs` INDEX DECISION (human): migration `0259` uses plain `CREATE INDEX IF NOT EXISTS`, which blocks writes
+    on `jobs` while it builds. Before deploy run, read-only on production,
+    `SELECT reltuples::bigint FROM pg_class WHERE relname='jobs'`. If under ~5 million rows, accept the brief lock in a
+    quiet window. Otherwise first create `jobs_branch_idx`, `jobs_device_idx`, `jobs_session_idx`, `jobs_staff_idx`
+    out-of-band with `CREATE INDEX CONCURRENTLY IF NOT EXISTS ... WHERE <col> IS NOT NULL` (same partial predicate as the
+    migration) and let `0259` no-op. This is a production write: do it deliberately, not in an ad-hoc session.
+  - Migration numbering: `0259` is applied to the local DB only; `origin/dev` newest was `0254` when last checked. If
+    `origin/dev` takes `0259` first, renumber per `docs/version-control.md` and run
+    `scripts/ci/check-migration-index.mts`.
+  - `CORS_ORIGIN` must include the Merchant Web origin in every environment (see the 3a entry); browser data calls stay
+    blocked locally until `http://localhost:3010` is listed.
+
 # 2026-11-07 — v1.0 step 3b: Merchant Web catalogue (committed locally, not pushed)
 
 - **Done:**
